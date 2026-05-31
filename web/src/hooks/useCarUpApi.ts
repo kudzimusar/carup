@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
 
-const BASE_URL = 'http://localhost:5001/api'
+const BASE_URL = 'https://carup-backend.vercel.app/api'
 
 export function useCarUpApi() {
   const { user, token } = useAuth()

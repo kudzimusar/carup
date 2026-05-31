@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { UserRole, AuthUser } from '@shared/types'
 
-const API_BASE = 'http://localhost:5001/api'
+const API_BASE = 'https://carup-backend.vercel.app/api'
 
 interface AuthContextType {
   user: AuthUser | null

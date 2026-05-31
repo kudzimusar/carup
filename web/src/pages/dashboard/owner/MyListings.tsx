@@ -30,7 +30,7 @@ export default function MyListings() {
   const handleMarkSold = async (vehicleId: string, vin: string) => {
     setMarkingId(vehicleId)
     try {
-      await fetch(`http://localhost:5001/api/vehicles/${vin}/status`, {
+      await fetch(`https://carup-backend.vercel.app/api/vehicles/${vin}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'sold' }),
