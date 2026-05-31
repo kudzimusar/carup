@@ -52,7 +52,7 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const res = await fetch('http://localhost:5001/api/auth/login', {
+      const res = await fetch('https://carup-backend.vercel.app/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: form.email, password: form.password }),
@@ -81,7 +81,7 @@ export default function Login() {
     const demoUser = DEMO_USERS[userKey]
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:5001/api/auth/login', {
+      const res = await fetch('https://carup-backend.vercel.app/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: demoUser.email, password: 'password123' }),
