@@ -1,0 +1,84 @@
+{
+  "web/src/pages/dashboard/owner/OwnerDashboard.tsx": [
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(7,1): error TS6133: 'Input' is declared but its value is never read.",
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(14,3): error TS6133: 'AlertTriangle' is declared but its value is never read.",
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(15,3): error TS6133: 'TrendingUp' is declared but its value is never read.",
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(20,3): error TS6133: 'Clock' is declared but its value is never read.",
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(26,3): error TS6133: 'RefreshCw' is declared but its value is never read.",
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(53,9): error TS6133: 'stats' is declared but its value is never read.",
+    "src/pages/dashboard/owner/OwnerDashboard.tsx(161,21): error TS2322: Type '\"xs\"' is not assignable to type '\"default\" | \"sm\" | \"lg\" | \"icon\" | \"icon-sm\" | \"icon-lg\" | null | undefined'."
+  ],
+  "web/src/pages/dashboard/owner/MyGarage.tsx": [
+    "src/pages/dashboard/owner/MyGarage.tsx(6,63): error TS6133: 'AlertTriangle' is declared but its value is never read."
+  ],
+  "web/src/pages/dashboard/owner/PartSentry.tsx": [
+    "src/pages/dashboard/owner/PartSentry.tsx(8,10): error TS6133: 'Gauge' is declared but its value is never read.",
+    "src/pages/dashboard/owner/PartSentry.tsx(8,39): error TS6133: 'Hash' is declared but its value is never read.",
+    "src/pages/dashboard/owner/PartSentry.tsx(20,25): error TS6133: 'fetchVehiclePassport' is declared but its value is never read.",
+    "src/pages/dashboard/owner/PartSentry.tsx(188,31): error TS2339: Property 'blockchainHash' does not exist on type '{ id: string; name: string; type: string; manufacturer: string; installedDate: string; installedBy: string; warranty: string; cost: number; }'.",
+    "src/pages/dashboard/owner/PartSentry.tsx(190,58): error TS2339: Property 'blockchainHash' does not exist on type '{ id: string; name: string; type: string; manufacturer: string; installedDate: string; installedBy: string; warranty: string; cost: number; }'.",
+    "src/pages/dashboard/owner/PartSentry.tsx(193,35): error TS2339: Property 'blockchainHash' does not exist on type '{ id: string; name: string; type: string; manufacturer: string; installedDate: string; installedBy: string; warranty: string; cost: number; }'.",
+    "src/pages/dashboard/owner/PartSentry.tsx(194,50): error TS2339: Property 'blockchainHash' does not exist on type '{ id: string; name: string; type: string; manufacturer: string; installedDate: string; installedBy: string; warranty: string; cost: number; }'."
+  ],
+  "web/src/pages/dashboard/owner/SavedCars.tsx": [],
+  "web/src/pages/dashboard/owner/ServiceHistory.tsx": [
+    "src/pages/dashboard/owner/ServiceHistory.tsx(1,29): error TS6133: 'CardHeader' is declared but its value is never read.",
+    "src/pages/dashboard/owner/ServiceHistory.tsx(1,41): error TS6133: 'CardTitle' is declared but its value is never read.",
+    "src/pages/dashboard/owner/ServiceHistory.tsx(5,48): error TS6133: 'FileText' is declared but its value is never read."
+  ],
+  "web/src/pages/dashboard/owner/InsuranceRecords.tsx": [],
+  "web/src/pages/dashboard/owner/VehicleProfile.tsx": [
+    "src/pages/dashboard/owner/VehicleProfile.tsx(3,29): error TS6133: 'CardHeader' is declared but its value is never read.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(3,41): error TS6133: 'CardTitle' is declared but its value is never read.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(10,11): error TS6133: 'Settings2' is declared but its value is never read.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(10,22): error TS6133: 'Fuel' is declared but its value is never read.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(38,24): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(39,25): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(40,24): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(41,23): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(42,27): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(43,30): error TS2339: Property 'trustReport' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(44,25): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(45,33): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(46,36): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(47,25): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(48,32): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(50,32): error TS2339: Property 'vehicle' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(53,35): error TS2339: Property 'timeline' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(64,33): error TS2339: Property 'timeline' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(131,32): error TS2339: Property 'chainVerification' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(151,35): error TS2339: Property 'id' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(154,65): error TS2339: Property 'title' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(155,67): error TS2339: Property 'date' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(157,45): error TS2339: Property 'status' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(157,101): error TS2339: Property 'status' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(158,30): error TS2339: Property 'status' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(169,48): error TS7006: Parameter 's' implicitly has an 'any' type.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(187,34): error TS2339: Property 'id' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(187,77): error TS2339: Property 'status' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(191,61): error TS2339: Property 'provider' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(193,46): error TS2339: Property 'status' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(193,126): error TS2339: Property 'status' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(195,77): error TS2339: Property 'policyNumber' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(196,64): error TS2339: Property 'type' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(196,77): error TS2339: Property 'premium' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(197,69): error TS2339: Property 'startDate' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(197,87): error TS2339: Property 'expiryDate' does not exist on type 'never'.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(217,52): error TS7006: Parameter 'part' implicitly has an 'any' type.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(248,145): error TS7006: Parameter 'a' implicitly has an 'any' type.",
+    "src/pages/dashboard/owner/VehicleProfile.tsx(248,148): error TS7006: Parameter 's' implicitly has an 'any' type."
+  ],
+  "web/src/pages/dashboard/owner/MyListings.tsx": [],
+  "web/src/pages/dashboard/owner/SellVehicle.tsx": [
+    "src/pages/dashboard/owner/SellVehicle.tsx(9,70): error TS6133: 'Car' is declared but its value is never read.",
+    "src/pages/dashboard/owner/SellVehicle.tsx(48,11): error TS2339: Property 'request' does not exist on type '{ fetchOwnedVehicles: () => Promise<Vehicle[]>; fetchSavedVehicles: () => Promise<Vehicle[]>; unsaveVehicle: (vin: string) => Promise<any>; ... 51 more ...; updateVehicleStatus: (vin: string, status: string) => Promise<...>; }'."
+  ],
+  "web/src/pages/dashboard/owner/AIDashboard.tsx": [
+    "src/pages/dashboard/owner/AIDashboard.tsx(2,16): error TS6133: 'CardContent' is declared but its value is never read.",
+    "src/pages/dashboard/owner/AIDashboard.tsx(7,34): error TS6133: 'FileText' is declared but its value is never read.",
+    "src/pages/dashboard/owner/AIDashboard.tsx(7,44): error TS6133: 'TrendingUp' is declared but its value is never read.",
+    "src/pages/dashboard/owner/AIDashboard.tsx(7,56): error TS6133: 'Shield' is declared but its value is never read.",
+    "src/pages/dashboard/owner/AIDashboard.tsx(7,64): error TS6133: 'Wrench' is declared but its value is never read.",
+    "src/pages/dashboard/owner/AIDashboard.tsx(7,72): error TS6133: 'Car' is declared but its value is never read."
+  ]
+}

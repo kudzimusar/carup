@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Star, Phone, Mail, MapPin, Shield, CheckCircle, Search, FileText } from 'lucide-react'
+import { Star, Phone, Mail, MapPin, Shield, CheckCircle, Search } from 'lucide-react'
 import { insuranceProviders } from '@/data/mockData'
 
 export default function InsuranceDirectory() {

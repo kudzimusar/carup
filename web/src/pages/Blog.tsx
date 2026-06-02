@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -8,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import {
   Search,
   Calendar,
-  User,
   Clock,
   ArrowRight,
   ChevronRight,
@@ -25,7 +23,6 @@ import {
   Hash,
   Globe,
   Coins,
-  ThumbsUp,
   BookOpen
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -49,7 +46,7 @@ interface Article {
   author: Author
   readTime: string
   accentColor: string // CSS class for premium gradient accents
-  icon: any // Lucide Icon Component
+  icon: React.ComponentType<{ className?: string }> // Lucide Icon Component
   views: number
   likes: number
   zimbabweanContext?: {
@@ -246,7 +243,6 @@ export default function Blog() {
 
   // Extract featured article and rest
   const featuredArticle = articles[0]
-  const gridArticles = useMemo(() => articles.slice(1), [articles])
 
   // States
   const [selectedCategory, setSelectedCategory] = useState('All')

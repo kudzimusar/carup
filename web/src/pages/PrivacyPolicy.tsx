@@ -1,6 +1,4 @@
-// @ts-nocheck
-import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,9 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import {
   Lock,
   Shield,
-  Eye,
   Share2,
-  FileText,
   ChevronDown,
   ChevronUp,
   Info,
@@ -26,7 +22,6 @@ import {
   Check,
   HelpCircle,
   Activity,
-  ArrowUpRight,
   Fingerprint,
   FileSignature
 } from 'lucide-react'

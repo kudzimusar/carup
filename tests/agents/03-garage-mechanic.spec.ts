@@ -1,31 +1,35 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Agent 3 - Garage & Mechanic Validation Agent', () => {
-  test('COMPLETE A REAL SERVICE WORKFLOW', async ({ page }) => {
-    // Navigate to Mechanic Dashboard
-    await page.goto('/mechanic');
+  test.beforeEach(async ({ page }) => {
+    // Mock auth login response (handles wildcard)
+    await page.route('**/api/auth/login*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { id: 'u2', name: 'Simba Mechanic', email: 'simba@garage.co.zw', role: 'mechanic' },
+          token: 'mock-mechanic-token-123'
+        })
+      });
+    });
+  });
 
-    // Work Orders / Service Workflows
-    await page.goto('/mechanic/work-orders');
+  test('Mechanic Dashboard Loads', async ({ page }) => {
+    // Go to login page
+    await page.goto('/login');
     
-    const newOrderBtn = page.getByRole('button', { name: /new order|create/i });
-    if (await newOrderBtn.count() > 0) {
-      await newOrderBtn.first().click();
-    } else {
-      console.log('Missing: Create Work Order button');
-    }
+    // Perform Demo Mechanic login
+    const demoMechanicBtn = page.getByRole('button', { name: /Demo: Mechanic/i });
+    await expect(demoMechanicBtn).toBeVisible();
+    await demoMechanicBtn.click();
 
-    // PartSentry
-    await page.goto('/mechanic/parts');
-    const partsTable = page.getByRole('table');
-    if (await partsTable.count() === 0) {
-      console.log('Missing: Parts tracking / PartSentry view');
-    }
+    // Verify automatic redirect to /mechanic
+    await expect(page).toHaveURL(/\/mechanic/);
 
-    // Check for invoice/image upload areas
-    const fileInput = page.locator('input[type="file"]');
-    if (await fileInput.count() === 0) {
-      console.log('Missing: Invoice/Image upload functionality for Mechanics');
-    }
+    // Assert key dashboard elements are visible
+    await expect(page.getByRole('heading', { name: /Mechanic Dashboard/i })).toBeVisible();
+    await expect(page.getByText('Simbisa Garages Ltd')).toBeVisible();
+    await expect(page.getByText('Active Orders')).toBeVisible();
   });
 });

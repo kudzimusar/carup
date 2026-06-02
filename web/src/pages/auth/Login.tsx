@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -30,13 +29,6 @@ export default function Login() {
     else if (form.password.length < 6) e.password = 'Password must be at least 6 characters'
     setErrors(e)
     return Object.keys(e).length === 0
-  }
-
-  const getRoleFromEmail = (email: string) => {
-    if (email.includes('dealer') || email.includes('croco') || email.includes('motors')) return 'dealer'
-    if (email.includes('mechanic') || email.includes('garage') || email.includes('simba')) return 'mechanic'
-    if (email.includes('admin')) return 'admin'
-    return 'owner'
   }
 
   const getDashboardRoute = (role: string) => {
@@ -127,6 +119,8 @@ export default function Login() {
                   onChange={e => setForm({ ...form, email: e.target.value })}
                   placeholder="tendai@email.co.zw or +263..."
                   className={errors.email ? 'border-red-400' : ''}
+                  data-testid="email-input"
+                  aria-label="Email or Phone"
                 />
                 {errors.email && (
                   <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -143,11 +137,14 @@ export default function Login() {
                     onChange={e => setForm({ ...form, password: e.target.value })}
                     placeholder="Enter your password"
                     className={errors.password ? 'border-red-400' : ''}
+                    data-testid="password-input"
+                    aria-label="Password"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -164,7 +161,7 @@ export default function Login() {
                 </label>
                 <Link to="#" className="text-orange-600 hover:underline">Forgot password?</Link>
               </div>
-              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading}>
+              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading} data-testid="login-button">
                 {loading ? 'Signing in...' : 'Sign In'} <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </form>

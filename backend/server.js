@@ -34,7 +34,41 @@ import paymentRouter from './services/payment/paymentRouter.js';
 import mediaRouter from './services/storage/mediaRouter.js';
 import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
 
+// Central Error Handling Imports
+import errorHandler from './middleware/errorMiddleware.js';
+import { NotFoundError } from './utils/errors.js';
+
+// Centralized Routes Imports (Batch 1)
+import leadsRouter from './routes/leadsRoutes.js';
+import promotionsRouter from './routes/promotionsRoutes.js';
+import workOrdersRouter from './routes/workOrdersRoutes.js';
+import partsRouter from './routes/partsRoutes.js';
+import claimsRouter from './routes/claimsRoutes.js';
+
+// Centralized Routes Imports (Batch 2)
+import adminRouter from './routes/adminRoutes.js';
+import vehiclesRouter from './routes/vehiclesRoutes.js';
+import complianceRouter from './routes/complianceRoutes.js';
+import financeRouter from './routes/financeRoutes.js';
+
 dotenv.config();
+
+// Environment Validation Guards on Startup
+if (!process.env.SUPABASE_URL) {
+  throw new Error('FATAL: SUPABASE_URL is missing in environment variables.');
+}
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('FATAL: SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.');
+}
+if (
+  process.env.OCR_MODE === 'strict' &&
+  !process.env.GEMINI_API_KEY &&
+  !process.env.GROQ_API_KEY
+) {
+  throw new Error(
+    'FATAL: STRICT OCR MODE REQUIRES AT LEAST ONE REAL OCR PROVIDER (GEMINI_API_KEY or GROQ_API_KEY)'
+  );
+}
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -52,14 +86,30 @@ app.use('/api/media', mediaRouter);
 // Mount Trust & Identity verification routes
 app.use('/api/verification', documentIntelligenceRouter);
 
+// Mount centralized routes (Batch 1)
+app.use(leadsRouter);
+app.use(promotionsRouter);
+app.use(workOrdersRouter);
+app.use(partsRouter);
+app.use(claimsRouter);
+
+// Mount centralized routes (Batch 2)
+app.use(adminRouter);
+app.use(vehiclesRouter);
+app.use(complianceRouter);
+app.use(financeRouter);
+
 // ✅ Verify Supabase connection on startup
 const { data: connectionTest, error: connectionError } = await supabase.from('vehicles').select('vin').limit(1);
 if (connectionError) {
   console.error('❌ Supabase connection failed:', connectionError.message);
   console.error('Please apply the schema at: database/migrations/supabase_schema.sql');
 } else {
-  console.log('✅ CarUp OS connected to Supabase (PostgreSQL cloud database)');
-  console.log('✅ Automotive Operating System Ledger initialized successfully.');
+  console.log('✅ CarUp OS connected to Supabase');
+  console.log(`✅ OCR provider initialized: ${process.env.OCR_PRIMARY_PROVIDER === 'gemini' ? 'Gemini' : 'None'}`);
+  console.log(`✅ OCR fallback provider initialized: ${process.env.OCR_FALLBACK_PROVIDER === 'groq' ? 'Groq' : 'None'}`);
+  console.log(`${process.env.OCR_MODE === 'strict' ? '✅ Strict OCR mode enabled' : '⚠️ Loose OCR mode enabled'}`);
+  console.log(`${process.env.ALLOW_OCR_MOCK === 'false' ? '❌ Mock OCR disabled' : '⚠️ Mock OCR enabled'}`);
   
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
@@ -563,50 +613,7 @@ app.post('/api/organizations/:id/audit-logs', async (req, res) => {
   }
 });
 
-// Fetch CBZ Bank / Finance Applications list
-app.get('/api/finance/applications', authorizeRole(['admin', 'finance', 'bank']), async (req, res) => {
-  try {
-    const { data: list, error } = await supabase
-      .from('finance_applications')
-      .select(`
-        *,
-        users!finance_applications_user_id_fkey(name),
-        vehicles!inner(make, model, year, price, trust_score)
-      `)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    
-    // Flatten relational joins for frontend mapping compatibility
-    const flattened = list.map(app => ({
-      ...app,
-      user_name: app.users?.name || 'Applicant',
-      make: app.vehicles?.make || 'Vehicle',
-      model: app.vehicles?.model || '',
-      year: app.vehicles?.year || '',
-      trust_score: app.vehicles?.trust_score || 50
-    }));
-    
-    res.json(flattened);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update financing application status (Loan States)
-app.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'finance', 'bank']), async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  try {
-    const { error } = await supabase
-      .from('finance_applications')
-      .update({ status })
-      .eq('id', id);
-    if (error) throw error;
-    res.json({ success: true, status });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- FINANCE APPLICATIONS MOVED TO MODULAR ROUTER ---
 
 // --- AUTH: Login ---
 app.post('/api/auth/login', async (req, res) => {
@@ -758,119 +765,9 @@ app.get('/api/vehicles/inventory', authorizeRole(['dealer', 'admin']), async (re
 // DOMAIN 1: DEALER & MECHANIC ENDPOINTS
 // ==========================================
 
-// --- DEALER: LEADS ---
-app.get('/api/leads', authorizeRole(['dealer', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId || 'org_1';
-  try {
-    const { data: leads, error } = await supabase.from('dealer_leads').select('*').eq('organization_id', orgId);
-    // Suppress error if table doesn't exist yet for local dev
-    if (error && error.code === '42P01') return res.json([]);
-    if (error) throw error;
-    res.json(leads || []);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- DEALER & MECHANIC ENDPOINTS MOVED TO MODULAR ROUTERS ---
 
-// --- DEALER: PROMOTIONS ---
-app.get('/api/promotions', authorizeRole(['dealer', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId || 'org_1';
-  try {
-    const { data: promotions, error } = await supabase.from('dealer_promotions').select('*').eq('organization_id', orgId);
-    if (error && error.code === '42P01') return res.json([]);
-    if (error) throw error;
-    res.json(promotions || []);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/promotions', authorizeRole(['dealer', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId || 'org_1';
-  const { title, discount_amount, start_date, end_date } = req.body;
-  try {
-    const { data, error } = await supabase.from('dealer_promotions').insert({
-      organization_id: orgId, title, discount_amount, start_date, end_date
-    });
-    if (error && error.code === '42P01') return res.json({ success: true, promotion: { id: 'mock', title, discount_amount, start_date, end_date } });
-    if (error) throw error;
-    res.json({ success: true, promotion: data });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// --- MECHANIC: WORK ORDERS ---
-app.get('/api/mechanic/work-orders', authorizeRole(['mechanic', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId;
-  if (!orgId) return res.status(401).json({ error: 'Tenant context missing' });
-  try {
-    const { data, error } = await supabase.from('mechanic_work_orders').select('*').eq('tenant_id', orgId);
-    if (error) throw error;
-    res.json(data || []);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/mechanic/work-orders', authorizeRole(['mechanic', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId;
-  if (!orgId) return res.status(401).json({ error: 'Tenant context missing' });
-  const { vin, customer_name, issue_description } = req.body;
-  try {
-    const { data, error } = await supabase.from('mechanic_work_orders').insert({
-      tenant_id: orgId, vin, description: issue_description, status: 'In Progress'
-    }).select().single();
-    if (error) throw error;
-    res.json({ success: true, workOrder: data });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// --- MECHANIC: PARTS ---
-app.get('/api/mechanic/parts', authorizeRole(['mechanic', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId;
-  if (!orgId) return res.status(401).json({ error: 'Tenant context missing' });
-  try {
-    const { data, error } = await supabase.from('mechanic_parts').select('*').eq('tenant_id', orgId);
-    if (error) throw error;
-    res.json(data || []);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/mechanic/parts', authorizeRole(['mechanic', 'admin']), async (req, res) => {
-  const orgId = req.userContext.tenantId;
-  if (!orgId) return res.status(401).json({ error: 'Tenant context missing' });
-  const { name, sku, stock_level, unit_price } = req.body;
-  try {
-    const { data, error } = await supabase.from('mechanic_parts').insert({
-      tenant_id: orgId, name, sku, stock_level, unit_price
-    }).select().single();
-    if (error) throw error;
-    res.json({ success: true, part: data });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// --- VEHICLE STATUS UPDATE ---
-app.patch('/api/vehicles/:vin/status', async (req, res) => {
-  const { vin } = req.params;
-  const { status } = req.body;
-  if (!status) return res.status(400).json({ error: 'Status is required' });
-  const validStatuses = ['available', 'reserved', 'sold', 'pending', 'inspection'];
-  if (!validStatuses.includes(status.toLowerCase())) return res.status(400).json({ error: 'Invalid status' });
-  try {
-    const { error } = await supabase.from('vehicles').update({ status: status.toLowerCase() }).eq('vin', vin);
-    if (error) throw error;
-    res.json({ success: true, vin, status });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- VEHICLE STATUS UPDATE MOVED TO MODULAR ROUTER ---
 
 // ✅ Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -897,35 +794,7 @@ app.get('/api/telemetry', authorizeRole(['bank', 'insurance', 'government', 'adm
   }
 });
 
-app.get('/api/insurance/claims', authorizeRole(['insurance', 'admin']), async (req, res) => {
-  try {
-    const { data: claims, error } = await supabase
-      .from('insurance_claims')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json(claims);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.patch('/api/insurance/claims/:id/status', authorizeRole(['insurance', 'admin']), async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  try {
-    const { data: claim, error } = await supabase
-      .from('insurance_claims')
-      .update({ status })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    res.json(claim);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- INSURANCE CLAIMS ENDPOINTS MOVED TO modular ROUTERS ---
 
 app.get('/api/security/fraud-alerts', authorizeRole(['insurance', 'government', 'admin']), async (req, res) => {
   try {
@@ -971,77 +840,9 @@ app.get('/api/compliance/reports', authorizeRole(['government', 'admin']), async
   }
 });
 
-app.get('/api/compliance/registry', authorizeRole(['government', 'admin']), async (req, res) => {
-  try {
-    const { data: verifications, error } = await supabase
-      .from('registry_verifications')
-      .select('*, vehicles(make, model)')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    res.json(verifications);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- COMPLIANCE REGISTRY VERIFICATIONS MOVED TO MODULAR ROUTER ---
 
-app.post('/api/compliance/registry/:id/update', authorizeRole(['government', 'admin']), async (req, res) => {
-  const { id } = req.params;
-  const { status, notes } = req.body;
-  try {
-    const { data, error } = await supabase
-      .from('registry_verifications')
-      .update({ status, notes, verified_by: req.userContext.userId, verification_date: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/admin/health', authorizeRole(['admin']), async (req, res) => {
-  try {
-    const { data: health, error } = await supabase
-      .from('server_health')
-      .select('*')
-      .order('timestamp', { ascending: false });
-    if (error) throw error;
-    res.json(health);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/admin/users', authorizeRole(['admin']), async (req, res) => {
-  try {
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('join_date', { ascending: false });
-    if (error) throw error;
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.patch('/api/admin/users/:id/suspend', authorizeRole(['admin']), async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { data: user, error } = await supabase
-      .from('users')
-      .update({ status: 'Suspended' })
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// --- ADMIN TELEMETRY & USER SERVICES MOVED TO MODULAR ROUTER ---
 
 // ✅ Root welcome endpoint to prevent 'Cannot GET /'
 app.get('/', (req, res) => {
@@ -1178,69 +979,15 @@ app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'admin']), as
 })
 
 
-// ============================================================================
-// PHASE 5: ADMIN OS
-// ============================================================================
+// --- PHASE 5 ADMIN ENDPOINTS MOVED TO MODULAR ROUTER ---
 
-// GET /api/users/management - Super admin user management
-app.get('/api/users/management', authorizeRole(['admin']), async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    res.json(data || [])
-  } catch (error) {
-    console.error('Error fetching users:', error)
-    res.status(500).json({ error: error.message })
-  }
-})
-
-// GET /api/admin/stats - System wide stats
-app.get('/api/admin/stats', authorizeRole(['admin']), async (req, res) => {
-  try {
-    const { count: userCount, error: userErr } = await supabase.from('users').select('*', { count: 'exact', head: true });
-    const { count: vehicleCount, error: vehicleErr } = await supabase.from('vehicles').select('*', { count: 'exact', head: true });
-    const { count: escrowCount, error: escrowErr } = await supabase.from('safepay_escrows').select('*', { count: 'exact', head: true });
-    const { count: claimsCount, error: claimsErr } = await supabase.from('insurance_claims').select('*', { count: 'exact', head: true });
-
-    if (userErr || vehicleErr || escrowErr || claimsErr) {
-      throw new Error('Failed to query system stats');
-    }
-
-    res.json({
-      totalUsers: userCount || 0,
-      totalVehicles: vehicleCount || 0,
-      totalEscrows: escrowCount || 0,
-      totalClaims: claimsCount || 0,
-      systemHealth: 'Optimal',
-      aiConfidence: '98.5%'
-    });
-  } catch (error) {
-    console.error('Error fetching admin stats:', error);
-    res.status(500).json({ error: error.message });
-  }
+// Safe 404 fallback route
+app.use((req, res, next) => {
+  next(new NotFoundError('Route not found'));
 });
 
-// POST /api/users/:id/suspend - Suspend a user
-app.post('/api/users/:id/suspend', authorizeRole(['admin']), async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .update({ role: 'suspended' }) // Simple suspension for now
-      .eq('id', req.params.id)
-      .select()
-      .single()
-
-    if (error) throw error
-    res.json(data)
-  } catch (error) {
-    console.error('Error suspending user:', error)
-    res.status(500).json({ error: error.message })
-  }
-})
+// Centralized error handling middleware
+app.use(errorHandler);
 
 
 app.listen(PORT, () => {

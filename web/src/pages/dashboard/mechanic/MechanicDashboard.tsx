@@ -1,15 +1,13 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import {
-  Wrench, ClipboardList, Users, DollarSign, Star, CheckCircle,
-  AlertTriangle, ArrowRight, ShieldCheck, Cpu, Plus, Loader2
+  Wrench, ClipboardList, DollarSign, Star, CheckCircle,
+  ArrowRight, ShieldCheck, Cpu, Plus, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { dashboardStats } from '@/data/mockData'
@@ -89,7 +87,11 @@ export default function MechanicDashboard() {
           </div>
           <p className="text-gray-500">Simbisa Garages Ltd • Bulawayo Main Workshop</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 text-white gap-1" onClick={() => setShowWorkOrderDialog(true)}>
+        <Button
+          className="bg-orange-500 hover:bg-orange-600 text-white gap-1"
+          onClick={() => setShowWorkOrderDialog(true)}
+          data-testid="mechanic-dashboard-create-workorder-button"
+        >
           <Plus className="w-4 h-4" /> Create Work Order
         </Button>
       </div>
@@ -163,7 +165,7 @@ export default function MechanicDashboard() {
                   <div className="text-right flex items-center gap-2">
                     <p className="font-bold text-gray-800 mr-2">${app.cost} USD</p>
                     {app.status === 'Pending Approval' && (
-                        <Button size="xs" onClick={() => handleSendApproval(app.id, app.clientPhone, app.item, app.vehicle)} className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs py-1 px-2.5">
+                        <Button size="sm" onClick={() => handleSendApproval(app.id, app.clientPhone, app.item, app.vehicle)} className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs py-1 px-2.5">
                           Send to WhatsApp
                         </Button>
                       )}
@@ -212,7 +214,7 @@ export default function MechanicDashboard() {
 
       {/* Create Work Order Dialog */}
       <Dialog open={showWorkOrderDialog} onOpenChange={setShowWorkOrderDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" data-testid="create-workorder-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-emerald-500" /> Create Work Order</DialogTitle>
             <DialogDescription>Log a new vehicle repair job to the PartSentry blockchain</DialogDescription>
@@ -220,11 +222,11 @@ export default function MechanicDashboard() {
           <div className="space-y-4 py-2">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Vehicle VIN *</label>
-              <Input value={workOrderForm.vin} onChange={e => setWorkOrderForm(f => ({ ...f, vin: e.target.value }))} placeholder="17-char VIN" className="font-mono" />
+              <Input value={workOrderForm.vin} onChange={e => setWorkOrderForm(f => ({ ...f, vin: e.target.value }))} placeholder="17-char VIN" className="font-mono" data-testid="vehicle-vin-input" />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Customer Name *</label>
-              <Input value={workOrderForm.customerName} onChange={e => setWorkOrderForm(f => ({ ...f, customerName: e.target.value }))} placeholder="e.g. Tendai Moyo" />
+              <Input value={workOrderForm.customerName} onChange={e => setWorkOrderForm(f => ({ ...f, customerName: e.target.value }))} placeholder="e.g. Tendai Moyo" data-testid="customer-name-input" />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Issue Description</label>
@@ -234,11 +236,12 @@ export default function MechanicDashboard() {
                 rows={3}
                 placeholder="Describe the problem or work to be done..."
                 className="w-full rounded-md border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400 border-gray-200"
+                data-testid="issue-description-input"
               />
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowWorkOrderDialog(false)} disabled={creatingOrder}>Cancel</Button>
-              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleCreateWorkOrder} disabled={creatingOrder}>
+              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleCreateWorkOrder} disabled={creatingOrder} data-testid="submit-workorder-button">
                 {creatingOrder ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : 'Create & Mint to Chain'}
               </Button>
             </div>

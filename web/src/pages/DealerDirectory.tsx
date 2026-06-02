@@ -1,10 +1,9 @@
-// @ts-nocheck
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Star, MapPin, Phone, Mail, Car, CheckCircle, ArrowRight, Search } from 'lucide-react'
+import { Star, MapPin, Phone, Mail, CheckCircle, ArrowRight, Search } from 'lucide-react'
 import { dealers } from '@/data/mockData'
 import { useState } from 'react'
 

@@ -8,8 +8,9 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import type { Promotion } from '@/types'
 
-const mockPromotions = [
+const mockPromotions: Promotion[] = [
   { id: 1, title: 'Weekend Special: 5% Off All SUVs', type: 'percentage', value: '5%', status: 'active', views: 245, clicks: 32, startDate: '2026-05-20', endDate: '2026-05-25' },
   { id: 2, title: 'Free Roadworthy Certificate', type: 'free_service', value: '$50', status: 'active', views: 189, clicks: 21, startDate: '2026-05-18', endDate: '2026-05-30' },
   { id: 3, title: 'Trade-In Bonus: Extra $500', type: 'fixed', value: '$500', status: 'scheduled', views: 0, clicks: 0, startDate: '2026-06-01', endDate: '2026-06-15' },
@@ -17,7 +18,7 @@ const mockPromotions = [
 
 export default function Promotions() {
   const { fetchDealerPromotions, createDealerPromotion, loading } = useCarUpApi()
-  const [promotions, setPromotions] = useState<any[]>(mockPromotions)
+  const [promotions, setPromotions] = useState<Promotion[]>(mockPromotions)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -31,16 +32,16 @@ export default function Promotions() {
   useEffect(() => {
     fetchDealerPromotions().then(data => {
       if (data && data.length > 0) {
-        const formatted = data.map((d: any) => ({
+        const formatted = data.map((d: Promotion) => ({
           id: d.id,
           title: d.title,
-          type: 'fixed',
-          value: `$${d.discount_amount}`,
-          status: d.status || 'active',
-          views: 0,
-          clicks: 0,
-          startDate: new Date(d.start_date).toISOString().split('T')[0],
-          endDate: new Date(d.end_date).toISOString().split('T')[0]
+          type: d.type || 'fixed',
+          value: d.discount_amount ? `$${d.discount_amount}` : d.value || '$0',
+          status: (d.status || 'active') as 'active' | 'scheduled' | 'expired',
+          views: d.views || 0,
+          clicks: d.clicks || 0,
+          startDate: d.start_date ? new Date(d.start_date).toISOString().split('T')[0] : d.startDate || new Date().toISOString().split('T')[0],
+          endDate: d.end_date ? new Date(d.end_date).toISOString().split('T')[0] : d.endDate || new Date().toISOString().split('T')[0]
         }))
         setPromotions([...formatted, ...mockPromotions])
       }
@@ -74,8 +75,9 @@ export default function Promotions() {
           endDate: formData.end_date
         }, ...promotions])
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create promotion')
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to create promotion'
+      toast.error(errMsg)
     } finally {
       setIsSubmitting(false)
     }

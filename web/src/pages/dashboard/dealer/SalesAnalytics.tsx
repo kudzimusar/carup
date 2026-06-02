@@ -4,6 +4,7 @@ import { TrendingUp, TrendingDown, DollarSign, Car, Star, Loader2 } from 'lucide
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle } from '@/types'
 
 const mockMonthlySales = [
   { month: 'Jan', sales: 8, revenue: 320000 },
@@ -33,8 +34,8 @@ export default function SalesAnalytics() {
   useEffect(() => {
     fetchVehicles().then(data => {
       if (data && data.length > 0) {
-        const soldVehicles = data.filter((v: any) => v.status === 'sold')
-        const totalRev = soldVehicles.reduce((acc: number, v: any) => acc + (v.price || 0), 0)
+        const soldVehicles = data.filter((v: Vehicle) => v.status === 'Sold')
+        const totalRev = soldVehicles.reduce((acc: number, v: Vehicle) => acc + (v.price || 0), 0)
         setLiveStats({
           totalRevenue: totalRev,
           unitsSold: soldVehicles.length,

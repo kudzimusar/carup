@@ -7,13 +7,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
+import type { RegistryVerification } from '@/types'
 
 export default function RegistryVerification() {
   const { fetchRegistryVerifications, updateRegistryVerification } = useCarUpApi()
-  const [verifications, setVerifications] = useState<any[]>([])
+  const [verifications, setVerifications] = useState<RegistryVerification[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [selectedVerification, setSelectedVerification] = useState<any | null>(null)
+  const [selectedVerification, setSelectedVerification] = useState<RegistryVerification | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const load = async () => {
@@ -29,8 +30,9 @@ export default function RegistryVerification() {
           registration: 'TBA',
           owner: 'Unknown Owner',
           type: 'New Registration',
-          status: v.status.toLowerCase(),
-          date: new Date(v.created_at).toLocaleDateString()
+          status: v.status.toLowerCase() as 'pending' | 'verified' | 'rejected' | 'approved',
+          date: new Date(v.created_at).toLocaleDateString(),
+          created_at: v.created_at
         }))
         setVerifications(formatted)
       } else {
@@ -79,11 +81,18 @@ export default function RegistryVerification() {
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <Input placeholder="Search by VIN, registration, or owner..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+        <Input
+          placeholder="Search by VIN, registration, or owner..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-10"
+          data-testid="registry-search-input"
+          aria-label="Search by VIN, registration, or owner"
+        />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden card-shadow">
-        <table className="w-full text-left border-collapse">
+        <table className="w-full text-left border-collapse" data-testid="registry-table">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
               <th className="p-4">Vehicle</th>
@@ -116,7 +125,7 @@ export default function RegistryVerification() {
               </tr>
             ) : (
               filtered.map((v) => (
-                <tr key={v.id} className="hover:bg-gray-50/50 transition-colors">
+                <tr key={v.id} className="hover:bg-gray-50/50 transition-colors" data-testid={`registry-row-${v.id}`}>
                   <td className="p-4 font-medium text-gray-900">{v.make} {v.model}</td>
                   <td className="p-4">
                     <Badge variant="outline" className="text-[10px] font-mono">{v.registration}</Badge>
@@ -130,7 +139,13 @@ export default function RegistryVerification() {
                     </Badge>
                   </td>
                   <td className="p-4 text-right">
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedVerification(v)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSelectedVerification(v)}
+                      data-testid="open-registry-verification-button"
+                      aria-label="View Verification Details"
+                    >
                       <Eye className="w-4 h-4 text-gray-500 hover:text-gray-900" />
                     </Button>
                   </td>
@@ -142,7 +157,7 @@ export default function RegistryVerification() {
       </div>
 
       <Dialog open={!!selectedVerification} onOpenChange={(open) => !open && setSelectedVerification(null)}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" data-testid="registry-verification-dialog">
           <DialogHeader>
             <DialogTitle>Verification Lineage</DialogTitle>
             <DialogDescription>Full history for VIN: {selectedVerification?.vin}</DialogDescription>
@@ -197,6 +212,7 @@ export default function RegistryVerification() {
                   className="border-red-200 text-red-600 hover:bg-red-50"
                   disabled={actionLoading === selectedVerification.id}
                   onClick={() => handleUpdateStatus(selectedVerification.id, 'Rejected')}
+                  data-testid="reject-registration-button"
                 >
                   Reject
                 </Button>
@@ -204,6 +220,7 @@ export default function RegistryVerification() {
                   className="bg-green-600 hover:bg-green-700 text-white"
                   disabled={actionLoading === selectedVerification.id}
                   onClick={() => handleUpdateStatus(selectedVerification.id, 'Approved')}
+                  data-testid="approve-registration-button"
                 >
                   {actionLoading === selectedVerification.id ? 'Processing...' : 'Approve Registration'}
                 </Button>

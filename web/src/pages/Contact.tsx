@@ -1,11 +1,10 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Car } from 'lucide-react'
+import { Phone, Mail, MapPin, Clock, Send, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function Contact() {

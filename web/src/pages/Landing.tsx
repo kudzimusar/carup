@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -7,10 +6,8 @@ import {
   Car,
   Shield,
   Brain,
-  Search,
   Wrench,
   FileCheck,
-  TrendingUp,
   Users,
   ArrowRight,
   CheckCircle,
@@ -100,7 +97,7 @@ const stakeholders = [
   { icon: Star, label: 'Banks', desc: 'Asset verification, financing tools' },
 ]
 
-function Building2(props: any) {
+function Building2(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3h6v3"/><path d="M7 19h10v-9a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2Z"/><path d="M4 19h3"/><path d="M17 19h3"/><path d="M21 19v-8a2 2 0 0 0-2-2h-1"/><path d="M4 19v-8a2 2 0 0 1 2-2h1"/>
@@ -108,7 +105,7 @@ function Building2(props: any) {
   )
 }
 
-function Landmark(props: any) {
+function Landmark(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-5h6v5"/><path d="M9.1 9.99a3 3 0 0 1 5.8 0"/>

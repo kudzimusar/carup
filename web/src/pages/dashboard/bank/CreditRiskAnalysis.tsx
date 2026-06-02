@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { BarChart3, ArrowUpRight } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { FinanceApplication } from '@/types'
 
 export default function CreditRiskAnalysis() {
   const { fetchFinanceApplications } = useCarUpApi()
@@ -23,7 +24,7 @@ export default function CreditRiskAnalysis() {
         if (Array.isArray(apps) && apps.length > 0) {
           let a = 0, b = 0, c = 0, d = 0
           let value = 0
-          apps.forEach((app: any) => {
+          apps.forEach((app: FinanceApplication) => {
             const score = app.trust_score || 0
             if (score >= 90) a++
             else if (score >= 80) b++

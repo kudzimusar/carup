@@ -6,10 +6,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FileText, Download } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
+import type { ComplianceReport } from '@/types'
 
 export default function ComplianceReports() {
   const { fetchComplianceReports } = useCarUpApi()
-  const [reports, setReports] = useState<any[]>([])
+  const [reports, setReports] = useState<ComplianceReport[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function ComplianceReports() {
     load()
   }, [fetchComplianceReports])
 
-  const handleDownload = (report: any) => {
+  const handleDownload = (report: ComplianceReport) => {
     toast.promise(
       new Promise((resolve) => setTimeout(resolve, 2000)),
       {

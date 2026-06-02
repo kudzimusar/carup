@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -15,14 +14,12 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronRight,
   Users,
   BarChart3,
   Tag,
   ClipboardList,
   BookOpen,
   AlertTriangle,
-  Building2,
   Search,
   CheckCircle,
   ShieldAlert,
@@ -33,7 +30,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 
 interface NavItem {
@@ -201,6 +197,14 @@ export default function DashboardLayout({ role }: { role: string }) {
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.href
+            const navIdMap: Record<string, string> = {
+              'Overview': 'nav-dashboard',
+              'My Garage': 'nav-garage',
+              'Inventory': 'nav-inventory',
+              'Claims': 'nav-claims',
+              'Work Orders': 'nav-workorders',
+              'Registry Verification': 'nav-registry',
+            }
             return (
               <Link
                 key={item.href}
@@ -211,6 +215,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                     ? 'bg-orange-50 text-orange-700'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`}
+                data-testid={navIdMap[item.label]}
               >
                 <item.icon className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
                 <span className="flex-1">{item.label}</span>
@@ -240,6 +245,7 @@ export default function DashboardLayout({ role }: { role: string }) {
               window.location.href = '/'
             }}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
+            data-testid="logout-button"
           >
             <LogOut className="w-4.5 h-4.5" />
             Sign Out

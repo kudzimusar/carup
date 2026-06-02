@@ -4,12 +4,13 @@ import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, Eye, CheckCircle, Clock, Car } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { FraudAlert } from '@/types'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function FraudAlerts() {
   const { fetchFraudAlerts, resolveFraudAlert } = useCarUpApi()
-  const [alerts, setAlerts] = useState<any[]>([])
+  const [alerts, setAlerts] = useState<FraudAlert[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

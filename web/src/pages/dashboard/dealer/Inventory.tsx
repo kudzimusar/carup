@@ -1,16 +1,14 @@
-// @ts-nocheck
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useState, useEffect } from 'react'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Search, Plus, Eye, TrendingUp, CheckCircle, Loader2, X, DollarSign } from 'lucide-react'
+import { Search, Plus, Eye, TrendingUp, CheckCircle, Loader2, DollarSign } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { useEffect } from 'react'
+import type { Vehicle } from '@/types'
 
 const STATUS_COLORS: Record<string, string> = {
   available: 'bg-green-100 text-green-700',
@@ -22,8 +20,8 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function Inventory() {
-  const { fetchDealerInventory, request } = useCarUpApi()
-  const [inventory, setInventory] = useState<any[]>([])
+  const { fetchDealerInventory, updateVehicleStatus } = useCarUpApi()
+  const [inventory, setInventory] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -47,7 +45,7 @@ export default function Inventory() {
     loadInventory()
   }, [fetchDealerInventory])
 
-  const filtered = inventory.filter((v: any) => {
+  const filtered = inventory.filter((v: Vehicle) => {
     const matchSearch = !search || `${v.make} ${v.model}`.toLowerCase().includes(search.toLowerCase())
     const effectiveStatus = v.status || 'Available'
     const matchStatus = statusFilter === 'all' || effectiveStatus.toLowerCase() === statusFilter.toLowerCase()
@@ -57,10 +55,7 @@ export default function Inventory() {
   const handleMarkSold = async (vehicleId: string, vin: string) => {
     setMarkingId(vehicleId)
     try {
-      await request(`/vehicles/${vin}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: 'sold' }),
-      })
+      await updateVehicleStatus(vin, 'sold')
       toast.success('Vehicle marked as sold!')
       // Optimistically update UI
       setInventory(prev => prev.map(v => v.vin === vin ? { ...v, status: 'Sold' } : v))
@@ -77,7 +72,7 @@ export default function Inventory() {
           <h1 className="text-2xl font-bold">Inventory</h1>
           <p className="text-gray-500">Manage your vehicle listings ({inventory.length} total)</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild>
+        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild data-testid="create-vehicle-button">
           <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> Add Vehicle</Link>
         </Button>
       </div>
@@ -86,7 +81,14 @@ export default function Inventory() {
       <div className="flex gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input placeholder="Search inventory..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+          <Input
+            placeholder="Search inventory..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-10"
+            data-testid="vehicle-search-input"
+            aria-label="Search inventory"
+          />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
@@ -104,25 +106,25 @@ export default function Inventory() {
           <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
         </div>
       ) : filtered.length === 0 ? (
-        <Card className="border-0 card-shadow">
+        <Card className="border-0 card-shadow" data-testid="empty-inventory-state">
           <CardContent className="p-12 text-center">
             <Plus className="w-12 h-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No inventory found</h3>
             <p className="text-gray-500 mb-4">Add your first vehicle to start selling on CarUp.</p>
-            <Button className="bg-orange-500 hover:bg-orange-600" asChild>
+            <Button className="bg-orange-500 hover:bg-orange-600" asChild data-testid="create-vehicle-button">
               <Link to="/dashboard/sell-vehicle">Add Vehicle</Link>
             </Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {filtered.map((vehicle: any) => {
+        <div className="space-y-4" data-testid="dealer-vehicles-table">
+          {filtered.map((vehicle: Vehicle) => {
             const effectiveStatus = vehicle.status || 'Available'
             const isSold = effectiveStatus.toLowerCase() === 'sold'
             const fallbackImage = 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=800'
             const primaryImage = vehicle.images?.[0] || fallbackImage
             return (
-              <Card key={vehicle.vin} className="border-0 card-shadow">
+              <Card key={vehicle.vin} className="border-0 card-shadow" data-testid={`vehicle-row-${vehicle.id || vehicle.vin}`}>
                 <CardContent className="p-5">
                   <div className="flex gap-4">
                     <img src={primaryImage} alt="" className="w-36 h-24 rounded-lg object-cover flex-shrink-0" />

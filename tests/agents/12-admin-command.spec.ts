@@ -1,28 +1,55 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Agent 12 - Admin Command Center Validation Agent', () => {
-  test('VALIDATE ECOSYSTEM GOVERNANCE', async ({ page }) => {
-    await page.goto('/admin');
+  test.beforeEach(async ({ page }) => {
+    // Intercept and mock switch role API (handles wildcard)
+    await page.route('**/api/auth/switch-role*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', role: 'admin' },
+          token: 'mock-admin-token-123'
+        })
+      });
+    });
 
-    // Marketplace Moderation
-    await page.goto('/admin/moderation');
-    const moderationTable = page.getByRole('table');
-    if (await moderationTable.count() === 0) {
-      console.log('Missing: Marketplace Moderation Table');
-    }
+    // Mock auth login response (handles wildcard)
+    await page.route('**/api/auth/login*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', role: 'owner' },
+          token: 'mock-owner-token-123'
+        })
+      });
+    });
+  });
 
-    // AI Monitoring
-    await page.goto('/admin/ai');
-    const aiLogs = page.locator('text=AI Logs');
-    if (await aiLogs.count() === 0) {
-      console.log('Missing: AI Monitoring Dashboard');
-    }
+  test('Admin Dashboard Loads via Stakeholder Role Switcher', async ({ page }) => {
+    // Go to login page
+    await page.goto('/login');
 
-    // User Management / Fraud Monitoring
-    await page.goto('/admin/users');
-    const userTable = page.getByRole('table');
-    if (await userTable.count() === 0) {
-      console.log('Missing: User Management Table');
-    }
+    // Click quick demo login as Buyer (Tendai Moyo)
+    const demoBuyerBtn = page.getByRole('button', { name: /Browse as Buyer/i });
+    await expect(demoBuyerBtn).toBeVisible();
+    await demoBuyerBtn.click();
+
+    // Verify automatic redirect to /dashboard (Owner Dashboard loads)
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole('heading', { name: /Owner Dashboard/i })).toBeVisible();
+
+    // Locating the stakeholder selector dropdown in sidebar
+    const roleSelect = page.locator('select');
+    await expect(roleSelect).toBeVisible();
+
+    // Switch role to Administrator (value: admin)
+    await roleSelect.selectOption('admin');
+
+    // Verify automatic redirection to /admin (Admin Dashboard loads)
+    await expect(page).toHaveURL(/\/admin/);
+    await expect(page.getByRole('heading', { name: /Ecosystem Governance/i })).toBeVisible();
+    await expect(page.getByText('System metrics, stakeholder organizations')).toBeVisible();
   });
 });

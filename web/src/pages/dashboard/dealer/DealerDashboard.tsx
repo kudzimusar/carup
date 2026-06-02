@@ -1,18 +1,17 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import {
-  Car, Users, TrendingUp, DollarSign, Star, ArrowRight, Plus,
-  MapPin, CheckCircle, BarChart3, Settings, Shield, Loader2
+  Car, Users, TrendingUp, DollarSign, ArrowRight,
+  MapPin, BarChart3, Settings, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { vehicles as mockVehicles, dashboardStats } from '@/data/mockData'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle } from '@/types'
 
 const salesData = [
   { month: 'Jan', sales: 8 },
@@ -28,24 +27,31 @@ export default function DealerDashboard() {
 
   // Branch switcher state
   const [selectedBranch, setSelectedBranch] = useState('Harare')
-  const [liveInventory, setLiveInventory] = useState<any[]>([])
+  const [liveInventory, setLiveInventory] = useState<Vehicle[]>([])
 
   useEffect(() => {
     fetchVehicles().then(data => {
       if (data && data.length > 0) {
         setLiveInventory(data)
       } else {
-        setLiveInventory(mockVehicles)
+        setLiveInventory(mockVehicles as unknown as Vehicle[])
       }
     }).catch(() => {
-      setLiveInventory(mockVehicles)
+      setLiveInventory(mockVehicles as unknown as Vehicle[])
     })
   }, [fetchVehicles])
 
   const currentBranchStock = liveInventory.filter(v => v.location === selectedBranch || (!v.location && selectedBranch === 'Harare')).slice(0, 5)
 
+  interface BranchPermissions {
+    pricing: Record<string, boolean>;
+    escrow: Record<string, boolean>;
+    listings: Record<string, boolean>;
+    [key: string]: Record<string, boolean>;
+  }
+
   // Permissions state
-  const [permissions, setPermissions] = useState({
+  const [permissions, setPermissions] = useState<BranchPermissions>({
     pricing: { Owner: true, Admin: true, Staff: false },
     escrow: { Owner: true, Admin: false, Staff: false },
     listings: { Owner: true, Admin: true, Staff: true }
@@ -134,7 +140,7 @@ export default function DealerDashboard() {
                     </div>
                     <div>
                       <p className="font-semibold text-gray-800 text-sm">{vehicle.make} {vehicle.model}</p>
-                      <p className="text-[10px] text-gray-500">VIN: {vehicle.vin} • Status: <span className={vehicle.status === 'sold' ? 'text-red-500 font-bold' : 'text-green-500'}>{vehicle.status}</span></p>
+                      <p className="text-[10px] text-gray-500">VIN: {vehicle.vin} • Status: <span className={vehicle.status === 'Sold' ? 'text-red-500 font-bold' : 'text-green-500'}>{vehicle.status}</span></p>
                     </div>
                   </div>
                   <div className="text-right">

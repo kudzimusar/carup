@@ -1,25 +1,25 @@
-// @ts-nocheck
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ShieldAlert, Eye, CheckCircle, XCircle, Flag, Car, User } from 'lucide-react'
+import { ShieldAlert, Eye, CheckCircle, XCircle, Flag } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+import type { Vehicle } from '@/types'
 
 export default function MarketplaceModeration() {
   const { fetchVehicles, updateVehicleStatus } = useCarUpApi()
-  const [vehicles, setVehicles] = useState<any[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadVehicles = async () => {
     setLoading(true)
     try {
       const data = await fetchVehicles()
-      setVehicles(Array.isArray(data) ? data : data?.vehicles || [])
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to fetch vehicles')
+      setVehicles(data)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch vehicles')
     } finally {
       setLoading(false)
     }
@@ -35,8 +35,8 @@ export default function MarketplaceModeration() {
       await updateVehicleStatus(vin, status)
       toast.success(`Vehicle status updated to ${status}`)
       loadVehicles()
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update status')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update status')
     }
   }
 

@@ -1,11 +1,10 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Shield, Search, CheckCircle, FileText, Car, Users, AlertTriangle, ArrowRight, Key, Landmark, Calculator } from 'lucide-react'
+import { Search, CheckCircle, FileText, Car, AlertTriangle, ArrowRight, Key, Calculator } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -34,7 +33,7 @@ export default function GovernmentDashboard() {
   })
 
   // MFA logs state
-  const [mfaLogs, setMfaLogs] = useState([
+  const [mfaLogs] = useState([
     { officer: 'Inspector T. Chihuri', event: 'Hardware FIDO Session Validated', ip: '10.20.45.10', time: '16:42:01' },
     { officer: 'ZIMRA Desk Officer Moyo', event: 'MFA Handshake Handled', ip: '10.20.12.88', time: '16:30:15' }
   ])
@@ -113,15 +112,15 @@ export default function GovernmentDashboard() {
               <div className="grid sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold text-gray-500 uppercase">FOB Value (USD)</label>
-                  <Input type="number" value={vehicleValue} onChange={e => setVehicleValue(e.target.value)} />
+                  <Input type="number" value={vehicleValue} onChange={e => setVehicleValue(Number(e.target.value))} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold text-gray-500 uppercase">Manufacture Year</label>
-                  <Input type="number" value={vehicleYear} onChange={e => setVehicleYear(e.target.value)} />
+                  <Input type="number" value={vehicleYear} onChange={e => setVehicleYear(Number(e.target.value))} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold text-gray-500 uppercase">Engine size (cc)</label>
-                  <Input type="number" value={engineSize} onChange={e => setEngineSize(e.target.value)} />
+                  <Input type="number" value={engineSize} onChange={e => setEngineSize(Number(e.target.value))} />
                 </div>
               </div>
               <Button onClick={handleCalculateDuty} disabled={dutyLoading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">

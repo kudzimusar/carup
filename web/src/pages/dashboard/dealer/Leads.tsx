@@ -6,8 +6,9 @@ import { Phone, Mail, MessageSquare, Search, Users, Calendar, Loader2 } from 'lu
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
+import type { Lead } from '@/types'
 
-const mockLeadsData = [
+const mockLeadsData: Lead[] = [
   { id: 1, name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', vehicle: 'Toyota Prado 2019', status: 'new', source: 'Marketplace', date: '2026-05-22', notes: 'Looking for a family SUV' },
   { id: 2, name: 'Sarah Chikomo', email: 'sarah@email.co.zw', phone: '+263 775 567 890', vehicle: 'BMW 320i', status: 'contacted', source: 'Search', date: '2026-05-21', notes: 'Wants to schedule test drive' },
   { id: 3, name: 'James Ncube', email: 'james@email.co.zw', phone: '+263 777 789 012', vehicle: 'Ford Ranger Wildtrak', status: 'negotiating', source: 'Featured', date: '2026-05-20', notes: 'Negotiating on price' },
@@ -16,23 +17,23 @@ const mockLeadsData = [
 
 export default function Leads() {
   const { fetchDealerLeads, loading } = useCarUpApi()
-  const [leadsData, setLeadsData] = useState<any[]>(mockLeadsData)
+  const [leadsData, setLeadsData] = useState<Lead[]>(mockLeadsData)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
     fetchDealerLeads().then(data => {
       if (data && data.length > 0) {
-        const formatted = data.map((d: any) => ({
+        const formatted = data.map((d: Lead) => ({
           id: d.id,
-          name: d.buyer_name,
-          email: 'N/A',
-          phone: d.buyer_phone,
-          vehicle: `VIN: ${d.vin}`,
-          status: d.status,
-          source: 'Platform',
-          date: new Date(d.created_at).toLocaleDateString(),
-          notes: d.message || 'No message provided'
+          name: d.buyer_name || d.name || 'Unknown',
+          email: d.email || 'N/A',
+          phone: d.buyer_phone || d.phone || 'N/A',
+          vehicle: d.vin ? `VIN: ${d.vin}` : d.vehicle || 'Unknown',
+          status: d.status || 'new',
+          source: d.source || 'Platform',
+          date: d.created_at ? new Date(d.created_at).toLocaleDateString() : d.date || new Date().toLocaleDateString(),
+          notes: d.message || d.notes || 'No message provided'
         }))
         setLeadsData([...formatted, ...mockLeadsData])
       }

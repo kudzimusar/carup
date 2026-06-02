@@ -5,6 +5,9 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
   const apiKey = process.env.GEMINI_API_KEY;
   
   if (!apiKey) {
+    if (process.env.ALLOW_OCR_MOCK !== 'true') {
+      throw new Error('FATAL: Gemini API key is missing and ALLOW_OCR_MOCK is disabled.');
+    }
     // Return high-fidelity mock operational intelligence responses matching the prompts
     console.log('Using simulated Gemini reasoning framework...');
     

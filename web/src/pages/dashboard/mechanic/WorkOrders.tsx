@@ -8,10 +8,11 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import type { WorkOrder } from '@/types'
 
 export default function WorkOrders() {
   const { fetchMechanicWorkOrders, createMechanicWorkOrder, loading } = useCarUpApi()
-  const [workOrders, setWorkOrders] = useState<any[]>([])
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
 
@@ -26,15 +27,16 @@ export default function WorkOrders() {
   useEffect(() => {
     fetchMechanicWorkOrders().then(data => {
       if (data && data.length > 0) {
-        const formatted = data.map((d: any) => ({
+        const formatted = data.map((d: WorkOrder) => ({
           id: d.id.substring(0, 11).toUpperCase(),
-          vehicle: d.vin,
-          customer: d.customer_name || 'Unknown',
-          service: d.description || d.issue_description || 'General Service',
-          status: d.status?.toLowerCase().replace(' ', '-') || 'pending',
-          date: new Date(d.created_at).toLocaleDateString(),
-          cost: d.total_cost || 0,
-          mechanic: d.mechanic_id ? `Mechanic (${d.mechanic_id.substring(0,4)})` : 'Unassigned'
+          vehicle: d.vin || d.vehicle || 'Unknown',
+          customer: d.customer_name || d.customer || 'Unknown',
+          service: d.service || d.issue_description || 'General Service',
+          status: d.status?.toLowerCase().replace(' ', '-') as 'pending' | 'in-progress' | 'completed' || 'pending',
+          date: d.date || new Date(d.created_at).toLocaleDateString(),
+          cost: d.total_cost ?? d.cost ?? 0,
+          mechanic: d.mechanic_id || d.mechanic ? `Mechanic (${(d.mechanic_id || d.mechanic).substring(0,4)})` : 'Unassigned',
+          created_at: d.created_at
         }))
         setWorkOrders(formatted)
       }
@@ -65,12 +67,14 @@ export default function WorkOrders() {
           status: 'pending',
           date: new Date().toLocaleDateString(),
           cost: 0,
-          mechanic: 'Unassigned'
+          mechanic: 'Unassigned',
+          created_at: new Date().toISOString()
         }, ...workOrders])
         setFormData({ vin: '', customer_name: '', issue_description: '' })
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create Work Order')
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to create Work Order'
+      toast.error(errMsg)
     } finally {
       setIsSubmitting(false)
     }
@@ -89,26 +93,28 @@ export default function WorkOrders() {
         
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-orange-500 hover:bg-orange-600 gap-1 text-white"><Plus className="w-4 h-4" /> New Order</Button>
+            <Button className="bg-orange-500 hover:bg-orange-600 gap-1 text-white" data-testid="new-workorder-button">
+              <Plus className="w-4 h-4" /> New Order
+            </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent data-testid="create-workorder-dialog">
             <DialogHeader>
               <DialogTitle>Create New Work Order</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="space-y-2">
                 <Label>Customer Name</Label>
-                <Input required value={formData.customer_name} onChange={e => setFormData({...formData, customer_name: e.target.value})} placeholder="e.g. John Doe" />
+                <Input required value={formData.customer_name} onChange={e => setFormData({...formData, customer_name: e.target.value})} placeholder="e.g. John Doe" data-testid="customer-name-input" />
               </div>
               <div className="space-y-2">
                 <Label>Vehicle VIN</Label>
-                <Input required value={formData.vin} onChange={e => setFormData({...formData, vin: e.target.value})} placeholder="e.g. JTD123456789" />
+                <Input required value={formData.vin} onChange={e => setFormData({...formData, vin: e.target.value})} placeholder="e.g. JTD123456789" data-testid="vehicle-vin-input" />
               </div>
               <div className="space-y-2">
                 <Label>Issue Description</Label>
-                <Input required value={formData.issue_description} onChange={e => setFormData({...formData, issue_description: e.target.value})} placeholder="e.g. Needs new brake pads" />
+                <Input required value={formData.issue_description} onChange={e => setFormData({...formData, issue_description: e.target.value})} placeholder="e.g. Needs new brake pads" data-testid="issue-description-input" />
               </div>
-              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white" disabled={isSubmitting}>
+              <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white" disabled={isSubmitting} data-testid="submit-workorder-button">
                 {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Create Work Order
               </Button>
@@ -120,7 +126,14 @@ export default function WorkOrders() {
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input placeholder="Search work orders..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 bg-white" />
+          <Input
+            placeholder="Search work orders..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-10 bg-white"
+            data-testid="workorders-search-input"
+            aria-label="Search work orders"
+          />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
           {['all', 'pending', 'in-progress', 'completed'].map(s => (
@@ -131,9 +144,9 @@ export default function WorkOrders() {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3" data-testid="workorders-table">
         {filtered.map((order, idx) => (
-          <Card key={order.id + idx} className="border-0 card-shadow transition-all hover:shadow-md">
+          <Card key={order.id + idx} className="border-0 card-shadow transition-all hover:shadow-md" data-testid={`workorder-row-${order.id}`}>
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
@@ -162,7 +175,7 @@ export default function WorkOrders() {
           </Card>
         ))}
         {filtered.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-100">
+          <div className="text-center py-12 bg-white rounded-xl border border-gray-100" data-testid="no-workorders-state">
             <Wrench className="w-12 h-12 text-gray-200 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">No work orders found</h3>
             <p className="text-gray-500">Create a new order to get started.</p>

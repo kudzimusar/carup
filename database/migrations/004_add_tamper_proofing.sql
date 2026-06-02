@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS ocr_documents (
   file_path TEXT NOT NULL,
   extracted_json TEXT NOT NULL,
   confidence_score REAL NOT NULL,
-  status TEXT DEFAULT 'Pending_Verification' CHECK(status IN ('Pending_Verification', 'Verified', 'Flagged_Tampered')),
+  status TEXT DEFAULT 'Pending_Verification' CHECK(status IN ('Pending_Verification', 'Verified', 'OCR_Provider_Unavailable', 'Low_Confidence', 'Poor_Image_Quality', 'Suspected_Tampering', 'Pending_Manual_Review')),
   created_at TEXT NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );

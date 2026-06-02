@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -17,7 +16,6 @@ import {
   Search,
   ShoppingCart,
   Bell,
-  User,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -206,7 +204,7 @@ export default function Navbar() {
                   <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => {
                     logout()
                     window.location.href = '/'
-                  }}>
+                  }} data-testid="logout-button">
                     <LogOut className="w-4 h-4 mr-2" /> Sign Out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -263,7 +261,7 @@ export default function Navbar() {
                   <button onClick={() => {
                     logout()
                     window.location.href = '/'
-                  }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-red-600 w-full">
+                  }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-red-600 w-full" data-testid="logout-button">
                     <LogOut className="w-4 h-4" /> Sign Out
                   </button>
                 </>

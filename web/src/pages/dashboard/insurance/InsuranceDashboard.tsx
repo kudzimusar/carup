@@ -1,12 +1,11 @@
-// @ts-nocheck
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Shield, FileText, AlertTriangle, TrendingUp, DollarSign, CheckCircle, Clock, ArrowRight, BarChart3 } from 'lucide-react'
+import { Shield, FileText, AlertTriangle, DollarSign, CheckCircle, ArrowRight, BarChart3 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { dashboardStats } from '@/data/mockData'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 const claimData = [
   { month: 'Jan', claims: 8, approved: 7 },
