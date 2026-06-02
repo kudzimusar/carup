@@ -208,8 +208,8 @@ export default function OwnerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 uppercase font-semibold">Auto-calculated Trust Index</p>
-                <p className="text-2xl font-bold mt-1">92.5%</p>
-                <p className="text-[10px] text-green-600 font-medium mt-1">Verified Buyer & Seller</p>
+                <p data-testid="trust-index-value" className="text-2xl font-bold mt-1">92.5%</p>
+                <p data-testid="trust-index-label" className="text-[10px] text-green-600 font-medium mt-1">Verified Buyer &amp; Seller</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-500 flex items-center justify-center">
                 <CheckCircle className="w-5 h-5" />
@@ -257,14 +257,24 @@ export default function OwnerDashboard() {
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Digital Document Vault</CardTitle>
-              <Button size="sm" onClick={handleOcrUpload} disabled={ocrLoading} className="bg-orange-500 hover:bg-orange-600 text-white gap-1 text-xs font-semibold">
+              <Button
+                size="sm"
+                onClick={handleOcrUpload}
+                disabled={ocrLoading}
+                data-testid="ocr-upload-btn"
+                className="bg-orange-500 hover:bg-orange-600 text-white gap-1 text-xs font-semibold"
+              >
                 <Upload className="w-3.5 h-3.5" />
                 {ocrLoading ? 'Scanning Document...' : 'Upload & Parse Logbook'}
               </Button>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-3" data-testid="document-vault-list">
               {documents.map((doc, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100/50 rounded-xl transition-all border border-gray-100 text-xs">
+                <div
+                  key={doc.id || idx}
+                  data-testid={`doc-row-${doc.id || idx}`}
+                  className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100/50 rounded-xl transition-all border border-gray-100 text-xs"
+                >
                   <div className="flex items-center gap-3">
                     <FileText className="w-4 h-4 text-orange-500 shrink-0" />
                     <div>
@@ -273,7 +283,10 @@ export default function OwnerDashboard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge className="bg-green-100 text-green-700 shadow-none border-none">AI Verified</Badge>
+                    <Badge
+                      data-testid={`doc-verified-badge-${doc.id || idx}`}
+                      className="bg-green-100 text-green-700 shadow-none border-none"
+                    >AI Verified</Badge>
                   </div>
                 </div>
               ))}
