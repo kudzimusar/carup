@@ -50,6 +50,7 @@ import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
+import diasporaRouter from './routes/diasporaRoutes.js';
 
 dotenv.config();
 
@@ -98,6 +99,9 @@ app.use(adminRouter);
 app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
+
+// Mount isolated Diaspora Trade bounded context
+app.use('/api/diaspora', diasporaRouter);
 
 // ✅ Verify Supabase connection on startup
 const { data: connectionTest, error: connectionError } = await supabase.from('vehicles').select('vin').limit(1);
