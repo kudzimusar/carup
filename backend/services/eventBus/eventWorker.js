@@ -1,16 +1,23 @@
+import dotenv from 'dotenv';
 import pg from 'pg';
 import { memoryBroker } from './eventBusService.js';
 
-const connectionString = 'postgresql://postgres.vhmnajoeicasaigiophh:HVYbYVb1x2ErqzH4@aws-1-ap-south-1.pooler.supabase.com:5432/postgres';
+dotenv.config();
+
+const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
+
+if (!connectionString) {
+  console.warn('⚠️ Event worker database URL missing. Set DATABASE_URL or SUPABASE_DB_URL to enable transactional outbox polling.');
+}
 
 class EventWorker {
   constructor() {
-    this.pool = new pg.Pool({
+    this.pool = connectionString ? new pg.Pool({
       connectionString,
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-    });
+    }) : null;
     this.running = false;
     this.handlers = new Map();
     this.pollInterval = null;
@@ -53,7 +60,7 @@ class EventWorker {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
-    await this.pool.end();
+    if (this.pool) await this.pool.end();
     console.log('👷 Transactional Outbox Event Worker stopped.');
   }
 
@@ -61,6 +68,11 @@ class EventWorker {
    * Concurrency-safe, transactional outbox database poller
    */
   async pollEvents() {
+    if (!this.pool) {
+      console.warn('⚠️ Outbox poll skipped because DATABASE_URL/SUPABASE_DB_URL is not configured.');
+      return;
+    }
+
     const client = await this.pool.connect();
     try {
       // Begin PostgreSQL ACID transaction

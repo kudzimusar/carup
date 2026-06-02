@@ -1,0 +1,43 @@
+name: Diaspora Live Validation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diaspora-live-validation:
+    runs-on: ubuntu-latest
+
+    env:
+      RUN_DIASPORA_SUPABASE_INTEGRATION: "true"
+      APPLY_DIASPORA_MIGRATION: "true"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Supabase connectivity preflight
+        run: |
+          node -e "console.log('SUPABASE_URL present:', !!process.env.SUPABASE_URL)"
+          node -e "console.log('SERVICE_ROLE present:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)"
+          node -e "console.log('SUPABASE_DB_URL present:', !!process.env.SUPABASE_DB_URL)"
+          node -e "fetch(process.env.SUPABASE_URL + '/rest/v1/', { headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + process.env.SUPABASE_SERVICE_ROLE_KEY } }).then(r=>console.log('REST status:', r.status)).catch(e=>{console.error(e); process.exit(1)})"
+
+      - name: Run Diaspora Supabase integration test
+        run: node --test backend/tests/diaspora-supabase-integration.test.js
+
+      - name: Run backend workspace tests
+        run: npm test --workspace=backend
+
+      - name: Run build
+        run: npm run build
