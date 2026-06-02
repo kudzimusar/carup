@@ -1,17 +1,17 @@
-// @ts-nocheck
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Wrench, Search, Calendar, DollarSign, FileText, Plus } from 'lucide-react'
+import { Wrench, Search, Calendar, DollarSign, Plus } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle, ServiceRecord, Part } from '@/types'
 
 export default function ServiceHistory() {
   const { fetchOwnedVehicles, fetchServiceHistory } = useCarUpApi()
   const [search, setSearch] = useState('')
-  const [vehicles, setVehicles] = useState<any[]>([])
-  const [allServices, setAllServices] = useState<any[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [allServices, setAllServices] = useState<ServiceRecord[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<string>('')
 
   useEffect(() => {
@@ -83,11 +83,11 @@ export default function ServiceHistory() {
                     <span className="flex items-center gap-1">Garage ID: {service.tenant_id?.slice(0,8)}</span>
                     <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />${service.total_cost || 0}</span>
                   </div>
-                  {service.parts?.length > 0 && (
+                  {service.parts && service.parts.length > 0 && (
                     <div className="mt-3 pt-3 border-t">
                       <p className="text-xs font-medium text-gray-600 mb-2">Parts Replaced:</p>
                       <div className="flex flex-wrap gap-2">
-                        {service.parts.map((p: any) => (
+                        {service.parts.map((p: Part) => (
                           <Badge key={p.id} variant="secondary" className="text-xs font-normal">{p.name}</Badge>
                         ))}
                       </div>

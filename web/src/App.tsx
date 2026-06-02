@@ -3,6 +3,7 @@ import { useState, createContext, useContext, useEffect } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './context/AuthContext'
 import { WifiOff } from 'lucide-react'
+import type { AuthUser, Notification } from '@shared/types'
 
 // Layout
 import MainLayout from './components/layout/MainLayout'
@@ -88,12 +89,12 @@ import CreditRiskAnalysis from './pages/dashboard/bank/CreditRiskAnalysis'
 
 // Context
 interface AppContextType {
-  user: any | null
-  setUser: (user: any) => void
+  user: AuthUser | null
+  setUser: (user: AuthUser | null) => void
   isAuthenticated: boolean
-  notifications: any[]
+  notifications: Notification[]
   currency: 'USD' | 'ZiG' | 'ZAR' | 'BWP'
-  setCurrency: (c: any) => void
+  setCurrency: (c: 'USD' | 'ZiG' | 'ZAR' | 'BWP') => void
 }
 
 export const AppContext = createContext<AppContextType>({

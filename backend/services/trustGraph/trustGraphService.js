@@ -4,11 +4,19 @@ import { verifyChain } from '../blockchain/blockchainService.js';
 // AGENT A3 — Rolling checkpoint-accelerated timeline fetcher
 export async function getVehicleTimeline(vin) {
   // Fetch all timeline events in parallel from Supabase
-  const [ownershipResult, serviceResult, insuranceResult, escrowResult] = await Promise.all([
+  const [
+    ownershipResult, serviceResult, insuranceResult, escrowResult,
+    zimraResult, cvrResult, vidResult, cidResult, zinaraResult
+  ] = await Promise.all([
     supabase.from('vehicle_ownership_history').select('id, transfer_date, previous_owner_id, new_owner_id').eq('vin', vin),
     supabase.from('partsentry_logs').select('id, timestamp, action_type, part_name, mechanic_id, mileage, description').eq('vin', vin),
     supabase.from('insurance_records').select('policy_number, start_date, insurer_id, premium_amount, risk_score').eq('vin', vin),
     supabase.from('safepay_escrows').select('id, created_at, status, buyer_id, amount, current_stage').eq('vin', vin),
+    supabase.from('zimra_declarations').select('*').eq('vin', vin),
+    supabase.from('cvr_ownership_records').select('*').eq('vin', vin),
+    supabase.from('vid_inspections').select('*').eq('vin', vin),
+    supabase.from('cid_clearance_records').select('*').eq('vin', vin),
+    supabase.from('zinara_licensing_records').select('*').eq('vin', vin),
   ]);
 
   const events = [];
@@ -58,6 +66,66 @@ export async function getVehicleTimeline(vin) {
       label: 'SafePay Escrow',
       desc: `Escrow transaction state: ${e.status}`,
       details: { buyer: e.buyer_id, amount: e.amount, stage: e.current_stage }
+    });
+  }
+
+  // ZIMRA Custom Clearance
+  for (const e of (zimraResult.data || [])) {
+    events.push({
+      event_source: 'zimra',
+      id: e.id,
+      timestamp: e.customs_stamp_date,
+      label: 'ZIMRA Customs Clearance',
+      desc: `Import duty cleared via ${e.port_of_entry}. Ref: ${e.customs_ref_number}`,
+      details: { importer: e.importer_name, dutyPaid: e.duty_paid_zig, date: e.customs_stamp_date }
+    });
+  }
+
+  // CVR Registrations
+  for (const e of (cvrResult.data || [])) {
+    events.push({
+      event_source: 'cvr',
+      id: e.id,
+      timestamp: e.issue_date,
+      label: 'CVR Registration',
+      desc: `Registered plate ${e.registration_number}. Owner: ${e.owner_full_name}`,
+      details: { logbookSerial: e.logbook_serial_number, ownerId: e.owner_id_number, status: e.status }
+    });
+  }
+
+  // VID Inspections
+  for (const e of (vidResult.data || [])) {
+    events.push({
+      event_source: 'vid',
+      id: e.id,
+      timestamp: e.inspected_at,
+      label: 'VID Inspection',
+      desc: `Mechanical inspection: ${e.inspection_status} at ${e.inspection_center}`,
+      details: { brakingEfficiency: e.braking_efficiency_pct, suspensionPassed: e.suspension_passed, steeringPassed: e.steering_passed, odometer: e.odometer_reading }
+    });
+  }
+
+  // CID Clearances
+  for (const e of (cidResult.data || [])) {
+    events.push({
+      event_source: 'cid',
+      id: e.id,
+      timestamp: e.cleared_at,
+      label: 'CID Police Clearance',
+      desc: `CID clearance check: ${e.stolen_check_status} at ${e.station_name}`,
+      details: { reference: e.clearance_ref_number, officer: e.authorized_by_officer }
+    });
+  }
+
+  // ZINARA Licensing
+  for (const e of (zinaraResult.data || [])) {
+    events.push({
+      event_source: 'zinara',
+      id: e.id,
+      timestamp: e.licensing_term_start,
+      label: 'ZINARA Licensing',
+      desc: `Road licensing term: ${e.status}. Paid: ${e.amount_paid_zig} ZiG`,
+      details: { termEnd: e.licensing_term_end, receipt: e.receipt_number }
     });
   }
 
@@ -142,11 +210,39 @@ export async function calculateVehicleTrustScore(vin) {
   if (!vehicle) return 0;
 
   const previousScore = vehicle.trust_score;
-  let baseScore = 75.0;
+  let baseScore = 70.0; // Baseline starting score
 
-  if (vehicle.duty_paid) baseScore += 10.0;
-  if (vehicle.police_verified) baseScore += 10.0;
+  // 1. ZIMRA Customs Ingestion Check
+  const { data: zimra } = await supabase.from('zimra_declarations').select('id').eq('vin', vin).single();
+  const dutyPaidReal = !!zimra || !!vehicle.duty_paid;
+  if (dutyPaidReal) baseScore += 10.0;
 
+  // 2. CID Police Clearance Check
+  const { data: cid } = await supabase
+    .from('cid_clearance_records')
+    .select('stolen_check_status')
+    .eq('vin', vin)
+    .single();
+  const policeVerifiedReal = (cid && cid.stolen_check_status === 'Cleared') || !!vehicle.police_verified;
+  if (policeVerifiedReal) baseScore += 10.0;
+
+  // 3. CVR Ownership Registry Sync Check
+  const { data: cvr } = await supabase.from('cvr_ownership_records').select('id').eq('vin', vin).single();
+  const cvrSyncedReal = !!cvr;
+  if (cvrSyncedReal) baseScore += 5.0;
+
+  // 4. VID Inspection Mechanical Health Check
+  const { data: vid } = await supabase
+    .from('vid_inspections')
+    .select('inspection_status')
+    .eq('vin', vin)
+    .order('inspected_at', { ascending: false })
+    .limit(1);
+  const vidStatus = vid?.[0]?.inspection_status;
+  if (vidStatus === 'Passed') baseScore += 5.0;
+  else if (vidStatus === 'Failed_Unroadworthy') baseScore -= 20.0;
+
+  // Odometer and ledger audits
   const odoAudit = await runOdometerAudit(vin);
   if (!odoAudit.verified) baseScore -= 40.0;
 
@@ -186,9 +282,9 @@ export async function calculateVehicleTrustScore(vin) {
     vin,
     trustScore: finalScore,
     metrics: {
-      cvr_synced: true,
-      zimra_duty: !!vehicle.duty_paid,
-      zrp_police_cleared: !!vehicle.police_verified,
+      cvr_synced: cvrSyncedReal,
+      zimra_duty: dutyPaidReal,
+      zrp_police_cleared: policeVerifiedReal,
       blockchain_audit_valid: ledgerAudit.verified,
       odometer_consistent: odoAudit.verified,
       maintenance_logs_count: serviceCount || 0,

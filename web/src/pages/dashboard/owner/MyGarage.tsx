@@ -1,16 +1,16 @@
-// @ts-nocheck
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Plus, ArrowRight, Gauge, Calendar, FileText, Shield, AlertTriangle } from 'lucide-react'
+import { Plus, ArrowRight, Gauge, Calendar, FileText, Shield } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle, InsuranceRecord } from '@/types'
 
 export default function MyGarage() {
   const { fetchOwnedVehicles } = useCarUpApi()
-  const [vehicles, setVehicles] = useState<any[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
 
   useEffect(() => {
     fetchOwnedVehicles().then(setVehicles)
@@ -23,14 +23,14 @@ export default function MyGarage() {
           <h1 className="text-2xl font-bold">My Garage</h1>
           <p className="text-gray-500">Manage your vehicles and their digital identities</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1">
+        <Button className="bg-orange-500 hover:bg-orange-600 gap-1" data-testid="create-vehicle-button">
           <Plus className="w-4 h-4" /> Add Vehicle
         </Button>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 gap-6" data-testid="owner-vehicles-table">
         {vehicles.map((vehicle) => (
-          <Link key={vehicle.vin} to={`/dashboard/garage/${vehicle.vin}`}>
+          <Link key={vehicle.vin} to={`/dashboard/garage/${vehicle.vin}`} data-testid={`vehicle-row-${vehicle.vin}`}>
             <Card className="border-0 card-shadow hover-lift overflow-hidden">
               <CardContent className="p-0">
                 <div className="relative h-44">
@@ -58,7 +58,7 @@ export default function MyGarage() {
 
                   <div className="flex items-center gap-4 text-xs text-gray-500 mb-4">
                     <span className="flex items-center gap-1"><Gauge className="w-3.5 h-3.5" />{vehicle.mileage?.toLocaleString()} km</span>
-                    <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />Added {new Date(vehicle.created_at).toLocaleDateString()}</span>
+                    <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />Added {new Date(vehicle.created_at || '').toLocaleDateString()}</span>
                     <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" />{vehicle.documents?.length || 0} docs</span>
                   </div>
 
@@ -73,7 +73,7 @@ export default function MyGarage() {
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="flex gap-3 text-xs">
                       <span className="text-gray-600">{vehicle.service_records?.length || 0} services</span>
-                      <span className="text-gray-600">{vehicle.insurance_records?.filter((r: any) => r.status === 'active').length || 0} active insurance</span>
+                      <span className="text-gray-600">{vehicle.insurance_records?.filter((r: InsuranceRecord) => r.status === 'active').length || 0} active insurance</span>
                       <span className="text-gray-600">{vehicle.parts?.length || 0} parts tracked</span>
                     </div>
                     <ArrowRight className="w-4 h-4 text-gray-400" />
@@ -85,7 +85,7 @@ export default function MyGarage() {
         ))}
 
         {/* Add Vehicle Card */}
-        <button className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-400 hover:border-orange-500 hover:text-orange-500 hover:bg-orange-50 transition-all min-h-[200px]">
+        <button className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-400 hover:border-orange-500 hover:text-orange-500 hover:bg-orange-50 transition-all min-h-[200px]" data-testid="create-vehicle-button">
           <Plus className="w-10 h-10 mb-3" />
           <span className="font-medium">Add New Vehicle</span>
           <span className="text-sm">Scan logbook or enter VIN</span>

@@ -48,7 +48,7 @@ export async function runFraudAnalysis(vin, price, listingTitle) {
   return result;
 }
 
-export async function runOcrParsing(docType, base64Data) {
+export async function runOcrParsing(docType, base64Data, userId = 'u1') {
   const systemPrompt = `You are the CarUp OS Document OCR Parser Agent. 
   Analyze the uploaded vehicle registration logbook or ZIMRA Form 21. 
   Extract all structured details into a JSON payload with: { confidenceScore: number, vin: string, owner: string, engineNumber: string, make: string, model: string, year: number, importSource: string, dutyPaid: boolean }`;
@@ -65,7 +65,7 @@ export async function runOcrParsing(docType, base64Data) {
   try {
     const id = generateId('ocr');
     await supabase.from('ocr_documents').insert({
-      id, user_id: 'system', document_type: docType, file_path: base64Data ? 'inline_b64' : 'mock_path', extracted_json: JSON.stringify(result), confidence_score: result.confidenceScore || 0.5, status: 'Pending_Verification', created_at: new Date().toISOString()
+      id, user_id: userId, document_type: docType, file_path: base64Data ? 'inline_b64' : 'mock_path', extracted_json: JSON.stringify(result), confidence_score: result.confidenceScore || 0.5, status: 'Pending_Verification', created_at: new Date().toISOString()
     });
     
     result._ocrDocumentId = id;

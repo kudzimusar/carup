@@ -1,14 +1,14 @@
-// @ts-nocheck
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Shield, Plus, Calendar, FileText, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Shield, AlertTriangle, Plus } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle, InsuranceRecord } from '@/types'
 
 export default function InsuranceRecords() {
   const { fetchOwnedVehicles } = useCarUpApi()
-  const [vehicles, setVehicles] = useState<any[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState<string>('')
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export default function InsuranceRecords() {
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {insuranceRecords.map((record: any) => (
+        {insuranceRecords.map((record: InsuranceRecord) => (
           <Card key={record.id} className={`border-0 card-shadow ${record.status === 'active' ? 'ring-1 ring-green-200' : ''}`}>
             <CardContent className="p-5">
               <div className="flex items-center justify-between mb-4">
@@ -57,8 +57,8 @@ export default function InsuranceRecords() {
               <div className="space-y-2 text-sm mb-4">
                 <div className="flex justify-between"><span className="text-gray-500">Type</span><span>{record.type}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Premium</span><span className="font-medium">${record.premium}/mo</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Start</span><span>{new Date(record.start_date).toLocaleDateString()}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Expiry</span><span>{new Date(record.expiry_date).toLocaleDateString()}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Start</span><span>{new Date(record.start_date || '').toLocaleDateString()}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Expiry</span><span>{new Date(record.expiry_date || '').toLocaleDateString()}</span></div>
               </div>
 
               <div className="pt-3 border-t">
@@ -74,7 +74,7 @@ export default function InsuranceRecords() {
         ))}
       </div>
 
-      {insuranceRecords.some((r: any) => r.status === 'expired') && (
+      {insuranceRecords.some((r: InsuranceRecord) => r.status === 'expired') && (
         <Card className="border-0 card-shadow bg-amber-50 border-amber-200">
           <CardContent className="p-5 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />

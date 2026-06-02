@@ -1,4 +1,4 @@
-// @ts-nocheck
+
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
-import { TrendingUp, TrendingDown, Shield, Car, AlertTriangle, Sparkles, DollarSign, Calculator } from 'lucide-react'
+import { TrendingDown, Shield, Calculator } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
@@ -75,11 +75,11 @@ export default function RiskAnalysis() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-gray-500">Current Mileage (km)</label>
-              <Input type="number" value={mileage} onChange={e => setMileage(e.target.value)} />
+              <Input type="number" value={mileage} onChange={e => setMileage(Number(e.target.value) || 0)} />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-gray-500">Declared Value (USD)</label>
-              <Input type="number" value={basePrice} onChange={e => setBasePrice(e.target.value)} />
+              <Input type="number" value={basePrice} onChange={e => setBasePrice(Number(e.target.value) || 0)} />
             </div>
             <Button onClick={handleCalculate} disabled={loading} className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium">
               {loading ? 'Analyzing...' : 'Recalculate Premium'}

@@ -1,22 +1,22 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import {
   ArrowLeft, Gauge, Calendar, FileText, Shield, CheckCircle,
-  Wrench, Settings2, Fuel, Palette, Hash, Upload, Star, Loader2
+  Wrench, Palette, Hash, Upload, Star, Loader2
 } from 'lucide-react'
 
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { VehiclePassport, InsuranceRecord } from '@/types'
 
 export default function VehicleProfile() {
   const { id } = useParams()
   const { fetchVehiclePassport } = useCarUpApi()
-  const [passportData, setPassportData] = useState(null)
+  const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -39,21 +39,21 @@ export default function VehicleProfile() {
     make: passportData.vehicle?.make || 'Unknown',
     model: passportData.vehicle?.model || 'Unknown',
     year: passportData.vehicle?.year || 'Unknown',
-    vin: passportData.vehicle?.vin || id,
+    vin: passportData.vehicle?.vin || id || '',
     mileage: passportData.vehicle?.mileage || 0,
     trustScore: passportData.trustReport?.trustScore || 0,
     color: passportData.vehicle?.color || 'Unknown',
     purchasePrice: passportData.vehicle?.price || 0,
     currentEstimate: (passportData.vehicle?.price || 0) * 0.9,
     image: passportData.vehicle?.image_url || 'https://images.unsplash.com/photo-1605810230434-7631ac76ec81?w=800&q=80',
-    registration: passportData.vehicle?.vin || id,
+    registration: passportData.vehicle?.vin || id || '',
     engineNumber: 'UNKNOWN',
     purchaseDate: passportData.vehicle?.created_at || new Date().toISOString(),
-    documents: [],
-    insuranceRecords: [],
+    documents: [] as { id: string; title: string; date: string; status: string }[],
+    insuranceRecords: [] as InsuranceRecord[],
     serviceHistory: (passportData.timeline || [])
-      .filter((e: any) => e.event_source === 'service')
-      .map((e: any) => ({
+      .filter((e) => e.event_source === 'service')
+      .map((e) => ({
         id: e.id,
         serviceType: e.label,
         garage: e.details?.notes || 'Simbisa Garages',
@@ -63,8 +63,8 @@ export default function VehicleProfile() {
         cost: e.details?.cost || 0
       })),
     partsHistory: (passportData.timeline || [])
-      .filter((e: any) => e.event_source === 'service')
-      .map((e: any) => ({
+      .filter((e) => e.event_source === 'service')
+      .map((e) => ({
         id: e.id,
         name: e.label,
         manufacturer: 'OEM',

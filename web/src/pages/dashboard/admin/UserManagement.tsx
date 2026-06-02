@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import type { User } from '@/types'
 
 
 
@@ -19,7 +19,7 @@ const roleIcons: Record<string, typeof Users> = { Owner: Car, Dealer: Building2,
 
 export default function UserManagement() {
   const { fetchUsers, suspendUser } = useCarUpApi()
-  const [users, setUsers] = useState<any[]>([])
+  const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -30,9 +30,9 @@ export default function UserManagement() {
     setLoading(true)
     try {
       const data = await fetchUsers()
-      setUsers(Array.isArray(data) ? data : data?.users || [])
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to fetch users')
+      setUsers(data)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch users')
     } finally {
       setLoading(false)
     }
@@ -47,8 +47,8 @@ export default function UserManagement() {
       await suspendUser(id)
       toast.success('User suspended successfully')
       loadUsers()
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to suspend user')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to suspend user')
     }
   }
 
@@ -69,8 +69,8 @@ export default function UserManagement() {
       setIsAddModalOpen(false)
       setNewUser({ name: '', email: '', password: '', role: 'Owner' })
       loadUsers()
-    } catch (err: any) {
-      toast.error(err.message || 'Error adding user')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Error adding user')
     } finally {
       setIsAdding(false)
     }
@@ -126,7 +126,7 @@ export default function UserManagement() {
                       </div>
                       <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                         <span>{user.email}</span>
-                        <span>Joined: {new Date(user.created_at || user.joined).toLocaleDateString()}</span>
+                        <span>Joined: {user.created_at || user.joined ? new Date(user.created_at || user.joined || '').toLocaleDateString() : 'N/A'}</span>
                         <span>ID: {user.id}</span>
                       </div>
                     </div>

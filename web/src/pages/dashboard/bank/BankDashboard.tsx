@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -10,18 +9,15 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import {
   Shield,
-  FileText,
   TrendingUp,
-  DollarSign,
   ArrowRight,
   ClipboardList,
-  CheckCircle,
   AlertTriangle,
   MapPin,
-  Clock,
   Landmark
 } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import type { FinanceApplication } from '@/types'
 
 const loanTrend = [
   { month: 'Jan', volume: 150000 },
@@ -33,7 +29,7 @@ const loanTrend = [
 
 export default function BankDashboard() {
   const { fetchFinanceApplications } = useCarUpApi()
-  const [applications, setApplications] = useState<any[]>([])
+  const [applications, setApplications] = useState<FinanceApplication[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {

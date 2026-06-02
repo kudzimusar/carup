@@ -1,13 +1,13 @@
-// @ts-nocheck
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Brain, MessageSquare, Eye, Zap, TrendingUp, Clock, CheckCircle } from 'lucide-react'
+import { Brain, MessageSquare, Zap, Clock, CheckCircle } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+import type { ServerHealthModel } from '@/types'
 
 const requestData = [
   { hour: '00', requests: 120 },
@@ -29,8 +29,8 @@ const accuracyData = [
 ]
 
 export default function AIMonitoring() {
-  const { fetchServerHealth, loading } = useCarUpApi()
-  const [healthData, setHealthData] = useState<any[]>([])
+  const { fetchServerHealth } = useCarUpApi()
+  const [healthData, setHealthData] = useState<ServerHealthModel[]>([])
   const [initialLoading, setInitialLoading] = useState(true)
 
   useEffect(() => {
@@ -39,8 +39,8 @@ export default function AIMonitoring() {
         const data = await fetchServerHealth()
         // Assuming data is an array or has a models property
         setHealthData(Array.isArray(data) ? data : (data?.models || []))
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to fetch server health')
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to fetch server health')
       } finally {
         setInitialLoading(false)
       }
@@ -124,7 +124,7 @@ export default function AIMonitoring() {
               ))}
             </div>
           ) : healthData.length > 0 ? (
-            healthData.map((model: any, index: number) => (
+            healthData.map((model: ServerHealthModel, index: number) => (
               <div key={model.name || index}>
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">

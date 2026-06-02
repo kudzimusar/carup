@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -24,9 +23,8 @@ export default function KYCVerification() {
   // Document states
   const [docType, setDocType] = useState('national-id')
   const [fileName, setFileName] = useState('')
-  const [storagePath, setStoragePath] = useState('')
 
-  const { request } = useCarUpApi()
+  const { uploadKycDocument } = useCarUpApi()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -37,23 +35,16 @@ export default function KYCVerification() {
     reader.onload = async (ev) => {
       const base64Str = ev.target?.result as string
       try {
-        const res = await request('/media/upload/document', {
-          method: 'POST',
-          body: JSON.stringify({
-            document: base64Str,
-            docType: docType,
-            vin: nationalId.trim() || 'KYC-DOCUMENTS'
-          })
-        })
-        if (res && res.storagePath) {
-          setStoragePath(res.storagePath)
+        const res = await uploadKycDocument(docType, base64Str, nationalId.trim())
+        if (res && (res.path || res.storagePath)) {
           setFileName(file.name)
           setVerified(true)
           toast.success(`${file.name} uploaded successfully!`)
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('KYC Document upload failed:', err)
-        toast.error(err.message || 'Failed to upload and secure document.')
+        const errMsg = err instanceof Error ? err.message : 'Failed to upload and secure document.'
+        toast.error(errMsg)
       } finally {
         setUploading(false)
       }

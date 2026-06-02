@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -7,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, Car, AlertCircle } from 'lucide-react'
+import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -46,13 +45,13 @@ function validateVin(vin: string) {
 
 export default function SellVehicle() {
   const navigate = useNavigate()
-  const { request } = useCarUpApi()
+  const { createVehicleListing, uploadVehicleImages } = useCarUpApi()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
 
-  const set = (field: string, value: any) => setForm(prev => ({ ...prev, [field]: value }))
+  const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
 
   const addFeature = () => {
     const f = form.featureInput.trim()
@@ -115,13 +114,7 @@ export default function SellVehicle() {
       // Upload listing photos to private media pipeline first if present
       if (form.images && form.images.length > 0) {
         try {
-          const uploadRes = await request('/media/upload/vehicle', {
-            method: 'POST',
-            body: JSON.stringify({
-              images: form.images,
-              vin: form.vin.toUpperCase()
-            })
-          })
+          const uploadRes = await uploadVehicleImages(form.vin.toUpperCase(), form.images)
           if (uploadRes && Array.isArray(uploadRes.urls)) {
             uploadedImageUrls = uploadRes.urls
           }
@@ -131,31 +124,29 @@ export default function SellVehicle() {
         }
       }
 
-      await request('/vehicles/add', {
-        method: 'POST',
-        body: JSON.stringify({
-          vin: form.vin.toUpperCase(),
-          make: form.make,
-          model: form.model,
-          year: parseInt(form.year),
-          color: form.color,
-          mileage: parseInt(form.mileage),
-          fuel_type: form.fuelType,
-          transmission: form.transmission,
-          condition: form.condition,
-          category: form.category,
-          price: parseFloat(form.price),
-          currency: 'USD',
-          description: form.description,
-          location: form.location,
-          province: form.province,
-          images: uploadedImageUrls
-        }),
+      await createVehicleListing({
+        vin: form.vin.toUpperCase(),
+        make: form.make,
+        model: form.model,
+        year: parseInt(form.year),
+        color: form.color,
+        mileage: parseInt(form.mileage),
+        fuel_type: form.fuelType,
+        transmission: form.transmission,
+        condition: form.condition,
+        category: form.category,
+        price: parseFloat(form.price),
+        currency: 'USD',
+        description: form.description,
+        location: form.location,
+        province: form.province,
+        images: uploadedImageUrls
       })
       toast.success('Listing submitted! Your vehicle is now live on CarUp.')
       navigate('/dashboard')
-    } catch (err: any) {
-      if (err.message && err.message.includes('already listed')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : ''
+      if (errMsg.includes('already listed')) {
         toast.error('A vehicle with this VIN is already listed.')
       } else {
         toast.error('Failed to submit listing. Please try again.')
@@ -189,14 +180,14 @@ export default function SellVehicle() {
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Make *</label>
                   <Select value={form.make} onValueChange={v => set('make', v)}>
-                    <SelectTrigger className={errors.make ? 'border-red-400' : ''}><SelectValue placeholder="Select make" /></SelectTrigger>
+                    <SelectTrigger className={errors.make ? 'border-red-400' : ''} data-testid="vehicle-make-input"><SelectValue placeholder="Select make" /></SelectTrigger>
                     <SelectContent>{MAKES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
                   </Select>
                   {errors.make && <p className="text-xs text-red-500 mt-1">{errors.make}</p>}
                 </div>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Model *</label>
-                  <Input value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux GD-6" className={errors.model ? 'border-red-400' : ''} />
+                  <Input value={form.model} onChange={e => set('model', e.target.value)} placeholder="e.g. Hilux GD-6" className={errors.model ? 'border-red-400' : ''} data-testid="vehicle-model-input" />
                   {errors.model && <p className="text-xs text-red-500 mt-1">{errors.model}</p>}
                 </div>
                 <div>
@@ -221,6 +212,7 @@ export default function SellVehicle() {
                     placeholder="17-character VIN e.g. JTELU9FJ9K5987234"
                     maxLength={17}
                     className={`font-mono pr-10 ${errors.vin ? 'border-red-400' : vinValid === true ? 'border-green-400' : ''}`}
+                    data-testid="vehicle-vin-input"
                   />
                   {vinValid === true && <CheckCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />}
                   {vinValid === false && <AlertCircle className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-red-500" />}
@@ -446,7 +438,7 @@ export default function SellVehicle() {
                 Next <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
             ) : (
-              <Button className="bg-orange-500 hover:bg-orange-600 min-w-36" onClick={handleSubmit} disabled={submitting}>
+              <Button className="bg-orange-500 hover:bg-orange-600 min-w-36" onClick={handleSubmit} disabled={submitting} data-testid="submit-vehicle-button">
                 {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting...</> : 'Submit Listing'}
               </Button>
             )}

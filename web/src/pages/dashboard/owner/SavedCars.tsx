@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -6,10 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Heart, X, Gauge, Settings2, Fuel, MapPin } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle } from '@/types'
 
 export default function SavedCars() {
   const { fetchSavedVehicles, unsaveVehicle } = useCarUpApi()
-  const [savedVehicles, setSavedVehicles] = useState<any[]>([])
+  const [savedVehicles, setSavedVehicles] = useState<Vehicle[]>([])
 
   useEffect(() => {
     fetchSavedVehicles().then(setSavedVehicles)

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -16,6 +15,7 @@ import {
 import { zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
+import type { Vehicle } from '@/types'
 
 const categories = ['All', 'Sedan', 'SUV', 'Hatchback', 'Pickup', 'Luxury', 'Commercial']
 const conditions = ['All', 'New', 'Used', 'Certified Pre-Owned']
@@ -50,7 +50,7 @@ function setFavorites(ids: string[]) {
 
 export default function Marketplace() {
   const { fetchVehicles } = useCarUpApi()
-  const [liveVehicles, setLiveVehicles] = useState<any[]>([])
+  const [liveVehicles, setLiveVehicles] = useState<Vehicle[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
 
@@ -95,10 +95,10 @@ export default function Marketplace() {
     setFavoritesState(updated)
   }, [])
 
-  const filtered = liveVehicles.filter((v: any) => {
+  const filtered = liveVehicles.filter((v: Vehicle) => {
     const loc = v.location || ''
     const matchSearch = !searchQuery ||
-      `${v.make} ${v.model}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      `${v.make || ''} ${v.model || ''}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
       loc.toLowerCase().includes(searchQuery.toLowerCase())
     const matchCat = selectedCategory === 'All' || v.category === selectedCategory
     const matchMake = selectedMake === 'All' || v.make === selectedMake
@@ -106,14 +106,14 @@ export default function Marketplace() {
     const matchFuel = selectedFuel === 'All' || v.fuel_type === selectedFuel
     const matchTrans = selectedTrans === 'All' || v.transmission === selectedTrans
     const matchLoc = selectedLocation === 'All' || loc === selectedLocation
-    const matchPrice = v.price >= priceRange[0] && v.price <= priceRange[1]
+    const matchPrice = (v.price || 0) >= priceRange[0] && (v.price || 0) <= priceRange[1]
     return matchSearch && matchCat && matchMake && matchCond && matchFuel && matchTrans && matchLoc && matchPrice
   })
 
-  const sorted = [...filtered].sort((a: any, b: any) => {
-    if (sortBy === 'price-low') return a.price - b.price
-    if (sortBy === 'price-high') return b.price - a.price
-    if (sortBy === 'newest') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  const sorted = [...filtered].sort((a: Vehicle, b: Vehicle) => {
+    if (sortBy === 'price-low') return (a.price || 0) - (b.price || 0)
+    if (sortBy === 'price-high') return (b.price || 0) - (a.price || 0)
+    if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
     if (sortBy === 'trust') return (b.trust_score || 0) - (a.trust_score || 0)
     return 0
   })
@@ -267,18 +267,18 @@ export default function Marketplace() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {sorted.map((vehicle: any) => {
-              const isFav = favorites.includes(vehicle.vin)
+            {sorted.map((vehicle: Vehicle) => {
+              const isFav = favorites.includes(vehicle.vin || '')
               const isReserved = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
               const fallbackImage = 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=800'
               const primaryImage = vehicle.images?.[0] || fallbackImage
               return (
-                <Link key={vehicle.vin} to={`/marketplace/${vehicle.vin}`} className="group">
+                <Link key={vehicle.vin || ''} to={`/marketplace/${vehicle.vin || ''}`} className="group">
                   <Card className="overflow-hidden border-0 card-shadow hover-lift h-full bg-white">
                     <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
                       <img
                         src={primaryImage}
-                        alt={`${vehicle.make} ${vehicle.model}`}
+                        alt={`${vehicle.make || ''} ${vehicle.model || ''}`}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute top-3 left-3 flex gap-2">
@@ -287,7 +287,7 @@ export default function Marketplace() {
                             <CheckCircle className="w-3 h-3 mr-1" /> Verified
                           </Badge>
                         )}
-                        {vehicle.trust_score > 90 && (
+                        {(vehicle.trust_score || 0) > 90 && (
                           <Badge className="bg-orange-500 text-white text-[10px]">Featured</Badge>
                         )}
                         {isReserved && (
@@ -295,7 +295,7 @@ export default function Marketplace() {
                         )}
                       </div>
                       <button
-                        onClick={(e) => toggleFavorite(e, vehicle.vin, `${vehicle.year} ${vehicle.make} ${vehicle.model}`)}
+                        onClick={(e) => toggleFavorite(e, vehicle.vin || '', `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`)}
                         className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
                       >
                         <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
@@ -303,9 +303,9 @@ export default function Marketplace() {
                     </div>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-1">
-                        <h3 className="font-semibold text-sm line-clamp-1">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
+                        <h3 className="font-semibold text-sm line-clamp-1">{vehicle.year || ''} {vehicle.make || ''} {vehicle.model || ''}</h3>
                       </div>
-                      <p className="text-xl font-bold text-orange-600">${vehicle.price.toLocaleString()}</p>
+                      <p className="text-xl font-bold text-orange-600">${(vehicle.price || 0).toLocaleString()}</p>
                       <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage || 0).toLocaleString()} km</span>
                         <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission || 'Auto'}</span>

@@ -1,13 +1,12 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { MapPin, ShieldAlert, Navigation } from 'lucide-react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { TelemetryData } from '@/types'
 
 // Fix standard leaflet icon issue in React
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -19,7 +18,7 @@ L.Icon.Default.mergeOptions({
 
 export default function CollateralMap() {
   const { fetchTelemetry } = useCarUpApi()
-  const [assets, setAssets] = useState<any[]>([])
+  const [assets, setAssets] = useState<TelemetryData[]>([])
 
   useEffect(() => {
     const loadData = async () => {

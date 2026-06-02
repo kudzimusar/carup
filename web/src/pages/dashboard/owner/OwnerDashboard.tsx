@@ -1,33 +1,28 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import {
   Car,
   Wrench,
   Shield,
   FileText,
-  AlertTriangle,
-  TrendingUp,
   ArrowRight,
   Plus,
   Gauge,
   CheckCircle,
-  Clock,
   MessageSquare,
   WifiOff,
   Smartphone,
   Wallet,
-  Upload,
-  RefreshCw
+  Upload
 } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle, Notification, Escrow } from '@/types'
 
 const valueData = [
   { month: 'Jan', value: 28000 },
@@ -40,8 +35,8 @@ const valueData = [
 export default function OwnerDashboard() {
   const { runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
 
-  const [vehicles, setVehicles] = useState<any[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<any[]>([])
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -51,20 +46,14 @@ export default function OwnerDashboard() {
   }, [fetchOwnedVehicles, fetchNotifications])
 
   const recentNotifications = liveNotifications.slice(0, 3)
-  const stats = {
-    totalValue: vehicles.reduce((a, v) => a + (v.price || 0), 0),
-    activeListings: 0,
-    trustScore: vehicles.length > 0 ? Math.round(vehicles.reduce((a, v) => a + v.trust_score, 0) / vehicles.length) : 0,
-    pendingServices: 0
-  }
 
   // Onboarding & settings states
   const [lowBandwidth, setLowBandwidth] = useState(false)
   const [whatsappLinked, setWhatsappLinked] = useState(true)
   const [ocrLoading, setOcrLoading] = useState(false)
   const [documents, setDocuments] = useState([
-    { name: 'ZIMRA Customs Cleared Form 21.pdf', type: 'ZIMRA Form 21', date: '2026-05-10', verified: true },
-    { name: 'NicozDiamond Policy.pdf', type: 'Insurance policy', date: '2026-05-15', verified: true }
+    { id: 'zimra-form-21', name: 'ZIMRA Customs Cleared Form 21.pdf', type: 'ZIMRA Form 21', date: '2026-05-10', verified: true },
+    { id: 'insurance-policy', name: 'NicozDiamond Policy.pdf', type: 'Insurance policy', date: '2026-05-15', verified: true }
   ])
 
   // Multi-currency balances
@@ -82,7 +71,7 @@ export default function OwnerDashboard() {
       try {
         const escrows = await fetchSafePayEscrows()
         if (mounted && escrows) {
-          const totalUsd = escrows.reduce((sum: number, e: any) => e.currency === 'USD' ? sum + e.amount : sum, 0)
+          const totalUsd = escrows.reduce((sum: number, e: Escrow) => e.currency === 'USD' ? sum + e.amount : sum, 0)
           setWallet(w => ({ ...w, escrowUsd: totalUsd, escrowLockedCount: escrows.length }))
         }
       } catch (err) {
@@ -159,7 +148,7 @@ export default function OwnerDashboard() {
                 <p className="text-xs text-orange-600">Connect your account with Gutu AI WhatsApp bot (+263 773 345 678) to get instant alerts on ZIMRA clearance, mileage milestones, and escrow releases.</p>
               </div>
             </div>
-            <Button size="xs" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => {
+            <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => {
               setWhatsappLinked(true);
               toast.success('WhatsApp communication verified successfully.');
             }}>Verify Now</Button>

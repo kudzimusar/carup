@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -6,24 +5,13 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
-import {
-  ClipboardList,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Shield,
-  Search,
-  Filter,
-  DollarSign,
-  User,
-  Wrench,
-  AlertTriangle
-} from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { FinanceApplication } from '@/types'
 
 export default function LendingQueue() {
   const { fetchFinanceApplications, updateFinanceApplicationStatus } = useCarUpApi() 
-  const [applications, setApplications] = useState<any[]>([])
+  const [applications, setApplications] = useState<FinanceApplication[]>([])
   const [loading, setLoading] = useState(true)
   const [filterMake, setFilterMake] = useState('')
 
@@ -175,17 +163,17 @@ export default function LendingQueue() {
                           {app.status === 'Pending' && (
                             <>
                               <Button
-                                size="xs"
+                                size="sm"
                                 className="bg-amber-500 hover:bg-amber-600 text-white text-xs py-1 px-2.5"
-                                onClick={() => handleUpdateStatus(app.id, 'Under Review')}
+                                onClick={() => handleUpdateStatus(String(app.id), 'Under Review')}
                               >
                                 Review
                               </Button>
                               <Button
-                                size="xs"
+                                size="sm"
                                 variant="destructive"
                                 className="text-xs py-1 px-2.5"
-                                onClick={() => handleUpdateStatus(app.id, 'Rejected')}
+                                onClick={() => handleUpdateStatus(String(app.id), 'Rejected')}
                               >
                                 Reject
                               </Button>
@@ -193,37 +181,37 @@ export default function LendingQueue() {
                           )}
                           {app.status === 'Under Review' && (
                             <Button
-                              size="xs"
+                              size="sm"
                               className="bg-purple-500 hover:bg-purple-600 text-white text-xs py-1 px-2.5"
-                              onClick={() => handleUpdateStatus(app.id, 'Approved')}
+                              onClick={() => handleUpdateStatus(String(app.id), 'Approved')}
                             >
                               Approve Loan
                             </Button>
                           )}
                           {app.status === 'Approved' && (
                             <Button
-                              size="xs"
+                              size="sm"
                               className="bg-orange-500 hover:bg-orange-600 text-white text-xs py-1 px-2.5"
-                              onClick={() => handleUpdateStatus(app.id, 'Escrow Pending')}
+                              onClick={() => handleUpdateStatus(String(app.id), 'Escrow Pending')}
                             >
                               Disburse to Escrow
                             </Button>
                           )}
                           {app.status === 'Escrow Pending' && (
                             <Button
-                              size="xs"
+                              size="sm"
                               className="bg-indigo-500 hover:bg-indigo-600 text-white text-xs py-1 px-2.5"
-                              onClick={() => handleUpdateStatus(app.id, 'Active Loan')}
+                              onClick={() => handleUpdateStatus(String(app.id), 'Active Loan')}
                             >
                               Activate Asset
                             </Button>
                           )}
                           {app.status === 'Active Loan' && (
                             <Button
-                              size="xs"
+                              size="sm"
                               variant="outline"
                               className="text-xs py-1 px-2.5"
-                              onClick={() => handleUpdateStatus(app.id, 'Closed')}
+                              onClick={() => handleUpdateStatus(String(app.id), 'Closed')}
                             >
                               Close Loan
                             </Button>

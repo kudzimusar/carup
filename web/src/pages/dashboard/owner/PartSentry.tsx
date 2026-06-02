@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -6,10 +5,11 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Gauge, Plus, Shield, Search, Hash, Wrench, FileText, Loader2, Copy, CheckCircle2 } from 'lucide-react'
+import { Plus, Shield, Search, Wrench, FileText, Loader2, Copy, CheckCircle2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
+import type { Vehicle, Part } from '@/types'
 
 const STATIC_PARTS = [
   { id: 'p1', name: 'Engine Oil & Filter', type: 'OEM', manufacturer: 'Toyota Genuine', installedDate: '14 Jan 2026', installedBy: 'Simbisa Garages', warranty: '6 months', cost: 85 },
@@ -18,10 +18,10 @@ const STATIC_PARTS = [
 ]
 
 export default function PartSentry() {
-  const { addRepairLog, fetchVehiclePassport, verifyLedger, fetchOwnedVehicles } = useCarUpApi()
-  const [vehicles, setVehicles] = useState<any[]>([])
+  const { addRepairLog, verifyLedger, fetchOwnedVehicles } = useCarUpApi()
+  const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState('')
-  const [parts, setParts] = useState(STATIC_PARTS)
+  const [parts, setParts] = useState<Part[]>(STATIC_PARTS as Part[])
   const [ledgerVerified, setLedgerVerified] = useState<boolean | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -83,7 +83,7 @@ export default function PartSentry() {
       blockchainHash = Math.random().toString(36).substring(2, 14)
     }
     // Add to local parts list
-    const newPart = {
+    const newPart: Part = {
       id: 'p_' + Date.now(),
       name: repairForm.partName,
       type: 'OEM',
@@ -93,6 +93,9 @@ export default function PartSentry() {
       warranty: '12 months',
       cost: 0,
       blockchainHash,
+      sku: '',
+      stock: 0,
+      price: 0
     }
     setParts(prev => [newPart, ...prev])
     setShowAddDialog(false)
@@ -158,7 +161,7 @@ export default function PartSentry() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table data-testid="owner-parts-table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Part Name</TableHead>
@@ -173,7 +176,7 @@ export default function PartSentry() {
                 </TableHeader>
                 <TableBody>
                   {parts.map((part) => (
-                    <TableRow key={part.id}>
+                    <TableRow key={part.id} data-testid={`part-row-${part.id}`}>
                       <TableCell className="font-medium">{part.name}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className={part.type === 'OEM' ? 'text-green-600 border-green-200 bg-green-50' : 'text-blue-600 border-blue-200 bg-blue-50'}>

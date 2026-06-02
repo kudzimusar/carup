@@ -1,11 +1,10 @@
-// @ts-nocheck
 import { useState, useRef, useEffect } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Send, Bot, User, Image, FileText, TrendingUp, Shield, Wrench, Car, Sparkles } from 'lucide-react'
+import { Send, Bot, User, Image, Sparkles } from 'lucide-react'
 
 export interface ChatMessage {
   id: string

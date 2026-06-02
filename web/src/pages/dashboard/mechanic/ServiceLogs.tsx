@@ -8,16 +8,17 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import type { WorkOrder } from '@/types'
 
 const mockLogs = [
-  { id: 1, vehicle: 'Toyota Corolla', service: 'Full Service', date: '2026-04-20', mileage: 67000, cost: 280, parts: 3, notes: 'Oil change, filters, brake inspection' },
-  { id: 2, vehicle: 'BMW X5', service: 'Brake Service', date: '2026-01-15', mileage: 45000, cost: 450, parts: 2, notes: 'Front and rear brake replacement' },
-  { id: 3, vehicle: 'Nissan NP300', service: 'Timing Belt', date: '2026-03-10', mileage: 44000, cost: 380, parts: 1, notes: 'Timing belt and water pump replacement' },
+  { id: '1', vehicle: 'Toyota Corolla', service: 'Full Service', date: '2026-04-20', mileage: 67000, cost: 280, parts: 3, notes: 'Oil change, filters, brake inspection' },
+  { id: '2', vehicle: 'BMW X5', service: 'Brake Service', date: '2026-01-15', mileage: 45000, cost: 450, parts: 2, notes: 'Front and rear brake replacement' },
+  { id: '3', vehicle: 'Nissan NP300', service: 'Timing Belt', date: '2026-03-10', mileage: 44000, cost: 380, parts: 1, notes: 'Timing belt and water pump replacement' },
 ]
 
 export default function ServiceLogs() {
   const { addRepairLog, loading } = useCarUpApi()
-  const [logs, setLogs] = useState<any[]>(mockLogs)
+  const [logs, setLogs] = useState<WorkOrder[]>(mockLogs as WorkOrder[])
   const [search, setSearch] = useState('')
 
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -55,7 +56,7 @@ export default function ServiceLogs() {
         toast.success('Service log recorded securely to PartSentry!')
         setIsModalOpen(false)
         setLogs([{
-          id: Math.random(),
+          id: Math.random().toString(),
           vehicle: formData.vin,
           service: `${formData.actionType} ${formData.partName}`,
           date: new Date().toLocaleDateString(),
@@ -63,11 +64,11 @@ export default function ServiceLogs() {
           cost: 0,
           parts: 1,
           notes: formData.description
-        }, ...logs])
+        } as unknown as WorkOrder, ...logs])
         setFormData({ vin: '', partName: '', partOem: '', actionType: 'replaced', description: '', mileage: 0 })
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add log')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add log')
     } finally {
       setIsSubmitting(false)
     }
@@ -166,7 +167,7 @@ export default function ServiceLogs() {
                   <p className="text-sm text-gray-600 mb-3 italic">"{log.notes}"</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500 bg-gray-50 p-2 rounded-md">
                     <span className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />{log.date}</span>
-                    <span className="font-medium text-gray-800">{log.mileage.toLocaleString()} km</span>
+                    <span className="font-medium text-gray-800">{log.mileage?.toLocaleString()} km</span>
                     {log.parts > 0 && <span>{log.parts} parts replaced</span>}
                     <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200">Verified by PartSentry</Badge>
                   </div>

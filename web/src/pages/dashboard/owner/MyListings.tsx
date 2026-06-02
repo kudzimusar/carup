@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -7,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
   available: 'bg-green-100 text-green-700',
@@ -18,7 +18,7 @@ export default function MyListings() {
   const { fetchOwnedVehicles } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
   const [markingId, setMarkingId] = useState<string | null>(null)
-  const [myListings, setMyListings] = useState<any[]>([])
+  const [myListings, setMyListings] = useState<Vehicle[]>([])
 
   useEffect(() => {
     fetchOwnedVehicles().then(data => {
@@ -87,7 +87,7 @@ export default function MyListings() {
                       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{listing.viewCount || 0} views</span>
                         <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" />Trust: {listing.trust_score}</span>
-                        <span>Listed {new Date(listing.created_at).toLocaleDateString()}</span>
+                        <span>Listed {new Date(listing.created_at || '').toLocaleDateString()}</span>
                       </div>
                       <div className="flex gap-2 mt-3">
                         <Button size="sm" variant="outline" className="text-xs gap-1" asChild>

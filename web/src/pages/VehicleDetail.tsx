@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
@@ -18,9 +17,10 @@ import {
   Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle,
   FileCheck, Star, Loader2, Lock, CreditCard, ChevronLeft, ChevronRight
 } from 'lucide-react'
-import { vehicles, formatPrice } from '@/data/mockData'
+import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
+import type { Vehicle } from '@/types'
 
 function getFavorites(): string[] {
   try { return JSON.parse(localStorage.getItem('carup_favorites') || '[]') } catch { return [] }
@@ -34,7 +34,7 @@ export default function VehicleDetail() {
   const navigate = useNavigate()
   const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle } = useCarUpApi()
 
-  const [vehicle, setVehicle] = useState<any>(null)
+  const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
@@ -71,11 +71,11 @@ export default function VehicleDetail() {
             province: 'Harare Province',
             listingDate: data.created_at || new Date().toISOString()
           })
-          setLoanAmount(data.price.toString())
+          setLoanAmount((data.price || 0).toString())
           const reservations = getReservations()
-          if (reservations[data.vin]) setIsReserved(true)
+          if (reservations[data.vin || '']) setIsReserved(true)
         }
-      } catch (err) {
+      } catch (err: unknown) {
         console.error(err)
       } finally {
         if (mounted) setLoading(false)
@@ -89,14 +89,14 @@ export default function VehicleDetail() {
     if (!vehicle) return
     const current = getFavorites()
     let updated: string[]
-    if (current.includes(vehicle.id)) {
+    if (current.includes(vehicle.id || '')) {
       updated = current.filter(i => i !== vehicle.id)
       setIsFav(false)
       toast.info('Removed from saved cars')
     } else {
-      updated = [...current, vehicle.id]
+      updated = [...current, vehicle.id || '']
       setIsFav(true)
-      toast.success(`${vehicle.make} ${vehicle.model} saved!`)
+      toast.success(`${vehicle.make || ''} ${vehicle.model || ''} saved!`)
     }
     localStorage.setItem('carup_favorites', JSON.stringify(updated))
   }, [vehicle])
@@ -104,7 +104,7 @@ export default function VehicleDetail() {
   const handleShare = useCallback(async () => {
     const url = window.location.href
     if (navigator.share) {
-      try { await navigator.share({ title: `${vehicle?.year} ${vehicle?.make} ${vehicle?.model}`, url }) } catch { }
+      try { await navigator.share({ title: `${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || ''}`, url }) } catch { }
     } else {
       await navigator.clipboard.writeText(url).catch(() => {})
       toast.success('Link copied to clipboard!')
@@ -117,17 +117,18 @@ export default function VehicleDetail() {
     try {
       // Assuming vehicle.tenant_id holds the dealer/seller id from Supabase
       const seller = vehicle.tenant_id || vehicle.sellerId || 'unknown_seller'
-      await reserveVehicle(vehicle.vin, 'u1', 7) // 'u1' is mock, but reserveVehicle may still need backend updates. 
-      await createSafePayEscrow(vehicle.vin, seller, 500)
+      await reserveVehicle(vehicle.vin || '', 'u1', 7) // 'u1' is mock, but reserveVehicle may still need backend updates. 
+      await createSafePayEscrow(vehicle.vin || '', seller, 500)
       
       const reservations = getReservations()
-      reservations[vehicle.vin] = { vehicleId: vehicle.id, timestamp: new Date().toISOString() }
+      reservations[vehicle.vin || ''] = { vehicleId: vehicle.id || '', timestamp: new Date().toISOString() }
       localStorage.setItem('carup_reservations', JSON.stringify(reservations))
       setIsReserved(true)
       setShowReserveModal(false)
       toast.success('Vehicle reserved! SafePay escrow of $500 initiated.', { duration: 5000 })
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to initiate Escrow. Make sure you are logged in.')
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : 'Failed to initiate Escrow. Make sure you are logged in.'
+      toast.error(errMsg)
     } finally {
       setReserveLoading(false)
     }
@@ -137,12 +138,13 @@ export default function VehicleDetail() {
     if (!vehicle) return
     setFinanceLoading(true)
     try {
-      await submitFinancing(vehicle.vin, 'u1', selectedBank, parseFloat(loanAmount))
+      await submitFinancing(vehicle.vin || '', 'u1', selectedBank, parseFloat(loanAmount))
       setIsFinanced(true)
       setShowFinanceModal(false)
       toast.success('Financing application submitted!', { duration: 6000 })
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to submit application. Make sure you are logged in.')
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : 'Failed to submit application. Make sure you are logged in.'
+      toast.error(errMsg)
     } finally {
       setFinanceLoading(false)
     }
@@ -171,10 +173,10 @@ export default function VehicleDetail() {
     )
   }
 
-  const allImages = vehicle.images.length > 1 ? vehicle.images : [vehicle.images[0]]
-  const trustColor = vehicle.trustScore >= 90 ? 'bg-green-500' : vehicle.trustScore >= 75 ? 'bg-amber-500' : 'bg-red-500'
-  const trustLabel = vehicle.trustScore >= 90 ? 'Excellent' : vehicle.trustScore >= 75 ? 'Good' : 'Fair'
-  const waLink = `https://wa.me/${vehicle.sellerPhone.replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year}%20${vehicle.make}%20${vehicle.model}%20listed%20on%20CarUp.`
+  const allImages = vehicle.images && vehicle.images.length > 0 ? vehicle.images : ['https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?q=80&w=1000']
+  const trustColor = (vehicle.trustScore || 0) >= 90 ? 'bg-green-500' : (vehicle.trustScore || 0) >= 75 ? 'bg-amber-500' : 'bg-red-500'
+  const trustLabel = (vehicle.trustScore || 0) >= 90 ? 'Excellent' : (vehicle.trustScore || 0) >= 75 ? 'Good' : 'Fair'
+  const waLink = `https://wa.me/${(vehicle.sellerPhone || '').replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year || ''}%20${vehicle.make || ''}%20${vehicle.model || ''}%20listed%20on%20CarUp.`
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -241,7 +243,7 @@ export default function VehicleDetail() {
             {/* Thumbnails */}
             {allImages.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {allImages.map((img, i) => (
+                {allImages.map((img: string, i: number) => (
                   <button key={i} onClick={() => setCurrentImageIdx(i)}
                     className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${i === currentImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
                     <img src={img} alt="" className="w-full h-full object-cover" />
@@ -255,11 +257,11 @@ export default function VehicleDetail() {
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h1 className="text-2xl font-bold">{vehicle.year} {vehicle.make} {vehicle.model}</h1>
+                    <h1 className="text-2xl font-bold">{vehicle.year || ''} {vehicle.make || ''} {vehicle.model || ''}</h1>
                     <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                      <MapPin className="w-4 h-4" />{vehicle.location}, {vehicle.province}
+                      <MapPin className="w-4 h-4" />{vehicle.location || ''}, {vehicle.province || ''}
                       <span className="mx-1">•</span>
-                      <Calendar className="w-4 h-4" />Listed {new Date(vehicle.listingDate).toLocaleDateString()}
+                      <Calendar className="w-4 h-4" />Listed {vehicle.listingDate ? new Date(vehicle.listingDate).toLocaleDateString() : 'N/A'}
                     </div>
                   </div>
                   <div className={`${trustColor} text-white px-4 py-2 rounded-xl text-center`}>
@@ -270,10 +272,10 @@ export default function VehicleDetail() {
                 <p className="text-gray-700 mb-6 leading-relaxed">{vehicle.description}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                   {[
-                    { label: 'Mileage', value: `${vehicle.mileage.toLocaleString()} km`, icon: Gauge },
-                    { label: 'Transmission', value: vehicle.transmission, icon: Settings2 },
-                    { label: 'Fuel Type', value: vehicle.fuelType, icon: Fuel },
-                    { label: 'Condition', value: vehicle.condition, icon: FileCheck },
+                    { label: 'Mileage', value: `${(vehicle.mileage || 0).toLocaleString()} km`, icon: Gauge },
+                    { label: 'Transmission', value: vehicle.transmission || 'Auto', icon: Settings2 },
+                    { label: 'Fuel Type', value: vehicle.fuelType || 'Petrol', icon: Fuel },
+                    { label: 'Condition', value: vehicle.condition || 'Used', icon: FileCheck },
                   ].map((item) => (
                     <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
                       <item.icon className="w-5 h-5 text-orange-500 mx-auto mb-1" />
@@ -285,7 +287,7 @@ export default function VehicleDetail() {
                 <Separator className="mb-6" />
                 <h3 className="font-semibold mb-3">Features</h3>
                 <div className="flex flex-wrap gap-2">
-                  {vehicle.features.map(f => <Badge key={f} variant="secondary" className="bg-gray-100 text-gray-700 font-normal">{f}</Badge>)}
+                  {(vehicle.features || []).map((f: string) => <Badge key={f} variant="secondary" className="bg-gray-100 text-gray-700 font-normal">{f}</Badge>)}
                 </div>
               </CardContent>
             </Card>
@@ -324,7 +326,7 @@ export default function VehicleDetail() {
                     <div className="grid sm:grid-cols-3 gap-4">
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Market Price</p>
-                        <p className="text-xl font-bold">{formatPrice(vehicle.price, vehicle.currency)}</p>
+                        <p className="text-xl font-bold">{formatPrice(vehicle.price || 0, vehicle.currency || 'USD')}</p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Price vs Market</p>
@@ -333,12 +335,12 @@ export default function VehicleDetail() {
                       </div>
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Depreciation</p>
-                        <p className="text-xl font-bold text-amber-600">{vehicle.year >= 2022 ? 'Low' : 'Moderate'}</p>
+                        <p className="text-xl font-bold text-amber-600">{vehicle.year && vehicle.year >= 2022 ? 'Low' : 'Moderate'}</p>
                       </div>
                     </div>
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <h4 className="font-medium text-sm mb-2">AI Price Insight</h4>
-                      <p className="text-sm text-gray-600">Based on {vehicle.make} {vehicle.model} sales in {vehicle.location} over the last 6 months, this vehicle is priced competitively. Similar vehicles have sold between ${(vehicle.price * 0.9).toLocaleString()} and ${(vehicle.price * 1.1).toLocaleString()}.</p>
+                      <p className="text-sm text-gray-600">Based on {vehicle.make} {vehicle.model} sales in {vehicle.location} over the last 6 months, this vehicle is priced competitively. Similar vehicles have sold between ${( (vehicle.price || 0) * 0.9).toLocaleString()} and ${( (vehicle.price || 0) * 1.1).toLocaleString()}.</p>
                     </div>
                   </TabsContent>
                 </Tabs>
@@ -351,7 +353,7 @@ export default function VehicleDetail() {
             <Card className="border-0 card-shadow bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white sticky top-6">
               <CardContent className="p-6">
                 <p className="text-sm text-gray-300 mb-1">Price</p>
-                <p className="text-3xl font-bold">{formatPrice(vehicle.price, vehicle.currency)}</p>
+                <p className="text-3xl font-bold">{formatPrice(vehicle.price || 0, vehicle.currency || 'USD')}</p>
                 <div className="flex items-center gap-1 mt-1">
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                   <span className="text-sm text-gray-300">Fair market price</span>
@@ -418,7 +420,7 @@ export default function VehicleDetail() {
               <CardContent className="p-6">
                 <h3 className="font-semibold mb-4">Vehicle Identity</h3>
                 <div className="space-y-3 text-sm">
-                  {[['VIN', vehicle.vin], ['Engine No.', vehicle.engineNumber], ['Category', vehicle.category], ['Color', vehicle.color]].map(([label, value]) => (
+                  {[['VIN', vehicle.vin || ''], ['Engine No.', vehicle.engineNumber || ''], ['Category', vehicle.category || ''], ['Color', vehicle.color || '']].map(([label, value]) => (
                     <div key={label} className="flex justify-between">
                       <span className="text-gray-500">{label}</span>
                       <span className="font-mono text-xs">{value}</span>
@@ -432,7 +434,7 @@ export default function VehicleDetail() {
               <CardContent className="p-6">
                 <h3 className="font-semibold mb-4">Trust Score Breakdown</h3>
                 <div className="space-y-3">
-                  {[['Documentation', 95], ['Service History', vehicle.trustScore >= 90 ? 90 : 75], ['Ownership Clarity', 92], ['Price Fairness', 88], ['Seller Reputation', vehicle.trustScore >= 90 ? 95 : 80]].map(([label, score]) => (
+                  {[['Documentation', 95], ['Service History', (vehicle.trustScore || 0) >= 90 ? 90 : 75], ['Ownership Clarity', 92], ['Price Fairness', 88], ['Seller Reputation', (vehicle.trustScore || 0) >= 90 ? 95 : 80]].map(([label, score]) => (
                     <div key={label}>
                       <div className="flex justify-between text-sm mb-1">
                         <span className="text-gray-600">{label}</span>
@@ -459,8 +461,8 @@ export default function VehicleDetail() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="bg-gray-50 rounded-lg p-4">
-              <p className="font-semibold">{vehicle.year} {vehicle.make} {vehicle.model}</p>
-              <p className="text-2xl font-bold text-orange-600 mt-1">{formatPrice(vehicle.price, vehicle.currency)}</p>
+              <p className="font-semibold">{vehicle.year || ''} {vehicle.make || ''} {vehicle.model || ''}</p>
+              <p className="text-2xl font-bold text-orange-600 mt-1">{formatPrice(vehicle.price || 0, vehicle.currency || 'USD')}</p>
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 space-y-1">
               <p className="font-semibold">What happens next:</p>
@@ -489,11 +491,11 @@ export default function VehicleDetail() {
           <div className="space-y-4 py-2">
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-sm text-gray-500">Vehicle</p>
-              <p className="font-semibold">{vehicle.year} {vehicle.make} {vehicle.model} — {formatPrice(vehicle.price, vehicle.currency)}</p>
+              <p className="font-semibold">{vehicle.year || ''} {vehicle.make || ''} {vehicle.model || ''} — {formatPrice(vehicle.price || 0, vehicle.currency || 'USD')}</p>
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Loan Amount (USD)</label>
-              <Input type="number" value={loanAmount} onChange={e => setLoanAmount(e.target.value)} min={1000} max={vehicle.price} />
+              <Input type="number" value={loanAmount} onChange={e => setLoanAmount(e.target.value)} min={1000} max={vehicle.price || 0} />
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Loan Term</label>

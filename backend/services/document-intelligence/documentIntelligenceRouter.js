@@ -25,16 +25,6 @@ router.post('/ocr', async (req, res) => {
       ipAddress: req.ip || '127.0.0.1'
     });
 
-    // If verification succeeds and quality passes, automatically upgrade trust level
-    if (analysis.success && analysis.qualityMetrics.qualityPassed && !fraudScan.isFlagged) {
-      await TrustService.assignTrustLevel('u1', 3, {
-        firstName: analysis.extractedData.first_name,
-        lastName: analysis.extractedData.last_name,
-        idNumber: analysis.extractedData.national_id_number,
-        method: docType
-      });
-    }
-
     res.json({
       ...analysis,
       fraudReport: fraudScan
@@ -47,6 +37,31 @@ router.post('/ocr', async (req, res) => {
     });
   }
 });
+
+// 1b. Admin/Government OCR Verification Approval
+router.post('/ocr/:id/approve', async (req, res) => {
+  const { id } = req.params;
+  const { actorId, vin, overrideJustification } = req.body;
+
+  if (!actorId || !vin) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required parameters: actorId and vin are mandatory.'
+    });
+  }
+
+  try {
+    const approval = await DocumentIntelligenceService.approveDocumentVerification(id, actorId, vin, overrideJustification);
+    res.json(approval);
+  } catch (error) {
+    console.error('OCR approval route failed:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 
 // 2. Fraud Risk Assessment Scan
 router.post('/fraud-scan', async (req, res) => {

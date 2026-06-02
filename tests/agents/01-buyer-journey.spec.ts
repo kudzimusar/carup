@@ -1,61 +1,73 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Agent 1 - Buyer Journey Validation', () => {
-  test('Complete Vehicle Purchase Journey', async ({ page }) => {
-    // Navigate to Marketplace
-    await page.goto('/marketplace');
-
-    // Marketplace Discovery
-    // Search vehicles
-    const searchInput = page.getByPlaceholder(/search/i);
-    if (await searchInput.isVisible()) {
-      await searchInput.fill('Toyota Hilux');
-    }
-    
-    // Compare flow - try to find compare buttons
-    const compareButtons = page.getByRole('button', { name: /compare/i });
-    if (await compareButtons.count() > 0) {
-      await compareButtons.first().click();
-    }
-
-    // Vehicle Page
-    // Navigate to a specific vehicle detail page. Using first vehicle card if available.
-    const vehicleLink = page.locator('a[href^="/marketplace/"]').first();
-    if (await vehicleLink.count() > 0) {
-      await vehicleLink.click();
-    } else {
-      await page.goto('/marketplace/1');
-    }
-
-    // Verify Vehicle Passport/History Timeline
-    await expect(page.getByText(/history|passport/i).first()).toBeVisible({ timeout: 5000 }).catch(() => {
-      console.log('Missing: Vehicle passport/history timeline on vehicle page');
+  test.beforeEach(async ({ page }) => {
+    // Intercept and mock vehicles list API (handles query params with wildcard)
+    await page.route('**/api/vehicles*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            vin: '1',
+            make: 'Toyota',
+            model: 'Hilux',
+            year: 2022,
+            price: 35000,
+            trustScore: 95,
+            status: 'available',
+            location: 'Harare',
+            images: ['https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?q=80&w=1000'],
+            tenant: { name: 'Croco Motors', phone: '+263772100200', logo_url: null },
+            created_at: new Date().toISOString()
+          }
+        ])
+      });
     });
 
-    // Reservation Flow
-    const reserveButton = page.getByRole('button', { name: /reserve|buy/i });
-    if (await reserveButton.count() > 0) {
-      await reserveButton.first().click();
-    } else {
-      console.log('Missing: Reservation/Buy button on vehicle page');
-    }
+    // Intercept and mock vehicle details API (handles details with wildcard)
+    await page.route('**/api/vehicles/*/details*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          vin: '1',
+          make: 'Toyota',
+          model: 'Hilux',
+          year: 2022,
+          price: 35000,
+          trustScore: 95,
+          status: 'available',
+          location: 'Harare',
+          images: ['https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?q=80&w=1000'],
+          tenant: { name: 'Croco Motors', phone: '+263772100200', logo_url: null },
+          created_at: new Date().toISOString()
+        })
+      });
+    });
+  });
 
-    // SafePay / Escrow
-    const escrowButton = page.getByRole('button', { name: /escrow|safepay/i });
-    if (await escrowButton.count() > 0) {
-      await escrowButton.first().click();
-    } else {
-      console.log('Missing: SafePay/Escrow integration');
-    }
-    
-    // Check for WhatsApp/Communication elements
-    const waButton = page.locator('a[href*="wa.me"]');
-    if (await waButton.count() === 0) {
-      console.log('Missing: WhatsApp handoff link');
-    }
+  test('Homepage Loads', async ({ page }) => {
+    await page.goto('/');
+    // Hard assertion that homepage title badge is visible
+    await expect(page.getByText("Zimbabwe's Automotive Intelligence Platform").first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /explore marketplace/i })).toBeVisible();
+  });
 
-    // Verify test completion goal: We should be able to finish a checkout/escrow flow.
-    // If we can't find a success message or dashboard redirect, we report it.
-    await expect(page.url()).not.toBe('about:blank');
+  test('Marketplace Loads', async ({ page }) => {
+    await page.goto('/marketplace');
+    // Hard assertion that the title and search input are visible
+    await expect(page.getByRole('heading', { name: /Vehicle Marketplace/i })).toBeVisible();
+    const searchInput = page.getByPlaceholder(/search make, model, or location/i);
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill('Toyota Hilux');
+  });
+
+  test('Vehicle Detail Page Loads', async ({ page }) => {
+    await page.goto('/marketplace/1');
+    // Hard assertion that details and trust indicators are visible
+    await expect(page.getByRole('heading', { name: /Toyota Hilux/i })).toBeVisible();
+    await expect(page.getByText('Croco Motors')).toBeVisible();
+    await expect(page.getByText('Harare Province')).toBeVisible();
   });
 });

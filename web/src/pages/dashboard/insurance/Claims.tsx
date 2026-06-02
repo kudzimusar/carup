@@ -5,12 +5,13 @@ import { Input } from '@/components/ui/input'
 import { FileText, Search, Eye, CheckCircle, XCircle } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { Claim } from '@/types'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Claims() {
   const { fetchClaims, updateClaimStatus } = useCarUpApi()
-  const [claims, setClaims] = useState<any[]>([])
+  const [claims, setClaims] = useState<Claim[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -31,7 +32,7 @@ export default function Claims() {
     }
   }
 
-  const handleUpdateStatus = async (id: string, status: string) => {
+  const handleUpdateStatus = async (id: string, status: Claim['status']) => {
     try {
       await updateClaimStatus(id, status)
       toast.success(`Claim ${status} successfully`)
@@ -64,10 +65,17 @@ export default function Claims() {
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <Input placeholder="Search claims..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10" />
+        <Input
+          placeholder="Search claims..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-10"
+          data-testid="claims-search-input"
+          aria-label="Search claims"
+        />
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3" data-testid="claims-table">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="border-0 card-shadow">
@@ -84,7 +92,7 @@ export default function Claims() {
           ))
         ) : (
           filtered.map((claim) => (
-            <Card key={claim.id} className="border-0 card-shadow">
+            <Card key={claim.id} className="border-0 card-shadow" data-testid={`claim-row-${claim.id}`}>
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
@@ -109,9 +117,29 @@ export default function Claims() {
                     <Badge className={claim.status === 'approved' ? 'bg-green-500' : claim.status === 'rejected' ? 'bg-red-500' : claim.status === 'under-review' ? 'bg-amber-500' : 'bg-blue-500'}>
                       {claim.status}
                     </Badge>
-                    <Button variant="ghost" size="icon" title="View Details"><Eye className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" title="Approve Claim" className="text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleUpdateStatus(claim.id, 'approved')}><CheckCircle className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" title="Reject Claim" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => handleUpdateStatus(claim.id, 'rejected')}><XCircle className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" title="View Details" aria-label="View Details"><Eye className="w-4 h-4" /></Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Approve Claim"
+                      className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                      onClick={() => handleUpdateStatus(claim.id, 'approved')}
+                      data-testid="approve-claim-button"
+                      aria-label="Approve Claim"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Reject Claim"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleUpdateStatus(claim.id, 'rejected')}
+                      data-testid="reject-claim-button"
+                      aria-label="Reject Claim"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -119,7 +147,7 @@ export default function Claims() {
           ))
         )}
         {!loading && filtered.length === 0 && (
-          <div className="text-center py-10 text-gray-500">
+          <div className="text-center py-10 text-gray-500" data-testid="no-claims-state">
             No claims found.
           </div>
         )}
