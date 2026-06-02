@@ -86,17 +86,18 @@ export default function OwnerDashboard() {
   const handleOcrUpload = async () => {
     setOcrLoading(true)
     try {
-      const data = await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_DOCUMENT_DATA')
+      await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_DOCUMENT_DATA')
       toast.success('Document uploaded and AI OCR parsed successfully.')
       setDocuments(prev => [
-        {
-          name: `Parsed_${data.make}_${data.model}_Logbook.pdf`,
-          type: 'Logbook (CVR Registration)',
-          date: new Date().toISOString().split('T')[0],
-          verified: true
-        },
-        ...prev
-      ])
+  {
+    id: `ocr-${Date.now()}`,
+    name: 'Parsed Logbook - AI OCR',
+    type: 'PDF',
+    date: new Date().toLocaleDateString(),
+    verified: true
+  },
+  ...prev
+])
     } catch (err) {
       toast.error('Failed to parse document.')
     } finally {
