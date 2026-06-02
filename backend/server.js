@@ -36,7 +36,8 @@ import documentIntelligenceRouter from './services/document-intelligence/documen
 
 // Central Error Handling Imports
 import errorHandler from './middleware/errorMiddleware.js';
-import { NotFoundError } from './utils/errors.js';
+import correlationMiddleware from './middleware/correlationMiddleware.js';
+import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -71,9 +72,38 @@ if (
 }
 
 const app = express();
+app.use(correlationMiddleware);
 const PORT = process.env.PORT || 5001;
 
-app.use(cors());
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is local development
+    const isLocal = origin.startsWith('http://localhost:') || 
+                    origin.startsWith('http://127.0.0.1:') ||
+                    origin === 'http://localhost' ||
+                    origin === 'http://127.0.0.1';
+                    
+    // Check if origin is vercel preview/prod domain
+    const isVercel = origin.endsWith('.vercel.app');
+    
+    // Check if origin is explicitly allowed
+    const isAllowed = allowedOrigins.includes(origin);
+    
+    if (isLocal || isVercel || isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 
@@ -117,17 +147,28 @@ if (connectionError) {
 }
 
 // --- PILLAR 20: AUTH & STAKEHOLDER PORTAL SWITCHING ---
-app.post('/api/auth/switch-role', async (req, res) => {
+app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
   const { userId, role, tenantId } = req.body;
   
   try {
+    // 1. Requester can only switch their own user context
+    if (userId !== req.userContext.id) {
+      throw new ForbiddenError('Forbidden. You can only switch your own role.');
+    }
+
+    // 2. Validate role matches the system's approved role catalog:
+    const approvedRoles = ['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin', 'bank'];
+    if (!role || !approvedRoles.includes(role)) {
+      throw new ForbiddenError(`Forbidden. Role '${role}' is not in the approved role catalog.`);
+    }
+
     const { data: user, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('id', userId)
       .single();
       
-    if (userError || !user) return res.status(404).json({ error: 'User record not found' });
+    if (userError || !user) throw new NotFoundError('User record not found');
     
     // Fetch organization/tenant context if tenantId provided
     let verifiedTenantId = null;
@@ -139,9 +180,10 @@ app.post('/api/auth/switch-role', async (req, res) => {
         .eq('tenant_id', tenantId)
         .single();
         
-      if (tenantUser) {
-        verifiedTenantId = tenantUser.tenant_id;
+      if (!tenantUser) {
+        throw new ForbiddenError('Forbidden. You do not belong to this organization.');
       }
+      verifiedTenantId = tenantUser.tenant_id;
     }
     
     // Generate secure session
@@ -165,7 +207,7 @@ app.post('/api/auth/switch-role', async (req, res) => {
       user: { ...user, role, active_tenant_id: verifiedTenantId }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 // --- VEHICLE SINGLE FETCH ---
@@ -367,34 +409,34 @@ app.get('/api/partsentry/:vin', async (req, res) => {
 });
 
 // --- PILLAR 5: OCR DOCUMENT EXTRACTION ---
-app.post('/api/ai/ocr', async (req, res) => {
+app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
   const { docType, base64Data } = req.body;
   try {
     const parsedData = await runOcrParsing(docType, base64Data);
     res.json({ success: true, extractedData: parsedData });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // --- PILLAR 4: AI FRAUD & RISK SCANNERS ---
-app.post('/api/ai/fraud-scan', async (req, res) => {
+app.post('/api/ai/fraud-scan', authorizeRole(), async (req, res, next) => {
   const { vin, price, listingTitle } = req.body;
   try {
     const fraudScore = await runFraudAnalysis(vin, price, listingTitle);
     res.json(fraudScore);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-app.post('/api/ai/risk-assessment', async (req, res) => {
+app.post('/api/ai/risk-assessment', authorizeRole(), async (req, res, next) => {
   const { vin, mileage, basePrice } = req.body;
   try {
     const riskReport = await runRiskScoring(vin, mileage, basePrice);
     res.json(riskReport);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -576,9 +618,33 @@ app.get('/api/organizations/:id/users', async (req, res) => {
 });
 
 // Fetch audit logs inside organization
-app.get('/api/organizations/:id/audit-logs', async (req, res) => {
+app.get('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    // Organization scope / admin verification
+    if (req.userContext.role !== 'admin') {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('tenant_id')
+        .eq('id', id)
+        .single();
+        
+      if (!org || !org.tenant_id) {
+        throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+      }
+      
+      const { data: tenantUser } = await supabase
+        .from('tenant_users')
+        .select('tenant_id')
+        .eq('user_id', req.userContext.id)
+        .eq('tenant_id', org.tenant_id)
+        .single();
+        
+      if (!tenantUser) {
+        throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+      }
+    }
+
     const { data: logs, error } = await supabase
       .from('organization_audit_logs')
       .select('*')
@@ -587,29 +653,59 @@ app.get('/api/organizations/:id/audit-logs', async (req, res) => {
     if (error) throw error;
     res.json(logs);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // Post audit log
-app.post('/api/organizations/:id/audit-logs', async (req, res) => {
+app.post('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   const { userId, action, resource, details } = req.body;
   try {
+    // 1. Organization scope / admin verification
+    if (req.userContext.role !== 'admin') {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('tenant_id')
+        .eq('id', id)
+        .single();
+        
+      if (!org || !org.tenant_id) {
+        throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+      }
+      
+      const { data: tenantUser } = await supabase
+        .from('tenant_users')
+        .select('tenant_id')
+        .eq('user_id', req.userContext.id)
+        .eq('tenant_id', org.tenant_id)
+        .single();
+        
+      if (!tenantUser) {
+        throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+      }
+    }
+
+    // 2. Identity mismatch check
+    const targetUserId = userId || req.userContext.id;
+    if (req.userContext.role !== 'admin' && targetUserId !== req.userContext.id) {
+      throw new ForbiddenError('Forbidden. You cannot log audit events for another user.');
+    }
+
     const timestamp = new Date().toISOString();
     const { error } = await supabase.from('organization_audit_logs').insert({
       organization_id: id,
-      user_id: userId || 'u3',
+      user_id: targetUserId,
       action,
       resource,
       details,
       timestamp,
-      ip_address: '192.168.1.100'
+      ip_address: req.ip || '127.0.0.1'
     });
     if (error) throw error;
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -990,7 +1086,12 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 
-app.listen(PORT, () => {
-  console.log(`🚗 CarUp OS API Gateway listening on port ${PORT}`);
-  console.log(`📡 Database: Supabase PostgreSQL (vhmnajoeicasaigiophh)`);
-});
+let server;
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(PORT, () => {
+    console.log(`🚗 CarUp OS API Gateway listening on port ${PORT}`);
+    console.log(`📡 Database: Supabase PostgreSQL (vhmnajoeicasaigiophh)`);
+  });
+}
+
+export { app, server };

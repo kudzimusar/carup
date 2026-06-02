@@ -841,6 +841,364 @@ async function runTests() {
     
     console.log('✅ Centralized B2B Audit Logger verified with strict recursive secret redactions.');
 
+    // 31. Security boundary remediation validation (Directive 009B)
+    console.log('\n🧪 Test 31: Security Boundary Remediation Validation...');
+    
+    // Set NODE_ENV to test to prevent server from starting port listener
+    process.env.NODE_ENV = 'test';
+    const { app } = await import('../server.js');
+    
+    const runRequest = (app, reqOpts) => {
+      return new Promise((resolve) => {
+        let statusCode = 200;
+        const responseHeaders = {};
+        let responseBody = null;
+
+        const req = {
+          method: reqOpts.method || 'GET',
+          url: reqOpts.url,
+          path: reqOpts.url.split('?')[0],
+          query: reqOpts.query || {},
+          body: reqOpts.body || {},
+          headers: reqOpts.headers || {},
+          ip: reqOpts.ip || '127.0.0.1',
+          ...reqOpts
+        };
+
+        const res = {
+          status(code) {
+            statusCode = code;
+            return this;
+          },
+          json(data) {
+            responseBody = data;
+            resolve({ statusCode, headers: responseHeaders, body: responseBody });
+            return this;
+          },
+          send(data) {
+            responseBody = data;
+            resolve({ statusCode, headers: responseHeaders, body: responseBody });
+            return this;
+          },
+          setHeader(name, value) {
+            responseHeaders[name.toLowerCase()] = value;
+            return this;
+          },
+          getHeader(name) {
+            return responseHeaders[name.toLowerCase()];
+          },
+          end() {
+            resolve({ statusCode, headers: responseHeaders, body: responseBody });
+            return this;
+          }
+        };
+
+        app(req, res, (err) => {
+          if (err) {
+            resolve({ statusCode: err.statusCode || 500, headers: responseHeaders, body: { error: err.message } });
+          } else {
+            resolve({ statusCode, headers: responseHeaders, body: responseBody });
+          }
+        });
+      });
+    };
+
+    // Seed mock sessions
+    console.log('  → Seeding mock sessions...');
+    await supabase.from('user_sessions').delete().in('token', ['token_u1', 'token_u2', 'token_u3']);
+    
+    const cryptoModule = await import('crypto');
+    const randomUUID = cryptoModule.randomUUID || cryptoModule.default.randomUUID;
+    const genId = () => 'sess_' + randomUUID().replace(/-/g, '');
+
+    const testSessions = [
+      { id: genId(), user_id: 'u1', token: 'token_u1', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'owner', created_at: new Date().toISOString() },
+      { id: genId(), user_id: 'u2', token: 'token_u2', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'mechanic', created_at: new Date().toISOString() },
+      { id: genId(), user_id: 'u3', token: 'token_u3', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'dealer', created_at: new Date().toISOString() }
+    ];
+    const { error: insertErr } = await supabase.from('user_sessions').insert(testSessions);
+    if (insertErr) {
+      throw new Error(`Failed to seed mock sessions: ${insertErr.message}`);
+    }
+
+    try {
+      // 31.1 unauthenticated switch-role is rejected
+      console.log('  → 31.1: Asserting unauthenticated switch-role is rejected...');
+      const res1 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/auth/switch-role',
+        body: { userId: 'u1', role: 'owner' }
+      });
+      if (res1.statusCode !== 401 && res1.statusCode !== 403) {
+        throw new Error(`Unauthenticated switch-role was not rejected with 401/403. Got status: ${res1.statusCode}`);
+      }
+      console.log('  ✅ Unauthenticated switch-role correctly rejected.');
+
+      // 31.2 user cannot switch another user's role
+      console.log('  → 31.2: Asserting user cannot switch another user\'s role...');
+      const res2 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/auth/switch-role',
+        headers: { 'x-session-token': 'token_u1' },
+        body: { userId: 'u3', role: 'dealer' }
+      });
+      if (res2.statusCode !== 403) {
+        throw new Error(`Switching another user's role was not rejected with 403. Got status: ${res2.statusCode}`);
+      }
+      console.log('  ✅ Cross-user role switch correctly rejected.');
+
+      // 31.3 authenticated user can switch allowed own role
+      console.log('  → 31.3: Asserting authenticated user can switch allowed own role...');
+      const res3 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/auth/switch-role',
+        headers: { 'x-session-token': 'token_u1' },
+        body: { userId: 'u1', role: 'owner' }
+      });
+      if (res3.statusCode !== 200 || !res3.body.success) {
+        throw new Error(`Valid switch-role failed. Got status: ${res3.statusCode}, body: ${JSON.stringify(res3.body)}`);
+      }
+      console.log('  ✅ Authenticated user own role switch succeeded.');
+
+      // 31.4 unauthenticated vehicle status update is rejected
+      console.log('  → 31.4: Asserting unauthenticated vehicle status update is rejected...');
+      const res4 = await runRequest(app, {
+        method: 'PATCH',
+        url: '/api/vehicles/VIN74329849204928/status',
+        body: { status: 'available' }
+      });
+      if (res4.statusCode !== 401 && res4.statusCode !== 403) {
+        throw new Error(`Unauthenticated status update was not rejected with 401/403. Got status: ${res4.statusCode}`);
+      }
+      console.log('  ✅ Unauthenticated vehicle status update correctly rejected.');
+
+      // 31.5 unauthorized role vehicle status update is rejected
+      console.log('  → 31.5: Asserting unauthorized role vehicle status update is rejected...');
+      const res5 = await runRequest(app, {
+        method: 'PATCH',
+        url: '/api/vehicles/VIN74329849204928/status',
+        headers: { 'x-session-token': 'token_u2', 'x-stakeholder-role': 'mechanic' },
+        body: { status: 'available' }
+      });
+      if (res5.statusCode !== 403) {
+        throw new Error(`Unauthorized role status update was not rejected with 403. Got status: ${res5.statusCode}`);
+      }
+      console.log('  ✅ Unauthorized role vehicle status update correctly rejected.');
+
+      // 31.6 authorized admin/dealer/owner vehicle status update still works
+      console.log('  → 31.6: Asserting authorized role vehicle status update still works...');
+      // A: Dealer context with organizational scope
+      const res6a = await runRequest(app, {
+        method: 'PATCH',
+        url: '/api/vehicles/VIN74329849204928/status',
+        headers: {
+          'x-session-token': 'token_u3',
+          'x-tenant-id': '00000000-0000-0000-0000-000000000001',
+          'x-stakeholder-role': 'dealer'
+        },
+        body: { status: 'available' }
+      });
+      if (res6a.statusCode !== 200 || !res6a.body.success) {
+        throw new Error(`Dealer vehicle status update failed. Got status: ${res6a.statusCode}, body: ${JSON.stringify(res6a.body)}`);
+      }
+      
+      // B: Admin context
+      const res6b = await runRequest(app, {
+        method: 'PATCH',
+        url: '/api/vehicles/VIN74329849204928/status',
+        headers: {
+          'x-session-token': 'token_u1',
+          'x-stakeholder-role': 'admin'
+        },
+        body: { status: 'available' }
+      });
+      if (res6b.statusCode !== 200 || !res6b.body.success) {
+        throw new Error(`Admin vehicle status update failed. Got status: ${res6b.statusCode}, body: ${JSON.stringify(res6b.body)}`);
+      }
+      console.log('  ✅ Authorized vehicle status updates still work correctly.');
+
+      // 31.7 unauthenticated organization audit read/write is rejected
+      console.log('  → 31.7: Asserting unauthenticated organization audit read/write is rejected...');
+      const res7a = await runRequest(app, {
+        method: 'GET',
+        url: '/api/organizations/org_croco/audit-logs'
+      });
+      if (res7a.statusCode !== 401 && res7a.statusCode !== 403) {
+        throw new Error(`Unauthenticated audit logs read was not rejected with 401/403. Got status: ${res7a.statusCode}`);
+      }
+      
+      const res7b = await runRequest(app, {
+        method: 'POST',
+        url: '/api/organizations/org_croco/audit-logs',
+        body: { action: 'TEST_UNAUTH', resource: 'inventory', details: 'Test' }
+      });
+      if (res7b.statusCode !== 401 && res7b.statusCode !== 403) {
+        throw new Error(`Unauthenticated audit logs write was not rejected with 401/403. Got status: ${res7b.statusCode}`);
+      }
+      console.log('  ✅ Unauthenticated audit read/write correctly rejected.');
+
+      // 31.8 cross-organization audit read/write is rejected
+      console.log('  → 31.8: Asserting cross-organization audit read/write is rejected...');
+      const res8a = await runRequest(app, {
+        method: 'GET',
+        url: '/api/organizations/org_croco/audit-logs',
+        headers: { 'x-session-token': 'token_u1' } // u1 is owner/buyer, not in org_croco tenant
+      });
+      if (res8a.statusCode !== 403) {
+        throw new Error(`Cross-organization audit logs read was not rejected with 403. Got status: ${res8a.statusCode}`);
+      }
+
+      const res8b = await runRequest(app, {
+        method: 'POST',
+        url: '/api/organizations/org_croco/audit-logs',
+        headers: { 'x-session-token': 'token_u1' },
+        body: { action: 'TEST_CROSS', resource: 'inventory', details: 'Test' }
+      });
+      if (res8b.statusCode !== 403) {
+        throw new Error(`Cross-organization audit logs write was not rejected with 403. Got status: ${res8b.statusCode}`);
+      }
+      console.log('  ✅ Cross-organization audit read/write correctly rejected.');
+
+      // 31.9 in-scope/admin audit read/write still works
+      console.log('  → 31.9: Asserting in-scope/admin audit read/write still works...');
+      // A: In-scope user GET and POST
+      const res9a = await runRequest(app, {
+        method: 'GET',
+        url: '/api/organizations/org_croco/audit-logs',
+        headers: {
+          'x-session-token': 'token_u3',
+          'x-tenant-id': '00000000-0000-0000-0000-000000000001',
+          'x-stakeholder-role': 'dealer'
+        }
+      });
+      if (res9a.statusCode !== 200 || !Array.isArray(res9a.body)) {
+        throw new Error(`In-scope user audit logs read failed. Got status: ${res9a.statusCode}, body: ${JSON.stringify(res9a.body)}`);
+      }
+
+      const res9b = await runRequest(app, {
+        method: 'POST',
+        url: '/api/organizations/org_croco/audit-logs',
+        headers: {
+          'x-session-token': 'token_u3',
+          'x-tenant-id': '00000000-0000-0000-0000-000000000001',
+          'x-stakeholder-role': 'dealer'
+        },
+        body: { userId: 'u3', action: 'TEST_IN_SCOPE_POST', resource: 'inventory', details: 'Test details' }
+      });
+      if (res9b.statusCode !== 200 || !res9b.body.success) {
+        throw new Error(`In-scope user audit logs write failed. Got status: ${res9b.statusCode}, body: ${JSON.stringify(res9b.body)}`);
+      }
+
+      // Cleanup test audit log entries written in this test
+      await supabase.from('organization_audit_logs').delete().eq('action', 'TEST_IN_SCOPE_POST');
+
+      // B: Admin context GET and POST
+      const res9c = await runRequest(app, {
+        method: 'GET',
+        url: '/api/organizations/org_croco/audit-logs',
+        headers: {
+          'x-session-token': 'token_u1',
+          'x-stakeholder-role': 'admin'
+        }
+      });
+      if (res9c.statusCode !== 200 || !Array.isArray(res9c.body)) {
+        throw new Error(`Admin audit logs read failed. Got status: ${res9c.statusCode}, body: ${JSON.stringify(res9c.body)}`);
+      }
+
+      const res9d = await runRequest(app, {
+        method: 'POST',
+        url: '/api/organizations/org_croco/audit-logs',
+        headers: {
+          'x-session-token': 'token_u1',
+          'x-stakeholder-role': 'admin'
+        },
+        body: { userId: 'u3', action: 'TEST_ADMIN_POST', resource: 'inventory', details: 'Test admin details' }
+      });
+      if (res9d.statusCode !== 200 || !res9d.body.success) {
+        throw new Error(`Admin audit logs write failed. Got status: ${res9d.statusCode}, body: ${JSON.stringify(res9d.body)}`);
+      }
+
+      // Cleanup test audit log entries written in this test
+      await supabase.from('organization_audit_logs').delete().eq('action', 'TEST_ADMIN_POST');
+      console.log('  ✅ In-scope and admin audit read/write succeeded.');
+
+      // --- AI Endpoint Auth Validation ---
+      console.log('  → 31.10: Asserting unauthenticated AI endpoints are rejected...');
+      
+      // 1. Unauthenticated OCR request is rejected
+      const resAI1 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/ai/ocr',
+        body: { docType: 'registration_book', base64Data: 'mockData' }
+      });
+      if (resAI1.statusCode !== 401 && resAI1.statusCode !== 403) {
+        throw new Error(`Unauthenticated AI OCR was not rejected with 401/403. Got status: ${resAI1.statusCode}`);
+      }
+
+      // 2. Unauthenticated fraud-scan request is rejected
+      const resAI2 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/ai/fraud-scan',
+        body: { vin: 'vin123', price: 1000, listingTitle: 'Title' }
+      });
+      if (resAI2.statusCode !== 401 && resAI2.statusCode !== 403) {
+        throw new Error(`Unauthenticated AI fraud-scan was not rejected with 401/403. Got status: ${resAI2.statusCode}`);
+      }
+
+      // 3. Unauthenticated risk-assessment request is rejected
+      const resAI3 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/ai/risk-assessment',
+        body: { vin: 'vin123', mileage: 1000, basePrice: 1000 }
+      });
+      if (resAI3.statusCode !== 401 && resAI3.statusCode !== 403) {
+        throw new Error(`Unauthenticated AI risk-assessment was not rejected with 401/403. Got status: ${resAI3.statusCode}`);
+      }
+      console.log('  ✅ Unauthenticated AI endpoints correctly rejected.');
+
+      console.log('  → 31.11: Asserting authenticated AI endpoints still work...');
+      // 4. Authenticated OCR request still works
+      const resAI4 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/ai/ocr',
+        headers: { 'x-session-token': 'token_u1' },
+        body: { docType: 'registration_book', base64Data: 'mockData' }
+      });
+      if (resAI4.statusCode !== 200 || !resAI4.body.success) {
+        throw new Error(`Authenticated AI OCR failed. Got status: ${resAI4.statusCode}, body: ${JSON.stringify(resAI4.body)}`);
+      }
+
+      // 5. Authenticated fraud-scan request still works
+      const resAI5 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/ai/fraud-scan',
+        headers: { 'x-session-token': 'token_u1' },
+        body: { vin: 'VIN74329849204928', price: 28000.0, listingTitle: '2019 Mercedes-Benz W205 C200 AMG Line' }
+      });
+      if (resAI5.statusCode !== 200) {
+        throw new Error(`Authenticated AI fraud-scan failed. Got status: ${resAI5.statusCode}, body: ${JSON.stringify(resAI5.body)}`);
+      }
+
+      // 6. Authenticated risk-assessment request still works
+      const resAI6 = await runRequest(app, {
+        method: 'POST',
+        url: '/api/ai/risk-assessment',
+        headers: { 'x-session-token': 'token_u1' },
+        body: { vin: 'VIN74329849204928', mileage: 48500, basePrice: 42000.0 }
+      });
+      if (resAI6.statusCode !== 200) {
+        throw new Error(`Authenticated AI risk-assessment failed. Got status: ${resAI6.statusCode}, body: ${JSON.stringify(resAI6.body)}`);
+      }
+      console.log('  ✅ Authenticated AI endpoints work correctly.');
+
+    } finally {
+      // Clean up seeded sessions
+      console.log('  → Cleaning up mock sessions...');
+      await supabase.from('user_sessions').delete().in('token', ['token_u1', 'token_u2', 'token_u3']);
+    }
+
+    console.log('✅ Test 31: Security boundary remediation checks passed seamlessly.');
+
     // Cleanup mock data
     console.log('  → Cleaning up temporary test data...');
     await supabase.from('vehicles').delete().eq('vin', testVin);
