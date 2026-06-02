@@ -773,6 +773,74 @@ async function runTests() {
       process.env.AUTOMATION_WEBHOOK_URL = originalWebhookUrl;
     }
 
+    // 30. Centralized Audit Logger Foundation Validation
+    console.log('\n🧪 Test 30: Centralized Audit Logger Foundation Validation...');
+    const { logAuditEvent } = await import('../services/auditLogger.js');
+    
+    // Test A: Logging B2B action successfully with secret redaction
+    const mockAuditReq = {
+      correlationId: 'corr-test-audit-123',
+      ip: '10.0.0.5',
+      headers: {
+        'user-agent': 'Mozilla/5.0 AuditTest'
+      }
+    };
+    
+    const auditRes = await logAuditEvent({
+      req: mockAuditReq,
+      actorId: 'u3',
+      actorRole: 'dealer',
+      action: 'VERIFY_TEST_AUDIT',
+      targetType: 'finance',
+      targetId: 'loan_app_999',
+      status: 'success',
+      metadata: {
+        amount: 5000,
+        api_key: 'sk_live_secretkey123',
+        nested: {
+          password: 'supersecretpassword',
+          safeField: 'hello'
+        }
+      },
+      severity: 'info'
+    });
+    
+    if (!auditRes.success) {
+      throw new Error(`Audit Logger failed to log B2B event to database: ${auditRes.error}`);
+    }
+    
+    // Fetch and check the inserted record
+    const { data: dbLogRes, error: dbLogError } = await supabase
+      .from('organization_audit_logs')
+      .select('*')
+      .eq('action', 'VERIFY_TEST_AUDIT')
+      .order('id', { ascending: false })
+      .limit(1);
+      
+    if (dbLogError) throw dbLogError;
+    const dbLog = dbLogRes?.[0];
+    if (!dbLog || dbLog.action !== 'VERIFY_TEST_AUDIT') {
+      throw new Error('Audit Logger: could not retrieve verified audit record from organization_audit_logs.');
+    }
+    
+    const detailsObj = typeof dbLog.details === 'string' ? JSON.parse(dbLog.details) : dbLog.details;
+    if (detailsObj.correlationId !== 'corr-test-audit-123' || detailsObj.ipAddress !== '10.0.0.5') {
+      throw new Error(`Audit Logger: context failed to map in details JSON: ${JSON.stringify(detailsObj)}`);
+    }
+    
+    if (detailsObj.metadata.api_key !== '[REDACTED]' || detailsObj.metadata.nested.password !== '[REDACTED]') {
+      throw new Error('Audit Logger: sensitive credentials redaction algorithm failed.');
+    }
+    
+    if (detailsObj.metadata.nested.safeField !== 'hello') {
+      throw new Error('Audit Logger: safe metadata parameters were incorrectly redacted.');
+    }
+    
+    // Cleanup temporary B2B audit log entry
+    await supabase.from('organization_audit_logs').delete().eq('id', dbLog.id);
+    
+    console.log('✅ Centralized B2B Audit Logger verified with strict recursive secret redactions.');
+
     // Cleanup mock data
     console.log('  → Cleaning up temporary test data...');
     await supabase.from('vehicles').delete().eq('vin', testVin);
