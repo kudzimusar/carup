@@ -5,7 +5,7 @@ test.describe('Marketplace-first homepage', () => {
     await page.goto('/')
 
     await expect(page.locator('[data-testid="home-hero"]')).toBeVisible()
-    await expect(page.getByRole('heading', { name: /Find Verified Cars in Zimbabwe/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Find Verified Cars\. Sell With Confidence\./i })).toBeVisible()
   })
 
   test('Buy, Verify, and Sell tabs switch', async ({ page }) => {
@@ -19,6 +19,16 @@ test.describe('Marketplace-first homepage', () => {
 
     await page.locator('[data-testid="home-buy-tab"]').click()
     await expect(page.locator('[data-testid="home-buy-search"]')).toBeVisible()
+  })
+
+  test('seller callout is visible above the fold', async ({ page }) => {
+    await page.goto('/')
+
+    const sellerCallout = page.locator('[data-testid="home-seller-callout"]')
+    await expect(sellerCallout).toBeVisible()
+    await expect(sellerCallout).toContainText('Selling your car?')
+    await expect(sellerCallout).toContainText('Start with your plate or VIN and create a trusted Passport listing.')
+    await expect(sellerCallout.getByRole('button', { name: /Start Selling/i })).toBeVisible()
   })
 
   test('buy search routes safely to the current search surface', async ({ page }) => {
@@ -50,6 +60,14 @@ test.describe('Marketplace-first homepage', () => {
     await expect(page).toHaveURL(/\/(register|dashboard\/sell-vehicle)/)
   })
 
+  test('Sell Your Car CTA routes to the current public seller handoff', async ({ page }) => {
+    await page.goto('/')
+
+    await page.getByRole('link', { name: /Sell Your Car/i }).click()
+
+    await expect(page).toHaveURL(/\/register/)
+  })
+
   test('featured vehicle card links to Passport detail by VIN', async ({ page }) => {
     await page.goto('/')
 
@@ -61,16 +79,23 @@ test.describe('Marketplace-first homepage', () => {
     expect(href).not.toMatch(/\/marketplace\/v\d+$/)
   })
 
-  test('popular search chips and trust strip render', async ({ page }) => {
+  test('trust strip renders', async ({ page }) => {
     await page.goto('/')
 
-    await expect(page.locator('[data-testid="popular-search-chip"]')).toHaveCount(18)
     await expect(page.locator('[data-testid="home-trust-strip"]')).toBeVisible()
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Plate Check')
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Evidence Timeline')
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Owner Privacy')
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Trust Score')
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('SafePay Ready')
+  })
+
+  test('popular category chips render lower on the page', async ({ page }) => {
+    await page.goto('/')
+
+    await expect(page.getByRole('heading', { name: /Start with what buyers ask for most/i })).toBeVisible()
+    await expect(page.locator('[data-testid="popular-search-chip"]')).toHaveCount(18)
+    await expect(page.locator('[data-testid="popular-search-chip"]').first()).toContainText('Brand New')
   })
 
   test('homepage does not expose private owner names or phone numbers from mock vehicles', async ({ page }) => {
