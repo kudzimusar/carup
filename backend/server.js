@@ -10,7 +10,7 @@ import { supabase } from './db/supabase.js';
 import { authorizeRole } from './middleware/authMiddleware.js';
 
 // Import Services
-import { getVehicleTimeline, runOdometerAudit, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
+import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
@@ -33,6 +33,7 @@ import paymentRouter from './services/payment/paymentRouter.js';
 // ✅ Phase 7: Object Storage & Media Router Imports
 import mediaRouter from './services/storage/mediaRouter.js';
 import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
+import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
 
 // Central Error Handling Imports
 import errorHandler from './middleware/errorMiddleware.js';
@@ -51,6 +52,7 @@ import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
+import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 
 dotenv.config();
 
@@ -234,7 +236,7 @@ app.get('/api/vehicles', async (req, res) => {
     let query = supabase.from('vehicles').select('*');
     
     // Explicitly enforce public visibility constraint unless specifically fetching for a tenant (handled below or in another endpoint)
-    query = query.eq('status', 'Available');
+    query = query.in('status', publicVehicleStatusFilterValues());
 
     if (make) query = query.eq('make', make);
     if (model) query = query.eq('model', model);
@@ -255,23 +257,287 @@ app.get('/api/vehicles', async (req, res) => {
 });
 
 // --- PILLARS 1, 6 & 7: TRUST GRAPH, SCORE & PASSPORT ---
+
+// Helper function to normalize plate numbers
+function normalizePlate(plate) {
+  if (!plate) return '';
+  return plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function validatePassportLookupIdentifier(identifier) {
+  const value = String(identifier || '').trim();
+  if (value.length < 2 || value.length > 64) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9 -]*$/.test(value)) {
+    return null;
+  }
+  return value;
+}
+
+async function collectPassportLookupMatches(identifier) {
+  const norm = normalizePlate(identifier);
+  const queries = [
+    supabase.from('vehicles').select('vin').eq('vin', identifier),
+    supabase.from('vehicles').select('vin').eq('chassis_number', identifier),
+    supabase.from('vehicles').select('vin').eq('plate_number', identifier),
+    supabase.from('vehicles').select('vin').eq('normalized_plate_number', norm),
+    supabase.from('vehicles').select('vin').eq('temporary_identification_number', identifier),
+    supabase.from('vehicle_plate_history').select('vin').eq('plate_number', identifier),
+    supabase.from('vehicle_plate_history').select('vin').eq('normalized_plate_number', norm)
+  ];
+
+  const results = await Promise.all(queries);
+  const firstError = results.find(result => result.error)?.error;
+  if (firstError) throw firstError;
+
+  const matchingVins = new Set();
+  for (const result of results) {
+    for (const row of (result.data || [])) {
+      if (row.vin) matchingVins.add(row.vin);
+    }
+  }
+  return matchingVins;
+}
+
+// Structured helper to build and redact vehicle passport
+async function buildVehiclePassport(vin, req) {
+  const { data: vehicle, error: vehicleError } = await supabase
+    .from('vehicles')
+    .select('*')
+    .eq('vin', vin)
+    .single();
+
+  if (vehicleError || !vehicle) return null;
+
+  // Determine requester identity
+  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const fallbackUserId = req.headers['x-user-id'];
+  let activeUserId = fallbackUserId || null;
+  let activeUserRole = null;
+
+  if (sessionToken) {
+    const { data: session } = await supabase
+      .from('user_sessions')
+      .select('user_id')
+      .eq('token', sessionToken)
+      .eq('is_valid', true)
+      .single();
+    if (session) {
+      activeUserId = session.user_id;
+    }
+  }
+
+  if (activeUserId) {
+    const { data: user } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', activeUserId)
+      .single();
+    if (user) {
+      activeUserRole = user.role;
+    }
+  }
+
+  const isAuthorized = 
+    activeUserRole === 'admin' || 
+    activeUserRole === 'government' || 
+    (activeUserId && activeUserId === vehicle.owner_id);
+
+  // Fetch timeline, visual evidence, trust score report, and ledger verification
+  const timeline = await getVehicleTimeline(vin);
+  const { data: verifiedEvidence, error: evidenceError } = await supabase
+    .from('vehicle_evidence')
+    .select('*')
+    .eq('vin', vin)
+    .eq('visibility_level', 'public_safe')
+    .eq('verification_status', 'verified')
+    .order('captured_at', { ascending: true });
+
+  if (evidenceError) throw evidenceError;
+
+  const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
+  const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
+  const trustReport = await computeVehicleTrustScore(vin);
+  const chainVerification = await verifyChain(vin);
+
+  // Fetch plate history
+  const { data: plateHistory } = await supabase
+    .from('vehicle_plate_history')
+    .select('*')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false });
+
+  // Get previous owners count
+  const { data: ownershipHistory } = await supabase
+    .from('vehicle_ownership_history')
+    .select('*')
+    .eq('vin', vin);
+  const previousOwnerCount = ownershipHistory ? ownershipHistory.length : 0;
+
+  // Resolve current seller details
+  let currentSellerDisplayName = 'Private Seller';
+  if (vehicle.current_seller_id) {
+    const { data: sellerUser } = await supabase
+      .from('users')
+      .select('name')
+      .eq('id', vehicle.current_seller_id)
+      .single();
+    if (sellerUser) {
+      currentSellerDisplayName = sellerUser.name;
+    }
+  }
+
+  const currentOwnerVisible = isAuthorized || !!vehicle.public_seller_display_enabled;
+
+  const ownershipSummary = {
+    currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : 'Private Seller',
+    currentSellerType: vehicle.current_seller_type || 'Private Owner',
+    previousOwnerCount,
+    previousOwnersPublicLabel: 'Redacted for privacy',
+    ownerNamesRedacted: !isAuthorized,
+    currentOwnerVisible
+  };
+
+  // Structured Privacy Redaction Layer
+  const sanitizedTimeline = visualTimeline.map(event => {
+    // Generate publicDescription and publicSummary
+    let publicDescription = event.desc || '';
+    let publicSummary = event.label || '';
+
+    if (event.event_source === 'cvr') {
+      publicDescription = `Registered plate ${event.details?.plateNumber || vehicle.plate_number || '—'}. Owner name redacted for privacy.`;
+      publicSummary = 'CVR Registration';
+    } else if (event.event_source === 'ownership_transfer') {
+      publicDescription = 'Ownership transferred to next owner';
+      publicSummary = 'Ownership Transfer';
+    } else if (event.event_source === 'zimra') {
+      publicDescription = 'Import duty customs clearance confirmed';
+      publicSummary = 'ZIMRA Customs';
+    } else if (event.event_source === 'insurance') {
+      publicDescription = 'Insurance policy premium set';
+      publicSummary = 'Insurance Insured';
+    } else if (event.event_source === 'plate_assigned') {
+      publicDescription = `Number plate assigned: ${event.details?.plateNumber || vehicle.plate_number || '—'}`;
+      publicSummary = 'Plate Assigned';
+    } else if (event.event_source === 'temporary_id_issued') {
+      publicDescription = `Temporary identification number issued: ${event.details?.plateNumber || vehicle.temporary_identification_number || '—'}`;
+      publicSummary = 'Temporary ID Issued';
+    } else if (event.event_source === 'plate_verified') {
+      publicDescription = `Number plate ${event.details?.plateNumber || vehicle.plate_number || '—'} verified via ${event.details?.verificationSource || vehicle.plate_verification_source || 'CVR'}`;
+      publicSummary = 'Plate Verified';
+    } else if (event.event_source === 'plate_changed') {
+      publicDescription = `Number plate ${event.details?.plateNumber || '—'} retired or changed`;
+      publicSummary = 'Plate Changed';
+    } else if (event.event_source === 'plate_flagged') {
+      publicDescription = `Number plate ${event.details?.plateNumber || '—'} flagged: ${event.details?.reason || 'No reason provided'}`;
+      publicSummary = 'Plate Flagged';
+    } else if (event.event_source === 'plate_suspended') {
+      publicDescription = `Number plate ${event.details?.plateNumber || '—'} suspended: ${event.details?.reason || 'No reason provided'}`;
+      publicSummary = 'Plate Suspended';
+    } else if (event.event_source === 'evidence') {
+      publicDescription = event.desc || 'Verified evidence linked to this vehicle passport';
+      publicSummary = event.label || 'Verified Evidence';
+    }
+
+    const publicDescriptionVal = publicDescription;
+    const publicSummaryVal = publicSummary;
+
+    // Build the sanitized event
+    const sanitizedEvent = {
+      ...event,
+      publicDescription: publicDescriptionVal,
+      publicSummary: publicSummaryVal,
+    };
+
+    if (!isAuthorized) {
+      // Redact details that leak PII
+      sanitizedEvent.desc = publicDescriptionVal;
+      sanitizedEvent.label = publicSummaryVal;
+      sanitizedEvent.details = {
+        // Keep safe details
+        mileage: event.details?.mileage,
+        stage: event.details?.stage,
+        plateNumber: event.details?.plateNumber,
+        plateType: event.details?.plateType,
+        status: event.details?.status,
+        brakingEfficiency: event.details?.brakingEfficiency,
+        suspensionPassed: event.details?.suspensionPassed,
+        steeringPassed: event.details?.steeringPassed,
+        odometer: event.details?.odometer,
+        termEnd: event.details?.termEnd,
+        reason: event.details?.reason,
+        verificationSource: event.details?.verificationSource,
+      };
+    }
+
+    return sanitizedEvent;
+  });
+
+  return {
+    vehicle,
+    timeline: sanitizedTimeline,
+    evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
+    evidenceVault,
+    trustReport,
+    chainVerification,
+    identity: {
+      vin: vehicle.vin,
+      chassisNumber: vehicle.chassis_number,
+      plateNumber: vehicle.plate_number,
+      normalizedPlateNumber: vehicle.normalized_plate_number,
+      plateStatus: vehicle.plate_status,
+      temporaryIdentificationNumber: vehicle.temporary_identification_number,
+      engineNumber: vehicle.engine_number,
+      registrationStatus: vehicle.registration_status,
+      registrationCountry: vehicle.registration_country,
+      registrationAuthority: vehicle.registration_authority,
+      plateVerifiedAt: vehicle.plate_verified_at,
+      plateVerificationSource: vehicle.plate_verification_source
+    },
+    plateHistory: plateHistory || [],
+    ownershipSummary
+  };
+}
+
+// Canonical VIN passport lookup
 app.get('/api/vehicles/:vin/passport', async (req, res) => {
   const { vin } = req.params;
-  
   try {
-    const { data: vehicle, error: vehicleError } = await supabase
-      .from('vehicles')
-      .select('*')
-      .eq('vin', vin)
-      .single();
-      
-    if (vehicleError || !vehicle) return res.status(404).json({ error: 'VIN not found' });
-    
-    const timeline = await getVehicleTimeline(vin);
-    const trustReport = await calculateVehicleTrustScore(vin);
-    const chainVerification = await verifyChain(vin);
-    
-    res.json({ vehicle, timeline, trustReport, chainVerification });
+    const passport = await buildVehiclePassport(vin, req);
+    if (!passport) {
+      return res.status(404).json({ error: 'VIN not found' });
+    }
+    res.json(passport);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-identifier passport lookup route
+app.get('/api/vehicles/passport/lookup/:identifier', async (req, res) => {
+  const identifier = validatePassportLookupIdentifier(req.params.identifier);
+  if (!identifier) {
+    return res.status(400).json({ error: 'Invalid lookup identifier' });
+  }
+
+  try {
+    const matchingVins = await collectPassportLookupMatches(identifier);
+
+    if (matchingVins.size === 0) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
+
+    if (matchingVins.size > 1) {
+      return res.status(409).json({ error: 'Multiple vehicles match this identifier. Please search by VIN.' });
+    }
+
+    const resolvedVin = Array.from(matchingVins)[0];
+    const passport = await buildVehiclePassport(resolvedVin, req);
+    if (!passport) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
+    res.json(passport);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -805,7 +1071,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       vin, make, model, generation: '', trim: '', year: year || 2020, color: color || 'White', 
       mileage: mileage || 0, fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', 
       transmission: transmission || 'Automatic', import_source: 'Local', duty_paid: false, 
-      police_verified: false, status: 'Available', trust_score: 50, price, currency: currency || 'USD',
+      police_verified: false, status: normalizeVehicleStatus('Available'), trust_score: 50, price, currency: currency || 'USD',
       tenant_id: tenantId // Force assignment to the current tenant
     });
     if (insertError) throw insertError;

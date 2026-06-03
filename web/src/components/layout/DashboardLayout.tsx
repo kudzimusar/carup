@@ -56,6 +56,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'Leads', href: '/dealer/leads', icon: Users, badge: 12 },
     { label: 'Promotions', href: '/dealer/promotions', icon: Tag },
     { label: 'Analytics', href: '/dealer/analytics', icon: BarChart3 },
+    { label: 'Evidence Review', href: '/dealer/evidence', icon: FileText },
   ],
   mechanic: [
     { label: 'Overview', href: '/mechanic', icon: LayoutDashboard },
@@ -74,12 +75,14 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'Overview', href: '/government', icon: LayoutDashboard },
     { label: 'Registry Verification', href: '/government/registry', icon: Search },
     { label: 'Compliance', href: '/government/compliance', icon: CheckCircle },
+    { label: 'Evidence Review', href: '/government/evidence', icon: FileText },
   ],
   admin: [
     { label: 'Overview', href: '/admin', icon: LayoutDashboard },
     { label: 'Users', href: '/admin/users', icon: UserCog },
     { label: 'AI Monitoring', href: '/admin/ai', icon: Brain },
     { label: 'Moderation', href: '/admin/moderation', icon: ShieldAlert },
+    { label: 'Evidence Review', href: '/admin/evidence', icon: FileText },
   ],
   bank: [
     { label: 'Overview', href: '/bank', icon: LayoutDashboard },
