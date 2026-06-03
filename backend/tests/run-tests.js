@@ -168,6 +168,14 @@ async function runTests() {
       if (!err.message.includes('ILLEGAL ESCROW STATE TRANSITION')) throw err;
       console.log(`... Illegal re-transition correctly blocked: ${err.message.split('.')[0]}`);
     }
+    
+    // Restore shared test vehicle state for subsequent B2B tests
+    await supabase.from('vehicles').update({
+      owner_id: 'u3',
+      tenant_id: '00000000-0000-0000-0000-000000000001',
+      status: 'available'
+    }).eq('vin', vin);
+
     console.log('✅ SafePay state-machine, automated splits, and transition guards verified.');
 
     // 7. AI Multi-Agent Orchestrator
@@ -1198,6 +1206,367 @@ async function runTests() {
     }
 
     console.log('✅ Test 31: Security boundary remediation checks passed seamlessly.');
+
+    // 🧪 Test 32: SafePay Transaction Integrity & Idempotency Validation...
+    console.log('\n🧪 Test 32: SafePay Transaction Integrity & Idempotency Validation...');
+    
+    // Generate completely unique VINs for each test run to ensure strict isolation 
+    // and bypass immutable/tamper-proof ledger delete constraints.
+    const uniqueSuffix = Date.now().toString().substring(7);
+    const transVin = 'VIN_INT_' + uniqueSuffix;
+    const refundVin = 'VIN_REF_' + uniqueSuffix;
+    
+    // Seed temporary vehicle for transaction testing
+    const { error: insErr } = await supabase.from('vehicles').insert({
+      vin: transVin, make: 'BMW', model: 'M3', year: 2021, color: 'Black',
+      mileage: 15000, fuel_type: 'Petrol', drivetrain: 'RWD', transmission: 'Manual',
+      import_source: 'Local', duty_paid: true, police_verified: true, status: 'Available',
+      trust_score: 95, price: 65000.0, currency: 'USD', owner_id: 'u3',
+      tenant_id: '00000000-0000-0000-0000-000000000001'
+    });
+    if (insErr) {
+      console.error('VEHICLE INSERT ERROR:', insErr);
+      throw new Error(insErr.message);
+    }
+
+    try {
+      // 32.1: Asserting Escrow Creation Idempotence
+      console.log('  → 32.1: Asserting Escrow Creation Idempotence...');
+      const escrow1 = await createEscrow(transVin, 'u1', 'u3', 65000.0);
+      const escrow2 = await createEscrow(transVin, 'u1', 'u3', 65000.0);
+      
+      if (escrow1.id !== escrow2.id) {
+        throw new Error(`Escrow creation is not idempotent. Generated two different escrows: ${escrow1.id} and ${escrow2.id}`);
+      }
+      
+      const { data: ledgers1 } = await supabase.from('financial_ledger').select('*').eq('escrow_id', escrow1.id);
+      if (ledgers1.length !== 1) {
+        throw new Error(`Duplicate ledger debits found for idempotent escrow creation. Expected 1 ledger entry, found ${ledgers1.length}`);
+      }
+      console.log('  ✅ Escrow creation is 100% idempotent.');
+
+      // 32.2: Asserting Duplicate Payment State Bypass (Double-Credit Protection)
+      console.log('  → 32.2: Asserting Double-Credit Payment Protection...');
+      await updateEscrowStatus(escrow1.id, 'Escrowed', { ref: 'TXN_PAY_1' });
+      await updateEscrowStatus(escrow1.id, 'Escrowed', { ref: 'TXN_PAY_2' }); // Duplicate update
+      
+      const { data: ledgers2 } = await supabase.from('financial_ledger').select('*').eq('escrow_id', escrow1.id);
+      const escrowedLedgers = ledgers2.filter(l => l.source_account === `BUYER_u1`);
+      if (escrowedLedgers.length > 1) {
+        throw new Error(`Duplicate payment ledger debit recorded. Double-credited BUYER_u1! Count: ${escrowedLedgers.length}`);
+      }
+      console.log('  ✅ Duplicate payments correctly bypassed and double-credit blocked.');
+
+      // 32.3: Asserting Dispute Path Freezes State
+      console.log('  → 32.3: Asserting Dispute Path Freezes State...');
+      await updateEscrowStatus(escrow1.id, 'Inspecting');
+      await updateEscrowStatus(escrow1.id, 'Disputed', { reason: 'Vehicle suspension knock detected' });
+      
+      // Trying to transition from Disputed back to Inspecting must be strictly rejected
+      try {
+        await updateEscrowStatus(escrow1.id, 'Inspecting');
+        throw new Error('Disputed state machine failure: allowed state transition out of dispute back to Inspecting');
+      } catch (err) {
+        if (!err.message.includes('ILLEGAL ESCROW STATE TRANSITION')) throw err;
+        console.log('  ✅ Dispute transition freeze correctly enforced.');
+      }
+
+      // 32.4: Asserting Ownership Transfer only occurs AFTER payment completion
+      console.log('  → 32.4: Asserting Ownership Transfer logic...');
+      
+      // Before Completion: owner must still be u3
+      const { data: vehBefore } = await supabase.from('vehicles').select('owner_id').eq('vin', transVin).single();
+      if (vehBefore.owner_id !== 'u3') {
+        throw new Error(`Vehicle ownership transferred prematurely! Expected owner u3, found ${vehBefore.owner_id}`);
+      }
+      
+      // Resolve dispute and complete transaction
+      await updateEscrowStatus(escrow1.id, 'Completed');
+      
+      // After Completion: owner must be u1 (buyer) and B2B tenant_id must be null
+      const { data: vehAfter } = await supabase.from('vehicles').select('owner_id, tenant_id, status').eq('vin', transVin).single();
+      if (vehAfter.owner_id !== 'u1') {
+        throw new Error(`Vehicle ownership transfer failed on completed payment. Expected owner u1, found ${vehAfter.owner_id}`);
+      }
+      if (vehAfter.tenant_id !== null) {
+        throw new Error(`Vehicle organization scope was not cleared on B2C sale. Expected null tenant_id, found ${vehAfter.tenant_id}`);
+      }
+      if (vehAfter.status !== 'Sold') {
+        throw new Error(`Vehicle status failed to update to 'Sold'. Status: ${vehAfter.status}`);
+      }
+      
+      // Verification of vehicle_ownership_history insert
+      const { data: history } = await supabase.from('vehicle_ownership_history').select('*').eq('vin', transVin);
+      if (history.length === 0) {
+        throw new Error('Vehicle ownership history log book record not generated on payment completion.');
+      }
+      console.log('  ✅ Ownership transfer successfully executed only upon Completed state.');
+
+      // 32.5: Asserting Refund Path Restores State
+      console.log('  → 32.5: Asserting Refund Path Restores State...');
+      
+      // Create second vehicle and second escrow for refund test
+      await supabase.from('vehicles').insert({
+        vin: refundVin, make: 'Ford', model: 'Fiesta', year: 2018, color: 'Red',
+        mileage: 60000, fuel_type: 'Petrol', drivetrain: 'FWD', transmission: 'Auto',
+        import_source: 'Local', duty_paid: true, police_verified: true, status: 'Available',
+        price: 9500.0, currency: 'USD', owner_id: 'u3',
+        tenant_id: '00000000-0000-0000-0000-000000000001'
+      });
+      
+      const escrowRefund = await createEscrow(refundVin, 'u1', 'u3', 9500.0);
+      await updateEscrowStatus(escrowRefund.id, 'Escrowed');
+      await updateEscrowStatus(escrowRefund.id, 'Inspecting');
+      
+      // Execute refund
+      await updateEscrowStatus(escrowRefund.id, 'Refunded');
+      
+      // Verify reversing ledger entry
+      const { data: ledgersRefund } = await supabase.from('financial_ledger').select('*').eq('escrow_id', escrowRefund.id);
+      const refundCredits = ledgersRefund.filter(l => l.destination_account === 'BUYER_u1' && l.entry_type === 'CREDIT');
+      if (refundCredits.length !== 1) {
+        throw new Error(`Refund failed to insert reversing credit ledger entry. Found count: ${refundCredits.length}`);
+      }
+      
+      // Verify vehicle status restored to Available
+      const { data: vehRefund } = await supabase.from('vehicles').select('status').eq('vin', refundVin).single();
+      if (vehRefund.status !== 'Available') {
+        throw new Error(`Refund failed to restore vehicle status to Available. Status: ${vehRefund.status}`);
+      }
+      console.log('  ✅ Refund path restored financial ledgers and vehicle availability status perfectly.');
+
+      // Clean up second test vehicle and escrow
+      await supabase.from('safepay_escrows').delete().eq('id', escrowRefund.id);
+      await supabase.from('financial_ledger').delete().eq('escrow_id', escrowRefund.id);
+      await supabase.from('vehicles').delete().eq('vin', refundVin);
+
+    } finally {
+      // Cleanup seeded transactions, escrows, ledgers, and vehicle
+      await supabase.from('safepay_escrows').delete().eq('vin', transVin);
+      await supabase.from('financial_ledger').delete().eq('source_account', 'CARUP_ESCROW_ACCOUNT');
+      await supabase.from('financial_ledger').delete().eq('source_account', 'BUYER_u1');
+      await supabase.from('vehicle_ownership_history').delete().eq('vin', transVin);
+      await supabase.from('vehicles').delete().eq('vin', transVin);
+    }
+
+    console.log('✅ Test 32: SafePay Transaction Integrity & Idempotency checks passed.');
+
+    // 33. Zimbabwe Plate & Owner Privacy Lookup, Redaction, and Trust Engine
+    console.log('\n🧪 Test 33: Zimbabwe Plate & Owner Privacy Lookup & Redaction...');
+    const testPlateVin = 'VIN_PLATE_TEST_99';
+    const dupPlateVin = 'VIN_PLATE_DUP_99';
+
+    try {
+      // Clean up pre-existing test data from previous runs if any
+      await supabase.from('vehicles').delete().eq('vin', testPlateVin);
+      await supabase.from('vehicles').delete().eq('vin', dupPlateVin);
+      await supabase.from('vehicle_plate_history').delete().eq('vin', testPlateVin);
+      await supabase.from('cvr_ownership_records').delete().eq('vin', testPlateVin);
+      await supabase.from('zimra_declarations').delete().eq('vin', testPlateVin);
+
+      // Seed main test vehicle with new plate fields
+      const { error: insVehError } = await supabase.from('vehicles').insert({
+        vin: testPlateVin,
+        make: 'Mazda',
+        model: 'Demio',
+        generation: 'DE',
+        trim: 'Casual',
+        year: 2012,
+        color: 'Silver',
+        mileage: 65000,
+        fuel_type: 'Petrol',
+        drivetrain: 'FWD',
+        transmission: 'Automatic',
+        import_source: 'Japan',
+        duty_paid: true,
+        police_verified: true,
+        status: 'Available',
+        trust_score: 90.0,
+        price: 6500.0,
+        currency: 'USD',
+        owner_id: 'u1',
+        plate_number: 'AE-9999',
+        normalized_plate_number: 'AE9999',
+        plate_status: 'Active',
+        chassis_number: 'DE3FS-999999',
+        engine_number: 'ZJ-999999',
+        registration_status: 'Current',
+        registration_country: 'ZW',
+        registration_authority: 'CVR',
+        temporary_identification_number: 'TEMP-9999-ZW',
+        plate_verified_at: new Date().toISOString(),
+        plate_verification_source: 'CVR',
+        current_seller_id: 'u1',
+        current_seller_type: 'Private Owner',
+        public_seller_display_enabled: false
+      });
+      if (insVehError) throw insVehError;
+
+      // Seed plate history
+      const { error: insPlateHistError } = await supabase.from('vehicle_plate_history').insert({
+        vin: testPlateVin,
+        vehicle_id: testPlateVin,
+        plate_number: 'AE-9999',
+        normalized_plate_number: 'AE9999',
+        plate_type: 'permanent',
+        status: 'active',
+        is_current: true,
+        issued_at: new Date().toISOString(),
+        verified_at: new Date().toISOString(),
+        verification_source: 'CVR'
+      });
+      if (insPlateHistError) throw insPlateHistError;
+
+      // Seed CVR registry
+      const { error: insCvrError } = await supabase.from('cvr_ownership_records').insert({
+        vin: testPlateVin,
+        registration_number: 'AE-9999',
+        owner_full_name: 'Tendai Moyo',
+        owner_id_number: '63-123456-X-01',
+        logbook_serial_number: 'LGB-999999',
+        issue_date: new Date().toISOString().split('T')[0],
+        status: 'Current'
+      });
+      if (insCvrError) throw insCvrError;
+
+      // Seed ZIMRA
+      const { error: insZimraError } = await supabase.from('zimra_declarations').insert({
+        vin: testPlateVin,
+        importer_name: 'Tendai Moyo',
+        port_of_entry: 'Beitbridge',
+        customs_ref_number: 'ZIMRA-REF-999',
+        duty_calculated_zig: 15000,
+        duty_paid_zig: 15000,
+        exchange_rate_used: 13.5,
+        customs_stamp_date: new Date().toISOString().split('T')[0], // Use YYYY-MM-DD for DATE type compatibility
+        officer_signature_hash: 'mockofficersignaturehashvalue1234567890'
+      });
+      if (insZimraError) throw insZimraError;
+
+      // Get app instance
+      const serverModule = await import('../server.js');
+      const myApp = serverModule.app || serverModule.default || app;
+
+      // 1. Test lookup by VIN
+      const resVin = await runRequest(myApp, { method: 'GET', url: `/api/vehicles/passport/lookup/${testPlateVin}` });
+      if (resVin.statusCode !== 200) throw new Error(`Lookup by VIN failed. Status: ${resVin.statusCode}`);
+      if (resVin.body.identity.vin !== testPlateVin) throw new Error(`Lookup by VIN returned wrong vehicle: ${resVin.body.identity.vin}`);
+      console.log('  ✅ Lookup by VIN passed.');
+
+      // 2. Test lookup by plate with hyphen
+      const resHyphen = await runRequest(myApp, { method: 'GET', url: '/api/vehicles/passport/lookup/AE-9999' });
+      if (resHyphen.statusCode !== 200) throw new Error(`Lookup by plate with hyphen failed. Status: ${resHyphen.statusCode}`);
+      console.log('  ✅ Lookup by plate with hyphen passed.');
+
+      // 3. Test lookup by plate without hyphen
+      const resNoHyphen = await runRequest(myApp, { method: 'GET', url: '/api/vehicles/passport/lookup/AE9999' });
+      if (resNoHyphen.statusCode !== 200) throw new Error(`Lookup by plate without hyphen failed. Status: ${resNoHyphen.statusCode}`);
+      console.log('  ✅ Lookup by plate without hyphen passed.');
+
+      // 4. Test lookup by lowercase plate
+      const resLower = await runRequest(myApp, { method: 'GET', url: '/api/vehicles/passport/lookup/ae-9999' });
+      if (resLower.statusCode !== 200) throw new Error(`Lookup by lowercase plate failed. Status: ${resLower.statusCode}`);
+      console.log('  ✅ Lookup by lowercase plate passed.');
+
+      // 5. Test lookup by chassis
+      const resChassis = await runRequest(myApp, { method: 'GET', url: '/api/vehicles/passport/lookup/DE3FS-999999' });
+      if (resChassis.statusCode !== 200) throw new Error(`Lookup by chassis failed. Status: ${resChassis.statusCode}`);
+      console.log('  ✅ Lookup by chassis number passed.');
+
+      // 6. Test lookup by temporary ID
+      const resTemp = await runRequest(myApp, { method: 'GET', url: '/api/vehicles/passport/lookup/TEMP-9999-ZW' });
+      if (resTemp.statusCode !== 200) throw new Error(`Lookup by temporary ID failed. Status: ${resTemp.statusCode}`);
+      console.log('  ✅ Lookup by temporary identification number passed.');
+
+      // 7. Test 409 conflict on duplicate normalized plate
+      const { error: insVehDupError } = await supabase.from('vehicles').insert({
+        vin: dupPlateVin,
+        make: 'Nissan',
+        model: 'Note',
+        generation: 'E12',
+        trim: 'X',
+        year: 2014,
+        color: 'White',
+        mileage: 80000,
+        fuel_type: 'Petrol',
+        drivetrain: 'FWD',
+        transmission: 'Automatic',
+        import_source: 'Japan',
+        duty_paid: true,
+        police_verified: true,
+        status: 'Available',
+        trust_score: 80.0,
+        price: 5500.0,
+        currency: 'USD',
+        owner_id: 'u3',
+        plate_number: 'AE-9999',
+        normalized_plate_number: 'AE9999',
+        plate_status: 'Active'
+      });
+      if (insVehDupError) throw insVehDupError;
+
+      const resConflict = await runRequest(myApp, { method: 'GET', url: '/api/vehicles/passport/lookup/AE-9999' });
+      if (resConflict.statusCode !== 409) {
+        throw new Error(`Expected 409 Conflict for duplicate plate, got: ${resConflict.statusCode}`);
+      }
+      console.log('  ✅ Duplicate normalized plate triggers 409 Conflict correctly.');
+
+      // Cleanup duplicate
+      await supabase.from('vehicles').delete().eq('vin', dupPlateVin);
+
+      // 8. Test public response does not expose owner PII
+      const resPublic = await runRequest(myApp, { method: 'GET', url: `/api/vehicles/passport/lookup/${testPlateVin}` });
+      if (resPublic.statusCode !== 200) throw new Error('Failed public passport lookup');
+      
+      // Check redacted owner names in ownership summary
+      if (resPublic.body.ownershipSummary.currentSellerDisplayName !== 'Private Seller') {
+        throw new Error(`PII Leaked: Public guest saw seller name: ${resPublic.body.ownershipSummary.currentSellerDisplayName}`);
+      }
+      if (resPublic.body.ownershipSummary.ownerNamesRedacted !== true) {
+        throw new Error('PII Leaked: ownerNamesRedacted is not true on public guest view');
+      }
+
+      // Check timeline events PII redaction
+      const cvrEvent = resPublic.body.timeline.find(e => e.event_source === 'cvr');
+      if (!cvrEvent) throw new Error('Missing cvr registration event in timeline');
+      if (cvrEvent.desc.includes('Tendai Moyo') || cvrEvent.details?.ownerId || cvrEvent.details?.logbookSerial) {
+        throw new Error(`PII Leaked: CVR timeline event exposed private data. Desc: ${cvrEvent.desc}, Details: ${JSON.stringify(cvrEvent.details)}`);
+      }
+
+      const zimraEvent = resPublic.body.timeline.find(e => e.event_source === 'zimra');
+      if (!zimraEvent) throw new Error('Missing zimra declaration event in timeline');
+      if (zimraEvent.details?.importer) {
+        throw new Error(`PII Leaked: ZIMRA timeline event exposed importer name: ${zimraEvent.details.importer}`);
+      }
+      console.log('  ✅ Public response correctly redacts owner names, national IDs, and logbook serials.');
+
+      // 9. Test admin/government response may expose private details only if authorized
+      const resOwner = await runRequest(myApp, {
+        method: 'GET',
+        url: `/api/vehicles/passport/lookup/${testPlateVin}`,
+        headers: { 'x-user-id': 'u1' }
+      });
+      if (resOwner.statusCode !== 200) throw new Error('Failed owner passport lookup');
+      if (resOwner.body.ownershipSummary.currentSellerDisplayName !== 'Tendai Moyo') {
+        throw new Error(`Owner display name incorrect on owner authorized view. Got: ${resOwner.body.ownershipSummary.currentSellerDisplayName}`);
+      }
+
+      const cvrEventOwner = resOwner.body.timeline.find(e => e.event_source === 'cvr');
+      if (cvrEventOwner.details?.ownerId !== '63-123456-X-01') {
+        throw new Error(`Owner failed to view CVR ownerId. Got: ${cvrEventOwner.details?.ownerId}`);
+      }
+      console.log('  ✅ Authorized owner response successfully exposes private details.');
+
+    } finally {
+      // Cleanup all test plate data
+      await supabase.from('cvr_ownership_records').delete().eq('vin', testPlateVin);
+      await supabase.from('zimra_declarations').delete().eq('vin', testPlateVin);
+      await supabase.from('vehicle_plate_history').delete().eq('vin', testPlateVin);
+      await supabase.from('vehicles').delete().eq('vin', testPlateVin);
+      await supabase.from('vehicles').delete().eq('vin', dupPlateVin);
+    }
+
+    console.log('✅ Test 33: Zimbabwe Plate & Owner Privacy lookup and redaction checks passed.');
 
     // Cleanup mock data
     console.log('  → Cleaning up temporary test data...');

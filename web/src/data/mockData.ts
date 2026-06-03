@@ -31,6 +31,10 @@ export interface Vehicle {
   trustScore: number;
   viewCount: number;
   status?: string;
+  plate_number?: string;
+  normalized_plate_number?: string;
+  chassis_number?: string;
+  temporary_identification_number?: string;
 }
 
 export interface Dealer {
@@ -205,6 +209,10 @@ export const vehicles: Vehicle[] = [
     images: ['/images/vehicles/suv-prado.jpg'],
     vin: 'JTELU9FJ9K5987234',
     engineNumber: '1KD-456789',
+    plate_number: 'AE-1234',
+    normalized_plate_number: 'AE1234',
+    chassis_number: 'JTELU9FJ9K5987234',
+    temporary_identification_number: 'TEMP-1234-ZW',
     description: 'Immaculate condition Toyota Land Cruiser Prado. Full service history, recent timing belt replacement. Perfect for family adventures and long-distance travel.',
     features: ['4WD', 'Leather Seats', 'Sunroof', 'Navigation', 'Reverse Camera', 'Cruise Control', '7 Seats', 'Tow Bar'],
     sellerType: 'Dealer',
