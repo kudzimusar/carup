@@ -214,11 +214,8 @@ export default function Navbar() {
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/login">Sign In</Link>
                 </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/register">Sell</Link>
-                </Button>
                 <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
-                  <Link to="/register">Get Started</Link>
+                  <Link to="/register">Sell Your Car</Link>
                 </Button>
               </div>
             )}
@@ -273,11 +270,8 @@ export default function Navbar() {
                   <Button variant="outline" size="sm" className="flex-1" asChild>
                     <Link to="/login" onClick={() => setMobileOpen(false)}>Sign In</Link>
                   </Button>
-                  <Button variant="outline" size="sm" className="flex-1" asChild>
-                    <Link to="/register" onClick={() => setMobileOpen(false)}>Sell</Link>
-                  </Button>
                   <Button size="sm" className="flex-1 bg-orange-500 hover:bg-orange-600" asChild>
-                    <Link to="/register" onClick={() => setMobileOpen(false)}>Get Started</Link>
+                    <Link to="/register" onClick={() => setMobileOpen(false)}>Sell Your Car</Link>
                   </Button>
                 </div>
               )}

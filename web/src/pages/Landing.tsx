@@ -22,16 +22,6 @@ import {
 import { vehicles } from '@/data/mockData'
 import { useAuth } from '@/context/AuthContext'
 
-const buyerCategoryChips = [
-  'Brand New',
-  'Recently Imported',
-  'Fresh Imports',
-  'Locally Used',
-  'Second Hand',
-  'Dealer Verified',
-  'Passport Verified',
-]
-
 const popularSearches = [
   'Brand New',
   'Recently Imported',
@@ -160,29 +150,41 @@ export default function Landing() {
               Verified automotive marketplace for Zimbabwe
             </Badge>
             <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-normal md:text-6xl lg:text-7xl">
-              Find Verified Cars in Zimbabwe
+              Find Verified Cars. Sell With Confidence.
             </h1>
             <p className="mt-5 max-w-3xl text-base leading-7 text-gray-300 md:text-xl">
-              Shop, verify, and sell cars with CarUp Passports, plate checks, owner privacy,
-              trust scores, and evidence-backed timelines.
+              CarUp helps buyers and sellers build trust with vehicle Passports, plate checks,
+              owner privacy, trust scores, and evidence-backed timelines.
             </p>
 
-            <Card className="mt-8 max-w-3xl border-white/10 bg-white text-gray-950 shadow-2xl">
-              <CardContent className="p-3 sm:p-4">
+            <Card className="mt-8 max-w-3xl border-white/20 bg-white/95 text-gray-950 shadow-xl backdrop-blur">
+              <CardContent className="p-4 sm:p-5">
                 <Tabs defaultValue="buy">
-                  <TabsList className="grid h-auto w-full grid-cols-3 bg-gray-100 p-1">
-                    <TabsTrigger value="buy" data-testid="home-buy-tab" className="py-2 text-xs sm:text-sm">
+                  <TabsList className="grid h-auto w-full grid-cols-3 gap-1 bg-transparent p-0">
+                    <TabsTrigger
+                      value="buy"
+                      data-testid="home-buy-tab"
+                      className="rounded-md py-2.5 text-xs font-semibold data-[state=active]:bg-gray-950 data-[state=active]:text-white sm:text-sm"
+                    >
                       Buy a Car
                     </TabsTrigger>
-                    <TabsTrigger value="verify" data-testid="home-verify-tab" className="py-2 text-xs sm:text-sm">
-                      Verify a Car
-                    </TabsTrigger>
-                    <TabsTrigger value="sell" data-testid="home-sell-tab" className="py-2 text-xs sm:text-sm">
+                    <TabsTrigger
+                      value="sell"
+                      data-testid="home-sell-tab"
+                      className="rounded-md py-2.5 text-xs font-semibold data-[state=active]:bg-gray-950 data-[state=active]:text-white sm:text-sm"
+                    >
                       Sell My Car
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="verify"
+                      data-testid="home-verify-tab"
+                      className="rounded-md py-2.5 text-xs font-semibold data-[state=active]:bg-gray-950 data-[state=active]:text-white sm:text-sm"
+                    >
+                      Verify a Car
                     </TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="buy" className="mt-4">
+                  <TabsContent value="buy" className="mt-5">
                     <form onSubmit={submitBuy} className="flex flex-col gap-3 sm:flex-row">
                       <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -202,21 +204,9 @@ export default function Landing() {
                         Search Verified Cars
                       </Button>
                     </form>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {buyerCategoryChips.map(chip => (
-                        <button
-                          key={chip}
-                          type="button"
-                          onClick={() => navigate('/marketplace')}
-                          className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
-                        >
-                          {chip}
-                        </button>
-                      ))}
-                    </div>
                   </TabsContent>
 
-                  <TabsContent value="verify" className="mt-4">
+                  <TabsContent value="verify" className="mt-5">
                     <form onSubmit={submitVerify} className="flex flex-col gap-3 sm:flex-row">
                       <div className="relative flex-1">
                         <FileSearch className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -237,7 +227,7 @@ export default function Landing() {
                     </p>
                   </TabsContent>
 
-                  <TabsContent value="sell" className="mt-4">
+                  <TabsContent value="sell" className="mt-5">
                     <form onSubmit={submitSell} className="flex flex-col gap-3 sm:flex-row">
                       <div className="relative flex-1">
                         <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -258,12 +248,31 @@ export default function Landing() {
                     </p>
                   </TabsContent>
                 </Tabs>
+
+                <div
+                  className="mt-5 flex flex-col gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-center sm:justify-between"
+                  data-testid="home-seller-callout"
+                >
+                  <div>
+                    <p className="font-semibold text-gray-950">Selling your car?</p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Start with your plate or VIN and create a trusted Passport listing.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={sellerHandoff}
+                    className="bg-orange-500 text-white hover:bg-orange-600"
+                  >
+                    Start Selling
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>
 
           {heroVehicle && (
-            <Card className="self-start overflow-hidden border-white/10 bg-white text-gray-950 shadow-2xl" data-testid="featured-verified-car">
+            <Card className="self-start overflow-hidden border-white/15 bg-white text-gray-950 shadow-2xl" data-testid="featured-verified-car">
               <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
                 <img
                   src={heroVehicle.images[0]}
@@ -307,40 +316,16 @@ export default function Landing() {
       </section>
 
       <section className="border-b bg-white" data-testid="home-trust-strip">
-        <div className="section-padding mx-auto grid max-w-[1440px] gap-3 py-5 sm:grid-cols-2 lg:grid-cols-5">
-          {trustStrip.map(item => (
-            <div key={item.label} className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+        <div className="section-padding mx-auto flex max-w-[1440px] flex-wrap items-center justify-center gap-x-6 gap-y-3 py-4 lg:justify-between">
+          {trustStrip.map((item, index) => (
+            <div
+              key={item.label}
+              className={`flex items-center gap-2 ${index > 0 ? 'lg:border-l lg:border-gray-200 lg:pl-6' : ''}`}
+            >
               <item.icon className="h-5 w-5 text-orange-500" />
               <span className="text-sm font-semibold text-gray-800">{item.label}</span>
             </div>
           ))}
-        </div>
-      </section>
-
-      <section className="bg-gray-50 py-10">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-            <div>
-              <Badge className="mb-3 bg-orange-100 text-orange-700 hover:bg-orange-100">Popular searches</Badge>
-              <h2 className="text-2xl font-bold md:text-3xl">Start with what buyers ask for most</h2>
-            </div>
-            <p className="max-w-lg text-sm text-gray-600">
-              These are Phase 1 quick-entry labels. Backend category filters come later.
-            </p>
-          </div>
-          <div className="mt-6 flex flex-wrap gap-2">
-            {popularSearches.map(chip => (
-              <button
-                key={chip}
-                type="button"
-                onClick={() => navigate('/marketplace')}
-                className="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
-                data-testid="popular-search-chip"
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -420,30 +405,10 @@ export default function Landing() {
 
       <section className="bg-gray-50 py-14">
         <div className="section-padding mx-auto grid max-w-[1440px] gap-6 lg:grid-cols-2">
-          <Card className="border-0 shadow-md">
-            <CardContent className="p-6 md:p-8">
-              <Badge className="mb-4 bg-green-100 text-green-700 hover:bg-green-100">Verify before you pay</Badge>
-              <h2 className="text-3xl font-bold">Already found a car elsewhere?</h2>
-              <p className="mt-3 text-gray-600">Check its CarUp Passport before you pay.</p>
-              <form onSubmit={submitVerifyBeforeBuy} className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <Input
-                  value={verifyBeforeBuyQuery}
-                  onChange={event => setVerifyBeforeBuyQuery(event.target.value)}
-                  placeholder="Plate, VIN, or chassis"
-                  className="h-12 font-mono"
-                  data-testid="verify-before-buy-input"
-                />
-                <Button type="submit" className="h-12 bg-orange-500 text-white hover:bg-orange-600">
-                  Verify Vehicle
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
           <Card className="border-0 bg-[hsl(222,47%,10%)] text-white shadow-md">
             <CardContent className="p-6 md:p-8">
-              <Badge className="mb-4 bg-white/10 text-white hover:bg-white/10">Sell with trust</Badge>
-              <h2 className="text-3xl font-bold">Sell your car with a verified Passport</h2>
+              <Badge className="mb-4 bg-white/10 text-white hover:bg-white/10">Sell with a Passport</Badge>
+              <h2 className="text-3xl font-bold">Sell your car with a trusted Passport</h2>
               <p className="mt-3 text-gray-300">
                 Start with the current seller verification handoff and create a listing through CarUp.
               </p>
@@ -461,6 +426,53 @@ export default function Landing() {
               </form>
             </CardContent>
           </Card>
+
+          <Card className="border-0 shadow-md">
+            <CardContent className="p-6 md:p-8">
+              <Badge className="mb-4 bg-green-100 text-green-700 hover:bg-green-100">Verify before you buy</Badge>
+              <h2 className="text-3xl font-bold">Already found a car elsewhere?</h2>
+              <p className="mt-3 text-gray-600">Check its CarUp Passport before you pay.</p>
+              <form onSubmit={submitVerifyBeforeBuy} className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  value={verifyBeforeBuyQuery}
+                  onChange={event => setVerifyBeforeBuyQuery(event.target.value)}
+                  placeholder="Plate, VIN, or chassis"
+                  className="h-12 font-mono"
+                  data-testid="verify-before-buy-input"
+                />
+                <Button type="submit" className="h-12 bg-orange-500 text-white hover:bg-orange-600">
+                  Verify Vehicle
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section className="bg-white py-14">
+        <div className="section-padding mx-auto max-w-[1440px]">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <Badge className="mb-3 bg-orange-100 text-orange-700 hover:bg-orange-100">Popular Zimbabwe Categories</Badge>
+              <h2 className="text-2xl font-bold md:text-3xl">Start with what buyers ask for most</h2>
+            </div>
+            <p className="max-w-lg text-sm text-gray-600">
+              These are Phase 1 quick-entry labels. Backend category filters come later.
+            </p>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {popularSearches.map(chip => (
+              <button
+                key={chip}
+                type="button"
+                onClick={() => navigate('/marketplace')}
+                className="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+                data-testid="popular-search-chip"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -488,20 +500,44 @@ export default function Landing() {
       </section>
 
       <section className="bg-[hsl(222,47%,8%)] py-14 text-white">
-        <div className="section-padding mx-auto flex max-w-[1440px] flex-col justify-between gap-6 md:flex-row md:items-center">
-          <div>
-            <Badge className="mb-3 bg-orange-500/20 text-orange-100 hover:bg-orange-500/20">
-              CarUp marketplace
-            </Badge>
-            <h2 className="text-3xl font-bold">Buy, verify, and sell with Passport-backed confidence</h2>
+        <div className="section-padding mx-auto max-w-[1440px]">
+          <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+            <div>
+              <Badge className="mb-3 bg-orange-500/20 text-orange-100 hover:bg-orange-500/20">
+                Why CarUp is safer
+              </Badge>
+              <h2 className="max-w-2xl text-3xl font-bold">
+                Buy, verify, and sell with Passport-backed confidence
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild className="bg-orange-500 text-white hover:bg-orange-600">
+                <Link to="/marketplace">Buy Cars</Link>
+              </Button>
+              <Button asChild variant="outline" className="border-white/30 text-white hover:bg-white/10">
+                <Link to="/search">Verify a Vehicle</Link>
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Button asChild className="bg-orange-500 text-white hover:bg-orange-600">
-              <Link to="/marketplace">Buy Cars</Link>
-            </Button>
-            <Button asChild variant="outline" className="border-white/30 text-white hover:bg-white/10">
-              <Link to="/search">Verify a Vehicle</Link>
-            </Button>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <div>
+              <h3 className="font-semibold">Private seller details stay protected</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-300">
+                Homepage cards avoid exposing private owner names or phone numbers.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-semibold">Passport context before payment</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-300">
+                Buyers can open the current vehicle Passport route from VIN-based listing links.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-semibold">Seller trust starts early</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-300">
+                Sellers are guided into the existing account and listing flow before publishing.
+              </p>
+            </div>
           </div>
         </div>
       </section>
