@@ -6,7 +6,7 @@ export async function getVehicleTimeline(vin) {
   // Fetch all timeline events in parallel from Supabase
   const [
     ownershipResult, serviceResult, insuranceResult, escrowResult,
-    zimraResult, cvrResult, vidResult, cidResult, zinaraResult
+    zimraResult, cvrResult, vidResult, cidResult, zinaraResult, plateHistoryResult
   ] = await Promise.all([
     supabase.from('vehicle_ownership_history').select('id, transfer_date, previous_owner_id, new_owner_id').eq('vin', vin),
     supabase.from('partsentry_logs').select('id, timestamp, action_type, part_name, mechanic_id, mileage, description').eq('vin', vin),
@@ -17,6 +17,7 @@ export async function getVehicleTimeline(vin) {
     supabase.from('vid_inspections').select('*').eq('vin', vin),
     supabase.from('cid_clearance_records').select('*').eq('vin', vin),
     supabase.from('zinara_licensing_records').select('*').eq('vin', vin),
+    supabase.from('vehicle_plate_history').select('*').eq('vin', vin),
   ]);
 
   const events = [];
@@ -25,7 +26,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (ownershipResult.data || [])) {
     events.push({
       event_source: 'ownership_transfer',
-      id: e.id,
+      id: `ownership_transfer:${e.id}`,
       timestamp: e.transfer_date,
       label: 'Owner Transfer',
       desc: 'Previous owner transferred to new buyer',
@@ -37,7 +38,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (serviceResult.data || [])) {
     events.push({
       event_source: 'service',
-      id: e.id,
+      id: `partsentry:${e.id}`,
       timestamp: e.timestamp,
       label: e.action_type,
       desc: `${e.part_name} (${e.action_type})`,
@@ -49,7 +50,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (insuranceResult.data || [])) {
     events.push({
       event_source: 'insurance',
-      id: e.policy_number,
+      id: `insurance:${e.policy_number}`,
       timestamp: e.start_date,
       label: 'Insurance Insured',
       desc: 'Policy premium set',
@@ -61,7 +62,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (escrowResult.data || [])) {
     events.push({
       event_source: 'escrow',
-      id: e.id,
+      id: `escrow:${e.id}`,
       timestamp: e.created_at,
       label: 'SafePay Escrow',
       desc: `Escrow transaction state: ${e.status}`,
@@ -73,7 +74,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (zimraResult.data || [])) {
     events.push({
       event_source: 'zimra',
-      id: e.id,
+      id: `zimra:${e.id}`,
       timestamp: e.customs_stamp_date,
       label: 'ZIMRA Customs Clearance',
       desc: `Import duty cleared via ${e.port_of_entry}. Ref: ${e.customs_ref_number}`,
@@ -85,7 +86,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (cvrResult.data || [])) {
     events.push({
       event_source: 'cvr',
-      id: e.id,
+      id: `cvr:${e.id}`,
       timestamp: e.issue_date,
       label: 'CVR Registration',
       desc: `Registered plate ${e.registration_number}. Owner: ${e.owner_full_name}`,
@@ -97,7 +98,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (vidResult.data || [])) {
     events.push({
       event_source: 'vid',
-      id: e.id,
+      id: `vid:${e.id}`,
       timestamp: e.inspected_at,
       label: 'VID Inspection',
       desc: `Mechanical inspection: ${e.inspection_status} at ${e.inspection_center}`,
@@ -109,7 +110,7 @@ export async function getVehicleTimeline(vin) {
   for (const e of (cidResult.data || [])) {
     events.push({
       event_source: 'cid',
-      id: e.id,
+      id: `cid:${e.id}`,
       timestamp: e.cleared_at,
       label: 'CID Police Clearance',
       desc: `CID clearance check: ${e.stolen_check_status} at ${e.station_name}`,
@@ -121,12 +122,96 @@ export async function getVehicleTimeline(vin) {
   for (const e of (zinaraResult.data || [])) {
     events.push({
       event_source: 'zinara',
-      id: e.id,
+      id: `zinara:${e.id}`,
       timestamp: e.licensing_term_start,
       label: 'ZINARA Licensing',
       desc: `Road licensing term: ${e.status}. Paid: ${e.amount_paid_zig} ZiG`,
       details: { termEnd: e.licensing_term_end, receipt: e.receipt_number }
     });
+  }
+
+  // Plate History events (Timeline events based on user prompt step 8)
+  for (const p of (plateHistoryResult.data || [])) {
+    // plate_assigned / temporary_id_issued
+    if (p.issued_at) {
+      const isTemp = p.plate_type === 'temporary';
+      events.push({
+        event_source: isTemp ? 'temporary_id_issued' : 'plate_assigned',
+        id: isTemp ? `temporary_id_issued:${p.id}` : `plate_assigned:${p.id}`,
+        timestamp: p.issued_at,
+        label: isTemp ? 'Temporary ID Issued' : 'Plate Assigned',
+        desc: isTemp 
+          ? `Temporary identification number issued: ${p.plate_number}`
+          : `Number plate assigned: ${p.plate_number}`,
+        details: {
+          plateNumber: p.plate_number,
+          plateType: p.plate_type,
+          reason: p.reason,
+          createdBy: p.created_by
+        }
+      });
+    }
+
+    // plate_verified
+    if (p.verified_at) {
+      events.push({
+        event_source: 'plate_verified',
+        id: `plate_verified:${p.id}`,
+        timestamp: p.verified_at,
+        label: 'Plate Verified',
+        desc: `Number plate ${p.plate_number} verified via ${p.verification_source || 'CVR'}`,
+        details: {
+          plateNumber: p.plate_number,
+          verifiedBy: p.verified_by,
+          verificationSource: p.verification_source
+        }
+      });
+    }
+
+    // plate_flagged
+    if (p.status === 'flagged') {
+      events.push({
+        event_source: 'plate_flagged',
+        id: `plate_flagged:${p.id}`,
+        timestamp: p.updated_at || p.created_at,
+        label: 'Plate Flagged',
+        desc: `Number plate ${p.plate_number} flagged: ${p.reason || 'No reason provided'}`,
+        details: {
+          plateNumber: p.plate_number,
+          reason: p.reason
+        }
+      });
+    }
+
+    // plate_suspended
+    if (p.status === 'suspended') {
+      events.push({
+        event_source: 'plate_suspended',
+        id: `plate_suspended:${p.id}`,
+        timestamp: p.updated_at || p.created_at,
+        label: 'Plate Suspended',
+        desc: `Number plate ${p.plate_number} suspended: ${p.reason || 'No reason provided'}`,
+        details: {
+          plateNumber: p.plate_number,
+          reason: p.reason
+        }
+      });
+    }
+
+    // plate_changed (if status is previous, it implies the plate was changed)
+    if (p.status === 'previous') {
+      events.push({
+        event_source: 'plate_changed',
+        id: `plate_changed:${p.id}`,
+        timestamp: p.updated_at || p.created_at,
+        label: 'Plate Changed',
+        desc: `Number plate ${p.plate_number} retired or changed`,
+        details: {
+          plateNumber: p.plate_number,
+          status: p.status
+        }
+      });
+    }
   }
 
   // Sort all events chronologically
@@ -204,7 +289,7 @@ async function recordTrustScoreHistory(entityType, entityId, previousScore, newS
   }
 }
 
-export async function calculateVehicleTrustScore(vin) {
+async function computeVehicleTrustScoreContext(vin) {
   const { data: vehicle } = await supabase.from('vehicles').select('*').eq('vin', vin).single();
   
   if (!vehicle) return 0;
@@ -255,6 +340,18 @@ export async function calculateVehicleTrustScore(vin) {
     .eq('vin', vin);
   if (serviceCount >= 3) baseScore += 5.0;
 
+  const { data: evidenceImpacts } = await supabase
+    .from('vehicle_evidence')
+    .select('verification_status, trust_score_impact, trust_impact')
+    .eq('vin', vin)
+    .in('verification_status', ['verified', 'rejected']);
+
+  const evidenceTrustImpact = (evidenceImpacts || []).reduce((sum, item) => {
+    const impact = Number(item.trust_score_impact ?? item.trust_impact ?? 0);
+    return sum + impact;
+  }, 0);
+  baseScore += evidenceTrustImpact;
+
   // Check persistent stolen vehicle registry
   const { data: stolenRecord } = await supabase
     .from('stolen_vehicles')
@@ -264,21 +361,47 @@ export async function calculateVehicleTrustScore(vin) {
     .single();
   if (stolenRecord) baseScore -= 80.0;
 
-  const finalScore = Math.max(0.0, Math.min(100.0, baseScore));
-  
-  await supabase.from('vehicles').update({ trust_score: finalScore }).eq('vin', vin);
-
-  if (Math.abs(finalScore - previousScore) > 0.01) {
-    const triggerEvents = [];
-    if (!odoAudit.verified) triggerEvents.push('ODOMETER_ROLLBACK_DETECTED');
-    if (!ledgerAudit.verified) triggerEvents.push('BLOCKCHAIN_TAMPERING_DETECTED');
-    if (stolenRecord) triggerEvents.push('ACTIVE_POLICE_ALERT');
-    if (triggerEvents.length === 0) triggerEvents.push('ROUTINE_RECALCULATION');
-    
-    await recordTrustScoreHistory('VEHICLE', vin, previousScore, finalScore, triggerEvents.join('|'));
+  // --- NEW ZIMBABWE PLATE TRUST RULES ---
+  // A. Confidence reductions
+  if (!vehicle.plate_number) {
+    baseScore -= 10.0; // Confidence reduction: missing plate number
+  } else if (!vehicle.plate_verified_at) {
+    baseScore -= 10.0; // Confidence reduction: plate exists but unverified
   }
 
-  return {
+  // B. Flagged / Suspended plate quarantine penalty
+  if (vehicle.plate_status === 'Flagged' || vehicle.plate_status === 'Suspended') {
+    baseScore -= 50.0;
+  }
+
+  // C. Plate maps to multiple VINs or belongs to another vehicle
+  if (vehicle.normalized_plate_number) {
+    const { count: duplicateVinCount } = await supabase
+      .from('vehicles')
+      .select('vin', { count: 'exact', head: true })
+      .eq('normalized_plate_number', vehicle.normalized_plate_number)
+      .neq('vin', vin);
+    if (duplicateVinCount && duplicateVinCount > 0) {
+      baseScore -= 50.0;
+    }
+  }
+
+  // D. Temporary ID is expired and unresolved
+  if (vehicle.temporary_identification_number && vehicle.registration_status === 'Expired') {
+    baseScore -= 30.0;
+  }
+
+  const finalScore = Math.max(0.0, Math.min(100.0, baseScore));
+
+  const triggerEvents = [];
+  if (!odoAudit.verified) triggerEvents.push('ODOMETER_ROLLBACK_DETECTED');
+  if (!ledgerAudit.verified) triggerEvents.push('BLOCKCHAIN_TAMPERING_DETECTED');
+  if (stolenRecord) triggerEvents.push('ACTIVE_POLICE_ALERT');
+  if (vehicle.plate_status === 'Flagged' || vehicle.plate_status === 'Suspended') triggerEvents.push('PLATE_SUSPENDED_OR_FLAGGED');
+  if (Math.abs(evidenceTrustImpact) > 0.01) triggerEvents.push('EVIDENCE_REVIEW_IMPACT');
+  if (triggerEvents.length === 0) triggerEvents.push('ROUTINE_RECALCULATION');
+
+  const report = {
     vin,
     trustScore: finalScore,
     metrics: {
@@ -288,7 +411,32 @@ export async function calculateVehicleTrustScore(vin) {
       blockchain_audit_valid: ledgerAudit.verified,
       odometer_consistent: odoAudit.verified,
       maintenance_logs_count: serviceCount || 0,
-      stolen_alert_active: !!stolenRecord
+      stolen_alert_active: !!stolenRecord,
+      evidence_trust_impact: evidenceTrustImpact,
+      verified_evidence_count: (evidenceImpacts || []).filter(item => item.verification_status === 'verified').length,
+      rejected_evidence_count: (evidenceImpacts || []).filter(item => item.verification_status === 'rejected').length
     }
   };
+
+  return { report, previousScore, triggerEvents };
+}
+
+export async function computeVehicleTrustScore(vin) {
+  const context = await computeVehicleTrustScoreContext(vin);
+  return context?.report || 0;
+}
+
+export async function calculateVehicleTrustScore(vin) {
+  const context = await computeVehicleTrustScoreContext(vin);
+  if (!context) return 0;
+
+  const { report, previousScore, triggerEvents } = context;
+
+  await supabase.from('vehicles').update({ trust_score: report.trustScore }).eq('vin', vin);
+
+  if (Math.abs(report.trustScore - previousScore) > 0.01) {
+    await recordTrustScoreHistory('VEHICLE', vin, previousScore, report.trustScore, triggerEvents.join('|'));
+  }
+
+  return report;
 }

@@ -46,6 +46,20 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   tenant_id?: string;
   sellerId?: string;
   isFeatured?: boolean;
+  plate_number?: string;
+  normalized_plate_number?: string;
+  plate_status?: string;
+  chassis_number?: string;
+  engine_number?: string;
+  registration_status?: string;
+  registration_country?: string;
+  registration_authority?: string;
+  temporary_identification_number?: string;
+  plate_verified_at?: string;
+  plate_verification_source?: string;
+  current_seller_id?: string;
+  current_seller_type?: string;
+  public_seller_display_enabled?: boolean;
 }
 
 // 3. WorkOrder
@@ -243,28 +257,230 @@ export interface Notification extends SharedNotification {
   timestamp?: string;
 }
 
-// 17. VehiclePassport
+// ── Passport domain types ──────────────────────────────────────────────────
+
+// 22. TimelineEvent — one item from getVehicleTimeline()
+export type TimelineEventSource =
+  | 'ownership_transfer'
+  | 'service'
+  | 'insurance'
+  | 'escrow'
+  | 'zimra'
+  | 'cvr'
+  | 'vid'
+  | 'cid'
+  | 'zinara'
+  | 'plate_assigned'
+  | 'plate_verified'
+  | 'plate_changed'
+  | 'temporary_id_issued'
+  | 'plate_flagged'
+  | 'plate_suspended'
+  | 'evidence';
+
+export interface TimelineEventDetails {
+  previous?: string;
+  new?: string;
+  mechanic?: string;
+  mileage?: number;
+  notes?: string;
+  cost?: number;
+  insurer?: string;
+  premium?: number;
+  risk?: number;
+  buyer?: string;
+  amount?: number;
+  stage?: number;
+  importer?: string;
+  dutyPaid?: number;
+  date?: string;
+  logbookSerial?: string;
+  ownerId?: string;
+  status?: string;
+  brakingEfficiency?: number;
+  suspensionPassed?: boolean;
+  steeringPassed?: boolean;
+  odometer?: number;
+  reference?: string;
+  officer?: string;
+  termEnd?: string;
+  receipt?: string;
+  uploadedBy?: string;
+  uploaderRole?: string;
+  capturedAt?: string;
+  uploadedAt?: string;
+  checksum?: string;
+  linkedRegistryEventId?: string;
+}
+
+export interface TimelineEvent {
+  id: string | number;
+  event_source: TimelineEventSource | string;
+  label: string;
+  desc?: string;
+  timestamp: string;
+  details?: TimelineEventDetails;
+  event_type?: string;
+  evidence_type?: EvidenceType;
+  file_url?: string;
+  verification_status?: EvidenceVerificationStatus;
+  trust_score_impact?: number;
+  linked_registry_event_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export type EvidenceType =
+  | 'import_photo'
+  | 'auction_photo'
+  | 'customs_photo'
+  | 'inspection_photo'
+  | 'odometer_photo'
+  | 'damage_photo'
+  | 'repair_photo'
+  | 'dealer_listing_photo'
+  | 'owner_handover_photo'
+  | 'registration_document'
+  | 'insurance_document'
+  | 'police_clearance_document'
+  | 'ownership_transfer_document';
+
+export type EvidenceVerificationStatus = 'pending' | 'verified' | 'rejected' | 'disputed' | 'superseded';
+
+export interface VehicleEvidence {
+  id: string;
+  vehicle_id: string;
+  vin: string;
+  event_type: string;
+  evidence_type: EvidenceType;
+  file_url: string;
+  uploaded_by: string;
+  uploader_role: string;
+  captured_at: string;
+  uploaded_at: string;
+  verification_status: EvidenceVerificationStatus;
+  verification_notes?: string | null;
+  linked_registry_event_id?: string | null;
+  timeline_event_id?: string | null;
+  trust_score_impact: number;
+  trust_impact?: number;
+  metadata: Record<string, unknown>;
+  image_hash?: string | null;
+  checksum?: string | null;
+  storage_bucket?: string;
+  file_path?: string;
+  mime_type?: string;
+  file_size?: number;
+  visibility_level?: string;
+  vehicles?: {
+    make?: string;
+    model?: string;
+    year?: number;
+    trust_score?: number;
+  };
+}
+
+// 23. TrustMetrics — exact keys from calculateVehicleTrustScore()
+export interface TrustMetrics {
+  cvr_synced: boolean;
+  zimra_duty: boolean;
+  zrp_police_cleared: boolean;
+  blockchain_audit_valid: boolean;
+  odometer_consistent: boolean;
+  maintenance_logs_count: number;
+  stolen_alert_active: boolean;
+  evidence_trust_impact?: number;
+  verified_evidence_count?: number;
+  rejected_evidence_count?: number;
+}
+
+// 24. TrustReport — from calculateVehicleTrustScore()
+export interface TrustReport {
+  vin: string;
+  trustScore: number;
+  metrics: TrustMetrics;
+}
+
+// 25. ChainVerification — from verifyChain()
+export interface ChainVerification {
+  verified: boolean;
+  integrity?: string;
+  blocksChecked?: number;
+  errors?: string[];
+}
+
+// 26. PassportVerificationSource — UI model for the Verification tab
+export interface PassportVerificationSource {
+  label: string;
+  status: 'verified' | 'not_verified' | 'warning' | 'unknown';
+  detail?: string;
+}
+
+// 27. ListingImage — from listing_images table
+export interface ListingImage {
+  id: string;
+  vin: string;
+  image_url: string;
+  is_primary: boolean;
+  display_order: number;
+}
+
+export interface VehicleIdentity {
+  vin: string;
+  chassisNumber?: string;
+  plateNumber?: string;
+  normalizedPlateNumber?: string;
+  plateStatus?: string;
+  temporaryIdentificationNumber?: string;
+  engineNumber?: string;
+  registrationStatus?: string;
+  registrationCountry?: string;
+  registrationAuthority?: string;
+  plateVerifiedAt?: string;
+  plateVerificationSource?: string;
+}
+
+export interface VehiclePlateHistory {
+  id: string;
+  vehicle_id?: string;
+  vin: string;
+  plate_number: string;
+  normalized_plate_number: string;
+  plate_type: 'permanent' | 'temporary' | 'dealer' | 'diplomatic' | 'government' | 'unknown' | string;
+  status: 'active' | 'previous' | 'pending' | 'flagged' | 'suspended' | 'expired' | string;
+  is_current?: boolean;
+  issued_at?: string;
+  expired_at?: string;
+  verified_at?: string;
+  verification_source?: string;
+  source_reference?: string;
+  reason?: string;
+  record_visibility?: string;
+  created_by?: string;
+  verified_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OwnershipSummary {
+  currentSellerDisplayName?: string;
+  currentSellerType?: string;
+  previousOwnerCount: number;
+  previousOwnersPublicLabel: string;
+  ownerNamesRedacted: boolean;
+  currentOwnerVisible: boolean;
+}
+
+// 17. VehiclePassport (fully typed, no any)
 export interface VehiclePassport {
   vehicle: Vehicle;
-  timeline?: {
-    id: string;
-    event_source: 'service' | 'registry' | 'escrow' | string;
-    label: string;
-    timestamp: string;
-    details?: {
-      notes?: string;
-      mileage?: number;
-      cost?: number;
-      [key: string]: any;
-    };
-  }[];
-  trustReport?: {
-    trustScore: number;
-  };
-  chainVerification?: {
-    verified: boolean;
-    integrity?: string;
-  };
+  timeline: TimelineEvent[];
+  evidenceTimeline?: TimelineEvent[];
+  evidenceVault?: VehicleEvidence[];
+  trustReport: TrustReport;
+  chainVerification: ChainVerification;
+  identity: VehicleIdentity;
+  plateHistory: VehiclePlateHistory[];
+  ownershipSummary: OwnershipSummary;
 }
 
 // 18. FinanceApplication
