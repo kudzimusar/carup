@@ -105,11 +105,21 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_marketplace_condition
 CREATE INDEX IF NOT EXISTS idx_vehicles_marketplace_flags
   ON vehicles(passport_verified, zimra_verified, safe_pay_ready, inspection_ready);
 
-CREATE INDEX IF NOT EXISTS idx_partsentry_logs_public_summary
-  ON partsentry_logs(vin, verification_status, part_verification_status, public_card_eligible);
+DO $$
+BEGIN
+  IF to_regclass('public.partsentry_logs') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_partsentry_logs_public_summary
+      ON partsentry_logs(vin, verification_status, part_verification_status, public_card_eligible);
+  END IF;
+END $$;
 
-CREATE INDEX IF NOT EXISTS idx_listing_images_vin_primary
-  ON listing_images(vin, is_primary, display_order);
+DO $$
+BEGIN
+  IF to_regclass('public.listing_images') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_listing_images_vin_primary
+      ON listing_images(vin, is_primary, display_order);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_vehicle_listing_summaries_condition
   ON vehicle_listing_summaries(condition_category);
@@ -124,7 +134,6 @@ ALTER TABLE IF EXISTS vehicle_listing_summaries ENABLE ROW LEVEL SECURITY;
 
 GRANT SELECT ON TABLE vehicle_listing_summaries TO anon;
 GRANT SELECT ON TABLE vehicle_listing_summaries TO authenticated;
-GRANT INSERT, UPDATE, DELETE ON TABLE vehicle_listing_summaries TO authenticated;
 
 DROP POLICY IF EXISTS "vehicle listing summaries public read" ON vehicle_listing_summaries;
 CREATE POLICY "vehicle listing summaries public read"
