@@ -10,7 +10,8 @@ import type {
   ApiMutationResponse,
   VehiclePassport,
   VehicleEvidence,
-  TimelineEvent
+  TimelineEvent,
+  MarketplaceListingsResponse
 } from '@/types'
 
 
@@ -75,6 +76,13 @@ export function useCarUpApi() {
       ? '?' + new URLSearchParams(Object.entries(filters).filter(([_, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()
       : ''
     return request<Vehicle[]>(`/vehicles${query}`)
+  }, [request])
+
+  const fetchMarketplaceListings = useCallback(async (filters?: Record<string, string | number | boolean | undefined>): Promise<MarketplaceListingsResponse> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([_, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<MarketplaceListingsResponse>(`/marketplace/listings${query}`)
   }, [request])
 
   const fetchDealerInventory = useCallback(async (): Promise<Vehicle[]> => {
@@ -417,6 +425,7 @@ export function useCarUpApi() {
     error,
     switchRole,
     fetchVehicles,
+    fetchMarketplaceListings,
     fetchDealerInventory,
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,

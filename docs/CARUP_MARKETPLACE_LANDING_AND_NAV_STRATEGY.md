@@ -238,6 +238,45 @@ Recommended backend/category work:
 - Add backend-supported search/ranking across make, model, location, price, mileage, plate, VIN, chassis, trust score, evidence count, category, and tags.
 - Add a featured verified vehicles endpoint or query contract so the homepage can stop using mock data.
 
+## Backend Category, PartSentry & Listing Summary Infrastructure Sprint
+
+Implemented infrastructure direction:
+
+- Added a canonical `vehicles.vehicle_condition_category` field with `brand_new`, `recently_imported`, `locally_used`, `second_hand`, `certified_dealer`, and `unknown`.
+- Added explicit backend fields for `passport_verified`, `zimra_verified`, `safe_pay_ready`, and `inspection_ready` so marketplace cards do not infer those claims from unrelated data.
+- Added explicit PartSentry public-card fields on `partsentry_logs`: `verification_status`, `part_verification_status`, `suspicion_status`, and `public_card_eligible`.
+- Added `vehicle_listing_summaries` as the future materialized listing-card table with RLS-enabled public reads for marketplace-visible statuses.
+- Added `GET /api/marketplace/listings` as the public card-summary endpoint. It computes summaries live from `vehicles`, public verified `vehicle_evidence`, public-eligible `partsentry_logs`, `vehicle_ownership_history`, and `listing_images` where available.
+- Added frontend hook support through `fetchMarketplaceListings()`. `/marketplace` now tries the summary endpoint first, falls back to the existing `/api/vehicles` endpoint, and finally falls back to local mock data.
+
+Privacy rules implemented in the summary contract:
+
+- Private sellers are returned as `Private seller`.
+- Public listing summaries do not return seller phone numbers, emails, owner ids, or private user names.
+- Dealer names are only eligible when dealer context exists and `public_seller_display_enabled` is true; otherwise the safe label is `Verified dealer`.
+
+Trust-signal rules implemented in the summary contract:
+
+- `Evidence Available` is backed only by verified `vehicle_evidence` rows with `visibility_level = "public_safe"`.
+- `PartSentry Checked` requires explicit public-card eligibility plus `verification_status = "verified"`.
+- `Verified Parts` requires explicit public-card eligibility plus `part_verification_status = "verified"`.
+- `Passport Verified`, `ZIMRA Verified`, `SafePay Ready`, and `Inspection Ready` require explicit backend fields.
+- Listing images remain listing media only. They are not treated as evidence.
+
+Hybrid summary recommendation:
+
+- Phase 2B can continue with live computation while the data volume is small.
+- The `vehicle_listing_summaries` table should become the materialized source once write-side refresh jobs are added for vehicle, evidence, PartSentry, ownership, and image changes.
+- Search/ranking can initially filter the computed summaries, then move to indexed summary-table reads using `marketplace_tags` and `search_vector`.
+
+Deferred backend work:
+
+- Refresh workers or database triggers that maintain `vehicle_listing_summaries`.
+- Admin/dealer workflows to set `passport_verified`, `zimra_verified`, `safe_pay_ready`, `inspection_ready`, and canonical condition category.
+- Dedicated public Parts Marketplace route and parts inventory API.
+- Verified parts provenance beyond explicit PartSentry verification fields.
+- Advanced search ranking, pagination cursors, and featured-listing scoring.
+
 ## Evidence and Image Policy
 
 Phase 1 uses existing local listing images from `web/src/data/mockData.ts` and `/images/vehicles`.

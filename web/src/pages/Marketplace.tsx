@@ -15,7 +15,7 @@ import {
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
-import type { Vehicle } from '@/types'
+import type { MarketplaceListingSummary, Vehicle } from '@/types'
 
 const categories = ['All', 'Sedan', 'SUV', 'Hatchback', 'Pickup', 'Luxury', 'Commercial']
 const conditions = ['All', 'New', 'Used', 'Certified Pre-Owned']
@@ -70,7 +70,7 @@ function getVehicleEvidenceCount(vehicle: Vehicle) {
 }
 
 function getRepairHistoryCount(vehicle: Vehicle) {
-  return (vehicle.service_history?.length || 0) + (vehicle.service_records?.length || 0)
+  return (vehicle.repair_history_count || 0) + (vehicle.service_history?.length || 0) + (vehicle.service_records?.length || 0)
 }
 
 function hasPartSentrySignal(vehicle: Vehicle) {
@@ -87,7 +87,7 @@ function hasPartSentrySignal(vehicle: Vehicle) {
 }
 
 function hasVerifiedParts(vehicle: Vehicle) {
-  return Boolean(vehicle.parts?.some(part => part.blockchainHash || part.type === 'OEM'))
+  return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.blockchainHash || part.type === 'OEM'))
 }
 
 function isDealerListing(vehicle: Vehicle) {
@@ -105,25 +105,28 @@ function getSellerLabel(vehicle: Vehicle) {
 function getVehicleLabels(vehicle: Vehicle) {
   const labels: string[] = []
   const condition = normalizeText(vehicle.condition)
+  const conditionCategory = normalizeText(vehicle.vehicle_condition_category)
   const importSource = normalizeText((vehicle as Vehicle & { import_source?: string }).import_source)
   const registrationCountry = normalizeText(vehicle.registration_country)
 
-  if (condition === 'new') labels.push('Brand New')
-  if (condition === 'used') labels.push('Second Hand')
-  if (condition === 'certified pre-owned') labels.push('Dealer Verified')
+  if (condition === 'new' || conditionCategory === 'brand_new') labels.push('Brand New')
+  if (condition === 'used' || conditionCategory === 'second_hand') labels.push('Second Hand')
+  if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Dealer Verified')
   if (isDealerListing(vehicle) && isVerifiedVehicle(vehicle)) labels.push('Dealer Verified')
   if (isVerifiedVehicle(vehicle)) labels.push('Verified')
   if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Passport Verified')
   if ((vehicle as Vehicle & { duty_paid?: boolean }).duty_paid) labels.push('Duty Cleared')
-  if (importSource) labels.push('Recently Imported', 'Fresh Import')
-  if (registrationCountry === 'zimbabwe') labels.push('Locally Used')
+  if (importSource || conditionCategory === 'recently_imported') labels.push('Recently Imported', 'Fresh Import')
+  if (registrationCountry === 'zimbabwe' || conditionCategory === 'locally_used') labels.push('Locally Used')
   if ((vehicle.mileage || 0) > 0 && (vehicle.mileage || 0) <= 50000) labels.push('Low Mileage')
   if (getVehicleEvidenceCount(vehicle) > 0) labels.push('Evidence Available')
   if (hasPartSentrySignal(vehicle)) labels.push('PartSentry Checked')
   if (getRepairHistoryCount(vehicle) > 0) labels.push('Repair History Available')
   if (hasVerifiedParts(vehicle)) labels.push('Verified Parts')
 
-  return Array.from(new Set(labels))
+  const backendTags = vehicle.marketplace_tags || []
+  const backendTagLabels = backendTags.map(tag => tag.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' '))
+  return Array.from(new Set([...labels, ...backendTagLabels]))
 }
 
 function matchesCategoryChip(vehicle: Vehicle, chip: string) {
@@ -157,8 +160,47 @@ function setFavorites(ids: string[]) {
   localStorage.setItem('carup_favorites', JSON.stringify(ids))
 }
 
+function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicle {
+  return {
+    vin: summary.vin,
+    make: summary.make,
+    model: summary.model,
+    year: summary.year,
+    mileage: summary.mileage,
+    fuel_type: summary.fuel_type || undefined,
+    transmission: summary.transmission || undefined,
+    status: summary.status,
+    trust_score: summary.trust_score,
+    price: summary.price,
+    currency: summary.currency,
+    created_at: summary.created_at || undefined,
+    location: summary.location || 'Zimbabwe',
+    images: summary.primary_image_url ? [summary.primary_image_url] : undefined,
+    plate_number: summary.plate_number || undefined,
+    normalized_plate_number: summary.normalized_plate_number || undefined,
+    chassis_number: summary.chassis_number || undefined,
+    vehicle_condition_category: summary.condition_category,
+    marketplace_tags: summary.marketplace_tags,
+    passport_verified: summary.passport_verified,
+    plate_status: summary.plate_status || undefined,
+    plate_verified_at: summary.plate_verified ? summary.created_at || new Date(0).toISOString() : undefined,
+    evidence_count: summary.evidence_count,
+    partsentry_checked: summary.partsentry_checked,
+    repair_history_count: summary.repair_history_count,
+    verified_parts_count: summary.verified_parts_count,
+    duty_paid: summary.duty_cleared,
+    zimra_verified: summary.zimra_verified,
+    police_verified: summary.cid_clear,
+    cid_clear: summary.cid_clear,
+    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
+    sellerName: summary.seller_display_label,
+    current_seller_type: summary.seller_type,
+    public_seller_display_enabled: summary.seller_public_profile_enabled,
+  }
+}
+
 export default function Marketplace() {
-  const { fetchVehicles } = useCarUpApi()
+  const { fetchMarketplaceListings, fetchVehicles } = useCarUpApi()
   const [liveVehicles, setLiveVehicles] = useState<Vehicle[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
@@ -177,18 +219,24 @@ export default function Marketplace() {
 
   useEffect(() => {
     setLoadingVehicles(true)
-    fetchVehicles()
+    fetchMarketplaceListings()
       .then((data) => {
-        if (data && Array.isArray(data)) {
-          setLiveVehicles(data.length > 0 ? data : mockVehicles as unknown as Vehicle[])
+        if (data && Array.isArray(data.listings)) {
+          setLiveVehicles(data.listings.length > 0 ? data.listings.map(marketplaceSummaryToVehicle) : mockVehicles as unknown as Vehicle[])
         }
       })
-      .catch((err) => {
-        console.error('Failed to fetch marketplace vehicles:', err)
-        setLiveVehicles(mockVehicles as unknown as Vehicle[])
+      .catch(async (err) => {
+        console.error('Failed to fetch marketplace listing summaries:', err)
+        try {
+          const data = await fetchVehicles()
+          setLiveVehicles(data.length > 0 ? data : mockVehicles as unknown as Vehicle[])
+        } catch (fallbackErr) {
+          console.error('Failed to fetch marketplace vehicles:', fallbackErr)
+          setLiveVehicles(mockVehicles as unknown as Vehicle[])
+        }
       })
       .finally(() => setLoadingVehicles(false))
-  }, [])
+  }, [fetchMarketplaceListings, fetchVehicles])
 
   const toggleFavorite = useCallback((e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
     e.preventDefault()
@@ -441,7 +489,7 @@ export default function Marketplace() {
               const isFav = favorites.includes(vehicle.vin || '')
               const isReserved = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
               const fallbackImage = 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=800'
-              const primaryImage = vehicle.images?.[0] || fallbackImage
+              const primaryImage = vehicle.images?.[0] || vehicle.primary_image_url || fallbackImage
               const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
               const vehicleLabels = getVehicleLabels(vehicle)
               const cardLabels = vehicleLabels.filter(label => label !== 'Verified').slice(0, 4)
