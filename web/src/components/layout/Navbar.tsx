@@ -476,7 +476,7 @@ export default function Navbar() {
               { label: 'Garages', href: '/garages', icon: Wrench },
             ].map((link) => (
               <Link
-                key={link.href}
+                key={`${link.label}-${link.href}`}
                 to={link.href}
                 onClick={() => setMobileOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${

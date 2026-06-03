@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Commerce-first navigation', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+  })
+
   test('top nav renders sales and trust departments with non-primary items in More', async ({ page }) => {
     await page.goto('/')
 
