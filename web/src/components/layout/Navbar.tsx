@@ -31,8 +31,8 @@ import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
 
 const navLinks = [
-  { label: 'Marketplace', href: '/marketplace', icon: ShoppingCart },
-  { label: 'Search', href: '/search', icon: Search },
+  { label: 'Buy Cars', href: '/marketplace', icon: ShoppingCart },
+  { label: 'Verify', href: '/search', icon: Search },
   { label: 'Dealers', href: '/dealers', icon: Building2 },
   { label: 'Garages', href: '/garages', icon: Wrench },
   { label: 'Insurance', href: '/insurance', icon: Shield },
@@ -214,6 +214,9 @@ export default function Navbar() {
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/login">Sign In</Link>
                 </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/register">Sell</Link>
+                </Button>
                 <Button size="sm" className="bg-orange-500 hover:bg-orange-600" asChild>
                   <Link to="/register">Get Started</Link>
                 </Button>
@@ -269,6 +272,9 @@ export default function Navbar() {
                 <div className="flex gap-2 px-3">
                   <Button variant="outline" size="sm" className="flex-1" asChild>
                     <Link to="/login" onClick={() => setMobileOpen(false)}>Sign In</Link>
+                  </Button>
+                  <Button variant="outline" size="sm" className="flex-1" asChild>
+                    <Link to="/register" onClick={() => setMobileOpen(false)}>Sell</Link>
                   </Button>
                   <Button size="sm" className="flex-1 bg-orange-500 hover:bg-orange-600" asChild>
                     <Link to="/register" onClick={() => setMobileOpen(false)}>Get Started</Link>

@@ -1,390 +1,506 @@
-import { Link } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  Car,
-  Shield,
-  Brain,
-  Wrench,
-  FileCheck,
-  Users,
   ArrowRight,
   CheckCircle,
-  Star,
-  Zap,
+  ClipboardCheck,
+  FileSearch,
+  Gauge,
+  KeyRound,
   Lock,
-  Eye
+  MapPin,
+  Search,
+  ShieldCheck,
+  Tag,
+  UserRoundCheck,
 } from 'lucide-react'
 import { vehicles } from '@/data/mockData'
+import { useAuth } from '@/context/AuthContext'
 
-const pillars = [
+const buyerCategoryChips = [
+  'Brand New',
+  'Recently Imported',
+  'Fresh Imports',
+  'Locally Used',
+  'Second Hand',
+  'Dealer Verified',
+  'Passport Verified',
+]
+
+const popularSearches = [
+  'Brand New',
+  'Recently Imported',
+  'Fresh Imports',
+  'Locally Used',
+  'Second Hand',
+  'Duty Cleared',
+  'ZIMRA Verified',
+  'CID Clear',
+  'Low Mileage',
+  'Toyota Hilux',
+  'Honda Fit',
+  'Mazda Demio',
+  'SUVs',
+  'Under $5,000',
+  'Under $10,000',
+  'Dealer Verified',
+  'Harare',
+  'Bulawayo',
+]
+
+const trustStrip = [
+  { label: 'Plate Check', icon: FileSearch },
+  { label: 'Evidence Timeline', icon: ClipboardCheck },
+  { label: 'Owner Privacy', icon: UserRoundCheck },
+  { label: 'Trust Score', icon: Gauge },
+  { label: 'SafePay Ready', icon: Lock },
+]
+
+const howItWorks = [
   {
-    icon: Shield,
-    title: 'Vehicle Registry Intelligence',
-    description: 'Every car gets a digital identity with complete ownership, service, and accident history powered by AI and blockchain verification.',
-    color: 'bg-blue-500',
+    title: 'Search cars',
+    description: 'Browse verified listings by make, location, budget, or category.',
+    icon: Search,
   },
   {
-    icon: Car,
-    title: 'Marketplace Ecosystem',
-    description: 'Buy and sell vehicles with confidence. From dealers to individuals, find your perfect match with AI-powered recommendations.',
-    color: 'bg-orange-500',
+    title: 'Verify Passport',
+    description: 'Open the vehicle Passport with plate, VIN, chassis, and trust data.',
+    icon: ShieldCheck,
   },
   {
-    icon: Brain,
-    title: 'Gutu AI Assistant',
-    description: 'Your personal automotive AI that handles document scanning, fraud detection, pricing intelligence, and maintenance predictions.',
-    color: 'bg-purple-500',
+    title: 'Reserve / SafePay',
+    description: 'Use CarUp reservation and SafePay flows where the listing supports it.',
+    icon: KeyRound,
   },
   {
-    icon: Wrench,
-    title: 'PartSentry System',
-    description: 'Track every part that goes into your vehicle. Full lifecycle ledger from installation to warranty — impossible to fake.',
-    color: 'bg-emerald-500',
-  },
-  {
-    icon: FileCheck,
-    title: 'OCR Document Intelligence',
-    description: 'Scan logbooks, insurance papers, and police clearances. Gutu AI extracts data and autofills your vehicle profile instantly.',
-    color: 'bg-amber-500',
-  },
-  {
-    icon: Users,
-    title: 'Multi-Stakeholder Network',
-    description: 'Connected ecosystem for owners, dealers, mechanics, insurers, banks, and government — all working together.',
-    color: 'bg-rose-500',
+    title: 'Complete ownership transfer',
+    description: 'Move forward with clearer identity, seller, and history context.',
+    icon: CheckCircle,
   },
 ]
 
-const stats = [
-  { value: '12,000+', label: 'Vehicles Registered' },
-  { value: '850+', label: 'Verified Dealers' },
-  { value: '320+', label: 'Partner Garages' },
-  { value: '98.7%', label: 'Fraud Detection Rate' },
-]
-
-const testimonials = [
-  {
-    name: 'Tendai Moyo',
-    role: 'Car Owner',
-    avatar: '/images/avatars/owner-1.jpg',
-    content: 'CarUp gave me complete confidence when selling my car. The buyer could see the full service history and trust score. Sold within 3 days!',
-    rating: 5,
-  },
-  {
-    name: 'Sarah Chikomo',
-    role: 'Car Owner',
-    avatar: '/images/avatars/owner-2.jpg',
-    content: 'The Gutu AI scanned my logbook in seconds and created my vehicle profile automatically. PartSentry tracked every part ever changed. Incredible.',
-    rating: 5,
-  },
-  {
-    name: 'James Ncube',
-    role: 'Auto Dealer',
-    avatar: '/images/avatars/dealer-1.jpg',
-    content: 'Since joining CarUp as a verified dealer, my sales have increased 40%. Customers trust the verified badge and transparency.',
-    rating: 5,
-  },
-]
-
-const stakeholders = [
-  { icon: Car, label: 'Car Owners', desc: 'Track vehicles, store docs, sell with trust' },
-  { icon: Building2, label: 'Dealers', desc: 'Inventory tools, CRM, lead management' },
-  { icon: Wrench, label: 'Mechanics', desc: 'Service logs, parts ledger, reputation' },
-  { icon: Shield, label: 'Insurance', desc: 'Risk analysis, claims verification' },
-  { icon: Landmark, label: 'Government', desc: 'Registry sync, compliance monitoring' },
-  { icon: Star, label: 'Banks', desc: 'Asset verification, financing tools' },
-]
-
-function Building2(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M12 6h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/><path d="M8 6h.01"/><path d="M9 22v-3h6v3"/><path d="M7 19h10v-9a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2Z"/><path d="M4 19h3"/><path d="M17 19h3"/><path d="M21 19v-8a2 2 0 0 0-2-2h-1"/><path d="M4 19v-8a2 2 0 0 1 2-2h1"/>
-    </svg>
-  )
+function formatUsd(price: number) {
+  return `$${price.toLocaleString()}`
 }
 
-function Landmark(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-5h6v5"/><path d="M9.1 9.99a3 3 0 0 1 5.8 0"/>
-    </svg>
-  )
+function vehiclePassportPath(vin: string) {
+  return `/marketplace/${encodeURIComponent(vin)}`
 }
 
 export default function Landing() {
-  const featuredVehicles = vehicles.filter(v => v.isFeatured).slice(0, 4)
+  const navigate = useNavigate()
+  const { isAuthenticated } = useAuth()
+  const [buyQuery, setBuyQuery] = useState('')
+  const [verifyQuery, setVerifyQuery] = useState('')
+  const [sellQuery, setSellQuery] = useState('')
+  const [verifyBeforeBuyQuery, setVerifyBeforeBuyQuery] = useState('')
+  const [sellSectionQuery, setSellSectionQuery] = useState('')
+
+  const featuredVehicles = useMemo(
+    () => vehicles.filter(vehicle => vehicle.isFeatured && vehicle.isVerified).slice(0, 6),
+    []
+  )
+
+  const heroVehicle = featuredVehicles[0] || vehicles[0]
+
+  const submitBuy = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    navigate(buyQuery.trim() ? '/search' : '/marketplace')
+  }
+
+  const openPassport = (identifier: string) => {
+    const cleanIdentifier = identifier.trim()
+    if (!cleanIdentifier) return
+    navigate(`/marketplace/${encodeURIComponent(cleanIdentifier)}`)
+  }
+
+  const submitVerify = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    openPassport(verifyQuery)
+  }
+
+  const sellerHandoff = () => {
+    navigate(isAuthenticated ? '/dashboard/sell-vehicle' : '/register')
+  }
+
+  const submitSell = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    sellerHandoff()
+  }
+
+  const submitVerifyBeforeBuy = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    openPassport(verifyBeforeBuyQuery)
+  }
+
+  const submitSellSection = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    sellerHandoff()
+  }
 
   return (
-    <div className="min-h-screen">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,12%)] to-[hsl(222,30%,18%)] text-white">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `url('/images/hero/showroom.jpg')`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }} />
+    <div className="min-h-screen bg-white text-gray-950">
+      <section
+        className="relative overflow-hidden bg-[hsl(222,47%,8%)] text-white"
+        data-testid="home-hero"
+      >
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.24),transparent_34%),linear-gradient(135deg,rgba(15,23,42,0.96),rgba(15,23,42,0.86))]" />
+          <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-white to-transparent" />
         </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-[hsl(222,47%,8%)] via-transparent to-transparent" />
 
-        <div className="relative section-padding mx-auto max-w-[1440px] pt-20 pb-24 lg:pt-32 lg:pb-40">
-          <div className="max-w-3xl">
-            <Badge className="mb-6 bg-orange-500/20 text-orange-300 border-orange-500/30 hover:bg-orange-500/30">
-              Zimbabwe's Automotive Intelligence Platform
+        <div className="relative section-padding mx-auto grid max-w-[1440px] gap-10 py-12 lg:grid-cols-[minmax(0,1.08fr)_420px] lg:py-16 xl:py-20">
+          <div className="max-w-4xl">
+            <Badge className="mb-5 border-orange-400/40 bg-orange-500/15 text-orange-100 hover:bg-orange-500/20">
+              Verified automotive marketplace for Zimbabwe
             </Badge>
-            <h1 className="text-4xl md:text-5xl lg:text-7xl font-bold tracking-tight leading-[1.1] mb-6">
-              Every Car Deserves a{' '}
-              <span className="bg-gradient-to-r from-orange-400 to-amber-400 bg-clip-text text-transparent">
-                Digital Identity
-              </span>
+            <h1 className="max-w-3xl text-4xl font-bold leading-tight tracking-normal md:text-6xl lg:text-7xl">
+              Find Verified Cars in Zimbabwe
             </h1>
-            <p className="text-lg md:text-xl text-gray-300 mb-8 max-w-2xl leading-relaxed">
-              CarUp is Zimbabwe's trusted vehicle intelligence platform. Registry, marketplace, 
-              AI-powered insights, and blockchain verification — all in one place.
+            <p className="mt-5 max-w-3xl text-base leading-7 text-gray-300 md:text-xl">
+              Shop, verify, and sell cars with CarUp Passports, plate checks, owner privacy,
+              trust scores, and evidence-backed timelines.
             </p>
-            <div className="flex flex-wrap gap-4">
-              <Button size="lg" className="bg-orange-500 hover:bg-orange-600 text-white gap-2" asChild>
-                <Link to="/marketplace">
-                  Explore Marketplace <ArrowRight className="w-4 h-4" />
-                </Link>
-              </Button>
-              <Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 gap-2" asChild>
-                <Link to="/register">
-                  <Car className="w-4 h-4" /> Register Your Vehicle
-                </Link>
-              </Button>
-            </div>
 
-            {/* Trust Badges */}
-            <div className="flex flex-wrap gap-6 mt-12 pt-8 border-t border-white/10">
-              {[
-                { icon: Shield, text: 'Blockchain Verified' },
-                { icon: Eye, text: 'Full Transparency' },
-                { icon: Lock, text: 'Bank-Grade Security' },
-                { icon: Zap, text: 'AI-Powered' },
-              ].map((item) => (
-                <div key={item.text} className="flex items-center gap-2 text-sm text-gray-400">
-                  <item.icon className="w-4 h-4 text-orange-400" />
-                  {item.text}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+            <Card className="mt-8 max-w-3xl border-white/10 bg-white text-gray-950 shadow-2xl">
+              <CardContent className="p-3 sm:p-4">
+                <Tabs defaultValue="buy">
+                  <TabsList className="grid h-auto w-full grid-cols-3 bg-gray-100 p-1">
+                    <TabsTrigger value="buy" data-testid="home-buy-tab" className="py-2 text-xs sm:text-sm">
+                      Buy a Car
+                    </TabsTrigger>
+                    <TabsTrigger value="verify" data-testid="home-verify-tab" className="py-2 text-xs sm:text-sm">
+                      Verify a Car
+                    </TabsTrigger>
+                    <TabsTrigger value="sell" data-testid="home-sell-tab" className="py-2 text-xs sm:text-sm">
+                      Sell My Car
+                    </TabsTrigger>
+                  </TabsList>
 
-      {/* Stats Section */}
-      <section className="py-12 bg-white border-b">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {stats.map((stat) => (
-              <div key={stat.label} className="text-center">
-                <p className="text-3xl md:text-4xl font-bold text-[hsl(222,47%,11%)]">{stat.value}</p>
-                <p className="text-sm text-gray-500 mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Product Pillars */}
-      <section className="py-20 bg-gray-50">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <Badge className="mb-4 bg-orange-100 text-orange-700 hover:bg-orange-200">Product Pillars</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Six Pillars of Automotive Intelligence</h2>
-            <p className="text-gray-600">A comprehensive ecosystem built to transform Zimbabwe's automotive landscape.</p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {pillars.map((pillar) => (
-              <Card key={pillar.title} className="hover-lift border-0 card-shadow">
-                <CardContent className="p-6">
-                  <div className={`w-12 h-12 rounded-xl ${pillar.color} flex items-center justify-center mb-4`}>
-                    <pillar.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2">{pillar.title}</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed">{pillar.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Featured Vehicles */}
-      <section className="py-20 bg-white">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="flex items-end justify-between mb-10">
-            <div>
-              <Badge className="mb-4 bg-blue-100 text-blue-700 hover:bg-blue-200">Marketplace</Badge>
-              <h2 className="text-3xl md:text-4xl font-bold">Featured Vehicles</h2>
-              <p className="text-gray-600 mt-2">Verified listings with full history and trust scores</p>
-            </div>
-            <Button variant="outline" className="hidden md:flex gap-2" asChild>
-              <Link to="/marketplace">View All <ArrowRight className="w-4 h-4" /></Link>
-            </Button>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {featuredVehicles.map((vehicle) => (
-              <Link key={vehicle.id} to={`/marketplace/${vehicle.id}`} className="group">
-                <Card className="overflow-hidden border-0 card-shadow hover-lift h-full">
-                  <div className="relative aspect-[16/10] overflow-hidden">
-                    <img
-                      src={vehicle.images[0]}
-                      alt={`${vehicle.make} ${vehicle.model}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                    <div className="absolute top-3 left-3 flex gap-2">
-                      {vehicle.isVerified && (
-                        <Badge className="bg-green-500 text-white text-[10px]">
-                          <CheckCircle className="w-3 h-3 mr-1" /> Verified
-                        </Badge>
-                      )}
-                      {vehicle.isFeatured && (
-                        <Badge className="bg-orange-500 text-white text-[10px]">Featured</Badge>
-                      )}
-                    </div>
-                    <div className="absolute top-3 right-3">
-                      <Badge variant="secondary" className="text-[10px] font-semibold">
-                        Trust {vehicle.trustScore}
-                      </Badge>
-                    </div>
-                  </div>
-                  <CardContent className="p-4">
-                    <h3 className="font-semibold text-sm">{vehicle.year} {vehicle.make} {vehicle.model}</h3>
-                    <p className="text-lg font-bold text-orange-600 mt-1">
-                      ${vehicle.price.toLocaleString()}
-                    </p>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                      <span>{vehicle.mileage.toLocaleString()} km</span>
-                      <span>{vehicle.transmission}</span>
-                      <span>{vehicle.fuelType}</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                      <div className="flex items-center gap-1.5">
-                        <img src={vehicle.sellerAvatar} alt="" className="w-5 h-5 rounded-full" />
-                        <span className="text-xs text-gray-600">{vehicle.sellerName}</span>
+                  <TabsContent value="buy" className="mt-4">
+                    <form onSubmit={submitBuy} className="flex flex-col gap-3 sm:flex-row">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          value={buyQuery}
+                          onChange={event => setBuyQuery(event.target.value)}
+                          placeholder="Search make, model, dealer, location, plate, VIN, or chassis"
+                          className="h-12 pl-10"
+                          data-testid="home-buy-search"
+                        />
                       </div>
-                      <span className="text-xs text-gray-400">{vehicle.location}</span>
+                      <Button
+                        type="submit"
+                        className="h-12 bg-orange-500 px-5 text-white hover:bg-orange-600"
+                        data-testid="home-search-submit"
+                      >
+                        Search Verified Cars
+                      </Button>
+                    </form>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {buyerCategoryChips.map(chip => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => navigate('/marketplace')}
+                          className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+                        >
+                          {chip}
+                        </button>
+                      ))}
                     </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
+                  </TabsContent>
+
+                  <TabsContent value="verify" className="mt-4">
+                    <form onSubmit={submitVerify} className="flex flex-col gap-3 sm:flex-row">
+                      <div className="relative flex-1">
+                        <FileSearch className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          value={verifyQuery}
+                          onChange={event => setVerifyQuery(event.target.value)}
+                          placeholder="Enter plate, VIN, or chassis"
+                          className="h-12 pl-10 font-mono"
+                          data-testid="home-verify-lookup"
+                        />
+                      </div>
+                      <Button type="submit" className="h-12 bg-orange-500 px-5 text-white hover:bg-orange-600">
+                        Open Vehicle Passport
+                      </Button>
+                    </form>
+                    <p className="mt-3 text-xs text-gray-500">
+                      We will open the existing Passport/detail route and run the current lookup there.
+                    </p>
+                  </TabsContent>
+
+                  <TabsContent value="sell" className="mt-4">
+                    <form onSubmit={submitSell} className="flex flex-col gap-3 sm:flex-row">
+                      <div className="relative flex-1">
+                        <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          value={sellQuery}
+                          onChange={event => setSellQuery(event.target.value)}
+                          placeholder="Enter plate or VIN"
+                          className="h-12 pl-10 font-mono"
+                          data-testid="home-sell-lookup"
+                        />
+                      </div>
+                      <Button type="submit" className="h-12 bg-orange-500 px-5 text-white hover:bg-orange-600">
+                        Start Seller Verification
+                      </Button>
+                    </form>
+                    <p className="mt-3 text-xs text-gray-500">
+                      Seller verification currently hands off to the existing account and listing flow.
+                    </p>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
           </div>
-          <div className="mt-8 text-center md:hidden">
-            <Button variant="outline" className="gap-2" asChild>
-              <Link to="/marketplace">View All Vehicles <ArrowRight className="w-4 h-4" /></Link>
-            </Button>
-          </div>
+
+          {heroVehicle && (
+            <Card className="self-start overflow-hidden border-white/10 bg-white text-gray-950 shadow-2xl" data-testid="featured-verified-car">
+              <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
+                <img
+                  src={heroVehicle.images[0]}
+                  alt={`${heroVehicle.year} ${heroVehicle.make} ${heroVehicle.model}`}
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                  {heroVehicle.isVerified && (
+                    <Badge className="bg-green-600 text-white">
+                      <CheckCircle className="mr-1 h-3 w-3" />
+                      Verified
+                    </Badge>
+                  )}
+                  {heroVehicle.plate_number && (
+                    <Badge className="bg-blue-600 text-white">Plate on file</Badge>
+                  )}
+                </div>
+              </div>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-gray-500">{heroVehicle.location}</p>
+                    <h2 className="mt-1 text-xl font-bold">
+                      {heroVehicle.year} {heroVehicle.make} {heroVehicle.model}
+                    </h2>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    Trust {heroVehicle.trustScore}
+                  </Badge>
+                </div>
+                <p className="mt-3 text-2xl font-bold text-orange-600">{formatUsd(heroVehicle.price)}</p>
+                <Button asChild className="mt-5 w-full bg-gray-950 text-white hover:bg-gray-800" data-testid="featured-view-passport">
+                  <Link to={vehiclePassportPath(heroVehicle.vin)}>
+                    View Passport <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </section>
 
-      {/* Stakeholders */}
-      <section className="py-20 bg-gray-50">
+      <section className="border-b bg-white" data-testid="home-trust-strip">
+        <div className="section-padding mx-auto grid max-w-[1440px] gap-3 py-5 sm:grid-cols-2 lg:grid-cols-5">
+          {trustStrip.map(item => (
+            <div key={item.label} className="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+              <item.icon className="h-5 w-5 text-orange-500" />
+              <span className="text-sm font-semibold text-gray-800">{item.label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-gray-50 py-10">
         <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <Badge className="mb-4 bg-purple-100 text-purple-700 hover:bg-purple-200">Ecosystem</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold">Built for Every Stakeholder</h2>
-            <p className="text-gray-600 mt-3">
-              CarUp connects the entire automotive ecosystem. Every participant has dedicated tools, dashboards, and AI assistance.
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <Badge className="mb-3 bg-orange-100 text-orange-700 hover:bg-orange-100">Popular searches</Badge>
+              <h2 className="text-2xl font-bold md:text-3xl">Start with what buyers ask for most</h2>
+            </div>
+            <p className="max-w-lg text-sm text-gray-600">
+              These are Phase 1 quick-entry labels. Backend category filters come later.
             </p>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {stakeholders.map((s) => (
-              <Card key={s.label} className="border-0 card-shadow hover-lift">
-                <CardContent className="p-6 flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shrink-0">
-                    <s.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold mb-1">{s.label}</h3>
-                    <p className="text-sm text-gray-600">{s.desc}</p>
-                  </div>
-                </CardContent>
-              </Card>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {popularSearches.map(chip => (
+              <button
+                key={chip}
+                type="button"
+                onClick={() => navigate('/marketplace')}
+                className="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+                data-testid="popular-search-chip"
+              >
+                {chip}
+              </button>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="py-20 bg-white">
+      <section className="bg-white py-14">
         <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <Badge className="mb-4 bg-green-100 text-green-700 hover:bg-green-200">How It Works</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold">Get Started in 4 Easy Steps</h2>
-          </div>
-          <div className="grid md:grid-cols-4 gap-8">
-            {[
-              { step: '01', title: 'Sign Up', desc: 'Create your CarUp account with your phone number and verify your identity.' },
-              { step: '02', title: 'Add Vehicle', desc: 'Enter your VIN or scan your logbook. Gutu AI auto-fills the details.' },
-              { step: '03', title: 'Build Trust', desc: 'Upload service records, insurance docs, and police clearances to build your trust score.' },
-              { step: '04', title: 'Transact Safely', desc: 'Buy, sell, insure, and service with complete transparency and confidence.' },
-            ].map((item) => (
-              <div key={item.step} className="text-center">
-                <div className="w-16 h-16 rounded-2xl bg-orange-50 flex items-center justify-center mx-auto mb-4">
-                  <span className="text-2xl font-bold text-orange-500">{item.step}</span>
-                </div>
-                <h3 className="font-semibold text-lg mb-2">{item.title}</h3>
-                <p className="text-sm text-gray-600">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <section className="py-20 bg-gray-50">
-        <div className="section-padding mx-auto max-w-[1440px]">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <Badge className="mb-4 bg-amber-100 text-amber-700 hover:bg-amber-200">Testimonials</Badge>
-            <h2 className="text-3xl md:text-4xl font-bold">Trusted by Zimbabweans</h2>
-          </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t) => (
-              <Card key={t.name} className="border-0 card-shadow">
-                <CardContent className="p-6">
-                  <div className="flex gap-1 mb-4">
-                    {Array.from({ length: t.rating }).map((_, i) => (
-                      <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
-                    ))}
-                  </div>
-                  <p className="text-sm text-gray-700 mb-6 leading-relaxed">"{t.content}"</p>
-                  <div className="flex items-center gap-3">
-                    <img src={t.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
-                    <div>
-                      <p className="font-medium text-sm">{t.name}</p>
-                      <p className="text-xs text-gray-500">{t.role}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 bg-gradient-to-br from-[hsl(222,47%,8%)] to-[hsl(222,47%,15%)] text-white">
-        <div className="section-padding mx-auto max-w-[1440px] text-center">
-          <h2 className="text-3xl md:text-5xl font-bold mb-6">
-            Ready to Join the Future of Automotive Trust?
-          </h2>
-          <p className="text-lg text-gray-300 mb-8 max-w-2xl mx-auto">
-            Whether you're buying, selling, or managing vehicles — CarUp gives you the intelligence 
-            and transparency you need.
-          </p>
-          <div className="flex flex-wrap justify-center gap-4">
-            <Button size="lg" className="bg-orange-500 hover:bg-orange-600 gap-2" asChild>
-              <Link to="/register">
-                Get Started Free <ArrowRight className="w-4 h-4" />
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            <div>
+              <Badge className="mb-3 bg-blue-100 text-blue-700 hover:bg-blue-100">Featured Verified Cars</Badge>
+              <h2 className="text-3xl font-bold">Shop cars with visible trust signals</h2>
+              <p className="mt-2 max-w-2xl text-gray-600">
+                Phase 1 uses existing local vehicle data and shows only supported listing labels.
+              </p>
+            </div>
+            <Button variant="outline" asChild>
+              <Link to="/marketplace">
+                Browse all cars <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
-            <Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10" asChild>
-              <Link to="/contact">Contact Sales</Link>
+          </div>
+
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {featuredVehicles.map(vehicle => (
+              <Card key={vehicle.vin} className="overflow-hidden border-0 bg-white shadow-md transition-shadow hover:shadow-lg" data-testid="featured-verified-car">
+                <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
+                  <img
+                    src={vehicle.images[0]}
+                    alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+                    className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+                  />
+                  <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                    {vehicle.isVerified && (
+                      <Badge className="bg-green-600 text-white">
+                        <CheckCircle className="mr-1 h-3 w-3" />
+                        Verified
+                      </Badge>
+                    )}
+                    {vehicle.plate_number && (
+                      <Badge className="bg-blue-600 text-white">Plate on file</Badge>
+                    )}
+                    {vehicle.sellerType === 'Dealer' && (
+                      <Badge className="bg-gray-950 text-white">Dealer</Badge>
+                    )}
+                  </div>
+                </div>
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">
+                        {vehicle.year} {vehicle.make} {vehicle.model}
+                      </h3>
+                      <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+                        <MapPin className="h-3.5 w-3.5" />
+                        {vehicle.location}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0">
+                      Trust {vehicle.trustScore}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 text-xl font-bold text-orange-600">{formatUsd(vehicle.price)}</p>
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-xs text-gray-500">
+                    <span>{vehicle.mileage.toLocaleString()} km</span>
+                    <span>{vehicle.transmission}</span>
+                    <span>{vehicle.fuelType}</span>
+                  </div>
+                  <Button asChild className="mt-5 w-full bg-gray-950 text-white hover:bg-gray-800" data-testid="featured-view-passport">
+                    <Link to={vehiclePassportPath(vehicle.vin)}>
+                      View Passport <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-gray-50 py-14">
+        <div className="section-padding mx-auto grid max-w-[1440px] gap-6 lg:grid-cols-2">
+          <Card className="border-0 shadow-md">
+            <CardContent className="p-6 md:p-8">
+              <Badge className="mb-4 bg-green-100 text-green-700 hover:bg-green-100">Verify before you pay</Badge>
+              <h2 className="text-3xl font-bold">Already found a car elsewhere?</h2>
+              <p className="mt-3 text-gray-600">Check its CarUp Passport before you pay.</p>
+              <form onSubmit={submitVerifyBeforeBuy} className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  value={verifyBeforeBuyQuery}
+                  onChange={event => setVerifyBeforeBuyQuery(event.target.value)}
+                  placeholder="Plate, VIN, or chassis"
+                  className="h-12 font-mono"
+                  data-testid="verify-before-buy-input"
+                />
+                <Button type="submit" className="h-12 bg-orange-500 text-white hover:bg-orange-600">
+                  Verify Vehicle
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 bg-[hsl(222,47%,10%)] text-white shadow-md">
+            <CardContent className="p-6 md:p-8">
+              <Badge className="mb-4 bg-white/10 text-white hover:bg-white/10">Sell with trust</Badge>
+              <h2 className="text-3xl font-bold">Sell your car with a verified Passport</h2>
+              <p className="mt-3 text-gray-300">
+                Start with the current seller verification handoff and create a listing through CarUp.
+              </p>
+              <form onSubmit={submitSellSection} className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Input
+                  value={sellSectionQuery}
+                  onChange={event => setSellSectionQuery(event.target.value)}
+                  placeholder="Plate or VIN"
+                  className="h-12 border-white/20 bg-white/10 font-mono text-white placeholder:text-gray-400"
+                  data-testid="sell-car-input"
+                />
+                <Button type="submit" className="h-12 bg-white text-gray-950 hover:bg-gray-100">
+                  Start Seller Verification
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+
+      <section className="bg-white py-16">
+        <div className="section-padding mx-auto max-w-[1440px]">
+          <div className="max-w-2xl">
+            <Badge className="mb-3 bg-orange-100 text-orange-700 hover:bg-orange-100">How CarUp Works</Badge>
+            <h2 className="text-3xl font-bold">From search to transfer, keep the trust record visible</h2>
+          </div>
+          <div className="mt-8 grid gap-5 md:grid-cols-4">
+            {howItWorks.map((item, index) => (
+              <Card key={item.title} className="border border-gray-100 shadow-sm">
+                <CardContent className="p-5">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                    <item.icon className="h-5 w-5" />
+                  </div>
+                  <p className="mt-5 text-sm font-bold text-orange-600">0{index + 1}</p>
+                  <h3 className="mt-1 font-semibold">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-gray-600">{item.description}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-[hsl(222,47%,8%)] py-14 text-white">
+        <div className="section-padding mx-auto flex max-w-[1440px] flex-col justify-between gap-6 md:flex-row md:items-center">
+          <div>
+            <Badge className="mb-3 bg-orange-500/20 text-orange-100 hover:bg-orange-500/20">
+              CarUp marketplace
+            </Badge>
+            <h2 className="text-3xl font-bold">Buy, verify, and sell with Passport-backed confidence</h2>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Button asChild className="bg-orange-500 text-white hover:bg-orange-600">
+              <Link to="/marketplace">Buy Cars</Link>
+            </Button>
+            <Button asChild variant="outline" className="border-white/30 text-white hover:bg-white/10">
+              <Link to="/search">Verify a Vehicle</Link>
             </Button>
           </div>
         </div>
