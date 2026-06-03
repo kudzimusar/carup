@@ -7,8 +7,12 @@ import type {
   Part, 
   Claim, 
   RegistryVerification,
-  ApiMutationResponse
+  ApiMutationResponse,
+  VehiclePassport,
+  VehicleEvidence,
+  TimelineEvent
 } from '@/types'
+
 
 const BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
   ? 'http://localhost:5001/api'
@@ -77,8 +81,34 @@ export function useCarUpApi() {
     return request<Vehicle[]>('/vehicles/inventory')
   }, [request])
 
-  const fetchVehiclePassport = useCallback(async (vin: string): Promise<any> => {
-    return request(`/vehicles/${vin}/passport`)
+  const fetchVehiclePassport = useCallback(async (vin: string): Promise<VehiclePassport> => {
+    return request<VehiclePassport>(`/vehicles/${vin}/passport`)
+  }, [request])
+
+  const fetchVehicleEvidenceTimeline = useCallback(async (vin: string): Promise<{ vin: string; timeline: TimelineEvent[]; evidence: VehicleEvidence[] }> => {
+    return request<{ vin: string; timeline: TimelineEvent[]; evidence: VehicleEvidence[] }>(`/vehicles/${vin}/evidence/timeline`)
+  }, [request])
+
+  const fetchEvidenceReviewQueue = useCallback(async (status = 'pending'): Promise<VehicleEvidence[]> => {
+    return request<VehicleEvidence[]>(`/evidence/review?status=${encodeURIComponent(status)}`)
+  }, [request])
+
+  const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
+    return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/verify`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes, trust_score_impact: trustScoreImpact })
+    })
+  }, [request])
+
+  const rejectEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = -5): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
+    return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/reject`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes, trust_score_impact: trustScoreImpact })
+    })
+  }, [request])
+
+  const lookupVehiclePassport = useCallback(async (identifier: string): Promise<VehiclePassport> => {
+    return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
 
   const verifyLedger = useCallback(async (vin: string): Promise<{ integrity: string; verified: boolean }> => {
@@ -389,6 +419,11 @@ export function useCarUpApi() {
     fetchVehicles,
     fetchDealerInventory,
     fetchVehiclePassport,
+    fetchVehicleEvidenceTimeline,
+    fetchEvidenceReviewQueue,
+    approveEvidence,
+    rejectEvidence,
+    lookupVehiclePassport,
     fetchVehicle,
     verifyLedger,
     runOdometerAudit,

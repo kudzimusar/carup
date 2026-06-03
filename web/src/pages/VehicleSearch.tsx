@@ -25,10 +25,23 @@ export default function VehicleSearch() {
 
   const filtered = vehicles.filter(v => {
     const q = query.toLowerCase()
+    const normQ = query.toUpperCase().replace(/[^A-Z0-9]/g, '')
     const matchQuery = !query ||
       `${v.make} ${v.model}`.toLowerCase().includes(q) ||
       v.vin.toLowerCase().includes(q) ||
-      v.location.toLowerCase().includes(q)
+      v.location.toLowerCase().includes(q) ||
+      (v.plate_number && (
+        v.plate_number.toLowerCase().includes(q) ||
+        v.plate_number.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(normQ)
+      )) ||
+      (v.chassis_number && (
+        v.chassis_number.toLowerCase().includes(q) ||
+        v.chassis_number.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(normQ)
+      )) ||
+      (v.temporary_identification_number && (
+        v.temporary_identification_number.toLowerCase().includes(q) ||
+        v.temporary_identification_number.toUpperCase().replace(/[^A-Z0-9]/g, '').includes(normQ)
+      ))
     const matchMake = make === 'All' || v.make === make
     const matchCat = category === 'All' || v.category === category
     const matchLoc = location === 'All' || v.location === location
@@ -40,12 +53,12 @@ export default function VehicleSearch() {
       <div className="bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white py-16">
         <div className="section-padding mx-auto max-w-[1440px]">
           <h1 className="text-3xl md:text-4xl font-bold mb-4">Vehicle Search</h1>
-          <p className="text-gray-300 mb-8">Search by VIN, make, model, or location</p>
+          <p className="text-gray-300 mb-8">Search by VIN, chassis, plate, or temporary ID</p>
           <div className="flex flex-wrap gap-3">
             <div className="relative flex-1 min-w-[300px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
-                placeholder="Enter VIN, make, model, or location..."
+                placeholder="Enter VIN, chassis, plate, or temporary ID..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400"
