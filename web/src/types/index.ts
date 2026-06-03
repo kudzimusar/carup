@@ -2,7 +2,9 @@ import type {
   AuthUser as SharedAuthUser, 
   Vehicle as SharedVehicle,
   Escrow as SharedEscrow,
-  Notification as SharedNotification
+  Notification as SharedNotification,
+  MarketplaceListingSummary as SharedMarketplaceListingSummary,
+  MarketplaceListingsResponse as SharedMarketplaceListingsResponse
 } from '@shared/types';
 // 1. User
 export interface User extends SharedAuthUser {
@@ -60,7 +62,21 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   current_seller_id?: string;
   current_seller_type?: string;
   public_seller_display_enabled?: boolean;
+  vehicle_condition_category?: SharedMarketplaceListingSummary['condition_category'];
+  marketplace_tags?: SharedMarketplaceListingSummary['marketplace_tags'];
+  primary_image_url?: string | null;
+  passport_verified?: boolean;
+  evidence_count?: number;
+  partsentry_checked?: boolean;
+  repair_history_count?: number;
+  verified_parts_count?: number;
+  zimra_verified?: boolean;
+  cid_clear?: boolean;
 }
+
+export interface MarketplaceListingSummary extends SharedMarketplaceListingSummary {}
+
+export interface MarketplaceListingsResponse extends SharedMarketplaceListingsResponse {}
 
 // 3. WorkOrder
 export interface WorkOrder {
