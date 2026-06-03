@@ -45,6 +45,57 @@ The public nav should lead with marketplace actions:
 
 Footer product language should mirror the same strategy: Buy Cars, Verify Vehicle, Dealers, Garages, Insurance, and Pricing.
 
+## Homepage Visual Polish & Seller Conversion Sprint
+
+This sprint adjusts the first viewport so the homepage reads as a balanced marketplace, not only a buyer search page. The hero now gives equal visual weight to Buy a Car, Sell My Car, and Verify a Car while preserving the existing frontend-only route handoffs.
+
+Seller above-the-fold requirement:
+
+- A persistent seller callout appears in the hero even when the Buy tab is active.
+- Copy: "Selling your car?" and "Start with your plate or VIN and create a trusted Passport listing."
+- CTA: "Start Selling"
+- Route: `/register` for public users, with `/dashboard/sell-vehicle` preserved only through the existing authenticated handoff.
+- No `/sell` route is introduced.
+
+Final hero copy:
+
+- Headline: "Find Verified Cars. Sell With Confidence."
+- Subheadline: "CarUp helps buyers and sellers build trust with vehicle Passports, plate checks, owner privacy, trust scores, and evidence-backed timelines."
+
+Final nav recommendation:
+
+| Label | Route | Purpose |
+|---|---|---|
+| Buy Cars | `/marketplace` | Primary buyer marketplace. |
+| Verify | `/search` | Current public verification/search entry. |
+| Dealers | `/dealers` | Dealer discovery. |
+| Garages | `/garages` | Garage discovery. |
+| Insurance | `/insurance` | Insurance discovery. |
+| Pricing | `/pricing` | Pricing page. |
+| Sell Your Car | `/register` | Strong orange seller CTA and public handoff. |
+
+Final homepage section order:
+
+1. Hero: Buy / Sell / Verify
+2. Thin trust strip
+3. Featured verified cars
+4. Sell with a Passport
+5. Verify before you buy
+6. Popular Zimbabwe categories
+7. How CarUp works
+8. Why CarUp is safer
+
+Visual polish decisions:
+
+- Use one main white/glass hero action panel.
+- Use flatter tab styling with equal Buy, Sell, and Verify actions.
+- Keep one large featured vehicle card on the right.
+- Replace boxed trust cards with a thin trust strip.
+- Move category chips below the hero/trust strip so they do not dominate the first viewport.
+- Use only existing vehicle images and continue linking featured cards to VIN-based Passport routes.
+
+Phase 2 remains backend category/tag and search/ranking work. Canonical condition categories, marketplace tags, listing summary fields, featured listing queries, and backend-supported category search should not be implemented in this frontend polish sprint.
+
 ## Zimbabwe Category Model
 
 The intended marketplace category model is:
