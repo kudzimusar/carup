@@ -49,9 +49,9 @@ test.describe('Agent 1 - Buyer Journey Validation', () => {
 
   test('Homepage Loads', async ({ page }) => {
     await page.goto('/');
-    // Hard assertion that homepage title badge is visible
-    await expect(page.getByText("Zimbabwe's Automotive Intelligence Platform").first()).toBeVisible();
-    await expect(page.getByRole('link', { name: /explore marketplace/i })).toBeVisible();
+    // Hard assertion that marketplace-first homepage is visible
+    await expect(page.getByRole('heading', { name: /Find Verified Cars in Zimbabwe/i })).toBeVisible();
+    await expect(page.locator('[data-testid="home-buy-search"]')).toBeVisible();
   });
 
   test('Marketplace Loads', async ({ page }) => {
