@@ -88,14 +88,16 @@ test.describe('Marketplace-first homepage', () => {
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Owner Privacy')
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('Trust Score')
     await expect(page.locator('[data-testid="home-trust-strip"]')).toContainText('SafePay Ready')
+    await expect(page.locator('[data-testid="home-partsentry-trust-signal"]')).toContainText('PartSentry')
   })
 
   test('popular category chips render lower on the page', async ({ page }) => {
     await page.goto('/')
 
     await expect(page.getByRole('heading', { name: /Start with what buyers ask for most/i })).toBeVisible()
-    await expect(page.locator('[data-testid="popular-search-chip"]')).toHaveCount(18)
+    await expect(page.locator('[data-testid="popular-search-chip"]')).toHaveCount(19)
     await expect(page.locator('[data-testid="popular-search-chip"]').first()).toContainText('Brand New')
+    await expect(page.locator('[data-testid="popular-search-chip"]').filter({ hasText: 'Parts & Accessories' })).toBeVisible()
   })
 
   test('homepage does not expose private owner names or phone numbers from mock vehicles', async ({ page }) => {
