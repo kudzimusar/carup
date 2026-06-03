@@ -50,6 +50,7 @@ import claimsRouter from './routes/claimsRoutes.js';
 // Centralized Routes Imports (Batch 2)
 import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import marketplaceRouter from './routes/marketplaceRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
@@ -127,6 +128,7 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
+app.use(marketplaceRouter);
 app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);

@@ -50,8 +50,60 @@ const marketplaceVehicles = [
   },
 ]
 
+const marketplaceListings = marketplaceVehicles.map(vehicle => ({
+  vin: vehicle.vin,
+  make: vehicle.make,
+  model: vehicle.model,
+  year: vehicle.year,
+  price: vehicle.price,
+  currency: vehicle.currency,
+  mileage: vehicle.mileage,
+  fuel_type: vehicle.fuel_type,
+  transmission: vehicle.transmission,
+  status: vehicle.status,
+  condition_category: vehicle.condition === 'New' ? 'brand_new' : 'second_hand',
+  marketplace_tags: [
+    ...(vehicle.police_verified ? ['cid_clear'] : []),
+    ...(vehicle.partsentry_checked ? ['partsentry_checked', 'repair_history_available'] : []),
+    ...(vehicle.mileage <= 50000 ? ['low_mileage'] : []),
+    vehicle.sellerType === 'Dealership' ? 'dealer_verified' : 'private_sale',
+  ],
+  trust_score: vehicle.trust_score,
+  primary_image_url: vehicle.images[0],
+  plate_number: vehicle.plate_number || null,
+  normalized_plate_number: vehicle.normalized_plate_number || null,
+  chassis_number: vehicle.chassis_number || null,
+  plate_verified: false,
+  plate_status: vehicle.plate_number ? 'Active' : null,
+  passport_verified: false,
+  evidence_count: 0,
+  partsentry_checked: Boolean(vehicle.partsentry_checked),
+  repair_history_count: vehicle.partsentry_checked ? 1 : 0,
+  verified_parts_count: 0,
+  duty_cleared: false,
+  zimra_verified: false,
+  cid_clear: vehicle.police_verified,
+  seller_type: vehicle.sellerType === 'Dealership' ? 'dealer' : 'private',
+  seller_display_label: vehicle.sellerType === 'Dealership' ? 'Trusted Dealer Zimbabwe' : 'Private seller',
+  seller_public_profile_enabled: vehicle.sellerType === 'Dealership',
+  location: vehicle.location,
+  created_at: vehicle.created_at,
+}))
+
 test.describe('Marketplace verified listing cards', () => {
   test.beforeEach(async ({ page }) => {
+    await page.route('**/api/marketplace/listings*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          listings: marketplaceListings,
+          total: marketplaceListings.length,
+          limit: 48,
+        }),
+      })
+    })
+
     await page.route('**/api/vehicles*', async route => {
       await route.fulfill({
         status: 200,
