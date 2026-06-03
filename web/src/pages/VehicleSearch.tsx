@@ -52,8 +52,12 @@ export default function VehicleSearch() {
     <div className="min-h-screen bg-gray-50">
       <div className="bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white py-16">
         <div className="section-padding mx-auto max-w-[1440px]">
-          <h1 className="text-3xl md:text-4xl font-bold mb-4">Vehicle Search</h1>
-          <p className="text-gray-300 mb-8">Search by VIN, chassis, plate, or temporary ID</p>
+          <h1 className="text-3xl md:text-4xl font-bold mb-4">Verify Vehicle or Part History</h1>
+          <p className="text-gray-300 mb-3">Search by VIN, chassis, plate, or temporary ID</p>
+          <p className="mb-8 max-w-3xl text-sm leading-6 text-gray-300">
+            PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs,
+            work orders, mechanics, and parts history to the vehicle Passport where records exist.
+          </p>
           <div className="flex flex-wrap gap-3">
             <div className="relative flex-1 min-w-[300px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -62,6 +66,7 @@ export default function VehicleSearch() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+                data-testid="vehicle-search-input"
               />
             </div>
             <Select value={make} onValueChange={setMake}>
@@ -93,7 +98,7 @@ export default function VehicleSearch() {
         <p className="text-sm text-gray-600 mb-4">{filtered.length} vehicles found</p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((vehicle) => (
-            <Link key={vehicle.id} to={`/marketplace/${vehicle.id}`} className="group">
+            <Link key={vehicle.id} to={`/marketplace/${encodeURIComponent(vehicle.vin || vehicle.id)}`} className="group" data-testid="vehicle-search-result">
               <Card className="overflow-hidden border-0 card-shadow hover-lift h-full bg-white">
                 <div className="relative aspect-[16/10] overflow-hidden">
                   <img src={vehicle.images[0]} alt={`${vehicle.make} ${vehicle.model}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -113,9 +118,14 @@ export default function VehicleSearch() {
                   </div>
                   <Separator className="my-3" />
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-600">{vehicle.sellerName}</span>
+                    <span className="text-xs text-gray-600">
+                      {vehicle.sellerType === 'Dealer' ? vehicle.sellerName : 'Private seller'}
+                    </span>
                     <span className="flex items-center gap-1 text-xs text-gray-400"><MapPin className="w-3 h-3" />{vehicle.location}</span>
                   </div>
+                  <span className="mt-4 inline-flex w-full items-center justify-center rounded-md bg-gray-950 px-3 py-2 text-sm font-semibold text-white" data-testid="vehicle-search-view-passport">
+                    View Passport
+                  </span>
                 </CardContent>
               </Card>
             </Link>
