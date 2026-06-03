@@ -96,6 +96,122 @@ Visual polish decisions:
 
 Phase 2 remains backend category/tag and search/ranking work. Canonical condition categories, marketplace tags, listing summary fields, featured listing queries, and backend-supported category search should not be implemented in this frontend polish sprint.
 
+## Navigation, Parts Commerce & PartSentry Strategy
+
+This sprint corrects the public navigation architecture so CarUp reads as a verified automotive commerce platform, not only a vehicle listing site.
+
+Why Sell must be top-level:
+
+- Selling is a primary commercial intent, equal to buying and verification.
+- Sellers need a visible handoff into the existing `/register` or authenticated `/dashboard/sell-vehicle` flow.
+- There is still no public `/sell` route, so all public seller links route safely to existing handoffs.
+
+Why Insurance and Pricing move to More:
+
+- Insurance and Pricing are useful support pages, but they are not the highest-intent buying, selling, parts, or verification actions.
+- Keeping them in More frees top-nav space for Parts and PartSentry.
+- Existing routes remain intact: `/insurance` and `/pricing`.
+
+Buy dropdown structure:
+
+- Vehicles: Shop All Cars, Brand New Cars, Recently Imported, Locally Used, Second Hand Cars, Dealer Verified Cars, Passport Verified Cars.
+- Popular Categories: SUVs, Pickups, Hatchbacks, Sedans, Toyota, Honda, Mazda, Under $5,000, Under $10,000.
+- Buyer Tools: Verify Before You Buy, View Vehicle Passport, Compare Trust Scores, PartSentry Checked Vehicles.
+- Trust Guide: Brand New vs Imported vs Locally Used, and how to check a vehicle Passport before paying.
+
+Sell dropdown structure:
+
+- Sell Vehicles: Sell Your Car, Create Vehicle Passport, Dealer Listing, Sell as Private Owner.
+- Seller Tools: Start with Plate / VIN, Upload Vehicle Evidence, Add Service History, SafePay / Reservation Ready.
+- Sell Parts & Accessories: Sell Car Parts, Sell Accessories, Mechanic / Garage Parts Listing.
+- Seller Guide: How to sell with a verified Passport, and how PartSentry protects honest sellers.
+
+Verify dropdown structure:
+
+- Vehicle Verification: Verify by Plate, VIN, Chassis, or open a Vehicle Passport.
+- Trust Checks: ownership privacy, evidence timeline, duty/CID signals where available, and mileage signals.
+- PartSentry Verification: part history, repair logs, swapped parts, and stolen/suspicious parts checks.
+
+Parts dropdown structure:
+
+- Buy Parts: Browse Car Parts, Verified Parts, Engines, Gearboxes, ECUs, Body Panels, Lights, Tyres & Wheels, Batteries, Accessories.
+- Sell Parts: Sell a Part, List Accessories, Garage Parts Inventory, Mechanic Parts Catalog.
+- PartSentry: Verify Part Origin, Check Repair History, Report Stolen Part, Link Part to Vehicle Passport, Mechanic Work Orders.
+- Parts Trust Guide: how PartSentry protects parts buyers and why verified parts matter when buying used cars.
+
+What PartSentry does:
+
+PartSentry helps identify swapped, stolen, or undocumented parts by connecting repair logs, work orders, mechanics, and parts history to the vehicle Passport.
+
+Why PartSentry is core to CarUp:
+
+- Vehicle trust does not stop at ownership and plate history.
+- Repairs, replacement parts, work orders, and mechanic logs affect resale confidence.
+- Parts commerce needs a trust layer so buyers and honest sellers can distinguish documented parts from suspicious parts.
+
+Where PartSentry appears now:
+
+- Top-level `Parts` navigation.
+- Buy, Sell, Verify, and Parts dropdown language.
+- Homepage trust strip and "Why CarUp is safer" section.
+- Marketplace category strip.
+- Marketplace listing cards only when explicit PartSentry data exists.
+- `/search` copy as a verification entry point for vehicle or part history.
+
+Phase 2B remains:
+
+- Public Parts Marketplace route and inventory browsing.
+- Canonical PartSentry public lookup route.
+- Backend-supported parts categories, parts listings, work orders, repair logs, suspicious/stolen part reporting, and search/ranking.
+- Real listing summary fields for PartSentry, evidence count, verified parts, and repair history.
+
+Public Parts Marketplace remains future work unless a dedicated `/parts` route and supporting data/API are approved.
+
+## Marketplace Category, PartSentry & Verified Listing Cards Sprint
+
+Implemented marketplace card changes:
+
+- Listing cards show image, make/model/year, price, location, mileage, condition/category labels, trust score, verification badge, plate status where available, seller/dealer type, and a View Passport CTA.
+- Marketplace card links use `/marketplace/:vin` whenever VIN exists.
+- Private owner names and phone numbers are not shown on marketplace listing cards.
+- Marketplace search now includes make, model, location, VIN, plate number, normalized plate number, chassis number, condition, category, seller name/type, and PartSentry text only when current data provides it.
+- A visible marketplace category strip appears near the top of `/marketplace`.
+- Existing API data remains the primary source, with existing mock vehicles used as a frontend fallback when local API fetches are unavailable.
+
+Safely derived labels:
+
+- Brand New: from `condition === "New"`.
+- Second Hand: from `condition === "Used"`.
+- Dealer Verified: from dealer/dealership seller context plus current verification, or `Certified Pre-Owned`.
+- Duty Cleared: from `duty_paid === true`.
+- Low Mileage: frontend-derived from mileage at or below 50,000 km. This does not imply verified mileage.
+- Recently Imported / Fresh Import: from an explicit import source when present.
+- Locally Used: from explicit Zimbabwe registration country when present.
+
+Backend-dependent labels:
+
+- Passport Verified requires a real `passport_verified` style listing summary field.
+- Evidence Available requires evidence count or evidence summary on the listing payload.
+- PartSentry Checked requires explicit PartSentry data.
+- Repair History Available requires service or repair records on the listing payload.
+- Verified Parts requires explicit parts verification data.
+
+PartSentry display rules:
+
+- The navigation and homepage can explain PartSentry as a CarUp trust product.
+- Marketplace card badges only display `PartSentry Checked` when the listing data includes an explicit PartSentry signal.
+- Search text only includes PartSentry terms when current listing card data includes PartSentry or repair-history signals.
+
+No fake evidence rule:
+
+- Listing images are not evidence.
+- Cards do not show `Evidence Available` unless evidence count or evidence summary data exists.
+
+No fake PartSentry status rule:
+
+- Cards do not show `PartSentry Checked`, `Repair History Available`, or `Verified Parts` unless corresponding data exists.
+- Public Parts Marketplace and backend category/search/ranking remain Phase 2B.
+
 ## Zimbabwe Category Model
 
 The intended marketplace category model is:

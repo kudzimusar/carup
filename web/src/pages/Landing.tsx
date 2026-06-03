@@ -14,6 +14,7 @@ import {
   KeyRound,
   Lock,
   MapPin,
+  Package,
   Search,
   ShieldCheck,
   Tag,
@@ -39,6 +40,7 @@ const popularSearches = [
   'Under $5,000',
   'Under $10,000',
   'Dealer Verified',
+  'Parts & Accessories',
   'Harare',
   'Bulawayo',
 ]
@@ -49,7 +51,10 @@ const trustStrip = [
   { label: 'Owner Privacy', icon: UserRoundCheck },
   { label: 'Trust Score', icon: Gauge },
   { label: 'SafePay Ready', icon: Lock },
+  { label: 'PartSentry', icon: Package, testId: 'home-partsentry-trust-signal' },
 ]
+
+const productMap = ['Buy Cars', 'Sell Cars', 'Verify Cars', 'Trade Parts']
 
 const howItWorks = [
   {
@@ -156,6 +161,16 @@ export default function Landing() {
               CarUp helps buyers and sellers build trust with vehicle Passports, plate checks,
               owner privacy, trust scores, and evidence-backed timelines.
             </p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {productMap.map(item => (
+                <span
+                  key={item}
+                  className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
 
             <Card className="mt-8 max-w-3xl border-white/20 bg-white/95 text-gray-950 shadow-xl backdrop-blur">
               <CardContent className="p-4 sm:p-5">
@@ -321,6 +336,7 @@ export default function Landing() {
             <div
               key={item.label}
               className={`flex items-center gap-2 ${index > 0 ? 'lg:border-l lg:border-gray-200 lg:pl-6' : ''}`}
+              data-testid={item.testId}
             >
               <item.icon className="h-5 w-5 text-orange-500" />
               <span className="text-sm font-semibold text-gray-800">{item.label}</span>
@@ -519,7 +535,7 @@ export default function Landing() {
               </Button>
             </div>
           </div>
-          <div className="mt-8 grid gap-5 md:grid-cols-3">
+          <div className="mt-8 grid gap-5 md:grid-cols-4">
             <div>
               <h3 className="font-semibold">Private seller details stay protected</h3>
               <p className="mt-2 text-sm leading-6 text-gray-300">
@@ -536,6 +552,13 @@ export default function Landing() {
               <h3 className="font-semibold">Seller trust starts early</h3>
               <p className="mt-2 text-sm leading-6 text-gray-300">
                 Sellers are guided into the existing account and listing flow before publishing.
+              </p>
+            </div>
+            <div>
+              <h3 className="font-semibold">PartSentry connects repairs and parts</h3>
+              <p className="mt-2 text-sm leading-6 text-gray-300">
+                PartSentry helps identify swapped, stolen, or undocumented parts by connecting
+                repair logs, work orders, mechanics, and parts history to the vehicle Passport.
               </p>
             </div>
           </div>
