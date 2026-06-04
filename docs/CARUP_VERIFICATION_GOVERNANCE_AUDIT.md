@@ -275,3 +275,167 @@ No new dashboard UI was added.
 No public Parts Marketplace was added.
 
 No broad trust-fact setter workflows were added.
+
+## Phase 2A Governed Trust Fact Setter Workflow Implementation
+
+Status: IMPLEMENTED
+
+Phase 2A adds the first narrow governed backend workflow for evidence-backed marketplace trust facts.
+
+### Trust request table
+
+Status: IMPLEMENTED
+
+Migration:
+
+- `database/migrations/20260604002000_trust_fact_requests_phase2a.sql`
+
+Table:
+
+- `trust_fact_requests`
+
+Supported facts:
+
+- `vehicle_condition_category`
+- `passport_verified`
+- `inspection_ready`
+
+Lifecycle statuses:
+
+- `pending`
+- `approved`
+- `rejected`
+- `revoked`
+- `superseded`
+
+Security:
+
+- RLS is enabled.
+- `anon` and `authenticated` table access is revoked.
+- Backend service role writes requests.
+- No public Supabase Data API write path was added.
+
+### Routes added
+
+Status: IMPLEMENTED
+
+File:
+
+- `backend/routes/trustFactRoutes.js`
+
+Mounted in:
+
+- `backend/server.js`
+
+Routes:
+
+- `POST /api/verification/trust-facts/:vin/requests`
+- `GET /api/verification/review-queue`
+- `PATCH /api/verification/trust-facts/:requestId/approve`
+- `PATCH /api/verification/trust-facts/:requestId/reject`
+- `PATCH /api/verification/trust-facts/:requestId/revoke`
+- `GET /api/verification/audit-trail/:vin`
+
+### Service functions added
+
+Status: IMPLEMENTED
+
+File:
+
+- `backend/services/trustGovernance/trustFactWorkflowService.js`
+
+Functions:
+
+- `createTrustFactRequest()`
+- `listTrustFactReviewQueue()`
+- `approveTrustFactRequest()`
+- `rejectTrustFactRequest()`
+- `revokeTrustFactRequest()`
+- `validatePhase2ATrustFactPayload()`
+- `validateEvidenceForApproval()`
+- `getTrustFactAuditTrail()`
+
+### Role permissions
+
+Status: IMPLEMENTED
+
+File:
+
+- `backend/services/trustGovernance/trustPermissionService.js`
+
+Phase 2A rules:
+
+- Owners can request Phase 2A facts only for owned vehicles.
+- Dealers can request Phase 2A facts only for tenant vehicles.
+- Admin can request/review/revoke all three facts.
+- Government can request/review/revoke `passport_verified` and `inspection_ready`.
+- Government cannot review `vehicle_condition_category`.
+- Owners cannot approve, reject, or revoke trust facts.
+- Dealers cannot approve, reject, or revoke Phase 2A trust facts.
+- System actors cannot create source trust facts.
+- Admin approval/revocation requires reason or decision notes.
+
+### Evidence validation
+
+Status: IMPLEMENTED
+
+Approval requires:
+
+- Every evidence ID exists.
+- Every evidence row matches the same VIN.
+- Every approval evidence row has `verification_status = 'verified'`.
+- Listing images do not count as evidence.
+
+Fact-specific rules:
+
+- `vehicle_condition_category` requires verified supporting condition evidence.
+- `passport_verified` requires verified `registration_document` or `ownership_transfer_document`.
+- `inspection_ready` requires verified `inspection_photo`.
+
+### Audit events
+
+Status: IMPLEMENTED
+
+Generic events:
+
+- `TRUST_FACT_CHANGE_REQUESTED`
+- `TRUST_FACT_APPROVED`
+- `TRUST_FACT_REJECTED`
+- `TRUST_FACT_REVOKED`
+
+Field-specific events:
+
+- `VEHICLE_CONDITION_CATEGORY_SET`
+- `VEHICLE_CONDITION_CATEGORY_REVOKED`
+- `PASSPORT_VERIFICATION_APPROVED`
+- `PASSPORT_VERIFICATION_REVOKED`
+- `INSPECTION_READY_SET`
+- `INSPECTION_READY_REVOKED`
+
+Phase 2A approval/revocation treats audit failure as blocking and writes audit events before mutating `vehicles`.
+
+### Marketplace impact
+
+Status: IMPLEMENTED_FOR_LIVE_READS
+
+No listing summary refresh worker was added.
+
+`GET /api/marketplace/listings` already computes live from `vehicles` through `backend/services/marketplace/listingSummaryService.js`, so approved or revoked Phase 2A values are reflected by the live marketplace response after the vehicle row mutation.
+
+### Deferred items
+
+Status: SHOULD_DEFER
+
+Still deferred:
+
+- `zimra_verified`
+- `cid_clear`
+- `safe_pay_ready`
+- `public_card_eligible`
+- `verified_parts`
+- `dealer_verified`
+- broad dashboard UI
+- public Parts Marketplace
+- listing summary refresh workers
+- PartSentry public-card workflows
+- SafePay operator workflow
