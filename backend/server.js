@@ -54,6 +54,7 @@ import vehiclesRouter from './routes/vehiclesRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
+import trustFactRouter from './routes/trustFactRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 
 dotenv.config();
@@ -133,6 +134,7 @@ app.use(marketplaceRouter);
 app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
+app.use(trustFactRouter);
 
 // ✅ Verify Supabase connection on startup
 const { data: connectionTest, error: connectionError } = await supabase.from('vehicles').select('vin').limit(1);
