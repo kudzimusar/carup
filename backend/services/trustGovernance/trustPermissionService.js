@@ -13,6 +13,8 @@ const SOURCE_TRUST_FACTS = new Set([
 ]);
 
 const GOVERNMENT_APPROVAL_FACTS = new Set(['plate_verified', 'zimra_verified', 'cid_clear']);
+const PHASE_2A_FACTS = new Set(['vehicle_condition_category', 'passport_verified', 'inspection_ready']);
+const PHASE_2A_GOVERNMENT_FACTS = new Set(['passport_verified', 'inspection_ready']);
 const FINANCE_FACTS = new Set(['safe_pay_ready']);
 const SUMMARY_FACTS = new Set(['vehicle_listing_summaries_refresh', 'marketplace_tags']);
 
@@ -35,6 +37,7 @@ function allow(reason = 'Allowed by trust governance policy') {
 export function canSetTrustFact(actorInput, fact, action, context = {}) {
   const actor = normalizeActor(actorInput);
   const normalizedAction = String(action || '').toLowerCase();
+  const isPhase2A = PHASE_2A_FACTS.has(fact);
 
   if (!actor.role) {
     return deny('Missing actor role');
@@ -58,8 +61,35 @@ export function canSetTrustFact(actorInput, fact, action, context = {}) {
     return allow('Admin may approve or revoke governed trust facts with audit reason');
   }
 
-  if (actor.role === 'owner' && ['approve', 'revoke', 'verify'].includes(normalizedAction)) {
+  if (actor.role === 'owner' && ['approve', 'reject', 'revoke', 'verify'].includes(normalizedAction)) {
     return deny('Owner cannot approve, revoke, or verify trust facts');
+  }
+
+  if (isPhase2A && actor.role === 'owner' && normalizedAction === 'submit') {
+    if (!context.ownsVehicle) {
+      return deny('Owner can request Phase 2A trust facts only for owned vehicles');
+    }
+    return allow('Owner may request Phase 2A trust facts for owned vehicles');
+  }
+
+  if (isPhase2A && actor.role === 'dealer' && normalizedAction === 'submit') {
+    if (!context.inTenantScope) {
+      return deny('Dealer can request Phase 2A trust facts only for tenant vehicles');
+    }
+    return allow('Dealer may request Phase 2A trust facts for tenant vehicles');
+  }
+
+  if (isPhase2A && actor.role === 'dealer' && ['approve', 'reject', 'revoke'].includes(normalizedAction)) {
+    return deny('Dealer cannot approve, reject, or revoke Phase 2A trust facts');
+  }
+
+  if (isPhase2A && actor.role === 'government') {
+    if (!PHASE_2A_GOVERNMENT_FACTS.has(fact)) {
+      return deny('Government cannot review vehicle_condition_category in Phase 2A');
+    }
+    if (['submit', 'approve', 'reject', 'revoke'].includes(normalizedAction)) {
+      return allow('Government may request or review Passport and inspection readiness facts');
+    }
   }
 
   if (actor.role === 'dealer' && fact === 'dealer_verified') {
