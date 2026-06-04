@@ -76,6 +76,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'Registry Verification', href: '/government/registry', icon: Search },
     { label: 'Compliance', href: '/government/compliance', icon: CheckCircle },
     { label: 'Evidence Review', href: '/government/evidence', icon: FileText },
+    { label: 'Trust Review', href: '/government/trust-review', icon: ShieldAlert },
   ],
   admin: [
     { label: 'Overview', href: '/admin', icon: LayoutDashboard },
@@ -83,6 +84,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'AI Monitoring', href: '/admin/ai', icon: Brain },
     { label: 'Moderation', href: '/admin/moderation', icon: ShieldAlert },
     { label: 'Evidence Review', href: '/admin/evidence', icon: FileText },
+    { label: 'Trust Review', href: '/admin/trust-review', icon: CheckCircle },
   ],
   bank: [
     { label: 'Overview', href: '/bank', icon: LayoutDashboard },
