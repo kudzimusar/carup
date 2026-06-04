@@ -16,7 +16,13 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
-// 4. Force NativeWind tailwind integrations
+// 4. Force explicit redirection of React & React DOM to avoid resolving type definitions
+config.resolver.extraNodeModules = {
+  'react': path.resolve(projectRoot, 'node_modules/react'),
+  'react-dom': path.resolve(projectRoot, 'node_modules/react-dom'),
+};
+
+// 5. Force NativeWind tailwind integrations
 config.resolver.sourceExts.push('mjs');
 
 module.exports = config;
