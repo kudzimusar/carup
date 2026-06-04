@@ -47,7 +47,7 @@ export default function ActiveLiveness() {
     }, 1000);
 
     // Simulate progress trigger
-    let progressTimer: NodeJS.Timeout;
+    let progressTimer: ReturnType<typeof setTimeout>;
     if (currentChallenge.id === 1) {
       // Blink challenge requires 3 blinks
       let blinkCount = 0;
