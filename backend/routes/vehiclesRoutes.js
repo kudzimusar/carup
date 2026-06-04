@@ -484,16 +484,30 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['a
 
   // Audit Log
   try {
-    logAuditEvent({
+    await logAuditEvent(supabase, {
       req,
-      actorId: activeUserId,
-      actorRole: activeRole,
-      action: 'EVIDENCE_VERIFIED',
+      event_type: 'EVIDENCE_VERIFIED',
       targetType: 'evidence',
       targetId: evidenceId,
-      status: 'success',
-      metadata: { vin, evidenceType: evidence.evidence_type, trustScoreImpact, confidenceImpact },
-      severity: 'info'
+      vin,
+      evidence_ids: [evidenceId],
+      previous_value: {
+        verification_status: evidence.verification_status,
+        verification_notes: evidence.verification_notes || null,
+        trust_score_impact: evidence.trust_score_impact ?? null
+      },
+      new_value: {
+        verification_status: 'verified',
+        verification_notes: notes || null,
+        trust_score_impact: trustScoreImpact,
+        confidence_impact: confidenceImpact || 0
+      },
+      actor_user_id: activeUserId,
+      actor_role: activeRole,
+      actor_tenant_id: req.userContext.tenantId,
+      source_route: '/api/vehicles/:vin/evidence/:evidenceId/verify',
+      decision_notes: notes || null,
+      metadata: { vin, evidenceType: evidence.evidence_type, trustScoreImpact, confidenceImpact }
     });
   } catch (auditErr) {
     console.warn('[Audit Log Error] Failed to log evidence verification:', auditErr.message);
@@ -547,16 +561,30 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
 
   // Audit Log
   try {
-    logAuditEvent({
+    await logAuditEvent(supabase, {
       req,
-      actorId: activeUserId,
-      actorRole: activeRole,
-      action: 'EVIDENCE_REJECTED',
+      event_type: 'EVIDENCE_REJECTED',
       targetType: 'evidence',
       targetId: evidenceId,
-      status: 'success',
-      metadata: { vin, evidenceType: evidence.evidence_type, notes },
-      severity: 'warning'
+      vin,
+      evidence_ids: [evidenceId],
+      previous_value: {
+        verification_status: evidence.verification_status,
+        verification_notes: evidence.verification_notes || null,
+        trust_score_impact: evidence.trust_score_impact ?? null
+      },
+      new_value: {
+        verification_status: 'rejected',
+        verification_notes: notes || null,
+        trust_score_impact: trustScoreImpact
+      },
+      actor_user_id: activeUserId,
+      actor_role: activeRole,
+      actor_tenant_id: req.userContext.tenantId,
+      source_route: '/api/vehicles/:vin/evidence/:evidenceId/reject',
+      reason: notes || null,
+      decision_notes: notes || null,
+      metadata: { vin, evidenceType: evidence.evidence_type, notes }
     });
   } catch (auditErr) {
     console.warn('[Audit Log Error] Failed to log evidence rejection:', auditErr.message);
