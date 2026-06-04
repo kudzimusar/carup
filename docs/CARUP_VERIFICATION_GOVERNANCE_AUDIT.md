@@ -439,3 +439,61 @@ Still deferred:
 - listing summary refresh workers
 - PartSentry public-card workflows
 - SafePay operator workflow
+## Admin/Government Trust Review Queue UI
+
+Status: IMPLEMENTED
+
+This frontend-only sprint adds a narrow dashboard UI for Phase 2A governed trust-fact request review. It does not add backend routes, database migrations, public trust badges, owner/dealer approval UI, ZIMRA/CID/SafePay setters, PartSentry approval, dealer verification, public Parts Marketplace, or listing summary refresh workers.
+
+### Routes added
+
+- `/admin/trust-review`
+- `/government/trust-review`
+
+### Roles supported
+
+- Admin reviewers can see and act on all Phase 2A trust facts:
+  - `vehicle_condition_category`
+  - `passport_verified`
+  - `inspection_ready`
+- Government reviewers can see and act only on:
+  - `passport_verified`
+  - `inspection_ready`
+- Non-admin and non-government users see an unauthorized state and the review queue API is not called.
+
+### Actions supported
+
+- Pending requests support `Approve` and `Reject`.
+- Approved requests support `Revoke`.
+- Every mutation opens a decision modal and requires `decision_notes` before submit.
+- Successful decisions reload the active queue and show a toast.
+
+### Evidence drawer privacy rules
+
+The evidence drawer fetches `/api/vehicles/:vin/evidence`, filters records to the selected request's `evidence_ids`, and renders only safe summary fields:
+
+- evidence type
+- verification status
+- visibility level
+- uploaded/captured date
+- linked registry event
+- checksum prefix
+- safe `Open evidence` link
+
+The UI does not render raw metadata, uploader IDs, private owner names, seller phone numbers, seller emails, addresses, national IDs, or raw file URLs as visible text.
+
+### Audit trail drawer privacy rules
+
+The audit drawer fetches `/api/verification/audit-trail/:vin` and renders event type, trust fact, actor role, previous/new values, source route, evidence IDs, reason, decision notes, and timestamp. Display helpers redact common PII keys and obvious phone/email patterns before rendering audit JSON or notes.
+
+### Remaining deferred workflows
+
+- ZIMRA/CID setters
+- SafePay readiness setter
+- PartSentry public-card approval workflow
+- verified parts workflow
+- dealer verification workflow
+- owner/dealer approval UI
+- public Parts Marketplace
+- listing summary refresh workers
+- public marketplace trust badge changes
