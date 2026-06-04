@@ -138,7 +138,6 @@ export default function MarketplaceScreen() {
           <FlashList
             data={filteredVehicles}
             renderItem={renderVehicleCard}
-            estimatedItemSize={150}
             showsVerticalScrollIndicator={false}
             onRefresh={refetch}
             refreshing={isLoading}
