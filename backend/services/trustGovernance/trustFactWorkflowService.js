@@ -335,13 +335,6 @@ export async function createTrustFactRequest(supabaseClient, actorInput, vin, pa
     reason,
   };
 
-  const { data: inserted, error } = await supabaseClient
-    .from('trust_fact_requests')
-    .insert(insertPayload)
-    .select('*')
-    .single();
-  if (error) throw new DatabaseError(error.message);
-
   await logRequiredAudit(supabaseClient, {
     req: requestContext.req,
     event_type: 'TRUST_FACT_CHANGE_REQUESTED',
@@ -356,6 +349,13 @@ export async function createTrustFactRequest(supabaseClient, actorInput, vin, pa
     evidence_ids: evidenceIds,
     reason,
   });
+
+  const { data: inserted, error } = await supabaseClient
+    .from('trust_fact_requests')
+    .insert(insertPayload)
+    .select('*')
+    .single();
+  if (error) throw new DatabaseError(error.message);
 
   return sanitizeRequest(inserted);
 }

@@ -419,6 +419,20 @@ test('audit failure blocks approval before vehicle mutation', async () => {
   assert.equal(client.data.trust_fact_requests[0].status, 'pending');
 });
 
+test('audit failure blocks request creation before pending row mutation', async () => {
+  const client = createMockClient();
+  client.failAudit = true;
+
+  await assert.rejects(() => createTrustFactRequest(client, owner, 'VIN1', {
+    trust_fact: 'passport_verified',
+    requested_value: { passport_verified: true },
+    evidence_ids: ['ev-reg'],
+    reason: 'Audit should fail before request creation',
+  }), /Audit logging failed/);
+
+  assert.equal(client.data.trust_fact_requests.length, 0);
+});
+
 test('review queue scopes admin and government correctly', async () => {
   const client = createMockClient();
   await createTrustFactRequest(client, owner, 'VIN1', {
