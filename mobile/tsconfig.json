@@ -8,19 +8,36 @@
       "./node_modules/@types",
       "../node_modules/@types"
     ],
-    "types": ["react", "node"],
+    "types": [
+      "react",
+      "node"
+    ],
     "paths": {
-      "react": ["./node_modules/@types/react"],
-      "react/*": ["./node_modules/@types/react/*"],
-      "@types/react": ["./node_modules/@types/react"],
-      "@types/react/*": ["./node_modules/@types/react/*"],
-      "@/*": ["./*"],
-      "@shared/*": ["../shared/*"]
+      "react": [
+        "./node_modules/@types/react"
+      ],
+      "react/*": [
+        "./node_modules/@types/react/*"
+      ],
+      "@types/react": [
+        "./node_modules/@types/react"
+      ],
+      "@types/react/*": [
+        "./node_modules/@types/react/*"
+      ],
+      "@/*": [
+        "./*"
+      ],
+      "@shared/*": [
+        "../shared/*"
+      ]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
   ],
   "exclude": [
     "node_modules",
