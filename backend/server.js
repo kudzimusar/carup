@@ -34,6 +34,7 @@ import paymentRouter from './services/payment/paymentRouter.js';
 import mediaRouter from './services/storage/mediaRouter.js';
 import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
 import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
+import { logAuditEvent } from './services/auditLogger.js';
 
 // Central Error Handling Imports
 import errorHandler from './middleware/errorMiddleware.js';
@@ -153,8 +154,28 @@ if (connectionError) {
 // --- PILLAR 20: AUTH & STAKEHOLDER PORTAL SWITCHING ---
 app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
   const { userId, role, tenantId } = req.body;
+  const auditBase = {
+    req,
+    source_route: '/api/auth/switch-role',
+    actor_user_id: req.userContext?.id,
+    actor_role: req.userContext?.role,
+    actor_tenant_id: req.userContext?.tenantId,
+    previous_value: {
+      role: req.userContext?.role,
+      tenantId: req.userContext?.tenantId || null
+    },
+    new_value: {
+      role: role || null,
+      tenantId: tenantId || null
+    }
+  };
   
   try {
+    await logAuditEvent(supabase, {
+      ...auditBase,
+      event_type: 'ROLE_SWITCH_REQUESTED'
+    });
+
     // 1. Requester can only switch their own user context
     if (userId !== req.userContext.id) {
       throw new ForbiddenError('Forbidden. You can only switch your own role.');
@@ -176,10 +197,11 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
     
     // Fetch organization/tenant context if tenantId provided
     let verifiedTenantId = null;
+    let verifiedTenantRole = null;
     if (tenantId) {
       const { data: tenantUser } = await supabase
         .from('tenant_users')
-        .select('tenant_id')
+        .select('tenant_id, role')
         .eq('user_id', userId)
         .eq('tenant_id', tenantId)
         .single();
@@ -188,6 +210,12 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
         throw new ForbiddenError('Forbidden. You do not belong to this organization.');
       }
       verifiedTenantId = tenantUser.tenant_id;
+      verifiedTenantRole = tenantUser.role;
+    }
+
+    const canAssumeRequestedRole = role === user.role || (verifiedTenantRole && role === verifiedTenantRole && role !== 'admin');
+    if (!canAssumeRequestedRole) {
+      throw new ForbiddenError(`Forbidden. Role '${role}' is not verified for this user context.`);
     }
     
     // Generate secure session
@@ -204,6 +232,14 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       is_valid: true
     });
     
+    await logAuditEvent(supabase, {
+      ...auditBase,
+      event_type: 'ROLE_SWITCH_GRANTED',
+      actor_user_id: userId,
+      actor_role: role,
+      actor_tenant_id: verifiedTenantId
+    });
+
     res.json({
       success: true,
       message: `Role switched to ${role} successfully (session established).`,
@@ -211,6 +247,11 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
       user: { ...user, role, active_tenant_id: verifiedTenantId }
     });
   } catch (error) {
+    await logAuditEvent(supabase, {
+      ...auditBase,
+      event_type: 'ROLE_SWITCH_DENIED',
+      reason: error.message
+    });
     next(error);
   }
 });
@@ -657,7 +698,8 @@ app.post('/api/safepay/webhook', async (req, res) => {
 
 // --- PILLAR 3: PARTSENTRY REPAIR LEDGER ---
 app.post('/api/partsentry/add', authorizeRole(['mechanic']), async (req, res) => {
-  const { vin, mechanicId, partName, partOem, actionType, description, mileage } = req.body;
+  const { vin, partName, partOem, actionType, description, mileage } = req.body;
+  const mechanicId = req.userContext.id;
   try {
     const log = await addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage);
     res.json(log);
@@ -669,7 +711,7 @@ app.post('/api/partsentry/add', authorizeRole(['mechanic']), async (req, res) =>
 app.get('/api/partsentry/:vin', async (req, res) => {
   const { vin } = req.params;
   try {
-    const history = await getRepairHistory(vin);
+    const history = await getRepairHistory(vin, { publicOnly: true });
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: error.message });
