@@ -81,6 +81,7 @@ import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -223,6 +224,7 @@ export default function App() {
           <Route path="/government/registry" element={<RegistryVerification />} />
           <Route path="/government/compliance" element={<ComplianceReports />} />
           <Route path="/government/evidence" element={<EvidenceReview />} />
+          <Route path="/government/trust-review" element={<TrustReviewQueue />} />
         </Route>
 
         {/* Bank Dashboard */}
@@ -240,6 +242,7 @@ export default function App() {
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
         </Route>
       </Routes>
     </AppContext.Provider>
