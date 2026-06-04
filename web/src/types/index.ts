@@ -395,6 +395,84 @@ export interface VehicleEvidence {
   };
 }
 
+export type TrustFactReviewStatus = 'pending' | 'approved' | 'rejected' | 'revoked' | 'superseded';
+
+export type TrustFactName = 'vehicle_condition_category' | 'passport_verified' | 'inspection_ready';
+
+export interface TrustFactRequest {
+  id: string;
+  vin: string;
+  trust_fact: TrustFactName;
+  requested_value: Record<string, unknown>;
+  current_value?: Record<string, unknown> | null;
+  status: TrustFactReviewStatus;
+  requested_by_role: string;
+  requested_by_tenant_id?: string | null;
+  reviewed_by_role?: string | null;
+  reviewed_by_tenant_id?: string | null;
+  evidence_ids: string[];
+  partsentry_log_ids?: string[];
+  reason?: string | null;
+  decision_notes?: string | null;
+  created_at: string;
+  reviewed_at?: string | null;
+  revoked_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface TrustFactReviewQueueResponse {
+  requests: TrustFactRequest[];
+  total: number;
+}
+
+export interface TrustFactDecisionPayload {
+  decision_notes: string;
+  reason?: string;
+}
+
+export interface TrustFactDecisionResponse {
+  success: boolean;
+  request: TrustFactRequest;
+  evidence?: VehicleEvidenceSummary[];
+}
+
+export interface TrustAuditTrailEvent {
+  id: string;
+  event_type: string;
+  vin: string;
+  trust_fact?: TrustFactName | string | null;
+  previous_value?: Record<string, unknown> | null;
+  new_value?: Record<string, unknown> | null;
+  actor_role?: string | null;
+  actor_type?: string | null;
+  source_route?: string | null;
+  evidence_ids: string[];
+  reason?: string | null;
+  decision_notes?: string | null;
+  request_id?: string | null;
+  created_at: string;
+}
+
+export interface TrustAuditTrailResponse {
+  vin: string;
+  events: TrustAuditTrailEvent[];
+  total: number;
+}
+
+export interface VehicleEvidenceSummary {
+  id: string;
+  vin?: string;
+  evidence_type: EvidenceType | string;
+  verification_status: EvidenceVerificationStatus | string;
+  visibility_level?: string | null;
+  uploaded_at?: string | null;
+  captured_at?: string | null;
+  linked_registry_event_id?: string | null;
+  checksum?: string | null;
+  image_hash?: string | null;
+  file_url?: string | null;
+}
+
 // 23. TrustMetrics — exact keys from calculateVehicleTrustScore()
 export interface TrustMetrics {
   cvr_synced: boolean;
