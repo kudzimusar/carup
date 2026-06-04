@@ -3,12 +3,8 @@ module.exports = function (api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      // NativeWind — must come before Reanimated
+      // NativeWind CSS-in-JS support
       'nativewind/babel',
-      // React Native Reanimated — must come before worklets
-      'react-native-reanimated/plugin',
-      // React Native Worklets — must be LAST
-      'react-native-worklets/plugin',
     ],
   };
 };
