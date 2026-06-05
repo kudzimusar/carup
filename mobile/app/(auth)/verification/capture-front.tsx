@@ -1,29 +1,30 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator, Image } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, Image, InteractionManager, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
 import { captureDocumentPhoto, formatFileSize, type CapturedAsset } from '../../../utils/camera';
+import { useVerificationStore } from '../../../store/verificationStore';
 
 const { width } = Dimensions.get('window');
 
 export default function CaptureFront() {
-  const router = useRouter();
   const { docType, doubleSided } = useLocalSearchParams<{ docType: string; doubleSided: string }>();
 
-  // Capture state
+  const setCapturedFront = useVerificationStore(state => state.setCapturedFront);
   const [capturedAsset, setCapturedAsset] = useState<CapturedAsset | null>(null);
   const [capturing, setCapturing] = useState<boolean>(false);
   const [statusText, setStatusText] = useState<string>('Tap the shutter to capture front of document');
 
-  // Quality validation indicators
   const [isAligned, setIsAligned] = useState<boolean>(false);
-  const [hasGlare, setHasGlare] = useState<boolean>(false);
-  const [isBlurry, setIsBlurry] = useState<boolean>(false);
   const [isWellLit, setIsWellLit] = useState<boolean>(true);
+  const [isBlurry, setIsBlurry] = useState<boolean>(false);
 
-  /**
-   * Launch the native camera to capture the front of the document.
-   * Uses expo-image-picker with rear camera, 4:3 aspect, and 0.7 quality compression.
-   */
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const handleCapture = useCallback(async () => {
     if (capturing) return;
 
@@ -34,62 +35,68 @@ export default function CaptureFront() {
       const asset = await captureDocumentPhoto();
 
       if (!asset) {
-        // User cancelled or permission denied
-        setCapturing(false);
-        setStatusText('Capture cancelled. Tap shutter to retry.');
+        if (mountedRef.current) {
+          setCapturing(false);
+          setStatusText('Capture cancelled. Tap shutter to retry.');
+        }
         return;
       }
 
       setCapturedAsset(asset);
+      setCapturedFront(asset.dataUri);
       setIsAligned(true);
       setIsWellLit(true);
       setIsBlurry(false);
       setStatusText(`Captured! Compressed to ${formatFileSize(asset.fileSizeBytes)}`);
 
-      // Brief preview delay before navigating
-      setTimeout(() => {
+      const targetPath = doubleSided === 'true'
+        ? '/(auth)/verification/capture-back'
+        : '/(auth)/verification/selfie';
+
+      InteractionManager.runAfterInteractions(() => {
+        if (!mountedRef.current) return;
         setCapturing(false);
         router.push({
-          pathname: doubleSided === 'true'
-            ? '/(auth)/verification/capture-back'
-            : '/(auth)/verification/selfie',
-          params: { docType, doubleSided, capturedFront: asset.dataUri }
+          pathname: targetPath as '/(auth)/verification/capture-back' | '/(auth)/verification/selfie',
+          params: { docType, doubleSided }
         });
-      }, 1200);
-
+      });
     } catch (err) {
       console.error('[CaptureFront] Camera error:', err);
-      setCapturing(false);
-      setStatusText('Camera error. Please try again.');
+      if (mountedRef.current) {
+        setCapturing(false);
+        setStatusText('Camera error. Please try again.');
+      }
     }
-  }, [capturing, docType, doubleSided, router]);
+  }, [capturing, docType, doubleSided, setCapturedFront]);
+
+  const handleBack = useCallback(() => {
+    useVerificationStore.getState().clear();
+    router.back();
+  }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
-      <View className="flex-1 justify-between p-6">
-        
-        {/* Top bar indicators */}
-        <View className="flex-row items-center justify-between z-10">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+      <View style={styles.container}>
+
+        <View style={styles.topBar}>
           <TouchableOpacity 
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-[#161C2C]/80 border border-[#2B3552] rounded-xl items-center justify-center"
+            onPress={handleBack}
+            style={styles.backButton}
           >
-            <Text className="text-white text-lg">←</Text>
+            <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
-          <Text className="text-slate-400 font-semibold text-xs tracking-widest uppercase">Step 3 of 9: FRONT</Text>
+          <Text style={styles.stepLabel}>Step 3 of 9: FRONT</Text>
         </View>
 
-        {/* Viewfinder Frame Area */}
-        <View className="flex-1 justify-center items-center my-6 relative">
-          
-          {/* Document Framing Box */}
+        <View style={styles.viewfinderArea}>
           <View 
-            style={{ width: width * 0.85, height: width * 0.85 * 0.63 }}
-            className={`border-2 rounded-2xl relative items-center justify-center overflow-hidden bg-slate-900/10 ${
-              isAligned ? 'border-emerald-500 shadow-2xl shadow-emerald-500/20' : 'border-dashed border-blue-500'
-            }`}
+            style={[
+              styles.documentFrame,
+              { width: width * 0.85, height: width * 0.85 * 0.63 },
+              isAligned ? styles.frameAligned : styles.frameDefault,
+            ]}
           >
-            {/* Show captured preview image if available */}
             {capturedAsset ? (
               <Image
                 source={{ uri: capturedAsset.uri }}
@@ -99,68 +106,53 @@ export default function CaptureFront() {
             ) : capturing ? (
               <ActivityIndicator size="large" color="#10B981" />
             ) : (
-              <Text className="text-slate-500 text-xs uppercase tracking-widest text-center px-4">
+              <Text style={styles.placeholderText}>
                 Position Front of Document here
               </Text>
             )}
 
-            {/* Viewfinder Corners */}
-            <View className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
-            <View className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
-            <View className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
-            <View className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
           </View>
 
-          {/* Vision/AI Real-time overlays */}
-          <View className="absolute bottom-4 flex-row space-x-2 z-15">
-            <View className={`px-3 py-1.5 rounded-full flex-row items-center border ${
-              isAligned ? 'bg-emerald-950/80 border-emerald-800' : 'bg-slate-950/85 border-slate-800'
-            }`}>
-              <Text className="text-[10px] mr-1">📐</Text>
-              <Text className="text-white text-[10px] font-semibold">Alignment</Text>
+          <View style={styles.indicatorRow}>
+            <View style={[styles.indicatorBadge, isAligned ? styles.badgeOk : styles.badgeNeutral]}>
+              <Text style={styles.indicatorText}>Alignment</Text>
             </View>
-            <View className={`px-3 py-1.5 rounded-full flex-row items-center border ${
-              isWellLit ? 'bg-emerald-950/80 border-emerald-800' : 'bg-slate-950/85 border-slate-800'
-            }`}>
-              <Text className="text-[10px] mr-1">💡</Text>
-              <Text className="text-white text-[10px] font-semibold">Lighting</Text>
+            <View style={[styles.indicatorBadge, isWellLit ? styles.badgeOk : styles.badgeNeutral]}>
+              <Text style={styles.indicatorText}>Lighting</Text>
             </View>
-            <View className={`px-3 py-1.5 rounded-full flex-row items-center border ${
-              !isBlurry ? 'bg-emerald-950/80 border-emerald-800' : 'bg-rose-950/80 border-rose-800'
-            }`}>
-              <Text className="text-[10px] mr-1">🔍</Text>
-              <Text className="text-white text-[10px] font-semibold">{isBlurry ? 'Blur' : 'Sharp'}</Text>
+            <View style={[styles.indicatorBadge, !isBlurry ? styles.badgeOk : styles.badgeNeutral]}>
+              <Text style={styles.indicatorText}>{isBlurry ? 'Blur' : 'Sharp'}</Text>
             </View>
           </View>
         </View>
 
-        {/* Action Panel & Bottom Text */}
-        <View className="space-y-4">
-          <View className="items-center">
-            <Text className={`text-sm font-semibold text-center ${
-              capturedAsset ? 'text-emerald-400' : 'text-slate-300'
-            }`}>
+        <View style={styles.actionPanel}>
+          <View style={styles.statusContainer}>
+            <Text style={[styles.statusText, capturedAsset ? styles.statusOk : styles.statusNeutral]}>
               {statusText}
             </Text>
             {capturedAsset && (
-              <Text className="text-emerald-500 text-xs mt-1">
-                {capturedAsset.width}×{capturedAsset.height}px • {capturedAsset.mimeType}
+              <Text style={styles.assetInfo}>
+                {capturedAsset.width}x{capturedAsset.height}px - {capturedAsset.mimeType}
               </Text>
             )}
           </View>
 
-          <View className="flex-row items-center justify-center space-x-8">
-            {/* Manual Shutter Button */}
+          <View style={styles.shutterRow}>
             <TouchableOpacity
               onPress={handleCapture}
               disabled={capturing}
-              className="w-16 h-16 rounded-full bg-white border-4 border-slate-800 items-center justify-center active:scale-95 transition-all shadow-xl"
+              style={styles.shutterButton}
             >
-              <View className={`w-11 h-11 rounded-full ${capturing ? 'bg-amber-500' : 'bg-blue-600'}`} />
+              <View style={[styles.shutterInner, capturing ? styles.shutterActive : styles.shutterReady]} />
             </TouchableOpacity>
           </View>
 
-          <Text className="text-xs text-slate-500 text-center leading-relaxed">
+          <Text style={styles.helpText}>
             Please make sure the text is readable, has no reflection, and is not blurred.
           </Text>
         </View>
@@ -169,3 +161,52 @@ export default function CaptureFront() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#0A0E1A' },
+  container: { flex: 1, justifyContent: 'space-between', padding: 24 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 },
+  backButton: {
+    width: 40, height: 40,
+    backgroundColor: 'rgba(22,28,44,0.8)',
+    borderWidth: 1, borderColor: '#2B3552',
+    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+  },
+  backArrow: { color: '#fff', fontSize: 18 },
+  stepLabel: { color: '#94a3b8', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' },
+  viewfinderArea: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 24 },
+  documentFrame: {
+    borderWidth: 2, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  frameDefault: { borderColor: '#3b82f6', borderStyle: 'dashed', backgroundColor: 'rgba(15,23,42,0.1)' },
+  frameAligned: { borderColor: '#10b981', backgroundColor: 'rgba(15,23,42,0.1)' },
+  placeholderText: { color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', paddingHorizontal: 16 },
+  corner: { position: 'absolute', width: 24, height: 24 },
+  cornerTL: { top: -4, left: -4, borderTopWidth: 4, borderLeftWidth: 4, borderColor: '#3b82f6', borderTopLeftRadius: 8 },
+  cornerTR: { top: -4, right: -4, borderTopWidth: 4, borderRightWidth: 4, borderColor: '#3b82f6', borderTopRightRadius: 8 },
+  cornerBL: { bottom: -4, left: -4, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: '#3b82f6', borderBottomLeftRadius: 8 },
+  cornerBR: { bottom: -4, right: -4, borderBottomWidth: 4, borderRightWidth: 4, borderColor: '#3b82f6', borderBottomRightRadius: 8 },
+  indicatorRow: { position: 'absolute', bottom: 16, flexDirection: 'row', gap: 8 },
+  indicatorBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', borderWidth: 1 },
+  badgeOk: { backgroundColor: 'rgba(8,145,78,0.8)', borderColor: '#065f46' },
+  badgeNeutral: { backgroundColor: 'rgba(2,6,23,0.85)', borderColor: '#1e293b' },
+  indicatorText: { color: '#fff', fontSize: 10, fontWeight: '600' },
+  actionPanel: { gap: 16 },
+  statusContainer: { alignItems: 'center' },
+  statusText: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  statusOk: { color: '#34d399' },
+  statusNeutral: { color: '#cbd5e1' },
+  assetInfo: { color: '#10b981', fontSize: 11, marginTop: 4 },
+  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 32 },
+  shutterButton: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: '#fff', borderWidth: 4, borderColor: '#1e293b',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shutterInner: { width: 44, height: 44, borderRadius: 22 },
+  shutterActive: { backgroundColor: '#f59e0b' },
+  shutterReady: { backgroundColor: '#2563eb' },
+  helpText: { fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 16 },
+});

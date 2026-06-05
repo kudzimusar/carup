@@ -1,9 +1,8 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
 
 export default function VerificationIntro() {
-  const router = useRouter();
 
   return (
     <SafeAreaView className="flex-1 bg-[#0A0E1A]">
