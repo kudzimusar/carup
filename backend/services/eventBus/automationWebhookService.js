@@ -1,3 +1,7 @@
+import { metricsHub } from '../metrics.js';
+import { logger } from '../../utils/logger.js';
+import { Sentry } from '../ai/sentry.js';
+
 /**
  * CarUp OS — Automation Webhook Event Hook Dispatcher
  * 
@@ -9,12 +13,13 @@ export async function dispatchAutomationWebhook(eventType, payload) {
   const provider = process.env.AUTOMATION_PROVIDER || 'n8n';
   const webhookUrl = process.env.AUTOMATION_WEBHOOK_URL;
 
-  console.log(`📡 [Automation Hooks] Internal event triggered: ${eventType}`);
+  logger.info('WEBHOOK', `Internal event triggered: ${eventType}`, { eventType, enabled });
 
   if (!enabled || !webhookUrl) {
     return { dispatched: false, reason: 'DISABLED_OR_NO_URL' };
   }
 
+  const startTime = Date.now();
   try {
     const timestamp = new Date().toISOString();
     const body = {
@@ -34,16 +39,38 @@ export async function dispatchAutomationWebhook(eventType, payload) {
       body: JSON.stringify(body)
     });
 
+    const durationMs = Date.now() - startTime;
+
     if (!response.ok) {
-      console.warn(`⚠️ [Automation Hooks] Webhook delivery returned non-2xx status: ${response.status}`);
+      logger.warn('WEBHOOK', `Webhook delivery returned non-2xx status: ${response.status}`, {
+        webhookUrl,
+        status: response.status,
+        durationMs
+      });
+      metricsHub.recordWebhookDispatch(webhookUrl, durationMs, false);
       return { dispatched: false, error: `HTTP_${response.status}` };
     }
 
-    console.log(`✅ [Automation Hooks] Webhook delivered successfully to ${provider}: ${eventType}`);
+    logger.info('WEBHOOK', `Webhook delivered successfully to ${provider}: ${eventType}`, {
+      webhookUrl,
+      durationMs
+    });
+    metricsHub.recordWebhookDispatch(webhookUrl, durationMs, true);
     return { dispatched: true };
   } catch (error) {
-    console.error(`❌ [Automation Hooks] Webhook delivery failed:`, error.message);
+    const durationMs = Date.now() - startTime;
+    logger.error('WEBHOOK', `Webhook delivery failed: ${error.message}`, {
+      webhookUrl,
+      durationMs,
+      error
+    });
+    
+    // Capture to Sentry as warning/breadcrumb level
+    Sentry.addBreadcrumb(`Webhook dispatch failed: ${error.message}`, 'webhook', 'warning');
+    
+    metricsHub.recordWebhookDispatch(webhookUrl, durationMs, false);
     // Failure here MUST NOT interrupt any main task (fail safely)
     return { dispatched: false, error: error.message };
   }
 }
+

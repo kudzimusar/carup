@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
 import { SecureSessionProvider } from '../providers/SecureSessionProvider';
+import '../global.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,20 +25,22 @@ export default function RootLayout() {
     initializeAuth();
   }, [initializeAuth]);
 
-  if (loading) {
-    // In a production layout, return a premium custom native splash/loading screen
-    return null;
-  }
-
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <SecureSessionProvider>
           <StatusBar style="auto" />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-            <Stack.Screen name="(tabs)" options={{ animation: 'slide_from_right' }} />
-          </Stack>
+          <View style={{ flex: 1 }}>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
+              <Stack.Screen name="(tabs)" options={{ animation: 'slide_from_right' }} />
+            </Stack>
+            {loading && (
+              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
+                <ActivityIndicator size="large" color="#f97316" />
+              </View>
+            )}
+          </View>
         </SecureSessionProvider>
       </SafeAreaProvider>
     </QueryClientProvider>

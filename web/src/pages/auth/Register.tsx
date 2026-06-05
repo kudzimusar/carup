@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +22,7 @@ const roles = [
 ]
 
 export default function Register() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({
@@ -61,7 +62,7 @@ export default function Register() {
         const data = await res.json()
         login(data.user, data.token)
         toast.success('Account created! Welcome to CarUp.')
-        window.location.href = '/dashboard'
+        navigate('/dashboard')
       } else {
         const errorData = await res.json()
         toast.error(errorData.error || 'Registration failed')
