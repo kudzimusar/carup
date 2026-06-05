@@ -51,14 +51,14 @@ export async function getRepairHistory(vin, { publicOnly = false } = {}) {
   let query = supabase
     .from('partsentry_logs')
     .select(publicOnly
-      ? 'id, vin, part_name, part_oem, action_type, mileage, timestamp, verification_status, part_verification_status, public_card_eligible'
+      ? 'id, vin, part_name, part_oem, action_type, mileage, timestamp, verification_status, part_verification_status, suspicion_status, public_card_eligible'
       : '*'
     )
     .eq('vin', vin)
     .order('timestamp', { ascending: false });
 
   if (publicOnly) {
-    query = query.eq('public_card_eligible', true);
+    query = query.eq('public_card_eligible', true).not('suspicion_status', 'in', '(watch,flagged)');
   }
 
   const { data, error } = await query;

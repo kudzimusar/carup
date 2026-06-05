@@ -121,7 +121,10 @@ export function summarizeEvidence(rows = []) {
 }
 
 export function summarizePartSentry(rows = []) {
-  const publicRows = rows.filter(row => boolValue(row?.public_card_eligible));
+  const publicRows = rows.filter(row =>
+    boolValue(row?.public_card_eligible) &&
+    !['watch', 'flagged'].includes(normalizeText(row?.suspicion_status))
+  );
   const verifiedRows = publicRows.filter(row => row?.verification_status === 'verified');
   const verifiedPartRows = publicRows.filter(row => row?.part_verification_status === 'verified');
   const repairRows = publicRows.filter(row => ['Repaired', 'Replaced', 'Inspected', 'Diagnosed'].includes(row?.action_type));

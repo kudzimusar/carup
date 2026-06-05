@@ -9,12 +9,23 @@ const SOURCE_TRUST_FACTS = new Set([
   'dealer_verified',
   'public_card_eligible',
   'partsentry_checked',
-  'verified_parts'
+  'verified_parts',
+  'verification_status',
+  'part_verification_status',
+  'suspicion_status'
 ]);
 
 const GOVERNMENT_APPROVAL_FACTS = new Set(['plate_verified', 'zimra_verified', 'cid_clear']);
 const PHASE_2A_FACTS = new Set(['vehicle_condition_category', 'passport_verified', 'inspection_ready']);
 const PHASE_2A_GOVERNMENT_FACTS = new Set(['passport_verified', 'inspection_ready']);
+const PARTSENTRY_PUBLIC_CARD_FACTS = new Set([
+  'public_card_eligible',
+  'partsentry_checked',
+  'verified_parts',
+  'verification_status',
+  'part_verification_status',
+  'suspicion_status',
+]);
 const FINANCE_FACTS = new Set(['safe_pay_ready']);
 const SUMMARY_FACTS = new Set(['vehicle_listing_summaries_refresh', 'marketplace_tags']);
 
@@ -54,9 +65,52 @@ export function canSetTrustFact(actorInput, fact, action, context = {}) {
     return deny('System may not create source trust facts');
   }
 
+  if (PARTSENTRY_PUBLIC_CARD_FACTS.has(fact)) {
+    if (actor.role === 'admin') {
+      if (['approve', 'reject', 'revoke', 'verify'].includes(normalizedAction) && !context.reason) {
+        return deny('Admin PartSentry review decisions require a reason');
+      }
+      return allow('Admin may submit and review PartSentry public-card facts in Phase 2B.1');
+    }
+
+    if (actor.role === 'mechanic') {
+      if (normalizedAction === 'submit') {
+        if (!context.ownRecord) {
+          return deny('Mechanic can submit PartSentry review requests only for their own logs');
+        }
+        return allow('Mechanic may submit their own PartSentry log for admin review');
+      }
+      return deny('Mechanic cannot approve, reject, revoke, or verify PartSentry public-card facts');
+    }
+
+    if (actor.role === 'owner') {
+      if (normalizedAction === 'submit') {
+        if (!context.ownsVehicle) {
+          return deny('Owner can submit PartSentry review requests only for owned vehicles');
+        }
+        return allow('Owner may submit scoped PartSentry logs for admin review');
+      }
+      return deny('Owner cannot approve, reject, revoke, or verify PartSentry public-card facts');
+    }
+
+    if (actor.role === 'dealer') {
+      if (normalizedAction === 'submit') {
+        if (!context.inTenantScope) {
+          return deny('Dealer can submit PartSentry review requests only for tenant vehicles');
+        }
+        return allow('Dealer may submit scoped PartSentry logs for admin review');
+      }
+      return deny('Dealer cannot approve tenant PartSentry facts in Phase 2B.1');
+    }
+
+    if (actor.role === 'government') {
+      return deny('Government cannot approve routine PartSentry public-card facts in Phase 2B.1');
+    }
+  }
+
   if (actor.role === 'admin') {
-    if ((normalizedAction === 'approve' || normalizedAction === 'revoke') && !context.reason) {
-      return deny('Admin approvals and revocations require a reason');
+    if (['approve', 'reject', 'revoke'].includes(normalizedAction) && !context.reason) {
+      return deny('Admin approvals, rejections, and revocations require a reason');
     }
     return allow('Admin may approve or revoke governed trust facts with audit reason');
   }
