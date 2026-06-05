@@ -22,7 +22,41 @@ test('mechanic cannot verify their own part records by default', () => {
     { submittedBy: 'u2' }
   );
   assert.equal(result.allowed, false);
-  assert.match(result.reason, /own part records/);
+  assert.match(result.reason, /Mechanic cannot|own part records/);
+});
+
+test('admin can approve and revoke public_card_eligible with reason', () => {
+  assert.equal(
+    canSetTrustFact({ id: 'u9', role: 'admin' }, 'public_card_eligible', 'approve').allowed,
+    false
+  );
+  assert.equal(
+    canSetTrustFact({ id: 'u9', role: 'admin' }, 'public_card_eligible', 'approve', { reason: 'Reviewed PartSentry log' }).allowed,
+    true
+  );
+  assert.equal(
+    canSetTrustFact({ id: 'u9', role: 'admin' }, 'public_card_eligible', 'revoke', { reason: 'Suspicion opened' }).allowed,
+    true
+  );
+});
+
+test('mechanic cannot approve verified_parts through PartSentry workflow', () => {
+  const result = canSetTrustFact(
+    { id: 'u2', role: 'mechanic' },
+    'verified_parts',
+    'approve',
+    { submittedBy: 'u3', reason: 'Try to verify part' }
+  );
+  assert.equal(result.allowed, false);
+  assert.match(result.reason, /Mechanic cannot/);
+});
+
+test('government cannot approve routine PartSentry facts in Phase 2B.1', () => {
+  for (const fact of ['public_card_eligible', 'verification_status', 'part_verification_status', 'suspicion_status']) {
+    const result = canSetTrustFact({ id: 'gov-1', role: 'government' }, fact, 'approve', { reason: 'Routine PartSentry review' });
+    assert.equal(result.allowed, false, `${fact} should be denied`);
+    assert.match(result.reason, /Government cannot approve routine PartSentry/);
+  }
 });
 
 test('government can approve plate ZIMRA and CID facts', () => {
@@ -52,6 +86,10 @@ test('system can refresh summaries but cannot create source facts', () => {
   );
   assert.equal(
     canSetTrustFact({ role: 'system' }, 'passport_verified', 'approve').allowed,
+    false
+  );
+  assert.equal(
+    canSetTrustFact({ role: 'system' }, 'public_card_eligible', 'approve').allowed,
     false
   );
 });

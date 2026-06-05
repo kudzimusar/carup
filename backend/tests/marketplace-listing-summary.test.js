@@ -50,6 +50,101 @@ test('requires explicit public PartSentry eligibility before showing card signal
   assert.equal(summary.recent_service, true);
 });
 
+test('suspicion_status flagged suppresses public PartSentry tags', () => {
+  const summary = summarizePartSentry([
+    {
+      action_type: 'Replaced',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      part_verification_status: 'verified',
+      suspicion_status: 'flagged',
+      public_card_eligible: true,
+    },
+  ]);
+
+  assert.equal(summary.partsentry_checked, false);
+  assert.equal(summary.verified_parts_count, 0);
+  assert.equal(summary.repair_history_count, 0);
+  assert.equal(summary.recent_service, false);
+});
+
+test('suspicion_status watch suppresses public PartSentry tags', () => {
+  const summary = summarizePartSentry([
+    {
+      action_type: 'Inspected',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      part_verification_status: 'verified',
+      suspicion_status: 'watch',
+      public_card_eligible: true,
+    },
+  ]);
+
+  assert.equal(summary.partsentry_checked, false);
+  assert.equal(summary.verified_parts_count, 0);
+  assert.equal(summary.repair_history_count, 0);
+  assert.equal(summary.recent_service, false);
+});
+
+test('public_card_eligible false suppresses all PartSentry public labels', () => {
+  const summary = summarizePartSentry([
+    {
+      action_type: 'Replaced',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      part_verification_status: 'verified',
+      suspicion_status: 'none',
+      public_card_eligible: false,
+    },
+  ]);
+
+  assert.deepEqual(summary, {
+    partsentry_checked: false,
+    repair_history_count: 0,
+    verified_parts_count: 0,
+    recent_service: false,
+  });
+});
+
+test('verified_parts appears only when public_card_eligible true and part_verification_status verified', () => {
+  const hidden = deriveMarketplaceTags(
+    { current_seller_type: 'Private Owner' },
+    { evidence_count: 0 },
+    { partsentry_checked: false, repair_history_count: 0, verified_parts_count: 0, recent_service: false },
+    0
+  );
+  assert.equal(hidden.includes('verified_parts'), false);
+
+  const visible = deriveMarketplaceTags(
+    { current_seller_type: 'Private Owner' },
+    { evidence_count: 0 },
+    { partsentry_checked: false, repair_history_count: 0, verified_parts_count: 1, recent_service: false },
+    0
+  );
+  assert.equal(visible.includes('verified_parts'), true);
+});
+
+test('repair history count uses only public-card-eligible records', () => {
+  const summary = summarizePartSentry([
+    {
+      action_type: 'Repaired',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      public_card_eligible: true,
+      suspicion_status: 'none',
+    },
+    {
+      action_type: 'Replaced',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      public_card_eligible: false,
+      suspicion_status: 'none',
+    },
+  ]);
+
+  assert.equal(summary.repair_history_count, 1);
+});
+
 test('builds a public-safe listing summary without owner PII or fake passport claims', () => {
   const summary = buildMarketplaceListingSummary({
     vehicle: {
