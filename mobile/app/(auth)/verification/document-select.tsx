@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
+import { useVerificationStore } from '../../../store/verificationStore';
 
 interface DocumentOption {
   id: string;
@@ -49,42 +50,49 @@ const SUPPORTED_DOCUMENTS: DocumentOption[] = [
 ];
 
 export default function DocumentSelect() {
-  const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const handleSelect = (doc: DocumentOption) => {
+  const handleSelect = useCallback((doc: DocumentOption) => {
     setSelectedId(doc.id);
-    // Move to front document capture screen, passing selection as query params
+    useVerificationStore.getState().clear();
     router.push({
       pathname: '/(auth)/verification/capture-front',
       params: { docType: doc.id, doubleSided: doc.doubleSided ? 'true' : 'false' }
     });
-  };
+  }, []);
+
+  const handleBack = useCallback(() => {
+    useVerificationStore.getState().clear();
+    router.back();
+  }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
         
-        <View className="mt-8">
-          <View className="flex-row items-center justify-between mb-8">
+        <View style={{ marginTop: 32 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
             <TouchableOpacity 
-              onPress={() => router.back()}
-              className="w-10 h-10 bg-[#161C2C] border border-[#2B3552] rounded-xl items-center justify-center"
+              onPress={handleBack}
+              style={{
+                width: 40, height: 40,
+                backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
+                borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+              }}
             >
-              <Text className="text-white text-lg">←</Text>
+              <Text style={{ color: '#fff', fontSize: 18 }}>←</Text>
             </TouchableOpacity>
-            <Text className="text-slate-500 font-semibold text-xs tracking-widest uppercase">Step 2 of 9</Text>
+            <Text style={{ color: '#64748b', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' }}>Step 2 of 9</Text>
           </View>
 
-          <Text className="text-white text-3xl font-extrabold tracking-tight mb-3">
+          <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 }}>
             Select Document
           </Text>
-          <Text className="text-slate-400 text-sm leading-relaxed mb-8">
+          <Text style={{ color: '#94a3b8', fontSize: 14, lineHeight: 20, marginBottom: 32 }}>
             Please choose the primary document you will capture. The document must be valid and clearly show your legal details and photo.
           </Text>
 
-          {/* Document list */}
-          <View className="space-y-4">
+          <View style={{ gap: 16 }}>
             {SUPPORTED_DOCUMENTS.map((doc) => {
               const isSelected = selectedId === doc.id;
               return (
@@ -92,28 +100,33 @@ export default function DocumentSelect() {
                   key={doc.id}
                   onPress={() => handleSelect(doc)}
                   activeOpacity={0.85}
-                  className={`flex-row items-center p-5 rounded-2xl border transition-all ${
-                    isSelected
-                      ? 'bg-blue-600/10 border-blue-500'
-                      : 'bg-[#161C2C]/65 border-[#2B3552]/40 active:border-slate-700'
-                  }`}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', padding: 20, borderRadius: 16, borderWidth: 1,
+                    backgroundColor: isSelected ? 'rgba(37,99,235,0.1)' : 'rgba(22,28,44,0.65)',
+                    borderColor: isSelected ? '#3b82f6' : 'rgba(43,53,82,0.4)',
+                  }}
                 >
-                  <View className="w-12 h-12 bg-slate-800/80 rounded-xl items-center justify-center mr-4 border border-slate-700/50">
-                    <Text className="text-2xl">{doc.icon}</Text>
+                  <View style={{
+                    width: 48, height: 48,
+                    backgroundColor: 'rgba(30,41,59,0.8)', borderRadius: 12,
+                    alignItems: 'center', justifyContent: 'center', marginRight: 16,
+                    borderWidth: 1, borderColor: 'rgba(51,65,85,0.5)',
+                  }}>
+                    <Text style={{ fontSize: 22 }}>{doc.icon}</Text>
                   </View>
-                  <View className="flex-1">
-                    <Text className="text-white font-semibold text-base mb-1">{doc.title}</Text>
-                    <Text className="text-slate-400 text-xs">{doc.description}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16, marginBottom: 4 }}>{doc.title}</Text>
+                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>{doc.description}</Text>
                   </View>
-                  <Text className="text-slate-500 text-lg font-bold">➔</Text>
+                  <Text style={{ color: '#64748b', fontSize: 18, fontWeight: 'bold' }}>➔</Text>
                 </TouchableOpacity>
               );
             })}
           </View>
         </View>
 
-        <View className="mt-8 pt-4 items-center">
-          <Text className="text-xs text-slate-500 text-center leading-relaxed">
+        <View style={{ marginTop: 32, paddingTop: 16, alignItems: 'center' }}>
+          <Text style={{ fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 16 }}>
             By continuing, you agree to allow our secure backend systems to run automated OCR extraction on the captured image.
           </Text>
         </View>
