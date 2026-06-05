@@ -1,0 +1,211 @@
+import { OcrResult, VerificationOutcomeStatus } from '../store/verificationStore';
+
+export interface VerificationSession {
+  id: string;
+  document_type: string;
+  double_sided: boolean;
+  status: 'draft' | 'captured' | 'uploaded' | 'ocr_pending' | 'ocr_failed' | 'pending_manual_review' | 'verified' | 'rejected';
+  uploaded_sides: {
+    front: boolean;
+    back: boolean;
+    selfie: boolean;
+  };
+  ocr_document_id: string | null;
+  ocr_result: OcrResult | null;
+  confidence_score: number | null;
+  failure_reason: string | null;
+  review_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  submitted_at: string | null;
+  ocr_completed_at: string | null;
+}
+
+export interface VerificationFlowInput {
+  docType: string;
+  doubleSided: boolean;
+  capturedFront: string;
+  capturedBack?: string | null;
+  capturedSelfie: string;
+}
+
+export interface VerificationOutcome {
+  status: VerificationOutcomeStatus;
+  sessionId: string | null;
+  ocrResult: OcrResult | null;
+  processingError: string | null;
+}
+
+export class VerificationApiError extends Error {
+  statusCode: number | null;
+
+  constructor(message: string, statusCode: number | null = null) {
+    super(message);
+    this.name = 'VerificationApiError';
+    this.statusCode = statusCode;
+  }
+}
+
+export class VerificationApiConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VerificationApiConfigurationError';
+  }
+}
+
+export function getVerificationApiBaseUrl(
+  env: Record<string, string | undefined> = process.env,
+  platformOS: string = typeof navigator !== 'undefined' && navigator.product === 'ReactNative' ? 'native' : 'web'
+) {
+  const baseUrl = env.EXPO_PUBLIC_API_URL?.trim();
+  if (!baseUrl) {
+    throw new VerificationApiConfigurationError('EXPO_PUBLIC_API_URL is required for backend verification.');
+  }
+
+  const normalized = baseUrl.replace(/\/+$/, '');
+  const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalized);
+  if (isLocalhost && platformOS !== 'web' && env.EXPO_PUBLIC_ALLOW_LOCALHOST_API !== 'true') {
+    throw new VerificationApiConfigurationError('Physical devices cannot reach localhost. Set EXPO_PUBLIC_API_URL to your LAN, ngrok, or deployed backend URL.');
+  }
+
+  return normalized;
+}
+
+async function authHeaders() {
+  const { useAuthStore } = await import('../store/authStore');
+  const { token, user } = useAuthStore.getState();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (token) {
+    headers['x-session-token'] = token;
+  }
+
+  if (user?.role) {
+    headers['x-stakeholder-role'] = user.role;
+  }
+
+  if (!token && user?.id && process.env.EXPO_PUBLIC_ALLOW_DEV_USER_FALLBACK === 'true') {
+    headers['x-user-id'] = user.id;
+  }
+
+  return headers;
+}
+
+async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const baseUrl = getVerificationApiBaseUrl();
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      ...(await authHeaders()),
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    let message = `Verification API returned HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      message = body?.error?.message || body?.error || message;
+    } catch {
+      // Keep the status-based message when the response body is not JSON.
+    }
+    throw new VerificationApiError(message, response.status);
+  }
+
+  return response.json();
+}
+
+export async function createVerificationSession(docType: string, doubleSided: boolean) {
+  const body = JSON.stringify({
+    documentType: docType,
+    doubleSided,
+  });
+  const response = await requestJson<{ success: boolean; session: VerificationSession }>('/api/identity/verification-sessions', {
+    method: 'POST',
+    body,
+  });
+  return response.session;
+}
+
+export async function uploadVerificationImage(sessionId: string, side: 'front' | 'back' | 'selfie', image: string) {
+  const response = await requestJson<{ success: boolean; session: VerificationSession }>(
+    `/api/identity/verification-sessions/${sessionId}/upload/${side}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ image }),
+    }
+  );
+  return response.session;
+}
+
+export async function submitVerificationSession(sessionId: string) {
+  const response = await requestJson<{ success: boolean; session: VerificationSession }>(
+    `/api/identity/verification-sessions/${sessionId}/submit`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }
+  );
+  return response.session;
+}
+
+export function mapSessionToVerificationOutcome(session: VerificationSession): VerificationOutcome {
+  if (session.status === 'verified') {
+    return {
+      status: 'verified',
+      sessionId: session.id,
+      ocrResult: session.ocr_result,
+      processingError: null,
+    };
+  }
+
+  if (session.status === 'ocr_failed') {
+    return {
+      status: 'ocr_failed',
+      sessionId: session.id,
+      ocrResult: session.ocr_result,
+      processingError: session.failure_reason || 'OCR could not complete. A reviewer may need to inspect the capture.',
+    };
+  }
+
+  if (session.status === 'pending_manual_review') {
+    return {
+      status: 'needs_review',
+      sessionId: session.id,
+      ocrResult: session.ocr_result,
+      processingError: session.review_notes || session.failure_reason || 'Verification needs manual review before it can be marked verified.',
+    };
+  }
+
+  if (session.status === 'rejected') {
+    return {
+      status: 'rejected',
+      sessionId: session.id,
+      ocrResult: session.ocr_result,
+      processingError: session.review_notes || session.failure_reason || 'Verification was rejected.',
+    };
+  }
+
+  return {
+    status: 'needs_review',
+    sessionId: session.id,
+    ocrResult: session.ocr_result,
+    processingError: 'Verification was captured and is still being processed.',
+  };
+}
+
+export async function runVerificationSessionFlow(input: VerificationFlowInput): Promise<VerificationOutcome> {
+  const session = await createVerificationSession(input.docType, input.doubleSided);
+  let latest = await uploadVerificationImage(session.id, 'front', input.capturedFront);
+
+  if (input.doubleSided && input.capturedBack) {
+    latest = await uploadVerificationImage(session.id, 'back', input.capturedBack);
+  }
+
+  latest = await uploadVerificationImage(session.id, 'selfie', input.capturedSelfie);
+  latest = await submitVerificationSession(latest.id);
+
+  return mapSessionToVerificationOutcome(latest);
+}

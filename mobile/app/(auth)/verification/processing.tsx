@@ -3,8 +3,11 @@ import { View, Text, ActivityIndicator, TouchableOpacity, InteractionManager, St
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useVerificationStore } from '../../../store/verificationStore';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5001';
+import {
+  runVerificationSessionFlow,
+  VerificationApiConfigurationError,
+  VerificationApiError,
+} from '../../../utils/verificationApi';
 
 export default function VerificationProcessing() {
   const params = useLocalSearchParams<{
@@ -17,6 +20,7 @@ export default function VerificationProcessing() {
   const capturedSelfie = useVerificationStore(state => state.capturedSelfie);
   const setOcrResult = useVerificationStore(state => state.setOcrResult);
   const setProcessingError = useVerificationStore(state => state.setProcessingError);
+  const setVerificationOutcome = useVerificationStore(state => state.setVerificationOutcome);
   const clearVerificationStore = useVerificationStore(state => state.clear);
   const hasRequiredImages = useVerificationStore(state => state.hasRequiredImages);
 
@@ -61,6 +65,7 @@ export default function VerificationProcessing() {
       const errorMsg = `Missing required images: ${missing.join(', ')}. Please retake photos.`;
       setValidationError(errorMsg);
       setProcessingError(errorMsg);
+      setVerificationOutcome('incomplete', null, errorMsg);
       return;
     }
     addLog('All required images validated.');
@@ -105,90 +110,69 @@ export default function VerificationProcessing() {
     abortControllerRef.current = controller;
 
     try {
-      const frontPayload = capturedFront;
-
-      if (!frontPayload) {
-        addLog('No capture data available. Using graceful fallback.');
-        navigateToResult(null);
+      if (!capturedFront || !capturedSelfie) {
+        const errorMsg = 'Missing capture data. Please retake photos.';
+        setVerificationOutcome('incomplete', null, errorMsg);
+        navigateToResult();
         return;
       }
 
-      addLog('Streaming front document to /api/ai/ocr...');
-
-      const response = await fetch(`${API_BASE_URL}/api/ai/ocr`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          docType: params.docType || 'national_id',
-          base64Data: frontPayload,
-        }),
-        signal: controller.signal,
+      addLog('Creating backend verification session...');
+      const outcome = await runVerificationSessionFlow({
+        docType: params.docType || 'national_id',
+        doubleSided: params.doubleSided === 'true',
+        capturedFront,
+        capturedBack,
+        capturedSelfie,
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        addLog('OCR extraction complete. Identity fields parsed successfully.');
-
-        if (capturedBack) {
-          addLog('Streaming back document for supplementary parsing...');
-
-          const backResponse = await fetch(`${API_BASE_URL}/api/ai/ocr`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              docType: `${params.docType}_back`,
-              base64Data: capturedBack,
-            }),
-            signal: controller.signal,
-          });
-
-          if (backResponse.ok) {
-            const backResult = await backResponse.json();
-            addLog('Back document parsed. Merging with front extraction...');
-            const mergedData = {
-              ...result.extractedData,
-              ...(backResult.extractedData || {}),
-            };
-            navigateToResult(mergedData);
-            return;
-          }
-        }
-
-        navigateToResult(result.extractedData || null);
-      } else {
-        const errorText = await response.text();
-        addLog(`OCR service returned ${response.status}. Using graceful fallback.`);
-        console.warn('[Processing] OCR API error:', response.status, errorText);
-        setProcessingError(`OCR service error: HTTP ${response.status}`);
-        navigateToResult(null);
+      setVerificationOutcome(outcome.status, outcome.sessionId, outcome.processingError);
+      setProcessingError(outcome.processingError);
+      if (outcome.ocrResult) {
+        setOcrResult(outcome.ocrResult);
       }
+
+      if (outcome.status === 'verified') {
+        addLog('Backend OCR verified the identity session.');
+      } else {
+        addLog('Backend captured the verification for review.');
+      }
+      navigateToResult();
     } catch (err: any) {
       if (err.name === 'AbortError') {
         addLog('OCR request was cancelled.');
         return;
       }
 
-      addLog('Network error. Queueing for offline retry...');
+      addLog('Backend verification path unavailable. Captures will need review.');
       console.warn('[Processing] OCR network error:', err.message);
-      setProcessingError('Backend unreachable. Using offline verification.');
+      const isBackendConnectivity =
+        err instanceof VerificationApiConfigurationError ||
+        err.name === 'TypeError' ||
+        err.message?.includes('Network request failed') ||
+        err.message?.includes('fetch');
+      const message = isBackendConnectivity
+        ? 'Backend unreachable. Verification captured on device but not marked verified.'
+        : err instanceof VerificationApiError
+          ? err.message
+          : 'Verification could not complete. Manual review is required.';
+
+      setProcessingError(message);
+      setVerificationOutcome(isBackendConnectivity ? 'backend_pending' : 'ocr_failed', null, message);
 
       if (mountedRef.current) setOfflineRetry(true);
       setTimeout(() => {
         if (!mountedRef.current) return;
         setOfflineRetry(false);
-        addLog('Proceeding with offline verification token.');
-        navigateToResult(null);
+        addLog('Proceeding to truthful verification status.');
+        navigateToResult();
       }, 3000);
     }
   };
 
-  const navigateToResult = (extractedData: Record<string, string> | null) => {
+  const navigateToResult = () => {
     if (!mountedRef.current) return;
     addLog('Verification pipeline complete. Redirecting...');
-
-    if (extractedData) {
-      setOcrResult(extractedData);
-    }
 
     InteractionManager.runAfterInteractions(() => {
       if (!mountedRef.current) return;
