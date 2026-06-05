@@ -9,7 +9,7 @@ jobs:
 
     env:
       RUN_DIASPORA_SUPABASE_INTEGRATION: "true"
-      APPLY_DIASPORA_MIGRATION: "true"
+      APPLY_DIASPORA_MIGRATION: "false"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -33,6 +33,12 @@ jobs:
           node -e "console.log('SUPABASE_DB_URL present:', !!process.env.SUPABASE_DB_URL)"
           node -e "fetch(process.env.SUPABASE_URL + '/rest/v1/', { headers: { apikey: process.env.SUPABASE_SERVICE_ROLE_KEY, Authorization: 'Bearer ' + process.env.SUPABASE_SERVICE_ROLE_KEY } }).then(r=>console.log('REST status:', r.status)).catch(e=>{console.error(e); process.exit(1)})"
 
+      - name: Apply Diaspora RLS recursion fix
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/014_diaspora_rls_recursion_fix.sq
+      
       - name: Run Diaspora Supabase integration test
         run: node --test backend/tests/diaspora-supabase-integration.test.js
 
