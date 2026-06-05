@@ -125,7 +125,7 @@ test('live Supabase RLS scopes Diaspora orders/documents/audit access', { skip: 
   const unassignedSellerId = randomUUID();
   const tenantAdminId = randomUUID();
   const platformAdminId = randomUUID();
-  
+
   try {
     await client.query(
       `INSERT INTO users (id, name, email, role, is_verified, join_date)
@@ -136,13 +136,14 @@ test('live Supabase RLS scopes Diaspora orders/documents/audit access', { skip: 
          ($7, 'RLS Tenant Admin', $8, 'admin', true, CURRENT_DATE::text),
          ($9, 'RLS Platform Admin', $10, 'admin', true, CURRENT_DATE::text)
        ON CONFLICT (id) DO NOTHING`,
-     [
-  buyerId, `rls_buyer_${suffix}@example.test`,
-  sellerId, `rls_seller_${suffix}@example.test`,
-  unassignedSellerId, `rls_unassigned_${suffix}@example.test`,
-  tenantAdminId, `rls_tenant_admin_${suffix}@example.test`,
-  platformAdminId, `rls_platform_admin_${suffix}@example.test`,
+      [
+        buyerId, `rls_buyer_${suffix}@example.test`,
+        sellerId, `rls_seller_${suffix}@example.test`,
+        unassignedSellerId, `rls_unassigned_${suffix}@example.test`,
+        tenantAdminId, `rls_tenant_admin_${suffix}@example.test`,
+        platformAdminId, `rls_platform_admin_${suffix}@example.test`,
       ],
+    );
     await client.query('INSERT INTO tenants (id, name, type) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [tenantId, `Diaspora RLS ${suffix}`, 'trade']);
     await client.query('INSERT INTO tenant_users (tenant_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [tenantId, tenantAdminId, 'admin']);
     await client.query(
