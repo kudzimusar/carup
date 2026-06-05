@@ -9,7 +9,7 @@
  * - No mock scanners
  * - No plaintext credential storage  
  * - Compression targets: raw 8MB → compressed <500KB
- * - Base64 output compatible with backend /api/ai/ocr and /api/media/upload/document contracts
+ * - Base64 output compatible with backend verification-session upload contracts
  */
 
 import * as ImagePicker from 'expo-image-picker';

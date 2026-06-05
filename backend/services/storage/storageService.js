@@ -126,4 +126,25 @@ export async function generateSecureReadUrl(bucketName, storagePath, expiresInSe
   return data.signedUrl;
 }
 
+/**
+ * Download a private storage asset for server-side processing only.
+ * The returned bytes must not be relayed directly to public clients.
+ */
+export async function downloadFromStorage(bucketName, storagePath) {
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .download(storagePath);
+
+  if (error) {
+    console.error('❌ [Storage Service] Failed to download private object:', error.message);
+    throw new Error(`Storage download failed: ${error.message}`);
+  }
+
+  const arrayBuffer = await data.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    mimeType: data.type || 'application/octet-stream',
+  };
+}
+
 console.log('✅ Enterprise Object Storage Service loaded.');
