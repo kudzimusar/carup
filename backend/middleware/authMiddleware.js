@@ -114,7 +114,8 @@ export function authorizeRole(allowedRoles = []) {
       
       next();
     } catch (error) {
-      res.status(500).json({ error: 'Internal auth validation failed: ' + error.message });
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({ error: error.message });
     }
   };
 }

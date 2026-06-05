@@ -200,7 +200,7 @@ export default function GarageScreen() {
           <Pressable
             onPress={() => handleOdometerScan(item.vin)}
             disabled={scanningVin === item.vin}
-            className={`flex-1 rounded-xl h-11 items-center justify-center border active:opacity-90 ${
+            className={`flex-1 rounded-xl min-h-[44px] items-center justify-center border active:opacity-90 ${
               scanningVin === item.vin ? 'bg-amber-600 border-amber-700' : 'bg-slate-950 border-slate-900'
             }`}
             style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
@@ -211,13 +211,13 @@ export default function GarageScreen() {
                 <Text className="text-white text-xs font-semibold">Scanning...</Text>
               </View>
             ) : (
-              <Text className="text-white text-xs font-semibold">Odometer Scan</Text>
+              <Text className="text-white text-xs font-semibold">Scan Odometer</Text>
             )}
           </Pressable>
           
           <Pressable
             onPress={() => router.push(`/vehicle/${item.vin}`)}
-            className="flex-1 bg-slate-50 rounded-xl h-11 items-center justify-center border border-slate-100 active:opacity-90"
+            className="flex-1 bg-slate-50 rounded-xl min-h-[44px] items-center justify-center border border-slate-100 active:opacity-90"
             style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
           >
             <Text className="text-slate-700 text-xs font-semibold">Trust Passport</Text>
@@ -266,13 +266,13 @@ export default function GarageScreen() {
       <View className="bg-slate-900 px-6 pt-4 pb-2 border-b border-slate-800 flex-row">
         <Pressable
           onPress={() => setActiveTab('vehicles')}
-          className={`pb-3 mr-6 border-b-2 ${activeTab === 'vehicles' ? 'border-orange-500' : 'border-transparent'}`}
+          className={`pb-3 mr-6 border-b-2 min-h-[44px] justify-center ${activeTab === 'vehicles' ? 'border-orange-500' : 'border-transparent'}`}
         >
           <Text className={`text-sm font-bold ${activeTab === 'vehicles' ? 'text-white' : 'text-slate-400'}`}>My Fleet</Text>
         </Pressable>
         <Pressable
           onPress={() => setActiveTab('history')}
-          className={`pb-3 border-b-2 ${activeTab === 'history' ? 'border-orange-500' : 'border-transparent'}`}
+          className={`pb-3 border-b-2 min-h-[44px] justify-center ${activeTab === 'history' ? 'border-orange-500' : 'border-transparent'}`}
         >
           <Text className={`text-sm font-bold ${activeTab === 'history' ? 'text-white' : 'text-slate-400'}`}>Maintenance Logs</Text>
         </Pressable>
@@ -285,9 +285,13 @@ export default function GarageScreen() {
         </View>
       ) : hasError ? (
         <View className="flex-1 justify-center items-center px-6">
-          <Text className="text-red-500 text-sm font-semibold text-center mb-4">Error fetching data for stakeholder garage</Text>
-          <Pressable onPress={handleRefresh} className="bg-slate-900 px-6 py-3 rounded-xl">
-            <Text className="text-white text-xs font-semibold">Retry Fetch</Text>
+          <View className="bg-red-50 p-4 rounded-full mb-4">
+            <Text className="text-red-500 text-3xl">⚠️</Text>
+          </View>
+          <Text className="text-slate-800 text-lg font-bold text-center mb-2">Unable to load data</Text>
+          <Text className="text-slate-500 text-sm text-center mb-8">We could not reach the server. Please check your connection and try again.</Text>
+          <Pressable onPress={handleRefresh} className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl active:opacity-90">
+            <Text className="text-white text-sm font-semibold">Retry Fetch</Text>
           </Pressable>
         </View>
       ) : activeTab === 'vehicles' && vehicles.length === 0 ? (

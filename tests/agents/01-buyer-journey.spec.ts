@@ -58,7 +58,7 @@ test.describe('Agent 1 - Buyer Journey Validation', () => {
     await page.goto('/marketplace');
     // Hard assertion that the title and search input are visible
     await expect(page.getByRole('heading', { name: /Vehicle Marketplace/i })).toBeVisible();
-    const searchInput = page.getByPlaceholder(/search make, model, or location/i);
+    const searchInput = page.getByPlaceholder(/search make, model, location/i);
     await expect(searchInput).toBeVisible();
     await searchInput.fill('Toyota Hilux');
   });

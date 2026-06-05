@@ -11,6 +11,7 @@ const STATUS_ALIASES = new Map([
   ['pending', 'Pending'],
   ['banned', 'Banned'],
   ['flagged', 'Flagged'],
+  ['suspended', 'Suspended'],
 ]);
 
 export function normalizeVehicleStatus(status) {
@@ -26,3 +27,14 @@ export function publicVehicleStatusFilterValues() {
 export function isPublicVehicleStatus(status) {
   return PUBLIC_VEHICLE_STATUSES.includes(status) || ['Available', 'Reserved'].includes(normalizeVehicleStatus(status));
 }
+
+export function isVehicleQuarantinedStatus(status) {
+  const norm = normalizeVehicleStatus(status);
+  return norm === 'Suspended' || norm === 'Banned' || norm === 'Flagged';
+}
+
+export function isVehicleRestoredToMarketplaceStatus(status) {
+  const norm = normalizeVehicleStatus(status);
+  return norm === 'Available';
+}
+

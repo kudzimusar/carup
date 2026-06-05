@@ -2,6 +2,8 @@ import { askGemini } from '../ai/GeminiClient.js';
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
 import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.js';
+import { logger } from '../../utils/logger.js';
+import { metricsHub } from '../metrics.js';
 
 export class DocumentIntelligenceService {
   /**
@@ -31,6 +33,9 @@ export class DocumentIntelligenceService {
    * Runs OCR extraction and Zimbabwe document parsing
    */
   static async extractDocumentData(docType, base64Data, userId = 'u1') {
+    const startTime = Date.now();
+    logger.info('OCR_SERVICE', `OCR extraction started for type: ${docType} by user: ${userId}`);
+
     // Emit internal DOCUMENT_OCR_STARTED event
     dispatchAutomationWebhook('DOCUMENT_OCR_STARTED', { docType, userId });
 
@@ -63,6 +68,7 @@ export class DocumentIntelligenceService {
       const response = await askGemini(systemPrompt, userPrompt, true);
       const parsedData = JSON.parse(response);
       const confidence = parsedData.confidenceScore || 0.9;
+      const elapsedMs = Date.now() - startTime;
       
       // Emit internal DOCUMENT_OCR_EXTRACTED event
       dispatchAutomationWebhook('DOCUMENT_OCR_EXTRACTED', { docType, userId, confidence });
@@ -89,6 +95,23 @@ export class DocumentIntelligenceService {
         // Emit internal DOCUMENT_OCR_LOW_CONFIDENCE event
         dispatchAutomationWebhook('DOCUMENT_OCR_LOW_CONFIDENCE', { docType, userId, confidence });
       }
+
+      // Record telemetry metrics
+      metricsHub.recordOcrRequest(
+        'gemini',
+        true,
+        elapsedMs,
+        confidence,
+        status === 'Poor_Image_Quality',
+        status === 'Suspected_Tampering'
+      );
+
+      logger.info('OCR_SUCCESS', `OCR extraction succeeded in ${elapsedMs}ms. Status resolved to ${status}`, {
+        docType,
+        confidence,
+        status,
+        qualityIssues
+      });
 
       if (status !== 'Pending_Verification') {
         // Emit internal DOCUMENT_FLAGGED_FOR_REVIEW event
@@ -160,7 +183,7 @@ export class DocumentIntelligenceService {
         ocrDocumentId: id
       };
     } catch (error) {
-      console.error('Failed to run AI OCR Parsing:', error);
+      const elapsedMs = Date.now() - startTime;
       
       const id = 'ocr_err_' + crypto.randomUUID().replace(/-/g, '').substring(0, 10);
       const qualityIssues = [];
@@ -184,6 +207,24 @@ export class DocumentIntelligenceService {
       } else {
         status = 'Pending_Manual_Review';
       }
+
+      logger.error('OCR_FAILURE', `Failed to run AI OCR Parsing: ${error.message}`, {
+        docType,
+        userId,
+        status,
+        qualityIssues,
+        durationMs: elapsedMs,
+        error
+      });
+
+      metricsHub.recordOcrRequest(
+        'gemini',
+        false,
+        elapsedMs,
+        0.0,
+        status === 'Poor_Image_Quality',
+        status === 'Suspected_Tampering'
+      );
 
       // Emit internal DOCUMENT_FLAGGED_FOR_REVIEW event
       dispatchAutomationWebhook('DOCUMENT_FLAGGED_FOR_REVIEW', { docType, userId, qualityIssues, error: error.message });

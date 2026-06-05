@@ -1,8 +1,10 @@
-import crypto from 'crypto';
 import { CarUpError } from '../utils/errors.js';
+import { logger } from '../utils/logger.js';
+import { Sentry } from '../services/ai/sentry.js';
+import { metricsHub } from '../services/metrics.js';
 
 export default function errorHandler(err, req, res, next) {
-  const requestId = `req-${crypto.randomUUID()}`;
+  const correlationId = req.correlationId || 'no-correlation-context';
   const timestamp = new Date().toISOString();
   
   let statusCode = 500;
@@ -21,15 +23,26 @@ export default function errorHandler(err, req, res, next) {
     details = String(err);
   }
 
-  // Log error with request ID for backend auditing
-  console.error(`[${requestId}] Error Handled:`, {
+  // Update telemetry metrics for API errors
+  metricsHub.recordApiTransaction(req.route ? req.route.path : req.path, 0, false);
+
+  // Capture error in Sentry
+  Sentry.captureException(err, {
     path: req.path,
     method: req.method,
     statusCode,
     code,
-    message,
-    details: process.env.NODE_ENV !== 'production' ? details : undefined,
-    stack: err instanceof Error ? err.stack : undefined
+    correlationId
+  });
+
+  // Log error using structured logger
+  logger.error('API_ERROR', `Error handler caught: ${message}`, {
+    path: req.path,
+    method: req.method,
+    statusCode,
+    code,
+    details,
+    error: err instanceof Error ? err : undefined
   });
 
   // Construct standard error payload
@@ -39,7 +52,7 @@ export default function errorHandler(err, req, res, next) {
       code,
       message,
       timestamp,
-      requestId
+      requestId: correlationId
     }
   };
 
@@ -50,3 +63,4 @@ export default function errorHandler(err, req, res, next) {
 
   res.status(statusCode).json(errorResponse);
 }
+
