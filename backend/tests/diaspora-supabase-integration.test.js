@@ -120,12 +120,12 @@ test('live Supabase RLS scopes Diaspora orders/documents/audit access', { skip: 
   const orderId = randomUUID();
   const documentId = randomUUID();
   const auditId = randomUUID();
-  const buyerId = `rls_buyer_${suffix}`;
-  const sellerId = `rls_seller_${suffix}`;
-  const unassignedSellerId = `rls_unassigned_${suffix}`;
-  const tenantAdminId = `rls_tenant_admin_${suffix}`;
-  const platformAdminId = `rls_platform_admin_${suffix}`;
-
+  const buyerId = randomUUID();
+  const sellerId = randomUUID();
+  const unassignedSellerId = randomUUID();
+  const tenantAdminId = randomUUID();
+  const platformAdminId = randomUUID();
+  
   try {
     await client.query(
       `INSERT INTO users (id, name, email, role, is_verified, join_date)
