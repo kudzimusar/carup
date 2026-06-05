@@ -37,7 +37,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/014_diaspora_rls_recursion_fix.sq
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/014_diaspora_rls_recursion_fix.sql
       
       - name: Run Diaspora Supabase integration test
         run: node --test backend/tests/diaspora-supabase-integration.test.js
