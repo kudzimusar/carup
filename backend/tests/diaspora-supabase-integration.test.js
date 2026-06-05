@@ -193,8 +193,8 @@ test('live Supabase RLS scopes Diaspora orders/documents/audit access', { skip: 
     await assert.rejects(
       () => withAuth(client, null, () => client.query(
         `INSERT INTO diaspora_import_audit_log (tenant_id, import_order_id, actor_id, action, resource_type, resource_id, cryptographic_seal)
-         VALUES ($1, $2, NULL, 'PUBLIC_WRITE', 'diaspora_import_order', $2, 'public-write')`,
-        [tenantId, orderId],
+         VALUES ($1, $2::uuid, NULL, 'PUBLIC_WRITE', 'diaspora_import_order', $3::text, 'public-write')`,
+        [tenantId, orderId, orderId],
       ), { role: 'anon' }),
       /permission denied|violates row-level security|not permitted/i,
     );
