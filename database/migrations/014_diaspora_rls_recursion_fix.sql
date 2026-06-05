@@ -1,8 +1,7 @@
 -- +migrate Up
 -- Fix recursive Diaspora RLS policy checks by moving order access checks into
--- SECURITY DEFINER helpers. The live validation runs after 013 and applies this
--- narrow policy replacement to keep direct Supabase access scoped without
--- causing policy recursion between orders and participants/documents.
+-- SECURITY DEFINER helpers. This file is safe to execute directly with psql;
+-- there is intentionally no executable down block at the end.
 
 CREATE OR REPLACE FUNCTION diaspora_can_access_order(target_order_id UUID, target_user_id TEXT)
 RETURNS BOOLEAN
@@ -150,4 +149,6 @@ CREATE POLICY "vehicle_government_documents_access" ON vehicle_government_docume
 );
 
 -- +migrate Down
-DROP FUNCTION IF EXISTS diaspora_can_access_order(UUID, TEXT);
+-- No direct down migration is embedded because this file is executed with psql
+-- in CI. A down operation must first drop all dependent policies before dropping
+-- diaspora_can_access_order(UUID, TEXT).
