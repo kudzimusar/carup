@@ -16,6 +16,8 @@ jobs:
         env:
           RUN_DIASPORA_SUPABASE_INTEGRATION: "true"
           APPLY_DIASPORA_MIGRATION: "true"
+          ALLOW_OCR_MOCK: "true"
+          OCR_MODE: "loose"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
