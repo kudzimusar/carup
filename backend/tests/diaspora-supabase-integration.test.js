@@ -136,8 +136,13 @@ test('live Supabase RLS scopes Diaspora orders/documents/audit access', { skip: 
          ($7, 'RLS Tenant Admin', $8, 'admin', true, CURRENT_DATE::text),
          ($9, 'RLS Platform Admin', $10, 'admin', true, CURRENT_DATE::text)
        ON CONFLICT (id) DO NOTHING`,
-      [buyerId, `${buyerId}@example.test`, sellerId, `${sellerId}@example.test`, unassignedSellerId, `${unassignedSellerId}@example.test`, tenantAdminId, `${tenantAdminId}@example.test`, platformAdminId, `${platformAdminId}@example.test`],
-    );
+     [
+  buyerId, `rls_buyer_${suffix}@example.test`,
+  sellerId, `rls_seller_${suffix}@example.test`,
+  unassignedSellerId, `rls_unassigned_${suffix}@example.test`,
+  tenantAdminId, `rls_tenant_admin_${suffix}@example.test`,
+  platformAdminId, `rls_platform_admin_${suffix}@example.test`,
+      ],
     await client.query('INSERT INTO tenants (id, name, type) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [tenantId, `Diaspora RLS ${suffix}`, 'trade']);
     await client.query('INSERT INTO tenant_users (tenant_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [tenantId, tenantAdminId, 'admin']);
     await client.query(
