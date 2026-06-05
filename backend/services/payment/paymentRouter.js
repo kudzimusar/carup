@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
+import { logAuditEvent } from '../auditLogger.js';
 
 const router = express.Router();
 
@@ -13,9 +14,9 @@ const GATEWAY_SECRETS = {
 };
 
 /**
- * Verification Utility for Digital Signatures (HMAC SHA-256)
+ * Verification Utility for Digital Signatures (HMAC SHA-256) with Anti-Replay Timestamp
  */
-function verifySignature(gateway, payloadString, signatureHeader) {
+function verifySignature(gateway, payloadString, signatureHeader, timestampHeader) {
   if (!signatureHeader) return false;
   
   // Developer bypass bypasses local verification in test environments
@@ -26,14 +27,29 @@ function verifySignature(gateway, payloadString, signatureHeader) {
   const secret = GATEWAY_SECRETS[gateway];
   if (!secret) return false;
 
+  // Anti-replay verification: Validate timestamp drift (5 minutes maximum)
+  if (!timestampHeader) {
+    console.warn(`🛡️ [Payment Webhook] Anti-replay block: missing timestamp header.`);
+    return false;
+  }
+  const drift = Math.abs(Date.now() - Number(timestampHeader));
+  if (isNaN(drift) || drift > 300000) { // 5 minutes in milliseconds
+    console.warn(`🛡️ [Payment Webhook] Anti-replay block: timestamp drift of ${drift}ms exceeded limit.`);
+    return false;
+  }
+
   const hmac = crypto.createHmac('sha256', secret);
-  hmac.update(payloadString);
+  hmac.update(`${timestampHeader}.${payloadString}`);
   const expectedSignature = hmac.digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signatureHeader, 'hex'),
-    Buffer.from(expectedSignature, 'hex')
-  );
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signatureHeader, 'hex'),
+      Buffer.from(expectedSignature, 'hex')
+    );
+  } catch (err) {
+    return false;
+  }
 }
 
 /**
@@ -60,15 +76,25 @@ router.get('/rates', async (req, res) => {
 router.post('/webhook/:gateway', async (req, res) => {
   const { gateway } = req.params;
   const signatureHeader = req.headers['x-gateway-signature'] || req.headers['x-paynow-signature'];
+  const timestampHeader = req.headers['x-gateway-timestamp'] || req.headers['x-paynow-timestamp'];
   const payloadString = JSON.stringify(req.body);
 
   console.log(`📡 [Payment Webhook] Received webhook callback for gateway: [${gateway}]`);
 
-  // 1. Digital Signature Check (HMAC validation)
-  const isSignatureValid = verifySignature(gateway, payloadString, signatureHeader);
+  // 1. Digital Signature Check (HMAC validation with anti-replay check)
+  const isSignatureValid = verifySignature(gateway, payloadString, signatureHeader, timestampHeader);
   if (!isSignatureValid) {
-    console.warn(`⚠️ [Payment Webhook] Unauthorized payment payload injection blocked for [${gateway}]. Invalid digital signature.`);
-    return res.status(401).json({ error: 'Invalid HMAC signature. Unauthorized.' });
+    console.warn(`⚠️ [Payment Webhook] Unauthorized payment payload injection blocked for [${gateway}]. Invalid digital signature or replay timestamp.`);
+    
+    // Log security event telemetry
+    await logAuditEvent(supabase, {
+      req,
+      event_type: 'SECURITY_WEBHOOK_REPLAY_OR_TAMPERING',
+      reason: `Webhook signature/timestamp verification failed for gateway ${gateway}`,
+      metadata: { gateway, signatureHeader, timestampHeader }
+    }).catch(() => {});
+
+    return res.status(401).json({ error: 'Invalid HMAC signature or timestamp. Unauthorized.' });
   }
 
   // 2. Extract transaction parameters
@@ -104,7 +130,6 @@ router.post('/webhook/:gateway', async (req, res) => {
     }
 
     // Check if the amounts reconcile within currency parameters
-    // In production, we'd pull exchange rate conversion if currency differs, e.g. ZiG payments for USD listings
     if (escrow.currency !== currency) {
       console.log(`💱 [Payment Webhook] Currency mismatch. Listing: ${escrow.currency}, Paid: ${currency}. Fetching exchange rate...`);
       const { data: rateRecord } = await supabase

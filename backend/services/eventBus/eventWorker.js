@@ -1,5 +1,9 @@
 import pg from 'pg';
 import { memoryBroker } from './eventBusService.js';
+import { asyncStore } from '../../utils/context.js';
+import { logger } from '../../utils/logger.js';
+import { Sentry } from '../ai/sentry.js';
+import { metricsHub } from '../metrics.js';
 
 const connectionString = 'postgresql://postgres.vhmnajoeicasaigiophh:[ROTATED-SEE-CR1]@aws-1-ap-south-1.pooler.supabase.com:5432/postgres';
 
@@ -27,7 +31,7 @@ class EventWorker {
       this.handlers.set(eventType, []);
     }
     this.handlers.get(eventType).push(handlerFn);
-    console.log(`📡 Subscriber registered for event: [${eventType}]`);
+    logger.info('QUEUE', `Subscriber registered for event: [${eventType}]`);
   }
 
   /**
@@ -36,11 +40,11 @@ class EventWorker {
   start(intervalMs = 1000) {
     if (this.running) return;
     this.running = true;
-    console.log('👷 Transactional Outbox Event Worker started.');
+    logger.info('QUEUE', 'Transactional Outbox Event Worker started.');
     
     this.pollInterval = setInterval(() => {
       this.pollEvents().catch(err => {
-        console.error('⚠️ Outbox Poller Error:', err.message);
+        logger.error('QUEUE', `Outbox Poller Error: ${err.message}`, { error: err });
       });
     }, intervalMs);
   }
@@ -54,7 +58,7 @@ class EventWorker {
       clearInterval(this.pollInterval);
     }
     await this.pool.end();
-    console.log('👷 Transactional Outbox Event Worker stopped.');
+    logger.info('QUEUE', 'Transactional Outbox Event Worker stopped.');
   }
 
   /**
@@ -77,12 +81,20 @@ class EventWorker {
       const res = await client.query(selectQuery);
       const events = res.rows;
 
+      // Query total pending outbox backlog count
+      const backlogRes = await client.query(`
+        SELECT COUNT(*) as count FROM domain_events
+        WHERE status = 'pending' AND attempts < 5;
+      `);
+      const backlogCount = parseInt(backlogRes.rows[0].count, 10);
+      metricsHub.recordOutboxBatch(backlogCount);
+
       if (events.length === 0) {
         await client.query('COMMIT;');
         return;
       }
 
-      console.log(`👷 Outbox worker locked ${events.length} pending events to process.`);
+      logger.info('QUEUE', `Outbox worker locked ${events.length} pending events to process. Current backlog: ${backlogCount}`);
 
       for (const event of events) {
         await this.processEvent(client, event);
@@ -91,7 +103,7 @@ class EventWorker {
       await client.query('COMMIT;');
     } catch (err) {
       await client.query('ROLLBACK;');
-      console.error('❌ Transaction rolled back in Outbox Worker:', err.message);
+      logger.error('QUEUE', `Transaction rolled back in Outbox Worker: ${err.message}`, { error: err });
     } finally {
       client.release();
     }
@@ -102,16 +114,28 @@ class EventWorker {
    */
   async processEvent(client, event) {
     const handlers = this.handlers.get(event.event_type) || [];
-    
-    // Log initial process attempt
     const nextAttempts = event.attempts + 1;
-    console.log(`  ➔ Processing [${event.event_type}] | ID: ${event.id} | Attempt: ${nextAttempts}`);
+    
+    // Resolve context correlation and tenant parameters
+    const correlationId = event.payload?.correlationId || event.payload?.correlation_id || `corr-outbox-${event.id}`;
+    const tenantId = event.tenant_id || event.payload?.tenantId || null;
+
+    const startTime = Date.now();
+    logger.info('QUEUE', `Processing [${event.event_type}] | ID: ${event.id} | Attempt: ${nextAttempts}`, {
+      eventId: event.id,
+      correlationId,
+      tenantId
+    });
 
     try {
-      // Execute all registered async handler functions
-      for (const handler of handlers) {
-        await handler(event.payload, client, event.tenant_id);
-      }
+      // Run handlers within the correlation AsyncLocalStorage boundaries
+      await asyncStore.run({ correlationId, tenantId }, async () => {
+        for (const handler of handlers) {
+          await handler(event.payload, client, event.tenant_id);
+        }
+      });
+
+      const elapsedMs = Date.now() - startTime;
 
       // Update event status to processed
       const updateQuery = `
@@ -120,13 +144,23 @@ class EventWorker {
         WHERE id = $2;
       `;
       await client.query(updateQuery, [nextAttempts, event.id]);
-      console.log(`    ✅ Processed [${event.event_type}] successfully.`);
       
+      logger.info('QUEUE', `Processed [${event.event_type}] successfully in ${elapsedMs}ms`, {
+        eventId: event.id,
+        durationMs: elapsedMs
+      });
+      
+      metricsHub.recordOutboxSuccess(event.event_type, elapsedMs);
+
       // Notify real-time memory broker that the outbox event has been fully settled
       memoryBroker.emit(`outbox:${event.event_type}`, event);
 
     } catch (err) {
-      console.error(`    ❌ Failed to process [${event.event_type}]:`, err.message);
+      const elapsedMs = Date.now() - startTime;
+      logger.error('QUEUE', `Failed to process [${event.event_type}] in ${elapsedMs}ms: ${err.message}`, {
+        eventId: event.id,
+        error: err
+      });
       
       const isPermanentlyFailed = nextAttempts >= 5;
       const nextStatus = isPermanentlyFailed ? 'failed' : 'pending';
@@ -138,8 +172,15 @@ class EventWorker {
       `;
       await client.query(updateFailedQuery, [nextStatus, nextAttempts, err.stack || err.message, event.id]);
       
+      metricsHub.recordOutboxFailure(event.event_type, nextAttempts);
+
       if (isPermanentlyFailed) {
-        console.error(`      ⚠️ Event ID ${event.id} permanently failed after 5 attempts.`);
+        logger.error('QUEUE', `Event ID ${event.id} permanently failed after 5 attempts.`);
+        Sentry.captureException(err, {
+          eventType: event.event_type,
+          eventId: event.id,
+          attempts: nextAttempts
+        });
       }
     }
   }
