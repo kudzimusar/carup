@@ -452,5 +452,7 @@ test('review queue returns safe fields only', async () => {
   assert.equal(queue[0].request_type, 'public_card_eligible');
   assert.equal('requested_by' in queue[0], false);
   assert.equal('reviewed_by' in queue[0], false);
+  assert.equal('requested_by_tenant_id' in queue[0], false);
+  assert.equal('reviewed_by_tenant_id' in queue[0], false);
   assert.equal('mechanic_id' in queue[0], false);
 });
