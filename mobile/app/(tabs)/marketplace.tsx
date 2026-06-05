@@ -101,7 +101,7 @@ export default function MarketplaceScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-row mt-3 gap-2">
           <Pressable 
             onPress={() => setSelectedMake(null)}
-            className={`px-4 py-1.5 rounded-full border ${selectedMake === null ? 'bg-slate-900 border-slate-900' : 'bg-white border-slate-200'}`}
+            className={`px-4 py-1.5 rounded-full min-h-[44px] justify-center border ${selectedMake === null ? 'bg-slate-900 border-slate-900' : 'bg-white border-slate-200'}`}
           >
             <Text className={`text-xs font-medium ${selectedMake === null ? 'text-white' : 'text-slate-600'}`}>All Makes</Text>
           </Pressable>
@@ -109,7 +109,7 @@ export default function MarketplaceScreen() {
             <Pressable 
               key={make}
               onPress={() => setSelectedMake(make)}
-              className={`px-4 py-1.5 rounded-full border ml-1.5 ${selectedMake === make ? 'bg-slate-900 border-slate-900' : 'bg-white border-slate-200'}`}
+              className={`px-4 py-1.5 rounded-full min-h-[44px] justify-center border ml-1.5 ${selectedMake === make ? 'bg-slate-900 border-slate-900' : 'bg-white border-slate-200'}`}
             >
               <Text className={`text-xs font-medium ${selectedMake === make ? 'text-white' : 'text-slate-600'}`}>{make}</Text>
             </Pressable>
@@ -123,10 +123,14 @@ export default function MarketplaceScreen() {
           <ActivityIndicator size="large" color="#f97316" />
         </View>
       ) : error ? (
-        <View className="flex-1 justify-center items-center">
-          <Text className="text-red-500 text-sm font-semibold mb-4">Error loading vehicle listings</Text>
-          <Pressable onPress={() => refetch()} className="bg-slate-900 px-4 py-2.5 rounded-xl">
-            <Text className="text-white text-xs font-semibold">Retry Fetch</Text>
+        <View className="flex-1 justify-center items-center px-6">
+          <View className="bg-red-50 p-4 rounded-full mb-4">
+            <Text className="text-red-500 text-3xl">⚠️</Text>
+          </View>
+          <Text className="text-slate-800 text-lg font-bold text-center mb-2">Unable to load data</Text>
+          <Text className="text-slate-500 text-sm text-center mb-8">We could not reach the server. Please check your connection and try again.</Text>
+          <Pressable onPress={() => refetch()} className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl active:opacity-90">
+            <Text className="text-white text-sm font-semibold">Retry Fetch</Text>
           </Pressable>
         </View>
       ) : filteredVehicles.length === 0 ? (

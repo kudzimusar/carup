@@ -17,7 +17,7 @@ const client = new pg.Client({
 
 async function runMigration() {
   try {
-    const migrationPath = path.resolve('database/migrations/014_passport_evidence_architecture.sql');
+    const migrationPath = path.resolve('database/migrations/015_vehicle_evidence_timeline.sql');
     console.log(`📖 Reading migration file from: ${migrationPath}`);
     let sql = fs.readFileSync(migrationPath, 'utf8');
 
@@ -32,9 +32,9 @@ async function runMigration() {
     await client.connect();
     console.log('📡 Connected successfully to Supabase PostgreSQL Database.');
 
-    console.log('🤖 Running migration 014_passport_evidence_architecture.sql...');
+    console.log('🤖 Running migration 015_vehicle_evidence_timeline.sql...');
     await client.query(sql);
-    console.log('✅ Migration 014 applied successfully.');
+    console.log('✅ Migration 015 applied successfully.');
   } catch (err) {
     console.error('❌ Migration deployment failed:', err);
     process.exit(1);

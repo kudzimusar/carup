@@ -39,7 +39,16 @@ import { logAuditEvent } from './services/auditLogger.js';
 // Central Error Handling Imports
 import errorHandler from './middleware/errorMiddleware.js';
 import correlationMiddleware from './middleware/correlationMiddleware.js';
+import telemetryMiddleware from './middleware/telemetryMiddleware.js';
+import { metricsHub } from './services/metrics.js';
 import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
+import { 
+  securityHeadersMiddleware, 
+  rateLimiter, 
+  csrfMiddleware, 
+  generateCsrfToken,
+  parseCookies
+} from './middleware/securityMiddleware.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -78,6 +87,16 @@ if (
 
 const app = express();
 app.use(correlationMiddleware);
+app.use(telemetryMiddleware);
+app.use(securityHeadersMiddleware);
+app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
+
+// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+
 const PORT = process.env.PORT || 5001;
 
 const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
@@ -111,6 +130,61 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.use(csrfMiddleware);
+
+// Signed CSRF token route
+app.get('/api/security/csrf-token', (req, res) => {
+  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const currentUserId = req.headers['x-user-id'] || 'guest';
+  const token = generateCsrfToken(currentUserId, sessionToken);
+  res.cookie('csrf-token', token, {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 3600000 * 2
+  });
+  res.json({ csrfToken: token });
+});
+
+// Expose operational health and metrics endpoint
+app.get('/api/health', async (req, res) => {
+  let supabaseHealth = 'healthy';
+  let outboxBacklog = 0;
+  try {
+    const { count, error } = await supabase
+      .from('domain_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    if (error) {
+      supabaseHealth = 'unhealthy';
+    } else {
+      outboxBacklog = count || 0;
+    }
+  } catch (e) {
+    supabaseHealth = 'unhealthy';
+  }
+
+  const snapshot = metricsHub.getSnapshot();
+
+  res.json({
+    status: 'UP',
+    timestamp: new Date().toISOString(),
+    supabase: {
+      status: supabaseHealth,
+      outboxBacklog
+    },
+    sentry: {
+      enabled: !!process.env.SENTRY_DSN
+    },
+    ocrProviders: {
+      gemini: !!process.env.GEMINI_API_KEY,
+      groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
+      openrouter: !!process.env.OPENROUTER_API_KEY,
+      moonshot: !!process.env.MOONSHOT_API_KEY
+    },
+    metrics: snapshot
+  });
+});
 
 // Mount payment gateway unified routes
 app.use('/api/payments', paymentRouter);
@@ -314,7 +388,7 @@ function validatePassportLookupIdentifier(identifier) {
   if (value.length < 2 || value.length > 64) {
     return null;
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9 -]*$/.test(value)) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(value)) {
     return null;
   }
   return value;
@@ -625,21 +699,37 @@ app.post('/api/safepay/create', authorizeRole(), async (req, res) => {
 app.get('/api/safepay/list', authorizeRole(), async (req, res) => {
   const { userId, role } = req.userContext;
   try {
-    let query = supabase
+    const escrowSelect = '*, vehicles(make, model, year, price, currency), buyer:users!safepay_escrows_buyer_id_fkey(name, email, phone), seller:users!safepay_escrows_seller_id_fkey(name, email, phone)';
+    const baseEscrowQuery = () => supabase
       .from('safepay_escrows')
-      .select('*, vehicles(make, model, year, price, currency), buyer:users!safepay_escrows_buyer_id_fkey(name, email, phone), seller:users!safepay_escrows_seller_id_fkey(name, email, phone)')
+      .select(escrowSelect)
       .order('created_at', { ascending: false });
 
     // Scope queries depending on who is asking
+    let escrows = [];
+    let error = null;
     if (role === 'dealer' || role === 'owner') {
-      query = query.or(`seller_id.eq.${userId},buyer_id.eq.${userId}`);
+      const [sellerResult, buyerResult] = await Promise.all([
+        baseEscrowQuery().eq('seller_id', userId),
+        baseEscrowQuery().eq('buyer_id', userId)
+      ]);
+      error = sellerResult.error || buyerResult.error;
+      const escrowMap = new Map();
+      for (const escrow of [...(sellerResult.data || []), ...(buyerResult.data || [])]) {
+        escrowMap.set(escrow.id, escrow);
+      }
+      escrows = [...escrowMap.values()].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     } else if (role === 'bank') {
       // For banks we just let them see all, or we could filter based on finance apps (simplified)
+      const result = await baseEscrowQuery();
+      escrows = result.data || [];
+      error = result.error;
     } else {
-      query = query.eq('buyer_id', userId);
+      const result = await baseEscrowQuery().eq('buyer_id', userId);
+      escrows = result.data || [];
+      error = result.error;
     }
-    
-    const { data: escrows, error } = await query;
+
     if (error) throw error;
     
     // Flatten relational data for the frontend
@@ -1176,16 +1266,6 @@ app.get('/api/vehicles/inventory', authorizeRole(['dealer', 'admin']), async (re
 // --- DEALER & MECHANIC ENDPOINTS MOVED TO MODULAR ROUTERS ---
 
 // --- VEHICLE STATUS UPDATE MOVED TO MODULAR ROUTER ---
-
-// ✅ Health check endpoint
-app.get('/api/health', async (req, res) => {
-  const { data, error } = await supabase.from('vehicles').select('count').limit(1);
-  res.json({
-    status: error ? 'degraded' : 'healthy',
-    database: error ? 'Supabase error: ' + error.message : 'Supabase connected',
-    timestamp: new Date().toISOString()
-  });
-});
 
 // --- DOMAIN 2: BANK & INSURANCE ENDPOINTS ---
 

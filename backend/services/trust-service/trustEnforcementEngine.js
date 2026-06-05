@@ -1,13 +1,15 @@
 import { supabase } from '../../db/supabase.js';
 import crypto from 'crypto';
 import { dispatchAutomationWebhook } from '../eventBus/automationWebhookService.js';
+import { logger } from '../../utils/logger.js';
+import { metricsHub } from '../metrics.js';
 
 export class TrustEnforcementEngine {
   /**
    * Compares extracted OCR fields against the primary registry record to detect spoofing
    */
   static async verifyDocumentDataMatch(vin, docType, extractedPayload) {
-    console.log(`🔍 [Trust Engine] Verifying metadata match for VIN: ${vin}, DocType: ${docType}`);
+    logger.info('TRUST_ENGINE', `Verifying metadata match for VIN: ${vin}, DocType: ${docType}`, { vin, docType });
     
     // Fetch target vehicle
     const { data: vehicle, error: vehicleErr } = await supabase
@@ -17,7 +19,7 @@ export class TrustEnforcementEngine {
       .single();
 
     if (vehicleErr || !vehicle) {
-      console.warn(`⚠️ [Trust Engine] Vehicle not found in registry: ${vin}`);
+      logger.warn('TRUST_ENGINE', `Vehicle not found in registry: ${vin}`, { vin });
       return { match: false, reason: 'VEHICLE_NOT_IN_REGISTRY' };
     }
 
@@ -59,7 +61,15 @@ export class TrustEnforcementEngine {
       const originalScore = vehicle.trust_score || 80.0;
       const newScore = Math.max(0.0, originalScore - totalPenalty);
 
-      console.log(`🚨 [Trust Engine] Mismatch detected! Degrading vehicle trust: ${originalScore} -> ${newScore} (Penalty: -${totalPenalty})`);
+      logger.warn('TRUST_ENGINE', `Mismatch detected! Degrading vehicle trust: ${originalScore} -> ${newScore} (Penalty: -${totalPenalty})`, {
+        vin,
+        originalScore,
+        newScore,
+        penalties
+      });
+
+      metricsHub.recordTrustMismatch();
+      metricsHub.recordTrustRecalculation();
 
       // Update vehicle trust score
       await supabase
@@ -78,7 +88,7 @@ export class TrustEnforcementEngine {
           timestamp: new Date().toISOString()
         });
       } catch (e) {
-        console.warn('[Trust Engine] Failed to record trust score history:', e.message);
+        logger.warn('TRUST_ENGINE', `Failed to record trust score history: ${e.message}`, { error: e });
       }
 
       // Log high risk anomaly inside security_events
@@ -98,7 +108,7 @@ export class TrustEnforcementEngine {
       return { match: false, penalties, totalPenalty, newScore };
     }
 
-    console.log(`✅ [Trust Engine] OCR Metadata verified successfully for VIN: ${vin}`);
+    logger.info('TRUST_ENGINE', `OCR Metadata verified successfully for VIN: ${vin}`, { vin });
     return { match: true, penalties: [], totalPenalty: 0, newScore: vehicle.trust_score };
   }
 
@@ -106,7 +116,7 @@ export class TrustEnforcementEngine {
    * Propagates risk from Dealer/Organization down to listed vehicles
    */
   static async propagateStakeholderRisk(stakeholderId) {
-    console.log(`🔄 [Trust Engine] Propagating risk for Stakeholder: ${stakeholderId}`);
+    logger.info('TRUST_ENGINE', `Propagating risk for Stakeholder: ${stakeholderId}`, { stakeholderId });
     
     const { data: profile, error: profileErr } = await supabase
       .from('stakeholder_profiles')
@@ -115,7 +125,7 @@ export class TrustEnforcementEngine {
       .single();
 
     if (profileErr || !profile) {
-      console.warn(`⚠️ [Trust Engine] Stakeholder profile not found: ${stakeholderId}`);
+      logger.warn('TRUST_ENGINE', `Stakeholder profile not found: ${stakeholderId}`, { stakeholderId });
       return;
     }
 
@@ -131,12 +141,19 @@ export class TrustEnforcementEngine {
         .eq('owner_id', stakeholderId);
 
       if (vehicles && vehicles.length > 0) {
-        console.log(`🚨 [Trust Engine] Seller reputation degraded to ${currentReputation}. Penalizing ${vehicles.length} vehicle listings...`);
+        logger.warn('TRUST_ENGINE', `Seller reputation degraded to ${currentReputation}. Penalizing ${vehicles.length} vehicle listings...`, {
+          stakeholderId,
+          currentReputation
+        });
+
+        metricsHub.recordReputationDegradation();
         
         for (const v of vehicles) {
           const baseScore = v.trust_score || 80.0;
           const penalty = baseScore * degradationMultiplier;
           const finalScore = Math.max(0.0, parseFloat((baseScore - penalty).toFixed(1)));
+
+          metricsHub.recordTrustRecalculation();
 
           await supabase.from('vehicles').update({ trust_score: finalScore }).eq('vin', v.vin);
 
@@ -169,7 +186,12 @@ export class TrustEnforcementEngine {
     if (error || !vehicle) return;
 
     if (vehicle.trust_score < 60.0 && vehicle.status === 'Available') {
-      console.log(`🚨 [Trust Engine] Enforcing marketplace quarantine on VIN: ${vin} (Score: ${vehicle.trust_score})`);
+      logger.warn('TRUST_ENGINE', `Enforcing marketplace quarantine on VIN: ${vin} (Score: ${vehicle.trust_score})`, {
+        vin,
+        trustScore: vehicle.trust_score
+      });
+
+      metricsHub.recordListingQuarantine();
       
       await supabase
         .from('vehicles')
@@ -196,3 +218,4 @@ export class TrustEnforcementEngine {
     }
   }
 }
+
