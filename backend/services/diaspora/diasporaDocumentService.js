@@ -5,11 +5,45 @@ import { validateTradeDocumentPayload } from '../../validators/diaspora/diaspora
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
+import {
+  assertCanReadTradeDocument,
+  assertImportOrderIdRequired,
+  canReadImportOrder,
+  canReadTradeDocument,
+  isPlatformReviewer,
+  redactTradeDocumentStorage,
+  requireUserContext,
+} from './diasporaAuthorization.js';
 
 async function getOrder(importOrderId) {
-  const { data, error } = await supabase.from('diaspora_import_orders').select('*').eq('id', importOrderId).single();
+  const { data, error } = await supabase.from('diaspora_import_orders').select('*').eq('id', importOrderId).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora import order not found');
   return data;
+}
+
+async function getOrderParticipants(importOrderId) {
+  const { data, error } = await supabase
+    .from('diaspora_import_order_participants')
+    .select('*')
+    .eq('import_order_id', importOrderId)
+    .is('deleted_at', null);
+
+  if (error) throw new DatabaseError(error.message);
+  return data || [];
+}
+
+async function getOrderAccess(importOrderId, userContext) {
+  if (!importOrderId) {
+    return { order: null, participants: [], canReadOrder: false };
+  }
+
+  const order = await getOrder(importOrderId);
+  const participants = await getOrderParticipants(importOrderId);
+  return {
+    order,
+    participants,
+    canReadOrder: canReadImportOrder(order, participants, userContext),
+  };
 }
 
 export async function createTradeDocument(payload, userContext = {}, req = null) {
@@ -38,7 +72,7 @@ export async function createTradeDocument(payload, userContext = {}, req = null)
 
   if (order && order.status !== IMPORT_ORDER_STATUSES.DOCUMENTS_PENDING && order.status !== IMPORT_ORDER_STATUSES.DOCUMENTS_VERIFIED) {
     try {
-      await transitionImportOrder({ importOrderId: order.id, nextStatus: IMPORT_ORDER_STATUSES.DOCUMENTS_PENDING, actorId: userContext?.id, metadata: { documentId: data.id }, req });
+      await transitionImportOrder({ importOrderId: order.id, nextStatus: IMPORT_ORDER_STATUSES.DOCUMENTS_PENDING, actorId: userContext?.id, userContext, metadata: { documentId: data.id }, req });
     } catch (err) {
       console.warn('Skipping automatic DOCUMENTS_PENDING transition:', err.message);
     }
@@ -48,23 +82,41 @@ export async function createTradeDocument(payload, userContext = {}, req = null)
   return data;
 }
 
-export async function listTradeDocuments({ importOrderId, verificationStatus, limit = 50, offset = 0 }) {
+export async function listTradeDocuments({ importOrderId, verificationStatus, limit = 50, offset = 0 }, userContext = {}) {
+  const context = requireUserContext(userContext);
+  assertImportOrderIdRequired(importOrderId, context);
+
   let query = supabase.from('diaspora_trade_documents').select('*').is('deleted_at', null).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
   if (importOrderId) query = query.eq('import_order_id', importOrderId);
   if (verificationStatus) query = query.eq('verification_status', verificationStatus);
   const { data, error } = await query;
   if (error) throw new DatabaseError(error.message);
-  return data || [];
+
+  if (isPlatformReviewer(context) && !importOrderId) {
+    return (data || []).map(redactTradeDocumentStorage);
+  }
+
+  const { order, participants, canReadOrder } = await getOrderAccess(importOrderId, context);
+  const visibleDocuments = (data || []).filter((document) => canReadTradeDocument(document, order, participants, context));
+  if (!canReadOrder && visibleDocuments.length === 0) {
+    throw new NotFoundError('Diaspora trade documents not found');
+  }
+
+  return visibleDocuments.map(redactTradeDocumentStorage);
 }
 
-export async function getTradeDocument(id) {
+export async function getTradeDocument(id, userContext = {}) {
+  const context = requireUserContext(userContext);
   const { data, error } = await supabase.from('diaspora_trade_documents').select('*').eq('id', id).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora trade document not found');
-  return data;
+
+  const { order, participants } = await getOrderAccess(data.import_order_id, context);
+  assertCanReadTradeDocument(data, order, participants, context);
+  return redactTradeDocumentStorage(data);
 }
 
 export async function recordDocumentExtraction(documentId, payload, userContext = {}, req = null) {
-  const doc = await getTradeDocument(documentId);
+  const doc = await getTradeDocument(documentId, userContext);
   const { data, error } = await supabase
     .from('diaspora_trade_document_extractions')
     .insert({
@@ -88,7 +140,7 @@ export async function recordDocumentExtraction(documentId, payload, userContext 
 }
 
 export async function verifyTradeDocument(id, payload = {}, userContext = {}, req = null) {
-  const previous = await getTradeDocument(id);
+  const previous = await getTradeDocument(id, userContext);
   const { data, error } = await supabase
     .from('diaspora_trade_documents')
     .update({ verification_status: DOCUMENT_STATUSES.VERIFIED, reviewed_by: userContext?.id, reviewed_at: new Date().toISOString(), updated_by: userContext?.id, updated_at: new Date().toISOString(), metadata: { ...(previous.metadata || {}), verification: payload } })
@@ -104,7 +156,7 @@ export async function verifyTradeDocument(id, payload = {}, userContext = {}, re
     const { count } = await supabase.from('diaspora_trade_documents').select('*', { count: 'exact', head: true }).eq('import_order_id', data.import_order_id).neq('verification_status', DOCUMENT_STATUSES.VERIFIED).is('deleted_at', null);
     if (count === 0) {
       try {
-        await transitionImportOrder({ importOrderId: data.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.DOCUMENTS_VERIFIED, actorId: userContext?.id, metadata: { documentId: id }, req });
+        await transitionImportOrder({ importOrderId: data.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.DOCUMENTS_VERIFIED, actorId: userContext?.id, userContext, metadata: { documentId: id }, req });
       } catch (err) {
         console.warn('Skipping automatic DOCUMENTS_VERIFIED transition:', err.message);
       }
@@ -114,7 +166,7 @@ export async function verifyTradeDocument(id, payload = {}, userContext = {}, re
 }
 
 export async function rejectTradeDocument(id, payload = {}, userContext = {}, req = null) {
-  const previous = await getTradeDocument(id);
+  const previous = await getTradeDocument(id, userContext);
   const { data, error } = await supabase
     .from('diaspora_trade_documents')
     .update({ verification_status: DOCUMENT_STATUSES.REJECTED, reviewed_by: userContext?.id, reviewed_at: new Date().toISOString(), updated_by: userContext?.id, updated_at: new Date().toISOString(), metadata: { ...(previous.metadata || {}), rejection: payload } })

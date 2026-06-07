@@ -4,6 +4,7 @@ import { GOVERNMENT_DOCUMENT_CATEGORIES } from '../../constants/diaspora/diaspor
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
+import { assertCanReadImportOrder, assertCanTransitionImportOrder, normalizeId, requireUserContext } from './diasporaAuthorization.js';
 
 export const ZIMBABWE_READY_REQUIRED_DOCUMENTS = Object.freeze([
   'ZIMRA_CLEARANCE',
@@ -65,7 +66,23 @@ export async function assertZimbabweReadyPrerequisites(importOrderId) {
   }
 }
 
-export async function transitionImportOrder({ importOrderId, nextStatus, actorId, metadata = {}, req = null }) {
+async function getImportOrderParticipants(importOrderId) {
+  const { data, error } = await supabase
+    .from('diaspora_import_order_participants')
+    .select('*')
+    .eq('import_order_id', importOrderId)
+    .is('deleted_at', null);
+
+  if (error) throw new DatabaseError(error.message);
+  return data || [];
+}
+
+export async function transitionImportOrder({ importOrderId, nextStatus, actorId, userContext = {}, metadata = {}, req = null }) {
+  const context = requireUserContext({ ...userContext, id: userContext.id ?? userContext.userId ?? actorId });
+  if (normalizeId(actorId) && normalizeId(actorId) !== normalizeId(context.id)) {
+    throw new ValidationError('transition actor must match the authenticated user context');
+  }
+
   const { data: order, error: fetchError } = await supabase
     .from('diaspora_import_orders')
     .select('*')
@@ -74,6 +91,9 @@ export async function transitionImportOrder({ importOrderId, nextStatus, actorId
     .single();
 
   if (fetchError || !order) throw new NotFoundError('Diaspora import order not found');
+  const participants = await getImportOrderParticipants(importOrderId);
+  assertCanReadImportOrder(order, participants, context);
+  assertCanTransitionImportOrder(order, participants, nextStatus, context);
 
   assertTransitionAllowed(order.status, nextStatus);
 
@@ -85,7 +105,7 @@ export async function transitionImportOrder({ importOrderId, nextStatus, actorId
     .from('diaspora_import_orders')
     .update({
       status: nextStatus,
-      updated_by: actorId,
+      updated_by: context.id,
       updated_at: new Date().toISOString(),
       metadata: { ...(order.metadata || {}), last_transition: metadata },
     })
@@ -98,7 +118,7 @@ export async function transitionImportOrder({ importOrderId, nextStatus, actorId
   await writeDiasporaAudit({
     importOrderId,
     tenantId: order.tenant_id,
-    actorId,
+    actorId: context.id,
     action: 'IMPORT_ORDER_STATUS_CHANGED',
     resourceType: 'diaspora_import_order',
     resourceId: importOrderId,
@@ -111,7 +131,7 @@ export async function transitionImportOrder({ importOrderId, nextStatus, actorId
   await notifyDiasporaMilestone({
     eventType: `DIASPORA_${nextStatus}`,
     importOrder: updated,
-    actorId,
+    actorId: context.id,
     title: `Import order ${nextStatus.replaceAll('_', ' ').toLowerCase()}`,
     message: `Your CarUp diaspora import order has moved from ${order.status} to ${nextStatus}.`,
     metadata,

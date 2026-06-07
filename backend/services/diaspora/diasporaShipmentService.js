@@ -103,7 +103,7 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
   const importStatus = SHIPMENT_TO_IMPORT_STATUS[nextStage];
   if (importStatus) {
     try {
-      await transitionImportOrder({ importOrderId: data.import_order_id, nextStatus: importStatus, actorId: userContext?.id, metadata: { shipmentId: id, shipmentStage: nextStage }, req });
+      await transitionImportOrder({ importOrderId: data.import_order_id, nextStatus: importStatus, actorId: userContext?.id, userContext, metadata: { shipmentId: id, shipmentStage: nextStage }, req });
     } catch (err) {
       console.warn(`Skipping automatic import transition for shipment stage ${nextStage}:`, err.message);
     }
