@@ -413,6 +413,27 @@ async function runTests() {
       console.log('⚠️ No blockchain events found to test triggers. Skipping trigger checks.');
     }
 
+    await supabase.from('users').upsert([
+      {
+        id: 'u_auth_bank',
+        name: 'CarUp Test Bank',
+        email: 'auth-bank-test@carup.test',
+        role: 'bank',
+        is_verified: true,
+        subscription: 'Enterprise',
+        join_date: new Date().toISOString(),
+      },
+      {
+        id: 'u_auth_admin',
+        name: 'CarUp Test Admin',
+        email: 'auth-admin-test@carup.test',
+        role: 'admin',
+        is_verified: true,
+        subscription: 'System',
+        join_date: new Date().toISOString(),
+      },
+    ], { onConflict: 'id' });
+
     // 21. Secure Telemetry Guard Check
     console.log('\n🧪 Test 21: Secure Telemetry Gateway Guardrails...');
     const telemetryMiddleware = authorizeRole(['bank', 'insurance', 'government', 'admin']);
@@ -432,7 +453,7 @@ async function runTests() {
     }
     
     let teleBankPassed = false;
-    const mockTeleBankReq = { headers: { 'x-stakeholder-role': 'bank', 'x-user-id': 'u3' } };
+    const mockTeleBankReq = { headers: { 'x-stakeholder-role': 'bank', 'x-user-id': 'u_auth_bank' } };
     await telemetryMiddleware(mockTeleBankReq, mockTeleRes, () => { teleBankPassed = true; });
     if (!teleBankPassed) {
       throw new Error(`Security Failure: Blocked authorized bank partner from telemetry!`);
@@ -510,7 +531,7 @@ async function runTests() {
     }
     
     let adminPassed = false;
-    const mockAdminPassedReq = { headers: { 'x-stakeholder-role': 'admin', 'x-user-id': 'u1' } };
+    const mockAdminPassedReq = { headers: { 'x-stakeholder-role': 'admin', 'x-user-id': 'u_auth_admin' } };
     await adminMiddleware(mockAdminPassedReq, mockAdminRes, () => { adminPassed = true; });
     if (!adminPassed) {
       throw new Error(`Security Failure: Blocked super-admin from user manager!`);
