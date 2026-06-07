@@ -49,16 +49,16 @@ test.describe('Agent 1 - Buyer Journey Validation', () => {
 
   test('Homepage Loads', async ({ page }) => {
     await page.goto('/');
-    // Hard assertion that homepage title badge is visible
-    await expect(page.getByText("Zimbabwe's Automotive Intelligence Platform").first()).toBeVisible();
-    await expect(page.getByRole('link', { name: /explore marketplace/i })).toBeVisible();
+    // Hard assertion that marketplace-first homepage is visible
+    await expect(page.getByRole('heading', { name: /Find Verified Cars\. Sell With Confidence\./i })).toBeVisible();
+    await expect(page.locator('[data-testid="home-buy-search"]')).toBeVisible();
   });
 
   test('Marketplace Loads', async ({ page }) => {
     await page.goto('/marketplace');
     // Hard assertion that the title and search input are visible
     await expect(page.getByRole('heading', { name: /Vehicle Marketplace/i })).toBeVisible();
-    const searchInput = page.getByPlaceholder(/search make, model, or location/i);
+    const searchInput = page.getByPlaceholder(/search make, model, location/i);
     await expect(searchInput).toBeVisible();
     await searchInput.fill('Toyota Hilux');
   });

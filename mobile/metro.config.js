@@ -1,22 +1,25 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const { withNativeWind } = require('nativewind/metro');
 const path = require('path');
 
-// 1. Locate the workspace roots
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '..');
 
 const config = getDefaultConfig(projectRoot);
 
-// 2. Watch the shared directory
 config.watchFolders = [workspaceRoot];
 
-// 3. Force Metro to resolve nested workspaces node_modules
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
-// 4. Force NativeWind tailwind integrations
-config.resolver.sourceExts.push('mjs');
+config.resolver.disableHierarchicalLookup = true;
 
-module.exports = config;
+config.resolver.extraNodeModules = {
+  react: path.resolve(workspaceRoot, 'node_modules/react'),
+  'react-dom': path.resolve(workspaceRoot, 'node_modules/react-dom'),
+  'react-native': path.resolve(workspaceRoot, 'node_modules/react-native'),
+};
+
+module.exports = withNativeWind(config, { input: './global.css' });

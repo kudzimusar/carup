@@ -3,10 +3,10 @@ import { Car, Mail, Phone, MapPin, Facebook, Twitter, Instagram, Linkedin } from
 
 const footerLinks = {
   Product: [
-    { label: 'Marketplace', href: '/marketplace' },
-    { label: 'Vehicle Search', href: '/search' },
-    { label: 'Dealer Directory', href: '/dealers' },
-    { label: 'Garage Directory', href: '/garages' },
+    { label: 'Buy Cars', href: '/marketplace' },
+    { label: 'Verify Vehicle', href: '/search' },
+    { label: 'Dealers', href: '/dealers' },
+    { label: 'Garages', href: '/garages' },
     { label: 'Insurance', href: '/insurance' },
     { label: 'Pricing', href: '/pricing' },
   ],
@@ -49,7 +49,7 @@ export default function Footer() {
               </span>
             </Link>
             <p className="text-sm text-gray-400 mb-4 max-w-xs">
-              Zimbabwe's trusted automotive intelligence platform. Every vehicle deserves a digital identity.
+              Zimbabwe's verified automotive marketplace for buying, verifying, and selling cars with clearer trust signals.
             </p>
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">

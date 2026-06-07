@@ -47,8 +47,21 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
   return { id: newId, vin, mechanicId, partName, partOem, actionType, description, mileage, signature, timestamp };
 }
 
-export async function getRepairHistory(vin) {
-  const { data, error } = await supabase.from('partsentry_logs').select('*').eq('vin', vin).order('timestamp', { ascending: false });
+export async function getRepairHistory(vin, { publicOnly = false } = {}) {
+  let query = supabase
+    .from('partsentry_logs')
+    .select(publicOnly
+      ? 'id, vin, part_name, part_oem, action_type, mileage, timestamp, verification_status, part_verification_status, public_card_eligible'
+      : '*'
+    )
+    .eq('vin', vin)
+    .order('timestamp', { ascending: false });
+
+  if (publicOnly) {
+    query = query.eq('public_card_eligible', true);
+  }
+
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data || [];
 }

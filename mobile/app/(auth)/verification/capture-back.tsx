@@ -1,27 +1,30 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator, Image } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, Image, InteractionManager, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
 import { captureDocumentPhoto, formatFileSize, type CapturedAsset } from '../../../utils/camera';
+import { useVerificationStore } from '../../../store/verificationStore';
 
 const { width } = Dimensions.get('window');
 
 export default function CaptureBack() {
-  const router = useRouter();
-  const { docType, doubleSided, capturedFront } = useLocalSearchParams<{
+  const { docType, doubleSided } = useLocalSearchParams<{
     docType: string;
     doubleSided: string;
-    capturedFront: string;
   }>();
 
+  const setCapturedBack = useVerificationStore(state => state.setCapturedBack);
   const [capturedAsset, setCapturedAsset] = useState<CapturedAsset | null>(null);
   const [isAligned, setIsAligned] = useState<boolean>(false);
   const [capturing, setCapturing] = useState<boolean>(false);
   const [statusText, setStatusText] = useState<string>('Tap the shutter to capture back of document');
 
-  /**
-   * Launch the native camera to capture the back side of the document.
-   * Uses expo-image-picker with rear camera, 4:3 aspect, and 0.7 quality compression.
-   */
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const handleCapture = useCallback(async () => {
     if (capturing) return;
 
@@ -32,60 +35,58 @@ export default function CaptureBack() {
       const asset = await captureDocumentPhoto();
 
       if (!asset) {
-        setCapturing(false);
-        setStatusText('Capture cancelled. Tap shutter to retry.');
+        if (mountedRef.current) {
+          setCapturing(false);
+          setStatusText('Capture cancelled. Tap shutter to retry.');
+        }
         return;
       }
 
       setCapturedAsset(asset);
+      setCapturedBack(asset.dataUri);
       setIsAligned(true);
       setStatusText(`Captured back! Compressed to ${formatFileSize(asset.fileSizeBytes)}`);
 
-      // Brief preview delay before navigating to selfie
-      setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        if (!mountedRef.current) return;
         setCapturing(false);
         router.push({
           pathname: '/(auth)/verification/selfie',
-          params: {
-            docType,
-            doubleSided,
-            capturedFront,
-            capturedBack: asset.dataUri
-          }
+          params: { docType, doubleSided },
         });
-      }, 1200);
-
+      });
     } catch (err) {
       console.error('[CaptureBack] Camera error:', err);
-      setCapturing(false);
-      setStatusText('Camera error. Please try again.');
+      if (mountedRef.current) {
+        setCapturing(false);
+        setStatusText('Camera error. Please try again.');
+      }
     }
-  }, [capturing, docType, doubleSided, capturedFront, router]);
+  }, [capturing, docType, doubleSided, setCapturedBack]);
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
-      <View className="flex-1 justify-between p-6">
-        
-        {/* Top Header */}
-        <View className="flex-row items-center justify-between z-10">
-          <TouchableOpacity 
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-[#161C2C]/80 border border-[#2B3552] rounded-xl items-center justify-center"
-          >
-            <Text className="text-white text-lg">←</Text>
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+      <View style={styles.container}>
+
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
-          <Text className="text-slate-400 font-semibold text-xs tracking-widest uppercase">Step 4 of 9: BACK</Text>
+          <Text style={styles.stepLabel}>Step 4 of 9: BACK</Text>
         </View>
 
-        {/* Viewfinder Area */}
-        <View className="flex-1 justify-center items-center my-6 relative">
+        <View style={styles.viewfinderArea}>
           <View 
-            style={{ width: width * 0.85, height: width * 0.85 * 0.63 }}
-            className={`border-2 rounded-2xl relative items-center justify-center overflow-hidden bg-slate-900/10 ${
-              isAligned ? 'border-emerald-500 shadow-2xl shadow-emerald-500/20' : 'border-dashed border-blue-500'
-            }`}
+            style={[
+              styles.documentFrame,
+              { width: width * 0.85, height: width * 0.85 * 0.63 },
+              isAligned ? styles.frameAligned : styles.frameDefault,
+            ]}
           >
-            {/* Show captured preview image if available */}
             {capturedAsset ? (
               <Image
                 source={{ uri: capturedAsset.uri }}
@@ -95,44 +96,41 @@ export default function CaptureBack() {
             ) : capturing ? (
               <ActivityIndicator size="large" color="#10B981" />
             ) : (
-              <Text className="text-slate-500 text-xs uppercase tracking-widest text-center px-4">
+              <Text style={styles.placeholderText}>
                 Position Back of Document here
               </Text>
             )}
 
-            <View className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
-            <View className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
-            <View className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
-            <View className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
+            <View style={[styles.corner, styles.cornerTL]} />
+            <View style={[styles.corner, styles.cornerTR]} />
+            <View style={[styles.corner, styles.cornerBL]} />
+            <View style={[styles.corner, styles.cornerBR]} />
           </View>
         </View>
 
-        {/* Shutter Panel */}
-        <View className="space-y-4">
-          <View className="items-center">
-            <Text className={`text-sm font-semibold text-center ${
-              capturedAsset ? 'text-emerald-400' : 'text-slate-300'
-            }`}>
+        <View style={styles.actionPanel}>
+          <View style={styles.statusContainer}>
+            <Text style={[styles.statusText, capturedAsset ? styles.statusOk : styles.statusNeutral]}>
               {statusText}
             </Text>
             {capturedAsset && (
-              <Text className="text-emerald-500 text-xs mt-1">
-                {capturedAsset.width}×{capturedAsset.height}px • {formatFileSize(capturedAsset.fileSizeBytes)}
+              <Text style={styles.assetInfo}>
+                {capturedAsset.width}x{capturedAsset.height}px - {formatFileSize(capturedAsset.fileSizeBytes)}
               </Text>
             )}
           </View>
 
-          <View className="flex-row items-center justify-center">
+          <View style={styles.shutterRow}>
             <TouchableOpacity
               onPress={handleCapture}
               disabled={capturing}
-              className="w-16 h-16 rounded-full bg-white border-4 border-slate-800 items-center justify-center active:scale-95 transition-all shadow-xl"
+              style={styles.shutterButton}
             >
-              <View className={`w-11 h-11 rounded-full ${capturing ? 'bg-amber-500' : 'bg-blue-600'}`} />
+              <View style={[styles.shutterInner, capturing ? styles.shutterActive : styles.shutterReady]} />
             </TouchableOpacity>
           </View>
 
-          <Text className="text-xs text-slate-500 text-center leading-relaxed">
+          <Text style={styles.helpText}>
             Ensure barcodes or back details are clean, readable, and fit within the guideline marks.
           </Text>
         </View>
@@ -141,3 +139,47 @@ export default function CaptureBack() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#0A0E1A' },
+  container: { flex: 1, justifyContent: 'space-between', padding: 24 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 },
+  backButton: {
+    width: 40, height: 40,
+    backgroundColor: 'rgba(22,28,44,0.8)',
+    borderWidth: 1, borderColor: '#2B3552',
+    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+  },
+  backArrow: { color: '#fff', fontSize: 18 },
+  stepLabel: { color: '#94a3b8', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' },
+  viewfinderArea: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 24 },
+  documentFrame: {
+    borderWidth: 2, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  frameDefault: { borderColor: '#3b82f6', borderStyle: 'dashed', backgroundColor: 'rgba(15,23,42,0.1)' },
+  frameAligned: { borderColor: '#10b981', backgroundColor: 'rgba(15,23,42,0.1)' },
+  placeholderText: { color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', paddingHorizontal: 16 },
+  corner: { position: 'absolute', width: 24, height: 24 },
+  cornerTL: { top: -4, left: -4, borderTopWidth: 4, borderLeftWidth: 4, borderColor: '#3b82f6', borderTopLeftRadius: 8 },
+  cornerTR: { top: -4, right: -4, borderTopWidth: 4, borderRightWidth: 4, borderColor: '#3b82f6', borderTopRightRadius: 8 },
+  cornerBL: { bottom: -4, left: -4, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: '#3b82f6', borderBottomLeftRadius: 8 },
+  cornerBR: { bottom: -4, right: -4, borderBottomWidth: 4, borderRightWidth: 4, borderColor: '#3b82f6', borderBottomRightRadius: 8 },
+  actionPanel: { gap: 16 },
+  statusContainer: { alignItems: 'center' },
+  statusText: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  statusOk: { color: '#34d399' },
+  statusNeutral: { color: '#cbd5e1' },
+  assetInfo: { color: '#10b981', fontSize: 11, marginTop: 4 },
+  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  shutterButton: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: '#fff', borderWidth: 4, borderColor: '#1e293b',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shutterInner: { width: 44, height: 44, borderRadius: 22 },
+  shutterActive: { backgroundColor: '#f59e0b' },
+  shutterReady: { backgroundColor: '#2563eb' },
+  helpText: { fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 16 },
+});

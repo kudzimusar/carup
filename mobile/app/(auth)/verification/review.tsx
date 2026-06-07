@@ -1,135 +1,130 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useVerificationStore } from '../../../store/verificationStore';
 
 export default function VerificationReview() {
-  const router = useRouter();
   const params = useLocalSearchParams<{
     docType: string;
     doubleSided: string;
-    capturedFront: string;
-    capturedBack?: string;
-    capturedSelfie: string;
     livenessVerified: string;
   }>();
 
   const [checkingQuality, setCheckingQuality] = useState<boolean>(false);
 
-  const handleSubmit = () => {
-    // Navigate directly to the uploading & processing endpoint
+  const handleSubmit = useCallback(() => {
     router.push({
       pathname: '/(auth)/verification/processing',
-      params: params
+      params: { docType: params.docType, doubleSided: params.doubleSided }
     });
-  };
+  }, [params.docType, params.doubleSided]);
 
-  const handleRetake = () => {
-    // Go back to document selection to reset
+  const handleRetake = useCallback(() => {
+    useVerificationStore.getState().clear();
     router.replace('/(auth)/verification/document-select');
-  };
+  }, []);
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
         
-        <View className="mt-8">
-          <View className="flex-row items-center justify-between mb-8">
+        <View style={{ marginTop: 32 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
             <TouchableOpacity 
-              onPress={() => router.back()}
-              className="w-10 h-10 bg-[#161C2C] border border-[#2B3552] rounded-xl items-center justify-center"
+              onPress={handleBack}
+              style={{
+                width: 40, height: 40,
+                backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
+                borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+              }}
             >
-              <Text className="text-white text-lg">←</Text>
+              <Text style={{ color: '#fff', fontSize: 18 }}>←</Text>
             </TouchableOpacity>
-            <Text className="text-slate-500 font-semibold text-xs tracking-widest uppercase">Step 7 of 9: REVIEW</Text>
+            <Text style={{ color: '#64748b', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' }}>
+              Step 7 of 9: REVIEW
+            </Text>
           </View>
 
-          <Text className="text-white text-3xl font-extrabold tracking-tight mb-3">
+          <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', letterSpacing: -0.5, marginBottom: 12 }}>
             Review Captures
           </Text>
-          <Text className="text-slate-400 text-sm leading-relaxed mb-6">
+          <Text style={{ color: '#94a3b8', fontSize: 14, lineHeight: 20, marginBottom: 24 }}>
             Our on-device model completed document readability scans. Please confirm all details are readable before upload.
           </Text>
 
-          {/* Local Quality Metrics Card */}
-          <View className="p-5 bg-[#161C2C] border border-[#2B3552] rounded-2xl mb-8">
-            <Text className="text-white font-bold text-sm mb-3">Local AI Quality Diagnostics</Text>
+          <View style={{ padding: 20, backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552', borderRadius: 16, marginBottom: 32 }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 12 }}>Local AI Quality Diagnostics</Text>
             
-            <View className="space-y-3">
-              <View className="flex-row justify-between items-center pb-2 border-b border-slate-800">
-                <Text className="text-slate-400 text-xs">Image Resolution</Text>
-                <Text className="text-emerald-400 text-xs font-semibold">12.2 MP (HD) ✓</Text>
-              </View>
-              
-              <View className="flex-row justify-between items-center pb-2 border-b border-slate-800">
-                <Text className="text-slate-400 text-xs">Blur / Focus check</Text>
-                <Text className="text-emerald-400 text-xs font-semibold">Sharp Focus ✓</Text>
-              </View>
-
-              <View className="flex-row justify-between items-center pb-2 border-b border-slate-800">
-                <Text className="text-slate-400 text-xs">Reflective Glare</Text>
-                <Text className="text-emerald-400 text-xs font-semibold">No Glare Detected ✓</Text>
-              </View>
-
-              <View className="flex-row justify-between items-center">
-                <Text className="text-slate-400 text-xs">Brightness Validation</Text>
-                <Text className="text-emerald-400 text-xs font-semibold">Well-Lit ✓</Text>
-              </View>
+            <View style={{ gap: 12 }}>
+              {[
+                { label: 'Image Resolution', value: '12.2 MP (HD) ✓' },
+                { label: 'Blur / Focus check', value: 'Sharp Focus ✓' },
+                { label: 'Reflective Glare', value: 'No Glare Detected ✓' },
+                { label: 'Brightness Validation', value: 'Well-Lit ✓' },
+              ].map((item) => (
+                <View key={item.label} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' }}>
+                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>{item.label}</Text>
+                  <Text style={{ color: '#34d399', fontSize: 11, fontWeight: '600' }}>{item.value}</Text>
+                </View>
+              ))}
             </View>
           </View>
 
-          {/* Thumbnails grid */}
-          <Text className="text-white font-semibold text-sm mb-3">Captured Assets</Text>
-          <View className="space-y-3">
-            <View className="flex-row justify-between items-center p-4 bg-[#161C2C]/50 border border-[#2B3552]/40 rounded-2xl">
-              <View className="flex-row items-center">
-                <View className="w-10 h-10 bg-blue-500/10 rounded-lg items-center justify-center mr-3">
-                  <Text className="text-base">📄</Text>
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14, marginBottom: 12 }}>Captured Assets</Text>
+          <View style={{ gap: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.5)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.4)', borderRadius: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ width: 40, height: 40, backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  <Text style={{ fontSize: 16 }}>📄</Text>
                 </View>
-                <Text className="text-white text-sm font-medium">Front Document Image</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Front Document Image</Text>
               </View>
-              <Text className="text-emerald-400 text-xs font-bold">READY</Text>
+              <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
             </View>
 
             {params.doubleSided === 'true' && (
-              <View className="flex-row justify-between items-center p-4 bg-[#161C2C]/50 border border-[#2B3552]/40 rounded-2xl">
-                <View className="flex-row items-center">
-                  <View className="w-10 h-10 bg-blue-500/10 rounded-lg items-center justify-center mr-3">
-                    <Text className="text-base">📄</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.5)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.4)', borderRadius: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ width: 40, height: 40, backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                    <Text style={{ fontSize: 16 }}>📄</Text>
                   </View>
-                  <Text className="text-white text-sm font-medium">Back Document Image</Text>
+                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Back Document Image</Text>
                 </View>
-                <Text className="text-emerald-400 text-xs font-bold">READY</Text>
+                <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
               </View>
             )}
 
-            <View className="flex-row justify-between items-center p-4 bg-[#161C2C]/50 border border-[#2B3552]/40 rounded-2xl">
-              <View className="flex-row items-center">
-                <View className="w-10 h-10 bg-indigo-500/10 rounded-lg items-center justify-center mr-3">
-                  <Text className="text-base">👤</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.5)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.4)', borderRadius: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ width: 40, height: 40, backgroundColor: 'rgba(99,102,241,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  <Text style={{ fontSize: 16 }}>👤</Text>
                 </View>
-                <Text className="text-white text-sm font-medium">Biometric Liveness Selfie</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Biometric Liveness Selfie</Text>
               </View>
-              <Text className="text-emerald-400 text-xs font-bold">READY</Text>
+              <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
             </View>
           </View>
         </View>
 
-        {/* Buttons */}
-        <View className="mt-8 space-y-3">
+        <View style={{ marginTop: 32, gap: 12 }}>
           <TouchableOpacity
             onPress={handleSubmit}
             activeOpacity={0.8}
-            className="w-full h-14 bg-blue-600 rounded-2xl justify-center items-center shadow-lg active:bg-blue-700"
+            style={{ width: '100%', height: 56, backgroundColor: '#2563eb', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
           >
-            <Text className="text-white font-semibold text-base">Submit Documents</Text>
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Submit Documents</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={handleRetake}
             activeOpacity={0.8}
-            className="w-full h-12 bg-transparent border border-slate-700 rounded-2xl justify-center items-center active:bg-slate-800/20"
+            style={{ width: '100%', height: 48, backgroundColor: 'transparent', borderWidth: 1, borderColor: '#334155', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
           >
-            <Text className="text-slate-400 font-medium text-sm">Retake Photos</Text>
+            <Text style={{ color: '#94a3b8', fontWeight: '500', fontSize: 14 }}>Retake Photos</Text>
           </TouchableOpacity>
         </View>
 

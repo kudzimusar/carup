@@ -7,8 +7,20 @@ import type {
   Part, 
   Claim, 
   RegistryVerification,
-  ApiMutationResponse
+  ApiMutationResponse,
+  VehiclePassport,
+  VehicleEvidence,
+  TimelineEvent,
+  MarketplaceListingsResponse,
+  TrustAuditTrailResponse,
+  TrustFactDecisionPayload,
+  TrustFactDecisionResponse,
+  TrustFactReviewQueueResponse,
+  TrustFactReviewStatus,
+  TrustFactName,
+  VehicleEvidenceSummary
 } from '@/types'
+
 
 const BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
   ? 'http://localhost:5001/api'
@@ -73,12 +85,87 @@ export function useCarUpApi() {
     return request<Vehicle[]>(`/vehicles${query}`)
   }, [request])
 
+  const fetchMarketplaceListings = useCallback(async (filters?: Record<string, string | number | boolean | undefined>): Promise<MarketplaceListingsResponse> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([_, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<MarketplaceListingsResponse>(`/marketplace/listings${query}`)
+  }, [request])
+
   const fetchDealerInventory = useCallback(async (): Promise<Vehicle[]> => {
     return request<Vehicle[]>('/vehicles/inventory')
   }, [request])
 
-  const fetchVehiclePassport = useCallback(async (vin: string): Promise<any> => {
-    return request(`/vehicles/${vin}/passport`)
+  const fetchVehiclePassport = useCallback(async (vin: string): Promise<VehiclePassport> => {
+    return request<VehiclePassport>(`/vehicles/${vin}/passport`)
+  }, [request])
+
+  const fetchVehicleEvidenceTimeline = useCallback(async (vin: string): Promise<{ vin: string; timeline: TimelineEvent[]; evidence: VehicleEvidence[] }> => {
+    return request<{ vin: string; timeline: TimelineEvent[]; evidence: VehicleEvidence[] }>(`/vehicles/${vin}/evidence/timeline`)
+  }, [request])
+
+  const fetchEvidenceReviewQueue = useCallback(async (status = 'pending'): Promise<VehicleEvidence[]> => {
+    return request<VehicleEvidence[]>(`/evidence/review?status=${encodeURIComponent(status)}`)
+  }, [request])
+
+  const fetchTrustReviewQueue = useCallback(async (filters?: {
+    status?: TrustFactReviewStatus;
+    trust_fact?: TrustFactName | 'all';
+    vin?: string;
+  }): Promise<TrustFactReviewQueueResponse> => {
+    const params = new URLSearchParams()
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.trust_fact && filters.trust_fact !== 'all') params.set('trust_fact', filters.trust_fact)
+    if (filters?.vin) params.set('vin', filters.vin)
+    const query = params.toString()
+    return request<TrustFactReviewQueueResponse>(`/verification/review-queue${query ? `?${query}` : ''}`)
+  }, [request])
+
+  const approveTrustFactRequest = useCallback(async (requestId: string, payload: TrustFactDecisionPayload): Promise<TrustFactDecisionResponse> => {
+    return request<TrustFactDecisionResponse>(`/verification/trust-facts/${requestId}/approve`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const rejectTrustFactRequest = useCallback(async (requestId: string, payload: TrustFactDecisionPayload): Promise<TrustFactDecisionResponse> => {
+    return request<TrustFactDecisionResponse>(`/verification/trust-facts/${requestId}/reject`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const revokeTrustFactRequest = useCallback(async (requestId: string, payload: TrustFactDecisionPayload): Promise<TrustFactDecisionResponse> => {
+    return request<TrustFactDecisionResponse>(`/verification/trust-facts/${requestId}/revoke`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchTrustAuditTrail = useCallback(async (vin: string): Promise<TrustAuditTrailResponse> => {
+    return request<TrustAuditTrailResponse>(`/verification/audit-trail/${encodeURIComponent(vin)}`)
+  }, [request])
+
+  const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidenceSummary[]> => {
+    return request<VehicleEvidenceSummary[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
+  }, [request])
+
+  const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
+    return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/verify`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes, trust_score_impact: trustScoreImpact })
+    })
+  }, [request])
+
+  const rejectEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = -5): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
+    return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/reject`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes, trust_score_impact: trustScoreImpact })
+    })
+  }, [request])
+
+  const lookupVehiclePassport = useCallback(async (identifier: string): Promise<VehiclePassport> => {
+    return request<VehiclePassport>(`/vehicles/passport/lookup/${identifier}`)
   }, [request])
 
   const verifyLedger = useCallback(async (vin: string): Promise<{ integrity: string; verified: boolean }> => {
@@ -387,8 +474,20 @@ export function useCarUpApi() {
     error,
     switchRole,
     fetchVehicles,
+    fetchMarketplaceListings,
     fetchDealerInventory,
     fetchVehiclePassport,
+    fetchVehicleEvidenceTimeline,
+    fetchEvidenceReviewQueue,
+    fetchTrustReviewQueue,
+    approveTrustFactRequest,
+    rejectTrustFactRequest,
+    revokeTrustFactRequest,
+    fetchTrustAuditTrail,
+    fetchVehicleEvidence,
+    approveEvidence,
+    rejectEvidence,
+    lookupVehiclePassport,
     fetchVehicle,
     verifyLedger,
     runOdometerAudit,
