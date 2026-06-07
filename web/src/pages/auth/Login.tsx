@@ -14,6 +14,10 @@ const DEMO_USERS = {
   mechanic: { id: 'u2', name: 'Simba Mechanic', email: 'simba@garage.co.zw', phone: '+263 775 200 300', role: 'mechanic' as const },
 }
 
+const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  ? '/api'
+  : 'https://carup-backend.vercel.app/api';
+
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
@@ -44,7 +48,7 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const res = await fetch('https://carup-backend.vercel.app/api/auth/login', {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: form.email, password: form.password }),
@@ -73,7 +77,7 @@ export default function Login() {
     const demoUser = DEMO_USERS[userKey]
     setLoading(true)
     try {
-      const res = await fetch('https://carup-backend.vercel.app/api/auth/login', {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: demoUser.email, password: 'password123' }),

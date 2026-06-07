@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Car, Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import type { UserRole } from '@shared/types'
 
 const roles = [
   { value: 'owner', label: 'Car Owner' },
@@ -21,13 +22,17 @@ const roles = [
   { value: 'insurance', label: 'Insurance Provider' },
 ]
 
+const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  ? '/api'
+  : 'https://carup-backend.vercel.app/api';
+
 export default function Register() {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', phone: '',
-    password: '', confirmPassword: '', role: '', location: ''
+    password: '', confirmPassword: '', role: 'owner' as UserRole, location: ''
   })
   const [loading, setLoading] = useState(false)
 
@@ -46,7 +51,7 @@ export default function Register() {
 
     setLoading(true)
     try {
-      const res = await fetch('https://carup-backend.vercel.app/api/auth/register', {
+      const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -126,7 +131,7 @@ export default function Register() {
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">I am a...</label>
-                    <Select value={form.role} onValueChange={v => setForm({ ...form, role: v })}>
+                    <Select value={form.role} onValueChange={v => setForm({ ...form, role: v as UserRole })}>
                       <SelectTrigger><SelectValue placeholder="Select your role" /></SelectTrigger>
                       <SelectContent>
                         {roles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}

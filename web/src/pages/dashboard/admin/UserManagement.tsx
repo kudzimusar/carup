@@ -17,6 +17,10 @@ import type { User } from '@/types'
 
 const roleIcons: Record<string, typeof Users> = { Owner: Car, Dealer: Building2, Mechanic: Wrench, Insurance: Shield }
 
+const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  ? '/api'
+  : 'https://carup-backend.vercel.app/api';
+
 export default function UserManagement() {
   const { fetchUsers, suspendUser } = useCarUpApi()
   const [users, setUsers] = useState<User[]>([])
@@ -56,7 +60,7 @@ export default function UserManagement() {
     e.preventDefault()
     setIsAdding(true)
     try {
-      const response = await fetch('https://carup-backend.vercel.app/api/auth/register', {
+      const response = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser)
