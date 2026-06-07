@@ -90,7 +90,7 @@ export async function updateReservationStatus(id, nextStatus, userContext = {}, 
       await supabase.from('diaspora_container_shipments').update({ used_capacity_volume: used, available_capacity_volume: Math.max(Number(container.total_capacity_volume) - used, 0), updated_at: new Date().toISOString() }).eq('id', container.id);
     }
     try {
-      await transitionImportOrder({ importOrderId: previous.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.CONTAINER_BOOKED, actorId: userContext?.id, metadata: { reservationId: id }, req });
+      await transitionImportOrder({ importOrderId: previous.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.CONTAINER_BOOKED, actorId: userContext?.id, userContext, metadata: { reservationId: id }, req });
     } catch (err) {
       console.warn('Skipping automatic CONTAINER_BOOKED transition:', err.message);
     }

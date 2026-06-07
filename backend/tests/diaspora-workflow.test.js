@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { IMPORT_ORDER_STATUSES, IMPORT_ORDER_TRANSITIONS } from '../constants/diaspora/diasporaStatuses.js';
 import { DIASPORA_DOCUMENT_TYPES, GOVERNMENT_DOCUMENT_CATEGORIES } from '../constants/diaspora/diasporaDocumentTypes.js';
+import {
+  assertCanReadImportOrder,
+  assertImportOrderIdRequired,
+  canReadImportOrder,
+  canReadTradeDocument,
+  canTransitionImportOrderForContext,
+  redactTradeDocumentStorage,
+} from '../services/diaspora/diasporaAuthorization.js';
+import { ForbiddenError, ValidationError } from '../utils/errors.js';
 
 const routeFile = readFileSync(new URL('../routes/diasporaRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
@@ -14,6 +23,35 @@ const containerService = readFileSync(new URL('../services/diaspora/diasporaCont
 const reservationService = readFileSync(new URL('../services/diaspora/diasporaReservationService.js', import.meta.url), 'utf8');
 const shipmentService = readFileSync(new URL('../services/diaspora/diasporaShipmentService.js', import.meta.url), 'utf8');
 const eventWorker = readFileSync(new URL('../services/eventBus/eventWorker.js', import.meta.url), 'utf8');
+
+const authOrder = Object.freeze({
+  id: 'order-1',
+  tenant_id: 'tenant-1',
+  buyer_id: 'buyer-1',
+  created_by: 'creator-1',
+  updated_by: 'updater-1',
+  status: IMPORT_ORDER_STATUSES.IMPORT_REQUESTED,
+});
+
+const authParticipants = Object.freeze([
+  {
+    id: 'participant-1',
+    import_order_id: 'order-1',
+    user_id: 'seller-1',
+    participant_role: 'seller',
+    verification_status: 'VERIFIED',
+  },
+]);
+
+const authDocument = Object.freeze({
+  id: 'document-1',
+  tenant_id: 'tenant-1',
+  import_order_id: 'order-1',
+  uploaded_by: 'buyer-1',
+  document_type: 'bill_of_lading',
+  document_url: 'https://example.test/document.pdf',
+  storage_path: 'private/diaspora/order-1/document.pdf',
+});
 
 test('/api/diaspora is mounted once only and router uses relative routes only', () => {
   assert.equal((serverFile.match(/app\.use\('\/api\/diaspora',\s*diasporaRouter\)/g) || []).length, 1);
@@ -168,4 +206,80 @@ test('Event worker uses environment connection settings and no hard-coded Supaba
   assert.equal(eventWorker.includes('process.env.DATABASE_URL || process.env.SUPABASE_DB_URL'), true);
   assert.equal(eventWorker.includes('vhmnajoeicasaigiophh'), false);
   assert.equal(eventWorker.includes('HVYbYVb1x2ErqzH4'), false);
+});
+
+test('Service authorization blocks unrelated users from reading another import order', () => {
+  assert.throws(
+    () => assertCanReadImportOrder(authOrder, authParticipants, { id: 'stranger-1', role: 'member', tenantId: 'tenant-2' }),
+    ForbiddenError,
+  );
+});
+
+test('Service authorization allows order owner, assigned participant, and tenant admin to read import orders', () => {
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'buyer-1', role: 'buyer' }), true);
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'seller-1', role: 'seller' }), true);
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'admin-1', role: 'admin', tenantId: 'tenant-1' }), true);
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'creator-1', role: 'member' }), true);
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'reviewer-1', role: 'government_reviewer' }), true);
+});
+
+test('Service authorization blocks unrelated users from listing another order trade documents', () => {
+  assert.equal(
+    canReadTradeDocument(authDocument, authOrder, authParticipants, { id: 'stranger-1', role: 'member', tenantId: 'tenant-2' }),
+    false,
+  );
+});
+
+test('Service authorization requires importOrderId for normal document list callers', () => {
+  assert.throws(
+    () => assertImportOrderIdRequired(undefined, { id: 'buyer-1', role: 'buyer' }),
+    ValidationError,
+  );
+  assert.doesNotThrow(() => assertImportOrderIdRequired(undefined, { id: 'reviewer-1', role: 'government_reviewer' }));
+});
+
+test('Service authorization redacts private trade document storage paths from read responses', () => {
+  const safeDocument = redactTradeDocumentStorage(authDocument);
+  assert.equal('storage_path' in safeDocument, false);
+  assert.equal(safeDocument.document_url, authDocument.document_url);
+});
+
+test('Service authorization blocks unrelated users from transitioning another import order', () => {
+  assert.equal(
+    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.CANCELLED, { id: 'stranger-1', role: 'member' }),
+    false,
+  );
+});
+
+test('Service authorization allows authorized actors to perform permitted transitions', () => {
+  assert.equal(
+    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.CANCELLED, { id: 'buyer-1', role: 'buyer' }),
+    true,
+  );
+  assert.equal(
+    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.QUOTE_ISSUED, { id: 'seller-1', role: 'seller' }),
+    true,
+  );
+  assert.equal(
+    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.DOCUMENTS_VERIFIED, { id: 'admin-1', role: 'admin', tenantId: 'tenant-1' }),
+    true,
+  );
+});
+
+test('Diaspora routes pass user context into order, document, and transition service calls', () => {
+  assert.equal(routeFile.includes('getImportOrder(req.params.id, req.userContext)'), true);
+  assert.equal(routeFile.includes('listTradeDocuments({ importOrderId: req.params.id, ...pagination(req) }, req.userContext)'), true);
+  assert.equal(routeFile.includes('listTradeDocuments({ importOrderId: req.query.importOrderId, verificationStatus: req.query.verificationStatus, ...pagination(req) }, req.userContext)'), true);
+  assert.equal(routeFile.includes('getTradeDocument(req.params.id, req.userContext)'), true);
+  assert.equal(routeFile.includes('userContext: req.userContext'), true);
+});
+
+test('Diaspora services enforce user-context authorization on direct reads and transitions', () => {
+  assert.equal(importOrderService.includes('export async function getImportOrder(id, userContext = {})'), true);
+  assert.equal(importOrderService.includes('assertCanReadImportOrder(data, participants, context)'), true);
+  assert.equal(documentService.includes('export async function listTradeDocuments({ importOrderId, verificationStatus, limit = 50, offset = 0 }, userContext = {})'), true);
+  assert.equal(documentService.includes('assertImportOrderIdRequired(importOrderId, context)'), true);
+  assert.equal(documentService.includes('assertCanReadTradeDocument(data, order, participants, context)'), true);
+  assert.equal(workflowService.includes('userContext = {}'), true);
+  assert.equal(workflowService.includes('assertCanTransitionImportOrder(order, participants, nextStatus, context)'), true);
 });

@@ -58,7 +58,7 @@ export async function updateComplianceReview(id, nextStatus, payload = {}, userC
   await writeDiasporaAudit({ importOrderId: data.import_order_id, tenantId: data.tenant_id, actorId: userContext?.id, action: `COMPLIANCE_${nextStatus}`, resourceType: 'diaspora_compliance_review', resourceId: id, previousState: previous, newState: data, req });
   if (nextStatus === 'APPROVED') {
     try {
-      await transitionImportOrder({ importOrderId: data.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.CUSTOMS_IN_PROGRESS, actorId: userContext?.id, metadata: { complianceReviewId: id }, req });
+      await transitionImportOrder({ importOrderId: data.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.CUSTOMS_IN_PROGRESS, actorId: userContext?.id, userContext, metadata: { complianceReviewId: id }, req });
     } catch (err) {
       console.warn('Skipping automatic compliance transition:', err.message);
     }

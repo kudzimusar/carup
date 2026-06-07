@@ -5,6 +5,7 @@ import { validateImportOrderPayload } from '../../validators/diaspora/diasporaSc
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
+import { assertCanReadImportOrder, requireUserContext } from './diasporaAuthorization.js';
 
 function cleanOrderPayload(payload, userContext) {
   validateImportOrderPayload(payload);
@@ -83,7 +84,19 @@ export async function listImportOrders({ userContext = {}, status, limit = 50, o
   return data || [];
 }
 
-export async function getImportOrder(id) {
+export async function getImportOrderParticipants(importOrderId) {
+  const { data, error } = await supabase
+    .from('diaspora_import_order_participants')
+    .select('*')
+    .eq('import_order_id', importOrderId)
+    .is('deleted_at', null);
+
+  if (error) throw new DatabaseError(error.message);
+  return data || [];
+}
+
+export async function getImportOrder(id, userContext = {}) {
+  const context = requireUserContext(userContext);
   const { data, error } = await supabase
     .from('diaspora_import_orders')
     .select('*, diaspora_import_order_participants(*), diaspora_import_quotes(*), diaspora_trade_documents(*), diaspora_cargo_reservations(*), diaspora_shipments(*), diaspora_compliance_reviews(*), diaspora_payment_milestones(*)')
@@ -92,7 +105,9 @@ export async function getImportOrder(id) {
     .single();
 
   if (error || !data) throw new NotFoundError('Diaspora import order not found');
-  return data;
+  const participants = data.diaspora_import_order_participants || await getImportOrderParticipants(id);
+  assertCanReadImportOrder(data, participants, context);
+  return { ...data, diaspora_import_order_participants: participants };
 }
 
 export async function assignSeller(importOrderId, { sellerId, roleType = 'seller', notes = null }, userContext = {}, req = null) {
@@ -135,7 +150,7 @@ export async function assignSeller(importOrderId, { sellerId, roleType = 'seller
 
   const updatedOrder = order.status === IMPORT_ORDER_STATUSES.SELLER_ASSIGNED
     ? order
-    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.SELLER_ASSIGNED, actorId: userContext?.id, metadata: { sellerId }, req });
+    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.SELLER_ASSIGNED, actorId: userContext?.id, userContext, metadata: { sellerId }, req });
 
   await notifyDiasporaMilestone({
     eventType: 'DIASPORA_SELLER_ASSIGNED',
@@ -189,7 +204,7 @@ export async function addQuote(importOrderId, payload, userContext = {}, req = n
 
   const updatedOrder = order.status === IMPORT_ORDER_STATUSES.QUOTE_ISSUED
     ? order
-    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.QUOTE_ISSUED, actorId: userContext?.id, metadata: { quoteId: quote.id }, req });
+    : await transitionImportOrder({ importOrderId, nextStatus: IMPORT_ORDER_STATUSES.QUOTE_ISSUED, actorId: userContext?.id, userContext, metadata: { quoteId: quote.id }, req });
 
   return { order: updatedOrder, quote };
 }

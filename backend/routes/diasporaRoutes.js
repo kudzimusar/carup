@@ -38,7 +38,7 @@ router.post('/import-orders', auth, asyncHandler(async (req, res) => {
 }));
 
 router.get('/import-orders/:id', auth, asyncHandler(async (req, res) => {
-  res.json(await getImportOrder(req.params.id));
+  res.json(await getImportOrder(req.params.id, req.userContext));
 }));
 
 router.post('/import-orders/:id/assign-seller', auth, asyncHandler(async (req, res) => {
@@ -50,7 +50,7 @@ router.post('/import-orders/:id/quotes', auth, asyncHandler(async (req, res) => 
 }));
 
 router.get('/import-orders/:id/documents', auth, asyncHandler(async (req, res) => {
-  res.json({ data: await listTradeDocuments({ importOrderId: req.params.id, ...pagination(req) }) });
+  res.json({ data: await listTradeDocuments({ importOrderId: req.params.id, ...pagination(req) }, req.userContext) });
 }));
 
 router.post('/import-orders/:id/documents', auth, asyncHandler(async (req, res) => {
@@ -58,13 +58,13 @@ router.post('/import-orders/:id/documents', auth, asyncHandler(async (req, res) 
 }));
 
 router.get('/import-orders/:id/stages', auth, asyncHandler(async (req, res) => {
-  const order = await getImportOrder(req.params.id);
+  const order = await getImportOrder(req.params.id, req.userContext);
   res.json({ status: order.status, audit: await listDiasporaAudit({ importOrderId: req.params.id }) });
 }));
 
 router.patch('/import-orders/:id/stages', auth, asyncHandler(async (req, res) => {
   if (!req.body.status) throw new ValidationError('status is required');
-  res.json(await transitionImportOrder({ importOrderId: req.params.id, nextStatus: req.body.status, actorId: req.userContext.id, metadata: req.body.metadata || {}, req }));
+  res.json(await transitionImportOrder({ importOrderId: req.params.id, nextStatus: req.body.status, actorId: req.userContext.id, userContext: req.userContext, metadata: req.body.metadata || {}, req }));
 }));
 
 router.get('/import-orders/:id/audit', auth, asyncHandler(async (req, res) => {
@@ -98,7 +98,7 @@ router.post('/trade-profiles/:id/suspend', reviewerAuth, asyncHandler(async (req
 
 // Trade Documents (both /documents and /trade-documents are intentionally supported under /api/diaspora)
 async function documentListHandler(req, res) {
-  res.json({ data: await listTradeDocuments({ importOrderId: req.query.importOrderId, verificationStatus: req.query.verificationStatus, ...pagination(req) }) });
+  res.json({ data: await listTradeDocuments({ importOrderId: req.query.importOrderId, verificationStatus: req.query.verificationStatus, ...pagination(req) }, req.userContext) });
 }
 async function documentCreateHandler(req, res) {
   res.status(201).json(await createTradeDocument(req.body, req.userContext, req));
@@ -107,8 +107,8 @@ router.get('/documents', auth, asyncHandler(documentListHandler));
 router.post('/documents', auth, asyncHandler(documentCreateHandler));
 router.get('/trade-documents', auth, asyncHandler(documentListHandler));
 router.post('/trade-documents', auth, asyncHandler(documentCreateHandler));
-router.get('/documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id))));
-router.get('/trade-documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id))));
+router.get('/documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
+router.get('/trade-documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.post('/documents/:id/extractions', auth, asyncHandler(async (req, res) => res.status(201).json(await recordDocumentExtraction(req.params.id, req.body, req.userContext, req))));
 router.post('/documents/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeDocument(req.params.id, req.body, req.userContext, req))));
 router.post('/documents/:id/reject', reviewerAuth, asyncHandler(async (req, res) => res.json(await rejectTradeDocument(req.params.id, req.body, req.userContext, req))));
@@ -151,7 +151,7 @@ router.post('/compliance/:id/flag', reviewerAuth, asyncHandler(async (req, res) 
 router.get('/milestones', auth, asyncHandler(async (req, res) => {
   const order = req.query.importOrderId;
   if (!order) throw new ValidationError('importOrderId query parameter is required');
-  const data = (await getImportOrder(order)).diaspora_payment_milestones || [];
+  const data = (await getImportOrder(order, req.userContext)).diaspora_payment_milestones || [];
   res.json({ data });
 }));
 
