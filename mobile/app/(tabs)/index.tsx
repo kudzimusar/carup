@@ -42,7 +42,7 @@ export default function DashboardScreen() {
         <View className="space-y-3">
           <Pressable 
             onPress={() => handleRoleSwitch('owner')}
-            className={`p-4 rounded-xl border ${user?.role === 'owner' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
+            className={`p-4 rounded-xl min-h-[56px] border ${user?.role === 'owner' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
           >
             <Text className={`font-semibold ${user?.role === 'owner' ? 'text-orange-600' : 'text-slate-800'}`}>Vehicle Owner Portal</Text>
             <Text className="text-slate-400 text-xxs mt-1">Manage private garages, service logs, and listings.</Text>
@@ -50,7 +50,7 @@ export default function DashboardScreen() {
 
           <Pressable 
             onPress={() => handleRoleSwitch('dealer')}
-            className={`p-4 rounded-xl border mt-3 ${user?.role === 'dealer' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
+            className={`p-4 rounded-xl min-h-[56px] border mt-3 ${user?.role === 'dealer' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
           >
             <Text className={`font-semibold ${user?.role === 'dealer' ? 'text-orange-600' : 'text-slate-800'}`}>Dealership Portal</Text>
             <Text className="text-slate-400 text-xxs mt-1">Review showroom inventories, active sales, and buyer leads.</Text>
@@ -58,13 +58,21 @@ export default function DashboardScreen() {
 
           <Pressable 
             onPress={() => handleRoleSwitch('mechanic')}
-            className={`p-4 rounded-xl border mt-3 ${user?.role === 'mechanic' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
+            className={`p-4 rounded-xl min-h-[56px] border mt-3 ${user?.role === 'mechanic' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
           >
             <Text className={`font-semibold ${user?.role === 'mechanic' ? 'text-orange-600' : 'text-slate-800'}`}>Certified Mechanic Portal</Text>
             <Text className="text-slate-400 text-xxs mt-1">Mint immutable Partsentry logs and authorize inspection hashes.</Text>
           </Pressable>
         </View>
       </View>
+
+      {/* KYC Testing Entry Point */}
+      <Pressable 
+        onPress={() => router.push('/(auth)/verification/intro')}
+        className="w-full bg-slate-900 rounded-xl min-h-[56px] justify-center items-center shadow-lg active:opacity-90 mb-6"
+      >
+        <Text className="text-white text-base font-semibold">Start Verification Flow</Text>
+      </Pressable>
 
       {/* Account actions */}
       <Pressable 

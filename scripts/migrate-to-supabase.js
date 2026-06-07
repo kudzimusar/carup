@@ -5,18 +5,36 @@
  * Run once: node scripts/migrate-to-supabase.js
  */
 
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SUPABASE_URL = 'https://vhmnajoeicasaigiophh.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZobW5ham9laWNhc2FpZ2lvcGhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTc5NTgzNSwiZXhwIjoyMDk1MzcxODM1fQ.EojK8VZy95GQnulsEoDBj3LJG4d_Q7f87tv1F4yI-1Q';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_DB_URL = process.env.SUPABASE_DB_URL;
+
+if (!SUPABASE_URL) {
+  throw new Error('FATAL: SUPABASE_URL is missing in environment variables.');
+}
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('FATAL: SUPABASE_SERVICE_ROLE_KEY is missing in environment variables.');
+}
+if (!SUPABASE_DB_URL) {
+  throw new Error('FATAL: SUPABASE_DB_URL is missing in environment variables.');
+}
+
+const projectRef = SUPABASE_URL.match(/https:\/\/(.*)\.supabase\.co/)?.[1] || 'your-project';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false }
+  auth: { autoRefreshToken: false, persistSession: false },
+  realtime: { transport: ws }
 });
 
 // ==========================================
@@ -39,7 +57,7 @@ async function runSQL(sql, description) {
 
 async function applySchema() {
   console.log('\n🚀 CarUp OS — Applying Supabase Schema\n');
-  console.log('Project: vhmnajoeicasaigiophh');
+  console.log('Project:', projectRef);
   console.log('URL:', SUPABASE_URL);
   console.log('');
 
@@ -55,12 +73,12 @@ async function applySchema() {
     if (testError.message.includes('relation "vehicles" does not exist')) {
       console.log('⚠️  Tables don\'t exist yet — schema needs to be applied via Supabase Dashboard.');
       console.log('\n📋 INSTRUCTIONS:');
-      console.log('   1. Go to: https://supabase.com/dashboard/project/vhmnajoeicasaigiophh/sql');
+      console.log(`   1. Go to: https://supabase.com/dashboard/project/${projectRef}/sql`);
       console.log('   2. Click "New query"');
       console.log('   3. Paste the contents of: database/migrations/supabase_schema.sql');
       console.log('   4. Click "Run"');
       console.log('\n   OR use the Supabase CLI:');
-      console.log('   npx supabase db push --db-url postgresql://postgres:HVYbYVb1x2ErqzH4@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres');
+      console.log('   npx supabase db push --db-url <SUPABASE_DB_URL>');
     } else {
       console.log('❌ Connection test failed:', testError.message);
     }

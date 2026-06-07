@@ -24,7 +24,7 @@ router.post('/api/compliance/registry/:id/update', authorizeRole(['government', 
   const { status, notes } = req.body;
   const { data, error } = await supabase
     .from('registry_verifications')
-    .update({ status, notes, verified_by: req.userContext.userId, verification_date: new Date().toISOString() })
+    .update({ status, notes, verified_by: req.userContext.id, verification_date: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();

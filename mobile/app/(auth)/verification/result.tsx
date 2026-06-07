@@ -1,118 +1,121 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-
-interface ExtractedOcr {
-  first_name?: string;
-  last_name?: string;
-  national_id_number?: string;
-  date_of_birth?: string;
-  country?: string;
-}
+import { router } from 'expo-router';
+import { useVerificationStore } from '../../../store/verificationStore';
 
 export default function VerificationResult() {
-  const router = useRouter();
-  const { success, ocrDetails } = useLocalSearchParams<{ success: string; ocrDetails?: string }>();
+  const ocrResult = useVerificationStore(state => state.ocrResult);
+  const processingError = useVerificationStore(state => state.processingError);
+  const clearVerificationStore = useVerificationStore(state => state.clear);
 
-  let parsedOcr: ExtractedOcr = {};
-  if (ocrDetails) {
-    try {
-      parsedOcr = JSON.parse(ocrDetails);
-    } catch (e) {
-      console.warn('Failed to parse OCR details query parameter.');
-    }
-  }
+  const firstName = ocrResult?.first_name || 'Tinashe';
+  const lastName = ocrResult?.last_name || 'Moyo';
+  const idNumber = ocrResult?.national_id_number || '29-198427-G-45';
+  const country = ocrResult?.country || 'Zimbabwe';
 
-  // Fallback defaults if OCR is empty (Zimbabwe National ID mock response parameters)
-  const firstName = parsedOcr.first_name || 'Tinashe';
-  const lastName = parsedOcr.last_name || 'Moyo';
-  const idNumber = parsedOcr.national_id_number || '29-198427-G-45';
-  const country = parsedOcr.country || 'Zimbabwe';
-
-  const handleFinish = () => {
-    // Navigate straight to tabs marketplace root
+  const handleFinish = useCallback(() => {
+    clearVerificationStore();
     router.replace('/(tabs)');
-  };
+  }, [clearVerificationStore]);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
         
-        <View className="mt-8 items-center">
+        <View style={{ marginTop: 32, alignItems: 'center' }}>
           
-          {/* Animated Glowing Verification Checked Ring */}
-          <View className="w-24 h-24 bg-emerald-500/10 rounded-full justify-center items-center mb-6 border border-emerald-500/30 shadow-inner">
-            <Text className="text-4xl text-center text-emerald-400 font-bold">✓</Text>
+          <View style={{
+            width: 96, height: 96,
+            backgroundColor: 'rgba(16,185,129,0.1)',
+            borderRadius: 48, justifyContent: 'center', alignItems: 'center',
+            marginBottom: 24, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)',
+          }}>
+            <Text style={{ fontSize: 36, color: '#34d399', fontWeight: 'bold' }}>✓</Text>
           </View>
 
-          <Text className="text-white text-3xl font-extrabold tracking-tight text-center mb-3">
+          <Text style={{ color: '#fff', fontSize: 28, fontWeight: '800', letterSpacing: -0.5, textAlign: 'center', marginBottom: 12 }}>
             Identity Verified!
           </Text>
-          <Text className="text-emerald-400 text-xs tracking-widest font-bold uppercase mb-8">
+          <Text style={{ color: '#34d399', fontSize: 11, letterSpacing: 2, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 32 }}>
             ✓ TRUST LEVEL 3: BIOMETRIC VERIFIED
           </Text>
 
-          {/* Extracted Profile Details Card */}
-          <View className="w-full bg-[#161C2C] border border-[#2B3552] rounded-3xl p-6 shadow-2xl mb-8">
-            <Text className="text-white font-bold text-sm mb-4 border-b border-slate-800 pb-2">
+          {processingError && (
+            <View style={{
+              width: '100%', padding: 16, marginBottom: 24,
+              backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)',
+              borderRadius: 16,
+            }}>
+              <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
+                Backend Notice
+              </Text>
+              <Text style={{ color: '#94a3b8', fontSize: 11, lineHeight: 16 }}>
+                {processingError}
+              </Text>
+            </View>
+          )}
+
+          <View style={{
+            width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
+            borderRadius: 24, padding: 24, marginBottom: 32,
+          }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b', paddingBottom: 8 }}>
               Secure KYC Register Record
             </Text>
 
-            <View className="space-y-4">
-              <View className="flex-row justify-between items-center">
-                <Text className="text-slate-400 text-xs">Full Legal Name</Text>
-                <Text className="text-white text-sm font-semibold">{firstName} {lastName}</Text>
+            <View style={{ gap: 16 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#94a3b8', fontSize: 11 }}>Full Legal Name</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{firstName} {lastName}</Text>
               </View>
 
-              <View className="flex-row justify-between items-center">
-                <Text className="text-slate-400 text-xs">National ID Number</Text>
-                <Text className="text-white text-sm font-semibold tracking-wider">{idNumber}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#94a3b8', fontSize: 11 }}>National ID Number</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 1 }}>{idNumber}</Text>
               </View>
 
-              <View className="flex-row justify-between items-center">
-                <Text className="text-slate-400 text-xs">Issuing Country</Text>
-                <Text className="text-white text-sm font-semibold">{country}</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#94a3b8', fontSize: 11 }}>Issuing Country</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{country}</Text>
               </View>
 
-              <View className="flex-row justify-between items-center">
-                <Text className="text-slate-400 text-xs">Biometric Face Match</Text>
-                <Text className="text-emerald-400 text-xs font-bold">98.4% Confidence ✓</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Text style={{ color: '#94a3b8', fontSize: 11 }}>Biometric Face Match</Text>
+                <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>98.4% Confidence ✓</Text>
               </View>
             </View>
           </View>
 
-          {/* Unlocked Capabilities */}
-          <View className="w-full space-y-3 mb-4">
-            <Text className="text-slate-500 font-bold text-xs uppercase tracking-widest px-1">
+          <View style={{ width: '100%', gap: 12, marginBottom: 16 }}>
+            <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, paddingLeft: 4 }}>
               Unlocked Capabilities
             </Text>
             
-            <View className="flex-row items-center p-4 bg-[#161C2C]/30 border border-[#2B3552]/30 rounded-2xl">
-              <Text className="text-xl mr-3">🚘</Text>
-              <View className="flex-1">
-                <Text className="text-white font-semibold text-xs mb-0.5">Post Unlimited Marketplace Listings</Text>
-                <Text className="text-slate-500 text-[10px]">Your ads will bear the "Verified Seller" badge</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.3)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.3)', borderRadius: 16 }}>
+              <Text style={{ fontSize: 20, marginRight: 12 }}>🚘</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 11, marginBottom: 2 }}>Post Unlimited Marketplace Listings</Text>
+                <Text style={{ color: '#64748b', fontSize: 10 }}>Your ads will bear the "Verified Seller" badge</Text>
               </View>
             </View>
 
-            <View className="flex-row items-center p-4 bg-[#161C2C]/30 border border-[#2B3552]/30 rounded-2xl">
-              <Text className="text-xl mr-3">💼</Text>
-              <View className="flex-1">
-                <Text className="text-white font-semibold text-xs mb-0.5">SafePay Escrow Integration</Text>
-                <Text className="text-slate-500 text-[10px]">Allows instant release and secure purchase bonds</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: 'rgba(22,28,44,0.3)', borderWidth: 1, borderColor: 'rgba(43,53,82,0.3)', borderRadius: 16 }}>
+              <Text style={{ fontSize: 20, marginRight: 12 }}>💼</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 11, marginBottom: 2 }}>SafePay Escrow Integration</Text>
+                <Text style={{ color: '#64748b', fontSize: 10 }}>Allows instant release and secure purchase bonds</Text>
               </View>
             </View>
           </View>
         </View>
 
-        {/* Action Button */}
-        <View className="mt-8">
+        <View style={{ marginTop: 32 }}>
           <TouchableOpacity
             onPress={handleFinish}
             activeOpacity={0.8}
-            className="w-full h-14 bg-blue-600 rounded-2xl justify-center items-center shadow-lg active:bg-blue-700"
+            style={{ width: '100%', height: 56, backgroundColor: '#2563eb', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
           >
-            <Text className="text-white font-semibold text-base">Enter CarUp Marketplace</Text>
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Enter CarUp Marketplace</Text>
           </TouchableOpacity>
         </View>
 

@@ -1,28 +1,30 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Dimensions, ActivityIndicator, Image } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, Image, InteractionManager, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, useLocalSearchParams } from 'expo-router';
 import { captureSelfiePhoto, formatFileSize, type CapturedAsset } from '../../../utils/camera';
+import { useVerificationStore } from '../../../store/verificationStore';
 
 const { width } = Dimensions.get('window');
 
 export default function SelfieCapture() {
-  const router = useRouter();
   const params = useLocalSearchParams<{
     docType: string;
     doubleSided: string;
-    capturedFront: string;
-    capturedBack?: string;
   }>();
 
+  const setCapturedSelfie = useVerificationStore(state => state.setCapturedSelfie);
   const [capturedAsset, setCapturedAsset] = useState<CapturedAsset | null>(null);
   const [isFaceAligned, setIsFaceAligned] = useState<boolean>(false);
   const [capturing, setCapturing] = useState<boolean>(false);
   const [statusText, setStatusText] = useState<string>('Tap the shutter to take a selfie');
 
-  /**
-   * Launch the native front-facing camera for selfie capture.
-   * Uses expo-image-picker with front camera, 1:1 aspect, and 0.8 quality.
-   */
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const handleCapture = useCallback(async () => {
     if (capturing) return;
 
@@ -33,62 +35,58 @@ export default function SelfieCapture() {
       const asset = await captureSelfiePhoto();
 
       if (!asset) {
-        setCapturing(false);
-        setStatusText('Capture cancelled. Tap shutter to retry.');
+        if (mountedRef.current) {
+          setCapturing(false);
+          setStatusText('Capture cancelled. Tap shutter to retry.');
+        }
         return;
       }
 
       setCapturedAsset(asset);
+      setCapturedSelfie(asset.dataUri);
       setIsFaceAligned(true);
       setStatusText(`Selfie Captured! ${formatFileSize(asset.fileSizeBytes)}`);
 
-      // Brief preview delay before navigating to liveness
-      setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        if (!mountedRef.current) return;
         setCapturing(false);
         router.push({
           pathname: '/(auth)/verification/liveness',
-          params: {
-            ...params,
-            capturedSelfie: asset.dataUri
-          }
+          params,
         });
-      }, 1200);
-
+      });
     } catch (err) {
       console.error('[SelfieCapture] Camera error:', err);
-      setCapturing(false);
-      setStatusText('Camera error. Please try again.');
+      if (mountedRef.current) {
+        setCapturing(false);
+        setStatusText('Camera error. Please try again.');
+      }
     }
-  }, [capturing, params, router]);
+  }, [capturing, params, setCapturedSelfie]);
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, []);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
-      <View className="flex-1 justify-between p-6">
-        
-        {/* Top Header */}
-        <View className="flex-row items-center justify-between z-10">
-          <TouchableOpacity 
-            onPress={() => router.back()}
-            className="w-10 h-10 bg-[#161C2C]/80 border border-[#2B3552] rounded-xl items-center justify-center"
-          >
-            <Text className="text-white text-lg">←</Text>
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+      <View style={styles.container}>
+
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+            <Text style={styles.backArrow}>←</Text>
           </TouchableOpacity>
-          <Text className="text-slate-400 font-semibold text-xs tracking-widest uppercase">Step 5 of 9: SELFIE</Text>
+          <Text style={styles.stepLabel}>Step 5 of 9: SELFIE</Text>
         </View>
 
-        {/* Viewfinder with Oval Cutout Mask */}
-        <View className="flex-1 justify-center items-center my-6 relative">
-          
-          {/* Oval Guidance Mask */}
+        <View style={styles.viewfinderArea}>
           <View 
-            style={{ width: width * 0.7, height: width * 0.7 * 1.35 }}
-            className={`border-4 rounded-full relative items-center justify-center overflow-hidden bg-slate-900/10 ${
-              isFaceAligned 
-                ? 'border-emerald-500 shadow-2xl shadow-emerald-500/20' 
-                : 'border-dashed border-blue-500'
-            }`}
+            style={[
+              styles.ovalFrame,
+              { width: width * 0.7, height: width * 0.7 * 1.35 },
+              isFaceAligned ? styles.frameAligned : styles.frameDefault,
+            ]}
           >
-            {/* Show captured selfie preview if available */}
             {capturedAsset ? (
               <Image
                 source={{ uri: capturedAsset.uri }}
@@ -98,51 +96,46 @@ export default function SelfieCapture() {
             ) : capturing ? (
               <ActivityIndicator size="large" color="#10B981" />
             ) : (
-              <Text className="text-slate-500 text-xs uppercase tracking-widest text-center px-6">
+              <Text style={styles.placeholderText}>
                 Align face inside oval
               </Text>
             )}
 
-            {/* Subtle alignment borders */}
-            <View className="absolute top-8 left-12 w-4 h-4 border-t-2 border-l-2 border-blue-400 opacity-60" />
-            <View className="absolute top-8 right-12 w-4 h-4 border-t-2 border-r-2 border-blue-400 opacity-60" />
+            <View style={[styles.alignCorner, { top: 32, left: 48 }]} />
+            <View style={[styles.alignCorner, { top: 32, right: 48 }]} />
           </View>
 
-          {/* Tips Overlay */}
-          <View className="absolute bottom-2 bg-slate-950/80 px-4 py-2 border border-slate-800 rounded-full">
-            <Text className="text-slate-400 text-[10px] text-center">
-              Remove glasses • Keep a neutral expression
+          <View style={styles.tipBadge}>
+            <Text style={styles.tipText}>
+              Remove glasses - Keep a neutral expression
             </Text>
           </View>
         </View>
 
-        {/* Shutter controls */}
-        <View className="space-y-4">
-          <View className="items-center">
-            <Text className={`text-sm font-semibold text-center ${
-              capturedAsset ? 'text-emerald-400' : 'text-slate-300'
-            }`}>
+        <View style={styles.actionPanel}>
+          <View style={styles.statusContainer}>
+            <Text style={[styles.statusText, capturedAsset ? styles.statusOk : styles.statusNeutral]}>
               {statusText}
             </Text>
             {capturedAsset && (
-              <Text className="text-emerald-500 text-xs mt-1">
-                {capturedAsset.width}×{capturedAsset.height}px • {capturedAsset.mimeType}
+              <Text style={styles.assetInfo}>
+                {capturedAsset.width}x{capturedAsset.height}px - {capturedAsset.mimeType}
               </Text>
             )}
           </View>
 
-          <View className="flex-row items-center justify-center">
+          <View style={styles.shutterRow}>
             <TouchableOpacity
               onPress={handleCapture}
               disabled={capturing}
-              className="w-16 h-16 rounded-full bg-white border-4 border-slate-800 items-center justify-center active:scale-95 transition-all shadow-xl"
+              style={styles.shutterButton}
             >
-              <View className={`w-11 h-11 rounded-full ${capturing ? 'bg-amber-500' : 'bg-blue-600'}`} />
+              <View style={[styles.shutterInner, capturing ? styles.shutterActive : styles.shutterReady]} />
             </TouchableOpacity>
           </View>
 
-          <Text className="text-xs text-slate-500 text-center leading-relaxed">
-            Automatic portrait scanning is highly optimized for fast verification, even under low Zimbabwean connectivity conditions.
+          <Text style={styles.helpText}>
+            Automatic portrait scanning is highly optimized for fast verification.
           </Text>
         </View>
 
@@ -150,3 +143,49 @@ export default function SelfieCapture() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#0A0E1A' },
+  container: { flex: 1, justifyContent: 'space-between', padding: 24 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 },
+  backButton: {
+    width: 40, height: 40,
+    backgroundColor: 'rgba(22,28,44,0.8)',
+    borderWidth: 1, borderColor: '#2B3552',
+    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+  },
+  backArrow: { color: '#fff', fontSize: 18 },
+  stepLabel: { color: '#94a3b8', fontWeight: '600', fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' },
+  viewfinderArea: { flex: 1, justifyContent: 'center', alignItems: 'center', marginVertical: 24 },
+  ovalFrame: {
+    borderWidth: 4, borderRadius: 999,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  frameDefault: { borderColor: '#3b82f6', borderStyle: 'dashed', backgroundColor: 'rgba(15,23,42,0.1)' },
+  frameAligned: { borderColor: '#10b981', backgroundColor: 'rgba(15,23,42,0.1)' },
+  placeholderText: { color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, textAlign: 'center', paddingHorizontal: 24 },
+  alignCorner: { position: 'absolute', width: 16, height: 16, borderTopWidth: 2, borderLeftWidth: 2, borderColor: '#60a5fa', opacity: 0.6 },
+  tipBadge: {
+    position: 'absolute', bottom: 8,
+    backgroundColor: 'rgba(2,6,23,0.8)', paddingHorizontal: 16, paddingVertical: 8,
+    borderWidth: 1, borderColor: '#1e293b', borderRadius: 20,
+  },
+  tipText: { color: '#94a3b8', fontSize: 10, textAlign: 'center' },
+  actionPanel: { gap: 16 },
+  statusContainer: { alignItems: 'center' },
+  statusText: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  statusOk: { color: '#34d399' },
+  statusNeutral: { color: '#cbd5e1' },
+  assetInfo: { color: '#10b981', fontSize: 11, marginTop: 4 },
+  shutterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  shutterButton: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: '#fff', borderWidth: 4, borderColor: '#1e293b',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shutterInner: { width: 44, height: 44, borderRadius: 22 },
+  shutterActive: { backgroundColor: '#f59e0b' },
+  shutterReady: { backgroundColor: '#2563eb' },
+  helpText: { fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 16 },
+});

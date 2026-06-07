@@ -6,15 +6,44 @@ function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
 }
 
+export function isUserIdFallbackAllowed(env = process.env) {
+  return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true' ||
+    env.NODE_ENV === 'test' ||
+    env.NODE_ENV === 'development' ||
+    env.NODE_ENV === 'local';
+}
+
+export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRole = null }) {
+  const platformRole = normalizeRole(userRole) || 'member';
+  const trustedTenantRole = normalizeRole(tenantRole);
+  const requested = normalizeRole(requestedRole);
+
+  if (!requested) {
+    return platformRole;
+  }
+
+  if (requested === platformRole) {
+    return requested;
+  }
+
+  if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') {
+    return requested;
+  }
+
+  const error = new Error(`Forbidden. Requested role '${requested}' is not verified for this user context.`);
+  error.statusCode = 403;
+  throw error;
+}
+
 export function authorizeRole(allowedRoles = []) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'];
     const requestedRole = normalizeRole(req.headers['x-stakeholder-role']);
-    const fallbackUserId = req.headers['x-user-id']; // Temporary dev fallback if no token
+    const fallbackUserId = req.headers['x-user-id'];
 
     try {
-      let activeUserId = fallbackUserId;
+      let activeUserId = null;
 
       // 1. Validate Session Token
       if (sessionToken) {
@@ -28,6 +57,13 @@ export function authorizeRole(allowedRoles = []) {
           return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
         }
         activeUserId = session.user_id;
+      }
+
+      if (!activeUserId && fallbackUserId) {
+        if (!isUserIdFallbackAllowed()) {
+          return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
+        }
+        activeUserId = fallbackUserId;
       }
 
       if (!activeUserId) {
@@ -63,11 +99,11 @@ export function authorizeRole(allowedRoles = []) {
         tenantRole = normalizeRole(tenantUser.role); // e.g., 'admin', 'manager', 'mechanic'
       }
 
-      if (requestedRole && requestedRole !== platformRole && requestedRole !== tenantRole) {
-        return res.status(403).json({ error: `Forbidden. You do not hold requested role '${requestedRole}'.` });
-      }
-
-      const effectiveRole = requestedRole || tenantRole || platformRole;
+      const effectiveRole = resolveEffectiveRole({
+        userRole: platformRole,
+        tenantRole,
+        requestedRole,
+      });
       const allowed = allowedRoles.map(normalizeRole);
 
       // 4. Enforce Route Role Permissions
@@ -76,19 +112,23 @@ export function authorizeRole(allowedRoles = []) {
       }
 
       // 5. Inject Context for Downstream Routes
-      req.userContext = { 
-        id: activeUserId, 
+      req.userContext = {
+        id: activeUserId,
+        userId: activeUserId,
         role: effectiveRole,
+        effectiveRole,
+        baseRole: platformRole,
         platformRole,
         tenantRole,
         tenantId: tenantIdHeader || null,
         requestedRole,
         isVerified: Boolean(user.is_verified),
       };
-      
+
       next();
     } catch (error) {
-      res.status(500).json({ error: 'Internal auth validation failed: ' + error.message });
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({ error: error.message });
     }
   };
 }

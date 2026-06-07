@@ -1,9 +1,14 @@
 import express from 'express';
 import crypto from 'crypto';
-import { uploadToStorage, generateSecureReadUrl } from './storageService.js';
+import path from 'path';
+import { uploadToStorage, generateSecureReadUrl, generateSecureUploadUrl } from './storageService.js';
 import { authorizeRole } from '../../middleware/authMiddleware.js';
+import { supabase } from '../../db/supabase.js';
+import { logAuditEvent } from '../auditLogger.js';
 
 const router = express.Router();
+
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 
 /**
  * Utility: Parse Base64 Image string into MimeType and Binary Buffer
@@ -17,6 +22,63 @@ function parseBase64Payload(base64Str) {
   const mimeType = matches[1];
   const fileBuffer = Buffer.from(matches[2], 'base64');
   return { mimeType, fileBuffer };
+}
+
+/**
+ * Validate MIME magic bytes to prevent MIME spoofing
+ */
+function verifyMimeMagicBytes(buffer, mimeType) {
+  if (buffer.length < 4) {
+    throw new Error('File payload too small to verify magic bytes.');
+  }
+
+  // PNG: 89 50 4E 47
+  if (mimeType === 'image/png') {
+    return buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+  }
+  // JPEG: FF D8 FF
+  else if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+    return buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
+  }
+  // PDF: 25 50 44 46 (%PDF)
+  else if (mimeType === 'application/pdf') {
+    return buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46;
+  }
+  
+  return true; // Pass unrecognized types, but restrict allowed types
+}
+
+/**
+ * Stub malware scanning hook
+ */
+function scanForMalware(buffer) {
+  const content = buffer.toString('binary');
+
+  // Check for EICAR test string signature
+  if (content.includes('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')) {
+    return { clean: false, reason: 'Malware signature matches EICAR test file.' };
+  }
+
+  // Check for suspicious script elements or tags embedded inside binaries
+  const suspiciousPatterns = [
+    '<?php',
+    '<?=',
+    '<script',
+    'javascript:',
+    'onload=',
+    'onerror=',
+    'eval(',
+    'exec(',
+    'system('
+  ];
+
+  for (const pattern of suspiciousPatterns) {
+    if (content.toLowerCase().includes(pattern)) {
+      return { clean: false, reason: `Suspicious code injection pattern detected: "${pattern}"` };
+    }
+  }
+
+  return { clean: true };
 }
 
 /**
@@ -41,6 +103,34 @@ router.post('/upload/vehicle', async (req, res) => {
     for (let idx = 0; idx < imageList.length; idx++) {
       const base64Str = imageList[idx];
       const { mimeType, fileBuffer } = parseBase64Payload(base64Str);
+
+      // Enforce file size limit
+      if (fileBuffer.length > MAX_UPLOAD_SIZE) {
+        return res.status(400).json({ error: `File size exceeds policy limit of 10MB.` });
+      }
+
+      // Check MIME spoofing
+      if (!verifyMimeMagicBytes(fileBuffer, mimeType)) {
+        await logAuditEvent(supabase, {
+          req,
+          event_type: 'SECURITY_MIME_SPOOFING_DETECTED',
+          vin,
+          reason: `MIME spoofing blocked. File claims to be ${mimeType} but magic bytes do not match.`
+        }).catch(() => {});
+        return res.status(400).json({ error: `MIME verification failed. File structure does not match ${mimeType}.` });
+      }
+
+      // Malware scan
+      const scanResult = scanForMalware(fileBuffer);
+      if (!scanResult.clean) {
+        await logAuditEvent(supabase, {
+          req,
+          event_type: 'SECURITY_MALWARE_DETECTED',
+          vin,
+          reason: `Upload rejected due to malware detection: ${scanResult.reason}`
+        }).catch(() => {});
+        return res.status(400).json({ error: `Malware scan failed: ${scanResult.reason}` });
+      }
 
       // Generate a secure, unique, and sequential filename
       const fileExt = mimeType.split('/')[1] || 'jpg';
@@ -78,6 +168,34 @@ router.post('/upload/document', authorizeRole(), async (req, res) => {
   try {
     const { mimeType, fileBuffer } = parseBase64Payload(document);
 
+    // Enforce file size limit
+    if (fileBuffer.length > MAX_UPLOAD_SIZE) {
+      return res.status(400).json({ error: `File size exceeds policy limit of 10MB.` });
+    }
+
+    // Check MIME spoofing
+    if (!verifyMimeMagicBytes(fileBuffer, mimeType)) {
+      await logAuditEvent(supabase, {
+        req,
+        event_type: 'SECURITY_MIME_SPOOFING_DETECTED',
+        vin,
+        reason: `MIME spoofing blocked. Document claims to be ${mimeType} but magic bytes do not match.`
+      }).catch(() => {});
+      return res.status(400).json({ error: `MIME verification failed. File structure does not match ${mimeType}.` });
+    }
+
+    // Malware scan
+    const scanResult = scanForMalware(fileBuffer);
+    if (!scanResult.clean) {
+      await logAuditEvent(supabase, {
+        req,
+        event_type: 'SECURITY_MALWARE_DETECTED',
+        vin,
+        reason: `Upload rejected due to malware detection: ${scanResult.reason}`
+      }).catch(() => {});
+      return res.status(400).json({ error: `Malware scan failed: ${scanResult.reason}` });
+    }
+
     // Generate unique secure filename
     const fileExt = mimeType.split('/')[1] || 'pdf';
     const randomString = crypto.randomBytes(6).toString('hex');
@@ -96,6 +214,75 @@ router.post('/upload/document', authorizeRole(), async (req, res) => {
   } catch (err) {
     console.error('❌ [Media Router] Secure document upload failed:', err.message);
     res.status(500).json({ error: err.message || 'Secure document pipeline upload error' });
+  }
+});
+
+/**
+ * GET /api/media/upload/signed-url
+ * 
+ * Scoped and audited signed upload URL generator.
+ * Only allowed for authenticated owner, dealer, or admin roles.
+ */
+router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+  const { bucket, vin, fileName, fileType, fileSize } = req.query;
+
+  if (!bucket || !vin || !fileName || !fileType || !fileSize) {
+    return res.status(400).json({ error: 'Missing mandatory parameters: bucket, vin, fileName, fileType, fileSize' });
+  }
+
+  // 1. Strict bucket validation
+  const allowedBuckets = ['vehicle-images', 'ocr-documents'];
+  if (!allowedBuckets.includes(bucket)) {
+    return res.status(400).json({ error: 'Forbidden. Invalid upload bucket.' });
+  }
+
+  // 2. Strict path prefix validation: must start with VIN (uppercase, 17 characters alphanumeric)
+  const cleanVin = vin.trim().toUpperCase();
+  if (!/^[A-Z0-9]{17}$/.test(cleanVin)) {
+    return res.status(400).json({ error: 'Invalid VIN format. Must be exactly 17 alphanumeric characters.' });
+  }
+
+  // Clean filename to prevent path traversal
+  const cleanFileName = path.basename(fileName).replace(/[^a-zA-Z0-9_.-]/g, '');
+  const destinationPath = `${cleanVin}/${cleanFileName}`;
+
+  // 3. Strict file type and size policy validation
+  const sizeLimit = bucket === 'ocr-documents' ? 5 * 1024 * 1024 : 10 * 1024 * 1024; // 5MB for docs, 10MB for images
+  const sizeNum = Number(fileSize);
+  if (isNaN(sizeNum) || sizeNum <= 0 || sizeNum > sizeLimit) {
+    return res.status(400).json({ error: `File size exceeds allowed policy limit of ${sizeLimit / (1024 * 1024)}MB.` });
+  }
+
+  const allowedTypes = bucket === 'ocr-documents' 
+    ? ['application/pdf', 'image/jpeg', 'image/png'] 
+    : ['image/jpeg', 'image/jpg', 'image/png'];
+  if (!allowedTypes.includes(fileType)) {
+    return res.status(400).json({ error: `File type ${fileType} is not allowed for bucket ${bucket}.` });
+  }
+
+  try {
+    // Generate secure upload URL with short expiry (e.g., 300 seconds)
+    const { signedUrl, token } = await generateSecureUploadUrl(bucket, destinationPath, 300);
+
+    // Audit trace logging
+    await logAuditEvent(supabase, {
+      req,
+      event_type: 'SECURITY_SIGNED_UPLOAD_URL_GENERATED',
+      vin: cleanVin,
+      reason: `Generated temporary signed upload URL for ${bucket}/${destinationPath}`,
+      metadata: {
+        bucket,
+        destinationPath,
+        fileType,
+        fileSize: sizeNum,
+        expiresIn: 300
+      }
+    });
+
+    res.json({ signedUrl, token, path: destinationPath });
+  } catch (err) {
+    console.error('❌ [Media Router] Signed upload URL generation failed:', err.message);
+    res.status(500).json({ error: 'Failed to generate secure upload policy.' });
   }
 });
 

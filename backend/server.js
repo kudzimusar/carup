@@ -10,7 +10,7 @@ import { supabase } from './db/supabase.js';
 import { authorizeRole } from './middleware/authMiddleware.js';
 
 // Import Services
-import { getVehicleTimeline, runOdometerAudit, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
+import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
@@ -33,10 +33,22 @@ import paymentRouter from './services/payment/paymentRouter.js';
 // ✅ Phase 7: Object Storage & Media Router Imports
 import mediaRouter from './services/storage/mediaRouter.js';
 import documentIntelligenceRouter from './services/document-intelligence/documentIntelligenceRouter.js';
+import { mergeEventsWithEvidence, normalizeEvidenceRecord } from './services/evidence/evidenceService.js';
+import { logAuditEvent } from './services/auditLogger.js';
 
 // Central Error Handling Imports
 import errorHandler from './middleware/errorMiddleware.js';
-import { NotFoundError } from './utils/errors.js';
+import correlationMiddleware from './middleware/correlationMiddleware.js';
+import telemetryMiddleware from './middleware/telemetryMiddleware.js';
+import { metricsHub } from './services/metrics.js';
+import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
+import { 
+  securityHeadersMiddleware, 
+  rateLimiter, 
+  csrfMiddleware, 
+  generateCsrfToken,
+  parseCookies
+} from './middleware/securityMiddleware.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -48,9 +60,12 @@ import claimsRouter from './routes/claimsRoutes.js';
 // Centralized Routes Imports (Batch 2)
 import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import marketplaceRouter from './routes/marketplaceRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
+import trustFactRouter from './routes/trustFactRoutes.js';
+import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 
 dotenv.config();
 
@@ -72,11 +87,105 @@ if (
 }
 
 const app = express();
+app.use(correlationMiddleware);
+app.use(telemetryMiddleware);
+app.use(securityHeadersMiddleware);
+app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
+
+// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+
 const PORT = process.env.PORT || 5001;
 
-app.use(cors());
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is local development
+    const isLocal = origin.startsWith('http://localhost:') || 
+                    origin.startsWith('http://127.0.0.1:') ||
+                    origin === 'http://localhost' ||
+                    origin === 'http://127.0.0.1';
+                    
+    // Check if origin is vercel preview/prod domain
+    const isVercel = origin.endsWith('.vercel.app');
+    
+    // Check if origin is explicitly allowed
+    const isAllowed = allowedOrigins.includes(origin);
+    
+    if (isLocal || isVercel || isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.use(csrfMiddleware);
+
+// Signed CSRF token route
+app.get('/api/security/csrf-token', (req, res) => {
+  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const currentUserId = req.headers['x-user-id'] || 'guest';
+  const token = generateCsrfToken(currentUserId, sessionToken);
+  res.cookie('csrf-token', token, {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 3600000 * 2
+  });
+  res.json({ csrfToken: token });
+});
+
+// Expose operational health and metrics endpoint
+app.get('/api/health', async (req, res) => {
+  let supabaseHealth = 'healthy';
+  let outboxBacklog = 0;
+  try {
+    const { count, error } = await supabase
+      .from('domain_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    if (error) {
+      supabaseHealth = 'unhealthy';
+    } else {
+      outboxBacklog = count || 0;
+    }
+  } catch (e) {
+    supabaseHealth = 'unhealthy';
+  }
+
+  const snapshot = metricsHub.getSnapshot();
+
+  res.json({
+    status: 'UP',
+    timestamp: new Date().toISOString(),
+    supabase: {
+      status: supabaseHealth,
+      outboxBacklog
+    },
+    sentry: {
+      enabled: !!process.env.SENTRY_DSN
+    },
+    ocrProviders: {
+      gemini: !!process.env.GEMINI_API_KEY,
+      groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
+      openrouter: !!process.env.OPENROUTER_API_KEY,
+      moonshot: !!process.env.MOONSHOT_API_KEY
+    },
+    metrics: snapshot
+  });
+});
 
 // Mount payment gateway unified routes
 app.use('/api/payments', paymentRouter);
@@ -96,9 +205,11 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
+app.use(marketplaceRouter);
 app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
+app.use(trustFactRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -121,31 +232,70 @@ if (connectionError) {
 }
 
 // --- PILLAR 20: AUTH & STAKEHOLDER PORTAL SWITCHING ---
-app.post('/api/auth/switch-role', async (req, res) => {
+app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
   const { userId, role, tenantId } = req.body;
+  const auditBase = {
+    req,
+    source_route: '/api/auth/switch-role',
+    actor_user_id: req.userContext?.id,
+    actor_role: req.userContext?.role,
+    actor_tenant_id: req.userContext?.tenantId,
+    previous_value: {
+      role: req.userContext?.role,
+      tenantId: req.userContext?.tenantId || null
+    },
+    new_value: {
+      role: role || null,
+      tenantId: tenantId || null
+    }
+  };
   
   try {
+    await logAuditEvent(supabase, {
+      ...auditBase,
+      event_type: 'ROLE_SWITCH_REQUESTED'
+    });
+
+    // 1. Requester can only switch their own user context
+    if (userId !== req.userContext.id) {
+      throw new ForbiddenError('Forbidden. You can only switch your own role.');
+    }
+
+    // 2. Validate role matches the system's approved role catalog:
+    const approvedRoles = ['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin', 'bank'];
+    if (!role || !approvedRoles.includes(role)) {
+      throw new ForbiddenError(`Forbidden. Role '${role}' is not in the approved role catalog.`);
+    }
+
     const { data: user, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('id', userId)
       .single();
       
-    if (userError || !user) return res.status(404).json({ error: 'User record not found' });
+    if (userError || !user) throw new NotFoundError('User record not found');
     
     // Fetch organization/tenant context if tenantId provided
     let verifiedTenantId = null;
+    let verifiedTenantRole = null;
     if (tenantId) {
       const { data: tenantUser } = await supabase
         .from('tenant_users')
-        .select('tenant_id')
+        .select('tenant_id, role')
         .eq('user_id', userId)
         .eq('tenant_id', tenantId)
         .single();
         
-      if (tenantUser) {
-        verifiedTenantId = tenantUser.tenant_id;
+      if (!tenantUser) {
+        throw new ForbiddenError('Forbidden. You do not belong to this organization.');
       }
+      verifiedTenantId = tenantUser.tenant_id;
+      verifiedTenantRole = tenantUser.role;
+    }
+
+    const canAssumeRequestedRole = role === user.role || (verifiedTenantRole && role === verifiedTenantRole && role !== 'admin');
+    if (!canAssumeRequestedRole) {
+      throw new ForbiddenError(`Forbidden. Role '${role}' is not verified for this user context.`);
     }
     
     // Generate secure session
@@ -162,6 +312,14 @@ app.post('/api/auth/switch-role', async (req, res) => {
       is_valid: true
     });
     
+    await logAuditEvent(supabase, {
+      ...auditBase,
+      event_type: 'ROLE_SWITCH_GRANTED',
+      actor_user_id: userId,
+      actor_role: role,
+      actor_tenant_id: verifiedTenantId
+    });
+
     res.json({
       success: true,
       message: `Role switched to ${role} successfully (session established).`,
@@ -169,7 +327,12 @@ app.post('/api/auth/switch-role', async (req, res) => {
       user: { ...user, role, active_tenant_id: verifiedTenantId }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    await logAuditEvent(supabase, {
+      ...auditBase,
+      event_type: 'ROLE_SWITCH_DENIED',
+      reason: error.message
+    });
+    next(error);
   }
 });
 // --- VEHICLE SINGLE FETCH ---
@@ -196,7 +359,7 @@ app.get('/api/vehicles', async (req, res) => {
     let query = supabase.from('vehicles').select('*');
     
     // Explicitly enforce public visibility constraint unless specifically fetching for a tenant (handled below or in another endpoint)
-    query = query.eq('status', 'Available');
+    query = query.in('status', publicVehicleStatusFilterValues());
 
     if (make) query = query.eq('make', make);
     if (model) query = query.eq('model', model);
@@ -217,23 +380,287 @@ app.get('/api/vehicles', async (req, res) => {
 });
 
 // --- PILLARS 1, 6 & 7: TRUST GRAPH, SCORE & PASSPORT ---
+
+// Helper function to normalize plate numbers
+function normalizePlate(plate) {
+  if (!plate) return '';
+  return plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function validatePassportLookupIdentifier(identifier) {
+  const value = String(identifier || '').trim();
+  if (value.length < 2 || value.length > 64) {
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(value)) {
+    return null;
+  }
+  return value;
+}
+
+async function collectPassportLookupMatches(identifier) {
+  const norm = normalizePlate(identifier);
+  const queries = [
+    supabase.from('vehicles').select('vin').eq('vin', identifier),
+    supabase.from('vehicles').select('vin').eq('chassis_number', identifier),
+    supabase.from('vehicles').select('vin').eq('plate_number', identifier),
+    supabase.from('vehicles').select('vin').eq('normalized_plate_number', norm),
+    supabase.from('vehicles').select('vin').eq('temporary_identification_number', identifier),
+    supabase.from('vehicle_plate_history').select('vin').eq('plate_number', identifier),
+    supabase.from('vehicle_plate_history').select('vin').eq('normalized_plate_number', norm)
+  ];
+
+  const results = await Promise.all(queries);
+  const firstError = results.find(result => result.error)?.error;
+  if (firstError) throw firstError;
+
+  const matchingVins = new Set();
+  for (const result of results) {
+    for (const row of (result.data || [])) {
+      if (row.vin) matchingVins.add(row.vin);
+    }
+  }
+  return matchingVins;
+}
+
+// Structured helper to build and redact vehicle passport
+async function buildVehiclePassport(vin, req) {
+  const { data: vehicle, error: vehicleError } = await supabase
+    .from('vehicles')
+    .select('*')
+    .eq('vin', vin)
+    .single();
+
+  if (vehicleError || !vehicle) return null;
+
+  // Determine requester identity
+  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const fallbackUserId = req.headers['x-user-id'];
+  let activeUserId = fallbackUserId || null;
+  let activeUserRole = null;
+
+  if (sessionToken) {
+    const { data: session } = await supabase
+      .from('user_sessions')
+      .select('user_id')
+      .eq('token', sessionToken)
+      .eq('is_valid', true)
+      .single();
+    if (session) {
+      activeUserId = session.user_id;
+    }
+  }
+
+  if (activeUserId) {
+    const { data: user } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', activeUserId)
+      .single();
+    if (user) {
+      activeUserRole = user.role;
+    }
+  }
+
+  const isAuthorized = 
+    activeUserRole === 'admin' || 
+    activeUserRole === 'government' || 
+    (activeUserId && activeUserId === vehicle.owner_id);
+
+  // Fetch timeline, visual evidence, trust score report, and ledger verification
+  const timeline = await getVehicleTimeline(vin);
+  const { data: verifiedEvidence, error: evidenceError } = await supabase
+    .from('vehicle_evidence')
+    .select('*')
+    .eq('vin', vin)
+    .eq('visibility_level', 'public_safe')
+    .eq('verification_status', 'verified')
+    .order('captured_at', { ascending: true });
+
+  if (evidenceError) throw evidenceError;
+
+  const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
+  const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
+  const trustReport = await computeVehicleTrustScore(vin);
+  const chainVerification = await verifyChain(vin);
+
+  // Fetch plate history
+  const { data: plateHistory } = await supabase
+    .from('vehicle_plate_history')
+    .select('*')
+    .eq('vin', vin)
+    .order('created_at', { ascending: false });
+
+  // Get previous owners count
+  const { data: ownershipHistory } = await supabase
+    .from('vehicle_ownership_history')
+    .select('*')
+    .eq('vin', vin);
+  const previousOwnerCount = ownershipHistory ? ownershipHistory.length : 0;
+
+  // Resolve current seller details
+  let currentSellerDisplayName = 'Private Seller';
+  if (vehicle.current_seller_id) {
+    const { data: sellerUser } = await supabase
+      .from('users')
+      .select('name')
+      .eq('id', vehicle.current_seller_id)
+      .single();
+    if (sellerUser) {
+      currentSellerDisplayName = sellerUser.name;
+    }
+  }
+
+  const currentOwnerVisible = isAuthorized || !!vehicle.public_seller_display_enabled;
+
+  const ownershipSummary = {
+    currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : 'Private Seller',
+    currentSellerType: vehicle.current_seller_type || 'Private Owner',
+    previousOwnerCount,
+    previousOwnersPublicLabel: 'Redacted for privacy',
+    ownerNamesRedacted: !isAuthorized,
+    currentOwnerVisible
+  };
+
+  // Structured Privacy Redaction Layer
+  const sanitizedTimeline = visualTimeline.map(event => {
+    // Generate publicDescription and publicSummary
+    let publicDescription = event.desc || '';
+    let publicSummary = event.label || '';
+
+    if (event.event_source === 'cvr') {
+      publicDescription = `Registered plate ${event.details?.plateNumber || vehicle.plate_number || '—'}. Owner name redacted for privacy.`;
+      publicSummary = 'CVR Registration';
+    } else if (event.event_source === 'ownership_transfer') {
+      publicDescription = 'Ownership transferred to next owner';
+      publicSummary = 'Ownership Transfer';
+    } else if (event.event_source === 'zimra') {
+      publicDescription = 'Import duty customs clearance confirmed';
+      publicSummary = 'ZIMRA Customs';
+    } else if (event.event_source === 'insurance') {
+      publicDescription = 'Insurance policy premium set';
+      publicSummary = 'Insurance Insured';
+    } else if (event.event_source === 'plate_assigned') {
+      publicDescription = `Number plate assigned: ${event.details?.plateNumber || vehicle.plate_number || '—'}`;
+      publicSummary = 'Plate Assigned';
+    } else if (event.event_source === 'temporary_id_issued') {
+      publicDescription = `Temporary identification number issued: ${event.details?.plateNumber || vehicle.temporary_identification_number || '—'}`;
+      publicSummary = 'Temporary ID Issued';
+    } else if (event.event_source === 'plate_verified') {
+      publicDescription = `Number plate ${event.details?.plateNumber || vehicle.plate_number || '—'} verified via ${event.details?.verificationSource || vehicle.plate_verification_source || 'CVR'}`;
+      publicSummary = 'Plate Verified';
+    } else if (event.event_source === 'plate_changed') {
+      publicDescription = `Number plate ${event.details?.plateNumber || '—'} retired or changed`;
+      publicSummary = 'Plate Changed';
+    } else if (event.event_source === 'plate_flagged') {
+      publicDescription = `Number plate ${event.details?.plateNumber || '—'} flagged: ${event.details?.reason || 'No reason provided'}`;
+      publicSummary = 'Plate Flagged';
+    } else if (event.event_source === 'plate_suspended') {
+      publicDescription = `Number plate ${event.details?.plateNumber || '—'} suspended: ${event.details?.reason || 'No reason provided'}`;
+      publicSummary = 'Plate Suspended';
+    } else if (event.event_source === 'evidence') {
+      publicDescription = event.desc || 'Verified evidence linked to this vehicle passport';
+      publicSummary = event.label || 'Verified Evidence';
+    }
+
+    const publicDescriptionVal = publicDescription;
+    const publicSummaryVal = publicSummary;
+
+    // Build the sanitized event
+    const sanitizedEvent = {
+      ...event,
+      publicDescription: publicDescriptionVal,
+      publicSummary: publicSummaryVal,
+    };
+
+    if (!isAuthorized) {
+      // Redact details that leak PII
+      sanitizedEvent.desc = publicDescriptionVal;
+      sanitizedEvent.label = publicSummaryVal;
+      sanitizedEvent.details = {
+        // Keep safe details
+        mileage: event.details?.mileage,
+        stage: event.details?.stage,
+        plateNumber: event.details?.plateNumber,
+        plateType: event.details?.plateType,
+        status: event.details?.status,
+        brakingEfficiency: event.details?.brakingEfficiency,
+        suspensionPassed: event.details?.suspensionPassed,
+        steeringPassed: event.details?.steeringPassed,
+        odometer: event.details?.odometer,
+        termEnd: event.details?.termEnd,
+        reason: event.details?.reason,
+        verificationSource: event.details?.verificationSource,
+      };
+    }
+
+    return sanitizedEvent;
+  });
+
+  return {
+    vehicle,
+    timeline: sanitizedTimeline,
+    evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
+    evidenceVault,
+    trustReport,
+    chainVerification,
+    identity: {
+      vin: vehicle.vin,
+      chassisNumber: vehicle.chassis_number,
+      plateNumber: vehicle.plate_number,
+      normalizedPlateNumber: vehicle.normalized_plate_number,
+      plateStatus: vehicle.plate_status,
+      temporaryIdentificationNumber: vehicle.temporary_identification_number,
+      engineNumber: vehicle.engine_number,
+      registrationStatus: vehicle.registration_status,
+      registrationCountry: vehicle.registration_country,
+      registrationAuthority: vehicle.registration_authority,
+      plateVerifiedAt: vehicle.plate_verified_at,
+      plateVerificationSource: vehicle.plate_verification_source
+    },
+    plateHistory: plateHistory || [],
+    ownershipSummary
+  };
+}
+
+// Canonical VIN passport lookup
 app.get('/api/vehicles/:vin/passport', async (req, res) => {
   const { vin } = req.params;
-  
   try {
-    const { data: vehicle, error: vehicleError } = await supabase
-      .from('vehicles')
-      .select('*')
-      .eq('vin', vin)
-      .single();
-      
-    if (vehicleError || !vehicle) return res.status(404).json({ error: 'VIN not found' });
-    
-    const timeline = await getVehicleTimeline(vin);
-    const trustReport = await calculateVehicleTrustScore(vin);
-    const chainVerification = await verifyChain(vin);
-    
-    res.json({ vehicle, timeline, trustReport, chainVerification });
+    const passport = await buildVehiclePassport(vin, req);
+    if (!passport) {
+      return res.status(404).json({ error: 'VIN not found' });
+    }
+    res.json(passport);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Multi-identifier passport lookup route
+app.get('/api/vehicles/passport/lookup/:identifier', async (req, res) => {
+  const identifier = validatePassportLookupIdentifier(req.params.identifier);
+  if (!identifier) {
+    return res.status(400).json({ error: 'Invalid lookup identifier' });
+  }
+
+  try {
+    const matchingVins = await collectPassportLookupMatches(identifier);
+
+    if (matchingVins.size === 0) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
+
+    if (matchingVins.size > 1) {
+      return res.status(409).json({ error: 'Multiple vehicles match this identifier. Please search by VIN.' });
+    }
+
+    const resolvedVin = Array.from(matchingVins)[0];
+    const passport = await buildVehiclePassport(resolvedVin, req);
+    if (!passport) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
+    res.json(passport);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -276,21 +703,37 @@ app.post('/api/safepay/create', authorizeRole(), async (req, res) => {
 app.get('/api/safepay/list', authorizeRole(), async (req, res) => {
   const { userId, role } = req.userContext;
   try {
-    let query = supabase
+    const escrowSelect = '*, vehicles(make, model, year, price, currency), buyer:users!safepay_escrows_buyer_id_fkey(name, email, phone), seller:users!safepay_escrows_seller_id_fkey(name, email, phone)';
+    const baseEscrowQuery = () => supabase
       .from('safepay_escrows')
-      .select('*, vehicles(make, model, year, price, currency), buyer:users!safepay_escrows_buyer_id_fkey(name, email, phone), seller:users!safepay_escrows_seller_id_fkey(name, email, phone)')
+      .select(escrowSelect)
       .order('created_at', { ascending: false });
 
     // Scope queries depending on who is asking
+    let escrows = [];
+    let error = null;
     if (role === 'dealer' || role === 'owner') {
-      query = query.or(`seller_id.eq.${userId},buyer_id.eq.${userId}`);
+      const [sellerResult, buyerResult] = await Promise.all([
+        baseEscrowQuery().eq('seller_id', userId),
+        baseEscrowQuery().eq('buyer_id', userId)
+      ]);
+      error = sellerResult.error || buyerResult.error;
+      const escrowMap = new Map();
+      for (const escrow of [...(sellerResult.data || []), ...(buyerResult.data || [])]) {
+        escrowMap.set(escrow.id, escrow);
+      }
+      escrows = [...escrowMap.values()].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     } else if (role === 'bank') {
       // For banks we just let them see all, or we could filter based on finance apps (simplified)
+      const result = await baseEscrowQuery();
+      escrows = result.data || [];
+      error = result.error;
     } else {
-      query = query.eq('buyer_id', userId);
+      const result = await baseEscrowQuery().eq('buyer_id', userId);
+      escrows = result.data || [];
+      error = result.error;
     }
-    
-    const { data: escrows, error } = await query;
+
     if (error) throw error;
     
     // Flatten relational data for the frontend
@@ -351,7 +794,8 @@ app.post('/api/safepay/webhook', async (req, res) => {
 
 // --- PILLAR 3: PARTSENTRY REPAIR LEDGER ---
 app.post('/api/partsentry/add', authorizeRole(['mechanic']), async (req, res) => {
-  const { vin, mechanicId, partName, partOem, actionType, description, mileage } = req.body;
+  const { vin, partName, partOem, actionType, description, mileage } = req.body;
+  const mechanicId = req.userContext.id;
   try {
     const log = await addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage);
     res.json(log);
@@ -363,7 +807,7 @@ app.post('/api/partsentry/add', authorizeRole(['mechanic']), async (req, res) =>
 app.get('/api/partsentry/:vin', async (req, res) => {
   const { vin } = req.params;
   try {
-    const history = await getRepairHistory(vin);
+    const history = await getRepairHistory(vin, { publicOnly: true });
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -371,34 +815,34 @@ app.get('/api/partsentry/:vin', async (req, res) => {
 });
 
 // --- PILLAR 5: OCR DOCUMENT EXTRACTION ---
-app.post('/api/ai/ocr', async (req, res) => {
+app.post('/api/ai/ocr', authorizeRole(), async (req, res, next) => {
   const { docType, base64Data } = req.body;
   try {
     const parsedData = await runOcrParsing(docType, base64Data);
     res.json({ success: true, extractedData: parsedData });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // --- PILLAR 4: AI FRAUD & RISK SCANNERS ---
-app.post('/api/ai/fraud-scan', async (req, res) => {
+app.post('/api/ai/fraud-scan', authorizeRole(), async (req, res, next) => {
   const { vin, price, listingTitle } = req.body;
   try {
     const fraudScore = await runFraudAnalysis(vin, price, listingTitle);
     res.json(fraudScore);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-app.post('/api/ai/risk-assessment', async (req, res) => {
+app.post('/api/ai/risk-assessment', authorizeRole(), async (req, res, next) => {
   const { vin, mileage, basePrice } = req.body;
   try {
     const riskReport = await runRiskScoring(vin, mileage, basePrice);
     res.json(riskReport);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -580,9 +1024,33 @@ app.get('/api/organizations/:id/users', async (req, res) => {
 });
 
 // Fetch audit logs inside organization
-app.get('/api/organizations/:id/audit-logs', async (req, res) => {
+app.get('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   try {
+    // Organization scope / admin verification
+    if (req.userContext.role !== 'admin') {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('tenant_id')
+        .eq('id', id)
+        .single();
+        
+      if (!org || !org.tenant_id) {
+        throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+      }
+      
+      const { data: tenantUser } = await supabase
+        .from('tenant_users')
+        .select('tenant_id')
+        .eq('user_id', req.userContext.id)
+        .eq('tenant_id', org.tenant_id)
+        .single();
+        
+      if (!tenantUser) {
+        throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+      }
+    }
+
     const { data: logs, error } = await supabase
       .from('organization_audit_logs')
       .select('*')
@@ -591,29 +1059,59 @@ app.get('/api/organizations/:id/audit-logs', async (req, res) => {
     if (error) throw error;
     res.json(logs);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // Post audit log
-app.post('/api/organizations/:id/audit-logs', async (req, res) => {
+app.post('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, next) => {
   const { id } = req.params;
   const { userId, action, resource, details } = req.body;
   try {
+    // 1. Organization scope / admin verification
+    if (req.userContext.role !== 'admin') {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('tenant_id')
+        .eq('id', id)
+        .single();
+        
+      if (!org || !org.tenant_id) {
+        throw new ForbiddenError('Forbidden. Organization not found or not mapped.');
+      }
+      
+      const { data: tenantUser } = await supabase
+        .from('tenant_users')
+        .select('tenant_id')
+        .eq('user_id', req.userContext.id)
+        .eq('tenant_id', org.tenant_id)
+        .single();
+        
+      if (!tenantUser) {
+        throw new ForbiddenError('Forbidden. You do not belong to this organization.');
+      }
+    }
+
+    // 2. Identity mismatch check
+    const targetUserId = userId || req.userContext.id;
+    if (req.userContext.role !== 'admin' && targetUserId !== req.userContext.id) {
+      throw new ForbiddenError('Forbidden. You cannot log audit events for another user.');
+    }
+
     const timestamp = new Date().toISOString();
     const { error } = await supabase.from('organization_audit_logs').insert({
       organization_id: id,
-      user_id: userId || 'u3',
+      user_id: targetUserId,
       action,
       resource,
       details,
       timestamp,
-      ip_address: '192.168.1.100'
+      ip_address: req.ip || '127.0.0.1'
     });
     if (error) throw error;
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -713,7 +1211,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       vin, make, model, generation: '', trim: '', year: year || 2020, color: color || 'White', 
       mileage: mileage || 0, fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', 
       transmission: transmission || 'Automatic', import_source: 'Local', duty_paid: false, 
-      police_verified: false, status: 'Available', trust_score: 50, price, currency: currency || 'USD',
+      police_verified: false, status: normalizeVehicleStatus('Available'), trust_score: 50, price, currency: currency || 'USD',
       tenant_id: tenantId // Force assignment to the current tenant
     });
     if (insertError) throw insertError;
@@ -772,16 +1270,6 @@ app.get('/api/vehicles/inventory', authorizeRole(['dealer', 'admin']), async (re
 // --- DEALER & MECHANIC ENDPOINTS MOVED TO MODULAR ROUTERS ---
 
 // --- VEHICLE STATUS UPDATE MOVED TO MODULAR ROUTER ---
-
-// ✅ Health check endpoint
-app.get('/api/health', async (req, res) => {
-  const { data, error } = await supabase.from('vehicles').select('count').limit(1);
-  res.json({
-    status: error ? 'degraded' : 'healthy',
-    database: error ? 'Supabase error: ' + error.message : 'Supabase connected',
-    timestamp: new Date().toISOString()
-  });
-});
 
 // --- DOMAIN 2: BANK & INSURANCE ENDPOINTS ---
 
@@ -994,7 +1482,12 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 
-app.listen(PORT, () => {
-  console.log(`🚗 CarUp OS API Gateway listening on port ${PORT}`);
-  console.log(`📡 Database: Supabase PostgreSQL (vhmnajoeicasaigiophh)`);
-});
+let server;
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(PORT, () => {
+    console.log(`🚗 CarUp OS API Gateway listening on port ${PORT}`);
+    console.log(`📡 Database: Supabase PostgreSQL (vhmnajoeicasaigiophh)`);
+  });
+}
+
+export { app, server };
