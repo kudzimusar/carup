@@ -63,6 +63,7 @@ import vehiclesRouter from './routes/vehiclesRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
+import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 
@@ -209,6 +210,9 @@ app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
+
+// Mount isolated Diaspora Trade bounded context
+app.use('/api/diaspora', diasporaRouter);
 
 // ✅ Verify Supabase connection on startup
 const { data: connectionTest, error: connectionError } = await supabase.from('vehicles').select('vin').limit(1);
