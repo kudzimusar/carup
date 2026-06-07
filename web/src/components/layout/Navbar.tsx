@@ -63,8 +63,8 @@ const buyMenu: MenuSection[] = [
       { label: 'Toyota', href: '/marketplace' },
       { label: 'Honda', href: '/marketplace' },
       { label: 'Mazda', href: '/marketplace' },
-      { label: 'Under $5,000', href: '/marketplace' },
-      { label: 'Under $10,000', href: '/marketplace' },
+      { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
+      { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
     ],
   },
   {
@@ -72,7 +72,7 @@ const buyMenu: MenuSection[] = [
     items: [
       { label: 'Verify Before You Buy', href: '/search' },
       { label: 'View Vehicle Passport', href: '/search' },
-      { label: 'Compare Trust Scores', href: '/marketplace' },
+      { label: 'Highest Trust Listings', href: '/marketplace?sort=trust' },
       { label: 'PartSentry Checked Vehicles', href: '/marketplace' },
     ],
   },
