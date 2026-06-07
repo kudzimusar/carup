@@ -1,15 +1,20 @@
 import { supabase } from '../db/supabase.js';
 
+const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
+
+function normalizeRole(role) {
+  return role ? String(role).toLowerCase() : null;
+}
+
 export function authorizeRole(allowedRoles = []) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'];
-    const roleHeader = req.headers['x-stakeholder-role'];
+    const requestedRole = normalizeRole(req.headers['x-stakeholder-role']);
     const fallbackUserId = req.headers['x-user-id']; // Temporary dev fallback if no token
 
     try {
       let activeUserId = fallbackUserId;
-      let activeRole = 'member';
 
       // 1. Validate Session Token
       if (sessionToken) {
@@ -40,8 +45,10 @@ export function authorizeRole(allowedRoles = []) {
         return res.status(401).json({ error: 'Unauthorized. User record not found.' });
       }
 
+      const platformRole = normalizeRole(user.role) || 'member';
+
       // 3. Validate Tenant Context (Multi-Tenancy Rule)
-      let tenantRole = user.role;
+      let tenantRole = null;
       if (tenantIdHeader) {
         const { data: tenantUser, error: tenantError } = await supabase
           .from('tenant_users')
@@ -53,26 +60,30 @@ export function authorizeRole(allowedRoles = []) {
         if (tenantError || !tenantUser) {
           return res.status(403).json({ error: 'Forbidden. You do not have access to this tenant organization.' });
         }
-        tenantRole = tenantUser.role; // e.g., 'admin', 'manager', 'mechanic'
+        tenantRole = normalizeRole(tenantUser.role); // e.g., 'admin', 'manager', 'mechanic'
       }
 
-      // Allow requested role context if valid
-      if (roleHeader) {
-        activeRole = roleHeader;
-      } else {
-        activeRole = tenantRole;
+      if (requestedRole && requestedRole !== platformRole && requestedRole !== tenantRole) {
+        return res.status(403).json({ error: `Forbidden. You do not hold requested role '${requestedRole}'.` });
       }
+
+      const effectiveRole = requestedRole || tenantRole || platformRole;
+      const allowed = allowedRoles.map(normalizeRole);
 
       // 4. Enforce Route Role Permissions
-      if (allowedRoles.length > 0 && !allowedRoles.includes(activeRole) && activeRole !== 'admin') {
-        return res.status(403).json({ error: `Forbidden. Role '${activeRole}' cannot access this resource.` });
+      if (allowed.length > 0 && !allowed.includes(effectiveRole) && !PLATFORM_ADMIN_ROLES.has(platformRole)) {
+        return res.status(403).json({ error: `Forbidden. Role '${effectiveRole}' cannot access this resource.` });
       }
 
       // 5. Inject Context for Downstream Routes
       req.userContext = { 
         id: activeUserId, 
-        role: activeRole,
-        tenantId: tenantIdHeader || null 
+        role: effectiveRole,
+        platformRole,
+        tenantRole,
+        tenantId: tenantIdHeader || null,
+        requestedRole,
+        isVerified: Boolean(user.is_verified),
       };
       
       next();

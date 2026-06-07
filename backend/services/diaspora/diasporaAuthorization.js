@@ -6,6 +6,7 @@ export const PLATFORM_REVIEW_ROLES = new Set([
   'super_admin',
   'government',
   'government_reviewer',
+  'reviewer',
 ]);
 
 export const TENANT_ADMIN_ROLES = new Set([
@@ -56,17 +57,19 @@ export function requireUserContext(userContext = {}) {
     ...userContext,
     id,
     userId: id,
-    role: userContext.role ?? 'member',
+    role: userContext.role ?? userContext.tenantRole ?? userContext.platformRole ?? 'member',
+    platformRole: userContext.platformRole ?? userContext.platform_role ?? null,
+    tenantRole: userContext.tenantRole ?? userContext.tenant_role ?? null,
     tenantId: normalizeId(userContext.tenantId ?? userContext.tenant_id),
   };
 }
 
 export function isPlatformReviewer(userContext = {}) {
-  return PLATFORM_REVIEW_ROLES.has(String(userContext.role ?? '').toLowerCase());
+  return PLATFORM_REVIEW_ROLES.has(String(userContext.platformRole ?? userContext.platform_role ?? '').toLowerCase());
 }
 
 export function isTenantAdminForRecord(record = {}, userContext = {}) {
-  const role = String(userContext.role ?? '').toLowerCase();
+  const role = String(userContext.tenantRole ?? userContext.tenant_role ?? '').toLowerCase();
   const userTenantId = normalizeId(userContext.tenantId ?? userContext.tenant_id);
   const recordTenantId = normalizeId(record.tenant_id ?? record.tenantId);
   return TENANT_ADMIN_ROLES.has(role) && Boolean(userTenantId && recordTenantId && userTenantId === recordTenantId);

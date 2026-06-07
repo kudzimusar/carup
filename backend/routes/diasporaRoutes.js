@@ -17,7 +17,7 @@ import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../constants/diaspora/
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const auth = authorizeRole();
-const reviewerAuth = authorizeRole(['admin', 'government', 'dealer']);
+const reviewerAuth = authorizeRole(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer', 'dealer']);
 
 function pagination(req) {
   return {
