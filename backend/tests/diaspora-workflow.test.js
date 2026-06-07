@@ -15,6 +15,7 @@ import { ForbiddenError, ValidationError } from '../utils/errors.js';
 
 const routeFile = readFileSync(new URL('../routes/diasporaRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+const authMiddlewareFile = readFileSync(new URL('../middleware/authMiddleware.js', import.meta.url), 'utf8');
 const migrationFile = readFileSync(new URL('../../database/migrations/013_diaspora_trade_schema.sql', import.meta.url), 'utf8');
 const workflowService = readFileSync(new URL('../services/diaspora/diasporaWorkflowService.js', import.meta.url), 'utf8');
 const importOrderService = readFileSync(new URL('../services/diaspora/diasporaImportOrderService.js', import.meta.url), 'utf8');
@@ -218,9 +219,9 @@ test('Service authorization blocks unrelated users from reading another import o
 test('Service authorization allows order owner, assigned participant, and tenant admin to read import orders', () => {
   assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'buyer-1', role: 'buyer' }), true);
   assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'seller-1', role: 'seller' }), true);
-  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'admin-1', role: 'admin', tenantId: 'tenant-1' }), true);
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'admin-1', role: 'admin', tenantRole: 'admin', tenantId: 'tenant-1' }), true);
   assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'creator-1', role: 'member' }), true);
-  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'reviewer-1', role: 'government_reviewer' }), true);
+  assert.equal(canReadImportOrder(authOrder, authParticipants, { id: 'reviewer-1', role: 'government_reviewer', platformRole: 'government_reviewer' }), true);
 });
 
 test('Service authorization blocks unrelated users from listing another order trade documents', () => {
@@ -235,7 +236,7 @@ test('Service authorization requires importOrderId for normal document list call
     () => assertImportOrderIdRequired(undefined, { id: 'buyer-1', role: 'buyer' }),
     ValidationError,
   );
-  assert.doesNotThrow(() => assertImportOrderIdRequired(undefined, { id: 'reviewer-1', role: 'government_reviewer' }));
+  assert.doesNotThrow(() => assertImportOrderIdRequired(undefined, { id: 'reviewer-1', role: 'government_reviewer', platformRole: 'government_reviewer' }));
 });
 
 test('Service authorization redacts private trade document storage paths from read responses', () => {
@@ -261,9 +262,43 @@ test('Service authorization allows authorized actors to perform permitted transi
     true,
   );
   assert.equal(
-    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.DOCUMENTS_VERIFIED, { id: 'admin-1', role: 'admin', tenantId: 'tenant-1' }),
+    canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.DOCUMENTS_VERIFIED, { id: 'admin-1', role: 'admin', tenantRole: 'admin', tenantId: 'tenant-1' }),
     true,
   );
+});
+
+test('Diaspora authorization ignores client-requested reviewer role without trusted platform role', () => {
+  const spoofedReviewer = {
+    id: 'stranger-1',
+    role: 'government_reviewer',
+    requestedRole: 'government_reviewer',
+    tenantId: 'tenant-2',
+  };
+
+  assert.equal(canReadImportOrder(authOrder, authParticipants, spoofedReviewer), false);
+  assert.equal(canReadTradeDocument(authDocument, authOrder, authParticipants, spoofedReviewer), false);
+  assert.equal(canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.CANCELLED, spoofedReviewer), false);
+  assert.throws(() => assertImportOrderIdRequired(undefined, spoofedReviewer), ValidationError);
+});
+
+test('Diaspora authorization allows trusted platform reviewers and tenant admins from server-derived fields', () => {
+  const trustedGovernment = { id: 'reviewer-1', role: 'government', platformRole: 'government' };
+  const trustedPlatformAdmin = { id: 'platform-1', role: 'platform_admin', platformRole: 'platform_admin' };
+  const trustedTenantAdmin = { id: 'tenant-admin-1', role: 'admin', tenantRole: 'admin', tenantId: 'tenant-1' };
+
+  assert.equal(canReadImportOrder(authOrder, authParticipants, trustedGovernment), true);
+  assert.doesNotThrow(() => assertImportOrderIdRequired(undefined, trustedPlatformAdmin));
+  assert.equal(canTransitionImportOrderForContext(authOrder, authParticipants, IMPORT_ORDER_STATUSES.CANCELLED, trustedPlatformAdmin), true);
+  assert.equal(canReadTradeDocument(authDocument, authOrder, authParticipants, trustedTenantAdmin), true);
+});
+
+test('Auth middleware treats x-stakeholder-role as requestedRole, not authority', () => {
+  assert.equal(authMiddlewareFile.includes("const requestedRole = normalizeRole(req.headers['x-stakeholder-role'])"), true);
+  assert.equal(authMiddlewareFile.includes('activeRole = roleHeader'), false);
+  assert.equal(authMiddlewareFile.includes('requestedRole && requestedRole !== platformRole && requestedRole !== tenantRole'), true);
+  assert.equal(authMiddlewareFile.includes('platformRole,'), true);
+  assert.equal(authMiddlewareFile.includes('tenantRole,'), true);
+  assert.equal(authMiddlewareFile.includes('isVerified: Boolean(user.is_verified)'), true);
 });
 
 test('Diaspora routes pass user context into order, document, and transition service calls', () => {
@@ -282,4 +317,6 @@ test('Diaspora services enforce user-context authorization on direct reads and t
   assert.equal(documentService.includes('assertCanReadTradeDocument(data, order, participants, context)'), true);
   assert.equal(workflowService.includes('userContext = {}'), true);
   assert.equal(workflowService.includes('assertCanTransitionImportOrder(order, participants, nextStatus, context)'), true);
+  assert.equal(documentService.includes('req.query.role'), false);
+  assert.equal(routeFile.includes('req.body.role'), false);
 });
