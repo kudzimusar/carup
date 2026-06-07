@@ -85,37 +85,6 @@ const buyMenu: MenuSection[] = [
   },
 ]
 
-const verifyMenu: MenuSection[] = [
-  {
-    title: 'Vehicle Verification',
-    items: [
-      { label: 'Verify by Plate', href: '/search' },
-      { label: 'Verify by VIN', href: '/search' },
-      { label: 'Verify by Chassis', href: '/search' },
-      { label: 'Open Vehicle Passport', href: '/search' },
-    ],
-  },
-  {
-    title: 'Trust Checks',
-    items: [
-      { label: 'Ownership Privacy Summary', href: '/search' },
-      { label: 'Evidence Timeline', href: '/search' },
-      { label: 'ZIMRA / Duty Signals', href: '/search' },
-      { label: 'CID / Theft Signals', href: '/search' },
-      { label: 'Odometer / Mileage Signals', href: '/search' },
-    ],
-  },
-  {
-    title: 'PartSentry Verification',
-    items: [
-      { label: 'Check Part History', href: '/search' },
-      { label: 'Check Repair Logs', href: '/search' },
-      { label: 'Check Swapped Parts', href: '/search' },
-      { label: 'Check Stolen/Suspicious Parts', href: '/search' },
-    ],
-  },
-]
-
 const partsMenu: MenuSection[] = [
   {
     title: 'Buy Parts',
@@ -242,6 +211,39 @@ export default function Navbar() {
   }
   const activeDashboardPath = dashboardRoutes[user?.role || 'owner'] || '/dashboard'
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
+  const evidencePath = user ? '/dashboard/garage' : '/register'
+
+  const verifyMenu: MenuSection[] = [
+    {
+      title: 'Vehicle Verification',
+      items: [
+        { label: 'Verify by Plate', href: '/search' },
+        { label: 'Verify by VIN', href: '/search' },
+        { label: 'Verify by Chassis', href: '/search' },
+        { label: 'Open Vehicle Passport', href: '/search' },
+      ],
+    },
+    {
+      title: 'Trust Checks',
+      items: [
+        { label: 'Ownership Privacy Summary', href: '/search' },
+        { label: 'Evidence Timeline', href: user ? '/dashboard/garage' : '/search' },
+        { label: 'ZIMRA / Duty Signals', href: '/search' },
+        { label: 'CID / Theft Signals', href: '/search' },
+        { label: 'Odometer / Mileage Signals', href: '/search' },
+      ],
+    },
+    {
+      title: 'PartSentry Verification',
+      items: [
+        { label: 'Check Part History', href: '/search' },
+        { label: 'Check Repair Logs', href: '/search' },
+        { label: 'Check Swapped Parts', href: '/search' },
+        { label: 'Check Stolen/Suspicious Parts', href: '/search' },
+      ],
+    },
+  ]
+
   const sellMenu: MenuSection[] = [
     {
       title: 'Sell Vehicles',
@@ -256,7 +258,7 @@ export default function Navbar() {
       title: 'Seller Tools',
       items: [
         { label: 'Start with Plate / VIN', href: sellerPath },
-        { label: 'Upload Vehicle Evidence', href: '/register' },
+        { label: 'Upload Vehicle Evidence', href: evidencePath },
         { label: 'Add Service History', href: '/register' },
         { label: 'SafePay / Reservation Ready', href: '/register' },
       ],
