@@ -20,6 +20,7 @@ import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
 import Contact from './pages/Contact'
+import DiasporaTrade from './pages/DiasporaTrade'
 import ScrollToTop from './components/layout/ScrollToTop'
 
 // New Footer Pages
@@ -164,6 +165,7 @@ export default function App() {
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
+          <Route path="/diaspora" element={<DiasporaTrade />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
