@@ -60,25 +60,35 @@ Only `locally_used` / `recently_imported` are auto-classifiable, and only **afte
 (real) — see the classification rules + backfill machinery. Keep listing eligibility and trust claims
 strictly separate.
 
-## 5. How `POST /api/vehicles/add` should use this (next phase — not wired here)
+## 5. How `POST /api/vehicles/add` uses this (WIRED)
 
-Intended integration (a later, separately reviewed PR):
+The route builds the exact candidate row, validates it, and rejects ineligible input **before** insert:
 
 ```js
-import { assertMarketplaceEligible } from '../services/marketplace/marketplaceListingEligibility.js';
-// inside the handler, after assembling the candidate row (owner_id/tenant_id from auth context):
-assertMarketplaceEligible(candidate); // -> 400 with reasons[] when ineligible
+const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
+const eligibility = getListingEligibility(candidate);
+if (!eligibility.eligible) {
+  return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
+}
+// ... existing duplicate-VIN 409 check, then insert FROM the candidate
 ```
 
-Alongside the guard, the creation flow should also:
-- **set `owner_id`** for private sellers (currently left NULL),
-- **accept a validated `import_source`** instead of hardcoding `'Local'` (so real imports →
-  `recently_imported`),
-- keep `status='Available'` only for eligible rows,
-- reject fixture/test VINs at creation so they never enter production.
+Ownership mapping (`buildVehicleListingCandidate`, from `req.userContext.role`):
+- **owner** → `owner_id = userContext.id`, `tenant_id = null`, `current_seller_type = 'Private Owner'`.
+- **dealer** → `tenant_id = userContext.tenantId`, `owner_id = null`, `current_seller_type = 'Dealer'`.
+- **admin/other** → `owner_id`/`tenant_id`/`current_seller_type` from the body (tenant falls back to
+  context). With no real owner *and* no real tenant, eligibility rejects it (no orphan public listings).
 
-This is deliberately **not** done in this PR — the helper + tests + contract land first; the route
-wiring (which changes creation behavior in a large file) is the next phase.
+Other behavior:
+- `owner_id` is now **set on `vehicles`** for private listings (previously left NULL).
+- `import_source` is taken from the request body and validated; it defaults to `'Local'` **only when
+  omitted** (so real imports → `recently_imported`). `'Test'`/junk is rejected.
+- `registration_country` defaults to `'ZW'` (the existing DB default) only when omitted.
+- `status` stays `'Available'`; the **duplicate-VIN 409** and `authorizeRole` behavior are unchanged.
+
+**Known limitation (admin/dealer):** a dealer using the only seeded tenant (`…0001`) is correctly
+rejected (`seed_tenant_id`) — real dealer onboarding needs a real, non-default tenant. Admins must
+supply explicit owner/tenant context or the listing is rejected as an orphan.
 
 ## 6. How real inventory unlocks nav links
 

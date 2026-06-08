@@ -6,8 +6,8 @@
  * row, or a governed trust claim). Reuses the merged fixture detector (getFixtureExclusion) so there
  * is one source of truth for "is this a fixture".
  *
- * This module is NOT yet wired into POST /api/vehicles/add — see
- * docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md for the intended integration.
+ * Wired into POST /api/vehicles/add via buildVehicleListingCandidate() + getListingEligibility() —
+ * see docs/CARUP_REAL_LISTING_ELIGIBILITY_CONTRACT.md.
  *
  * Reason codes (stable, testable):
  *   invalid_vin_format, fixture_excluded, placeholder_make, placeholder_model, invalid_year,
@@ -176,4 +176,57 @@ export function assertMarketplaceEligible(vehicle = {}, opts = {}) {
     throw err;
   }
   return result;
+}
+
+/**
+ * Build the normalized candidate row for POST /api/vehicles/add from the request body + auth context,
+ * BEFORE insert, so eligibility is evaluated against exactly what will be stored. Pure (no DB).
+ *
+ * Ownership mapping (from req.userContext.role):
+ *  - owner  -> owner_id = userContext.id; tenant_id = null; current_seller_type = 'Private Owner'
+ *  - dealer -> tenant_id = userContext.tenantId; owner_id = null; current_seller_type = 'Dealer'
+ *  - admin/other -> owner_id / tenant_id / current_seller_type taken from the body (tenant falls back
+ *    to context); if neither a real owner nor a real tenant is supplied, eligibility rejects it
+ *    (no orphan public listings).
+ *
+ * import_source defaults to 'Local' only when omitted; registration_country defaults to 'ZW' (the
+ * existing DB default) only when omitted. status is always 'Available' (creation lists as available).
+ */
+export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {}) {
+  const role = norm(userContext.role ?? userContext.effectiveRole);
+  const userId = userContext.id ?? userContext.userId ?? null;
+  const ctxTenant = userContext.tenantId ?? null;
+
+  let owner_id = null;
+  let tenant_id = null;
+  let current_seller_type = null;
+
+  if (role === 'owner') {
+    owner_id = userId;
+    tenant_id = null;
+    current_seller_type = 'Private Owner';
+  } else if (role === 'dealer') {
+    owner_id = null;
+    tenant_id = ctxTenant;
+    current_seller_type = 'Dealer';
+  } else {
+    owner_id = body.owner_id ?? null;
+    tenant_id = body.tenant_id ?? ctxTenant ?? null;
+    current_seller_type = body.current_seller_type ?? (owner_id ? 'Private Owner' : (tenant_id ? 'Dealer' : null));
+  }
+
+  const hasText = (v) => v != null && String(v).trim() !== '';
+  return {
+    vin: body.vin ?? null,
+    make: body.make ?? null,
+    model: body.model ?? null,
+    year: hasText(body.year) ? Number(body.year) : 2020,
+    price: hasText(body.price) ? Number(body.price) : null,
+    status: 'Available',
+    owner_id,
+    tenant_id,
+    current_seller_type,
+    import_source: hasText(body.import_source) ? String(body.import_source).trim() : 'Local',
+    registration_country: hasText(body.registration_country) ? String(body.registration_country).trim() : 'ZW',
+  };
 }
