@@ -66,6 +66,7 @@ import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
+import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 
 dotenv.config();
 
@@ -1211,18 +1212,29 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
   const { vin, make, model, year, color, mileage, fuel_type, transmission, condition, category, price, currency, description, location, province, images } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+
+  // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
+  // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
+  const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
+  const eligibility = getListingEligibility(candidate);
+  if (!eligibility.eligible) {
+    return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
+  }
+
   try {
     const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
     if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
-    
-    const tenantId = req.userContext.tenantId;
 
     const { error: insertError } = await supabase.from('vehicles').insert({
-      vin, make, model, generation: '', trim: '', year: year || 2020, color: color || 'White', 
-      mileage: mileage || 0, fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', 
-      transmission: transmission || 'Automatic', import_source: 'Local', duty_paid: false, 
-      police_verified: false, status: normalizeVehicleStatus('Available'), trust_score: 50, price, currency: currency || 'USD',
-      tenant_id: tenantId // Force assignment to the current tenant
+      vin: candidate.vin, make: candidate.make, model: candidate.model, generation: '', trim: '',
+      year: candidate.year, color: color || 'White', mileage: mileage || 0,
+      fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
+      import_source: candidate.import_source, duty_paid: false, police_verified: false,
+      status: normalizeVehicleStatus(candidate.status), trust_score: 50, price: candidate.price, currency: currency || 'USD',
+      owner_id: candidate.owner_id,                       // NEW: set owner for private listings
+      tenant_id: candidate.tenant_id,                     // dealer/admin tenant from context
+      current_seller_type: candidate.current_seller_type, // reflect dealer vs private
+      registration_country: candidate.registration_country
     });
     if (insertError) throw insertError;
     
