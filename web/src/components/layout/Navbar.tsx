@@ -49,7 +49,7 @@ const buyMenu: MenuSection[] = [
       { label: 'Recently Imported', href: '/marketplace' },
       { label: 'Locally Used', href: '/marketplace' },
       { label: 'Second Hand Cars', href: '/marketplace' },
-      { label: 'Dealer Verified Cars', href: '/marketplace' },
+      { label: 'Dealer Verified Cars', href: '/marketplace?tag=dealer_verified' },
       { label: 'Passport Verified Cars', href: '/marketplace' },
     ],
   },
