@@ -11,8 +11,9 @@ import {
   FORBIDDEN_BACKFILL_TARGETS,
 } from '../services/marketplace/marketplaceBackfill.js';
 
-const veh = (over = {}) => ({ vin: 'V1', vehicle_condition_category: 'unknown', registration_country: 'ZW', import_source: 'local', ...over });
-const entry = (over = {}) => ({ vin: 'V1', category: 'locally_used', ...over });
+const REAL_VIN = '1HGBH41JXMN109186'; // structurally valid 17-char VIN
+const veh = (over = {}) => ({ vin: REAL_VIN, vehicle_condition_category: 'unknown', registration_country: 'ZW', import_source: 'local', ...over });
+const entry = (over = {}) => ({ vin: REAL_VIN, category: 'locally_used', ...over });
 
 // 1. dry-run is the default (no --apply => no write path)
 test('dry-run is the default; --apply is opt-in', () => {
@@ -102,6 +103,35 @@ test('missing vehicle is skipped', () => {
 test('audit + revert entries have the right shape', () => {
   const e = evaluateBackfillRow(veh(), entry());
   const audit = buildAuditEntry(e, { applied: true, actor: 'tester', timestamp: 'T' });
-  assert.deepEqual(audit, { vin: 'V1', field: 'vehicle_condition_category', old: 'unknown', new: 'locally_used', approved: 'locally_used', reason: e.reason, applied: true, actor: 'tester', timestamp: 'T' });
-  assert.deepEqual(buildRevertEntry(e), { vin: 'V1', field: 'vehicle_condition_category', restore_to: 'unknown' });
+  assert.deepEqual(audit, { vin: REAL_VIN, field: 'vehicle_condition_category', old: 'unknown', new: 'locally_used', approved: 'locally_used', reason: e.reason, applied: true, actor: 'tester', timestamp: 'T' });
+  assert.deepEqual(buildRevertEntry(e), { vin: REAL_VIN, field: 'vehicle_condition_category', restore_to: 'unknown' });
+});
+
+// --- Fixture / seed exclusion (provenance hardening): cannot be written even if allowlisted ---
+
+test('allowlist CANNOT override fixture exclusion (synthetic VIN_REF_*)', () => {
+  const r = evaluateBackfillRow(veh({ vin: 'VIN_REF_776997' }), entry({ vin: 'VIN_REF_776997', category: 'locally_used' }));
+  assert.equal(r.action, 'skip');
+  assert.match(r.reason, /fixture_excluded\(synthetic_vin_prefix/);
+});
+
+test('integration-fixture VIN is rejected by the backfill', () => {
+  const r = evaluateBackfillRow(veh({ vin: 'VIN_TRANS_INTEG_999' }), entry({ vin: 'VIN_TRANS_INTEG_999' }));
+  assert.equal(r.action, 'skip');
+  assert.match(r.reason, /fixture_excluded\(integration_fixture_vin/);
+});
+
+test('seed owner_id (u3) and nil/default tenant_id are rejected by the backfill', () => {
+  const o = evaluateBackfillRow(veh({ owner_id: 'u3' }), entry());
+  assert.equal(o.action, 'skip');
+  assert.match(o.reason, /fixture_excluded\(seed_owner_id/);
+  const t = evaluateBackfillRow(veh({ tenant_id: '00000000-0000-0000-0000-000000000001' }), entry());
+  assert.equal(t.action, 'skip');
+  assert.match(t.reason, /fixture_excluded\(seed_tenant_id/);
+});
+
+test('a real-looking row (valid VIN + real owner/tenant) still applies', () => {
+  const r = evaluateBackfillRow(veh({ owner_id: '550e8400-e29b-41d4-a716-446655440000', tenant_id: 'b2c3d4e5-1111-2222-3333-444455556666' }), entry());
+  assert.equal(r.action, 'apply');
+  assert.equal(r.proposed, 'locally_used');
 });

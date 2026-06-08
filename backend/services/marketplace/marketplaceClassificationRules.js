@@ -89,6 +89,46 @@ export function isLocalRegistration(registrationCountry) {
 }
 
 /**
+ * Seed / demo / integration FIXTURE detection (provenance hardening).
+ *
+ * The locally_used candidate provenance review found all 35 candidates were fixtures (synthetic VINs,
+ * placeholder owner_id, nil/default tenant_id, cloned rows). Real production rows must clear these
+ * signals before they can be classified OR written by the backfill — even if allowlisted.
+ */
+export const SEED_OWNER_IDS = new Set(['u1', 'u2', 'u3', 'u4', 'u5', 'test', 'demo', 'seed', 'admin'])
+export const SEED_TENANT_IDS = new Set([
+  '00000000-0000-0000-0000-000000000000',
+  '00000000-0000-0000-0000-000000000001',
+])
+/** VIN encodes an integration/QA fixture (only checked for VINs that are not structurally valid). */
+const INTEGRATION_VIN_RE = /(^|[_-])(int|integ|integration|trans|e2e|smoke|qa)([_-]|\d|$)/i
+/** Obviously synthetic VIN (starts with the literal letters "VIN" or a test/demo prefix). */
+const SYNTHETIC_VIN_RE = /^(vin|test|demo|seed|fixture|sample|mock|dummy)/i
+/** Structurally valid 17-char VIN (no I/O/Q, per ISO 3779). Real VINs never contain "_" or "I". */
+const VALID_VIN_RE = /^[A-HJ-NPR-Z0-9]{17}$/i
+
+/**
+ * Return a fixture/seed/demo exclusion reason for a vehicle, or null when it looks like real data.
+ * Pure. Used to keep demo/integration rows out of automatic classification AND out of backfill writes.
+ * @returns {string|null} one of: integration_fixture_vin / synthetic_vin_prefix / invalid_vin_format /
+ *   seed_owner_id / seed_tenant_id, each with the offending value, or null.
+ */
+export function getFixtureExclusion(vehicle = {}) {
+  const vin = String(vehicle.vin ?? '').trim()
+  const owner = norm(vehicle.owner_id ?? vehicle.seller_id ?? vehicle.user_id)
+  const tenant = norm(vehicle.tenant_id)
+
+  if (vin && !VALID_VIN_RE.test(vin)) {
+    if (INTEGRATION_VIN_RE.test(vin)) return `integration_fixture_vin(${vin})`
+    if (SYNTHETIC_VIN_RE.test(vin) || vin.includes('_')) return `synthetic_vin_prefix(${vin})`
+    return `invalid_vin_format(${vin})`
+  }
+  if (owner && (SEED_OWNER_IDS.has(owner) || /^u\d+$/.test(owner))) return `seed_owner_id(${owner})`
+  if (tenant && SEED_TENANT_IDS.has(tenant)) return `seed_tenant_id(${tenant})`
+  return null
+}
+
+/**
  * Decide a PROPOSED vehicle_condition_category for a vehicle, or exclude it with a reason.
  * Only ever proposes 'recently_imported' or 'locally_used'. Never brand_new/second_hand.
  *
@@ -103,6 +143,12 @@ export function classifyVehicleConditionCandidate(vehicle = {}) {
   // Already classified -> not a candidate.
   if (current && current !== 'unknown') {
     return { proposed: null, included: false, reason: 'already_classified', confidence: 'n/a', risk: 'none', current }
+  }
+
+  // Seed/demo/integration fixture rows must never become candidates (provenance hardening).
+  const fixtureReason = getFixtureExclusion(vehicle)
+  if (fixtureReason) {
+    return { proposed: null, included: false, reason: fixtureReason, confidence: 'none', risk: 'high', current }
   }
 
   // Poisoned seed import source -> cannot trust it for ANY classification.
