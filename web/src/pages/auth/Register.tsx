@@ -51,9 +51,20 @@ export default function Register() {
 
     setLoading(true)
     try {
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({
           name: `${form.firstName} ${form.lastName}`,
           email: form.email,

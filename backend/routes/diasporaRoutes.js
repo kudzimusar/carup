@@ -13,7 +13,7 @@ import { createComplianceReview, listComplianceReviews, updateComplianceReview, 
 import { listNotificationPreferences } from '../services/diaspora/diasporaNotificationService.js';
 import { createReputationRecord, listReputationRecords } from '../services/diaspora/diasporaReputationService.js';
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../constants/diaspora/diasporaStatuses.js';
-import DocumentIntelligenceService from '../services/document-intelligence/documentIntelligenceService.js';
+import { DocumentIntelligenceService } from '../services/document-intelligence/documentIntelligenceService.js';
 import { generateSecureReadUrl } from '../services/storage/storageService.js';
 
 const router = express.Router();

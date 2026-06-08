@@ -48,9 +48,21 @@ export default function Login() {
     setLoading(true)
 
     try {
+      // Fetch CSRF token to pass the security middleware
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({ email: form.email, password: form.password }),
       })
 
@@ -77,9 +89,20 @@ export default function Login() {
     const demoUser = DEMO_USERS[userKey]
     setLoading(true)
     try {
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({ email: demoUser.email, password: 'password123' }),
       })
       if (res.ok) {
