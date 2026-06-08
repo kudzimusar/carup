@@ -157,6 +157,12 @@ export default function EvidenceReview() {
                       </div>
                     </div>
 
+                    {item.verification_notes && (
+                      <p className="text-xs text-gray-700 bg-gray-50 p-2.5 rounded-md italic border border-gray-100">
+                        "{item.verification_notes}"
+                      </p>
+                    )}
+
                     {status === 'pending' && (
                       <div className="space-y-3">
                         <Textarea

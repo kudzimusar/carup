@@ -38,19 +38,26 @@ async function runTests() {
 
     // 2. Blockchain SHA-256 Event Chain Integrity Check
     console.log('\n🧪 Test 2: Blockchain SHA-256 Cryptographic Chain Audit...');
-    const vin = 'VIN74329849204928';
+    // Use a unique dynamic VIN to avoid conflict with immutable historical events in the DB
+    const blockchainVin = 'VIN_TC_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+    
+    // Clean up existing test events to prevent pollution
+    await supabase.from('blockchain_events').delete().eq('vin', blockchainVin);
+    await supabase.from('rolling_integrity_checkpoints').delete().eq('vin', blockchainVin);
     
     // Add custom event to the ledger chain
     const testPayload = { buyer: 'u1', source: 'CROCO_MOTORS' };
-    const event = await addEvent(vin, 'Custom Transfer Audit', testPayload);
+    const event = await addEvent(blockchainVin, 'Custom Transfer Audit', testPayload);
     console.log(`Added block to vehicle ledger. Hash: ${event.currentHash}`);
 
     // Verify blockchain event hashes
-    const verifyReport = await verifyChain(vin);
+    const verifyReport = await verifyChain(blockchainVin);
     if (!verifyReport.verified) {
       throw new Error(`Ledger chain corruption detected: ${verifyReport.reason}`);
     }
     console.log(`✅ SHA-256 Cryptographic Event Chain verified successfully. Blocks: ${verifyReport.count}`);
+
+    const vin = 'VIN74329849204928';
 
     // 3. Trust Graph Forensics & Odometer Auditing
     console.log('\n🧪 Test 3: Odometer Progressive Rollback Forensics...');
