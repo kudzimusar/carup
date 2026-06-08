@@ -392,33 +392,32 @@ test.describe('Diaspora buyer import order UI', () => {
   test('admin can verify document', async ({ page }) => {
     await loginAs(page, adminUser, 'mock-admin-token')
     await mockDiasporaApi(page)
-    let verifyCalled = false
-    page.on('request', request => {
-      if (request.method() === 'POST' && request.url().includes('/verify')) verifyCalled = true
-    })
 
     await page.goto('/diaspora/imports/dio-1001/documents')
 
+    // Await the actual request instead of checking a flag synchronously after click (race-free).
+    const verifyRequest = page.waitForRequest(
+      request => request.method() === 'POST' && request.url().includes('/verify'),
+    )
     await page.locator('[data-testid="diaspora-verify-button"]').first().click()
-
-    expect(verifyCalled).toBe(true)
+    await verifyRequest
   })
 
   test('admin can reject document with reason', async ({ page }) => {
     await loginAs(page, adminUser, 'mock-admin-token')
     await mockDiasporaApi(page)
-    let rejectCalled = false
-    page.on('request', request => {
-      if (request.method() === 'POST' && request.url().includes('/reject')) rejectCalled = true
-    })
 
     await page.goto('/diaspora/imports/dio-1001/documents')
 
     await page.locator('[data-testid="diaspora-reject-button"]').first().click()
     await page.locator('[data-testid="diaspora-reject-reason-input"]').first().fill('Blurry image')
-    await page.locator('[data-testid="diaspora-confirm-reject-button"]').first().click()
 
-    expect(rejectCalled).toBe(true)
+    // Set up the wait before the confirm click so the reject POST can never be missed (race-free).
+    const rejectRequest = page.waitForRequest(
+      request => request.method() === 'POST' && request.url().includes('/reject'),
+    )
+    await page.locator('[data-testid="diaspora-confirm-reject-button"]').first().click()
+    await rejectRequest
   })
 
   test('reject without reason is blocked', async ({ page }) => {
@@ -463,16 +462,15 @@ test.describe('Diaspora buyer import order UI', () => {
   test('admin can run OCR extraction', async ({ page }) => {
     await loginAs(page, adminUser, 'mock-admin-token')
     await mockDiasporaApi(page)
-    let ocrCalled = false
-    page.on('request', request => {
-      if (request.method() === 'POST' && request.url().includes('/run-ocr')) ocrCalled = true
-    })
 
     await page.goto('/diaspora/imports/dio-1001/documents')
 
+    // Await the actual request instead of checking a flag synchronously after click (race-free).
+    const ocrRequest = page.waitForRequest(
+      request => request.method() === 'POST' && request.url().includes('/run-ocr'),
+    )
     await page.locator('[data-testid="diaspora-run-ocr-button"]').first().click()
-
-    expect(ocrCalled).toBe(true)
+    await ocrRequest
   })
 
   test('OCR result is displayed after extraction', async ({ page }) => {
@@ -490,15 +488,16 @@ test.describe('Diaspora buyer import order UI', () => {
   test('OCR_EXTRACTED status is shown after OCR', async ({ page }) => {
     await loginAs(page, adminUser, 'mock-admin-token')
     await mockDiasporaApi(page)
-    let ocrCalled = false
-    page.on('request', request => {
-      if (request.method() === 'POST' && request.url().includes('/run-ocr')) ocrCalled = true
-    })
 
     await page.goto('/diaspora/imports/dio-1001/documents')
 
+    // Trigger OCR and wait for the request (race-free), then assert the result/status is rendered.
+    const ocrRequest = page.waitForRequest(
+      request => request.method() === 'POST' && request.url().includes('/run-ocr'),
+    )
     await page.locator('[data-testid="diaspora-run-ocr-button"]').first().click()
+    await ocrRequest
 
-    expect(ocrCalled).toBe(true)
+    await expect(page.locator('text=OCR Result')).toBeVisible()
   })
 })
