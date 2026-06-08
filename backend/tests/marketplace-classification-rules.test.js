@@ -11,9 +11,11 @@ import {
   partsentryCheckedStatus,
   getExcludedReason,
   buildClassificationDryRunRow,
+  getFixtureExclusion,
 } from '../services/marketplace/marketplaceClassificationRules.js';
 
-const v = (over = {}) => ({ vin: 'VIN1', vehicle_condition_category: 'unknown', ...over });
+const REAL_VIN = '1HGBH41JXMN109186'; // structurally valid 17-char VIN (no I/O/Q)
+const v = (over = {}) => ({ vin: REAL_VIN, vehicle_condition_category: 'unknown', ...over });
 
 // 1. zw + local -> locally_used
 test('registration_country=zw + import_source=local -> locally_used candidate', () => {
@@ -135,11 +137,54 @@ test('helpers behave; dry-run row builder is stable', () => {
   assert.equal(isLocalRegistration('south africa'), false);
   const c = classifyVehicleConditionCandidate(v({ registration_country: 'zw', import_source: 'local' }));
   const row = buildClassificationDryRunRow(v({ registration_country: 'zw', import_source: 'local' }), c.current, c.proposed, c.reason, { confidence: c.confidence, risk: c.risk });
-  assert.equal(row.vin, 'VIN1');
+  assert.equal(row.vin, REAL_VIN);
   assert.equal(row.proposed_category, 'locally_used');
   assert.equal(row.included, true);
   assert.equal(row.source_fields.registration_country, 'zw');
   const proposal = deriveMarketplaceClassificationProposal(v({ registration_country: 'zw', import_source: 'local' }), { partsentryLogs: [] });
   assert.equal(proposal.condition.proposed, 'locally_used');
   assert.equal(proposal.governedTags.passport_verified.autoBackfill, false);
+});
+
+// --- Fixture / seed / demo provenance hardening ---
+
+test('synthetic VIN prefixes (VIN_REF_*, VIN_TRUST_*) are excluded as fixtures', () => {
+  for (const vin of ['VIN_REF_776997', 'VIN_TRUST_RB_999']) {
+    const r = classifyVehicleConditionCandidate(v({ vin, registration_country: 'zw', import_source: 'local' }));
+    assert.equal(r.included, false, `${vin} must be excluded`);
+    assert.match(r.reason, /synthetic_vin_prefix/);
+  }
+});
+
+test('integration-fixture VINs (VIN_INT_*, VIN_TRANS_INTEG_999) are excluded', () => {
+  for (const vin of ['VIN_INT_081059', 'VIN_TRANS_INTEG_999']) {
+    const r = classifyVehicleConditionCandidate(v({ vin, registration_country: 'zw', import_source: 'local' }));
+    assert.equal(r.included, false, `${vin} must be excluded`);
+    assert.match(r.reason, /integration_fixture_vin/);
+  }
+});
+
+test('seed owner_id (u3) and nil/default tenant_id are excluded', () => {
+  const o = classifyVehicleConditionCandidate(v({ owner_id: 'u3', registration_country: 'zw', import_source: 'local' }));
+  assert.equal(o.included, false);
+  assert.match(o.reason, /seed_owner_id/);
+  const t = classifyVehicleConditionCandidate(v({ tenant_id: '00000000-0000-0000-0000-000000000001', registration_country: 'zw', import_source: 'local' }));
+  assert.equal(t.included, false);
+  assert.match(t.reason, /seed_tenant_id/);
+});
+
+test('invalid/synthetic VIN formats are excluded (incl. the synthetic recently_imported fixtures)', () => {
+  const ri = classifyVehicleConditionCandidate(v({ vin: 'VIN89230489201948', import_source: 'Japan' }));
+  assert.equal(ri.included, false);
+  assert.match(ri.reason, /synthetic_vin_prefix|invalid_vin_format/);
+  const short = classifyVehicleConditionCandidate(v({ vin: 'ABC123', registration_country: 'zw', import_source: 'local' }));
+  assert.equal(short.included, false);
+  assert.match(short.reason, /invalid_vin_format/);
+});
+
+test('getFixtureExclusion is null for a real-looking row, which can still qualify as locally_used', () => {
+  assert.equal(getFixtureExclusion({ vin: '1HGBH41JXMN109186', owner_id: '550e8400-e29b-41d4-a716-446655440000', tenant_id: 'b2c3d4e5-1111-2222-3333-444455556666' }), null);
+  const r = classifyVehicleConditionCandidate({ vin: '1HGBH41JXMN109186', owner_id: '550e8400-e29b-41d4-a716-446655440000', vehicle_condition_category: 'unknown', registration_country: 'zw', import_source: 'local' });
+  assert.equal(r.included, true);
+  assert.equal(r.proposed, 'locally_used');
 });
