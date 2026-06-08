@@ -21,6 +21,21 @@ and **0** `recently_imported` candidates on the current prod snapshot.
   a structurally valid 17-char VIN (no `_`, no `I/O/Q`), a non-seed `owner_id`, and a non-nil
   `tenant_id`. Fixtures are excluded automatically and **cannot be written even if allowlisted**.
 
+## Public marketplace fixture visibility (Option A — implemented)
+
+Fixture exclusion is now applied to the **public marketplace read path** (`listMarketplaceListings`),
+not just classification/backfill:
+
+- **Production HIDES fixtures by default.** `GET /api/marketplace/listings` filters out any row where
+  `getFixtureExclusion(row)` returns a reason (reusing the merged detector). The service now also
+  selects `owner_id`/`tenant_id` for detection but **never exposes them** in the public response.
+- **Dev/test/demo may opt in** with **`MARKETPLACE_SHOW_FIXTURES=true`** (also `1`/`yes`/`on`). Unset
+  or any other value → fixtures hidden. Production should leave this unset.
+- On the current prod snapshot this means the public marketplace returns **0 listings** (all 142 rows
+  are fixtures) — an empty list is returned **cleanly, not an error**.
+- **No navigation links should be wired** until real, non-fixture inventory reaches **≥ 3** coverage
+  per category/tag (the standing coverage guard).
+
 ## What it can and cannot do
 
 - **Can** set `vehicle_condition_category` to **`locally_used`** or **`recently_imported`** only.
