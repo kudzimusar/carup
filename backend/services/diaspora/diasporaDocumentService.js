@@ -105,14 +105,25 @@ export async function listTradeDocuments({ importOrderId, verificationStatus, li
   return visibleDocuments.map(redactTradeDocumentStorage);
 }
 
-export async function getTradeDocument(id, userContext = {}) {
+/**
+ * Fetch a trade document the caller is authorized to read, WITHOUT redacting storage_path.
+ *
+ * For server-side processing only (e.g. OCR needs the storage path to generate a signed read URL).
+ * The returned record MUST NOT be sent directly in an API response — use getTradeDocument() for
+ * anything that reaches the client, which redacts storage_path/private_storage_path.
+ */
+export async function getTradeDocumentWithStorage(id, userContext = {}) {
   const context = requireUserContext(userContext);
   const { data, error } = await supabase.from('diaspora_trade_documents').select('*').eq('id', id).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora trade document not found');
 
   const { order, participants } = await getOrderAccess(data.import_order_id, context);
   assertCanReadTradeDocument(data, order, participants, context);
-  return redactTradeDocumentStorage(data);
+  return data;
+}
+
+export async function getTradeDocument(id, userContext = {}) {
+  return redactTradeDocumentStorage(await getTradeDocumentWithStorage(id, userContext));
 }
 
 export async function recordDocumentExtraction(documentId, payload, userContext = {}, req = null) {

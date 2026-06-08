@@ -5,7 +5,7 @@ import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js'
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
-import { createTradeDocument, listTradeDocuments, getTradeDocument, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
+import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
 import { createCargoReservation, listCargoReservations, updateReservationStatus } from '../services/diaspora/diasporaReservationService.js';
 import { createShipment, listShipments, getShipment, updateShipmentStage, getShipmentTimeline } from '../services/diaspora/diasporaShipmentService.js';
@@ -116,7 +116,9 @@ router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res
   const documentId = req.params.id;
   const userContext = req.userContext;
 
-  const doc = await getTradeDocument(documentId, userContext);
+  // Server-side processing needs the (otherwise-redacted) storage_path to mint a signed read URL.
+  // Same authorization as getTradeDocument; the raw record is never returned to the client below.
+  const doc = await getTradeDocumentWithStorage(documentId, userContext);
   if (!doc.storage_path) {
     throw new ValidationError('Document has no storage path. Upload a file first.');
   }
@@ -144,8 +146,8 @@ router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res
 
   let signedUrl;
   try {
-    const result = await generateSecureReadUrl('ocr-documents', doc.storage_path);
-    signedUrl = result.signedUrl;
+    // generateSecureReadUrl resolves to the signed URL string (not an object).
+    signedUrl = await generateSecureReadUrl('ocr-documents', doc.storage_path);
   } catch (err) {
     throw new ValidationError('Failed to generate document access URL.');
   }
