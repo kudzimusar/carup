@@ -29,6 +29,23 @@ const BASE_URL = typeof window !== 'undefined' && window.location.hostname === '
   ? '/api'
   : 'https://carup-backend.vercel.app/api';
 
+let globalCsrfToken: string | null = null;
+
+const fetchCsrfToken = async () => {
+  if (globalCsrfToken) return globalCsrfToken;
+  try {
+    const res = await fetch(`${BASE_URL}/security/csrf-token`, { credentials: 'include' });
+    if (res.ok) {
+      const data = await res.json();
+      globalCsrfToken = data.csrfToken;
+      return globalCsrfToken;
+    }
+  } catch (e) {
+    console.error('Failed to fetch CSRF token:', e);
+  }
+  return null;
+};
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -48,13 +65,24 @@ export function useCarUpApi() {
     if (user?.role) defaultHeaders['x-stakeholder-role'] = user.role
     if (user?.active_tenant_id) defaultHeaders['x-tenant-id'] = user.active_tenant_id
 
+    const method = options?.method?.toUpperCase() || 'GET'
+    let fetchOptions = { ...options }
+
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const csrfToken = await fetchCsrfToken()
+      if (csrfToken) {
+        defaultHeaders['x-csrf-token'] = csrfToken
+      }
+      fetchOptions.credentials = 'include'
+    }
+
     try {
       const response = await fetch(`${BASE_URL}${path}`, {
+        ...fetchOptions,
         headers: {
           ...defaultHeaders,
-          ...(options?.headers || {})
-        },
-        ...options
+          ...(fetchOptions.headers || {})
+        }
       })
       
       if (!response.ok) {
@@ -308,6 +336,12 @@ export function useCarUpApi() {
     return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/extractions`, {
       method: 'POST',
       body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const runDiasporaOcr = useCallback(async (documentId: string): Promise<{ extraction: DiasporaTradeDocument; ocr: { success: boolean; ocrDocumentId: string; qualityMetrics: Record<string, unknown> } }> => {
+    return request(`/diaspora/documents/${encodeURIComponent(documentId)}/run-ocr`, {
+      method: 'POST'
     })
   }, [request])
 
@@ -615,6 +649,7 @@ export function useCarUpApi() {
     createDiasporaTradeDocument,
     fetchDiasporaTradeDocument,
     runDiasporaDocumentExtraction,
+    runDiasporaOcr,
     verifyDiasporaTradeDocument,
     rejectDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,
