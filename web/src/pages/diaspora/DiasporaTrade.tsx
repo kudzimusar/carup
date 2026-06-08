@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type React from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload } from 'lucide-react'
+import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -190,7 +190,7 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
       setDocumentType('')
       setFileName('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to upload document.')
+      setError(err instanceof Error ? err.message : 'Unable to register document.')
     } finally {
       setSubmitting(false)
     }
@@ -198,15 +198,18 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
 
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-document-upload-form">
-      <div className="flex items-center gap-3 mb-4">
-        <Upload className="h-5 w-5 text-orange-600" />
-        <h2 className="text-base font-semibold text-gray-900">Upload document</h2>
+      <div className="flex items-center gap-3 mb-2">
+        <FileText className="h-5 w-5 text-orange-600" />
+        <h2 className="text-base font-semibold text-gray-900">Register document details</h2>
       </div>
+      <p className="text-xs text-gray-500 mb-4">
+        This step records the document type and reference for review. Actual file upload and OCR extraction will be added in the next document sprint.
+      </p>
 
       {error && (
         <Alert className="mb-4 border-red-200" data-testid="diaspora-document-upload-error">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Upload failed</AlertTitle>
+          <AlertTitle>Registration failed</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
@@ -229,12 +232,12 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
         </div>
 
         <div>
-          <label className="text-sm font-medium text-gray-800" htmlFor="file-name">File name (optional)</label>
+          <label className="text-sm font-medium text-gray-800" htmlFor="file-name">Reference or description (optional)</label>
           <Input
             id="file-name"
             value={fileName}
             onChange={event => setFileName(event.target.value)}
-            placeholder="e.g., passport_scan.pdf"
+            placeholder="e.g., passport scan reference or description"
             data-testid="diaspora-document-file-name-input"
           />
         </div>
@@ -246,8 +249,8 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
             className="bg-orange-600 hover:bg-orange-700"
             data-testid="diaspora-document-upload-submit"
           >
-            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-            Upload document
+            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+            Register document
           </Button>
         </div>
       </div>
