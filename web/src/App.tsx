@@ -20,7 +20,6 @@ import InsuranceDirectory from './pages/InsuranceDirectory'
 import Pricing from './pages/Pricing'
 import About from './pages/About'
 import Contact from './pages/Contact'
-import DiasporaTrade from './pages/DiasporaTrade'
 import ScrollToTop from './components/layout/ScrollToTop'
 
 // New Footer Pages
@@ -32,6 +31,15 @@ import TrustSafety from './pages/TrustSafety'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
 import APIDocs from './pages/APIDocs'
+import {
+  DiasporaComplianceAdmin,
+  DiasporaImportDetail,
+  DiasporaImportDocuments,
+  DiasporaImportList,
+  DiasporaImportShipment,
+  DiasporaLanding,
+  NewDiasporaImportOrder,
+} from './pages/diaspora/DiasporaTrade'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -156,7 +164,6 @@ export default function App() {
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
-          <Route path="/diaspora" element={<DiasporaTrade />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
@@ -168,6 +175,13 @@ export default function App() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/api-docs" element={<APIDocs />} />
+          <Route path="/diaspora" element={<DiasporaLanding />} />
+          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
+          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
+          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
+          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
+          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
         </Route>
 
         {/* Auth Routes */}

@@ -78,6 +78,64 @@ export interface MarketplaceListingSummary extends SharedMarketplaceListingSumma
 
 export interface MarketplaceListingsResponse extends SharedMarketplaceListingsResponse {}
 
+export type DiasporaOrderType = 'vehicle' | 'parts' | 'mixed';
+
+export interface DiasporaImportOrder {
+  id: string;
+  tenant_id?: string | null;
+  buyer_id?: string | null;
+  order_type: DiasporaOrderType;
+  origin_country: string;
+  origin_city?: string | null;
+  destination_country: string;
+  destination_city?: string | null;
+  requested_make?: string | null;
+  requested_model?: string | null;
+  requested_year_min?: number | null;
+  requested_year_max?: number | null;
+  budget_amount?: number | string | null;
+  budget_currency?: string | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  metadata?: Record<string, unknown>;
+  diaspora_trade_documents?: DiasporaTradeDocument[];
+}
+
+export interface DiasporaImportOrderPayload {
+  order_type: DiasporaOrderType;
+  origin_country: string;
+  origin_city?: string;
+  destination_country: string;
+  destination_city?: string;
+  requested_make?: string;
+  requested_model?: string;
+  requested_year_min?: number;
+  requested_year_max?: number;
+  budget_amount?: number;
+  budget_currency?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaTradeDocument {
+  id: string;
+  import_order_id?: string;
+  document_type: string;
+  verification_status?: string;
+  uploaded_by?: string | null;
+  created_at?: string;
+  storage_path?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaComplianceReview {
+  id: string;
+  import_order_id?: string;
+  status: string;
+  review_type?: string;
+  created_at?: string;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;
