@@ -18,7 +18,11 @@ import type {
   TrustFactReviewQueueResponse,
   TrustFactReviewStatus,
   TrustFactName,
-  VehicleEvidenceSummary
+  VehicleEvidenceSummary,
+  DiasporaImportOrder,
+  DiasporaImportOrderPayload,
+  DiasporaTradeDocument,
+  DiasporaComplianceReview
 } from '@/types'
 
 
@@ -249,6 +253,32 @@ export function useCarUpApi() {
       method: 'POST',
       body: JSON.stringify({ price, year, engineCc })
     })
+  }, [request])
+
+  const fetchDiasporaImportOrders = useCallback(async (): Promise<DiasporaImportOrder[]> => {
+    const response = await request<{ data: DiasporaImportOrder[] }>('/diaspora/import-orders')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaImportOrder = useCallback(async (payload: DiasporaImportOrderPayload): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>('/diaspora/import-orders', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchDiasporaImportOrder = useCallback(async (id: string): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(id)}`)
+  }, [request])
+
+  const fetchDiasporaTradeDocuments = useCallback(async (importOrderId: string): Promise<DiasporaTradeDocument[]> => {
+    const response = await request<{ data: DiasporaTradeDocument[] }>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/documents`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaComplianceReviews = useCallback(async (): Promise<DiasporaComplianceReview[]> => {
+    const response = await request<{ data: DiasporaComplianceReview[] }>('/diaspora/compliance')
+    return response.data || []
   }, [request])
 
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
@@ -502,6 +532,11 @@ export function useCarUpApi() {
     submitFinancing,
     fetchInsuranceQuote,
     fetchZimraDuty,
+    fetchDiasporaImportOrders,
+    createDiasporaImportOrder,
+    fetchDiasporaImportOrder,
+    fetchDiasporaTradeDocuments,
+    fetchDiasporaComplianceReviews,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
