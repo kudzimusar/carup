@@ -123,9 +123,34 @@ export interface DiasporaTradeDocument {
   document_type: string;
   verification_status?: string;
   uploaded_by?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  file_name?: string | null;
   created_at?: string;
   storage_path?: string | null;
+  ocr_document_id?: string | null;
   metadata?: Record<string, unknown>;
+  extractions?: DiasporaTradeDocumentExtraction[];
+  verifications?: DiasporaTradeDocumentVerification[];
+}
+
+export interface DiasporaTradeDocumentExtraction {
+  id: string;
+  trade_document_id: string;
+  extraction_provider?: string;
+  extracted_fields?: Record<string, unknown>;
+  confidence_score?: number;
+  verification_status?: string;
+  created_at?: string;
+}
+
+export interface DiasporaTradeDocumentVerification {
+  id: string;
+  trade_document_id: string;
+  verification_status: string;
+  verified_by?: string;
+  verified_at?: string;
+  notes?: string;
 }
 
 export interface DiasporaTradeDocumentPayload {

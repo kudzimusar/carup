@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type React from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload } from 'lucide-react'
+import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload, XCircle, CheckCircle, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -138,25 +138,210 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
                   <FileText className="h-4 w-4 text-orange-600" />
                   <div>
                     <p className="text-sm font-medium text-gray-900">{labelize(document.document_type)}</p>
+                    {document.file_name && (
+                      <p className="text-xs text-gray-500">{document.file_name}</p>
+                    )}
                     {document.created_at && (
                       <p className="text-xs text-gray-500">{new Date(document.created_at).toLocaleDateString()}</p>
                     )}
                   </div>
                 </div>
-                <Badge
-                  className={
-                    document.verification_status === 'verified'
-                      ? 'bg-green-100 text-green-800'
-                      : document.verification_status === 'rejected'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                  }
-                  data-testid={`diaspora-document-verification-status-${document.id}`}
-                >
-                  {labelize(document.verification_status || 'pending')}
-                </Badge>
+                <DocumentStatusBadge status={document.verification_status} />
               </div>
             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DocumentStatusBadge({ status }: { status?: string }) {
+  const normalizedStatus = (status || 'UPLOADED').toUpperCase()
+  let className = 'bg-yellow-100 text-yellow-800'
+  let label = labelize(status || 'UPLOADED')
+
+  if (normalizedStatus === 'VERIFIED') {
+    className = 'bg-green-100 text-green-800'
+  } else if (normalizedStatus === 'REJECTED') {
+    className = 'bg-red-100 text-red-800'
+  } else if (normalizedStatus === 'OCR_EXTRACTED') {
+    className = 'bg-blue-100 text-blue-800'
+  } else if (normalizedStatus === 'PENDING_REVIEW') {
+    className = 'bg-purple-100 text-purple-800'
+  }
+
+  return (
+    <Badge className={className} data-testid="diaspora-document-status-badge">
+      {label}
+    </Badge>
+  )
+}
+
+function DocumentReviewPanel({ document, onStatusChange }: { document: DiasporaTradeDocument; onStatusChange: () => void }) {
+  const { verifyDiasporaTradeDocument, rejectDiasporaTradeDocument } = useCarUpApi()
+  const [verifying, setVerifying] = useState(false)
+  const [rejecting, setRejecting] = useState(false)
+  const [showRejectForm, setShowRejectForm] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectNotes, setRejectNotes] = useState('')
+  const [verifyNotes, setVerifyNotes] = useState('')
+  const [error, setError] = useState('')
+
+  const handleVerify = async () => {
+    setVerifying(true)
+    setError('')
+    try {
+      await verifyDiasporaTradeDocument(document.id, { notes: verifyNotes || undefined })
+      onStatusChange()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      setError('Rejection reason is required')
+      return
+    }
+    setRejecting(true)
+    setError('')
+    try {
+      await rejectDiasporaTradeDocument(document.id, { reason: rejectReason, notes: rejectNotes || undefined })
+      setShowRejectForm(false)
+      setRejectReason('')
+      setRejectNotes('')
+      onStatusChange()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rejection failed')
+    } finally {
+      setRejecting(false)
+    }
+  }
+
+  const normalizedStatus = (document.verification_status || 'UPLOADED').toUpperCase()
+  const isTerminal = normalizedStatus === 'VERIFIED' || normalizedStatus === 'REJECTED'
+
+  return (
+    <div className="rounded-md border border-gray-200 bg-white p-4" data-testid={`diaspora-document-review-${document.id}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">{labelize(document.document_type)}</p>
+          {document.file_name && <p className="text-xs text-gray-500">{document.file_name}</p>}
+        </div>
+        <DocumentStatusBadge status={document.verification_status} />
+      </div>
+
+      {error && (
+        <Alert className="mb-3 border-red-200" data-testid="diaspora-review-error">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {document.extractions && document.extractions.length > 0 && (
+        <div className="mb-3 rounded-md bg-gray-50 p-3">
+          <p className="text-xs font-semibold text-gray-700 mb-1">OCR Extracted Data</p>
+          {document.extractions.map(extraction => (
+            <div key={extraction.id} className="text-xs text-gray-600">
+              <p>Provider: {extraction.extraction_provider || 'carup_ocr'}</p>
+              <p>Confidence: {extraction.confidence_score ? `${(extraction.confidence_score * 100).toFixed(1)}%` : 'N/A'}</p>
+              {extraction.extracted_fields && (
+                <pre className="mt-1 text-xs overflow-auto max-h-32">{JSON.stringify(extraction.extracted_fields, null, 2)}</pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isTerminal && !showRejectForm && (
+        <div className="space-y-2">
+          <div>
+            <label className="text-xs text-gray-600" htmlFor={`verify-notes-${document.id}`}>Verification notes (optional)</label>
+            <Input
+              id={`verify-notes-${document.id}`}
+              value={verifyNotes}
+              onChange={event => setVerifyNotes(event.target.value)}
+              placeholder="Add notes..."
+              className="mt-1"
+              data-testid="diaspora-verify-notes-input"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={handleVerify}
+              disabled={verifying}
+              className="bg-green-600 hover:bg-green-700"
+              data-testid="diaspora-verify-button"
+            >
+              {verifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle className="mr-1 h-3 w-3" />}
+              Verify document
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowRejectForm(true)}
+              className="text-red-600 border-red-300 hover:bg-red-50"
+              data-testid="diaspora-reject-button"
+            >
+              <XCircle className="mr-1 h-3 w-3" />
+              Reject
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showRejectForm && (
+        <div className="space-y-2 border-t border-gray-200 pt-3">
+          <div>
+            <label className="text-xs text-gray-600" htmlFor={`reject-reason-${document.id}`}>Rejection reason (required)</label>
+            <Input
+              id={`reject-reason-${document.id}`}
+              value={rejectReason}
+              onChange={event => setRejectReason(event.target.value)}
+              placeholder="Reason for rejection..."
+              className="mt-1"
+              data-testid="diaspora-reject-reason-input"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-600" htmlFor={`reject-notes-${document.id}`}>Additional notes (optional)</label>
+            <Input
+              id={`reject-notes-${document.id}`}
+              value={rejectNotes}
+              onChange={event => setRejectNotes(event.target.value)}
+              placeholder="Additional details..."
+              className="mt-1"
+              data-testid="diaspora-reject-notes-input"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={handleReject}
+              disabled={rejecting || !rejectReason.trim()}
+              className="bg-red-600 hover:bg-red-700"
+              data-testid="diaspora-confirm-reject-button"
+            >
+              {rejecting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <XCircle className="mr-1 h-3 w-3" />}
+              Confirm rejection
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setShowRejectForm(false)
+                setRejectReason('')
+                setRejectNotes('')
+                setError('')
+              }}
+              data-testid="diaspora-cancel-reject-button"
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       )}
@@ -688,10 +873,16 @@ export function DiasporaImportDetail() {
 
 export function DiasporaImportDocuments() {
   const { id } = useParams()
+  const { user } = useAuth()
   const { fetchDiasporaTradeDocuments } = useCarUpApi()
   const [documents, setDocuments] = useState<DiasporaTradeDocument[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  const isReviewer = useMemo(() => {
+    const role = user?.role || ''
+    return adminRoles.has(role)
+  }, [user?.role])
 
   useEffect(() => {
     if (!id) return
@@ -705,17 +896,53 @@ export function DiasporaImportDocuments() {
     setDocuments(prev => [...prev, document])
   }
 
+  const handleStatusChange = () => {
+    if (!id) return
+    fetchDiasporaTradeDocuments(id)
+      .then(setDocuments)
+      .catch(err => setError(err instanceof Error ? err.message : 'Unable to reload documents'))
+  }
+
   return (
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-documents-route">
         <h1 className="text-2xl font-bold text-gray-950">Trade documents</h1>
         <p className="mt-1 text-sm text-gray-500">Only documents scoped to this import order are shown.</p>
+
+        <Alert className="mt-4 border-blue-200 bg-blue-50" data-testid="diaspora-documents-info">
+          <Eye className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800">
+            Uploaded documents require OCR/reviewer processing before they are verified.
+          </AlertDescription>
+        </Alert>
+
         {loading && <div className="mt-6 text-orange-600" data-testid="diaspora-documents-loading">Loading documents...</div>}
         {error && <Alert className="mt-6 border-red-200" data-testid="diaspora-documents-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
         {!loading && !error && (
           <div className="mt-6 space-y-6">
             {id && <DocumentUploadForm importOrderId={id} onDocumentUploaded={handleDocumentUploaded} />}
             <DocumentChecklist documents={documents} />
+
+            {isReviewer && documents.length > 0 && (
+              <div className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-document-review-panel">
+                <div className="flex items-center gap-3 mb-4">
+                  <ShieldCheck className="h-5 w-5 text-orange-600" />
+                  <h2 className="text-base font-semibold text-gray-900">Document review</h2>
+                </div>
+                <p className="text-xs text-gray-500 mb-4">
+                  Review, verify, or reject uploaded documents. Only visible to admin/reviewer users.
+                </p>
+                <div className="space-y-3">
+                  {documents.map(document => (
+                    <DocumentReviewPanel
+                      key={document.id}
+                      document={document}
+                      onStatusChange={handleStatusChange}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

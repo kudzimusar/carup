@@ -300,6 +300,31 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const fetchDiasporaTradeDocument = useCallback(async (documentId: string): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}`)
+  }, [request])
+
+  const runDiasporaDocumentExtraction = useCallback(async (documentId: string, payload: { extraction_provider?: string; extracted_fields?: Record<string, unknown>; confidence_score?: number; raw_response?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/extractions`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const verifyDiasporaTradeDocument = useCallback(async (documentId: string, payload: { notes?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/verify`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const rejectDiasporaTradeDocument = useCallback(async (documentId: string, payload: { reason: string; notes?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
   const fetchDiasporaComplianceReviews = useCallback(async (): Promise<DiasporaComplianceReview[]> => {
     const response = await request<{ data: DiasporaComplianceReview[] }>('/diaspora/compliance')
     return response.data || []
@@ -588,6 +613,10 @@ export function useCarUpApi() {
     fetchDiasporaTradeDocuments,
     uploadDiasporaDocument,
     createDiasporaTradeDocument,
+    fetchDiasporaTradeDocument,
+    runDiasporaDocumentExtraction,
+    verifyDiasporaTradeDocument,
+    rejectDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,
     reportStolen,
     checkStolen,
