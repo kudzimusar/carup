@@ -5,7 +5,9 @@ import {
   deriveConditionCategory,
   deriveMarketplaceTags,
   summarizeEvidence,
-  summarizePartSentry
+  summarizePartSentry,
+  filterVisibleVehicles,
+  shouldShowFixtures
 } from '../services/marketplace/listingSummaryService.js';
 
 test('derives canonical vehicle condition categories without inventing unsupported states', () => {
@@ -155,4 +157,58 @@ test('derives marketplace tags only from backed summary fields', () => {
   ]) {
     assert.ok(tags.includes(tag), `${tag} should be present`);
   }
+});
+
+// --- Read-time fixture visibility control (Option A) ---
+
+const FIXTURE_VEHICLES = [
+  { vin: 'VIN_REF_776997', status: 'Available', owner_id: 'u3', tenant_id: '00000000-0000-0000-0000-000000000001', make: 'Ford', import_source: 'local', registration_country: 'ZW' },
+  { vin: 'VIN_INT_081059', status: 'Available', make: 'BMW' },
+];
+const REAL_VEHICLE = { vin: '1HGBH41JXMN109186', status: 'Available', owner_id: '550e8400-e29b-41d4-a716-446655440000', tenant_id: 'b2c3d4e5-1111-2222-3333-444455556666', make: 'Toyota', import_source: 'local', registration_country: 'ZW' };
+
+test('hides fixtures from public listings when MARKETPLACE_SHOW_FIXTURES is off (default)', () => {
+  const visible = filterVisibleVehicles([...FIXTURE_VEHICLES, REAL_VEHICLE], { showFixtures: false });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].vin, '1HGBH41JXMN109186');
+});
+
+test('includes fixtures only when MARKETPLACE_SHOW_FIXTURES is enabled', () => {
+  const visible = filterVisibleVehicles([...FIXTURE_VEHICLES, REAL_VEHICLE], { showFixtures: true });
+  assert.equal(visible.length, 3); // 2 fixtures + 1 real, all public
+});
+
+test('a real-looking valid row is still returned; non-public is removed regardless of flag', () => {
+  const sold = { ...REAL_VEHICLE, vin: '1HGBH41JXMN100001', status: 'Sold' };
+  const visible = filterVisibleVehicles([REAL_VEHICLE, sold], { showFixtures: false });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].status, 'Available');
+});
+
+test('shouldShowFixtures parses the env flag and defaults to hidden', () => {
+  assert.equal(shouldShowFixtures({}), false);
+  assert.equal(shouldShowFixtures({ MARKETPLACE_SHOW_FIXTURES: 'false' }), false);
+  assert.equal(shouldShowFixtures({ MARKETPLACE_SHOW_FIXTURES: 'true' }), true);
+  assert.equal(shouldShowFixtures({ MARKETPLACE_SHOW_FIXTURES: '1' }), true);
+});
+
+test('owner_id and tenant_id are never exposed in the public summary (even though selected for filtering)', () => {
+  const summary = buildMarketplaceListingSummary({
+    vehicle: { vin: '1HGBH41JXMN109186', make: 'Toyota', model: 'Hilux', year: 2023, price: 42000, status: 'Available', owner_id: '550e8400-e29b-41d4-a716-446655440000', tenant_id: 'b2c3d4e5-1111-2222-3333-444455556666' },
+  });
+  assert.equal('owner_id' in summary, false);
+  assert.equal('tenant_id' in summary, false);
+});
+
+test('fixture filtering preserves surviving rows intact so existing filters still apply', () => {
+  const visible = filterVisibleVehicles([FIXTURE_VEHICLES[0], REAL_VEHICLE], { showFixtures: false });
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].make, 'Toyota'); // make/q/category filters downstream still have the data
+  assert.equal(visible[0].registration_country, 'ZW');
+});
+
+test('empty / all-fixture input returns an empty list cleanly (no error)', () => {
+  assert.deepEqual(filterVisibleVehicles([], { showFixtures: false }), []);
+  assert.deepEqual(filterVisibleVehicles(undefined, { showFixtures: false }), []);
+  assert.equal(filterVisibleVehicles(FIXTURE_VEHICLES, { showFixtures: false }).length, 0);
 });
