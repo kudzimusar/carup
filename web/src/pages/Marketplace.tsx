@@ -346,6 +346,10 @@ export default function Marketplace() {
   const selectedMake = url.selectedMake
   const selectedCategoryChip = url.selectedCategoryChip
   const sortBy = url.sortBy
+  // Committed (URL) price drives the API fetch; the live `priceRange` draft below drives the slider
+  // and instant client-side filtering. They diverge only while the user is dragging/typing.
+  const committedMinPrice = url.priceRange[0]
+  const committedMaxPrice = url.priceRange[1]
 
   // Free-flowing controls keep a local draft for instant feedback, mirrored to the URL on change.
   const [searchQuery, setSearchQuery] = useState(url.searchQuery)
@@ -376,7 +380,6 @@ export default function Marketplace() {
   const setChipFilter = (value: string) => updateUrl({ selectedCategoryChip: value })
   const setSortFilter = (value: string) => updateUrl({ sortBy: value as MarketplaceSort })
   const setSearchFilter = (value: string) => { setSearchQuery(value); updateUrl({ searchQuery: value }, true) }
-  const applyPriceRange = (value: number[]) => { setPriceRange(value); updateUrl({ priceRange: [value[0], value[1]] }, true) }
 
   const filterState: MarketplaceUrlState = {
     searchQuery,
@@ -401,15 +404,28 @@ export default function Marketplace() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [url])
 
-  // Re-fetch when backend-supported structural filters change. Search text (q) is read via a ref so
-  // it is still sent on each fetch without making typing trigger a network request.
+  // Phase 1.1: debounce price -> URL. Dragging the slider or editing the min/max inputs updates the
+  // local `priceRange` instantly (live client-side filtering + slider position), but the committed
+  // value is only written to the URL after a short pause — so price changes no longer fire an API
+  // refetch on every drag tick / keystroke. The selected price still updates the URL and the results.
+  useEffect(() => {
+    if (priceRange[0] === url.priceRange[0] && priceRange[1] === url.priceRange[1]) return
+    const timer = setTimeout(() => {
+      updateUrl({ priceRange: [priceRange[0], priceRange[1]] }, true)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [priceRange, url, updateUrl])
+
+  // Re-fetch when backend-supported structural filters change (make/chip/sort + the COMMITTED price).
+  // Search text (q) and the live price draft don't re-trigger this: q is read via a ref and price via
+  // the committed URL value — so typing and dragging the price slider never fire a network request.
   useEffect(() => {
     let cancelled = false
     const apiFilters = stateToApiFilters({
       searchQuery: searchQueryRef.current,
       selectedMake,
       selectedCategoryChip,
-      priceRange: [priceRange[0], priceRange[1]],
+      priceRange: [committedMinPrice, committedMaxPrice],
       sortBy,
     }) as Record<string, string | number | boolean | undefined>
     // Standard data-fetch loading reset: the listings API is an external system this effect drives.
@@ -443,7 +459,7 @@ export default function Marketplace() {
       })
       .finally(() => { if (!cancelled) setLoadingVehicles(false) })
     return () => { cancelled = true }
-  }, [selectedMake, selectedCategoryChip, priceRange, sortBy, fetchMarketplaceListings, fetchVehicles])
+  }, [selectedMake, selectedCategoryChip, committedMinPrice, committedMaxPrice, sortBy, fetchMarketplaceListings, fetchVehicles])
 
   const toggleFavorite = useCallback((e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
     e.preventDefault()
@@ -525,7 +541,7 @@ export default function Marketplace() {
     if (key === 'make') updateUrl({ selectedMake: ALL })
     else if (key === 'q') setSearchFilter('')
     else if (key === 'chip') updateUrl({ selectedCategoryChip: ALL })
-    else if (key === 'price') applyPriceRange([0, 100000])
+    else if (key === 'price') updateUrl({ priceRange: [0, 100000] }, true)
     else if (key === 'sort') updateUrl({ sortBy: 'newest' })
   }
 
@@ -537,7 +553,7 @@ export default function Marketplace() {
       selectedLocation={selectedLocation} setSelectedLocation={setSelectedLocation}
       selectedFuel={selectedFuel} setSelectedFuel={setSelectedFuel}
       selectedTrans={selectedTrans} setSelectedTrans={setSelectedTrans}
-      priceRange={priceRange} setPriceRange={applyPriceRange}
+      priceRange={priceRange} setPriceRange={setPriceRange}
     />
   )
 
@@ -631,10 +647,10 @@ export default function Marketplace() {
           </div>
         </div>
 
-        {/* Trust & Verification quick filters */}
+        {/* Quick filters (trust tags + condition categories) */}
         <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
           <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-gray-500">
-            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Trust filters
+            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Quick filters
           </span>
           {TRUST_QUICK_FILTERS.map(filter => {
             const active = selectedCategoryChip === filter.label
