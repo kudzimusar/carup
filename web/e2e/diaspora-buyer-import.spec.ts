@@ -7,6 +7,20 @@ const buyerUser = {
   role: 'owner',
 }
 
+const adminUser = {
+  id: 'admin-1',
+  name: 'Diaspora Admin',
+  email: 'admin@carup.test',
+  role: 'admin',
+}
+
+const governmentUser = {
+  id: 'government-1',
+  name: 'Government Reviewer',
+  email: 'government@carup.test',
+  role: 'government',
+}
+
 const createdOrder = {
   id: 'dio-1001',
   buyer_id: 'buyer-1',
@@ -26,11 +40,15 @@ const createdOrder = {
   created_at: '2026-06-08T08:00:00.000Z',
 }
 
-async function loginAsBuyer(page: Page) {
-  await page.addInitScript((user) => {
+async function loginAs(page: Page, user = buyerUser, token = 'mock-buyer-token') {
+  await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
-    window.localStorage.setItem('carup_token', 'mock-buyer-token')
-  }, buyerUser)
+    window.localStorage.setItem('carup_token', token)
+  }, { user, token })
+}
+
+async function loginAsBuyer(page: Page) {
+  await loginAs(page)
 }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
@@ -164,5 +182,31 @@ test.describe('Diaspora buyer import order UI', () => {
     await expect(page.locator('[data-testid="diaspora-compliance-unauthorized"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-compliance-admin-route"]')).toHaveCount(0)
     expect(complianceCalls).toBe(0)
+  })
+
+  test('buyer dashboard exposes import order links without compliance nav', async ({ page }) => {
+    await loginAsBuyer(page)
+
+    await page.goto('/dashboard')
+
+    await expect(page.locator('[data-testid="nav-diaspora-imports"]')).toHaveAttribute('href', '/diaspora/imports')
+    await expect(page.locator('[data-testid="nav-diaspora-new-import"]')).toHaveAttribute('href', '/diaspora/imports/new')
+    await expect(page.locator('[data-testid="nav-diaspora-compliance"]')).toHaveCount(0)
+  })
+
+  test('admin dashboard exposes diaspora compliance nav', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+
+    await page.goto('/admin')
+
+    await expect(page.locator('[data-testid="nav-diaspora-compliance"]')).toHaveAttribute('href', '/admin/diaspora/compliance')
+  })
+
+  test('government dashboard exposes diaspora compliance nav', async ({ page }) => {
+    await loginAs(page, governmentUser, 'mock-government-token')
+
+    await page.goto('/government')
+
+    await expect(page.locator('[data-testid="nav-diaspora-compliance"]')).toHaveAttribute('href', '/admin/diaspora/compliance')
   })
 })

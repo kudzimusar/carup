@@ -174,12 +174,19 @@ export function DiasporaLanding() {
       <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-14">
         <div className="flex flex-col justify-center">
           <Badge className="w-fit bg-orange-100 text-orange-800 hover:bg-orange-100" data-testid="diaspora-landing-status-badge">
-            Zimbabwe import coordination
+            Early access import coordination
           </Badge>
           <h1 className="mt-4 text-4xl font-bold tracking-tight text-gray-950 sm:text-5xl">Diaspora Trade</h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-gray-600">
-            Start a vehicle or parts import request, keep documents order-scoped, and track shipment readiness through the CarUp trade workflow.
+            Start a vehicle or parts import request for Zimbabwe, keep the request order-scoped, and prepare documents and shipment milestones without exposing private trade data.
           </p>
+          <Alert className="mt-5 max-w-2xl border-amber-200 bg-amber-50 text-amber-900" data-testid="diaspora-status-note">
+            <ClipboardCheck className="h-4 w-4" />
+            <AlertTitle>Buyer import order slice is active</AlertTitle>
+            <AlertDescription>
+              Document upload, payment, shipment booking, and compliance review actions remain staged behind the order workflow.
+            </AlertDescription>
+          </Alert>
           <div className="mt-6 flex flex-wrap gap-3">
             <Button asChild className="bg-orange-600 hover:bg-orange-700" data-testid="diaspora-start-import-button">
               <Link to="/diaspora/imports/new">
@@ -188,7 +195,10 @@ export function DiasporaLanding() {
               </Link>
             </Button>
             <Button asChild variant="outline" data-testid="diaspora-view-imports-button">
-              <Link to="/diaspora/imports">View import orders</Link>
+              <Link to="/diaspora/imports">View my import orders</Link>
+            </Button>
+            <Button asChild variant="outline" data-testid="diaspora-learn-docs-button">
+              <Link to="#diaspora-documents">Learn documents</Link>
             </Button>
           </div>
         </div>
@@ -205,6 +215,27 @@ export function DiasporaLanding() {
                   <h2 className="font-semibold text-gray-950">{item.title}</h2>
                   <p className="text-sm leading-6 text-gray-600">{item.body}</p>
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      <section id="diaspora-documents" className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8" data-testid="diaspora-documents-section">
+        <div className="rounded-lg border border-gray-200 bg-white p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-950">Document checklist preview</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                These placeholders become order-specific rows after a buyer creates an import request.
+              </p>
+            </div>
+            <Badge variant="outline" data-testid="diaspora-documents-preview-badge">Order scoped</Badge>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {requiredDocuments.map((documentName, index) => (
+              <div key={documentName} className="rounded-md border border-gray-100 p-3" data-testid="diaspora-documents-preview-row">
+                <FileText className="h-4 w-4 text-orange-600" />
+                <p className="mt-2 text-sm font-medium text-gray-900" data-testid={`diaspora-documents-preview-name-${index}`}>{documentName}</p>
               </div>
             ))}
           </div>
