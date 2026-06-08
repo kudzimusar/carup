@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type React from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer } from 'lucide-react'
+import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -165,11 +165,38 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
 }
 
 function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrderId: string; onDocumentUploaded: (document: DiasporaTradeDocument) => void }) {
-  const { createDiasporaTradeDocument } = useCarUpApi()
+  const { uploadDiasporaDocument, createDiasporaTradeDocument } = useCarUpApi()
   const [documentType, setDocumentType] = useState('')
-  const [fileName, setFileName] = useState('')
+  const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<string>('')
   const [error, setError] = useState('')
+
+  const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+  const maxSize = 10 * 1024 * 1024 // 10MB
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    if (!selectedFile) {
+      setFile(null)
+      return
+    }
+
+    if (!allowedTypes.includes(selectedFile.type)) {
+      setError('Invalid file type. Only PDF, JPEG, PNG, and WebP are allowed.')
+      setFile(null)
+      return
+    }
+
+    if (selectedFile.size > maxSize) {
+      setError('File too large. Maximum size is 10MB.')
+      setFile(null)
+      return
+    }
+
+    setError('')
+    setFile(selectedFile)
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -177,20 +204,32 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
       setError('Please select a document type.')
       return
     }
+    if (!file) {
+      setError('Please select a file to upload.')
+      return
+    }
 
     setSubmitting(true)
     setError('')
+    setUploadProgress('Uploading file...')
 
     try {
+      const uploadResult = await uploadDiasporaDocument(file, documentType, importOrderId)
+      setUploadProgress('Creating document record...')
+
       const created = await createDiasporaTradeDocument(importOrderId, {
         document_type: documentType,
-        file_name: fileName || undefined,
+        file_name: file.name,
+        storage_path: uploadResult.storagePath,
       })
+
       onDocumentUploaded(created)
       setDocumentType('')
-      setFileName('')
+      setFile(null)
+      setUploadProgress('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to register document.')
+      setError(err instanceof Error ? err.message : 'Unable to upload document.')
+      setUploadProgress('')
     } finally {
       setSubmitting(false)
     }
@@ -199,18 +238,25 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
   return (
     <form onSubmit={handleSubmit} className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-document-upload-form">
       <div className="flex items-center gap-3 mb-2">
-        <FileText className="h-5 w-5 text-orange-600" />
-        <h2 className="text-base font-semibold text-gray-900">Register document details</h2>
+        <Upload className="h-5 w-5 text-orange-600" />
+        <h2 className="text-base font-semibold text-gray-900">Upload document</h2>
       </div>
       <p className="text-xs text-gray-500 mb-4">
-        This step records the document type and reference for review. Actual file upload and OCR extraction will be added in the next document sprint.
+        Upload a PDF or image file for this trade document. The file will be stored securely and may be processed for OCR extraction.
       </p>
 
       {error && (
         <Alert className="mb-4 border-red-200" data-testid="diaspora-document-upload-error">
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Registration failed</AlertTitle>
+          <AlertTitle>Upload failed</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {uploadProgress && (
+        <Alert className="mb-4 border-blue-200 bg-blue-50" data-testid="diaspora-document-upload-progress">
+          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+          <AlertDescription className="text-blue-800">{uploadProgress}</AlertDescription>
         </Alert>
       )}
 
@@ -232,25 +278,31 @@ function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrder
         </div>
 
         <div>
-          <label className="text-sm font-medium text-gray-800" htmlFor="file-name">Reference or description (optional)</label>
+          <label className="text-sm font-medium text-gray-800" htmlFor="document-file">File (PDF, JPEG, PNG, WebP - max 10MB)</label>
           <Input
-            id="file-name"
-            value={fileName}
-            onChange={event => setFileName(event.target.value)}
-            placeholder="e.g., passport scan reference or description"
-            data-testid="diaspora-document-file-name-input"
+            id="document-file"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,.webp"
+            onChange={handleFileChange}
+            className="mt-1"
+            data-testid="diaspora-document-file-input"
           />
+          {file && (
+            <p className="mt-1 text-xs text-gray-500" data-testid="diaspora-document-file-selected">
+              Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+            </p>
+          )}
         </div>
 
         <div className="flex justify-end">
           <Button
             type="submit"
-            disabled={submitting || !documentType}
+            disabled={submitting || !documentType || !file}
             className="bg-orange-600 hover:bg-orange-700"
             data-testid="diaspora-document-upload-submit"
           >
-            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-            Register document
+            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+            Upload document
           </Button>
         </div>
       </div>

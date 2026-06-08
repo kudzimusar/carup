@@ -44,10 +44,17 @@ const mockDocument = {
   id: 'doc-001',
   import_order_id: 'dio-1001',
   document_type: 'passport',
-  verification_status: 'pending',
+  verification_status: 'UPLOADED',
   uploaded_by: 'buyer-1',
   created_at: '2026-06-08T09:00:00.000Z',
   file_name: 'passport_scan.pdf',
+  storage_path: 'dio-1001/passport_a1b2c3d4e5f6.pdf',
+}
+
+const mockUploadResponse = {
+  storagePath: 'dio-1001/passport_a1b2c3d4e5f6.pdf',
+  docType: 'passport',
+  uploadedBy: 'buyer-1',
 }
 
 async function loginAs(page: Page, user = buyerUser, token = 'mock-buyer-token') {
@@ -113,6 +120,18 @@ async function mockDiasporaApi(page: Page) {
 
     if (route.request().method() === 'GET' && path.endsWith('/diaspora/compliance')) {
       await fulfillJson(route, { data: [] })
+      return
+    }
+
+    await fulfillJson(route, {})
+  })
+
+  await page.context().route('**/api/media/**', async route => {
+    const url = new URL(route.request().url())
+    const path = url.pathname
+
+    if (route.request().method() === 'POST' && path.endsWith('/upload/document')) {
+      await fulfillJson(route, mockUploadResponse, 201)
       return
     }
 
@@ -234,6 +253,7 @@ test.describe('Diaspora buyer import order UI', () => {
     await expect(page.locator('[data-testid="diaspora-import-documents-route"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-document-upload-form"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-document-type-select"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-document-file-input"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-document-upload-submit"]')).toBeVisible()
   })
 
@@ -243,7 +263,7 @@ test.describe('Diaspora buyer import order UI', () => {
 
     await page.goto('/diaspora/imports/dio-1001/documents')
 
-    // Button should be disabled when no document type is selected
+    // Button should be disabled when no document type is selected and no file is chosen
     await expect(page.locator('[data-testid="diaspora-document-upload-submit"]')).toBeDisabled()
   })
 
@@ -253,7 +273,14 @@ test.describe('Diaspora buyer import order UI', () => {
 
     await page.goto('/diaspora/imports/dio-1001/documents')
     await page.locator('[data-testid="diaspora-document-type-select"]').selectOption('passport')
-    await page.locator('[data-testid="diaspora-document-file-name-input"]').fill('passport_scan.pdf')
+
+    const fileInput = page.locator('[data-testid="diaspora-document-file-input"]')
+    await fileInput.setInputFiles({
+      name: 'passport_scan.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('test file content'),
+    })
+
     await page.locator('[data-testid="diaspora-document-upload-submit"]').click()
 
     await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]')).toBeVisible()
