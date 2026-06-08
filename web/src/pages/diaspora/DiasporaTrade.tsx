@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type React from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
-import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer } from 'lucide-react'
+import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,25 @@ const requiredDocuments = [
   'Export certificate',
   'Bill of lading',
   'ZIMRA duty assessment',
+]
+
+const documentTypeOptions = [
+  { value: 'passport', label: 'Passport' },
+  { value: 'national_id', label: 'National ID' },
+  { value: 'residence_card', label: 'Residence Card' },
+  { value: 'vehicle_registration', label: 'Vehicle Registration' },
+  { value: 'auction_sheet', label: 'Auction Sheet' },
+  { value: 'bill_of_lading', label: 'Bill of Lading' },
+  { value: 'commercial_invoice', label: 'Commercial Invoice' },
+  { value: 'export_certificate', label: 'Export Certificate' },
+  { value: 'customs_declaration', label: 'Customs Declaration' },
+  { value: 'inspection_certificate', label: 'Inspection Certificate' },
+  { value: 'insurance_certificate', label: 'Insurance Certificate' },
+  { value: 'duty_receipt', label: 'Duty Receipt' },
+  { value: 'packing_list', label: 'Packing List' },
+  { value: 'port_release_order', label: 'Port Release Order' },
+  { value: 'police_clearance', label: 'Police Clearance' },
+  { value: 'mechanical_report', label: 'Mechanical Report' },
 ]
 
 const timelineSteps = [
@@ -109,7 +128,130 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
           )
         })}
       </div>
+      {documents.length > 0 && (
+        <div className="border-t border-gray-100 px-4 py-3">
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Uploaded documents</h3>
+          <div className="space-y-2">
+            {documents.map(document => (
+              <div key={document.id} className="flex items-center justify-between gap-3 rounded-md bg-gray-50 px-3 py-2" data-testid="diaspora-uploaded-document-row">
+                <div className="flex items-center gap-3">
+                  <FileText className="h-4 w-4 text-orange-600" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{labelize(document.document_type)}</p>
+                    {document.created_at && (
+                      <p className="text-xs text-gray-500">{new Date(document.created_at).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                </div>
+                <Badge
+                  className={
+                    document.verification_status === 'verified'
+                      ? 'bg-green-100 text-green-800'
+                      : document.verification_status === 'rejected'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-yellow-100 text-yellow-800'
+                  }
+                  data-testid={`diaspora-document-verification-status-${document.id}`}
+                >
+                  {labelize(document.verification_status || 'pending')}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+function DocumentUploadForm({ importOrderId, onDocumentUploaded }: { importOrderId: string; onDocumentUploaded: (document: DiasporaTradeDocument) => void }) {
+  const { createDiasporaTradeDocument } = useCarUpApi()
+  const [documentType, setDocumentType] = useState('')
+  const [fileName, setFileName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!documentType) {
+      setError('Please select a document type.')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+
+    try {
+      const created = await createDiasporaTradeDocument(importOrderId, {
+        document_type: documentType,
+        file_name: fileName || undefined,
+      })
+      onDocumentUploaded(created)
+      setDocumentType('')
+      setFileName('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to upload document.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-document-upload-form">
+      <div className="flex items-center gap-3 mb-4">
+        <Upload className="h-5 w-5 text-orange-600" />
+        <h2 className="text-base font-semibold text-gray-900">Upload document</h2>
+      </div>
+
+      {error && (
+        <Alert className="mb-4 border-red-200" data-testid="diaspora-document-upload-error">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Upload failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm font-medium text-gray-800" htmlFor="document-type">Document type</label>
+          <select
+            id="document-type"
+            value={documentType}
+            onChange={event => setDocumentType(event.target.value)}
+            className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            data-testid="diaspora-document-type-select"
+          >
+            <option value="">Select document type</option>
+            {documentTypeOptions.map(option => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-gray-800" htmlFor="file-name">File name (optional)</label>
+          <Input
+            id="file-name"
+            value={fileName}
+            onChange={event => setFileName(event.target.value)}
+            placeholder="e.g., passport_scan.pdf"
+            data-testid="diaspora-document-file-name-input"
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            type="submit"
+            disabled={submitting || !documentType}
+            className="bg-orange-600 hover:bg-orange-700"
+            data-testid="diaspora-document-upload-submit"
+          >
+            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+            Upload document
+          </Button>
+        </div>
+      </div>
+    </form>
   )
 }
 
@@ -504,6 +646,10 @@ export function DiasporaImportDocuments() {
       .finally(() => setLoading(false))
   }, [fetchDiasporaTradeDocuments, id])
 
+  const handleDocumentUploaded = (document: DiasporaTradeDocument) => {
+    setDocuments(prev => [...prev, document])
+  }
+
   return (
     <RequireDiasporaAuth>
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-documents-route">
@@ -511,7 +657,12 @@ export function DiasporaImportDocuments() {
         <p className="mt-1 text-sm text-gray-500">Only documents scoped to this import order are shown.</p>
         {loading && <div className="mt-6 text-orange-600" data-testid="diaspora-documents-loading">Loading documents...</div>}
         {error && <Alert className="mt-6 border-red-200" data-testid="diaspora-documents-error"><AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
-        {!loading && !error && <div className="mt-6"><DocumentChecklist documents={documents} /></div>}
+        {!loading && !error && (
+          <div className="mt-6 space-y-6">
+            {id && <DocumentUploadForm importOrderId={id} onDocumentUploaded={handleDocumentUploaded} />}
+            <DocumentChecklist documents={documents} />
+          </div>
+        )}
       </div>
     </RequireDiasporaAuth>
   )

@@ -40,6 +40,16 @@ const createdOrder = {
   created_at: '2026-06-08T08:00:00.000Z',
 }
 
+const mockDocument = {
+  id: 'doc-001',
+  import_order_id: 'dio-1001',
+  document_type: 'passport',
+  verification_status: 'pending',
+  uploaded_by: 'buyer-1',
+  created_at: '2026-06-08T09:00:00.000Z',
+  file_name: 'passport_scan.pdf',
+}
+
 async function loginAs(page: Page, user = buyerUser, token = 'mock-buyer-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
@@ -93,6 +103,11 @@ async function mockDiasporaApi(page: Page) {
 
     if (route.request().method() === 'GET' && path.endsWith('/documents')) {
       await fulfillJson(route, { data: [] })
+      return
+    }
+
+    if (route.request().method() === 'POST' && path.endsWith('/documents')) {
+      await fulfillJson(route, mockDocument, 201)
       return
     }
 
@@ -208,5 +223,46 @@ test.describe('Diaspora buyer import order UI', () => {
     await page.goto('/government')
 
     await expect(page.locator('[data-testid="nav-diaspora-compliance"]')).toHaveAttribute('href', '/admin/diaspora/compliance')
+  })
+
+  test('buyer can access document upload form', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-import-documents-route"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-document-upload-form"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-document-type-select"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-document-upload-submit"]')).toBeVisible()
+  })
+
+  test('document upload validation prevents empty submit', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    // Button should be disabled when no document type is selected
+    await expect(page.locator('[data-testid="diaspora-document-upload-submit"]')).toBeDisabled()
+  })
+
+  test('successful document upload shows in checklist', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+    await page.locator('[data-testid="diaspora-document-type-select"]').selectOption('passport')
+    await page.locator('[data-testid="diaspora-document-file-name-input"]').fill('passport_scan.pdf')
+    await page.locator('[data-testid="diaspora-document-upload-submit"]').click()
+
+    await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]')).toContainText('Passport')
+  })
+
+  test('unauthenticated user cannot access document upload', async ({ page }) => {
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page).toHaveURL(/\/login$/)
   })
 })
