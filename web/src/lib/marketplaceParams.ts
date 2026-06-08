@@ -38,7 +38,12 @@ export const ALL = 'All'
 export interface MarketplaceUrlState {
   searchQuery: string
   selectedMake: string
-  /** Title-case chip label shared by condition + trust chips, e.g. "Passport Verified". 'All' = none. */
+  /**
+   * Title-case chip label shared by condition + trust chips, e.g. "Passport Verified". 'All' = none.
+   * Phase 1 contract supports exactly ONE category/tag chip per URL (a single value, not a list).
+   * On parse, if both `category=` and `tag=` are present, `tag` wins. Future navbar links and AI
+   * output must therefore emit at most one category/tag per URL.
+   */
   selectedCategoryChip: string
   priceRange: [number, number]
   sortBy: MarketplaceSort
@@ -73,8 +78,11 @@ export const DEFAULT_MARKETPLACE_STATE: MarketplaceUrlState = {
 /**
  * Chip label -> backend slug + kind. `kind` decides whether the chip serializes to
  * `category=` (condition/classification) or `tag=` (trust/marketplace signal).
- * Only chips backed by a real backend slug that narrows LIVE data are listed here;
- * "Parts & Accessories" is intentionally omitted (client-only pseudo-filter).
+ * Only chips backed by a real backend slug that narrows LIVE data are listed here.
+ *
+ * Design debt (deferred): "Parts & Accessories" is intentionally omitted — it is a client-only
+ * pseudo-filter with no backend slug; a real parts marketplace is a separate, later phase. Do not
+ * wire it into navigation until the parts backend exists.
  */
 const CHIP_SLUG_KIND: Record<string, { slug: string; kind: 'category' | 'tag' }> = {
   'Brand New': { slug: 'brand_new', kind: 'category' },
@@ -119,7 +127,14 @@ const SORT_LABELS: Record<MarketplaceSort, string> = {
   trust: 'Trust',
 }
 
-/** Prominent trust/verification quick filters surfaced above the full chip taxonomy. */
+/**
+ * Prominent quick filters surfaced above the full chip taxonomy (a mix of trust tags and condition
+ * categories — the UI row is labelled "Quick filters").
+ *
+ * Coverage guard: a trust tag must NOT be promoted as a navigation deep-link until it has real live
+ * coverage (>= 3 listings). Current state: dealer_verified passed (wired in Phase 2.1);
+ * passport_verified and partsentry_checked are 0 and stay deferred until a data backfill.
+ */
 export const TRUST_QUICK_FILTERS: Array<{ label: string; testId: string }> = [
   { label: 'Passport Verified', testId: 'marketplace-filter-passport-verified' },
   { label: 'PartSentry Checked', testId: 'marketplace-filter-partsentry-checked' },
