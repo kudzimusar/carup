@@ -46,6 +46,8 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'Service History', href: '/dashboard/service-history', icon: Wrench },
     { label: 'Insurance', href: '/dashboard/insurance', icon: Shield },
     { label: 'PartSentry', href: '/dashboard/partsentry', icon: Gauge },
+    { label: 'Import Orders', href: '/diaspora/imports', icon: FileText },
+    { label: 'Start Import Order', href: '/diaspora/imports/new', icon: ClipboardList },
     { label: 'My Listings', href: '/dashboard/listings', icon: Tag },
     { label: 'Saved Cars', href: '/dashboard/saved', icon: Heart },
     { label: 'Gutu AI', href: '/dashboard/ai', icon: MessageSquare, badge: 'AI' },
@@ -75,6 +77,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'Overview', href: '/government', icon: LayoutDashboard },
     { label: 'Registry Verification', href: '/government/registry', icon: Search },
     { label: 'Compliance', href: '/government/compliance', icon: CheckCircle },
+    { label: 'Diaspora Compliance', href: '/admin/diaspora/compliance', icon: ShieldAlert },
     { label: 'Evidence Review', href: '/government/evidence', icon: FileText },
     { label: 'Trust Review', href: '/government/trust-review', icon: ShieldAlert },
   ],
@@ -85,6 +88,7 @@ const roleNavItems: Record<string, NavItem[]> = {
     { label: 'Moderation', href: '/admin/moderation', icon: ShieldAlert },
     { label: 'Evidence Review', href: '/admin/evidence', icon: FileText },
     { label: 'Trust Review', href: '/admin/trust-review', icon: CheckCircle },
+    { label: 'Diaspora Compliance', href: '/admin/diaspora/compliance', icon: ShieldAlert },
   ],
   bank: [
     { label: 'Overview', href: '/bank', icon: LayoutDashboard },
@@ -112,7 +116,7 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   const handleRoleChange = async (newRole: string) => {
     try {
-      await switchRole(newRole as any)
+      await switchRole(newRole as Parameters<typeof switchRole>[0])
       
       const routes: Record<string, string> = {
         owner: '/dashboard',
@@ -209,6 +213,9 @@ export default function DashboardLayout({ role }: { role: string }) {
               'Claims': 'nav-claims',
               'Work Orders': 'nav-workorders',
               'Registry Verification': 'nav-registry',
+              'Import Orders': 'nav-diaspora-imports',
+              'Start Import Order': 'nav-diaspora-new-import',
+              'Diaspora Compliance': 'nav-diaspora-compliance',
             }
             return (
               <Link
