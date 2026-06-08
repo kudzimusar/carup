@@ -48,7 +48,7 @@ async function currentCoverage() {
 async function fetchVehicles() {
   const { data, error } = await supabase
     .from('vehicles')
-    .select('vin, status, vehicle_condition_category, import_source, registration_country, year, mileage, current_seller_type, passport_verified')
+    .select('vin, status, vehicle_condition_category, import_source, registration_country, year, mileage, current_seller_type, passport_verified, owner_id, tenant_id')
   if (error) throw new Error(`vehicles select failed: ${error.message}`)
   return data || []
 }
