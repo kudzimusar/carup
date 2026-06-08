@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
 
 /**
- * Diaspora Trade — public placeholder route/link.
- * Verifies it is reachable from the navbar More menu and the footer, and that the page routes users
- * to the live surfaces (Marketplace + Vehicle Verification). No backend/workflow is exercised.
+ * Diaspora Trade public entry route/link.
+ * Verifies it is reachable from the navbar More menu and footer, while the first buyer import
+ * order slice owns the /diaspora surface.
  */
 
 test.describe('Diaspora Trade public placeholder', () => {
@@ -18,26 +18,21 @@ test.describe('Diaspora Trade public placeholder', () => {
 
     await moreMenu.getByRole('menuitem', { name: 'Diaspora Trade', exact: true }).click()
     await expect(page).toHaveURL(/\/diaspora$/)
-    await expect(page.getByRole('heading', { name: 'Diaspora Trade', exact: true })).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-landing-route"]')).toBeVisible()
   })
 
-  test('page renders the heading, honest status note, and live CTAs', async ({ page }) => {
+  test('page renders the heading, status note, and buyer import CTAs', async ({ page }) => {
     await page.goto('/diaspora')
-    await expect(page.locator('[data-testid="diaspora-page"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-landing-route"]')).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Diaspora Trade', exact: true })).toBeVisible()
-    await expect(page.locator('[data-testid="diaspora-status-note"]')).toContainText(/being developed/i)
+    await expect(page.locator('[data-testid="diaspora-status-note"]')).toContainText(/Buyer import order slice is active/i)
 
-    await page.locator('[data-testid="diaspora-cta-marketplace"]').click()
-    await expect(page).toHaveURL(/\/marketplace$/)
+    await expect(page.locator('[data-testid="diaspora-start-import-button"]')).toHaveAttribute('href', '/diaspora/imports/new')
+    await expect(page.locator('[data-testid="diaspora-view-imports-button"]')).toHaveAttribute('href', '/diaspora/imports')
 
-    await page.goBack()
-    await page.locator('[data-testid="diaspora-cta-verify"]').click()
-    await expect(page).toHaveURL(/\/search$/)
-  })
-
-  test('the "Start Diaspora Trade Request" CTA is present but disabled (coming soon)', async ({ page }) => {
-    await page.goto('/diaspora')
-    await expect(page.locator('[data-testid="diaspora-cta-coming-soon"]')).toBeDisabled()
+    await page.locator('[data-testid="diaspora-learn-docs-button"]').click()
+    await expect(page.locator('[data-testid="diaspora-documents-section"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-documents-preview-row"]')).toHaveCount(5)
   })
 
   test('appears in the footer and routes to /diaspora', async ({ page }) => {
@@ -46,6 +41,6 @@ test.describe('Diaspora Trade public placeholder', () => {
     await expect(footerLink).toHaveAttribute('href', '/diaspora')
     await footerLink.click()
     await expect(page).toHaveURL(/\/diaspora$/)
-    await expect(page.getByRole('heading', { name: 'Diaspora Trade', exact: true })).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-landing-route"]')).toBeVisible()
   })
 })
