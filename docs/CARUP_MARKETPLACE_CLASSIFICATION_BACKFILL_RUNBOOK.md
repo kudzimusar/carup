@@ -9,6 +9,18 @@ How to safely apply approved, safe-bucket `vehicle_condition_category` classific
 - Tests: `backend/tests/marketplace-classification-backfill.test.js`
 - Read-only dry-run + plan: `scripts/marketplace-classification-dryrun.js`, `docs/CARUP_MARKETPLACE_CLASSIFICATION_BACKFILL_PLAN.md`
 
+## ⚠️ Status: NO production backfill is approved (Issue #30 blocked)
+
+A provenance review of the `locally_used` candidates found **all of them are seed/demo/integration
+fixtures** (synthetic VINs like `VIN_REF_*` / `VIN_INT_*`, placeholder `owner_id="u3"`, nil/default
+`tenant_id`, cloned rows). After fixture-exclusion hardening, the dry-run projects **0** `locally_used`
+and **0** `recently_imported` candidates on the current prod snapshot.
+
+- **No `--apply` is authorized.** Issue #30 stays **blocked pending real inventory**.
+- **Real data must pass fixture exclusion** (`getFixtureExclusion`) before it can ever be a candidate:
+  a structurally valid 17-char VIN (no `_`, no `I/O/Q`), a non-seed `owner_id`, and a non-nil
+  `tenant_id`. Fixtures are excluded automatically and **cannot be written even if allowlisted**.
+
 ## What it can and cannot do
 
 - **Can** set `vehicle_condition_category` to **`locally_used`** or **`recently_imported`** only.
@@ -17,6 +29,10 @@ How to safely apply approved, safe-bucket `vehicle_condition_category` classific
 - **Cannot** override the classification rules: a row is changed only when the merged rules
   independently propose the category AND it matches the approved allowlist entry AND the row is still
   `unknown`. Poisoned/test rows (`import_source='test'`) are always skipped.
+- **Cannot** classify or write seed/demo/integration **fixtures** — rows with synthetic/invalid VINs,
+  seed `owner_id`, or nil/default `tenant_id` are excluded (`getFixtureExclusion`) as
+  `synthetic_vin_prefix` / `integration_fixture_vin` / `invalid_vin_format` / `seed_owner_id` /
+  `seed_tenant_id`, before classification and again in the backfill (defense-in-depth).
 - **Cannot** write at all without `--apply`. Default is a read-only dry-run.
 - **Does not** wire any navigation links — that remains a later, separate, per-target step.
 

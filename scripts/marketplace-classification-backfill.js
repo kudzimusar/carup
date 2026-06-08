@@ -51,7 +51,7 @@ async function main() {
   const vins = allowlist.map(e => e.vin)
   const { data: vehicles, error } = await supabase
     .from('vehicles')
-    .select('vin, vehicle_condition_category, import_source, registration_country')
+    .select('vin, vehicle_condition_category, import_source, registration_country, owner_id, tenant_id')
     .in('vin', vins)
   if (error) { console.error('vehicles fetch failed:', error.message); process.exit(1) }
   const byVin = new Map((vehicles || []).map(v => [v.vin, v]))

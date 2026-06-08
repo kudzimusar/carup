@@ -13,8 +13,9 @@
  *    independently propose a category, and that proposal MATCHES the approved category.
  *  - `recently_imported` is only ever applied when explicitly approved in the allowlist (its entry
  *    must carry category 'recently_imported'); the allowlist cannot override the rules.
+ *  - Seed/demo/integration FIXTURE rows are hard-rejected (getFixtureExclusion), even if allowlisted.
  */
-import { classifyVehicleConditionCandidate } from './marketplaceClassificationRules.js'
+import { classifyVehicleConditionCandidate, getFixtureExclusion } from './marketplaceClassificationRules.js'
 
 /** The ONLY categories this backfill may write. Everything else is governed/manual. */
 export const SAFE_BACKFILL_CATEGORIES = new Set(['locally_used', 'recently_imported'])
@@ -89,6 +90,11 @@ export function evaluateBackfillRow(vehicle, allowlistEntry) {
   // Must currently be unknown.
   if (base.current !== 'unknown') {
     return { ...base, action: 'skip', proposed: null, reason: `not_unknown(current=${base.current})` }
+  }
+  // Seed/demo/integration fixtures can NEVER be written, even if allowlisted (defense-in-depth).
+  const fixtureReason = getFixtureExclusion(vehicle)
+  if (fixtureReason) {
+    return { ...base, action: 'skip', proposed: null, reason: `fixture_excluded(${fixtureReason})` }
   }
   // The merged rules must independently propose a category (this is what excludes poisoned/test rows).
   const ruled = classifyVehicleConditionCandidate(vehicle)
