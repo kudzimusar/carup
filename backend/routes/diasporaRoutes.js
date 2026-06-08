@@ -142,17 +142,45 @@ router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res
 
   const ocrDocType = documentTypeMap[doc.document_type] || 'customs_declaration';
 
-  const { signedUrl } = await generateSecureReadUrl('ocr-documents', doc.storage_path);
+  let signedUrl;
+  try {
+    const result = await generateSecureReadUrl('ocr-documents', doc.storage_path);
+    signedUrl = result.signedUrl;
+  } catch (err) {
+    throw new ValidationError('Failed to generate document access URL.');
+  }
 
-  const response = await fetch(signedUrl);
+  let response;
+  try {
+    response = await fetch(signedUrl);
+  } catch (err) {
+    throw new ValidationError('Failed to fetch document from storage.');
+  }
+
   if (!response.ok) {
     throw new ValidationError('Failed to fetch document from storage.');
   }
+
+  const MAX_OCR_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const contentLength = response.headers.get('content-length');
+  if (contentLength && parseInt(contentLength, 10) > MAX_OCR_FILE_SIZE) {
+    throw new ValidationError('Document file exceeds maximum size limit of 10MB.');
+  }
+
   const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > MAX_OCR_FILE_SIZE) {
+    throw new ValidationError('Document file exceeds maximum size limit of 10MB.');
+  }
+
   const mimeType = response.headers.get('content-type') || 'application/pdf';
   const base64Data = `data:${mimeType};base64,${buffer.toString('base64')}`;
 
-  const ocrResult = await DocumentIntelligenceService.extractDocumentData(ocrDocType, base64Data, userContext.id);
+  let ocrResult;
+  try {
+    ocrResult = await DocumentIntelligenceService.extractDocumentData(ocrDocType, base64Data, userContext.id);
+  } catch (err) {
+    throw new ValidationError('OCR extraction failed. The document may be unreadable or unsupported.');
+  }
 
   const extraction = await recordDocumentExtraction(documentId, {
     extraction_provider: 'carup_ocr',
