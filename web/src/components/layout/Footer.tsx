@@ -9,6 +9,7 @@ const footerLinks = {
     { label: 'Garages', href: '/garages' },
     { label: 'Insurance', href: '/insurance' },
     { label: 'Pricing', href: '/pricing' },
+    { label: 'Diaspora Trade', href: '/diaspora' },
   ],
   Company: [
     { label: 'About CarUp', href: '/about' },

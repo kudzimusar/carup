@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:unit": "vitest run",
     "test:qa": "playwright test",
     "test": "npm run lint && npm run build && npm run test:qa && node scripts/agent-15-discovery.js"
   },

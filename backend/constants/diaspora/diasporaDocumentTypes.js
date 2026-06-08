@@ -1,0 +1,31 @@
+export const DIASPORA_DOCUMENT_TYPES = Object.freeze([
+  'passport',
+  'national_id',
+  'residence_card',
+  'vehicle_registration',
+  'auction_sheet',
+  'bill_of_lading',
+  'commercial_invoice',
+  'export_certificate',
+  'customs_declaration',
+  'inspection_certificate',
+  'insurance_certificate',
+  'duty_receipt',
+  'packing_list',
+  'port_release_order',
+  'police_clearance',
+  'mechanical_report',
+]);
+
+export const GOVERNMENT_DOCUMENT_CATEGORIES = Object.freeze([
+  'ZIMRA_CLEARANCE',
+  'CVR_REGISTRATION',
+  'ZINARA_LICENSE',
+  'VID_ROADWORTHINESS',
+  'CID_POLICE_CLEARANCE',
+  'INSURANCE_RECORD',
+  'DUTY_TAX_PROOF',
+  'IMPORT_PORT_RECORD',
+  'ODOMETER_VERIFICATION',
+  'MECHANICAL_VERIFICATION',
+]);

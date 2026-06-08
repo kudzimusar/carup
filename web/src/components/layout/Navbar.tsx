@@ -49,7 +49,7 @@ const buyMenu: MenuSection[] = [
       { label: 'Recently Imported', href: '/marketplace' },
       { label: 'Locally Used', href: '/marketplace' },
       { label: 'Second Hand Cars', href: '/marketplace' },
-      { label: 'Dealer Verified Cars', href: '/marketplace' },
+      { label: 'Dealer Verified Cars', href: '/marketplace?tag=dealer_verified' },
       { label: 'Passport Verified Cars', href: '/marketplace' },
     ],
   },
@@ -63,8 +63,8 @@ const buyMenu: MenuSection[] = [
       { label: 'Toyota', href: '/marketplace' },
       { label: 'Honda', href: '/marketplace' },
       { label: 'Mazda', href: '/marketplace' },
-      { label: 'Under $5,000', href: '/marketplace' },
-      { label: 'Under $10,000', href: '/marketplace' },
+      { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
+      { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
     ],
   },
   {
@@ -72,7 +72,7 @@ const buyMenu: MenuSection[] = [
     items: [
       { label: 'Verify Before You Buy', href: '/search' },
       { label: 'View Vehicle Passport', href: '/search' },
-      { label: 'Compare Trust Scores', href: '/marketplace' },
+      { label: 'Highest Trust Listings', href: '/marketplace?sort=trust' },
       { label: 'PartSentry Checked Vehicles', href: '/marketplace' },
     ],
   },
@@ -135,6 +135,7 @@ const moreMenu: MenuSection[] = [
     items: [
       { label: 'Insurance', href: '/insurance' },
       { label: 'Pricing', href: '/pricing' },
+      { label: 'Diaspora Trade', href: '/diaspora' },
       { label: 'How It Works', href: '/' },
       { label: 'Trust & Safety', href: '/trust' },
       { label: 'Help', href: '/help' },

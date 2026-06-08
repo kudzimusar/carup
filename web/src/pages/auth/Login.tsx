@@ -125,6 +125,7 @@ export default function Login() {
                   className={errors.email ? 'border-red-400' : ''}
                   data-testid="email-input"
                   aria-label="Email or Phone"
+                  autoComplete="email"
                 />
                 {errors.email && (
                   <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
@@ -143,6 +144,7 @@ export default function Login() {
                     className={errors.password ? 'border-red-400' : ''}
                     data-testid="password-input"
                     aria-label="Password"
+                    autoComplete="current-password"
                   />
                   <button
                     type="button"
