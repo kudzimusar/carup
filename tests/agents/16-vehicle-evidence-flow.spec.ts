@@ -309,22 +309,24 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
     // Setup state for post-verification fetching
     // Once approved, the passport should return it in the evidenceTimeline
     initialPassport.trustReport.trustScore = 93;
-    initialPassport.evidenceTimeline = [
-      {
-        id: `evidence:${mockEvidenceId}`,
-        event_source: 'evidence',
-        event_type: 'odometer_photo',
-        evidence_type: 'odometer_photo',
-        timestamp: new Date().toISOString(),
-        label: 'Odometer Photo',
-        desc: 'Evidence verified by admin',
-        file_url: 'https://mock.storage/MOCKVIN12345/odometer_photo.png',
-        verification_status: 'verified',
-        trust_score_impact: 3,
-        linked_registry_event_id: null,
-        metadata: {}
-      }
-    ];
+    const mockEvidenceData = {
+      id: `evidence:${mockEvidenceId}`,
+      event_source: 'evidence',
+      event_type: 'odometer_photo',
+      evidence_type: 'odometer_photo',
+      timestamp: new Date().toISOString(),
+      label: 'Odometer Photo',
+      desc: 'Evidence verified by admin',
+      file_url: 'https://mock.storage/MOCKVIN12345/odometer_photo.png',
+      verification_status: 'verified',
+      visibility_level: 'public_safe',
+      trust_score_impact: 3,
+      linked_registry_event_id: null,
+      metadata: {}
+    };
+    
+    initialPassport.evidenceTimeline = [mockEvidenceData];
+    initialPassport.evidenceVault = [mockEvidenceData];
 
     // 7. Click Approve
     await page.getByRole('button', { name: /Approve/i }).first().click();
@@ -340,7 +342,8 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
 
     // 12. Verify approved evidence appears on public vehicle timeline
     await expect(page.getByTestId('evidence-timeline')).toBeVisible();
-    await expect(page.getByTestId('evidence-timeline-item')).toContainText('Odometer Photo');
+    await expect(page.getByTestId('evidence-timeline-item')).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Odometer Photo' })).toBeVisible();
   });
 
   test('Unapproved or rejected evidence does not appear publicly', async ({ page }) => {
