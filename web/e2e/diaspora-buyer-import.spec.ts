@@ -51,6 +51,21 @@ const mockDocument = {
   storage_path: 'dio-1001/passport_a1b2c3d4e5f6.pdf',
 }
 
+const mockVerifiedDocument = {
+  ...mockDocument,
+  verification_status: 'VERIFIED',
+  reviewed_by: 'admin-1',
+  reviewed_at: '2026-06-08T10:00:00.000Z',
+}
+
+const mockRejectedDocument = {
+  ...mockDocument,
+  verification_status: 'REJECTED',
+  reviewed_by: 'admin-1',
+  reviewed_at: '2026-06-08T10:00:00.000Z',
+  metadata: { rejection_reason: 'Blurry image' },
+}
+
 const mockUploadResponse = {
   storagePath: 'dio-1001/passport_a1b2c3d4e5f6.pdf',
   docType: 'passport',
@@ -109,12 +124,22 @@ async function mockDiasporaApi(page: Page) {
     }
 
     if (route.request().method() === 'GET' && path.endsWith('/documents')) {
-      await fulfillJson(route, { data: [] })
+      await fulfillJson(route, { data: [mockDocument] })
       return
     }
 
     if (route.request().method() === 'POST' && path.endsWith('/documents')) {
       await fulfillJson(route, mockDocument, 201)
+      return
+    }
+
+    if (route.request().method() === 'POST' && path.includes('/verify')) {
+      await fulfillJson(route, mockVerifiedDocument, 200)
+      return
+    }
+
+    if (route.request().method() === 'POST' && path.includes('/reject')) {
+      await fulfillJson(route, mockRejectedDocument, 200)
       return
     }
 
@@ -283,13 +308,114 @@ test.describe('Diaspora buyer import order UI', () => {
 
     await page.locator('[data-testid="diaspora-document-upload-submit"]').click()
 
-    await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]')).toBeVisible()
-    await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]')).toContainText('Passport')
+    await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]').first()).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-uploaded-document-row"]').first()).toContainText('Passport')
   })
 
   test('unauthenticated user cannot access document upload', async ({ page }) => {
     await page.goto('/diaspora/imports/dio-1001/documents')
 
     await expect(page).toHaveURL(/\/login$/)
+  })
+
+  test('buyer sees uploaded document as UPLOADED, not VERIFIED', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-document-status-badge"]').first()).toContainText('Uploaded')
+    await expect(page.locator('[data-testid="diaspora-document-status-badge"]').first()).not.toContainText('Verified')
+  })
+
+  test('buyer sees info message about OCR/reviewer processing', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-documents-info"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-documents-info"]')).toContainText('require OCR/reviewer processing')
+  })
+
+  test('buyer cannot see document review panel', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-document-review-panel"]')).toHaveCount(0)
+  })
+
+  test('admin can see document review panel', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-document-review-panel"]')).toBeVisible()
+  })
+
+  test('admin can see verify and reject buttons', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-verify-button"]').first()).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-reject-button"]').first()).toBeVisible()
+  })
+
+  test('admin can verify document', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+    let verifyCalled = false
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/verify')) verifyCalled = true
+    })
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await page.locator('[data-testid="diaspora-verify-button"]').first().click()
+
+    expect(verifyCalled).toBe(true)
+  })
+
+  test('admin can reject document with reason', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+    let rejectCalled = false
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/reject')) rejectCalled = true
+    })
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await page.locator('[data-testid="diaspora-reject-button"]').first().click()
+    await page.locator('[data-testid="diaspora-reject-reason-input"]').first().fill('Blurry image')
+    await page.locator('[data-testid="diaspora-confirm-reject-button"]').first().click()
+
+    expect(rejectCalled).toBe(true)
+  })
+
+  test('reject without reason is blocked', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await page.locator('[data-testid="diaspora-reject-button"]').first().click()
+
+    await expect(page.locator('[data-testid="diaspora-confirm-reject-button"]').first()).toBeDisabled()
+  })
+
+  test('government reviewer can see review controls', async ({ page }) => {
+    await loginAs(page, governmentUser, 'mock-government-token')
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-document-review-panel"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-verify-button"]').first()).toBeVisible()
   })
 })
