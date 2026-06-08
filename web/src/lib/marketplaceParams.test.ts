@@ -30,7 +30,9 @@ describe('paramsToState', () => {
     expect(paramsToState(p('tag=dealer_verified')).selectedCategoryChip).toBe('Dealer Verified')
   })
 
-  it('lets tag take precedence over category when both present', () => {
+  // Phase 1 contract: exactly ONE category/tag chip per URL (single value). When both are present,
+  // `tag` wins — navbar links and AI output must emit at most one category/tag per URL.
+  it('lets tag take precedence over category when both present (one chip per URL)', () => {
     expect(paramsToState(p('category=brand_new&tag=passport_verified')).selectedCategoryChip).toBe('Passport Verified')
   })
 
