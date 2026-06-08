@@ -87,6 +87,47 @@ if (
 }
 
 const app = express();
+const PORT = process.env.PORT || 5001;
+
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+const productionOrigins = new Set([
+  'https://carup.vercel.app',
+  'https://carup-backend.vercel.app',
+]);
+
+const carupVercelPreviewPattern = /^https:\/\/carup(?:-git-[a-z0-9-]+)?-[a-z0-9-]+\.vercel\.app$/i;
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true;
+
+  const isLocal = origin.startsWith('http://localhost:') ||
+                  origin.startsWith('http://127.0.0.1:') ||
+                  origin === 'http://localhost' ||
+                  origin === 'http://127.0.0.1';
+
+  return isLocal ||
+    productionOrigins.has(origin) ||
+    allowedOrigins.includes(origin) ||
+    carupVercelPreviewPattern.test(origin);
+}
+
+export const corsOptions = {
+  origin: (origin, callback) => {
+    if (isAllowedCorsOrigin(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS] Rejected origin: ${origin}`);
+    return callback(null, false);
+  },
+  credentials: true
+};
+
+app.options(/.*/, cors(corsOptions), (req, res) => res.sendStatus(204));
+app.use(cors(corsOptions));
 app.use(correlationMiddleware);
 app.use(telemetryMiddleware);
 app.use(securityHeadersMiddleware);
@@ -98,37 +139,6 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-const PORT = process.env.PORT || 5001;
-
-const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : [];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, postman)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is local development
-    const isLocal = origin.startsWith('http://localhost:') || 
-                    origin.startsWith('http://127.0.0.1:') ||
-                    origin === 'http://localhost' ||
-                    origin === 'http://127.0.0.1';
-                    
-    // Check if origin is vercel preview/prod domain
-    const isVercel = origin.endsWith('.vercel.app');
-    
-    // Check if origin is explicitly allowed
-    const isAllowed = allowedOrigins.includes(origin);
-    
-    if (isLocal || isVercel || isAllowed) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 app.use(csrfMiddleware);
