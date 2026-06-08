@@ -311,6 +311,12 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const runDiasporaOcr = useCallback(async (documentId: string): Promise<{ extraction: DiasporaTradeDocument; ocr: { success: boolean; ocrDocumentId: string; qualityMetrics: Record<string, unknown> } }> => {
+    return request(`/diaspora/documents/${encodeURIComponent(documentId)}/run-ocr`, {
+      method: 'POST'
+    })
+  }, [request])
+
   const verifyDiasporaTradeDocument = useCallback(async (documentId: string, payload: { notes?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
     return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/verify`, {
       method: 'POST',
@@ -615,6 +621,7 @@ export function useCarUpApi() {
     createDiasporaTradeDocument,
     fetchDiasporaTradeDocument,
     runDiasporaDocumentExtraction,
+    runDiasporaOcr,
     verifyDiasporaTradeDocument,
     rejectDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,

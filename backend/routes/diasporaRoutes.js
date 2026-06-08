@@ -13,6 +13,8 @@ import { createComplianceReview, listComplianceReviews, updateComplianceReview, 
 import { listNotificationPreferences } from '../services/diaspora/diasporaNotificationService.js';
 import { createReputationRecord, listReputationRecords } from '../services/diaspora/diasporaReputationService.js';
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../constants/diaspora/diasporaStatuses.js';
+import DocumentIntelligenceService from '../services/document-intelligence/documentIntelligenceService.js';
+import { generateSecureReadUrl } from '../services/storage/storageService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -110,6 +112,64 @@ router.post('/trade-documents', auth, asyncHandler(documentCreateHandler));
 router.get('/documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.get('/trade-documents/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeDocument(req.params.id, req.userContext))));
 router.post('/documents/:id/extractions', auth, asyncHandler(async (req, res) => res.status(201).json(await recordDocumentExtraction(req.params.id, req.body, req.userContext, req))));
+router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res) => {
+  const documentId = req.params.id;
+  const userContext = req.userContext;
+
+  const doc = await getTradeDocument(documentId, userContext);
+  if (!doc.storage_path) {
+    throw new ValidationError('Document has no storage path. Upload a file first.');
+  }
+
+  const documentTypeMap = {
+    'passport': 'passport',
+    'national_id': 'national_id',
+    'residence_card': 'national_id',
+    'vehicle_registration': 'registration_book',
+    'auction_sheet': 'customs_declaration',
+    'bill_of_lading': 'customs_declaration',
+    'commercial_invoice': 'customs_declaration',
+    'export_certificate': 'customs_declaration',
+    'customs_declaration': 'customs_declaration',
+    'inspection_certificate': 'customs_declaration',
+    'insurance_certificate': 'customs_declaration',
+    'duty_receipt': 'customs_declaration',
+    'packing_list': 'customs_declaration',
+    'port_release_order': 'customs_declaration',
+    'police_clearance': 'national_id',
+    'mechanical_report': 'customs_declaration',
+  };
+
+  const ocrDocType = documentTypeMap[doc.document_type] || 'customs_declaration';
+
+  const { signedUrl } = await generateSecureReadUrl('ocr-documents', doc.storage_path);
+
+  const response = await fetch(signedUrl);
+  if (!response.ok) {
+    throw new ValidationError('Failed to fetch document from storage.');
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const mimeType = response.headers.get('content-type') || 'application/pdf';
+  const base64Data = `data:${mimeType};base64,${buffer.toString('base64')}`;
+
+  const ocrResult = await DocumentIntelligenceService.extractDocumentData(ocrDocType, base64Data, userContext.id);
+
+  const extraction = await recordDocumentExtraction(documentId, {
+    extraction_provider: 'carup_ocr',
+    extracted_fields: ocrResult.extractedData || {},
+    confidence_score: ocrResult.extractedData?.confidenceScore || 0,
+    raw_response: ocrResult,
+  }, userContext, req);
+
+  res.status(201).json({
+    extraction,
+    ocr: {
+      success: ocrResult.success,
+      ocrDocumentId: ocrResult.ocrDocumentId,
+      qualityMetrics: ocrResult.qualityMetrics,
+    }
+  });
+}));
 router.post('/documents/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeDocument(req.params.id, req.body, req.userContext, req))));
 router.post('/documents/:id/reject', reviewerAuth, asyncHandler(async (req, res) => res.json(await rejectTradeDocument(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-documents/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeDocument(req.params.id, req.body, req.userContext, req))));

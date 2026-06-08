@@ -179,14 +179,16 @@ function DocumentStatusBadge({ status }: { status?: string }) {
 }
 
 function DocumentReviewPanel({ document, onStatusChange }: { document: DiasporaTradeDocument; onStatusChange: () => void }) {
-  const { verifyDiasporaTradeDocument, rejectDiasporaTradeDocument } = useCarUpApi()
+  const { runDiasporaOcr, verifyDiasporaTradeDocument, rejectDiasporaTradeDocument } = useCarUpApi()
   const [verifying, setVerifying] = useState(false)
   const [rejecting, setRejecting] = useState(false)
+  const [runningOcr, setRunningOcr] = useState(false)
   const [showRejectForm, setShowRejectForm] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [rejectNotes, setRejectNotes] = useState('')
   const [verifyNotes, setVerifyNotes] = useState('')
   const [error, setError] = useState('')
+  const [ocrResult, setOcrResult] = useState<{ success: boolean; ocrDocumentId: string; qualityMetrics: Record<string, unknown> } | null>(null)
 
   const handleVerify = async () => {
     setVerifying(true)
@@ -198,6 +200,20 @@ function DocumentReviewPanel({ document, onStatusChange }: { document: DiasporaT
       setError(err instanceof Error ? err.message : 'Verification failed')
     } finally {
       setVerifying(false)
+    }
+  }
+
+  const handleRunOcr = async () => {
+    setRunningOcr(true)
+    setError('')
+    try {
+      const result = await runDiasporaOcr(document.id)
+      setOcrResult(result.ocr)
+      onStatusChange()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'OCR extraction failed')
+    } finally {
+      setRunningOcr(false)
     }
   }
 
@@ -253,6 +269,36 @@ function DocumentReviewPanel({ document, onStatusChange }: { document: DiasporaT
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {ocrResult && (
+        <div className="mb-3 rounded-md bg-blue-50 p-3">
+          <p className="text-xs font-semibold text-blue-700 mb-1">OCR Result</p>
+          <p className="text-xs text-blue-600">Document ID: {ocrResult.ocrDocumentId}</p>
+          <p className="text-xs text-blue-600">Success: {ocrResult.success ? 'Yes' : 'No'}</p>
+          {ocrResult.qualityMetrics && (
+            <div className="mt-1 text-xs text-blue-600">
+              <p>Quality Passed: {(ocrResult.qualityMetrics as Record<string, unknown>).qualityPassed ? 'Yes' : 'No'}</p>
+              <p>Blur Score: {((ocrResult.qualityMetrics as Record<string, unknown>).blurScore as number)?.toFixed(2)}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isTerminal && !showRejectForm && normalizedStatus === 'UPLOADED' && (
+        <div className="mb-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRunOcr}
+            disabled={runningOcr}
+            className="w-full text-blue-600 border-blue-300 hover:bg-blue-50"
+            data-testid="diaspora-run-ocr-button"
+          >
+            {runningOcr ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Eye className="mr-1 h-3 w-3" />}
+            Run OCR extraction
+          </Button>
         </div>
       )}
 

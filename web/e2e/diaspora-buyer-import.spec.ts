@@ -72,6 +72,24 @@ const mockUploadResponse = {
   uploadedBy: 'buyer-1',
 }
 
+const mockOcrResponse = {
+  extraction: {
+    ...mockDocument,
+    verification_status: 'OCR_EXTRACTED',
+  },
+  ocr: {
+    success: true,
+    ocrDocumentId: 'ocr_test123',
+    qualityMetrics: {
+      blurScore: 0.85,
+      glareScore: 0.05,
+      tamperSuspicionScore: 0.02,
+      qualityPassed: true,
+      qualityIssues: [],
+    },
+  },
+}
+
 async function loginAs(page: Page, user = buyerUser, token = 'mock-buyer-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
@@ -140,6 +158,11 @@ async function mockDiasporaApi(page: Page) {
 
     if (route.request().method() === 'POST' && path.includes('/reject')) {
       await fulfillJson(route, mockRejectedDocument, 200)
+      return
+    }
+
+    if (route.request().method() === 'POST' && path.includes('/run-ocr')) {
+      await fulfillJson(route, mockOcrResponse, 201)
       return
     }
 
@@ -417,5 +440,65 @@ test.describe('Diaspora buyer import order UI', () => {
 
     await expect(page.locator('[data-testid="diaspora-document-review-panel"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-verify-button"]').first()).toBeVisible()
+  })
+
+  test('buyer cannot see Run OCR button', async ({ page }) => {
+    await loginAsBuyer(page)
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-run-ocr-button"]')).toHaveCount(0)
+  })
+
+  test('admin can see Run OCR button', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await expect(page.locator('[data-testid="diaspora-run-ocr-button"]').first()).toBeVisible()
+  })
+
+  test('admin can run OCR extraction', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+    let ocrCalled = false
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/run-ocr')) ocrCalled = true
+    })
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await page.locator('[data-testid="diaspora-run-ocr-button"]').first().click()
+
+    expect(ocrCalled).toBe(true)
+  })
+
+  test('OCR result is displayed after extraction', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await page.locator('[data-testid="diaspora-run-ocr-button"]').first().click()
+
+    await expect(page.locator('text=OCR Result')).toBeVisible()
+    await expect(page.locator('text=ocr_test123')).toBeVisible()
+  })
+
+  test('OCR_EXTRACTED status is shown after OCR', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockDiasporaApi(page)
+    let ocrCalled = false
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/run-ocr')) ocrCalled = true
+    })
+
+    await page.goto('/diaspora/imports/dio-1001/documents')
+
+    await page.locator('[data-testid="diaspora-run-ocr-button"]').first().click()
+
+    expect(ocrCalled).toBe(true)
   })
 })
