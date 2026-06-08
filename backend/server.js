@@ -1493,7 +1493,7 @@ app.use(errorHandler);
 
 
 let server;
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   server = app.listen(PORT, () => {
     console.log(`🚗 CarUp OS API Gateway listening on port ${PORT}`);
     console.log(`📡 Database: Supabase PostgreSQL (vhmnajoeicasaigiophh)`);
@@ -1501,3 +1501,4 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 export { app, server };
+export default app;
