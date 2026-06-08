@@ -131,6 +131,7 @@ export interface DiasporaTradeDocument {
 export interface DiasporaTradeDocumentPayload {
   document_type: string;
   file_name?: string;
+  storage_path?: string;
   metadata?: Record<string, unknown>;
 }
 
