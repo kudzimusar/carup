@@ -166,6 +166,7 @@ const moreMenu: MenuSection[] = [
     items: [
       { label: 'Insurance', href: '/insurance' },
       { label: 'Pricing', href: '/pricing' },
+      { label: 'Diaspora Trade', href: '/diaspora' },
       { label: 'How It Works', href: '/' },
       { label: 'Trust & Safety', href: '/trust' },
       { label: 'Help', href: '/help' },
