@@ -18,7 +18,6 @@ import type {
   TrustFactReviewQueueResponse,
   TrustFactReviewStatus,
   TrustFactName,
-  VehicleEvidenceSummary,
   DiasporaImportOrder,
   DiasporaImportOrderPayload,
   DiasporaTradeDocument,
@@ -27,7 +26,7 @@ import type {
 
 
 const BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:5001/api'
+  ? '/api'
   : 'https://carup-backend.vercel.app/api';
 
 export function useCarUpApi() {
@@ -150,8 +149,8 @@ export function useCarUpApi() {
     return request<TrustAuditTrailResponse>(`/verification/audit-trail/${encodeURIComponent(vin)}`)
   }, [request])
 
-  const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidenceSummary[]> => {
-    return request<VehicleEvidenceSummary[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
+  const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidence[]> => {
+    return request<VehicleEvidence[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
   }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
@@ -485,9 +484,35 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const uploadEvidence = useCallback(async (vin: string, payload: {
+    evidence_type: string;
+    file: string; // base64 string
+    captured_at?: string;
+    visibility_level?: string;
+    linked_registry_event_id?: string;
+    verification_notes?: string;
+  }): Promise<VehicleEvidence> => {
+    return request<VehicleEvidence>(`/vehicles/${vin}/evidence/upload`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const linkEvidenceToEvent = useCallback(async (vin: string, evidenceId: string, payload: {
+    linked_registry_event_id: string;
+    event_type: string;
+  }): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
+    return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/link-event`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
 
   return {
     uploadKycDocument,
+    uploadEvidence,
+    linkEvidenceToEvent,
     createVehicleListing,
     uploadVehicleImages,
     fetchOwnedVehicles,

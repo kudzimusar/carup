@@ -15,7 +15,7 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && !navigator.webdriver) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((err) => {
       console.log('Service Worker registration failed:', err);

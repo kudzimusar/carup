@@ -15,7 +15,7 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 export default function MyListings() {
-  const { fetchOwnedVehicles } = useCarUpApi()
+  const { fetchOwnedVehicles, updateVehicleStatus } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [myListings, setMyListings] = useState<Vehicle[]>([])
@@ -30,11 +30,7 @@ export default function MyListings() {
   const handleMarkSold = async (vehicleId: string, vin: string) => {
     setMarkingId(vehicleId)
     try {
-      await fetch(`https://carup-backend.vercel.app/api/vehicles/${vin}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'sold' }),
-      })
+      await updateVehicleStatus(vin, 'sold')
     } catch { /* backend offline — update locally */ }
     setListingStatuses(prev => ({ ...prev, [vehicleId]: 'sold' }))
     setMarkingId(null)
