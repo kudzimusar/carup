@@ -275,6 +275,13 @@ export function useCarUpApi() {
     return response.data || []
   }, [request])
 
+  const createDiasporaTradeDocument = useCallback(async (importOrderId: string, payload: { document_type: string; file_name?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
   const fetchDiasporaComplianceReviews = useCallback(async (): Promise<DiasporaComplianceReview[]> => {
     const response = await request<{ data: DiasporaComplianceReview[] }>('/diaspora/compliance')
     return response.data || []
@@ -561,6 +568,7 @@ export function useCarUpApi() {
     createDiasporaImportOrder,
     fetchDiasporaImportOrder,
     fetchDiasporaTradeDocuments,
+    createDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,
     reportStolen,
     checkStolen,

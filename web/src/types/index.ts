@@ -128,6 +128,12 @@ export interface DiasporaTradeDocument {
   metadata?: Record<string, unknown>;
 }
 
+export interface DiasporaTradeDocumentPayload {
+  document_type: string;
+  file_name?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface DiasporaComplianceReview {
   id: string;
   import_order_id?: string;
