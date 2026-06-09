@@ -62,6 +62,7 @@ test.describe('Diaspora buyer import-order REAL flow (no mocks)', () => {
 
   test('logged out → start import → login → /imports/new → submit → /imports/:id → documents', async ({ page }) => {
     const captured: Record<string, Captured> = {}
+    const unauthorized: string[] = []
     let orderReqHeaders: Record<string, string> | undefined
 
     page.on('request', (req: Request) => {
@@ -72,6 +73,9 @@ test.describe('Diaspora buyer import-order REAL flow (no mocks)', () => {
     page.on('response', async (res) => {
       const url = res.url()
       const method = res.request().method()
+      if (res.status() === 401 && url.includes('/api/')) {
+        unauthorized.push(`${method} ${url.replace(/^https?:\/\/[^/]+/, '')}`)
+      }
       let key: string | null = null
       if (url.includes('/api/auth/me')) key = 'authMe'
       else if (url.includes('/api/security/csrf-token')) key = 'csrf'
@@ -125,8 +129,13 @@ test.describe('Diaspora buyer import-order REAL flow (no mocks)', () => {
     const id = new URL(page.url()).pathname.split('/').filter(Boolean).pop()
     expect(id && id !== 'new').toBeTruthy()
 
-    // 12–13: documents page shows the upload form
-    await page.goto(`${BASE}/diaspora/imports/${id}/documents`)
-    await expect(page.locator('[data-testid="diaspora-document-upload-form"]')).toBeVisible({ timeout: 20_000 })
+    // 12–13: documents page shows the upload form (dump auth diagnostics if it doesn't)
+    try {
+      await page.goto(`${BASE}/diaspora/imports/${id}/documents`)
+      await expect(page.locator('[data-testid="diaspora-document-upload-form"]')).toBeVisible({ timeout: 20_000 })
+    } catch (e) {
+      const debug = await collectDebug(page, captured, orderReqHeaders)
+      throw new Error(`Documents page did not render the upload form (order ${id} WAS created).\n${debug}\n401 responses seen: ${JSON.stringify(unauthorized)}\noriginal: ${e instanceof Error ? e.message : e}`)
+    }
   })
 })
