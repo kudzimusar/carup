@@ -50,6 +50,7 @@ import {
   parseCookies
 } from './middleware/securityMiddleware.js';
 import { corsOptions } from './config/corsOptions.js';
+import { buildSessionRow } from './services/auth/sessionRow.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -278,15 +279,13 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: userId,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: switchSessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId, activeRole: role, token, expiresAt: expiresAt.toISOString(), req, tenantId: verifiedTenantId })
+    );
+    if (switchSessionError) {
+      throw new Error('Could not establish a session for the switched role.');
+    }
+
     await logAuditEvent(supabase, {
       ...auditBase,
       event_type: 'ROLE_SWITCH_GRANTED',
@@ -1114,17 +1113,17 @@ app.post('/api/auth/login', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: user.id,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: sessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId: user.id, activeRole: user.role, token, expiresAt: expiresAt.toISOString(), req })
+    );
+    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
+    if (sessionError) {
+      console.error('Failed to persist user session on login:', sessionError.message);
+      return res.status(500).json({ error: 'Could not establish a session. Please try again.' });
+    }
+
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
-    
+
     res.json({ user, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1176,15 +1175,15 @@ app.post('/api/auth/register', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: id,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: sessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId: id, activeRole: role || 'owner', token, expiresAt: expiresAt.toISOString(), req })
+    );
+    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
+    if (sessionError) {
+      console.error('Failed to persist user session on register:', sessionError.message);
+      return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
+    }
+
     const newUser = { id, name, email, phone: phone || '', role: role || 'owner' };
     res.json({ user: newUser, token });
   } catch (error) {
