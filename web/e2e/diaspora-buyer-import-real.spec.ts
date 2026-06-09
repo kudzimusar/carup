@@ -137,5 +137,15 @@ test.describe('Diaspora buyer import-order REAL flow (no mocks)', () => {
       const debug = await collectDebug(page, captured, orderReqHeaders)
       throw new Error(`Documents page did not render the upload form (order ${id} WAS created).\n${debug}\n401 responses seen: ${JSON.stringify(unauthorized)}\noriginal: ${e instanceof Error ? e.message : e}`)
     }
+
+    // 14: shipment page renders on a hard load without a 401 / login redirect.
+    try {
+      await page.goto(`${BASE}/diaspora/imports/${id}/shipment`)
+      await expect(page.locator('[data-testid="diaspora-import-shipment-route"]')).toBeVisible({ timeout: 20_000 })
+      await expect(page).not.toHaveURL(/\/login/)
+    } catch (e) {
+      const debug = await collectDebug(page, captured, orderReqHeaders)
+      throw new Error(`Shipment page did not render (order ${id}).\n${debug}\n401 responses seen: ${JSON.stringify(unauthorized)}\noriginal: ${e instanceof Error ? e.message : e}`)
+    }
   })
 })
