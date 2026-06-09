@@ -309,3 +309,29 @@ export function getResultSummary(state: MarketplaceUrlState): string {
 
   return `${sentence}.`
 }
+
+/**
+ * Buy-menu items whose href is gated by LIVE marketplace coverage (label -> category slug).
+ * Only `Locally Used` is coverage-gated for now; the rest stay deferred until supported.
+ */
+export const COVERAGE_GATED_NAV: Record<string, string> = {
+  'Locally Used': 'locally_used',
+}
+
+/** Shape of the nav-coverage payload (counts + active flags per category/tag). */
+export interface MarketplaceNavCoverage {
+  threshold?: number
+  categories?: Record<string, { count?: number; active?: boolean }>
+  tags?: Record<string, { count?: number; active?: boolean }>
+}
+
+/**
+ * Resolve a coverage-gated Buy-menu href: activate the category deep-link ONLY when live coverage
+ * marks it active (>= threshold real listings). Otherwise keep the deferred `/marketplace` href.
+ * Non-coverage-gated labels are returned unchanged.
+ */
+export function resolveCoverageNavHref(label: string, fallbackHref: string, coverage?: MarketplaceNavCoverage | null): string {
+  const slug = COVERAGE_GATED_NAV[label]
+  if (slug && coverage?.categories?.[slug]?.active) return `/marketplace?category=${slug}`
+  return fallbackHref
+}

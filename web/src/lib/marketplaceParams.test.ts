@@ -6,6 +6,7 @@ import {
   getActiveFilterChips,
   getResultSummary,
   canonicalParamString,
+  resolveCoverageNavHref,
   CHIP_TO_SLUG,
   SLUG_TO_CHIP,
   DEFAULT_MARKETPLACE_STATE,
@@ -201,5 +202,23 @@ describe('canonicalParamString', () => {
     const a = canonicalParamString({ ...DEFAULT_MARKETPLACE_STATE, selectedMake: 'Toyota', sortBy: 'trust' })
     const b = canonicalParamString(paramsToState(p('make=Toyota&sort=trust')))
     expect(a).toBe(b)
+  })
+})
+
+describe('resolveCoverageNavHref (data-driven nav gate)', () => {
+  it('activates the category deep-link when coverage marks it active', () => {
+    const cov = { categories: { locally_used: { count: 3, active: true } } }
+    expect(resolveCoverageNavHref('Locally Used', '/marketplace', cov)).toBe('/marketplace?category=locally_used')
+  })
+  it('keeps the deferred /marketplace href when coverage is below threshold / inactive / missing', () => {
+    expect(resolveCoverageNavHref('Locally Used', '/marketplace', { categories: { locally_used: { count: 2, active: false } } })).toBe('/marketplace')
+    expect(resolveCoverageNavHref('Locally Used', '/marketplace', null)).toBe('/marketplace')
+    expect(resolveCoverageNavHref('Locally Used', '/marketplace', undefined)).toBe('/marketplace')
+    expect(resolveCoverageNavHref('Locally Used', '/marketplace', { categories: {} })).toBe('/marketplace')
+  })
+  it('leaves non-coverage-gated labels unchanged even when coverage is active', () => {
+    const cov = { categories: { locally_used: { count: 5, active: true } } }
+    expect(resolveCoverageNavHref('Shop All Cars', '/marketplace', cov)).toBe('/marketplace')
+    expect(resolveCoverageNavHref('Dealer Verified Cars', '/marketplace?tag=dealer_verified', cov)).toBe('/marketplace?tag=dealer_verified')
   })
 })

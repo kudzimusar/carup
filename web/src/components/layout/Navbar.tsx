@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +29,9 @@ import {
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { resolveCoverageNavHref } from '@/lib/marketplaceParams'
+import type { NavCoverageResponse } from '@/types'
 
 interface MenuItem {
   label: string
@@ -200,6 +203,19 @@ export default function Navbar() {
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
   const { currency, setCurrency } = useApp()
+  const { fetchMarketplaceNavCoverage } = useCarUpApi()
+  const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [fetchMarketplaceNavCoverage])
+  // Data-driven Buy menu: a coverage-gated link (e.g. Locally Used) activates its category deep-link
+  // ONLY when live coverage says active; otherwise it stays the deferred /marketplace href.
+  const resolvedBuyMenu = buyMenu.map(section => ({
+    ...section,
+    items: section.items.map(item => ({ ...item, href: resolveCoverageNavHref(item.label, item.href, navCoverage) })),
+  }))
   const unreadCount = notifications.filter(n => !n.read).length
 
   const dashboardRoutes: Record<string, string> = {
@@ -306,7 +322,7 @@ export default function Navbar() {
 
           {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1" data-testid="public-primary-nav">
-            <CommerceMenu label="Buy" icon={ShoppingCart} sections={buyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
+            <CommerceMenu label="Buy" icon={ShoppingCart} sections={resolvedBuyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
             <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" />
             <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" />
             <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" />
