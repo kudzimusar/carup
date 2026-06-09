@@ -13,6 +13,7 @@ import type {
   VehicleEvidence,
   TimelineEvent,
   MarketplaceListingsResponse,
+  NavCoverageResponse,
   TrustAuditTrailResponse,
   TrustFactDecisionPayload,
   TrustFactDecisionResponse,
@@ -79,6 +80,10 @@ export function useCarUpApi() {
       ? '?' + new URLSearchParams(Object.entries(filters).filter(([_, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
       : ''
     return request<MarketplaceListingsResponse>(`/marketplace/listings${query}`)
+  }, [request])
+
+  const fetchMarketplaceNavCoverage = useCallback(async (): Promise<NavCoverageResponse> => {
+    return request<NavCoverageResponse>('/marketplace/nav-coverage')
   }, [request])
 
   const fetchDealerInventory = useCallback(async (): Promise<Vehicle[]> => {
@@ -572,6 +577,7 @@ export function useCarUpApi() {
     switchRole,
     fetchVehicles,
     fetchMarketplaceListings,
+    fetchMarketplaceNavCoverage,
     fetchDealerInventory,
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,
