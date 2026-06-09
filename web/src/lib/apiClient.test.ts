@@ -3,6 +3,9 @@ import {
   apiRequest,
   fetchCsrfToken,
   resetCsrfTokenCache,
+  setUnauthorizedHandler,
+  SessionExpiredError,
+  SESSION_INVALID_MESSAGE,
   CSRF_ERROR_MESSAGE,
   type AuthHeaders,
 } from './apiClient'
@@ -144,6 +147,54 @@ describe('apiClient CSRF flow', () => {
         fetchImpl: impl,
       }),
     ).rejects.toThrow(CSRF_ERROR_MESSAGE)
+  })
+})
+
+describe('apiClient invalid-session handling', () => {
+  beforeEach(() => setUnauthorizedHandler(null))
+
+  it('throws SessionExpiredError and invokes the unauthorized handler on a 401 invalid session', async () => {
+    let handlerCalls = 0
+    setUnauthorizedHandler(() => { handlerCalls++ })
+    const { impl } = makeFetch({ api: () => makeResponse({ error: SESSION_INVALID_MESSAGE }, { ok: false, status: 401 }) })
+
+    await expect(
+      apiRequest({ baseUrl: BASE, path: '/notifications/me', authHeaders: BUYER, fetchImpl: impl }),
+    ).rejects.toBeInstanceOf(SessionExpiredError)
+    expect(handlerCalls).toBe(1)
+  })
+
+  it('clears auth for any "Unauthorized." 401 (e.g. no active user context)', async () => {
+    let cleared = false
+    setUnauthorizedHandler(() => { cleared = true })
+    const { impl } = makeFetch({ api: () => makeResponse({ error: 'Unauthorized. No active user context.' }, { ok: false, status: 401 }) })
+
+    await expect(
+      apiRequest({ baseUrl: BASE, path: '/vehicles/me', authHeaders: BUYER, fetchImpl: impl }),
+    ).rejects.toBeInstanceOf(SessionExpiredError)
+    expect(cleared).toBe(true)
+  })
+
+  it('does NOT clear auth on a 403 (permission error, not a session error)', async () => {
+    let cleared = false
+    setUnauthorizedHandler(() => { cleared = true })
+    const { impl } = makeFetch({ api: () => makeResponse({ error: 'Forbidden.' }, { ok: false, status: 403 }) })
+
+    await expect(
+      apiRequest({ baseUrl: BASE, path: '/admin/thing', authHeaders: BUYER, fetchImpl: impl }),
+    ).rejects.toThrow('Forbidden.')
+    await expect(
+      apiRequest({ baseUrl: BASE, path: '/admin/thing', authHeaders: BUYER, fetchImpl: makeFetch({ api: () => makeResponse({ error: 'Forbidden.' }, { ok: false, status: 403 }) }).impl }),
+    ).rejects.not.toBeInstanceOf(SessionExpiredError)
+    expect(cleared).toBe(false)
+  })
+
+  it('a protected GET with an invalid session rejects cleanly (no unhandled crash) even with no handler', async () => {
+    setUnauthorizedHandler(null)
+    const { impl } = makeFetch({ api: () => makeResponse({ error: SESSION_INVALID_MESSAGE }, { ok: false, status: 401 }) })
+    await expect(
+      apiRequest({ baseUrl: BASE, path: '/safepay/list', authHeaders: BUYER, fetchImpl: impl }),
+    ).rejects.toBeInstanceOf(SessionExpiredError)
   })
 })
 

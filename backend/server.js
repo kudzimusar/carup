@@ -1131,6 +1131,26 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// --- AUTH: Validate current session ---
+// authorizeRole() (no required roles) validates the x-session-token against user_sessions and
+// returns the authoritative user. The frontend calls this on boot to detect stale/expired tokens;
+// an invalid/expired token yields 401 "Unauthorized. Session is invalid or expired." (unchanged auth).
+app.get('/api/auth/me', authorizeRole(), async (req, res) => {
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, name, email, phone, role')
+      .eq('id', req.userContext.id)
+      .single();
+    if (error || !user) {
+      return res.status(401).json({ error: 'Unauthorized. User record not found.' });
+    }
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- AUTH: Register ---
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, phone, password, role } = req.body;

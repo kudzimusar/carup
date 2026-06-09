@@ -25,6 +25,31 @@ type FetchLike = typeof fetch
 export const CSRF_ERROR_MESSAGE =
   'Could not establish a secure session. Please refresh the page and try again.'
 
+/** Backend message for a stale/expired/invalid session (see authMiddleware). */
+export const SESSION_INVALID_MESSAGE = 'Unauthorized. Session is invalid or expired.'
+
+/** Thrown when the backend rejects the request because the session is invalid/expired (401). */
+export class SessionExpiredError extends Error {
+  constructor(message: string = SESSION_INVALID_MESSAGE) {
+    super(message)
+    this.name = 'SessionExpiredError'
+  }
+}
+
+// A 401 from authMiddleware always carries an "Unauthorized. ..." message. Treat those as session
+// failures that should clear client auth. (A 403 is a permission issue, NOT a session issue.)
+function isSessionFailure(status: number, message?: string): boolean {
+  return status === 401 && (!message || message.startsWith('Unauthorized'))
+}
+
+// Registered by AuthContext; invoked whenever a request fails with an invalid session so the app
+// can clear its stored auth and redirect to login. Module-level so the framework-agnostic core can
+// signal React without importing it.
+let unauthorizedHandler: (() => void) | null = null
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler
+}
+
 const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS']
 
 // Module-level cache. Keyed by identity so a token bound to one user/session is never reused for
@@ -130,7 +155,18 @@ export async function apiRequest<T = any>({
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({} as { error?: string }))
-    throw new Error((errorData as { error?: string }).error || `HTTP error! status: ${response.status}`)
+    const message = (errorData as { error?: string }).error
+
+    if (isSessionFailure(response.status, message)) {
+      // Stale/expired session: clear client auth so the app stops trusting it, then surface a
+      // typed error the caller can handle without an unhandled rejection.
+      if (unauthorizedHandler) {
+        try { unauthorizedHandler() } catch { /* never let the handler mask the original failure */ }
+      }
+      throw new SessionExpiredError(message || SESSION_INVALID_MESSAGE)
+    }
+
+    throw new Error(message || `HTTP error! status: ${response.status}`)
   }
 
   return (await response.json()) as T
