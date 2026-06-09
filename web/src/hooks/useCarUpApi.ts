@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { apiRequest, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -29,23 +30,6 @@ const BASE_URL = typeof window !== 'undefined' && window.location.hostname === '
   ? '/api'
   : 'https://carup-backend.vercel.app/api';
 
-let globalCsrfToken: string | null = null;
-
-const fetchCsrfToken = async () => {
-  if (globalCsrfToken) return globalCsrfToken;
-  try {
-    const res = await fetch(`${BASE_URL}/security/csrf-token`, { credentials: 'include' });
-    if (res.ok) {
-      const data = await res.json();
-      globalCsrfToken = data.csrfToken;
-      return globalCsrfToken;
-    }
-  } catch (e) {
-    console.error('Failed to fetch CSRF token:', e);
-  }
-  return null;
-};
-
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -54,45 +38,19 @@ export function useCarUpApi() {
   const request = useCallback(async <T = any>(path: string, options?: RequestInit): Promise<T> => {
     setLoading(true)
     setError(null)
-    
-    // Build Headers Dynamically based on current auth state
-    const defaultHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    
-    if (token) defaultHeaders['x-session-token'] = token
-    if (user?.id) defaultHeaders['x-user-id'] = user.id
-    if (user?.role) defaultHeaders['x-stakeholder-role'] = user.role
-    if (user?.active_tenant_id) defaultHeaders['x-tenant-id'] = user.active_tenant_id
 
-    const method = options?.method?.toUpperCase() || 'GET'
-    let fetchOptions = { ...options }
-
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-      const csrfToken = await fetchCsrfToken()
-      if (csrfToken) {
-        defaultHeaders['x-csrf-token'] = csrfToken
-      }
-      fetchOptions.credentials = 'include'
-    }
+    // Build identity headers from current auth state. These are sent on every request AND used to
+    // bind the CSRF token, so an unsafe request always carries a token bound to its own identity.
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
 
     try {
-      const response = await fetch(`${BASE_URL}${path}`, {
-        ...fetchOptions,
-        headers: {
-          ...defaultHeaders,
-          ...(fetchOptions.headers || {})
-        }
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
-      }
-      
-      const data = await response.json()
+      const data = await apiRequest<T>({ baseUrl: BASE_URL, path, options, authHeaders })
       setLoading(false)
-      return data as T
+      return data
     } catch (err: unknown) {
       setLoading(false)
       const errMsg = err instanceof Error ? err.message : 'Something went wrong'

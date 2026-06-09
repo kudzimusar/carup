@@ -42,13 +42,14 @@ import correlationMiddleware from './middleware/correlationMiddleware.js';
 import telemetryMiddleware from './middleware/telemetryMiddleware.js';
 import { metricsHub } from './services/metrics.js';
 import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
-import { 
-  securityHeadersMiddleware, 
-  rateLimiter, 
-  csrfMiddleware, 
+import {
+  securityHeadersMiddleware,
+  rateLimiter,
+  csrfMiddleware,
   generateCsrfToken,
   parseCookies
 } from './middleware/securityMiddleware.js';
+import { corsOptions } from './config/corsOptions.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -89,43 +90,6 @@ if (
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-
-const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : [];
-
-const productionOrigins = new Set([
-  'https://carup.vercel.app',
-  'https://carup-backend.vercel.app',
-]);
-
-const carupVercelPreviewPattern = /^https:\/\/carup(?:-git-[a-z0-9-]+)?-[a-z0-9-]+\.vercel\.app$/i;
-
-function isAllowedCorsOrigin(origin) {
-  if (!origin) return true;
-
-  const isLocal = origin.startsWith('http://localhost:') ||
-                  origin.startsWith('http://127.0.0.1:') ||
-                  origin === 'http://localhost' ||
-                  origin === 'http://127.0.0.1';
-
-  return isLocal ||
-    productionOrigins.has(origin) ||
-    allowedOrigins.includes(origin) ||
-    carupVercelPreviewPattern.test(origin);
-}
-
-export const corsOptions = {
-  origin: (origin, callback) => {
-    if (isAllowedCorsOrigin(origin)) {
-      return callback(null, true);
-    }
-
-    console.warn(`[CORS] Rejected origin: ${origin}`);
-    return callback(null, false);
-  },
-  credentials: true
-};
 
 app.options(/.*/, cors(corsOptions), (req, res) => res.sendStatus(204));
 app.use(cors(corsOptions));
