@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { UserRole, AuthUser } from '@shared/types'
+import { apiRequest, setUnauthorizedHandler, SessionExpiredError } from '@/lib/apiClient'
+import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession } from '@/lib/authSession'
 
 const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
   ? '/api'
@@ -30,62 +32,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    try {
-      const savedUser = localStorage.getItem('carup_user')
-      const savedToken = localStorage.getItem('carup_token')
-      if (savedUser && savedToken) {
-        setUser(JSON.parse(savedUser))
-        setToken(savedToken)
-      }
-    } catch (e) {
-      localStorage.removeItem('carup_user')
-      localStorage.removeItem('carup_token')
-    } finally {
-      setLoading(false)
-    }
+  // Clear ALL client auth state + storage. Used on logout and whenever the backend reports the
+  // session is invalid/expired.
+  const clearAuth = useCallback(() => {
+    setUser(null)
+    setToken(null)
+    clearStoredAuth(localStorage)
   }, [])
+
+  // Any API call that fails with an invalid session (401) clears auth here, so the app stops
+  // trusting a stale token and protected routes redirect to /login.
+  useEffect(() => {
+    setUnauthorizedHandler(clearAuth)
+    return () => setUnauthorizedHandler(null)
+  }, [clearAuth])
+
+  // On boot, restore the stored session optimistically, then VALIDATE the token against the
+  // backend. Only an explicit "session invalid/expired" (401) clears auth; transient/ambiguous
+  // failures keep the session (fail open) so a network blip never logs the user out.
+  useEffect(() => {
+    const stored = readStoredAuth(localStorage)
+    if (!stored) {
+      setLoading(false)
+      return
+    }
+
+    setUser(stored.user)
+    setToken(stored.token)
+
+    let cancelled = false
+    validateStoredSession({ baseUrl: API_BASE, token: stored.token, userId: stored.user?.id })
+      .catch((err: unknown) => {
+        if (!cancelled && err instanceof SessionExpiredError) clearAuth()
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [clearAuth])
 
   const login = useCallback((userData: AuthUser, sessionToken: string) => {
     setUser(userData)
     setToken(sessionToken)
-    localStorage.setItem('carup_user', JSON.stringify(userData))
-    localStorage.setItem('carup_token', sessionToken)
+    storeAuth(localStorage, userData, sessionToken)
   }, [])
 
   const logout = useCallback(() => {
-    setUser(null)
-    setToken(null)
-    localStorage.removeItem('carup_user')
-    localStorage.removeItem('carup_token')
-    localStorage.removeItem('carup_session') // Cleanup old mocks
-  }, [])
+    clearAuth()
+  }, [clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {
     if (!user || !token) return
     try {
-      const res = await fetch(`${API_BASE}/auth/switch-role`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'x-session-token': token
+      // Routed through apiRequest so it carries a correctly-bound CSRF token and so an invalid
+      // session clears auth via the global handler instead of silently failing.
+      const data = await apiRequest<{ user?: Partial<AuthUser>; token?: string }>({
+        baseUrl: API_BASE,
+        path: '/auth/switch-role',
+        options: { method: 'POST', body: JSON.stringify({ userId: user.id, role, tenantId }) },
+        authHeaders: {
+          'x-session-token': token,
+          'x-user-id': user.id,
+          ...(user.role ? { 'x-stakeholder-role': user.role } : {}),
         },
-        body: JSON.stringify({ userId: user.id, role, tenantId }),
       })
-      if (res.ok) {
-        const data = await res.json()
-        const updated = { ...user, ...data.user }
-        setUser(updated)
-        if (data.token) {
-          setToken(data.token)
-          localStorage.setItem('carup_token', data.token)
-        }
-        localStorage.setItem('carup_user', JSON.stringify(updated))
-      }
+      // Update user + token atomically to avoid a stale token/user mismatch.
+      const updated = { ...user, ...(data.user ?? {}) }
+      const nextToken = data.token ?? token
+      setUser(updated)
+      setToken(nextToken)
+      storeAuth(localStorage, updated, nextToken)
     } catch (e) {
-      console.error('Role switch failed', e)
+      if (e instanceof SessionExpiredError) clearAuth()
+      else console.error('Role switch failed', e)
     }
-  }, [user, token])
+  }, [user, token, clearAuth])
 
   return (
     <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, loading, login, logout, switchRole }}>

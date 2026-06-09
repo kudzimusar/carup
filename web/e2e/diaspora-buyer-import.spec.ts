@@ -122,6 +122,12 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 async function mockDiasporaApi(page: Page) {
+  // The app validates the stored session on boot via GET /auth/me; return 200 so the mocked
+  // session is treated as valid (a 401 here would clear auth and redirect to login).
+  await page.context().route('**/api/auth/me', async route => {
+    await fulfillJson(route, { user: { id: 'buyer-1', role: 'owner' } })
+  })
+
   // Unsafe requests now require a CSRF token fetched up-front; mock the issuing endpoint.
   await page.context().route('**/security/csrf-token', async route => {
     await fulfillJson(route, { csrfToken: 'mock-csrf-token' })
