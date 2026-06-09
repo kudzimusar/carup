@@ -7,6 +7,8 @@ import {
   SessionExpiredError,
   SESSION_INVALID_MESSAGE,
   CSRF_ERROR_MESSAGE,
+  resolveApiBaseUrl,
+  DEFAULT_PRODUCTION_API_BASE_URL,
   type AuthHeaders,
 } from './apiClient'
 
@@ -208,5 +210,30 @@ describe('fetchCsrfToken caching', () => {
     // A different user/session must NOT reuse the previous (wrong-bound) token.
     await fetchCsrfToken(BASE, { 'x-user-id': 'admin-9', 'x-session-token': 'sess-9' }, impl)
     expect(calls.filter(c => c.url.includes('/security/csrf-token'))).toHaveLength(2)
+  })
+})
+
+describe('resolveApiBaseUrl', () => {
+  it('uses VITE_API_URL when set, on any host (staging → staging backend)', () => {
+    expect(resolveApiBaseUrl('https://carup-backend-aca7.vercel.app/api', 'carup-staging.vercel.app'))
+      .toBe('https://carup-backend-aca7.vercel.app/api')
+    expect(resolveApiBaseUrl('https://carup-backend.vercel.app/api', 'localhost'))
+      .toBe('https://carup-backend.vercel.app/api')
+  })
+
+  it('falls back to same-origin /api on a localhost host with no override', () => {
+    expect(resolveApiBaseUrl(undefined, 'localhost')).toBe('/api')
+    expect(resolveApiBaseUrl('', '127.0.0.1')).toBe('/api')
+    expect(resolveApiBaseUrl('   ', 'localhost')).toBe('/api') // whitespace-only is ignored
+  })
+
+  it('falls back to the production backend for non-localhost hosts with no override', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+    expect(resolveApiBaseUrl(null, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, undefined)).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  })
+
+  it('trims a configured URL', () => {
+    expect(resolveApiBaseUrl('  https://staging.example/api  ', 'localhost')).toBe('https://staging.example/api')
   })
 })

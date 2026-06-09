@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { apiRequest, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -27,9 +27,12 @@ import type {
 } from '@/types'
 
 
-const BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? '/api'
-  : 'https://carup-backend.vercel.app/api';
+// Honor VITE_API_URL so each environment targets its own backend (staging → staging backend),
+// falling back to same-origin /api on localhost and to the production backend otherwise.
+const BASE_URL = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 export function useCarUpApi() {
   const { user, token } = useAuth()
