@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { UserRole, AuthUser } from '@shared/types'
-import { apiRequest, setUnauthorizedHandler, SessionExpiredError } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError } from '@/lib/apiClient'
 import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession } from '@/lib/authSession'
 
-const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? '/api'
-  : 'https://carup-backend.vercel.app/api';
+const API_BASE = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 interface AuthContextType {
   user: AuthUser | null

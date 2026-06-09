@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Car, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
+import { resolveApiBaseUrl } from '@/lib/apiClient'
 
 const DEMO_USERS = {
   owner: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', role: 'owner' as const },
@@ -15,9 +16,10 @@ const DEMO_USERS = {
   mechanic: { id: 'u2', name: 'Simba Mechanic', email: 'simba@garage.co.zw', phone: '+263 775 200 300', role: 'mechanic' as const },
 }
 
-const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? '/api'
-  : 'https://carup-backend.vercel.app/api';
+const API_BASE = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 export default function Login() {
   const { login } = useAuth()
