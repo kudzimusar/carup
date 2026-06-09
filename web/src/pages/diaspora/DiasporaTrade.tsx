@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type React from 'react'
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload, XCircle, CheckCircle, Eye } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument } from '@/types'
 
@@ -78,6 +79,7 @@ function formatMoney(amount?: string | number | null, currency = 'USD') {
 
 function RequireDiasporaAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -88,7 +90,8 @@ function RequireDiasporaAuth({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
+    // Preserve the requested page so login can return the user here.
+    return <Navigate to={buildLoginRedirect(`${location.pathname}${location.search}`)} replace />
   }
 
   return children
@@ -159,7 +162,7 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
 function DocumentStatusBadge({ status }: { status?: string }) {
   const normalizedStatus = (status || 'UPLOADED').toUpperCase()
   let className = 'bg-yellow-100 text-yellow-800'
-  let label = labelize(status || 'UPLOADED')
+  const label = labelize(status || 'UPLOADED')
 
   if (normalizedStatus === 'VERIFIED') {
     className = 'bg-green-100 text-green-800'
