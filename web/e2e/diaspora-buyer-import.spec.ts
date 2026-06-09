@@ -259,7 +259,8 @@ test.describe('Diaspora buyer import order UI', () => {
   test('unauthenticated user is redirected away from protected import form', async ({ page }) => {
     await page.goto('/diaspora/imports/new')
 
-    await expect(page).toHaveURL(/\/login$/)
+    await expect(page).toHaveURL(/\/login\?returnTo=/)
+    expect(new URL(page.url()).searchParams.get('returnTo')).toBe('/diaspora/imports/new')
   })
 
   test('normal buyer cannot see admin compliance dashboard', async ({ page }) => {
@@ -349,7 +350,28 @@ test.describe('Diaspora buyer import order UI', () => {
   test('unauthenticated user cannot access document upload', async ({ page }) => {
     await page.goto('/diaspora/imports/dio-1001/documents')
 
-    await expect(page).toHaveURL(/\/login$/)
+    await expect(page).toHaveURL(/\/login\?returnTo=/)
+    expect(new URL(page.url()).searchParams.get('returnTo')).toBe('/diaspora/imports/dio-1001/documents')
+  })
+
+  test('logging in from a protected diaspora link returns the user to the requested page', async ({ page }) => {
+    await mockDiasporaApi(page)
+    await page.context().route('**/api/auth/login', async route => {
+      await fulfillJson(route, { user: buyerUser, token: 'fresh-session-token' }, 200)
+    })
+
+    // Unauthenticated visit to a protected page redirects to login with returnTo.
+    await page.goto('/diaspora/imports/new')
+    await expect(page).toHaveURL(/\/login\?returnTo=/)
+    expect(new URL(page.url()).searchParams.get('returnTo')).toBe('/diaspora/imports/new')
+
+    // After a successful login the user lands on the originally requested page (not the dashboard).
+    await page.locator('[data-testid="email-input"]').fill('buyer@carup.test')
+    await page.locator('[data-testid="password-input"]').fill('password123')
+    await page.locator('[data-testid="login-button"]').click()
+
+    await expect(page).toHaveURL(/\/diaspora\/imports\/new$/)
+    await expect(page.locator('[data-testid="diaspora-new-import-route"]')).toBeVisible()
   })
 
   test('buyer sees uploaded document as UPLOADED, not VERIFIED', async ({ page }) => {
