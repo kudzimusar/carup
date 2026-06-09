@@ -358,10 +358,26 @@ export function useCarUpApi() {
   }, [request])
 
   // Admin/logistics only (UI role-gated). Backend route: POST /diaspora/reservations/:id/{approve|reject}
-  const updateDiasporaReservationStatus = useCallback(async (reservationId: string, action: 'approve' | 'reject'): Promise<DiasporaCargoReservation> => {
+  // approve/reject are admin/reviewer only; cancel is allowed for the reservation owner (backend-enforced).
+  const updateDiasporaReservationStatus = useCallback(async (reservationId: string, action: 'approve' | 'reject' | 'cancel'): Promise<DiasporaCargoReservation> => {
     return request<DiasporaCargoReservation>(`/diaspora/reservations/${encodeURIComponent(reservationId)}/${action}`, {
       method: 'POST',
       body: JSON.stringify({}),
+    })
+  }, [request])
+
+  // Logistics/admin lifecycle (backend role-gated): create a shipment for an order, advance its stage.
+  const createDiasporaShipment = useCallback(async (importOrderId: string): Promise<DiasporaShipment> => {
+    return request<DiasporaShipment>('/diaspora/shipments', {
+      method: 'POST',
+      body: JSON.stringify({ import_order_id: importOrderId }),
+    })
+  }, [request])
+
+  const updateDiasporaShipmentStage = useCallback(async (shipmentId: string, stage: string): Promise<{ shipment: DiasporaShipment }> => {
+    return request<{ shipment: DiasporaShipment }>(`/diaspora/shipments/${encodeURIComponent(shipmentId)}/stage`, {
+      method: 'PATCH',
+      body: JSON.stringify({ stage }),
     })
   }, [request])
 
@@ -660,6 +676,8 @@ export function useCarUpApi() {
     fetchDiasporaOpenContainers,
     createDiasporaReservation,
     updateDiasporaReservationStatus,
+    createDiasporaShipment,
+    updateDiasporaShipmentStage,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
