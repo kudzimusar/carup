@@ -23,7 +23,11 @@ import type {
   DiasporaImportOrder,
   DiasporaImportOrderPayload,
   DiasporaTradeDocument,
-  DiasporaComplianceReview
+  DiasporaComplianceReview,
+  DiasporaCargoReservation,
+  DiasporaCargoReservationPayload,
+  DiasporaShipment,
+  DiasporaContainerShipment
 } from '@/types'
 
 
@@ -330,6 +334,37 @@ export function useCarUpApi() {
     return response.data || []
   }, [request])
 
+  // --- Container reservation + shipment tracking (read-path + buyer reservation request) ---
+  const fetchDiasporaReservations = useCallback(async (importOrderId: string): Promise<DiasporaCargoReservation[]> => {
+    const response = await request<{ data: DiasporaCargoReservation[] }>(`/diaspora/reservations?importOrderId=${encodeURIComponent(importOrderId)}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaShipments = useCallback(async (importOrderId: string): Promise<DiasporaShipment[]> => {
+    const response = await request<{ data: DiasporaShipment[] }>(`/diaspora/shipments?importOrderId=${encodeURIComponent(importOrderId)}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaOpenContainers = useCallback(async (): Promise<DiasporaContainerShipment[]> => {
+    const response = await request<{ data: DiasporaContainerShipment[] }>('/diaspora/containers?status=BOOKING_OPEN')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaReservation = useCallback(async (payload: DiasporaCargoReservationPayload): Promise<DiasporaCargoReservation> => {
+    return request<DiasporaCargoReservation>('/diaspora/reservations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // Admin/logistics only (UI role-gated). Backend route: POST /diaspora/reservations/:id/{approve|reject}
+  const updateDiasporaReservationStatus = useCallback(async (reservationId: string, action: 'approve' | 'reject'): Promise<DiasporaCargoReservation> => {
+    return request<DiasporaCargoReservation>(`/diaspora/reservations/${encodeURIComponent(reservationId)}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -620,6 +655,11 @@ export function useCarUpApi() {
     verifyDiasporaTradeDocument,
     rejectDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,
+    fetchDiasporaReservations,
+    fetchDiasporaShipments,
+    fetchDiasporaOpenContainers,
+    createDiasporaReservation,
+    updateDiasporaReservationStatus,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
