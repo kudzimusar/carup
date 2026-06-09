@@ -108,6 +108,22 @@ export function assertCanCancelReservation(reservation = {}, userContext = {}) {
   }
 }
 
+/**
+ * Official logistics lifecycle mutations (creating/transitioning containers, creating shipments,
+ * advancing shipment stage) are restricted to trusted platform admins/reviewers, or a tenant admin
+ * of the affected record's tenant. Buyers (order owners) are never granted this. Uses server-derived
+ * roles only — the client x-stakeholder-role is never trusted here.
+ */
+export function canManageLogistics(record = {}, userContext = {}) {
+  return isPlatformAdmin(userContext) || isPlatformReviewer(userContext) || isTenantAdminForRecord(record, userContext);
+}
+
+export function assertCanManageLogistics(record = {}, userContext = {}) {
+  if (!canManageLogistics(record, userContext)) {
+    throw new ForbiddenError('You are not authorized to manage Diaspora shipment logistics');
+  }
+}
+
 export function isTenantAdminForRecord(record = {}, userContext = {}) {
   const role = String(userContext.tenantRole ?? userContext.tenant_role ?? '').toLowerCase();
   const userTenantId = normalizeId(userContext.tenantId ?? userContext.tenant_id);

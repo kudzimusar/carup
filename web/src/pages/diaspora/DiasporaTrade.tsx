@@ -1022,6 +1022,49 @@ function routeLabel(city?: string | null, country?: string | null, port?: string
   return parts.join(' · ')
 }
 
+// Shipment stages the backend accepts (mirror of SHIPMENT_STATUSES) for the admin stage control.
+const SHIPMENT_STAGES = ['PLANNED', 'BOOKED', 'LOADING', 'IN_TRANSIT', 'ARRIVED', 'CUSTOMS_HOLD', 'RELEASED', 'COMPLETED', 'EXCEPTION']
+
+// Import-order lifecycle, in order, used to derive a read-only progress timeline for buyers.
+const ORDER_LIFECYCLE = [
+  'IMPORT_REQUESTED', 'QUOTE_ISSUED', 'SELLER_ASSIGNED', 'DOCUMENTS_PENDING', 'DOCUMENTS_VERIFIED',
+  'CONTAINER_BOOKED', 'READY_FOR_LOADING', 'LOADED', 'SHIPPED', 'ARRIVED_AT_BORDER', 'CUSTOMS_IN_PROGRESS',
+  'DUTY_PENDING', 'DUTY_PAID', 'RELEASED', 'REGISTRATION_PENDING', 'ROADWORTHINESS_PENDING', 'INSURANCE_PENDING', 'ZIMBABWE_READY',
+]
+function orderRank(status?: string | null) {
+  const i = ORDER_LIFECYCLE.indexOf(status || '')
+  return i < 0 ? -1 : i
+}
+
+const TIMELINE_PHASES: { key: string; label: string; minStatus?: string }[] = [
+  { key: 'reservation_requested', label: 'Reservation requested' },
+  { key: 'reservation_confirmed', label: 'Reservation confirmed' },
+  { key: 'container_booked', label: 'Container booked', minStatus: 'CONTAINER_BOOKED' },
+  { key: 'loaded', label: 'Loaded', minStatus: 'LOADED' },
+  { key: 'shipped', label: 'Shipped', minStatus: 'SHIPPED' },
+  { key: 'arrived', label: 'Arrived', minStatus: 'ARRIVED_AT_BORDER' },
+  { key: 'customs', label: 'Customs in progress', minStatus: 'CUSTOMS_IN_PROGRESS' },
+  { key: 'released', label: 'Released', minStatus: 'RELEASED' },
+  { key: 'zimbabwe_ready', label: 'Zimbabwe ready', minStatus: 'ZIMBABWE_READY' },
+]
+
+// Derive timeline ONLY from real backend status — never fabricate progress.
+function buildShipmentTimeline(order: DiasporaImportOrder | null, reservations: DiasporaCargoReservation[]) {
+  const rank = orderRank(order?.status)
+  const hasReservation = reservations.length > 0
+  const reservationConfirmed = reservations.some(r => r.reservation_status === 'APPROVED') || rank >= orderRank('CONTAINER_BOOKED')
+  const steps = TIMELINE_PHASES.map(p => {
+    let reached: boolean
+    if (p.key === 'reservation_requested') reached = hasReservation || rank >= orderRank('CONTAINER_BOOKED')
+    else if (p.key === 'reservation_confirmed') reached = reservationConfirmed
+    else reached = rank >= orderRank(p.minStatus)
+    return { key: p.key, label: p.label, reached }
+  })
+  let currentIndex = -1
+  steps.forEach((s, i) => { if (s.reached) currentIndex = i })
+  return steps.map((s, i) => ({ ...s, current: i === currentIndex }))
+}
+
 function ShipmentContent({ orderId }: { orderId?: string }) {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const {
@@ -1031,6 +1074,8 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     fetchDiasporaOpenContainers,
     createDiasporaReservation,
     updateDiasporaReservationStatus,
+    createDiasporaShipment,
+    updateDiasporaShipmentStage,
   } = useCarUpApi()
 
   const [order, setOrder] = useState<DiasporaImportOrder | null>(null)
@@ -1042,6 +1087,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
   const [actionError, setActionError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [form, setForm] = useState({ container_id: '', cargo_type: 'vehicle', estimated_volume: '' })
+  const [stage, setStage] = useState('')
 
   const isReviewer = useMemo(() => adminRoles.has(user?.role || ''), [user?.role])
 
@@ -1107,7 +1153,7 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
     }
   }
 
-  const reviewReservation = async (reservationId: string, action: 'approve' | 'reject') => {
+  const reviewReservation = async (reservationId: string, action: 'approve' | 'reject' | 'cancel') => {
     setActionError('')
     try {
       await updateDiasporaReservationStatus(reservationId, action)
@@ -1116,6 +1162,32 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
       setActionError(err instanceof Error ? err.message : 'Unable to update reservation')
     }
   }
+
+  // Logistics/admin lifecycle actions (UI only renders these for reviewers; backend enforces too).
+  const createShipment = async () => {
+    if (!orderId) return
+    setActionError('')
+    try {
+      await createDiasporaShipment(orderId)
+      await reload()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to create shipment')
+    }
+  }
+
+  const updateStage = async () => {
+    if (!shipment || !stage) { setActionError('Select a shipment stage.'); return }
+    setActionError('')
+    try {
+      await updateDiasporaShipmentStage(shipment.id, stage)
+      setStage('')
+      await reload()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to update shipment stage')
+    }
+  }
+
+  const timeline = buildShipmentTimeline(order, reservations)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">
@@ -1149,6 +1221,43 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
               <div><dt className="text-gray-400">Destination</dt><dd data-testid="diaspora-shipment-destination">{routeLabel(order?.destination_city, order?.destination_country, shipment?.destination_port)}</dd></div>
             </dl>
           </section>
+
+          {/* Read-only progress timeline (derived from real backend status only) */}
+          <section className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-shipment-timeline">
+            <h2 className="text-base font-semibold text-gray-900">Shipment progress</h2>
+            <ol className="mt-4 space-y-2">
+              {timeline.map(step => (
+                <li key={step.key} className="flex items-center gap-3 text-sm" data-testid="diaspora-timeline-step" data-reached={step.reached} data-current={step.current}>
+                  {step.reached
+                    ? <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    : <span className="inline-block h-3.5 w-3.5 rounded-full border border-gray-300" />}
+                  <span className={step.current ? 'font-semibold text-gray-900' : step.reached ? 'text-gray-700' : 'text-gray-400'}>{step.label}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+
+          {/* Logistics/admin lifecycle controls — only for trusted reviewer/admin roles */}
+          {isReviewer && (
+            <section className="rounded-lg border border-orange-200 bg-orange-50 p-5" data-testid="diaspora-shipment-lifecycle-controls">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-orange-600" />
+                <h2 className="text-base font-semibold text-gray-900">Logistics controls</h2>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">Visible to admin/reviewer/logistics roles only. Backend enforces these permissions.</p>
+              {shipment ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <select className="rounded-md border border-gray-300 px-3 py-2 text-sm" value={stage} onChange={e => setStage(e.target.value)} data-testid="diaspora-shipment-stage-select">
+                    <option value="">Set shipment stage…</option>
+                    {SHIPMENT_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <Button size="sm" onClick={updateStage} data-testid="diaspora-shipment-update-stage-button">Update stage</Button>
+                </div>
+              ) : (
+                <Button size="sm" className="mt-4 bg-orange-500 hover:bg-orange-600" onClick={createShipment} data-testid="diaspora-shipment-create-button">Create shipment record</Button>
+              )}
+            </section>
+          )}
 
           {/* Shipment route details */}
           <section className="rounded-lg border border-gray-200 bg-white p-5">
@@ -1187,6 +1296,11 @@ function ShipmentContent({ orderId }: { orderId?: string }) {
                       <div className="mt-3 flex gap-2" data-testid="diaspora-shipment-admin-controls">
                         <Button size="sm" onClick={() => reviewReservation(reservation.id, 'approve')} data-testid="diaspora-reservation-approve-button">Approve</Button>
                         <Button size="sm" variant="outline" onClick={() => reviewReservation(reservation.id, 'reject')} data-testid="diaspora-reservation-reject-button">Reject</Button>
+                      </div>
+                    )}
+                    {!isReviewer && reservation.reservation_status === 'REQUESTED' && (
+                      <div className="mt-3">
+                        <Button size="sm" variant="outline" onClick={() => reviewReservation(reservation.id, 'cancel')} data-testid="diaspora-reservation-cancel-button">Cancel request</Button>
                       </div>
                     )}
                   </div>

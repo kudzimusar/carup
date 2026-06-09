@@ -4,6 +4,7 @@ import { DatabaseError, NotFoundError, ValidationError } from '../../utils/error
 import { validateContainerPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
+import { requireUserContext, assertCanManageLogistics } from './diasporaAuthorization.js';
 
 const CONTAINER_TRANSITIONS = Object.freeze({
   DRAFT: ['BOOKING_OPEN', 'CANCELLED'],
@@ -24,6 +25,9 @@ export function assertContainerTransition(currentStatus, nextStatus) {
 }
 
 export async function createContainerShipment(payload, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
+  // Only logistics-trusted roles may create containers (scoped to their tenant when tenant-bound).
+  assertCanManageLogistics({ tenant_id: context.tenantId || payload.tenant_id || null }, context);
   validateContainerPayload(payload);
   const total = Number(payload.total_capacity_volume);
   const used = Number(payload.used_capacity_volume || 0);
@@ -71,7 +75,9 @@ export async function getContainerShipment(id) {
 }
 
 export async function transitionContainer(id, nextStatus, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
   const previous = await getContainerShipment(id);
+  assertCanManageLogistics(previous, context);
   assertContainerTransition(previous.status, nextStatus);
   const { data, error } = await supabase
     .from('diaspora_container_shipments')
