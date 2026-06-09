@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type React from 'react'
 import { Link, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AlertCircle, ArrowRight, CheckCircle2, ClipboardCheck, FileText, Loader2, Package, Plus, ShieldCheck, Ship, Timer, Upload, XCircle, CheckCircle, Eye } from 'lucide-react'
@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument } from '@/types'
+import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
 
 const requiredDocuments = [
   'Buyer identity document',
@@ -999,16 +999,274 @@ export function DiasporaImportDocuments() {
   )
 }
 
-export function DiasporaImportShipment() {
-  const { id } = useParams()
+const SHIPMENT_COORDINATION_NOTE =
+  'CarUp coordinates shipment facilitation. Final carrier movement, customs clearance, and release depend on verified logistics and regulatory processing.'
+
+const RESERVATION_BADGE_TONE: Record<string, string> = {
+  REQUESTED: 'bg-amber-100 text-amber-800',
+  APPROVED: 'bg-green-100 text-green-800',
+  REJECTED: 'bg-red-100 text-red-800',
+  CANCELLED: 'bg-gray-100 text-gray-700',
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '—'
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString()
+}
+
+function routeLabel(city?: string | null, country?: string | null, port?: string | null) {
+  const place = [city, country].filter(Boolean).join(', ')
+  const parts = [place || '—']
+  if (port) parts.push(`port: ${port}`)
+  return parts.join(' · ')
+}
+
+function ShipmentContent({ orderId }: { orderId?: string }) {
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
+  const {
+    fetchDiasporaImportOrder,
+    fetchDiasporaReservations,
+    fetchDiasporaShipments,
+    fetchDiasporaOpenContainers,
+    createDiasporaReservation,
+    updateDiasporaReservationStatus,
+  } = useCarUpApi()
+
+  const [order, setOrder] = useState<DiasporaImportOrder | null>(null)
+  const [reservations, setReservations] = useState<DiasporaCargoReservation[]>([])
+  const [shipments, setShipments] = useState<DiasporaShipment[]>([])
+  const [containers, setContainers] = useState<DiasporaContainerShipment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [form, setForm] = useState({ container_id: '', cargo_type: 'vehicle', estimated_volume: '' })
+
+  const isReviewer = useMemo(() => adminRoles.has(user?.role || ''), [user?.role])
+
+  // Loading/error state lives inside this callback (not the effect) so the effect body never calls
+  // setState synchronously. Order fetch is authorized server-side (buyer sees only their own order);
+  // list endpoints are scoped by importOrderId and tolerate partial failures so the page still renders.
+  const reload = useCallback(async () => {
+    if (!orderId) return
+    try {
+      const [o, r, s, c] = await Promise.all([
+        fetchDiasporaImportOrder(orderId),
+        fetchDiasporaReservations(orderId).catch(() => [] as DiasporaCargoReservation[]),
+        fetchDiasporaShipments(orderId).catch(() => [] as DiasporaShipment[]),
+        fetchDiasporaOpenContainers().catch(() => [] as DiasporaContainerShipment[]),
+      ])
+      setOrder(o)
+      setReservations(r)
+      setShipments(s)
+      setContainers(c)
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load shipment details')
+    } finally {
+      setLoading(false)
+    }
+  }, [orderId, fetchDiasporaImportOrder, fetchDiasporaReservations, fetchDiasporaShipments, fetchDiasporaOpenContainers])
+
+  // Gate on auth readiness so a hard reload never fires a request before the token is available.
+  // reload() sets state asynchronously (after awaits) — same data-fetch-on-mount pattern used by the
+  // other Diaspora pages in this file; the lint rule cannot see across the async boundary.
+  useEffect(() => {
+    if (authLoading || !isAuthenticated || !orderId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload()
+  }, [authLoading, isAuthenticated, orderId, reload])
+
+  const shipment = shipments[0]
+  const activeReservation = reservations.find(r => r.reservation_status !== 'REJECTED' && r.reservation_status !== 'CANCELLED')
+  const canRequest = !activeReservation && containers.length > 0
+
+  const submitReservation = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!orderId || !form.container_id || !form.estimated_volume) {
+      setActionError('Choose a container and enter an estimated volume.')
+      return
+    }
+    setSubmitting(true)
+    setActionError('')
+    try {
+      const payload: DiasporaCargoReservationPayload = {
+        container_id: form.container_id,
+        import_order_id: orderId,
+        cargo_type: form.cargo_type as DiasporaCargoReservationPayload['cargo_type'],
+        estimated_volume: Number(form.estimated_volume),
+      }
+      await createDiasporaReservation(payload)
+      setForm({ container_id: '', cargo_type: 'vehicle', estimated_volume: '' })
+      await reload()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to request reservation')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const reviewReservation = async (reservationId: string, action: 'approve' | 'reject') => {
+    setActionError('')
+    try {
+      await updateDiasporaReservationStatus(reservationId, action)
+      await reload()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to update reservation')
+    }
+  }
 
   return (
-    <RequireDiasporaAuth>
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">
-        <Badge variant="outline" data-testid="diaspora-shipment-status-badge">Shipment planning</Badge>
-        <h1 className="mt-3 text-2xl font-bold text-gray-950">Shipment</h1>
-        <p className="mt-1 text-sm text-gray-500">Container booking and shipment events will attach to import order {id} after documents are ready.</p>
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-import-shipment-route">
+      <div className="flex items-center gap-3">
+        <Ship className="h-6 w-6 text-orange-600" />
+        <h1 className="text-2xl font-bold text-gray-950">Container & shipment</h1>
       </div>
+
+      <Alert className="mt-4 border-blue-200 bg-blue-50" data-testid="diaspora-shipment-coordination-note">
+        <Ship className="h-4 w-4 text-blue-600" />
+        <AlertDescription className="text-blue-800">{SHIPMENT_COORDINATION_NOTE}</AlertDescription>
+      </Alert>
+
+      {loading && <div className="mt-6 text-orange-600" data-testid="diaspora-shipment-loading">Loading shipment details...</div>}
+      {error && (
+        <Alert className="mt-6 border-red-200" data-testid="diaspora-shipment-error">
+          <AlertCircle className="h-4 w-4" /><AlertTitle>Unable to load</AlertTitle><AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {!loading && !error && (
+        <div className="mt-6 space-y-6">
+          {/* Import order status */}
+          <section className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-shipment-status">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-900">Import order status</h2>
+              <Badge variant="outline" data-testid="diaspora-shipment-status-badge">{order?.status || 'UNKNOWN'}</Badge>
+            </div>
+            <dl className="mt-3 grid grid-cols-1 gap-2 text-sm text-gray-600 sm:grid-cols-2">
+              <div><dt className="text-gray-400">Origin</dt><dd data-testid="diaspora-shipment-origin">{routeLabel(order?.origin_city, order?.origin_country, shipment?.origin_port)}</dd></div>
+              <div><dt className="text-gray-400">Destination</dt><dd data-testid="diaspora-shipment-destination">{routeLabel(order?.destination_city, order?.destination_country, shipment?.destination_port)}</dd></div>
+            </dl>
+          </section>
+
+          {/* Shipment route details */}
+          <section className="rounded-lg border border-gray-200 bg-white p-5">
+            <h2 className="text-base font-semibold text-gray-900">Shipment tracking</h2>
+            {shipment ? (
+              <div className="mt-3 space-y-2 text-sm text-gray-600" data-testid="diaspora-shipment-details">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400">Status</span>
+                  <Badge variant="outline" data-testid="diaspora-shipment-tracking-status">{shipment.status}</Badge>
+                </div>
+                <div>Carrier: {shipment.carrier_name || '—'}{shipment.tracking_number ? ` · Tracking: ${shipment.tracking_number}` : ''}</div>
+                <div>Estimated departure: {formatDate(shipment.departure_date)}</div>
+                <div>Estimated arrival: {formatDate(shipment.estimated_arrival_date)}</div>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-gray-500" data-testid="diaspora-shipment-empty">
+                No shipment has been scheduled for this order yet. Shipment tracking appears here once logistics coordination begins.
+              </p>
+            )}
+          </section>
+
+          {/* Reservation status */}
+          <section className="rounded-lg border border-gray-200 bg-white p-5">
+            <h2 className="text-base font-semibold text-gray-900">Container reservation</h2>
+            {reservations.length > 0 ? (
+              <div className="mt-3 space-y-3">
+                {reservations.map(reservation => (
+                  <div key={reservation.id} className="rounded-md border border-gray-100 bg-gray-50 p-3" data-testid="diaspora-reservation-row">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-800">{reservation.cargo_type || 'cargo'} · {reservation.estimated_volume ?? '—'} m³</span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${RESERVATION_BADGE_TONE[reservation.reservation_status] || 'bg-gray-100 text-gray-700'}`} data-testid="diaspora-reservation-status">
+                        {reservation.reservation_status}
+                      </span>
+                    </div>
+                    {isReviewer && reservation.reservation_status === 'REQUESTED' && (
+                      <div className="mt-3 flex gap-2" data-testid="diaspora-shipment-admin-controls">
+                        <Button size="sm" onClick={() => reviewReservation(reservation.id, 'approve')} data-testid="diaspora-reservation-approve-button">Approve</Button>
+                        <Button size="sm" variant="outline" onClick={() => reviewReservation(reservation.id, 'reject')} data-testid="diaspora-reservation-reject-button">Reject</Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-gray-500" data-testid="diaspora-reservation-empty">
+                No container space has been reserved for this order yet.
+              </p>
+            )}
+          </section>
+
+          {/* Buyer: request container space (only when no active reservation and a container is open) */}
+          {canRequest && (
+            <section className="rounded-lg border border-gray-200 bg-white p-5" data-testid="diaspora-request-reservation">
+              <h2 className="text-base font-semibold text-gray-900">Request container space</h2>
+              <p className="mt-1 text-xs text-gray-500">Submit a reservation request. A logistics coordinator reviews and approves availability — this does not confirm booking.</p>
+              <form className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3" onSubmit={submitReservation}>
+                <select
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  value={form.container_id}
+                  onChange={e => setForm(prev => ({ ...prev, container_id: e.target.value }))}
+                  data-testid="diaspora-reservation-container-select"
+                >
+                  <option value="">Select a container…</option>
+                  {containers.map(c => (
+                    <option key={c.id} value={c.id} data-testid="diaspora-container-option">
+                      {routeLabel(c.origin_city, c.origin_country)} → {routeLabel(c.destination_city, c.destination_country)} · dep {formatDate(c.departure_date)} · {c.available_capacity_volume ?? '—'} m³ free
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  value={form.cargo_type}
+                  onChange={e => setForm(prev => ({ ...prev, cargo_type: e.target.value }))}
+                  data-testid="diaspora-reservation-cargo-select"
+                >
+                  <option value="vehicle">Vehicle</option>
+                  <option value="parts">Parts</option>
+                  <option value="mixed">Mixed</option>
+                  <option value="other">Other</option>
+                </select>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  placeholder="Volume (m³)"
+                  value={form.estimated_volume}
+                  onChange={e => setForm(prev => ({ ...prev, estimated_volume: e.target.value }))}
+                  data-testid="diaspora-reservation-volume-input"
+                />
+                <Button type="submit" disabled={submitting} className="sm:col-span-3 bg-orange-500 hover:bg-orange-600" data-testid="diaspora-request-reservation-button">
+                  {submitting ? 'Submitting…' : 'Request container space'}
+                </Button>
+              </form>
+            </section>
+          )}
+
+          {!activeReservation && containers.length === 0 && (
+            <p className="text-sm text-gray-500" data-testid="diaspora-no-containers">
+              No open containers are currently accepting reservations. Check back once a coordinator opens booking.
+            </p>
+          )}
+
+          {actionError && (
+            <Alert className="border-red-200" data-testid="diaspora-shipment-action-error">
+              <AlertCircle className="h-4 w-4" /><AlertDescription>{actionError}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function DiasporaImportShipment() {
+  const { id } = useParams()
+  return (
+    <RequireDiasporaAuth>
+      <ShipmentContent orderId={id} />
     </RequireDiasporaAuth>
   )
 }

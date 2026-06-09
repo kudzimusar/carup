@@ -176,6 +176,55 @@ export interface DiasporaComplianceReview {
   created_at?: string;
 }
 
+export interface DiasporaContainerShipment {
+  id: string;
+  origin_country?: string | null;
+  origin_city?: string | null;
+  destination_country?: string | null;
+  destination_city?: string | null;
+  departure_date?: string | null;
+  booking_deadline?: string | null;
+  estimated_arrival_date?: string | null;
+  container_type?: string | null;
+  total_capacity_volume?: number | null;
+  used_capacity_volume?: number | null;
+  available_capacity_volume?: number | null;
+  status: string;
+}
+
+export interface DiasporaCargoReservation {
+  id: string;
+  container_id?: string | null;
+  import_order_id?: string | null;
+  buyer_id?: string | null;
+  cargo_type?: string | null;
+  estimated_volume?: number | null;
+  reservation_status: string;
+  created_at?: string;
+}
+
+export interface DiasporaCargoReservationPayload {
+  container_id: string;
+  import_order_id: string;
+  cargo_type: 'vehicle' | 'parts' | 'mixed' | 'other';
+  estimated_volume: number;
+}
+
+export interface DiasporaShipment {
+  id: string;
+  import_order_id?: string | null;
+  container_id?: string | null;
+  carrier_name?: string | null;
+  tracking_number?: string | null;
+  origin_port?: string | null;
+  destination_port?: string | null;
+  departure_date?: string | null;
+  estimated_arrival_date?: string | null;
+  actual_arrival_date?: string | null;
+  status: string;
+  created_at?: string;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;
