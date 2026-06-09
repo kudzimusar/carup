@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { resolvePostLoginRoute } from '@/lib/returnTo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -21,6 +22,8 @@ const API_BASE = typeof window !== 'undefined' && window.location.hostname === '
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
   const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({ email: '', password: '' })
   const [loading, setLoading] = useState(false)
@@ -33,13 +36,6 @@ export default function Login() {
     else if (form.password.length < 6) e.password = 'Password must be at least 6 characters'
     setErrors(e)
     return Object.keys(e).length === 0
-  }
-
-  const getDashboardRoute = (role: string) => {
-    if (role === 'dealer') return '/dealer'
-    if (role === 'mechanic') return '/mechanic'
-    if (role === 'admin') return '/admin'
-    return '/dashboard'
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,12 +69,12 @@ export default function Login() {
         
         login(userData, token)
         toast.success(`Welcome back, ${userData.name}!`)
-        navigate(getDashboardRoute(userData.role))
+        navigate(resolvePostLoginRoute(returnTo, userData.role))
       } else {
         const errorData = await res.json()
         toast.error(errorData.error || 'Invalid credentials')
       }
-    } catch (e) {
+    } catch {
       toast.error('Network error. Backend is offline.')
     } finally {
       setLoading(false)
@@ -109,11 +105,11 @@ export default function Login() {
         const data = await res.json()
         login(data.user, data.token)
         toast.success(`Logged in as ${data.user.name}`)
-        navigate(getDashboardRoute(data.user.role))
+        navigate(resolvePostLoginRoute(returnTo, data.user.role))
       } else {
         toast.error('Demo login failed. Make sure DB is seeded.')
       }
-    } catch (e) {
+    } catch {
       toast.error('Network error.')
     } finally {
       setLoading(false)
