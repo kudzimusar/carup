@@ -217,7 +217,7 @@ router.post('/containers/:id/mark-arrived', auth, asyncHandler(async (req, res) 
 router.post('/containers/:id/mark-completed', auth, asyncHandler(async (req, res) => res.json(await transitionContainer(req.params.id, CONTAINER_STATUSES.COMPLETED, req.userContext, req))));
 
 // Reservations
-router.get('/reservations', auth, asyncHandler(async (req, res) => res.json({ data: await listCargoReservations({ containerId: req.query.containerId, importOrderId: req.query.importOrderId, status: req.query.status, ...pagination(req) }) })));
+router.get('/reservations', auth, asyncHandler(async (req, res) => res.json({ data: await listCargoReservations({ containerId: req.query.containerId, importOrderId: req.query.importOrderId, status: req.query.status, ...pagination(req) }, req.userContext) })));
 router.post('/reservations', auth, asyncHandler(async (req, res) => res.status(201).json(await createCargoReservation(req.body, req.userContext, req))));
 router.post('/reservations/:id/approve', auth, asyncHandler(async (req, res) => res.json(await updateReservationStatus(req.params.id, RESERVATION_STATUSES.APPROVED, req.userContext, req, req.body))));
 router.post('/reservations/:id/reject', auth, asyncHandler(async (req, res) => res.json(await updateReservationStatus(req.params.id, RESERVATION_STATUSES.REJECTED, req.userContext, req, req.body))));

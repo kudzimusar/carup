@@ -1,10 +1,18 @@
 import { supabase } from '../../db/supabase.js';
-import { RESERVATION_STATUSES, IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
+import { RESERVATION_STATUSES, IMPORT_ORDER_STATUSES, CONTAINER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { validateReservationPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
+import {
+  requireUserContext,
+  assertCanReadImportOrder,
+  assertCanReviewReservation,
+  assertCanCancelReservation,
+  isPlatformReviewer,
+  isPlatformAdmin,
+} from './diasporaAuthorization.js';
 
 async function fetchReservation(id) {
   const { data, error } = await supabase.from('diaspora_cargo_reservations').select('*').eq('id', id).is('deleted_at', null).single();
@@ -12,15 +20,49 @@ async function fetchReservation(id) {
   return data;
 }
 
+// Authorize against the import order the reservation belongs to, reusing the trusted server context
+// from authorizeRole(). Throws NotFoundError (missing order) or ForbiddenError (no access).
+async function assertImportOrderAccess(importOrderId, userContext) {
+  if (!importOrderId) throw new ValidationError('import_order_id is required');
+  const { data: order, error } = await supabase
+    .from('diaspora_import_orders')
+    .select('*')
+    .eq('id', importOrderId)
+    .is('deleted_at', null)
+    .single();
+  if (error || !order) throw new NotFoundError('Diaspora import order not found');
+  const { data: participants } = await supabase
+    .from('diaspora_import_order_participants')
+    .select('*')
+    .eq('import_order_id', importOrderId)
+    .is('deleted_at', null);
+  assertCanReadImportOrder(order, participants || [], userContext);
+  return order;
+}
+
 export async function createCargoReservation(payload, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
   validateReservationPayload(payload);
+
+  // 1. The caller must be allowed to act on the target import order (buyer owns it, or reviewer/admin).
+  await assertImportOrderAccess(payload.import_order_id, context);
+
   const { data: container, error: containerError } = await supabase.from('diaspora_container_shipments').select('*').eq('id', payload.container_id).single();
   if (containerError || !container) throw new NotFoundError('Diaspora container shipment not found');
+
+  // 2. Only open containers accept reservation requests.
+  if (container.status !== CONTAINER_STATUSES.BOOKING_OPEN) {
+    throw new ValidationError('This container is not open for booking.');
+  }
 
   const requestedVolume = Number(payload.estimated_volume);
   if (requestedVolume > Number(container.available_capacity_volume)) {
     throw new ValidationError('Requested cargo volume exceeds available container capacity.', { requestedVolume, available: container.available_capacity_volume });
   }
+
+  // 3. Buyers may only reserve as themselves; reviewers/admins may reserve on behalf of a buyer.
+  const privileged = isPlatformReviewer(context) || isPlatformAdmin(context);
+  const buyerId = privileged ? (payload.buyer_id || context.id) : context.id;
 
   const { data, error } = await supabase
     .from('diaspora_cargo_reservations')
@@ -28,7 +70,7 @@ export async function createCargoReservation(payload, userContext = {}, req = nu
       tenant_id: userContext?.tenantId || container.tenant_id,
       container_id: payload.container_id,
       import_order_id: payload.import_order_id,
-      buyer_id: payload.buyer_id || userContext?.id || null,
+      buyer_id: buyerId,
       seller_id: payload.seller_id || null,
       cargo_type: payload.cargo_type,
       estimated_volume: requestedVolume,
@@ -56,7 +98,18 @@ export async function createCargoReservation(payload, userContext = {}, req = nu
   return data;
 }
 
-export async function listCargoReservations({ containerId, importOrderId, status, limit = 50, offset = 0 }) {
+export async function listCargoReservations({ containerId, importOrderId, status, limit = 50, offset = 0 }, userContext = {}) {
+  const context = requireUserContext(userContext);
+
+  // Buyers (non-reviewers) may only list reservations for an import order they can access, and must
+  // scope by that order. Reviewers/admins may query more broadly.
+  if (!isPlatformReviewer(context) && !isPlatformAdmin(context)) {
+    if (!importOrderId) {
+      throw new ValidationError('importOrderId is required to list cargo reservations');
+    }
+    await assertImportOrderAccess(importOrderId, context);
+  }
+
   let query = supabase.from('diaspora_cargo_reservations').select('*').is('deleted_at', null).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
   if (containerId) query = query.eq('container_id', containerId);
   if (importOrderId) query = query.eq('import_order_id', importOrderId);
@@ -70,7 +123,17 @@ export async function updateReservationStatus(id, nextStatus, userContext = {}, 
   if (![RESERVATION_STATUSES.APPROVED, RESERVATION_STATUSES.REJECTED, RESERVATION_STATUSES.CANCELLED].includes(nextStatus)) {
     throw new ValidationError('Unsupported reservation status transition.');
   }
+  const context = requireUserContext(userContext);
   const previous = await fetchReservation(id);
+
+  // Authorize by server-derived role, not the client header. Approve/reject is reviewer/admin only;
+  // cancel is allowed for the reservation owner or a reviewer/admin.
+  if (nextStatus === RESERVATION_STATUSES.CANCELLED) {
+    assertCanCancelReservation(previous, context);
+  } else {
+    assertCanReviewReservation(previous, context);
+  }
+
   if (previous.reservation_status !== RESERVATION_STATUSES.REQUESTED && nextStatus !== RESERVATION_STATUSES.CANCELLED) {
     throw new ValidationError(`Reservation can only be approved/rejected from REQUESTED. Current status: ${previous.reservation_status}`);
   }
