@@ -29,8 +29,15 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null)
-  const [token, setToken] = useState<string | null>(null)
+  // Initialize from localStorage SYNCHRONOUSLY (lazy init) so the token exists on the very first
+  // render. Child page effects run before AuthProvider's boot effect, so without this they fire
+  // protected requests with no token → 401 → clearAuth → spurious logout on hard reload / deep link.
+  const [user, setUser] = useState<AuthUser | null>(
+    () => (typeof window !== 'undefined' ? readStoredAuth(localStorage)?.user ?? null : null),
+  )
+  const [token, setToken] = useState<string | null>(
+    () => (typeof window !== 'undefined' ? readStoredAuth(localStorage)?.token ?? null : null),
+  )
   const [loading, setLoading] = useState(true)
 
   // Clear ALL client auth state + storage. Used on logout and whenever the backend reports the
