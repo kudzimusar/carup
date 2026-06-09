@@ -78,6 +78,14 @@ export interface MarketplaceListingSummary extends SharedMarketplaceListingSumma
 
 export interface MarketplaceListingsResponse extends SharedMarketplaceListingsResponse {}
 
+export interface NavCoverageEntry { count: number; active: boolean }
+export interface NavCoverageResponse {
+  threshold: number
+  categories: Record<string, NavCoverageEntry>
+  tags: Record<string, NavCoverageEntry>
+  governed_deferred: string[]
+}
+
 export type DiasporaOrderType = 'vehicle' | 'parts' | 'mixed';
 
 export interface DiasporaImportOrder {
