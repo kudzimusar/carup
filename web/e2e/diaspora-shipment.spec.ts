@@ -32,6 +32,17 @@ const openContainer = {
   status: 'BOOKING_OPEN',
 }
 
+const shipmentFixture = {
+  id: 'ship-1',
+  import_order_id: ORDER_ID,
+  status: 'PLANNED',
+  carrier_name: 'Pacific Lines',
+  origin_port: 'Yokohama',
+  destination_port: 'Durban',
+  departure_date: '2026-07-05T00:00:00.000Z',
+  estimated_arrival_date: '2026-08-20T00:00:00.000Z',
+}
+
 const requestedReservation = {
   id: 'res-1',
   container_id: 'cont-1',
@@ -73,7 +84,12 @@ async function mockShipmentApi(page: Page, opts: { reservations?: unknown[]; shi
     if (method === 'GET' && path.endsWith('/diaspora/shipments')) return fulfillJson(route, { data: shipments })
     if (method === 'GET' && path.endsWith('/diaspora/containers')) return fulfillJson(route, { data: containers })
     if (method === 'POST' && path.endsWith('/diaspora/reservations')) return fulfillJson(route, requestedReservation, 201)
-    if (method === 'POST' && (path.includes('/approve') || path.includes('/reject'))) return fulfillJson(route, { ...requestedReservation, reservation_status: path.includes('/approve') ? 'APPROVED' : 'REJECTED' })
+    if (method === 'POST' && path.includes('/diaspora/reservations/') && (path.includes('/approve') || path.includes('/reject') || path.includes('/cancel'))) {
+      const next = path.includes('/approve') ? 'APPROVED' : path.includes('/reject') ? 'REJECTED' : 'CANCELLED'
+      return fulfillJson(route, { ...requestedReservation, reservation_status: next })
+    }
+    if (method === 'POST' && path.endsWith('/diaspora/shipments')) return fulfillJson(route, { id: 'ship-new', import_order_id: ORDER_ID, status: 'PLANNED' }, 201)
+    if (method === 'PATCH' && path.includes('/diaspora/shipments/') && path.endsWith('/stage')) return fulfillJson(route, { shipment: { id: 'ship-1', status: 'IN_TRANSIT' } })
     return fulfillJson(route, { data: [] })
   })
 }
@@ -118,7 +134,7 @@ test.describe('Diaspora container reservation + shipment UI (mocked)', () => {
     await reservationRequest
   })
 
-  test('buyer cannot see admin/logistics controls (approve/reject)', async ({ page }) => {
+  test('buyer cannot see admin/logistics controls (approve/reject or lifecycle)', async ({ page }) => {
     await loginAs(page, buyerUser)
     await mockShipmentApi(page, { reservations: [requestedReservation] })
     await page.goto(`/diaspora/imports/${ORDER_ID}/shipment`)
@@ -126,9 +142,10 @@ test.describe('Diaspora container reservation + shipment UI (mocked)', () => {
     await expect(page.locator('[data-testid="diaspora-reservation-row"]').first()).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-shipment-admin-controls"]')).toHaveCount(0)
     await expect(page.locator('[data-testid="diaspora-reservation-approve-button"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="diaspora-shipment-lifecycle-controls"]')).toHaveCount(0)
   })
 
-  test('admin/logistics user can see reservation controls', async ({ page }) => {
+  test('admin/logistics user can see reservation + lifecycle controls', async ({ page }) => {
     await loginAs(page, adminUser, 'mock-admin-token')
     await mockShipmentApi(page, { reservations: [requestedReservation] })
     await page.goto(`/diaspora/imports/${ORDER_ID}/shipment`)
@@ -136,6 +153,50 @@ test.describe('Diaspora container reservation + shipment UI (mocked)', () => {
     await expect(page.locator('[data-testid="diaspora-shipment-admin-controls"]').first()).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-reservation-approve-button"]').first()).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-reservation-reject-button"]').first()).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-shipment-lifecycle-controls"]')).toBeVisible()
+  })
+
+  test('buyer sees a read-only shipment progress timeline', async ({ page }) => {
+    await loginAs(page, buyerUser)
+    await mockShipmentApi(page, { reservations: [requestedReservation], shipments: [] })
+    await page.goto(`/diaspora/imports/${ORDER_ID}/shipment`)
+
+    await expect(page.locator('[data-testid="diaspora-shipment-timeline"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-timeline-step"]')).toHaveCount(9)
+    // No lifecycle mutation controls for the buyer (read-only).
+    await expect(page.locator('[data-testid="diaspora-shipment-lifecycle-controls"]')).toHaveCount(0)
+  })
+
+  test('admin can create a shipment when none exists, then advance its stage', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockShipmentApi(page, { reservations: [requestedReservation], shipments: [] })
+    await page.goto(`/diaspora/imports/${ORDER_ID}/shipment`)
+
+    // No shipment yet → create control is shown.
+    const createReq = page.waitForRequest(req => req.method() === 'POST' && req.url().includes('/diaspora/shipments'))
+    await page.locator('[data-testid="diaspora-shipment-create-button"]').click()
+    await createReq
+  })
+
+  test('admin can update shipment stage when a shipment exists', async ({ page }) => {
+    await loginAs(page, adminUser, 'mock-admin-token')
+    await mockShipmentApi(page, { reservations: [requestedReservation], shipments: [shipmentFixture] })
+    await page.goto(`/diaspora/imports/${ORDER_ID}/shipment`)
+
+    await page.locator('[data-testid="diaspora-shipment-stage-select"]').selectOption('IN_TRANSIT')
+    const stageReq = page.waitForRequest(req => req.method() === 'PATCH' && req.url().includes('/stage'))
+    await page.locator('[data-testid="diaspora-shipment-update-stage-button"]').click()
+    await stageReq
+  })
+
+  test('buyer can cancel their own requested reservation', async ({ page }) => {
+    await loginAs(page, buyerUser)
+    await mockShipmentApi(page, { reservations: [requestedReservation] })
+    await page.goto(`/diaspora/imports/${ORDER_ID}/shipment`)
+
+    const cancelReq = page.waitForRequest(req => req.method() === 'POST' && req.url().includes('/cancel'))
+    await page.locator('[data-testid="diaspora-reservation-cancel-button"]').click()
+    await cancelReq
   })
 
   test('hard reload / deep link to shipment page does not log out a valid user', async ({ page }) => {
