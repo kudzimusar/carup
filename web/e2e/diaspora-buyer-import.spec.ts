@@ -198,7 +198,9 @@ async function mockDiasporaApi(page: Page) {
   })
 }
 
-test.describe('Diaspora buyer import order UI', () => {
+// MOCKED coverage: API responses (auth/me, csrf, diaspora endpoints) are stubbed via page.route.
+// The un-mocked, production-equivalent submit flow lives in diaspora-buyer-import-real.spec.ts.
+test.describe('Diaspora buyer import order UI (mocked)', () => {
   test('Diaspora landing page renders', async ({ page }) => {
     await page.goto('/diaspora')
 
