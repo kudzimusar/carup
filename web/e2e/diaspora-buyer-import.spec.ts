@@ -122,6 +122,11 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 async function mockDiasporaApi(page: Page) {
+  // Unsafe requests now require a CSRF token fetched up-front; mock the issuing endpoint.
+  await page.context().route('**/security/csrf-token', async route => {
+    await fulfillJson(route, { csrfToken: 'mock-csrf-token' })
+  })
+
   await page.context().route('**/api/diaspora/**', async route => {
     const url = new URL(route.request().url())
     const path = url.pathname
