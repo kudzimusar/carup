@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Search, Users, Shield, Wrench, Building2, Car, MoreHorizontal, Ban } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -17,9 +18,10 @@ import type { User } from '@/types'
 
 const roleIcons: Record<string, typeof Users> = { Owner: Car, Dealer: Building2, Mechanic: Wrench, Insurance: Shield }
 
-const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? '/api'
-  : 'https://carup-backend.vercel.app/api';
+const API_BASE = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 export default function UserManagement() {
   const { fetchUsers, suspendUser } = useCarUpApi()
