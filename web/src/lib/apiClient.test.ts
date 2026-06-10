@@ -236,4 +236,22 @@ describe('resolveApiBaseUrl', () => {
   it('trims a configured URL', () => {
     expect(resolveApiBaseUrl('  https://staging.example/api  ', 'localhost')).toBe('https://staging.example/api')
   })
+
+  it('appends the /api suffix when a configured base omits it (resilient to misconfig)', () => {
+    // Bare backend origin (the staging misconfiguration) gets /api appended.
+    expect(resolveApiBaseUrl('https://carup-backend-staging.vercel.app', 'carup-staging.vercel.app'))
+      .toBe('https://carup-backend-staging.vercel.app/api')
+    expect(resolveApiBaseUrl('https://carup-backend-aca7.vercel.app', 'carup-staging.vercel.app'))
+      .toBe('https://carup-backend-aca7.vercel.app/api')
+    // Local dev pointed at a bare backend origin.
+    expect(resolveApiBaseUrl('http://localhost:5001', 'localhost')).toBe('http://localhost:5001/api')
+    // Trailing slash is stripped before appending.
+    expect(resolveApiBaseUrl('https://host/', 'localhost')).toBe('https://host/api')
+  })
+
+  it('leaves a configured base that already targets /api unchanged', () => {
+    expect(resolveApiBaseUrl('https://host/api', 'localhost')).toBe('https://host/api')
+    expect(resolveApiBaseUrl('https://host/api/', 'localhost')).toBe('https://host/api')
+    expect(resolveApiBaseUrl('http://localhost:5001/api', 'localhost')).toBe('http://localhost:5001/api')
+  })
 })
