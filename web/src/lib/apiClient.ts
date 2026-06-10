@@ -39,9 +39,20 @@ const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
  */
 export function resolveApiBaseUrl(configuredUrl?: string | null, hostname?: string): string {
   const configured = configuredUrl?.trim()
-  if (configured) return configured
+  if (configured) return normalizeApiBase(configured)
   if (hostname && LOCAL_HOSTS.includes(hostname)) return '/api'
   return DEFAULT_PRODUCTION_API_BASE_URL
+}
+
+/**
+ * The backend mounts every route under `/api`. A configured base that omits the suffix (a common
+ * misconfiguration, e.g. `https://host` instead of `https://host/api`) would 404 every request, so
+ * normalize it: strip trailing slashes and append `/api` unless the path already targets it. This
+ * makes the frontend resilient to an env var set to a bare backend origin.
+ */
+function normalizeApiBase(base: string): string {
+  const trimmed = base.replace(/\/+$/, '')
+  return /\/api(\/|$)/.test(trimmed) ? trimmed : `${trimmed}/api`
 }
 
 export const CSRF_ERROR_MESSAGE =
