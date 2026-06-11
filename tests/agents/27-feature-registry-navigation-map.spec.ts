@@ -75,6 +75,7 @@ test.describe('Feature Registry & Navigation Map', () => {
         active_tenant_id: mockRole === 'dealer' ? 'tenant-dealer-1' : null,
       };
       localStorage.setItem('carup_session', JSON.stringify({ token: 'mock-token' }));
+      localStorage.setItem('carup_token', 'mock-token');
       localStorage.setItem('carup_user', JSON.stringify(user));
     }, role);
   }
