@@ -10,6 +10,7 @@ import {
   markDiasporaWorkbookImportBatchReady,
 } from '../services/diaspora/diasporaWorkbookReviewService.js';
 import { buildWorkbookImportPlan } from '../services/diaspora/diasporaWorkbookImportPlanningService.js';
+import { executeDiasporaWorkbookDraftImport } from '../services/diaspora/diasporaWorkbookImportExecutionService.js';
 import { exportDiasporaWorkbook, importDiasporaWorkbook, runAndPersistDiasporaWorkbookDryRun, saveDiasporaWorkbookToDrive } from '../services/diaspora/diasporaWorkbookSyncService.js';
 
 const router = express.Router();
@@ -90,6 +91,11 @@ router.post('/workbook/import-batches/:id/cancel', auth, asyncHandler(async (req
 router.post('/workbook/import-batches/:id/mark-ready', auth, asyncHandler(async (req, res) => {
   const result = await markDiasporaWorkbookImportBatchReady(req.params.id, req.userContext);
   res.json(result);
+}));
+
+router.post('/workbook/import-batches/:id/execute-drafts', auth, asyncHandler(async (req, res) => {
+  const data = await executeDiasporaWorkbookDraftImport(req.params.id, req.userContext, { req });
+  res.status(202).json({ data });
 }));
 
 router.post('/workbook/import', auth, asyncHandler(async (req, res) => {

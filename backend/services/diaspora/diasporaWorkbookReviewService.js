@@ -1,8 +1,7 @@
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { WORKBOOK_IMPORT_STATUSES } from '../../constants/diaspora/diasporaWorkbookImportStatuses.js';
 
 const PLATFORM_REVIEW_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government_reviewer', 'reviewer']);
-const REVIEW_READY_STATUS = 'READY_FOR_REVIEW';
-const CANCELLED_STATUS = 'CANCELLED';
 
 async function defaultSupabaseClient() {
   const { supabase } = await import('../../db/supabase.js');
@@ -193,8 +192,12 @@ export async function getWorkbookImportBatchSummary(batchId, userContext = {}, o
 }
 
 function assertCanCancel(batch) {
-  if (batch.import_status === CANCELLED_STATUS) return;
-  if (['IMPORTED', 'IMPORTING'].includes(batch.import_status)) {
+  if (batch.import_status === WORKBOOK_IMPORT_STATUSES.CANCELLED) return;
+  if ([
+    WORKBOOK_IMPORT_STATUSES.IMPORTING_DRAFTS,
+    WORKBOOK_IMPORT_STATUSES.IMPORTED_DRAFTS,
+    WORKBOOK_IMPORT_STATUSES.PARTIALLY_IMPORTED_DRAFTS,
+  ].includes(batch.import_status)) {
     throw new ValidationError('Workbook import batch cannot be cancelled after import execution has started.', {
       batchId: batch.id,
       importStatus: batch.import_status,
@@ -203,8 +206,8 @@ function assertCanCancel(batch) {
 }
 
 function assertCanMarkReady(batch) {
-  if (batch.import_status === REVIEW_READY_STATUS) return;
-  if (batch.import_status === CANCELLED_STATUS) {
+  if (batch.import_status === WORKBOOK_IMPORT_STATUSES.READY_FOR_REVIEW) return;
+  if (batch.import_status === WORKBOOK_IMPORT_STATUSES.CANCELLED) {
     throw new ValidationError('Cancelled workbook import batches cannot be marked ready for review.', {
       batchId: batch.id,
       importStatus: batch.import_status,
@@ -225,13 +228,13 @@ async function updateBatchReviewStatus(batchId, nextStatus, userContext = {}, op
   const batch = await getDiasporaWorkbookImportBatch(batchId, userContext, { supabaseClient: client });
   const userId = actorId(userContext);
 
-  if (nextStatus === CANCELLED_STATUS) assertCanCancel(batch);
-  if (nextStatus === REVIEW_READY_STATUS) assertCanMarkReady(batch);
+  if (nextStatus === WORKBOOK_IMPORT_STATUSES.CANCELLED) assertCanCancel(batch);
+  if (nextStatus === WORKBOOK_IMPORT_STATUSES.READY_FOR_REVIEW) assertCanMarkReady(batch);
 
   const metadata = {
     ...(batch.metadata || {}),
     phase: '1D',
-    reviewAction: nextStatus === CANCELLED_STATUS ? 'cancelled' : 'marked_ready_for_review',
+    reviewAction: nextStatus === WORKBOOK_IMPORT_STATUSES.CANCELLED ? 'cancelled' : 'marked_ready_for_review',
     reviewActionAt: new Date().toISOString(),
     reviewActionBy: userId,
     liveImportExecuted: false,
@@ -257,9 +260,9 @@ async function updateBatchReviewStatus(batchId, nextStatus, userContext = {}, op
 }
 
 export function cancelDiasporaWorkbookImportBatch(batchId, userContext = {}, options = {}) {
-  return updateBatchReviewStatus(batchId, CANCELLED_STATUS, userContext, options);
+  return updateBatchReviewStatus(batchId, WORKBOOK_IMPORT_STATUSES.CANCELLED, userContext, options);
 }
 
 export function markDiasporaWorkbookImportBatchReady(batchId, userContext = {}, options = {}) {
-  return updateBatchReviewStatus(batchId, REVIEW_READY_STATUS, userContext, options);
+  return updateBatchReviewStatus(batchId, WORKBOOK_IMPORT_STATUSES.READY_FOR_REVIEW, userContext, options);
 }

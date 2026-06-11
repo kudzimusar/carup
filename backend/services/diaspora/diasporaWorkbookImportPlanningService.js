@@ -4,12 +4,14 @@ import {
   WORKBOOK_IMPORT_MAP,
   WORKBOOK_IMPORT_RISK_LEVELS,
 } from '../../constants/diaspora/diasporaWorkbookImportMap.js';
+import { WORKBOOK_IMPORT_PLANNABLE_STATUSES } from '../../constants/diaspora/diasporaWorkbookImportStatuses.js';
 
-const PLANNABLE_BATCH_STATUSES = new Set(['QUEUED', 'VALIDATED']);
 const PLANNABLE_ROW_STATUSES = new Set(['ACCEPTED', 'WARNING']);
 const DIRECT_VERIFICATION_STATUSES = new Set(['VERIFIED', 'APPROVED']);
-const DIRECT_ORDER_RELEASE_STATUSES = new Set(['RELEASED', 'COMPLETED', 'CANCELLED']);
+const DIRECT_ORDER_RELEASE_STATUSES = new Set(['RELEASED', 'COMPLETED', 'CANCELLED', 'ZIMBABWE_READY', 'LOCAL_LISTING_ENABLED']);
 const DIRECT_QUOTE_SELECTION_STATUSES = new Set(['ACCEPTED']);
+const DIRECT_CONTAINER_FINAL_STATUSES = new Set(['SHIPPED', 'ARRIVED', 'COMPLETED', 'CANCELLED']);
+const DIRECT_RESERVATION_FINAL_STATUSES = new Set(['APPROVED', 'CANCELLED']);
 const DIRECT_COMPLIANCE_OUTCOME_STATUSES = new Set(['APPROVED']);
 const DIRECT_PAYMENT_OUTCOME_STATUSES = new Set(['PAID', 'REFUNDED', 'RELEASED']);
 const DIRECT_SHIPMENT_FINAL_STATUSES = new Set(['DELIVERED', 'RELEASED', 'COMPLETED']);
@@ -110,6 +112,12 @@ function directStateBlockReason(sheetName, payload) {
   if (sheetName === 'TRADE_DOCUMENTS' && DIRECT_VERIFICATION_STATUSES.has(statusFromPayload(payload, 'VERIFICATION_STATUS'))) {
     return 'DOCUMENT_VERIFICATION_CANNOT_BE_IMPORTED_FROM_WORKBOOK';
   }
+  if (sheetName === 'CONTAINER_SHIPMENTS' && DIRECT_CONTAINER_FINAL_STATUSES.has(statusFromPayload(payload, 'STATUS'))) {
+    return 'CONTAINER_FINAL_STATUS_CANNOT_BE_IMPORTED_FROM_WORKBOOK';
+  }
+  if (sheetName === 'CARGO_RESERVATIONS' && DIRECT_RESERVATION_FINAL_STATUSES.has(statusFromPayload(payload, 'RESERVATION_STATUS'))) {
+    return 'CARGO_RESERVATION_APPROVAL_CANNOT_BE_IMPORTED_FROM_WORKBOOK';
+  }
   if (sheetName === 'COMPLIANCE_REVIEWS' && DIRECT_COMPLIANCE_OUTCOME_STATUSES.has(statusFromPayload(payload, 'STATUS', 'VERIFICATION_STATUS'))) {
     return 'COMPLIANCE_APPROVAL_CANNOT_BE_IMPORTED_FROM_WORKBOOK';
   }
@@ -154,7 +162,7 @@ export function classifyWorkbookImportRow(row = {}, batch = {}, userContext = {}
   const actionType = rowActionType(row);
   const sourceTargetTable = rowTargetTable(row);
 
-  if (!PLANNABLE_BATCH_STATUSES.has(batchStatus)) {
+  if (!WORKBOOK_IMPORT_PLANNABLE_STATUSES.has(batchStatus)) {
     return makeBlockedAction(row, mapping, 'BATCH_IMPORT_STATUS_NOT_PLANNABLE');
   }
   if (validationStatus === 'REJECTED') {
