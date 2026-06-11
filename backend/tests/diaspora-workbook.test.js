@@ -255,6 +255,7 @@ test('Diaspora workbook routes are mounted inside the existing bounded context',
   assert.equal(workbookRouteFile.includes("router.get('/workbook/import-batches/:id/rows'"), true);
   assert.equal(workbookRouteFile.includes("router.post('/workbook/import-batches/:id/cancel'"), true);
   assert.equal(workbookRouteFile.includes("router.post('/workbook/import-batches/:id/mark-ready'"), true);
+  assert.equal(workbookRouteFile.includes("router.post('/workbook/import-batches/:id/execute-drafts'"), true);
   assert.equal(workbookRouteFile.includes('runAndPersistDiasporaWorkbookDryRun'), true);
 });
 
