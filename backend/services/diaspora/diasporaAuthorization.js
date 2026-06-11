@@ -15,6 +15,13 @@ export const TENANT_ADMIN_ROLES = new Set([
   'tenant_admin',
 ]);
 
+// Platform-level admins (server-derived platformRole only — never the requested/header role).
+export const PLATFORM_ADMIN_ROLES = new Set([
+  'admin',
+  'platform_admin',
+  'super_admin',
+]);
+
 const INACTIVE_PARTICIPANT_STATES = new Set([
   'cancelled',
   'deleted',
@@ -66,6 +73,55 @@ export function requireUserContext(userContext = {}) {
 
 export function isPlatformReviewer(userContext = {}) {
   return PLATFORM_REVIEW_ROLES.has(String(userContext.platformRole ?? userContext.platform_role ?? '').toLowerCase());
+}
+
+// Trusted platform admin, derived only from the server-resolved platformRole.
+export function isPlatformAdmin(userContext = {}) {
+  return PLATFORM_ADMIN_ROLES.has(String(userContext.platformRole ?? userContext.platform_role ?? '').toLowerCase());
+}
+
+/**
+ * Who may approve/reject a cargo reservation: a trusted platform admin/reviewer, or a tenant admin
+ * of the reservation's tenant. Buyers (order owners) cannot. Uses server-derived roles only — the
+ * client x-stakeholder-role is never trusted here.
+ */
+export function canReviewReservation(reservation = {}, userContext = {}) {
+  return isPlatformAdmin(userContext) || isPlatformReviewer(userContext) || isTenantAdminForRecord(reservation, userContext);
+}
+
+export function assertCanReviewReservation(reservation = {}, userContext = {}) {
+  if (!canReviewReservation(reservation, userContext)) {
+    throw new ForbiddenError('You are not authorized to review this Diaspora cargo reservation');
+  }
+}
+
+/** The reservation owner (the buyer who created it) or a reviewer/admin may cancel it. */
+export function canCancelReservation(reservation = {}, userContext = {}) {
+  const userId = normalizeId(userContext.id ?? userContext.userId);
+  const isOwner = [reservation.buyer_id, reservation.created_by].some((c) => normalizeId(c) === userId);
+  return isOwner || canReviewReservation(reservation, userContext);
+}
+
+export function assertCanCancelReservation(reservation = {}, userContext = {}) {
+  if (!canCancelReservation(reservation, userContext)) {
+    throw new ForbiddenError('You are not authorized to cancel this Diaspora cargo reservation');
+  }
+}
+
+/**
+ * Official logistics lifecycle mutations (creating/transitioning containers, creating shipments,
+ * advancing shipment stage) are restricted to trusted platform admins/reviewers, or a tenant admin
+ * of the affected record's tenant. Buyers (order owners) are never granted this. Uses server-derived
+ * roles only — the client x-stakeholder-role is never trusted here.
+ */
+export function canManageLogistics(record = {}, userContext = {}) {
+  return isPlatformAdmin(userContext) || isPlatformReviewer(userContext) || isTenantAdminForRecord(record, userContext);
+}
+
+export function assertCanManageLogistics(record = {}, userContext = {}) {
+  if (!canManageLogistics(record, userContext)) {
+    throw new ForbiddenError('You are not authorized to manage Diaspora shipment logistics');
+  }
 }
 
 export function isTenantAdminForRecord(record = {}, userContext = {}) {

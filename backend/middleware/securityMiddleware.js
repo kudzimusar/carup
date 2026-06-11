@@ -163,13 +163,17 @@ export function csrfMiddleware(req, res, next) {
   const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
   const currentUserId = req.userContext?.id || req.headers['x-user-id'] || 'guest';
 
-  // 1. Both cookie and header must be provided and must be identical
-  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-    return handleCsrfFailure(req, res, 'CSRF tokens missing or mismatched.');
+  // 1. Ensure header token is provided. Cookie is optional for cross-origin setups (browsers block 3rd-party cookies).
+  // If cookie is provided, it must match the header.
+  if (!headerToken) {
+    return handleCsrfFailure(req, res, 'CSRF token missing in headers.');
+  }
+  if (cookieToken && cookieToken !== headerToken) {
+    return handleCsrfFailure(req, res, 'CSRF tokens mismatched.');
   }
 
   // 2. Validate token signature and context binding
-  const isValid = verifyCsrfToken(cookieToken, currentUserId, sessionToken);
+  const isValid = verifyCsrfToken(headerToken, currentUserId, sessionToken);
   if (!isValid) {
     return handleCsrfFailure(req, res, 'CSRF token is invalid, expired, or not bound to session context.');
   }

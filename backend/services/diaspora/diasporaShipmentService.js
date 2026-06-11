@@ -5,6 +5,17 @@ import { validateShipmentPayload } from '../../validators/diaspora/diasporaSchem
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
+import { requireUserContext, assertCanManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin } from './diasporaAuthorization.js';
+
+// Authorize a read against the import order this shipment belongs to (buyer owns it, or reviewer/admin).
+async function assertOrderReadAccess(importOrderId, userContext) {
+  if (!importOrderId) throw new ValidationError('importOrderId is required');
+  const { data: order, error } = await supabase.from('diaspora_import_orders').select('*').eq('id', importOrderId).is('deleted_at', null).single();
+  if (error || !order) throw new NotFoundError('Diaspora import order not found');
+  const { data: participants } = await supabase.from('diaspora_import_order_participants').select('*').eq('import_order_id', importOrderId).is('deleted_at', null);
+  assertCanReadImportOrder(order, participants || [], userContext);
+  return order;
+}
 
 const SHIPMENT_TO_IMPORT_STATUS = Object.freeze({
   LOADING: IMPORT_ORDER_STATUSES.READY_FOR_LOADING,
@@ -16,9 +27,12 @@ const SHIPMENT_TO_IMPORT_STATUS = Object.freeze({
 });
 
 export async function createShipment(payload, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
   validateShipmentPayload(payload);
   const { data: order, error: orderError } = await supabase.from('diaspora_import_orders').select('*').eq('id', payload.import_order_id).single();
   if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
+  // Creating an official shipment is a logistics action (admin/reviewer/tenant-admin of the order).
+  assertCanManageLogistics(order, context);
 
   const { data, error } = await supabase
     .from('diaspora_shipments')
@@ -46,7 +60,14 @@ export async function createShipment(payload, userContext = {}, req = null) {
   return data;
 }
 
-export async function listShipments({ importOrderId, status, limit = 50, offset = 0 }) {
+export async function listShipments({ importOrderId, status, limit = 50, offset = 0 }, userContext = {}) {
+  const context = requireUserContext(userContext);
+  // Buyers may only read shipments for an order they can access, scoped by importOrderId.
+  if (!isPlatformReviewer(context) && !isPlatformAdmin(context)) {
+    if (!importOrderId) throw new ValidationError('importOrderId is required to list shipments');
+    await assertOrderReadAccess(importOrderId, context);
+  }
+
   let query = supabase.from('diaspora_shipments').select('*').is('deleted_at', null).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
   if (importOrderId) query = query.eq('import_order_id', importOrderId);
   if (status) query = query.eq('status', status);
@@ -84,9 +105,12 @@ export async function writeShipmentStageEvent(shipmentId, stage, notes, userCont
 }
 
 export async function updateShipmentStage(id, payload, userContext = {}, req = null) {
+  const context = requireUserContext(userContext);
   const nextStage = payload.stage || payload.status;
   if (!Object.values(SHIPMENT_STATUSES).includes(nextStage)) throw new ValidationError(`Invalid shipment stage: ${nextStage}`);
   const previous = await getShipment(id);
+  // Advancing official shipment stage is a logistics action (admin/reviewer/tenant-admin).
+  assertCanManageLogistics(previous, context);
 
   const { data, error } = await supabase
     .from('diaspora_shipments')

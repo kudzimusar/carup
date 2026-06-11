@@ -42,13 +42,15 @@ import correlationMiddleware from './middleware/correlationMiddleware.js';
 import telemetryMiddleware from './middleware/telemetryMiddleware.js';
 import { metricsHub } from './services/metrics.js';
 import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
-import { 
-  securityHeadersMiddleware, 
-  rateLimiter, 
-  csrfMiddleware, 
+import {
+  securityHeadersMiddleware,
+  rateLimiter,
+  csrfMiddleware,
   generateCsrfToken,
   parseCookies
 } from './middleware/securityMiddleware.js';
+import { corsOptions } from './config/corsOptions.js';
+import { buildSessionRow } from './services/auth/sessionRow.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -66,6 +68,7 @@ import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
+import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 
 dotenv.config();
 
@@ -88,43 +91,6 @@ if (
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-
-const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : [];
-
-const productionOrigins = new Set([
-  'https://carup.vercel.app',
-  'https://carup-backend.vercel.app',
-]);
-
-const carupVercelPreviewPattern = /^https:\/\/carup(?:-git-[a-z0-9-]+)?-[a-z0-9-]+\.vercel\.app$/i;
-
-function isAllowedCorsOrigin(origin) {
-  if (!origin) return true;
-
-  const isLocal = origin.startsWith('http://localhost:') ||
-                  origin.startsWith('http://127.0.0.1:') ||
-                  origin === 'http://localhost' ||
-                  origin === 'http://127.0.0.1';
-
-  return isLocal ||
-    productionOrigins.has(origin) ||
-    allowedOrigins.includes(origin) ||
-    carupVercelPreviewPattern.test(origin);
-}
-
-export const corsOptions = {
-  origin: (origin, callback) => {
-    if (isAllowedCorsOrigin(origin)) {
-      return callback(null, true);
-    }
-
-    console.warn(`[CORS] Rejected origin: ${origin}`);
-    return callback(null, false);
-  },
-  credentials: true
-};
 
 app.options(/.*/, cors(corsOptions), (req, res) => res.sendStatus(204));
 app.use(cors(corsOptions));
@@ -151,7 +117,7 @@ app.get('/api/security/csrf-token', (req, res) => {
   res.cookie('csrf-token', token, {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 3600000 * 2
   });
   res.json({ csrfToken: token });
@@ -313,15 +279,13 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: userId,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: switchSessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId, activeRole: role, token, expiresAt: expiresAt.toISOString(), req, tenantId: verifiedTenantId })
+    );
+    if (switchSessionError) {
+      throw new Error('Could not establish a session for the switched role.');
+    }
+
     await logAuditEvent(supabase, {
       ...auditBase,
       event_type: 'ROLE_SWITCH_GRANTED',
@@ -1149,18 +1113,38 @@ app.post('/api/auth/login', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: user.id,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: sessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId: user.id, activeRole: user.role, token, expiresAt: expiresAt.toISOString(), req })
+    );
+    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
+    if (sessionError) {
+      console.error('Failed to persist user session on login:', sessionError.message);
+      return res.status(500).json({ error: 'Could not establish a session. Please try again.' });
+    }
+
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
-    
+
     res.json({ user, token });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- AUTH: Validate current session ---
+// authorizeRole() (no required roles) validates the x-session-token against user_sessions and
+// returns the authoritative user. The frontend calls this on boot to detect stale/expired tokens;
+// an invalid/expired token yields 401 "Unauthorized. Session is invalid or expired." (unchanged auth).
+app.get('/api/auth/me', authorizeRole(), async (req, res) => {
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, name, email, phone, role')
+      .eq('id', req.userContext.id)
+      .single();
+    if (error || !user) {
+      return res.status(401).json({ error: 'Unauthorized. User record not found.' });
+    }
+    res.json({ user });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1191,15 +1175,15 @@ app.post('/api/auth/register', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: id,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: sessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId: id, activeRole: role || 'owner', token, expiresAt: expiresAt.toISOString(), req })
+    );
+    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
+    if (sessionError) {
+      console.error('Failed to persist user session on register:', sessionError.message);
+      return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
+    }
+
     const newUser = { id, name, email, phone: phone || '', role: role || 'owner' };
     res.json({ user: newUser, token });
   } catch (error) {
@@ -1211,18 +1195,29 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
   const { vin, make, model, year, color, mileage, fuel_type, transmission, condition, category, price, currency, description, location, province, images } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+
+  // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
+  // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
+  const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
+  const eligibility = getListingEligibility(candidate);
+  if (!eligibility.eligible) {
+    return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
+  }
+
   try {
     const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
     if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
-    
-    const tenantId = req.userContext.tenantId;
 
     const { error: insertError } = await supabase.from('vehicles').insert({
-      vin, make, model, generation: '', trim: '', year: year || 2020, color: color || 'White', 
-      mileage: mileage || 0, fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', 
-      transmission: transmission || 'Automatic', import_source: 'Local', duty_paid: false, 
-      police_verified: false, status: normalizeVehicleStatus('Available'), trust_score: 50, price, currency: currency || 'USD',
-      tenant_id: tenantId // Force assignment to the current tenant
+      vin: candidate.vin, make: candidate.make, model: candidate.model, generation: '', trim: '',
+      year: candidate.year, color: color || 'White', mileage: mileage || 0,
+      fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
+      import_source: candidate.import_source, duty_paid: false, police_verified: false,
+      status: normalizeVehicleStatus(candidate.status), trust_score: 50, price: candidate.price, currency: currency || 'USD',
+      owner_id: candidate.owner_id,                       // NEW: set owner for private listings
+      tenant_id: candidate.tenant_id,                     // dealer/admin tenant from context
+      current_seller_type: candidate.current_seller_type, // reflect dealer vs private
+      registration_country: candidate.registration_country
     });
     if (insertError) throw insertError;
     

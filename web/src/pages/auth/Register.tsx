@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -22,9 +23,10 @@ const roles = [
   { value: 'insurance', label: 'Insurance Provider' },
 ]
 
-const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? '/api'
-  : 'https://carup-backend.vercel.app/api';
+const API_BASE = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 export default function Register() {
   const navigate = useNavigate()
@@ -51,9 +53,20 @@ export default function Register() {
 
     setLoading(true)
     try {
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
       const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({
           name: `${form.firstName} ${form.lastName}`,
           email: form.email,

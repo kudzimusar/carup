@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { resolvePostLoginRoute } from '@/lib/returnTo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -7,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Car, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
+import { resolveApiBaseUrl } from '@/lib/apiClient'
 
 const DEMO_USERS = {
   owner: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', role: 'owner' as const },
@@ -14,13 +16,16 @@ const DEMO_USERS = {
   mechanic: { id: 'u2', name: 'Simba Mechanic', email: 'simba@garage.co.zw', phone: '+263 775 200 300', role: 'mechanic' as const },
 }
 
-const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? '/api'
-  : 'https://carup-backend.vercel.app/api';
+const API_BASE = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
   const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({ email: '', password: '' })
   const [loading, setLoading] = useState(false)
@@ -35,22 +40,27 @@ export default function Login() {
     return Object.keys(e).length === 0
   }
 
-  const getDashboardRoute = (role: string) => {
-    if (role === 'dealer') return '/dealer'
-    if (role === 'mechanic') return '/mechanic'
-    if (role === 'admin') return '/admin'
-    return '/dashboard'
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) return
     setLoading(true)
 
     try {
+      // Fetch CSRF token to pass the security middleware
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({ email: form.email, password: form.password }),
       })
 
@@ -61,12 +71,12 @@ export default function Login() {
         
         login(userData, token)
         toast.success(`Welcome back, ${userData.name}!`)
-        navigate(getDashboardRoute(userData.role))
+        navigate(resolvePostLoginRoute(returnTo, userData.role))
       } else {
         const errorData = await res.json()
         toast.error(errorData.error || 'Invalid credentials')
       }
-    } catch (e) {
+    } catch {
       toast.error('Network error. Backend is offline.')
     } finally {
       setLoading(false)
@@ -77,20 +87,31 @@ export default function Login() {
     const demoUser = DEMO_USERS[userKey]
     setLoading(true)
     try {
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({ email: demoUser.email, password: 'password123' }),
       })
       if (res.ok) {
         const data = await res.json()
         login(data.user, data.token)
         toast.success(`Logged in as ${data.user.name}`)
-        navigate(getDashboardRoute(data.user.role))
+        navigate(resolvePostLoginRoute(returnTo, data.user.role))
       } else {
         toast.error('Demo login failed. Make sure DB is seeded.')
       }
-    } catch (e) {
+    } catch {
       toast.error('Network error.')
     } finally {
       setLoading(false)

@@ -1,4 +1,5 @@
 import { isPublicVehicleStatus } from '../../utils/vehicleStatus.js';
+import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 
 export const CONDITION_CATEGORIES = [
   'brand_new',
@@ -268,6 +269,25 @@ async function maybeFetchRows(supabaseClient, table, select, vins, order) {
   }
 }
 
+/**
+ * Read-time fixture visibility control (Navigation Intelligence — Option A).
+ * Production HIDES seed/demo/integration fixtures from the public marketplace by default. Set
+ * MARKETPLACE_SHOW_FIXTURES=true (dev/test/demo only) to include them. Fixture detection reuses the
+ * merged getFixtureExclusion() (synthetic/invalid VINs, seed owner_id, nil/default tenant_id).
+ */
+export function shouldShowFixtures(env = process.env) {
+  const v = String(env?.MARKETPLACE_SHOW_FIXTURES ?? '').trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes' || v === 'on';
+}
+
+/** Keep only public, non-fixture vehicles (fixtures retained only when showFixtures is true). */
+export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
+  const show = showFixtures ?? shouldShowFixtures();
+  return (vehicles || [])
+    .filter(vehicle => isPublicVehicleStatus(vehicle.status))
+    .filter(vehicle => show || getFixtureExclusion(vehicle) === null);
+}
+
 export async function listMarketplaceListings(supabaseClient, params = {}) {
   const limit = safeLimit(params.limit);
   const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
@@ -279,6 +299,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     .from('vehicles')
     .select(`
       vin,
+      owner_id,
+      tenant_id,
       make,
       model,
       year,
@@ -319,7 +341,7 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const { data: vehicles, error } = await query;
   if (error) throw error;
 
-  const publicVehicles = (vehicles || []).filter(vehicle => isPublicVehicleStatus(vehicle.status));
+  const publicVehicles = filterVisibleVehicles(vehicles);
   const vins = publicVehicles.map(vehicle => vehicle.vin).filter(Boolean);
   const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
     maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
