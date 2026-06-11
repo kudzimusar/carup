@@ -9,11 +9,31 @@ import {
   listDiasporaWorkbookImportRows,
   markDiasporaWorkbookImportBatchReady,
 } from '../services/diaspora/diasporaWorkbookReviewService.js';
+import { buildWorkbookImportPlan } from '../services/diaspora/diasporaWorkbookImportPlanningService.js';
 import { exportDiasporaWorkbook, importDiasporaWorkbook, runAndPersistDiasporaWorkbookDryRun, saveDiasporaWorkbookToDrive } from '../services/diaspora/diasporaWorkbookSyncService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const auth = authorizeRole();
+const IMPORT_PLAN_PAGE_SIZE = 500;
+
+async function listAllWorkbookImportRows(batchId, userContext) {
+  const rows = [];
+  let offset = 0;
+
+  while (true) {
+    const result = await listDiasporaWorkbookImportRows(
+      batchId,
+      { limit: IMPORT_PLAN_PAGE_SIZE, offset },
+      userContext,
+    );
+    rows.push(...(result.data || []));
+    if (!result.data || result.data.length < IMPORT_PLAN_PAGE_SIZE) break;
+    offset += IMPORT_PLAN_PAGE_SIZE;
+  }
+
+  return rows;
+}
 
 router.get('/workbook/template-schema', auth, asyncHandler(async (req, res) => {
   res.json({
@@ -47,6 +67,13 @@ router.get('/workbook/import-batches/:id', auth, asyncHandler(async (req, res) =
 
 router.get('/workbook/import-batches/:id/summary', auth, asyncHandler(async (req, res) => {
   const data = await getWorkbookImportBatchSummary(req.params.id, req.userContext);
+  res.json({ data });
+}));
+
+router.get('/workbook/import-batches/:id/import-plan', auth, asyncHandler(async (req, res) => {
+  const batch = await getDiasporaWorkbookImportBatch(req.params.id, req.userContext);
+  const rows = await listAllWorkbookImportRows(req.params.id, req.userContext);
+  const data = buildWorkbookImportPlan(batch, rows, req.userContext);
   res.json({ data });
 }));
 
