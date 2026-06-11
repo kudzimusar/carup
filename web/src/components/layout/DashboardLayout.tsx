@@ -37,6 +37,7 @@ import {
   getDashboardRoute,
   getRoleMetadata,
   getAllRoles,
+  canRoleAccessRoute,
   type LucideIconName,
   type FeatureRegistryItem,
 } from '@/config/featureRegistry'
@@ -65,6 +66,7 @@ const ICON_MAP: Record<LucideIconName, React.ElementType> = {
   UserCog,
   MapPin,
   Building2,
+  Settings,
 }
 
 /** Resolves a FeatureRegistryItem to its icon component */
@@ -92,6 +94,11 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  // Centralized route guard: verify that the user's current role matches the dashboard layout and has access to this route
+  if (user.role !== role || !canRoleAccessRoute(user.role as UserRole, location.pathname)) {
+    return <Navigate to={getDashboardRoute(user.role as UserRole)} replace />
   }
 
   return (

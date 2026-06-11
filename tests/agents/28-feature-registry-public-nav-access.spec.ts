@@ -229,7 +229,7 @@ test.describe('Feature Registry Phase 2 — Public Navigation & Access Guard', (
     // Compare with registry routes
     const result = await page.evaluate(async (appRoutes) => {
       const mod = await import('/src/config/featureRegistry.ts');
-      const registryRoutes = mod.FEATURE_REGISTRY.map((f: any) => f.route);
+      const registryRoutes = mod.FEATURE_REGISTRY.filter((f: any) => !f.isPlanned && !f.isHidden).map((f: any) => f.route);
       const missingRoutes = registryRoutes.filter((r: string) => !appRoutes.includes(r));
       return { registryRoutes, missingRoutes };
     }, declaredRoutes);
