@@ -31,7 +31,9 @@ import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { resolveCoverageNavHref } from '@/lib/marketplaceParams'
+import { getDashboardRoute, getRoleMetadata, getAllRoles } from '@/config/featureRegistry'
 import type { NavCoverageResponse } from '@/types'
+import type { UserRole } from '@shared/types'
 
 interface MenuItem {
   label: string
@@ -218,15 +220,7 @@ export default function Navbar() {
   }))
   const unreadCount = notifications.filter(n => !n.read).length
 
-  const dashboardRoutes: Record<string, string> = {
-    owner: '/dashboard',
-    dealer: '/dealer',
-    mechanic: '/mechanic',
-    insurance: '/insurance-dash',
-    government: '/government',
-    admin: '/admin'
-  }
-  const activeDashboardPath = dashboardRoutes[user?.role || 'owner'] || '/dashboard'
+  const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
   const evidencePath = user ? '/dashboard/garage' : '/register'
 
@@ -300,7 +294,7 @@ export default function Navbar() {
   const handleRoleChange = async (newRole: string) => {
     try {
       await switchRole(newRole as any)
-      navigate(dashboardRoutes[newRole] || '/dashboard')
+      navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
     }
@@ -433,19 +427,11 @@ export default function Navbar() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
-                  {['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin'].map((r) => {
+                  {getAllRoles().map((r) => {
                     if (r === user.role) return null;
-                    const labels: Record<string, string> = {
-                      owner: 'Car Owner',
-                      dealer: 'Dealer',
-                      mechanic: 'Mechanic',
-                      insurance: 'Insurance',
-                      government: 'Government',
-                      admin: 'Admin'
-                    }
                     return (
                       <DropdownMenuItem key={r} onClick={() => handleRoleChange(r)} className="cursor-pointer text-xs">
-                        Change to {labels[r]}
+                        Change to {getRoleMetadata(r).title}
                       </DropdownMenuItem>
                     );
                   })}
