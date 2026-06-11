@@ -428,6 +428,13 @@ export function buildDraftPayloadForAction(action, batch, userContext, options =
 export function assertWorkbookBatchExecutable(batch = {}, plan = {}, userContext = {}) {
   assertAuthenticated(userContext);
   const status = normalizeUpper(batch.import_status || batch.importStatus);
+  if (batch.metadata?.operatorHold?.active === true) {
+    throw new ValidationError('WORKBOOK_BATCH_ON_OPERATOR_HOLD', {
+      batchId: batch.id,
+      importStatus: status,
+      errorCode: 'WORKBOOK_BATCH_ON_OPERATOR_HOLD',
+    });
+  }
   if (WORKBOOK_IMPORT_IN_PROGRESS_STATUSES.has(status)) {
     throw new ValidationError('Workbook draft import execution is already in progress.', { batchId: batch.id, importStatus: status });
   }

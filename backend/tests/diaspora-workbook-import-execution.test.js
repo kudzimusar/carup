@@ -223,6 +223,21 @@ test('Phase 1F execution service refuses CANCELLED batch', () => {
   assert.throws(() => assertWorkbookBatchExecutable(cancelled, { actions: [] }, reviewerContext), ValidationError);
 });
 
+test('Phase 1H execution service refuses batch on operator hold', () => {
+  const held = batch({
+    import_status: WORKBOOK_IMPORT_STATUSES.READY_FOR_REVIEW,
+    metadata: { operatorHold: { active: true, reason: 'operator hold' } }
+  });
+  assert.throws(
+    () => assertWorkbookBatchExecutable(held, { actions: [] }, reviewerContext),
+    (err) => {
+      assert.ok(err instanceof ValidationError);
+      assert.equal(err.details?.errorCode, 'WORKBOOK_BATCH_ON_OPERATOR_HOLD');
+      return true;
+    }
+  );
+});
+
 test('Phase 1F execution service refuses VALIDATED batch that is not READY_FOR_REVIEW', () => {
   const validated = batch({ import_status: WORKBOOK_IMPORT_STATUSES.VALIDATED });
   assert.throws(() => assertWorkbookBatchExecutable(validated, { actions: [] }, reviewerContext), /READY_FOR_REVIEW/);
