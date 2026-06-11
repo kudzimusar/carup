@@ -412,7 +412,7 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
     await sellDropdown.hover();
     await sellDropdown.click();
 
-    const safePayLink = page.getByRole('link', { name: 'SafePay / Reservation Ready' });
+    const safePayLink = page.getByRole('menuitem', { name: 'SafePay / Reservation Ready' });
     await expect(safePayLink).toBeVisible();
     await expect(safePayLink).toHaveAttribute('href', '/dashboard/listings');
   });
