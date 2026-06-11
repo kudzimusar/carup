@@ -75,6 +75,17 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
         return;
       }
 
+      if (url.includes('/api/security/csrf-token')) {
+        console.log(`[Mock Router Fulfill] CSRF Token: ${url}`);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          headers: corsHeaders,
+          body: JSON.stringify({ csrfToken: 'mock-csrf-token-123' })
+        });
+        return;
+      }
+
       // Check request URL
       if (url.includes('/api/auth/login')) {
         console.log(`[Mock Router Fulfill] Login: ${url}`);
@@ -125,7 +136,7 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
           headers: corsHeaders,
           body: JSON.stringify(initialPassport)
         });
-      } else if (url.includes('/api/vehicles/MOCKVIN12345/evidence') && method === 'POST') {
+      } else if (url.includes('/api/vehicles/MOCKVIN12345/evidence/upload') && method === 'POST') {
         console.log(`[Mock Router Fulfill] Upload evidence: ${url}`);
         const uploadedItem = {
           id: mockEvidenceId,
