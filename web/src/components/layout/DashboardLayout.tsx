@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Car,
   LayoutDashboard,
@@ -136,6 +136,10 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   const navItems = roleNavItems[role] || []
   const roleInfo = roleLabels[role] || { title: 'Dashboard', color: 'bg-gray-500' }
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
