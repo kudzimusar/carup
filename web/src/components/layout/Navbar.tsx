@@ -266,9 +266,9 @@ export default function Navbar() {
       title: 'Sell Vehicles',
       items: [
         { label: 'Sell Your Car', href: sellerPath },
-        { label: 'Create Vehicle Passport', href: '/register' },
-        { label: 'Dealer Listing', href: '/register' },
-        { label: 'Sell as Private Owner', href: '/register' },
+        { label: 'Create Vehicle Passport', href: user ? '/dashboard/garage' : '/register' },
+        { label: 'Dealer Listing', href: user ? '/dealer/inventory' : '/register' },
+        { label: 'Sell as Private Owner', href: sellerPath },
       ],
     },
     {
@@ -276,8 +276,8 @@ export default function Navbar() {
       items: [
         { label: 'Start with Plate / VIN', href: sellerPath },
         { label: 'Upload Vehicle Evidence', href: evidencePath },
-        { label: 'Add Service History', href: '/register' },
-        { label: 'SafePay / Reservation Ready', href: '/register' },
+        { label: 'Add Service History', href: user ? '/dashboard/service-history' : '/register' },
+        { label: 'SafePay / Reservation Ready', href: user ? '/dashboard/listings' : '/register' },
       ],
     },
     {
@@ -524,7 +524,7 @@ export default function Navbar() {
             <div className="pt-2 border-t mt-2">
               {user ? (
                 <>
-                  <Link to="/dashboard" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600">
+                  <Link to={activeDashboardPath} onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600">
                     <LayoutDashboard className="w-4 h-4" /> Dashboard
                   </Link>
                   <button onClick={() => {

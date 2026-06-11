@@ -43,6 +43,7 @@ const roleNavItems: Record<string, NavItem[]> = {
   owner: [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
     { label: 'My Garage', href: '/dashboard/garage', icon: Car },
+    { label: 'Evidence Vault', href: '/dashboard/garage', icon: FileText, badge: 'Upload' },
     { label: 'Service History', href: '/dashboard/service-history', icon: Wrench },
     { label: 'Insurance', href: '/dashboard/insurance', icon: Shield },
     { label: 'PartSentry', href: '/dashboard/partsentry', icon: Gauge },
