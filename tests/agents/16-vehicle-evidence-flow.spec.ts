@@ -378,4 +378,55 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
     await expect(page.getByTestId('evidence-empty-state')).toBeVisible();
     await expect(page.getByText('No verified evidence published yet')).toBeVisible();
   });
+
+  // Phase 3: Navigation Intelligence / Product UX Cleanup
+  test('public user cannot access private dashboard routes and gets redirected', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL(/.*login/);
+  });
+
+  test('mobile navigation opens and routes correctly', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/');
+
+    const buyMobileLink = page.getByRole('link', { name: 'Buy', exact: true });
+    await expect(buyMobileLink).not.toBeVisible();
+
+    await page.getByRole('button').filter({ has: page.locator('svg.lucide-menu') }).click();
+    await expect(buyMobileLink).toBeVisible();
+
+    await buyMobileLink.click();
+    await expect(page).toHaveURL(/.*marketplace/);
+    await expect(buyMobileLink).not.toBeVisible();
+  });
+
+  test('SafePay links route to listings for logged in user', async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(() => {
+      window.localStorage.setItem('carup_user', JSON.stringify({ id: 'u1', name: 'Test Owner', role: 'owner' }));
+      window.localStorage.setItem('carup_token', 'mock-token');
+    });
+    await page.reload();
+
+    const sellDropdown = page.getByTestId('nav-sell');
+    await sellDropdown.hover();
+    await sellDropdown.click();
+
+    const safePayLink = page.getByRole('link', { name: 'SafePay / Reservation Ready' });
+    await expect(safePayLink).toBeVisible();
+    await expect(safePayLink).toHaveAttribute('href', '/dashboard/listings');
+  });
+
+  test('Upload Evidence direct link visible in Owner Dashboard', async ({ page }) => {
+    await page.goto('/login'); // Setup origin
+    await page.evaluate(() => {
+      window.localStorage.setItem('carup_user', JSON.stringify({ id: 'u1', name: 'Test Owner', role: 'owner' }));
+      window.localStorage.setItem('carup_token', 'mock-token');
+    });
+
+    await page.goto('/dashboard');
+    const evidenceNav = page.getByRole('link', { name: /Evidence Vault/i });
+    await expect(evidenceNav).toBeVisible();
+    await expect(evidenceNav).toHaveAttribute('href', '/dashboard/garage');
+  });
 });
