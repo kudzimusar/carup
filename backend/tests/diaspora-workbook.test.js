@@ -4,8 +4,16 @@ import { readFileSync } from 'node:fs';
 import { getDiasporaWorkbookTemplateSchema } from '../services/diaspora/diasporaWorkbookTemplateService.js';
 import { runDiasporaWorkbookDryRun, runAndPersistDiasporaWorkbookDryRun } from '../services/diaspora/diasporaWorkbookSyncService.js';
 import { buildWorkbookRowDiagnostics } from '../services/diaspora/diasporaWorkbookPersistenceService.js';
+import {
+  cancelDiasporaWorkbookImportBatch,
+  getDiasporaWorkbookImportBatch,
+  getWorkbookImportBatchSummary,
+  listDiasporaWorkbookImportBatches,
+  listDiasporaWorkbookImportRows,
+  markDiasporaWorkbookImportBatchReady,
+} from '../services/diaspora/diasporaWorkbookReviewService.js';
 import { validateDiasporaWorkbookDryRun } from '../services/diaspora/diasporaWorkbookValidationService.js';
-import { ValidationError } from '../utils/errors.js';
+import { NotFoundError, ValidationError } from '../utils/errors.js';
 
 const routeFile = readFileSync(new URL('../routes/diasporaRoutes.js', import.meta.url), 'utf8');
 const workbookRouteFile = readFileSync(new URL('../routes/diasporaWorkbookRoutes.js', import.meta.url), 'utf8');
@@ -65,11 +73,187 @@ function createMockSupabaseClient() {
   };
 }
 
+function createWorkbookReviewMockSupabaseClient(overrides = {}) {
+  const calls = [];
+  const db = {
+    batches: overrides.batches || [
+      {
+        id: 'batch-ready-1',
+        tenant_id: 'tenant-1',
+        uploaded_by: 'user-1',
+        template_type: 'enterprise',
+        source_filename: 'diaspora.xlsx',
+        dry_run_result: { dryRunOnly: true },
+        total_rows: 2,
+        accepted_rows: 2,
+        rejected_rows: 0,
+        warning_count: 0,
+        error_count: 0,
+        import_status: 'VALIDATED',
+        rollback_status: 'NOT_REQUIRED',
+        metadata: { phase: '1C' },
+        created_by: 'user-1',
+        updated_by: 'user-1',
+        created_at: '2026-06-10T00:00:00.000Z',
+        updated_at: '2026-06-10T00:00:00.000Z',
+        deleted_at: null,
+      },
+      {
+        id: 'batch-blocked-1',
+        tenant_id: 'tenant-1',
+        uploaded_by: 'user-1',
+        template_type: 'enterprise',
+        dry_run_result: { dryRunOnly: true },
+        total_rows: 2,
+        accepted_rows: 1,
+        rejected_rows: 1,
+        warning_count: 0,
+        error_count: 1,
+        import_status: 'BLOCKED',
+        rollback_status: 'NOT_REQUIRED',
+        metadata: { phase: '1C' },
+        created_by: 'user-1',
+        updated_by: 'user-1',
+        created_at: '2026-06-09T00:00:00.000Z',
+        updated_at: '2026-06-09T00:00:00.000Z',
+        deleted_at: null,
+      },
+      {
+        id: 'batch-other-user',
+        tenant_id: 'tenant-2',
+        uploaded_by: 'other-user',
+        template_type: 'enterprise',
+        dry_run_result: { dryRunOnly: true },
+        total_rows: 1,
+        accepted_rows: 1,
+        rejected_rows: 0,
+        warning_count: 0,
+        error_count: 0,
+        import_status: 'VALIDATED',
+        rollback_status: 'NOT_REQUIRED',
+        metadata: { phase: '1C' },
+        created_by: 'other-user',
+        updated_by: 'other-user',
+        created_at: '2026-06-08T00:00:00.000Z',
+        updated_at: '2026-06-08T00:00:00.000Z',
+        deleted_at: null,
+      },
+    ],
+    rows: overrides.rows || [
+      {
+        id: 'row-1',
+        tenant_id: 'tenant-1',
+        batch_id: 'batch-ready-1',
+        sheet_name: 'DIASPORA_IMPORT_ORDERS',
+        workbook_row_number: 2,
+        validation_status: 'ACCEPTED',
+        action_type: 'UPSERT_DRAFT',
+        target_table: 'diaspora_import_orders',
+        row_payload: { IMPORT_ORDER_ID: 'DIO-1' },
+        normalized_payload: { IMPORT_ORDER_ID: 'DIO-1' },
+        validation_errors: [],
+        validation_warnings: [],
+        deleted_at: null,
+      },
+      {
+        id: 'row-2',
+        tenant_id: 'tenant-1',
+        batch_id: 'batch-ready-1',
+        sheet_name: 'IMPORT_QUOTES',
+        workbook_row_number: 2,
+        validation_status: 'WARNING',
+        action_type: 'UPSERT_DRAFT',
+        target_table: 'diaspora_import_quotes',
+        row_payload: { QUOTE_ID: 'Q-1' },
+        normalized_payload: { QUOTE_ID: 'Q-1' },
+        validation_errors: [],
+        validation_warnings: [{ code: 'REVIEW_RECOMMENDED' }],
+        deleted_at: null,
+      },
+    ],
+  };
+
+  function tableRows(table) {
+    if (table === 'diaspora_workbook_import_batches') return db.batches;
+    if (table === 'diaspora_workbook_import_rows') return db.rows;
+    return [];
+  }
+
+  function makeBuilder(table) {
+    const state = { table, filters: [], nullFilters: [], orFilters: [], payload: null, op: 'select', single: false, range: null };
+    const chain = {
+      select() { return chain; },
+      eq(column, value) { state.filters.push({ column, value }); return chain; },
+      is(column, value) { state.nullFilters.push({ column, value }); return chain; },
+      or(expression) {
+        state.orFilters = String(expression || '').split(',').map((part) => {
+          const [column, operator, ...rest] = part.split('.');
+          return { column, operator, value: rest.join('.') };
+        });
+        return chain;
+      },
+      order() { return chain; },
+      range(from, to) { state.range = { from, to }; return chain; },
+      update(payload) { state.op = 'update'; state.payload = payload; return chain; },
+      single() { state.single = true; return chain; },
+      then(resolve, reject) {
+        try {
+          const result = resolveReviewQuery(state);
+          return Promise.resolve(result).then(resolve, reject);
+        } catch (error) {
+          return reject ? reject(error) : Promise.reject(error);
+        }
+      },
+    };
+    return chain;
+  }
+
+  function matches(row, state) {
+    const eqMatch = state.filters.every(({ column, value }) => row[column] === value);
+    const nullMatch = state.nullFilters.every(({ column, value }) => value === null ? row[column] === null || row[column] === undefined : row[column] === value);
+    const orMatch = state.orFilters.length === 0 || state.orFilters.some(({ column, operator, value }) => operator === 'eq' && row[column] === value);
+    return eqMatch && nullMatch && orMatch;
+  }
+
+  function resolveReviewQuery(state) {
+    calls.push({ table: state.table, op: state.op, filters: state.filters, payload: state.payload });
+    let rows = tableRows(state.table).filter((row) => matches(row, state));
+
+    if (state.op === 'update') {
+      rows = rows.map((row) => {
+        Object.assign(row, state.payload);
+        return row;
+      });
+    }
+
+    if (state.range) rows = rows.slice(state.range.from, state.range.to + 1);
+    if (state.single) {
+      const row = rows[0] || null;
+      return row ? { data: row, error: null } : { data: null, error: { message: 'not found' } };
+    }
+    return { data: rows, error: null };
+  }
+
+  return {
+    calls,
+    db,
+    from(table) {
+      return makeBuilder(table);
+    },
+  };
+}
+
 test('Diaspora workbook routes are mounted inside the existing bounded context', () => {
   assert.equal(routeFile.includes("import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js'"), true);
   assert.equal(routeFile.includes('router.use(diasporaWorkbookRouter)'), true);
   assert.equal(workbookRouteFile.includes("router.get('/workbook/template-schema'"), true);
   assert.equal(workbookRouteFile.includes("router.post('/workbook/dry-run'"), true);
+  assert.equal(workbookRouteFile.includes("router.get('/workbook/import-batches'"), true);
+  assert.equal(workbookRouteFile.includes("router.get('/workbook/import-batches/:id'"), true);
+  assert.equal(workbookRouteFile.includes("router.get('/workbook/import-batches/:id/summary'"), true);
+  assert.equal(workbookRouteFile.includes("router.get('/workbook/import-batches/:id/rows'"), true);
+  assert.equal(workbookRouteFile.includes("router.post('/workbook/import-batches/:id/cancel'"), true);
+  assert.equal(workbookRouteFile.includes("router.post('/workbook/import-batches/:id/mark-ready'"), true);
   assert.equal(workbookRouteFile.includes('runAndPersistDiasporaWorkbookDryRun'), true);
 });
 
@@ -139,6 +323,227 @@ test('Workbook row diagnostics mark row-level validation status', () => {
   assert.equal(rejectedOrder.validationStatus, 'REJECTED');
   assert.equal(rejectedOrder.actionType, 'ERROR');
   assert.equal(rejectedOrder.validationErrors.some((error) => error.code === 'UNKNOWN_REFERENCE'), true);
+});
+
+test('Phase 1D lists only accessible persisted workbook import batches', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  const result = await listDiasporaWorkbookImportBatches(
+    {},
+    { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+    { supabaseClient: mockSupabaseClient },
+  );
+
+  assert.equal(result.data.length, 2);
+  assert.equal(result.data.some((batch) => batch.id === 'batch-other-user'), false);
+  assert.equal(result.pagination.count, 2);
+  assert.equal(mockSupabaseClient.calls.every((call) => call.table === 'diaspora_workbook_import_batches'), true);
+});
+
+test('Phase 1D returns batch detail and row diagnostics without live trade-table writes', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  const batch = await getDiasporaWorkbookImportBatch(
+    'batch-ready-1',
+    { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+    { supabaseClient: mockSupabaseClient },
+  );
+  const rows = await listDiasporaWorkbookImportRows(
+    'batch-ready-1',
+    { validationStatus: 'WARNING' },
+    { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+    { supabaseClient: mockSupabaseClient },
+  );
+
+  assert.equal(batch.id, 'batch-ready-1');
+  assert.equal(rows.data.length, 1);
+  assert.equal(rows.data[0].validation_status, 'WARNING');
+  assert.deepEqual(
+    [...new Set(mockSupabaseClient.calls.map((call) => call.table))].sort(),
+    ['diaspora_workbook_import_batches', 'diaspora_workbook_import_rows'],
+  );
+});
+
+test('Phase 1D blocks unrelated users from persisted workbook batch detail', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  await assert.rejects(
+    () => getDiasporaWorkbookImportBatch(
+      'batch-other-user',
+      { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+      { supabaseClient: mockSupabaseClient },
+    ),
+    NotFoundError,
+  );
+});
+
+test('Phase 1D summarizes workbook import batches from accessible batch rows only', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient({
+    batches: [
+      {
+        id: 'batch-summary-1',
+        tenant_id: 'tenant-1',
+        uploaded_by: 'user-1',
+        template_type: 'enterprise',
+        dry_run_result: { dryRunOnly: true },
+        total_rows: 4,
+        accepted_rows: 2,
+        rejected_rows: 1,
+        warning_count: 1,
+        error_count: 1,
+        import_status: 'VALIDATED',
+        rollback_status: 'NOT_REQUIRED',
+        metadata: { phase: '1C' },
+        created_by: 'user-1',
+        updated_by: 'user-1',
+        created_at: '2026-06-10T00:00:00.000Z',
+        updated_at: '2026-06-10T00:00:00.000Z',
+        deleted_at: null,
+      },
+    ],
+    rows: [
+      {
+        id: 'summary-row-1',
+        tenant_id: 'tenant-1',
+        batch_id: 'batch-summary-1',
+        sheet_name: 'DIASPORA_IMPORT_ORDERS',
+        workbook_row_number: 2,
+        validation_status: 'ACCEPTED',
+        action_type: 'UPSERT_DRAFT',
+        target_table: 'diaspora_import_orders',
+        deleted_at: null,
+      },
+      {
+        id: 'summary-row-2',
+        tenant_id: 'tenant-1',
+        batch_id: 'batch-summary-1',
+        sheet_name: 'DIASPORA_IMPORT_ORDERS',
+        workbook_row_number: 3,
+        validation_status: 'WARNING',
+        action_type: 'UPSERT_DRAFT',
+        target_table: 'diaspora_import_orders',
+        deleted_at: null,
+      },
+      {
+        id: 'summary-row-3',
+        tenant_id: 'tenant-1',
+        batch_id: 'batch-summary-1',
+        sheet_name: 'IMPORT_QUOTES',
+        workbook_row_number: 2,
+        validation_status: 'ACCEPTED',
+        action_type: 'UPSERT_DRAFT',
+        target_table: 'diaspora_import_quotes',
+        deleted_at: null,
+      },
+      {
+        id: 'summary-row-4',
+        tenant_id: 'tenant-1',
+        batch_id: 'batch-summary-1',
+        sheet_name: 'AI_COMMAND_CENTER',
+        workbook_row_number: 2,
+        validation_status: 'REJECTED',
+        action_type: 'ERROR',
+        target_table: 'diaspora_ai_commands',
+        deleted_at: null,
+      },
+    ],
+  });
+
+  const summary = await getWorkbookImportBatchSummary(
+    'batch-summary-1',
+    { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+    { supabaseClient: mockSupabaseClient },
+  );
+
+  assert.equal(summary.batchId, 'batch-summary-1');
+  assert.equal(summary.importStatus, 'VALIDATED');
+  assert.equal(summary.templateType, 'enterprise');
+  assert.equal(summary.totalRows, 4);
+  assert.equal(summary.acceptedRows, 2);
+  assert.equal(summary.warningRows, 1);
+  assert.equal(summary.rejectedRows, 1);
+  assert.equal(summary.errorCount, 1);
+  assert.equal(summary.warningCount, 1);
+  assert.deepEqual(summary.rowsBySheet, {
+    DIASPORA_IMPORT_ORDERS: 2,
+    IMPORT_QUOTES: 1,
+    AI_COMMAND_CENTER: 1,
+  });
+  assert.deepEqual(summary.rowsByValidationStatus, {
+    ACCEPTED: 2,
+    WARNING: 1,
+    REJECTED: 1,
+  });
+  assert.deepEqual(summary.rowsByTargetTable, {
+    diaspora_import_orders: 2,
+    diaspora_import_quotes: 1,
+    diaspora_ai_commands: 1,
+  });
+  assert.deepEqual(summary.rowsByActionType, {
+    UPSERT_DRAFT: 3,
+    ERROR: 1,
+  });
+  assert.deepEqual(
+    [...new Set(mockSupabaseClient.calls.map((call) => call.table))].sort(),
+    ['diaspora_workbook_import_batches', 'diaspora_workbook_import_rows'],
+  );
+  assert.equal(mockSupabaseClient.calls.some((call) => call.op === 'update'), false);
+});
+
+test('Phase 1D summary verifies parent batch access before reading rows', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  await assert.rejects(
+    () => getWorkbookImportBatchSummary(
+      'batch-other-user',
+      { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+      { supabaseClient: mockSupabaseClient },
+    ),
+    NotFoundError,
+  );
+  assert.deepEqual(
+    [...new Set(mockSupabaseClient.calls.map((call) => call.table))],
+    ['diaspora_workbook_import_batches'],
+  );
+});
+
+test('Phase 1D can mark validated workbook dry-run batches ready for review without import execution', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  const result = await markDiasporaWorkbookImportBatchReady(
+    'batch-ready-1',
+    { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+    { supabaseClient: mockSupabaseClient },
+  );
+
+  assert.equal(result.data.import_status, 'READY_FOR_REVIEW');
+  assert.equal(result.liveImportExecuted, false);
+  assert.equal(result.data.metadata.liveImportExecuted, false);
+  assert.equal(mockSupabaseClient.calls.some((call) => call.op === 'update' && call.table === 'diaspora_workbook_import_batches'), true);
+  assert.equal(mockSupabaseClient.calls.some((call) => call.op === 'update' && call.table !== 'diaspora_workbook_import_batches'), false);
+});
+
+test('Phase 1D refuses to mark rejected workbook dry-run batches ready for review', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  await assert.rejects(
+    () => markDiasporaWorkbookImportBatchReady(
+      'batch-blocked-1',
+      { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+      { supabaseClient: mockSupabaseClient },
+    ),
+    ValidationError,
+  );
+  assert.equal(mockSupabaseClient.db.batches.find((batch) => batch.id === 'batch-blocked-1').import_status, 'BLOCKED');
+});
+
+test('Phase 1D can cancel a persisted workbook review batch without import execution', async () => {
+  const mockSupabaseClient = createWorkbookReviewMockSupabaseClient();
+  const result = await cancelDiasporaWorkbookImportBatch(
+    'batch-ready-1',
+    { id: 'user-1', tenantId: 'tenant-1', role: 'owner' },
+    { supabaseClient: mockSupabaseClient },
+  );
+
+  assert.equal(result.data.import_status, 'CANCELLED');
+  assert.equal(result.liveImportExecuted, false);
+  assert.equal(result.data.metadata.reviewAction, 'cancelled');
+  assert.equal(mockSupabaseClient.calls.some((call) => call.table === 'diaspora_import_orders'), false);
+  assert.equal(mockSupabaseClient.calls.some((call) => call.table === 'diaspora_import_quotes'), false);
 });
 
 test('Dry-run rejects missing required sheets', () => {
