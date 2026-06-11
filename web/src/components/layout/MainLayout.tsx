@@ -1,10 +1,12 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import Navbar from './Navbar'
 import Footer from './Footer'
+import { getFeatureByRoute } from '@/config/featureRegistry'
 
 export default function MainLayout({ hideNav = false }: { hideNav?: boolean }) {
   const location = useLocation()
-  const isAuthPage = ['/login', '/register', '/verify-otp', '/kyc'].includes(location.pathname)
+  const feature = getFeatureByRoute(location.pathname)
+  const isAuthPage = feature?.id.startsWith('auth.') ?? false
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
