@@ -60,6 +60,7 @@ export type LucideIconName =
   | 'Brain'
   | 'UserCog'
   | 'MapPin'
+  | 'Building2'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -556,6 +557,296 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'BarChart3',
   },
+
+  // ─── Public Main Pages (Dealers, Garages are direct Header links) ─────
+  {
+    id: 'public.home',
+    label: 'Home',
+    route: '/',
+    domain: 'commerce',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'LayoutDashboard',
+  },
+  {
+    id: 'product.marketplace',
+    label: 'Buy Cars',
+    route: '/marketplace',
+    domain: 'commerce',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'Car',
+  },
+  {
+    id: 'product.verify',
+    label: 'Verify Vehicle',
+    route: '/search',
+    domain: 'trust',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'Shield',
+  },
+  {
+    id: 'product.dealers',
+    label: 'Dealers',
+    route: '/dealers',
+    domain: 'commerce',
+    roles: [],
+    placements: ['header', 'footer'],
+    requiresAuth: false,
+    icon: 'Building2',
+  },
+  {
+    id: 'product.garages',
+    label: 'Garages',
+    route: '/garages',
+    domain: 'commerce',
+    roles: [],
+    placements: ['header', 'footer'],
+    requiresAuth: false,
+    icon: 'Wrench',
+  },
+  {
+    id: 'product.insurance',
+    label: 'Insurance',
+    route: '/insurance',
+    domain: 'insurance',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'Shield',
+  },
+  {
+    id: 'product.pricing',
+    label: 'Pricing',
+    route: '/pricing',
+    domain: 'commerce',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'Tag',
+  },
+  {
+    id: 'product.diaspora',
+    label: 'Diaspora Trade',
+    route: '/diaspora',
+    domain: 'diaspora',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'FileText',
+  },
+
+  // ─── Company Pages (Footer) ──────────────────────────────────────────
+  {
+    id: 'company.about',
+    label: 'About CarUp',
+    route: '/about',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'FileText',
+  },
+  {
+    id: 'company.contact',
+    label: 'Contact Us',
+    route: '/contact',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'MessageSquare',
+  },
+  {
+    id: 'company.careers',
+    label: 'Careers',
+    route: '/careers',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'Users',
+  },
+  {
+    id: 'company.press',
+    label: 'Press Kit',
+    route: '/press',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'FileText',
+  },
+  {
+    id: 'company.blog',
+    label: 'Blog',
+    route: '/blog',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'BookOpen',
+  },
+
+  // ─── Resources Pages (Footer) ────────────────────────────────────────
+  {
+    id: 'resources.help',
+    label: 'Help Center',
+    route: '/help',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'MessageSquare',
+  },
+  {
+    id: 'resources.trust',
+    label: 'Trust & Safety',
+    route: '/trust',
+    domain: 'trust',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'Shield',
+  },
+  {
+    id: 'resources.privacy',
+    label: 'Privacy Policy',
+    route: '/privacy',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'FileText',
+  },
+  {
+    id: 'resources.terms',
+    label: 'Terms of Service',
+    route: '/terms',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'FileText',
+  },
+  {
+    id: 'resources.api-docs',
+    label: 'API Documentation',
+    route: '/api-docs',
+    domain: 'info',
+    roles: [],
+    placements: ['footer'],
+    requiresAuth: false,
+    icon: 'BookOpen',
+  },
+
+  // ─── Auth / Registration Flow Routes ─────────────────────────────────
+  {
+    id: 'auth.login',
+    label: 'Sign In',
+    route: '/login',
+    domain: 'admin',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'Users',
+  },
+  {
+    id: 'auth.register',
+    label: 'Register',
+    route: '/register',
+    domain: 'admin',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'Users',
+  },
+  {
+    id: 'auth.verify-otp',
+    label: 'OTP Verification',
+    route: '/verify-otp',
+    domain: 'admin',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'Users',
+  },
+  {
+    id: 'auth.kyc',
+    label: 'KYC Verification',
+    route: '/kyc',
+    domain: 'admin',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'Users',
+  },
+
+  // ─── Sub-pages / Detail Routes (not directly in sidebars/navs) ───────
+  {
+    id: 'public.vehicle-detail',
+    label: 'Vehicle Detail',
+    route: '/marketplace/:id',
+    domain: 'commerce',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'Car',
+  },
+  {
+    id: 'owner.garage-detail',
+    label: 'Vehicle Profile',
+    route: '/dashboard/garage/:id',
+    domain: 'commerce',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Car',
+  },
+  {
+    id: 'owner.sell-vehicle',
+    label: 'Sell Your Car',
+    route: '/dashboard/sell-vehicle',
+    domain: 'commerce',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Car',
+  },
+  {
+    id: 'owner.import-detail',
+    label: 'Import Order Detail',
+    route: '/diaspora/imports/:id',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
+  {
+    id: 'owner.import-documents',
+    label: 'Import Documents',
+    route: '/diaspora/imports/:id/documents',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
+  {
+    id: 'owner.import-shipment',
+    label: 'Import Shipment',
+    route: '/diaspora/imports/:id/shipment',
+    domain: 'diaspora',
+    roles: ['owner'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'FileText',
+  },
 ]
 
 // ── Selector helpers ───────────────────────────────────────────────────────
@@ -601,4 +892,82 @@ export function getRoleMetadata(role: UserRole): RoleMetadata {
 /** Get all registered roles */
 export function getAllRoles(): UserRole[] {
   return Object.keys(ROLE_METADATA) as UserRole[]
+}
+
+// ── Phase 2: Public Navigation & Access Guard Selector Helpers ──────────────
+
+/** Get public primary header navigation items */
+export function getPublicNavigationItems(): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('header') && !f.requiresAuth
+  )
+}
+
+/** Get public footer items classified by category section prefix */
+export function getPublicFooterItems(section: 'Product' | 'Company' | 'Resources'): FeatureRegistryItem[] {
+  const prefix = section.toLowerCase() + '.'
+  return FEATURE_REGISTRY.filter(
+    f => f.placements.includes('footer') && f.id.startsWith(prefix)
+  )
+}
+
+/** Helper to match a path against a registered route pattern, handling parameterized paths (e.g. :id) */
+export function matchRoutePattern(pattern: string, path: string): boolean {
+  const patternSegments = pattern.split('?')[0].split('/').filter(Boolean)
+  const pathSegments = path.split('?')[0].split('/').filter(Boolean)
+
+  if (patternSegments.length !== pathSegments.length) return false
+
+  return patternSegments.every((segment, i) => {
+    return segment.startsWith(':') || segment === pathSegments[i]
+  })
+}
+
+/** Find a registered feature by its exact or parameterized route path */
+export function getFeatureByRoute(route: string): FeatureRegistryItem | undefined {
+  return FEATURE_REGISTRY.find(f => matchRoutePattern(f.route, route))
+}
+
+/** Check if a route path is classified as public (requires no login) */
+export function isPublicRoute(route: string): boolean {
+  const feature = getFeatureByRoute(route)
+  if (feature) return !feature.requiresAuth
+
+  // Safe fallback for unregistered/transient paths (public by default unless dashboard-prefixed)
+  const protectedPrefixes = [
+    '/dashboard',
+    '/dealer',
+    '/mechanic',
+    '/insurance-dash',
+    '/government',
+    '/bank',
+    '/admin',
+  ]
+  return !protectedPrefixes.some(prefix => route.startsWith(prefix))
+}
+
+/** Check if a route path is classified as protected (requires login) */
+export function isProtectedRoute(route: string): boolean {
+  return !isPublicRoute(route)
+}
+
+/** Get all allowed roles that have access to a given route */
+export function getAllowedRolesForRoute(route: string): UserRole[] {
+  const feature = getFeatureByRoute(route)
+  if (!feature) {
+    return isPublicRoute(route) ? getAllRoles() : []
+  }
+  return feature.requiresAuth ? feature.roles : getAllRoles()
+}
+
+/** Check if a specific role can access a given route */
+export function canRoleAccessRoute(role: UserRole, route: string): boolean {
+  if (isPublicRoute(route)) return true
+  const feature = getFeatureByRoute(route)
+  return feature ? feature.roles.includes(role) : false
+}
+
+/** Get the default dashboard route for a role */
+export function getDefaultRouteForRole(role: UserRole): string {
+  return getDashboardRoute(role)
 }
