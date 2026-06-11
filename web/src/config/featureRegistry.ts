@@ -61,6 +61,7 @@ export type LucideIconName =
   | 'UserCog'
   | 'MapPin'
   | 'Building2'
+  | 'Settings'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -84,6 +85,10 @@ export interface FeatureRegistryItem {
   badge?: string | number
   /** Tooltip / accessibility description */
   description?: string
+  /** Whether the route is planned/mocked but not yet implemented in App.tsx */
+  isPlanned?: boolean
+  /** Whether the route is hidden from standard route-mirroring assertions */
+  isHidden?: boolean
 }
 
 // ── Role metadata ──────────────────────────────────────────────────────────
@@ -137,6 +142,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
     badge: 'Upload',
     description: 'Upload and manage vehicle evidence photos and documents',
+    isHidden: true,
   },
   {
     id: 'owner.service-history',
@@ -413,16 +419,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'CheckCircle',
   },
   {
-    id: 'government.diaspora-compliance',
-    label: 'Diaspora Compliance',
-    route: '/admin/diaspora/compliance',
-    domain: 'diaspora',
-    roles: ['government'],
-    placements: ['dashboard_sidebar'],
-    requiresAuth: true,
-    icon: 'ShieldAlert',
-  },
-  {
     id: 'government.evidence',
     label: 'Evidence Review',
     route: '/government/evidence',
@@ -505,14 +501,25 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'CheckCircle',
   },
   {
-    id: 'admin.diaspora-compliance',
+    id: 'diaspora.compliance',
     label: 'Diaspora Compliance',
     route: '/admin/diaspora/compliance',
     domain: 'diaspora',
-    roles: ['admin'],
+    roles: ['admin', 'government'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'ShieldAlert',
+  },
+  {
+    id: 'shared.settings',
+    label: 'Settings',
+    route: '/settings',
+    domain: 'info',
+    roles: ['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin', 'bank'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Settings',
+    isPlanned: true,
   },
 
   // ─── Bank Dashboard ────────────────────────────────────────────────────

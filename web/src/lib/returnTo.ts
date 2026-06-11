@@ -5,6 +5,9 @@
  * `/login?returnTo=<path>` and, after a successful login, send them back. The returnTo value comes
  * from the URL, so it MUST be validated as a safe internal path to avoid open-redirect attacks.
  */
+import { getDashboardRoute as getRegistryDashboardRoute } from '@/config/featureRegistry'
+import type { UserRole } from '@shared/types'
+
 
 /**
  * A returnTo is safe only if it is a same-origin, absolute internal path:
@@ -37,10 +40,7 @@ export function buildLoginRedirect(fullPath: string): string {
 
 /** Map a user role to its default dashboard route. */
 export function getDashboardRoute(role: string): string {
-  if (role === 'dealer') return '/dealer'
-  if (role === 'mechanic') return '/mechanic'
-  if (role === 'admin') return '/admin'
-  return '/dashboard'
+  return getRegistryDashboardRoute(role as UserRole)
 }
 
 /**
