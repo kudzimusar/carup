@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Car,
   LayoutDashboard,
@@ -43,6 +43,7 @@ const roleNavItems: Record<string, NavItem[]> = {
   owner: [
     { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
     { label: 'My Garage', href: '/dashboard/garage', icon: Car },
+    { label: 'Evidence Vault', href: '/dashboard/garage', icon: FileText, badge: 'Upload' },
     { label: 'Service History', href: '/dashboard/service-history', icon: Wrench },
     { label: 'Insurance', href: '/dashboard/insurance', icon: Shield },
     { label: 'PartSentry', href: '/dashboard/partsentry', icon: Gauge },
@@ -135,6 +136,10 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   const navItems = roleNavItems[role] || []
   const roleInfo = roleLabels[role] || { title: 'Dashboard', color: 'bg-gray-500' }
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
