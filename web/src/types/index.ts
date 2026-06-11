@@ -526,7 +526,7 @@ export interface VehicleEvidence {
   timeline_event_id?: string | null;
   trust_score_impact: number;
   trust_impact?: number;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, any> & { ai_analysis?: EvidenceAiAnalysis; ai_public_summary?: string };
   image_hash?: string | null;
   checksum?: string | null;
   storage_bucket?: string;
@@ -540,6 +540,27 @@ export interface VehicleEvidence {
     year?: number;
     trust_score?: number;
   };
+}
+
+export interface EvidenceAiAnalysis {
+  risk_score: number;
+  confidence: number;
+  ai_status: 'ai_pending' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required';
+  reviewer_summary: string;
+  recommended_action: 'approve' | 'reject' | 'inspect';
+  visible_plate?: string | null;
+  visible_vin?: string | null;
+  visible_odometer?: number | null;
+  damage_indicators?: Array<{ type: string; severity: string; location?: string }> | null;
+  manipulation_indicators?: Array<{ type: string; severity: string; notes?: string }> | null;
+  detected_objects?: string[];
+  duplicate_match?: {
+    is_duplicate: boolean;
+    original_evidence_id: string;
+    original_vin: string;
+    original_status: string;
+  } | null;
+  public_safe_summary?: string | null;
 }
 
 export type TrustFactReviewStatus = 'pending' | 'approved' | 'rejected' | 'revoked' | 'superseded';
