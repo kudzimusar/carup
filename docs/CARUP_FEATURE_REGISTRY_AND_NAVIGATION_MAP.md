@@ -145,46 +145,77 @@ interface FeatureRegistryItem {
 | Collateral Map | `/bank/collateral` | finance |
 | Credit Risk Analysis | `/bank/risk` | finance |
 
-## Selector Functions
+## Selector & Access Guard Functions
 
 ```ts
-// Get all features for a role
+// ── Core Selectors (Phase 1) ──────────────────────────────────────────────
 getFeaturesByRole(role: UserRole): FeatureRegistryItem[]
-
-// Get sidebar items for a role's dashboard
 getDashboardItems(role: UserRole): FeatureRegistryItem[]
-
-// Get features by UI placement
 getFeaturesByPlacement(placement: NavPlacement): FeatureRegistryItem[]
-
-// Get features by product domain
 getFeaturesByDomain(domain: FeatureDomain): FeatureRegistryItem[]
-
-// Check role access to a feature
 canAccessFeature(featureId: string, role: UserRole): boolean
-
-// Get dashboard root route for a role
 getDashboardRoute(role: UserRole): string
-
-// Get role display metadata (title, color, dashboardRoute)
 getRoleMetadata(role: UserRole): RoleMetadata
-
-// Get all registered roles
 getAllRoles(): UserRole[]
+
+// ── Public Navigation & Access Guard (Phase 2) ─────────────────────────────
+getPublicNavigationItems(): FeatureRegistryItem[]
+getPublicFooterItems(section: 'Product' | 'Company' | 'Resources'): FeatureRegistryItem[]
+matchRoutePattern(pattern: string, path: string): boolean
+getFeatureByRoute(route: string): FeatureRegistryItem | undefined
+isPublicRoute(route: string): boolean
+isProtectedRoute(route: string): boolean
+getAllowedRolesForRoute(route: string): UserRole[]
+canRoleAccessRoute(role: UserRole, route: string): boolean
+getDefaultRouteForRole(role: UserRole): string
 ```
 
-## How to Add a New Feature
+---
 
-1. Add a `FeatureRegistryItem` entry to the `FEATURE_REGISTRY` array in `featureRegistry.ts`.
-2. Set the appropriate `roles`, `placements`, and `domain`.
-3. The feature will automatically appear in the correct sidebar/nav.
-4. If the feature needs a new route, add the route definition in `App.tsx`.
-5. Update this documentation with the new feature entry.
+## Migration Status & Coverage Matrix
 
-## Consistency Rules
+| Surface | Registry-Backed? | Implementation Notes |
+|:---|:---:|:---|
+| **Dashboard Sidebar** | Yes | Driven dynamically via `getDashboardItems(role)`. |
+| **Navbar Direct Links** | Yes | Driven dynamically via `getPublicNavigationItems()`. |
+| **Footer (Product/Company/Resources)** | Yes | Driven dynamically via `getPublicFooterItems(section)`. |
+| **Footer Stakeholder Links** | Yes | Dynamically built using `getAllRoles()` (ensures Bank role is automatically synced). |
+| **Navbar Dropdowns (Buy/Sell/Verify/Parts/More)** | No | *Intentionally not migrated yet*. These dropdown menus require custom nested structures (`MenuSection[]` shape) and deep link parameter logic. |
 
-1. **All dashboard sidebar items** must be registered in `FEATURE_REGISTRY`.
-2. **All role dashboard routes** must be defined in `ROLE_METADATA`.
-3. **Never hardcode** dashboard routes or nav items in components — use selectors.
-4. **Icon names** must match entries in the `ICON_MAP` in `DashboardLayout.tsx`.
-5. **The `bank` role** must be included everywhere other roles appear (it was historically missing from Navbar).
+---
+
+## How-To Guides
+
+### How to Add a New Dashboard Feature
+1. Add a new `FeatureRegistryItem` to `FEATURE_REGISTRY` in `featureRegistry.ts`.
+2. Configure `requiresAuth: true`.
+3. Under `roles`, list the role names that have access to this feature.
+4. Under `placements`, include `'dashboard_sidebar'`.
+5. Ensure its `route` matches a route declared under the corresponding layout guard in `App.tsx`.
+
+### How to Add a New Public Navigation Link
+1. Add a new `FeatureRegistryItem` to `FEATURE_REGISTRY` in `featureRegistry.ts`.
+2. Set `requiresAuth: false`, and keep `roles: []`.
+3. Under `placements`, add `'header'`.
+4. The link will automatically render on the desktop header bar.
+
+### How to Add a Footer Link
+1. Add a new `FeatureRegistryItem` to `FEATURE_REGISTRY` in `featureRegistry.ts`.
+2. Set `requiresAuth: false`, and keep `roles: []`.
+3. Under `placements`, add `'footer'`.
+4. Ensure the item `id` is prefixed with the category namespace (e.g. `product.marketplace-list`, `company.about-us`, `resources.help-desk`). The prefix determines the column placement.
+
+### How to Add a Stakeholder Role
+1. Add the role to the `UserRole` union type in `@shared/types` (e.g. `partner`).
+2. Add its display title, theme color, and default route to `ROLE_METADATA` in `featureRegistry.ts`.
+3. Add the role's default dashboard route to `App.tsx`.
+4. The role will automatically appear in the dashboard dropdown selector, the navbar role switcher, and the public footer stakeholders column.
+
+---
+
+## Consistency & Route Safety Rules
+
+1. **Route Mirroring**: Every route registered in `FEATURE_REGISTRY` must correspond to a `<Route>` declared in `App.tsx`.
+2. **Access Guards**: Page routes must not rely on component-level checks; use `canRoleAccessRoute(role, route)` to align route guards.
+3. **Plural Nouns**: Stakeholder footer links are automatically pluralized based on their role metadata title via a translation helper in `Footer.tsx`. Ensure any new role title maps correctly.
+4. **Parameterized Routes**: Parameterized paths in the registry must use standard colon format (e.g. `:id`) to ensure `matchRoutePattern` functions correctly.

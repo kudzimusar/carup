@@ -31,7 +31,7 @@ import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { resolveCoverageNavHref } from '@/lib/marketplaceParams'
-import { getDashboardRoute, getRoleMetadata, getAllRoles } from '@/config/featureRegistry'
+import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems } from '@/config/featureRegistry'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
@@ -320,23 +320,23 @@ export default function Navbar() {
             <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" />
             <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" />
             <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" />
-            {[
-              { label: 'Dealers', href: '/dealers', icon: Building2, testId: 'nav-dealers' },
-              { label: 'Garages', href: '/garages', icon: Wrench, testId: 'nav-garages' },
-            ].map((link) => (
-              <Link
-                key={link.href}
-                to={link.href}
-                data-testid={link.testId}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  location.pathname === link.href
-                    ? 'bg-orange-50 text-orange-700'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
+            {getPublicNavigationItems().map((link) => {
+              const testId = `nav-${link.label.toLowerCase()}`
+              return (
+                <Link
+                  key={link.route}
+                  to={link.route}
+                  data-testid={testId}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === link.route
+                      ? 'bg-orange-50 text-orange-700'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              )
+            })}
             <CommerceMenu label="More" icon={MoreHorizontal} sections={moreMenu} testId="nav-more" menuTestId="nav-more-menu" />
           </nav>
 
