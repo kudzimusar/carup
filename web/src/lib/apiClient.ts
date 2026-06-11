@@ -160,12 +160,15 @@ export async function apiRequest<T = any>({
   fetchImpl = fetch,
 }: ApiRequestConfig): Promise<T> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(authHeaders as Record<string, string>),
   }
 
   const method = options?.method?.toUpperCase() || 'GET'
   const fetchOptions: RequestInit = { ...options }
+  
+  if (!(fetchOptions.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json'
+  }
 
   if (!SAFE_METHODS.includes(method)) {
     let csrfToken: string

@@ -1,5 +1,6 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
+import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -60,13 +61,7 @@ function timelineIcon(source: string) {
   return map[source] ?? { icon: Clock, color: 'text-gray-500 bg-gray-50' }
 }
 
-function formatEvidenceLabel(value?: string) {
-  return (value || 'evidence')
-    .split('_')
-    .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ')
-}
+// Removed formatEvidenceLabel since it is no longer used here
 
 // ── Derive Verification sources from passport data ──────────────────────────
 function buildVerificationSources(passport: VehiclePassport | null): PassportVerificationSource[] {
@@ -368,7 +363,8 @@ export default function VehicleDetail() {
   const waLink         = `https://wa.me/${(vehicle.sellerPhone ?? '').replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
 
   const timeline            = passport?.timeline ?? []
-  const evidenceTimeline    = passport?.evidenceTimeline ?? timeline.filter(event => event.event_source === 'evidence')
+  const evidenceVault       = passport?.evidenceVault ?? []
+  const publicEvidence      = evidenceVault.filter(e => e.verification_status === 'verified' && e.visibility_level === 'public_safe')
   const verificationSources = buildVerificationSources(passport)
   const trustBreakdown      = buildTrustBreakdown(passport)
 
@@ -649,6 +645,25 @@ export default function VehicleDetail() {
                                     )}
                                   </div>
                                 )}
+                                {/* Add chronological evidence thumbnails */}
+                                {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).length > 0 && (
+                                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                                    {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).map(item => {
+                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url.endsWith('.pdf') || item.evidence_type.includes('document');
+                                      return (
+                                        <div key={item.id} className="flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border border-gray-200" data-testid={`history-thumbnail-${item.id}`}>
+                                          {isDoc ? (
+                                            <div className="w-full h-full bg-gray-50 flex items-center justify-center">
+                                              <FileText className="w-6 h-6 text-gray-400" />
+                                            </div>
+                                          ) : (
+                                            <img src={item.file_url} className="w-full h-full object-cover" alt="" />
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )
@@ -659,77 +674,7 @@ export default function VehicleDetail() {
 
                   {/* ── Evidence tab: buyer-facing visual proof timeline ── */}
                   <TabsContent value="evidence" className="mt-4" data-testid="evidence-timeline-tab-content">
-                    {evidenceTimeline.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400" data-testid="evidence-empty-state">
-                        <ImageIcon className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="font-medium">No verified evidence published yet</p>
-                        <p className="text-xs mt-1 text-gray-400">Photos and documents appear here after CarUp review links them to registry events.</p>
-                      </div>
-                    ) : (
-                      <div className="relative" data-testid="evidence-timeline">
-                        <div className="absolute left-4 top-2 bottom-2 w-px bg-orange-100" />
-                        <div className="space-y-4">
-                          {evidenceTimeline.map((event, idx) => {
-                            const isDocument = event.evidence_type?.includes('document')
-                            return (
-                              <div
-                                key={`${event.id}-${idx}`}
-                                className="relative pl-11"
-                                data-testid="evidence-timeline-item"
-                              >
-                                <div className="absolute left-0 top-1 w-8 h-8 rounded-full bg-orange-50 text-orange-600 border border-orange-100 flex items-center justify-center">
-                                  {isDocument ? <FileText className="w-4 h-4" /> : <ImageIcon className="w-4 h-4" />}
-                                </div>
-                                <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
-                                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                                    <div>
-                                      <p className="font-semibold text-sm">{formatEvidenceLabel(event.evidence_type)}</p>
-                                      <p className="text-xs text-gray-500 mt-0.5">
-                                        {event.timestamp ? new Date(event.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date unknown'}
-                                        {event.details?.uploaderRole ? ` · ${formatEvidenceLabel(event.details.uploaderRole)}` : ''}
-                                      </p>
-                                    </div>
-                                    <Badge className="bg-green-500 text-white text-[10px] w-fit">Verified</Badge>
-                                  </div>
-
-                                  {event.file_url && (
-                                    isDocument ? (
-                                      <a
-                                        href={event.file_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="mt-3 flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
-                                      >
-                                        <FileText className="w-4 h-4 text-orange-500" />
-                                        View linked document
-                                      </a>
-                                    ) : (
-                                      <a href={event.file_url} target="_blank" rel="noopener noreferrer" className="mt-3 block">
-                                        <img
-                                          src={event.file_url}
-                                          alt={formatEvidenceLabel(event.evidence_type)}
-                                          className="h-36 w-full rounded-md object-cover bg-gray-100"
-                                          loading="lazy"
-                                        />
-                                      </a>
-                                    )
-                                  )}
-
-                                  <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[11px] text-gray-500">
-                                    <div className="rounded-md bg-gray-50 px-2 py-1.5">
-                                      Registry event: <span className="font-mono text-gray-700">{event.linked_registry_event_id || 'Unlinked'}</span>
-                                    </div>
-                                    <div className="rounded-md bg-gray-50 px-2 py-1.5">
-                                      Trust impact: <span className="font-semibold text-green-700">+{event.trust_score_impact ?? 0}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
+                    <PremiumEvidenceGallery evidence={evidenceVault} />
                   </TabsContent>
 
                   {/* ── Verification tab: real trust metrics ── */}
