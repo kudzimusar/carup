@@ -125,7 +125,7 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
           headers: corsHeaders,
           body: JSON.stringify(initialPassport)
         });
-      } else if (url.includes('/api/vehicles/MOCKVIN12345/evidence/upload') && method === 'POST') {
+      } else if (url.includes('/api/vehicles/MOCKVIN12345/evidence') && method === 'POST') {
         console.log(`[Mock Router Fulfill] Upload evidence: ${url}`);
         const uploadedItem = {
           id: mockEvidenceId,
@@ -206,6 +206,14 @@ test.describe('Vehicle Evidence Upload & Review Flow', () => {
           contentType: 'application/json',
           headers: corsHeaders,
           body: JSON.stringify([])
+        });
+      } else if (url.includes('/api/')) {
+        console.log(`[Mock Router Fulfill] Catch-all API fallback: ${url}`);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          headers: corsHeaders,
+          body: JSON.stringify({})
         });
       } else {
         console.log(`[Mock Router Continue] Continuing request: ${method} ${url}`);
