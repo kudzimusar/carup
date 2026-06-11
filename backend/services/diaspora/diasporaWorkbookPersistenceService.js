@@ -101,6 +101,10 @@ async function insertRowsInChunks(client, rows) {
   }
 }
 
+function countDiagnosticsByStatus(diagnostics, status) {
+  return diagnostics.filter((diagnostic) => diagnostic.validationStatus === status).length;
+}
+
 export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, userContext = {}, options = {}) {
   const uploadedBy = userContext.id || userContext.userId;
   if (!uploadedBy) {
@@ -112,6 +116,9 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
   const idempotencyKey = payload.idempotencyKey || payload.idempotency_key || dryRun.dryRunId;
   const source = sourceMetadata(payload);
   const diagnostics = buildWorkbookRowDiagnostics(payload, dryRun);
+  const acceptedRows = countDiagnosticsByStatus(diagnostics, 'ACCEPTED');
+  const warningRows = countDiagnosticsByStatus(diagnostics, 'WARNING');
+  const rejectedRows = countDiagnosticsByStatus(diagnostics, 'REJECTED');
 
   const batchPayload = {
     tenant_id: tenantId,
@@ -129,10 +136,10 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
       errors: dryRun.errors,
       warnings: dryRun.warnings,
     },
-    total_rows: dryRun.totals?.totalRows || 0,
-    accepted_rows: dryRun.totals?.acceptedRows || 0,
-    rejected_rows: dryRun.errors?.filter((error) => Number(error.rowIndex || 0) > 0).length || 0,
-    warning_count: dryRun.totals?.warningCount || 0,
+    total_rows: diagnostics.length,
+    accepted_rows: acceptedRows,
+    rejected_rows: rejectedRows,
+    warning_count: dryRun.totals?.warningCount || warningRows,
     error_count: dryRun.totals?.errorCount || 0,
     import_status: dryRun.canImport ? 'VALIDATED' : 'BLOCKED',
     rollback_status: 'NOT_REQUIRED',
@@ -184,6 +191,9 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
   return {
     batchId: batch.id,
     rowDiagnosticsPersisted: rowPayloads.length,
+    acceptedRows,
+    warningRows,
+    rejectedRows,
     importStatus: batch.import_status,
     persisted: true,
   };
