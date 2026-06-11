@@ -11,6 +11,12 @@ import {
 } from '../services/diaspora/diasporaWorkbookReviewService.js';
 import { buildWorkbookImportPlan } from '../services/diaspora/diasporaWorkbookImportPlanningService.js';
 import { executeDiasporaWorkbookDraftImport } from '../services/diaspora/diasporaWorkbookImportExecutionService.js';
+import {
+  buildDiasporaWorkbookDraftImportRetryPlan,
+  getDiasporaWorkbookDraftImportAudit,
+  listDiasporaWorkbookDraftImportExecutionRows,
+  listDiasporaWorkbookDraftImportFailedRows,
+} from '../services/diaspora/diasporaWorkbookImportAuditService.js';
 import { exportDiasporaWorkbook, importDiasporaWorkbook, runAndPersistDiasporaWorkbookDryRun, saveDiasporaWorkbookToDrive } from '../services/diaspora/diasporaWorkbookSyncService.js';
 
 const router = express.Router();
@@ -75,6 +81,26 @@ router.get('/workbook/import-batches/:id/import-plan', auth, asyncHandler(async 
   const batch = await getDiasporaWorkbookImportBatch(req.params.id, req.userContext);
   const rows = await listAllWorkbookImportRows(req.params.id, req.userContext);
   const data = buildWorkbookImportPlan(batch, rows, req.userContext);
+  res.json({ data });
+}));
+
+router.get('/workbook/import-batches/:id/execution-audit', auth, asyncHandler(async (req, res) => {
+  const data = await getDiasporaWorkbookDraftImportAudit(req.params.id, req.userContext);
+  res.json({ data });
+}));
+
+router.get('/workbook/import-batches/:id/execution-rows', auth, asyncHandler(async (req, res) => {
+  const result = await listDiasporaWorkbookDraftImportExecutionRows(req.params.id, req.query, req.userContext);
+  res.json(result);
+}));
+
+router.get('/workbook/import-batches/:id/failed-execution-rows', auth, asyncHandler(async (req, res) => {
+  const result = await listDiasporaWorkbookDraftImportFailedRows(req.params.id, req.query, req.userContext);
+  res.json(result);
+}));
+
+router.get('/workbook/import-batches/:id/retry-plan', auth, asyncHandler(async (req, res) => {
+  const data = await buildDiasporaWorkbookDraftImportRetryPlan(req.params.id, req.userContext);
   res.json({ data });
 }));
 
