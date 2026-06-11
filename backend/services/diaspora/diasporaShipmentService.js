@@ -5,7 +5,7 @@ import { validateShipmentPayload } from '../../validators/diaspora/diasporaSchem
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
 import { emitDiasporaEvent } from './diasporaNotificationService.js';
-import { requireUserContext, assertCanManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin } from './diasporaAuthorization.js';
+import { requireUserContext, assertCanManageLogistics, assertCanReadImportOrder, isPlatformReviewer, isPlatformAdmin, isTenantAdminForRecord } from './diasporaAuthorization.js';
 
 // Authorize a read against the import order this shipment belongs to (buyer owns it, or reviewer/admin).
 async function assertOrderReadAccess(importOrderId, userContext) {
@@ -76,9 +76,21 @@ export async function listShipments({ importOrderId, status, limit = 50, offset 
   return data || [];
 }
 
-export async function getShipment(id) {
+export async function getShipment(id, userContext = {}) {
   const { data, error } = await supabase.from('diaspora_shipments').select('*').eq('id', id).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora shipment not found');
+
+  const hasUserContext = userContext && (userContext.id || userContext.userId || userContext.actorId);
+  if (hasUserContext) {
+    const context = requireUserContext(userContext);
+    if (!isPlatformReviewer(context) && !isPlatformAdmin(context)) {
+      if (isTenantAdminForRecord(data, context)) {
+        return data;
+      }
+      await assertOrderReadAccess(data.import_order_id, context);
+    }
+  }
+
   return data;
 }
 
@@ -136,7 +148,10 @@ export async function updateShipmentStage(id, payload, userContext = {}, req = n
   return { shipment: data, stageEvent };
 }
 
-export async function getShipmentTimeline(id) {
+export async function getShipmentTimeline(id, userContext = {}) {
+  // Enforce read access/existence checks via getShipment
+  await getShipment(id, userContext);
+
   const { data, error } = await supabase.from('diaspora_shipment_stage_events').select('*').eq('shipment_id', id).is('deleted_at', null).order('event_time', { ascending: true });
   if (error) throw new DatabaseError(error.message);
   return data || [];
