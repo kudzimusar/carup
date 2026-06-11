@@ -1,8 +1,19 @@
 import { ValidationError } from '../../utils/errors.js';
 import { validateDiasporaWorkbookDryRun } from './diasporaWorkbookValidationService.js';
+import { persistDiasporaWorkbookDryRun } from './diasporaWorkbookPersistenceService.js';
 
 export function runDiasporaWorkbookDryRun(payload = {}, userContext = {}) {
   return validateDiasporaWorkbookDryRun(payload, userContext);
+}
+
+export async function runAndPersistDiasporaWorkbookDryRun(payload = {}, userContext = {}, options = {}) {
+  const dryRun = validateDiasporaWorkbookDryRun(payload, userContext);
+  const persistence = await persistDiasporaWorkbookDryRun(payload, dryRun, userContext, options);
+
+  return {
+    ...dryRun,
+    persistence,
+  };
 }
 
 export async function importDiasporaWorkbook(payload = {}, userContext = {}) {
@@ -12,13 +23,13 @@ export async function importDiasporaWorkbook(payload = {}, userContext = {}) {
   }
 
   throw new ValidationError(
-    'Workbook import execution is intentionally disabled in Phase 1A. Use dry-run until schema gap review and write mapping are approved.',
+    'Workbook import execution is intentionally disabled in Phase 1C. Dry-run results are persisted for review, but live trade-table writes remain disabled until import mapping is approved.',
     dryRun,
   );
 }
 
 export async function exportDiasporaWorkbook() {
-  throw new ValidationError('Workbook export is deferred until Phase 1B after dry-run validation is proven.');
+  throw new ValidationError('Workbook export is deferred until the workbook export/template generation phase.');
 }
 
 export async function saveDiasporaWorkbookToDrive() {
