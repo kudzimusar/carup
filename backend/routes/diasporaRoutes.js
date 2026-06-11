@@ -1,6 +1,7 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
+import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -27,6 +28,9 @@ function pagination(req) {
     offset: Number(req.query.offset || 0),
   };
 }
+
+// Phase 1A: Diaspora Workbook Center. Mounted inside /api/diaspora by server.js.
+router.use(diasporaWorkbookRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {
@@ -116,37 +120,34 @@ router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res
   const documentId = req.params.id;
   const userContext = req.userContext;
 
-  // Server-side processing needs the (otherwise-redacted) storage_path to mint a signed read URL.
-  // Same authorization as getTradeDocument; the raw record is never returned to the client below.
   const doc = await getTradeDocumentWithStorage(documentId, userContext);
   if (!doc.storage_path) {
     throw new ValidationError('Document has no storage path. Upload a file first.');
   }
 
   const documentTypeMap = {
-    'passport': 'passport',
-    'national_id': 'national_id',
-    'residence_card': 'national_id',
-    'vehicle_registration': 'registration_book',
-    'auction_sheet': 'customs_declaration',
-    'bill_of_lading': 'customs_declaration',
-    'commercial_invoice': 'customs_declaration',
-    'export_certificate': 'customs_declaration',
-    'customs_declaration': 'customs_declaration',
-    'inspection_certificate': 'customs_declaration',
-    'insurance_certificate': 'customs_declaration',
-    'duty_receipt': 'customs_declaration',
-    'packing_list': 'customs_declaration',
-    'port_release_order': 'customs_declaration',
-    'police_clearance': 'national_id',
-    'mechanical_report': 'customs_declaration',
+    passport: 'passport',
+    national_id: 'national_id',
+    residence_card: 'national_id',
+    vehicle_registration: 'registration_book',
+    auction_sheet: 'customs_declaration',
+    bill_of_lading: 'customs_declaration',
+    commercial_invoice: 'customs_declaration',
+    export_certificate: 'customs_declaration',
+    customs_declaration: 'customs_declaration',
+    inspection_certificate: 'customs_declaration',
+    insurance_certificate: 'customs_declaration',
+    duty_receipt: 'customs_declaration',
+    packing_list: 'customs_declaration',
+    port_release_order: 'customs_declaration',
+    police_clearance: 'national_id',
+    mechanical_report: 'customs_declaration',
   };
 
   const ocrDocType = documentTypeMap[doc.document_type] || 'customs_declaration';
 
   let signedUrl;
   try {
-    // generateSecureReadUrl resolves to the signed URL string (not an object).
     signedUrl = await generateSecureReadUrl('ocr-documents', doc.storage_path);
   } catch (err) {
     throw new ValidationError('Failed to generate document access URL.');
@@ -163,7 +164,7 @@ router.post('/documents/:id/run-ocr', reviewerAuth, asyncHandler(async (req, res
     throw new ValidationError('Failed to fetch document from storage.');
   }
 
-  const MAX_OCR_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+  const MAX_OCR_FILE_SIZE = 10 * 1024 * 1024;
   const contentLength = response.headers.get('content-length');
   if (contentLength && parseInt(contentLength, 10) > MAX_OCR_FILE_SIZE) {
     throw new ValidationError('Document file exceeds maximum size limit of 10MB.');
