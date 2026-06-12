@@ -5,9 +5,11 @@ import { ForbiddenError, ValidationError } from '../utils/errors.js';
 import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
 import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
+import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
 const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager'];
+const WEBHOOK_CHANNELS = new Set(['whatsapp', 'telegram', 'facebook', 'instagram']);
 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -39,11 +41,29 @@ function isValidAgentGatewayKey(req) {
   return Boolean(configured && supplied && supplied === configured);
 }
 
+function getChannelWebhookKey(req) {
+  return req.headers['x-channel-webhook-secret'] || req.headers['x-carup-channel-secret'] || req.headers['x-webhook-secret'];
+}
+
+function isValidChannelWebhookKey(req) {
+  const configured = process.env.CARUP_CHANNEL_WEBHOOK_SECRET;
+  const supplied = getChannelWebhookKey(req);
+  return Boolean(configured && supplied && supplied === configured);
+}
+
 function assertAgentGatewayAccess(req) {
   if (isValidAgentGatewayKey(req)) return;
   if (req.userContext?.id) return;
   if (isUserIdFallbackAllowed(process.env) && req.headers['x-user-id']) return;
   throw new ForbiddenError('Agent gateway requires a trusted gateway key or authenticated user context.');
+}
+
+function assertChannelAccess(req, channel) {
+  const normalized = normalizeChannel(channel);
+  if (isValidAgentGatewayKey(req) || isValidChannelWebhookKey(req) || req.userContext?.id) return;
+  if (isUserIdFallbackAllowed(process.env) && req.headers['x-user-id']) return;
+  if (WEBHOOK_CHANNELS.has(normalized)) throw new ForbiddenError('Channel webhook requires a valid webhook secret.');
+  throw new ForbiddenError('Channel access requires trusted gateway, webhook, or user context.');
 }
 
 function createAgentGatewayActor(req) {
@@ -57,16 +77,22 @@ function createAgentGatewayActor(req) {
     actor_role: req.userContext?.effectiveRole || req.userContext?.role || req.headers['x-stakeholder-role'] || req.headers['x-agent-role'] || 'agent',
     actor_tenant_id: req.userContext?.tenantId || req.headers['x-tenant-id'] || bodyContext.tenant_id || bodyInput.tenant_id || 'platform',
     actor_type: ACTOR_TYPES.AGENT,
-    gateway_trusted: isValidAgentGatewayKey(req),
+    gateway_trusted: isValidAgentGatewayKey(req) || isValidChannelWebhookKey(req),
     surface,
     session_id: req.headers['x-agent-session-id'] || bodyContext.session_id || bodyInput.session_id || null,
   };
 }
 
-export function createReferralRouter({ client = supabase, service = null, agentGateway = null } = {}) {
+function createChannelActor(req, channel) {
+  const actor = createAgentGatewayActor(req);
+  return { ...actor, surface: normalizeChannel(channel), session_id: req.headers['x-channel-session-id'] || req.body?.conversation_id || req.body?.thread_id || req.body?.session_id || actor.session_id };
+}
+
+export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null } = {}) {
   const router = express.Router();
   const referralService = service || new ReferralEngineService({ client });
   const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
+  const channelService = channelGateway || new ReferralChannelGatewayService({ agentGateway: gatewayService, referralService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
@@ -100,12 +126,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   }));
 
   router.get('/codes/:code', asyncHandler(async (req, res) => {
-    const result = await referralService.validateReferralCode({
-      code: req.params.code,
-      channel: req.query.channel,
-      source: req.query.source,
-      session_id: req.query.session_id,
-    }, createActor(req, ACTOR_TYPES.USER));
+    const result = await referralService.validateReferralCode({ code: req.params.code, channel: req.query.channel, source: req.query.source, session_id: req.query.session_id }, createActor(req, ACTOR_TYPES.USER));
     res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
   }));
 
@@ -130,11 +151,45 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     assertAgentGatewayAccess(req);
     if (!req.body?.tool) throw new ValidationError('tool is required.');
     const actor = createAgentGatewayActor(req);
-    const response = await gatewayService.executeTool({
-      tool: req.body.tool,
-      input: req.body.input || {},
-      context: req.body.context || {},
-    }, actor);
+    const response = await gatewayService.executeTool({ tool: req.body.tool, input: req.body.input || {}, context: req.body.context || {} }, actor);
+    res.json(response);
+  }));
+
+  router.post('/channels/:channel/inbound', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, req.params.channel);
+    const actor = createChannelActor(req, req.params.channel);
+    const response = await channelService.processInbound(req.params.channel, req.body || {}, actor);
+    res.json(response);
+  }));
+
+  router.post('/channels/:channel/share-kit', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, req.params.channel);
+    const actor = createChannelActor(req, req.params.channel);
+    const response = await channelService.prepareShareKit(req.params.channel, req.body || {}, actor);
+    res.json(response);
+  }));
+
+  router.post('/channels/whatsapp/webhook', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, 'whatsapp');
+    const response = await channelService.processInbound('whatsapp', req.body || {}, createChannelActor(req, 'whatsapp'));
+    res.json(response);
+  }));
+
+  router.post('/channels/telegram/webhook', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, 'telegram');
+    const response = await channelService.processInbound('telegram', req.body || {}, createChannelActor(req, 'telegram'));
+    res.json(response);
+  }));
+
+  router.post('/channels/web-chat/message', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, 'web_chat');
+    const response = await channelService.processInbound('web_chat', req.body || {}, createChannelActor(req, 'web_chat'));
+    res.json(response);
+  }));
+
+  router.post('/channels/mobile-chat/message', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, 'mobile_chat');
+    const response = await channelService.processInbound('mobile_chat', req.body || {}, createChannelActor(req, 'mobile_chat'));
     res.json(response);
   }));
 
@@ -157,9 +212,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   router.post('/coupons/redeem', authorizeRole(), asyncHandler(async (req, res) => {
     const actor = createActor(req, ACTOR_TYPES.USER);
     const redeemerUserId = req.body.redeemer_user_id || req.userContext?.id;
-    if (redeemerUserId !== req.userContext?.id && !isPlatformAdmin(req.userContext)) {
-      throw new ForbiddenError('You cannot redeem a coupon for another user.');
-    }
+    if (redeemerUserId !== req.userContext?.id && !isPlatformAdmin(req.userContext)) throw new ForbiddenError('You cannot redeem a coupon for another user.');
     const result = await referralService.redeemCoupon({ ...req.body, redeemer_user_id: redeemerUserId }, actor);
     res.status(result.redeemed ? 201 : 422).json({ success: Boolean(result.redeemed), ...result });
   }));
@@ -181,13 +234,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   }));
 
   router.get('/admin/events', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const events = await referralService.getAdminTimeline({
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
-      campaign_id: req.query.campaign_id || undefined,
-      code_id: req.query.code_id || undefined,
-      event_type: req.query.event_type || undefined,
-      limit: Number(req.query.limit || 200),
-    });
+    const events = await referralService.getAdminTimeline({ tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, campaign_id: req.query.campaign_id || undefined, code_id: req.query.code_id || undefined, event_type: req.query.event_type || undefined, limit: Number(req.query.limit || 200) });
     res.json({ success: true, events });
   }));
 
