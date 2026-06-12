@@ -65,6 +65,48 @@ function extensionForMimeType(mimeType) {
   return 'jpg';
 }
 
+const MIN_VERIFIED_CONFIDENCE = 0.75;
+
+/**
+ * Quality gate for the verified status: OCR completing is not enough.
+ * A session may only become 'verified' when the provider succeeded,
+ * confidence clears MIN_VERIFIED_CONFIDENCE, and identity fields were
+ * actually extracted (an ID number, or a first+last name). Blank or
+ * unreadable images therefore land in pending_manual_review.
+ */
+export function evaluateOcrEvidence(result = {}) {
+  if (!result.success) {
+    return {
+      sufficient: false,
+      reason: result.error || result.ocrFailureReason || 'OCR did not complete successfully.',
+    };
+  }
+
+  const extracted = result.extractedData || {};
+  const confidence = Number(
+    extracted.confidenceScore ?? result.qualityMetrics?.blurScore ?? 0
+  );
+  if (!Number.isFinite(confidence) || confidence < MIN_VERIFIED_CONFIDENCE) {
+    return {
+      sufficient: false,
+      reason: `OCR confidence ${Number.isFinite(confidence) ? confidence.toFixed(2) : 'unavailable'} is below the ${MIN_VERIFIED_CONFIDENCE} verification threshold.`,
+    };
+  }
+
+  const hasText = (value) => typeof value === 'string' && value.trim().length > 0;
+  const hasIdentityFields =
+    hasText(extracted.national_id_number) ||
+    (hasText(extracted.first_name) && hasText(extracted.last_name));
+  if (!hasIdentityFields) {
+    return {
+      sufficient: false,
+      reason: 'OCR did not extract the identity fields required for verification.',
+    };
+  }
+
+  return { sufficient: true, reason: null };
+}
+
 function sanitizeOcrResult(extractedData = {}) {
   const result = {};
   for (const field of PUBLIC_OCR_FIELDS) {
@@ -272,8 +314,9 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id);
     const confidence = result.extractedData?.confidenceScore ?? result.qualityMetrics?.blurScore ?? null;
     const sanitizedResult = sanitizeOcrResult(result.extractedData || {});
-    const finalStatus = result.success ? 'verified' : 'pending_manual_review';
-    const failureReason = result.success ? null : (result.error || result.ocrFailureReason || 'OCR requires manual review.');
+    const evidence = evaluateOcrEvidence(result);
+    const finalStatus = evidence.sufficient ? 'verified' : 'pending_manual_review';
+    const failureReason = evidence.sufficient ? null : evidence.reason;
     const completedAt = now();
 
     const { data: completedSession, error: completedError } = await client
