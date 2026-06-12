@@ -9,6 +9,12 @@ import {
   listDiasporaWorkbookImportRows,
   listDiasporaWorkbookImportBatches,
 } from './diasporaWorkbookReviewService.js';
+import {
+  normalizeOperatorHold,
+  normalizeOperatorNotes,
+  normalizeStatusTimeline,
+  normalizeWorkbookBatchMetadata,
+} from './diasporaWorkbookMetadataUtils.js';
 
 async function defaultSupabaseClient() {
   const { supabase } = await import('../../db/supabase.js');
@@ -43,6 +49,14 @@ function normalizeOffset(value) {
   return Math.floor(parsed);
 }
 
+function safeDatabaseDetails(table, operation, error = {}) {
+  return {
+    table,
+    operation,
+    errorCode: error.code || null,
+  };
+}
+
 export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userContext = {}, options = {}) {
   assertAuthenticated(userContext);
   
@@ -60,7 +74,7 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
     ].includes(b.import_status)).length,
     failedDraftImports: batches.filter((b) => b.import_status === WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT).length,
     cancelled: batches.filter((b) => b.import_status === WORKBOOK_IMPORT_STATUSES.CANCELLED).length,
-    held: batches.filter((b) => b.metadata?.operatorHold?.active === true).length,
+    held: batches.filter((b) => normalizeOperatorHold(normalizeWorkbookBatchMetadata(b.metadata))?.active === true).length,
   };
 
   // Perform filtering
@@ -77,7 +91,7 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
 
   const heldFilter = normalizeBoolean(filters.held);
   if (heldFilter !== null) {
-    filtered = filtered.filter((b) => Boolean(b.metadata?.operatorHold?.active) === heldFilter);
+    filtered = filtered.filter((b) => Boolean(normalizeOperatorHold(normalizeWorkbookBatchMetadata(b.metadata))?.active) === heldFilter);
   }
 
   if (filters.uploadedBy) {
@@ -91,6 +105,8 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
   // Calculate detailed row properties lazily per batch
   const items = [];
   for (const batch of filtered) {
+    const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
+    const operatorHold = normalizeOperatorHold(metadata);
     const rowsResult = await listDiasporaWorkbookImportRows(batch.id, { limit: 1000 }, userContext, options);
     const rows = rowsResult.data || [];
     const plan = buildWorkbookImportPlan(batch, rows, userContext);
@@ -103,7 +119,7 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
     let hasAiDrafts = rows.some((r) => r.sheet_name === 'AI_COMMAND_CENTER');
     let hasReviewOnly = rows.some((r) => r.action_type === 'REVIEW_ONLY' || r.actionType === 'REVIEW_ONLY');
 
-    const draftExecuted = Boolean(batch.metadata?.draftImportExecuted);
+    const draftExecuted = Boolean(metadata.draftImportExecuted);
     const isFailedStatus = batch.import_status === WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT;
     const isPartialStatus = batch.import_status === WORKBOOK_IMPORT_STATUSES.PARTIALLY_IMPORTED_DRAFTS;
     
@@ -146,7 +162,7 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
     const isExecutable = batch.import_status === WORKBOOK_IMPORT_STATUSES.READY_FOR_REVIEW &&
       Number(batch.rejected_rows || 0) === 0 &&
       Number(batch.error_count || 0) === 0 &&
-      batch.metadata?.operatorHold?.active !== true;
+      operatorHold?.active !== true;
     if (isExecutable) summaryBadges.push('READY_FOR_DRAFT_EXECUTION');
     
     if ([WORKBOOK_IMPORT_STATUSES.IMPORTED_DRAFTS, WORKBOOK_IMPORT_STATUSES.PARTIALLY_IMPORTED_DRAFTS].includes(batch.import_status)) {
@@ -158,7 +174,7 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
     if (hasRetryableRows && (isFailedStatus || isPartialStatus)) {
       summaryBadges.push('RETRY_REVIEW_NEEDED');
     }
-    if (batch.metadata?.operatorHold?.active === true) {
+    if (operatorHold?.active === true) {
       summaryBadges.push('HELD_BY_OPERATOR');
     }
     if (batch.import_status === WORKBOOK_IMPORT_STATUSES.BLOCKED) {
@@ -186,16 +202,16 @@ export async function getDiasporaWorkbookOperatorDashboard(filters = {}, userCon
       errorCount: Number(batch.error_count || 0),
       warningCount: Number(batch.warning_count || 0),
       draftImportExecuted: draftExecuted,
-      liveImportExecuted: Boolean(batch.metadata?.liveImportExecuted),
-      aiExecuted: Boolean(batch.metadata?.aiExecuted),
+      liveImportExecuted: Boolean(metadata.liveImportExecuted),
+      aiExecuted: Boolean(metadata.aiExecuted),
       needsReview,
       hasFailures,
       hasRetryableRows,
       hasBlockedRows,
-      held: batch.metadata?.operatorHold?.active === true,
-      holdReason: batch.metadata?.operatorHold?.reason || null,
+      held: operatorHold?.active === true,
+      holdReason: operatorHold?.reason || null,
       nextRecommendedAction: nextActionRes.nextRecommendedAction,
-      riskLevel: hasFailures || batch.metadata?.operatorHold?.active === true ? 'HIGH' : 'LOW',
+      riskLevel: hasFailures || operatorHold?.active === true ? 'HIGH' : 'LOW',
       summaryBadges,
     });
   }
@@ -220,6 +236,8 @@ export async function getDiasporaWorkbookOperatorBatchSummary(batchId, userConte
   assertAuthenticated(userContext);
   
   const batch = await getDiasporaWorkbookImportBatch(batchId, userContext, options);
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
+  const operatorHold = normalizeOperatorHold(metadata);
   const rowsResult = await listDiasporaWorkbookImportRows(batch.id, { limit: 1000 }, userContext, options);
   const rows = rowsResult.data || [];
   
@@ -230,7 +248,7 @@ export async function getDiasporaWorkbookOperatorBatchSummary(batchId, userConte
   let hasFailures = false;
   let hasRetryableRows = false;
   
-  const draftExecuted = Boolean(batch.metadata?.draftImportExecuted);
+  const draftExecuted = Boolean(metadata.draftImportExecuted);
   const isFailedStatus = batch.import_status === WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT;
   const isPartialStatus = batch.import_status === WORKBOOK_IMPORT_STATUSES.PARTIALLY_IMPORTED_DRAFTS;
   
@@ -259,19 +277,19 @@ export async function getDiasporaWorkbookOperatorBatchSummary(batchId, userConte
       errorCount: batch.error_count,
       createdAt: batch.created_at,
       updatedAt: batch.updated_at,
-      metadata: batch.metadata || {},
+      metadata,
     },
     plan,
     audit,
     retryPlan,
     operator: {
-      held: batch.metadata?.operatorHold?.active === true,
-      holdReason: batch.metadata?.operatorHold?.reason || null,
-      notes: batch.metadata?.operatorNotes || [],
+      held: operatorHold?.active === true,
+      holdReason: operatorHold?.reason || null,
+      notes: normalizeOperatorNotes(metadata),
       nextActions: nextActionRes.allowed,
       forbiddenActions: nextActionRes.forbidden,
       warnings: nextActionRes.warnings,
-      statusTimeline: batch.metadata?.statusTimeline || [],
+      statusTimeline: normalizeStatusTimeline(metadata),
     },
   };
 }
@@ -280,6 +298,7 @@ export async function getDiasporaWorkbookOperatorNextActions(batchId, userContex
   assertAuthenticated(userContext);
   
   const batch = await getDiasporaWorkbookImportBatch(batchId, userContext, options);
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
   const rowsResult = await listDiasporaWorkbookImportRows(batch.id, { limit: 1000 }, userContext, options);
   const rows = rowsResult.data || [];
   
@@ -288,7 +307,7 @@ export async function getDiasporaWorkbookOperatorNextActions(batchId, userContex
   let hasFailures = false;
   let hasRetryableRows = false;
   
-  const draftExecuted = Boolean(batch.metadata?.draftImportExecuted);
+  const draftExecuted = Boolean(metadata.draftImportExecuted);
   const isFailedStatus = batch.import_status === WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT;
   const isPartialStatus = batch.import_status === WORKBOOK_IMPORT_STATUSES.PARTIALLY_IMPORTED_DRAFTS;
   
@@ -316,8 +335,8 @@ export async function addDiasporaWorkbookOperatorNote(batchId, notePayload = {},
   const batch = await getDiasporaWorkbookImportBatch(batchId, userContext, { supabaseClient: client });
   const userId = actorId(userContext);
   
-  const metadata = batch.metadata || {};
-  const notes = metadata.operatorNotes || [];
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
+  const notes = normalizeOperatorNotes(metadata);
   
   const newNote = {
     id: crypto.randomUUID(),
@@ -340,7 +359,7 @@ export async function addDiasporaWorkbookOperatorNote(batchId, notePayload = {},
     .select()
     .single();
 
-  if (error) throw new DatabaseError(`Failed to save operator note: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to save operator note.', safeDatabaseDetails('diaspora_workbook_import_batches', 'update', error));
   return {
     data,
     note: newNote,
@@ -357,7 +376,7 @@ export async function setDiasporaWorkbookOperatorHold(batchId, holdPayload = {},
   const batch = await getDiasporaWorkbookImportBatch(batchId, userContext, { supabaseClient: client });
   const userId = actorId(userContext);
   
-  const metadata = batch.metadata || {};
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
   metadata.operatorHold = {
     active: true,
     reason,
@@ -375,7 +394,7 @@ export async function setDiasporaWorkbookOperatorHold(batchId, holdPayload = {},
     .select()
     .single();
 
-  if (error) throw new DatabaseError(`Failed to set operator hold: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to set operator hold.', safeDatabaseDetails('diaspora_workbook_import_batches', 'update', error));
   return data;
 }
 
@@ -386,8 +405,8 @@ export async function clearDiasporaWorkbookOperatorHold(batchId, userContext = {
   const batch = await getDiasporaWorkbookImportBatch(batchId, userContext, { supabaseClient: client });
   const userId = actorId(userContext);
   
-  const metadata = batch.metadata || {};
-  const hold = metadata.operatorHold || {};
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
+  const hold = normalizeOperatorHold(metadata) || {};
   
   metadata.operatorHold = {
     ...hold,
@@ -404,14 +423,15 @@ export async function clearDiasporaWorkbookOperatorHold(batchId, userContext = {
     .select()
     .single();
 
-  if (error) throw new DatabaseError(`Failed to clear operator hold: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to clear operator hold.', safeDatabaseDetails('diaspora_workbook_import_batches', 'update', error));
   return data;
 }
 
 // Private helper to evaluate batch next actions
 function getBatchNextActions(batch = {}, plan = {}, hasFailures = false, hasRetryableRows = false) {
   const status = batch.import_status;
-  const isHeld = batch.metadata?.operatorHold?.active === true;
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
+  const isHeld = normalizeOperatorHold(metadata)?.active === true;
   const hasRejectedOrErrors = Number(batch.rejected_rows || 0) > 0 || Number(batch.error_count || 0) > 0;
 
   const allowed = [
@@ -445,7 +465,7 @@ function getBatchNextActions(batch = {}, plan = {}, hasFailures = false, hasRetr
   }
 
   // VIEW_EXECUTION_AUDIT
-  const draftExecuted = Boolean(batch.metadata?.draftImportExecuted);
+  const draftExecuted = Boolean(metadata.draftImportExecuted);
   if (draftExecuted || [WORKBOOK_IMPORT_STATUSES.IMPORTED_DRAFTS, WORKBOOK_IMPORT_STATUSES.PARTIALLY_IMPORTED_DRAFTS, WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT].includes(status)) {
     allowed.push('VIEW_EXECUTION_AUDIT');
   }

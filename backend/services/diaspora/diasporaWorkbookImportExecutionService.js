@@ -11,6 +11,10 @@ import {
   getDiasporaWorkbookImportBatch,
   listDiasporaWorkbookImportRows,
 } from './diasporaWorkbookReviewService.js';
+import {
+  normalizeOperatorHold,
+  normalizeWorkbookBatchMetadata,
+} from './diasporaWorkbookMetadataUtils.js';
 
 const IMPORT_PLAN_PAGE_SIZE = 500;
 const REVIEW_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government_reviewer', 'reviewer']);
@@ -79,6 +83,14 @@ function isUuid(value) {
 
 function safeUuid(value) {
   return isUuid(value) ? String(value) : null;
+}
+
+function safeDatabaseDetails(table, operation, error = {}) {
+  return {
+    table,
+    operation,
+    errorCode: error.code || null,
+  };
 }
 
 function payloadForAction(action = {}) {
@@ -428,7 +440,8 @@ export function buildDraftPayloadForAction(action, batch, userContext, options =
 export function assertWorkbookBatchExecutable(batch = {}, plan = {}, userContext = {}) {
   assertAuthenticated(userContext);
   const status = normalizeUpper(batch.import_status || batch.importStatus);
-  if (batch.metadata?.operatorHold?.active === true) {
+  const operatorHold = normalizeOperatorHold(normalizeWorkbookBatchMetadata(batch.metadata));
+  if (operatorHold?.active === true) {
     throw new ValidationError('WORKBOOK_BATCH_ON_OPERATOR_HOLD', {
       batchId: batch.id,
       importStatus: status,
@@ -468,7 +481,7 @@ async function insertDraftRecord(client, table, payload) {
     .insert(payload)
     .select()
     .single();
-  if (error) throw new DatabaseError(`Failed to create workbook draft record: ${error.message}`, { table });
+  if (error) throw new DatabaseError('Failed to create workbook draft record.', safeDatabaseDetails(table, 'insert', error));
   return data;
 }
 
@@ -525,7 +538,10 @@ export async function markWorkbookRowExecutionResult(rowId, result, userContext 
     .select()
     .single();
 
-  if (error) throw new DatabaseError(`Failed to update workbook row execution result: ${error.message}`, { rowId });
+  if (error) throw new DatabaseError('Failed to update workbook row execution result.', {
+    ...safeDatabaseDetails('diaspora_workbook_import_rows', 'update', error),
+    rowId,
+  });
   return data;
 }
 
@@ -534,7 +550,7 @@ export async function markWorkbookBatchExecutionResult(batchId, result, userCont
   if (!batchId) throw new ValidationError('Workbook batch id is required to mark execution result.');
   const client = options.supabaseClient || await defaultSupabaseClient();
   const metadata = {
-    ...(result.previousMetadata || {}),
+    ...normalizeWorkbookBatchMetadata(result.previousMetadata),
     phase: '1F',
     draftImportExecuted: Boolean(result.draftImportExecuted),
     liveImportExecuted: false,
@@ -557,7 +573,10 @@ export async function markWorkbookBatchExecutionResult(batchId, result, userCont
     .select()
     .single();
 
-  if (error) throw new DatabaseError(`Failed to update workbook batch execution result: ${error.message}`, { batchId });
+  if (error) throw new DatabaseError('Failed to update workbook batch execution result.', {
+    ...safeDatabaseDetails('diaspora_workbook_import_batches', 'update', error),
+    batchId,
+  });
   return data;
 }
 
@@ -609,7 +628,7 @@ export async function executeDiasporaWorkbookDraftImport(batchId, userContext = 
   const previousStatus = batch.import_status;
   await markWorkbookBatchExecutionResult(batch.id, {
     nextStatus: WORKBOOK_IMPORT_STATUSES.IMPORTING_DRAFTS,
-    previousMetadata: batch.metadata || {},
+    previousMetadata: batch.metadata,
     draftImportExecuted: false,
     summary: { started: true, phase: '1F' },
   }, userContext, { supabaseClient: client });
@@ -655,7 +674,7 @@ export async function executeDiasporaWorkbookDraftImport(batchId, userContext = 
   };
   await markWorkbookBatchExecutionResult(batch.id, {
     nextStatus,
-    previousMetadata: batch.metadata || {},
+    previousMetadata: batch.metadata,
     draftImportExecuted: counts.executedDrafts > 0,
     summary,
   }, userContext, { supabaseClient: client });

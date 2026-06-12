@@ -1,5 +1,6 @@
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
 import { WORKBOOK_IMPORT_STATUSES } from '../../constants/diaspora/diasporaWorkbookImportStatuses.js';
+import { normalizeWorkbookBatchMetadata } from './diasporaWorkbookMetadataUtils.js';
 
 const PLATFORM_REVIEW_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'government_reviewer', 'reviewer']);
 
@@ -88,6 +89,14 @@ function groupRows(rows = [], column) {
   }, {});
 }
 
+function safeDatabaseDetails(table, operation, error = {}) {
+  return {
+    table,
+    operation,
+    errorCode: error.code || null,
+  };
+}
+
 export async function listDiasporaWorkbookImportBatches(filters = {}, userContext = {}, options = {}) {
   assertAuthenticated(userContext);
   const client = options.supabaseClient || await defaultSupabaseClient();
@@ -105,7 +114,7 @@ export async function listDiasporaWorkbookImportBatches(filters = {}, userContex
   query = applyOptionalBatchFilters(query, filters);
 
   const { data, error } = await query;
-  if (error) throw new DatabaseError(`Failed to list workbook import batches: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to list workbook import batches.', safeDatabaseDetails('diaspora_workbook_import_batches', 'select', error));
 
   const rows = (data || []).filter((batch) => canAccessBatch(batch, userContext));
   return {
@@ -150,7 +159,7 @@ export async function listDiasporaWorkbookImportRows(batchId, filters = {}, user
   query = applyOptionalRowFilters(query, filters);
 
   const { data, error } = await query;
-  if (error) throw new DatabaseError(`Failed to list workbook import rows: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to list workbook import rows.', safeDatabaseDetails('diaspora_workbook_import_rows', 'select', error));
 
   return {
     data: data || [],
@@ -169,7 +178,7 @@ export async function getWorkbookImportBatchSummary(batchId, userContext = {}, o
     .eq('batch_id', batch.id)
     .is('deleted_at', null);
 
-  if (error) throw new DatabaseError(`Failed to summarize workbook import rows: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to summarize workbook import rows.', safeDatabaseDetails('diaspora_workbook_import_rows', 'select', error));
 
   const rows = data || [];
   const rowsByValidationStatus = groupRows(rows, 'validation_status');
@@ -232,7 +241,7 @@ async function updateBatchReviewStatus(batchId, nextStatus, userContext = {}, op
   if (nextStatus === WORKBOOK_IMPORT_STATUSES.READY_FOR_REVIEW) assertCanMarkReady(batch);
 
   const metadata = {
-    ...(batch.metadata || {}),
+    ...normalizeWorkbookBatchMetadata(batch.metadata),
     phase: '1D',
     reviewAction: nextStatus === WORKBOOK_IMPORT_STATUSES.CANCELLED ? 'cancelled' : 'marked_ready_for_review',
     reviewActionAt: new Date().toISOString(),
@@ -252,7 +261,7 @@ async function updateBatchReviewStatus(batchId, nextStatus, userContext = {}, op
     .select()
     .single();
 
-  if (error) throw new DatabaseError(`Failed to update workbook import batch review status: ${error.message}`, error);
+  if (error) throw new DatabaseError('Failed to update workbook import batch review status.', safeDatabaseDetails('diaspora_workbook_import_batches', 'update', error));
   return {
     data,
     liveImportExecuted: false,
