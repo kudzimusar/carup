@@ -53,18 +53,18 @@ export default function VerificationReview() {
             Review Captures
           </Text>
           <Text style={{ color: '#94a3b8', fontSize: 14, lineHeight: 20, marginBottom: 24 }}>
-            Our on-device model completed document readability scans. Please confirm all details are readable before upload.
+            Please confirm all details are readable before upload.
           </Text>
 
           <View style={{ padding: 20, backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552', borderRadius: 16, marginBottom: 32 }}>
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 12 }}>Local AI Quality Diagnostics</Text>
-            
+            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 12 }}>Manual Quality Checklist</Text>
+
             <View style={{ gap: 12 }}>
               {[
-                { label: 'Image Resolution', value: '12.2 MP (HD) ✓' },
-                { label: 'Blur / Focus check', value: 'Sharp Focus ✓' },
-                { label: 'Reflective Glare', value: 'No Glare Detected ✓' },
-                { label: 'Brightness Validation', value: 'Well-Lit ✓' },
+                { label: 'Document fully in frame', value: 'Confirm below' },
+                { label: 'Text is sharp, not blurred', value: 'Confirm below' },
+                { label: 'No reflective glare', value: 'Confirm below' },
+                { label: 'Photo is well-lit', value: 'Confirm below' },
               ].map((item) => (
                 <View key={item.label} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#1e293b' }}>
                   <Text style={{ color: '#94a3b8', fontSize: 11 }}>{item.label}</Text>
@@ -103,7 +103,7 @@ export default function VerificationReview() {
                 <View style={{ width: 40, height: 40, backgroundColor: 'rgba(99,102,241,0.1)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                   <Text style={{ fontSize: 16 }}>👤</Text>
                 </View>
-                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Biometric Liveness Selfie</Text>
+                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '500' }}>Selfie (liveness deferred)</Text>
               </View>
               <Text style={{ color: '#34d399', fontSize: 11, fontWeight: 'bold' }}>READY</Text>
             </View>
