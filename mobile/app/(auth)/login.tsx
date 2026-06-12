@@ -5,7 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginSchema } from '@shared/schemas';
 import { useAuthStore } from '../../store/authStore';
-import { getVerificationApiBaseUrl } from '../../utils/verificationApi';
+import { fetchCsrfToken, getVerificationApiBaseUrl } from '../../utils/verificationApi';
 import { z } from 'zod';
 
 type LoginFormValues = z.infer<typeof LoginSchema>;
@@ -54,10 +54,14 @@ export default function LoginScreen() {
     setServerError(null);
     try {
       const baseUrl = getVerificationApiBaseUrl();
+      // Mutating routes require a signed CSRF token; pre-login it is bound
+      // to the guest context (no session token yet).
+      const csrfToken = await fetchCsrfToken(baseUrl, null);
       const response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken,
         },
         body: JSON.stringify(data),
       });

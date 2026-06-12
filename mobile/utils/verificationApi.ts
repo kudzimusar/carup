@@ -93,15 +93,71 @@ async function authHeaders() {
   return headers;
 }
 
+// The backend's csrfMiddleware requires a signed x-csrf-token on every
+// mutating request, bound to the x-session-token it is used with (web's
+// apiClient follows the same contract). Cache one token per session.
+const CSRF_TOKEN_TTL_MS = 90 * 60 * 1000;
+let csrfCache: { sessionKey: string; token: string; fetchedAt: number } | null = null;
+
+export async function fetchCsrfToken(baseUrl: string, sessionToken: string | null): Promise<string> {
+  const headers: Record<string, string> = {};
+  if (sessionToken) {
+    headers['x-session-token'] = sessionToken;
+  }
+  const response = await fetch(`${baseUrl}/api/security/csrf-token`, { headers });
+  if (!response.ok) {
+    throw new VerificationApiError(`Failed to obtain CSRF token (HTTP ${response.status}).`, response.status);
+  }
+  const body = await response.json();
+  if (!body?.csrfToken) {
+    throw new VerificationApiError('CSRF token missing from security endpoint response.', response.status);
+  }
+  return body.csrfToken;
+}
+
+async function getCsrfToken(baseUrl: string, forceRefresh = false): Promise<string> {
+  const { useAuthStore } = await import('../store/authStore');
+  const sessionToken = useAuthStore.getState().token;
+  const sessionKey = sessionToken || 'none';
+
+  if (
+    !forceRefresh &&
+    csrfCache &&
+    csrfCache.sessionKey === sessionKey &&
+    Date.now() - csrfCache.fetchedAt < CSRF_TOKEN_TTL_MS
+  ) {
+    return csrfCache.token;
+  }
+
+  const token = await fetchCsrfToken(baseUrl, sessionToken);
+  csrfCache = { sessionKey, token, fetchedAt: Date.now() };
+  return token;
+}
+
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 async function requestJson<T>(path: string, options: RequestInit = {}): Promise<T> {
   const baseUrl = getVerificationApiBaseUrl();
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
+  const method = (options.method || 'GET').toUpperCase();
+
+  const performRequest = async (forceCsrfRefresh: boolean) => {
+    const headers: Record<string, string> = {
       ...(await authHeaders()),
-      ...(options.headers || {}),
-    },
-  });
+      ...((options.headers as Record<string, string>) || {}),
+    };
+    if (MUTATING_METHODS.has(method)) {
+      headers['x-csrf-token'] = await getCsrfToken(baseUrl, forceCsrfRefresh);
+    }
+    return fetch(`${baseUrl}${path}`, { ...options, headers });
+  };
+
+  let response = await performRequest(false);
+
+  // A 403 on a mutating request usually means the cached CSRF token went
+  // stale (expired or session changed) — refresh it once and retry.
+  if (response.status === 403 && MUTATING_METHODS.has(method)) {
+    response = await performRequest(true);
+  }
 
   if (!response.ok) {
     let message = `Verification API returned HTTP ${response.status}`;
