@@ -14,18 +14,48 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ---------------------------------------------------------------
 -- 1. Auth: session + login bookkeeping (Postgres port of 002)
+--
+-- The live database already has a user_sessions table created from the
+-- 003 (SQLite-flavored) schema: TEXT id/created_at/expires_at with no
+-- defaults and active_role NOT NULL, later patched with token/is_valid
+-- columns. /api/auth/login inserts only
+-- {user_id, token, ip_address, user_agent, expires_at, is_valid}, so
+-- its insert violated the legacy NOT NULL columns. The DO block below
+-- backfills defaults so that insert works, without disturbing existing
+-- rows or other writers. The CREATE TABLE covers fresh databases.
 -- ---------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS user_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token TEXT NOT NULL UNIQUE,
+  token TEXT UNIQUE,
+  active_role TEXT NOT NULL DEFAULT 'member',
   ip_address TEXT,
   user_agent TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TEXT NOT NULL DEFAULT now()::text,
+  expires_at TEXT NOT NULL,
   is_valid BOOLEAN DEFAULT true
 );
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'user_sessions' AND column_name = 'id'
+               AND column_default IS NULL) THEN
+    ALTER TABLE user_sessions ALTER COLUMN id SET DEFAULT gen_random_uuid()::text;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'user_sessions' AND column_name = 'active_role'
+               AND column_default IS NULL) THEN
+    ALTER TABLE user_sessions ALTER COLUMN active_role SET DEFAULT 'member';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'user_sessions' AND column_name = 'created_at'
+               AND column_default IS NULL AND data_type = 'text') THEN
+    ALTER TABLE user_sessions ALTER COLUMN created_at SET DEFAULT now()::text;
+  END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
 
