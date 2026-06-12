@@ -27,7 +27,13 @@ import type {
   DiasporaCargoReservation,
   DiasporaCargoReservationPayload,
   DiasporaShipment,
-  DiasporaContainerShipment
+  DiasporaContainerShipment,
+  DiasporaWorkbookOperatorBatchSummary,
+  DiasporaWorkbookOperatorDashboard,
+  DiasporaWorkbookOperatorDashboardFilters,
+  DiasporaWorkbookOperatorHold,
+  DiasporaWorkbookOperatorNextActions,
+  DiasporaWorkbookOperatorNote
 } from '@/types'
 
 
@@ -381,6 +387,49 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const fetchDiasporaWorkbookOperatorDashboard = useCallback(async (filters?: DiasporaWorkbookOperatorDashboardFilters): Promise<DiasporaWorkbookOperatorDashboard> => {
+    const query = filters
+      ? '?' + new URLSearchParams(
+        Object.entries(filters)
+          .filter(([, value]) => value !== undefined && value !== '')
+          .map(([key, value]) => [key, String(value)])
+      ).toString()
+      : ''
+    return request<DiasporaWorkbookOperatorDashboard>(`/diaspora/workbook/operator-dashboard${query}`)
+  }, [request])
+
+  const fetchDiasporaWorkbookOperatorBatchSummary = useCallback(async (batchId: string): Promise<DiasporaWorkbookOperatorBatchSummary> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorBatchSummary }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-summary`)
+    return response.data
+  }, [request])
+
+  const fetchDiasporaWorkbookOperatorNextActions = useCallback(async (batchId: string): Promise<DiasporaWorkbookOperatorNextActions> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorNextActions }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/next-actions`)
+    return response.data
+  }, [request])
+
+  const addDiasporaWorkbookOperatorNote = useCallback(async (batchId: string, note: string): Promise<{ data?: unknown; note: DiasporaWorkbookOperatorNote }> => {
+    return request<{ data?: unknown; note: DiasporaWorkbookOperatorNote }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-notes`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    })
+  }, [request])
+
+  const setDiasporaWorkbookOperatorHold = useCallback(async (batchId: string, reason: string): Promise<DiasporaWorkbookOperatorHold> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorHold }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-hold`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+    return response.data
+  }, [request])
+
+  const clearDiasporaWorkbookOperatorHold = useCallback(async (batchId: string): Promise<DiasporaWorkbookOperatorHold> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorHold }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-hold`, {
+      method: 'DELETE',
+    })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -678,6 +727,12 @@ export function useCarUpApi() {
     updateDiasporaReservationStatus,
     createDiasporaShipment,
     updateDiasporaShipmentStage,
+    fetchDiasporaWorkbookOperatorDashboard,
+    fetchDiasporaWorkbookOperatorBatchSummary,
+    fetchDiasporaWorkbookOperatorNextActions,
+    addDiasporaWorkbookOperatorNote,
+    setDiasporaWorkbookOperatorHold,
+    clearDiasporaWorkbookOperatorHold,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
