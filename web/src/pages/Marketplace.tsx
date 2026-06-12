@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -10,12 +10,26 @@ import {
 import { Slider } from '@/components/ui/slider'
 import { Separator } from '@/components/ui/separator'
 import {
-  Search, SlidersHorizontal, CheckCircle, Heart, MapPin, Gauge, Fuel, Settings2, X, Loader2
+  Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetFooter,
+} from '@/components/ui/sheet'
+import {
+  Search, SlidersHorizontal, CheckCircle, Heart, MapPin, Gauge, Fuel, Settings2, X, Loader2, ShieldCheck,
 } from 'lucide-react'
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
+import {
+  paramsToState,
+  stateToParams,
+  stateToApiFilters,
+  getActiveFilterChips,
+  getResultSummary,
+  TRUST_QUICK_FILTERS,
+  ALL,
+} from '@/lib/marketplaceParams'
+import type { MarketplaceUrlState, MarketplaceSort, ActiveFilterKey } from '@/lib/marketplaceParams'
 
 const categories = ['All', 'Sedan', 'SUV', 'Hatchback', 'Pickup', 'Luxury', 'Commercial']
 const conditions = ['All', 'New', 'Used', 'Certified Pre-Owned']
@@ -199,44 +213,253 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
   }
 }
 
+interface FilterControlsProps {
+  selectedMake: string
+  setSelectedMake: (value: string) => void
+  selectedCategory: string
+  setSelectedCategory: (value: string) => void
+  selectedCondition: string
+  setSelectedCondition: (value: string) => void
+  selectedLocation: string
+  setSelectedLocation: (value: string) => void
+  selectedFuel: string
+  setSelectedFuel: (value: string) => void
+  selectedTrans: string
+  setSelectedTrans: (value: string) => void
+  priceRange: number[]
+  setPriceRange: (value: number[]) => void
+}
+
+/**
+ * Advanced filter controls, shared by the desktop panel and the mobile drawer.
+ * Note: make + price are part of the URL contract; category(body type)/condition/
+ * location/fuel/transmission remain client-side refinements only (see marketplaceParams.ts).
+ */
+function FilterControls(props: FilterControlsProps) {
+  const {
+    selectedMake, setSelectedMake,
+    selectedCategory, setSelectedCategory,
+    selectedCondition, setSelectedCondition,
+    selectedLocation, setSelectedLocation,
+    selectedFuel, setSelectedFuel,
+    selectedTrans, setSelectedTrans,
+    priceRange, setPriceRange,
+  } = props
+
+  return (
+    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div>
+        <label className="text-sm font-medium mb-1.5 block">Make</label>
+        <Select value={selectedMake} onValueChange={setSelectedMake}>
+          <SelectTrigger data-testid="marketplace-make-filter"><SelectValue /></SelectTrigger>
+          <SelectContent>{makes.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="text-sm font-medium mb-1.5 block">Body type</label>
+        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="text-sm font-medium mb-1.5 block">Condition</label>
+        <Select value={selectedCondition} onValueChange={setSelectedCondition}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>{conditions.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="text-sm font-medium mb-1.5 block">Location</label>
+        <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Locations</SelectItem>
+            {zimbabweLocations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="text-sm font-medium mb-1.5 block">Fuel Type</label>
+        <Select value={selectedFuel} onValueChange={setSelectedFuel}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>{fuelTypes.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="text-sm font-medium mb-1.5 block">Transmission</label>
+        <Select value={selectedTrans} onValueChange={setSelectedTrans}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>{transmissions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div className="sm:col-span-2">
+        <label className="text-sm font-medium mb-1.5 block">
+          Price Range: ${priceRange[0].toLocaleString()} - ${priceRange[1].toLocaleString()}
+        </label>
+        <div className="flex items-center gap-2 mb-3">
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            placeholder="Min $"
+            aria-label="Minimum price"
+            data-testid="marketplace-price-min-filter"
+            value={priceRange[0] > 0 ? priceRange[0] : ''}
+            onChange={(e) => {
+              const n = Number(e.target.value)
+              const min = Number.isFinite(n) && n > 0 ? Math.min(n, priceRange[1]) : 0
+              setPriceRange([min, priceRange[1]])
+            }}
+          />
+          <span className="text-gray-400">–</span>
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            placeholder="No max"
+            aria-label="Maximum price"
+            data-testid="marketplace-price-max-filter"
+            value={priceRange[1] < 100000 ? priceRange[1] : ''}
+            onChange={(e) => {
+              const n = Number(e.target.value)
+              const max = Number.isFinite(n) && n > 0 ? Math.max(n, priceRange[0]) : 100000
+              setPriceRange([priceRange[0], max])
+            }}
+          />
+        </div>
+        <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} className="mt-1" />
+      </div>
+    </div>
+  )
+}
+
 export default function Marketplace() {
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const { fetchMarketplaceListings, fetchVehicles } = useCarUpApi()
+  const isMobile = useIsMobile()
+
+  // The URL is the single source of truth for the shareable, structural filters. Deriving them
+  // straight from searchParams means browser back/forward and deep-links update the page for free.
+  const url = useMemo(() => paramsToState(searchParams), [searchParams])
+  const selectedMake = url.selectedMake
+  const selectedCategoryChip = url.selectedCategoryChip
+  const sortBy = url.sortBy
+  // Committed (URL) price drives the API fetch; the live `priceRange` draft below drives the slider
+  // and instant client-side filtering. They diverge only while the user is dragging/typing.
+  const committedMinPrice = url.priceRange[0]
+  const committedMaxPrice = url.priceRange[1]
+
+  // Free-flowing controls keep a local draft for instant feedback, mirrored to the URL on change.
+  const [searchQuery, setSearchQuery] = useState(url.searchQuery)
+  const [priceRange, setPriceRange] = useState<number[]>(url.priceRange)
+
   const [liveVehicles, setLiveVehicles] = useState<Vehicle[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
 
-  const [searchQuery, setSearchQuery] = useState('')
+  // Client-side-only refinements (not yet in the URL contract — see marketplaceParams.ts / Phase 6)
   const [selectedCategory, setSelectedCategory] = useState('All')
-  const [selectedMake, setSelectedMake] = useState('All')
   const [selectedCondition, setSelectedCondition] = useState('All')
   const [selectedFuel, setSelectedFuel] = useState('All')
   const [selectedTrans, setSelectedTrans] = useState('All')
   const [selectedLocation, setSelectedLocation] = useState('All')
-  const [selectedCategoryChip, setSelectedCategoryChip] = useState('All')
-  const [priceRange, setPriceRange] = useState([0, 100000])
-  const [showFilters, setShowFilters] = useState(false)
-  const [sortBy, setSortBy] = useState('newest')
 
+  const [showFilters, setShowFilters] = useState(false)
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+
+  // Merge a filter patch into the URL. Structural changes (make/chip/sort) push a history entry so
+  // back/forward step between filter states; free-text/price changes replace it to avoid history spam.
+  const updateUrl = useCallback((patch: Partial<MarketplaceUrlState>, replace = false) => {
+    setSearchParams(prev => stateToParams({ ...paramsToState(prev), ...patch }), { replace })
+  }, [setSearchParams])
+
+  const setMakeFilter = (value: string) => updateUrl({ selectedMake: value })
+  const setChipFilter = (value: string) => updateUrl({ selectedCategoryChip: value })
+  const setSortFilter = (value: string) => updateUrl({ sortBy: value as MarketplaceSort })
+  const setSearchFilter = (value: string) => { setSearchQuery(value); updateUrl({ searchQuery: value }, true) }
+
+  const filterState: MarketplaceUrlState = {
+    searchQuery,
+    selectedMake,
+    selectedCategoryChip,
+    priceRange: [priceRange[0], priceRange[1]],
+    sortBy,
+  }
+
+  // Latest search text, read by the fetch effect so typing filters client-side instantly without a
+  // network round-trip per keystroke.
+  const searchQueryRef = useRef(searchQuery)
+  useEffect(() => { searchQueryRef.current = searchQuery }, [searchQuery])
+
+  // Pull local drafts back into sync when the URL changes externally (back/forward, deep-links).
+  // Functional updaters that return the previous value when unchanged stop our own writes from
+  // clobbering in-progress typing (e.g. a trailing space the URL trims away).
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setSearchQuery(prev => (prev.trim() === url.searchQuery ? prev : url.searchQuery))
+    setPriceRange(prev => (prev[0] === url.priceRange[0] && prev[1] === url.priceRange[1] ? prev : url.priceRange))
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [url])
+
+  // Phase 1.1: debounce price -> URL. Dragging the slider or editing the min/max inputs updates the
+  // local `priceRange` instantly (live client-side filtering + slider position), but the committed
+  // value is only written to the URL after a short pause — so price changes no longer fire an API
+  // refetch on every drag tick / keystroke. The selected price still updates the URL and the results.
+  useEffect(() => {
+    if (priceRange[0] === url.priceRange[0] && priceRange[1] === url.priceRange[1]) return
+    const timer = setTimeout(() => {
+      updateUrl({ priceRange: [priceRange[0], priceRange[1]] }, true)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [priceRange, url, updateUrl])
+
+  // Re-fetch when backend-supported structural filters change (make/chip/sort + the COMMITTED price).
+  // Search text (q) and the live price draft don't re-trigger this: q is read via a ref and price via
+  // the committed URL value — so typing and dragging the price slider never fire a network request.
+  useEffect(() => {
+    let cancelled = false
+    const apiFilters = stateToApiFilters({
+      searchQuery: searchQueryRef.current,
+      selectedMake,
+      selectedCategoryChip,
+      priceRange: [committedMinPrice, committedMaxPrice],
+      sortBy,
+    }) as Record<string, string | number | boolean | undefined>
+    // Standard data-fetch loading reset: the listings API is an external system this effect drives.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setLoadingVehicles(true)
-    fetchMarketplaceListings()
+    setLoadError(false)
+    /* eslint-enable react-hooks/set-state-in-effect */
+    fetchMarketplaceListings(apiFilters)
       .then((data) => {
+        if (cancelled) return
         if (data && Array.isArray(data.listings)) {
-          setLiveVehicles(data.listings.length > 0 ? data.listings.map(marketplaceSummaryToVehicle) : mockVehicles as unknown as Vehicle[])
-        }
-      })
-      .catch(async (err) => {
-        console.error('Failed to fetch marketplace listing summaries:', err)
-        try {
-          const data = await fetchVehicles()
-          setLiveVehicles(data.length > 0 ? data : mockVehicles as unknown as Vehicle[])
-        } catch (fallbackErr) {
-          console.error('Failed to fetch marketplace vehicles:', fallbackErr)
+          setLiveVehicles(data.listings.length > 0 ? data.listings.map(marketplaceSummaryToVehicle) : (mockVehicles as unknown as Vehicle[]))
+        } else {
           setLiveVehicles(mockVehicles as unknown as Vehicle[])
         }
       })
-      .finally(() => setLoadingVehicles(false))
-  }, [fetchMarketplaceListings, fetchVehicles])
+      .catch(async (err) => {
+        if (cancelled) return
+        console.error('Failed to fetch marketplace listing summaries:', err)
+        try {
+          const data = await fetchVehicles(apiFilters)
+          if (cancelled) return
+          setLiveVehicles(data.length > 0 ? data : (mockVehicles as unknown as Vehicle[]))
+          setLoadError(true)
+        } catch (fallbackErr) {
+          if (cancelled) return
+          console.error('Failed to fetch marketplace vehicles:', fallbackErr)
+          setLiveVehicles(mockVehicles as unknown as Vehicle[])
+          setLoadError(true)
+        }
+      })
+      .finally(() => { if (!cancelled) setLoadingVehicles(false) })
+    return () => { cancelled = true }
+  }, [selectedMake, selectedCategoryChip, committedMinPrice, committedMaxPrice, sortBy, fetchMarketplaceListings, fetchVehicles])
 
   const toggleFavorite = useCallback((e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
     e.preventDefault()
@@ -252,7 +475,7 @@ export default function Marketplace() {
     }
     setFavorites(updated)
     setFavoritesState(updated)
-  }, [])
+  }, [setFavoritesState])
 
   const filtered = liveVehicles.filter((v: Vehicle) => {
     const loc = v.location || ''
@@ -307,13 +530,35 @@ export default function Marketplace() {
   ].filter(Boolean).length
 
   const resetFilters = () => {
-    setSelectedCategory('All'); setSelectedMake('All'); setSelectedCondition('All')
+    setSelectedCategory('All'); setSelectedCondition('All')
     setSelectedFuel('All'); setSelectedTrans('All'); setSelectedLocation('All')
-    setSelectedCategoryChip('All'); setPriceRange([0, 100000]); setSearchQuery('')
+    setSearchQuery(''); setPriceRange([0, 100000])
+    setSearchParams(new URLSearchParams(), { replace: false })
   }
 
+  const activeChips = getActiveFilterChips(filterState)
+  const removeChip = (key: ActiveFilterKey) => {
+    if (key === 'make') updateUrl({ selectedMake: ALL })
+    else if (key === 'q') setSearchFilter('')
+    else if (key === 'chip') updateUrl({ selectedCategoryChip: ALL })
+    else if (key === 'price') updateUrl({ priceRange: [0, 100000] }, true)
+    else if (key === 'sort') updateUrl({ sortBy: 'newest' })
+  }
+
+  const filterControls = (
+    <FilterControls
+      selectedMake={selectedMake} setSelectedMake={setMakeFilter}
+      selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory}
+      selectedCondition={selectedCondition} setSelectedCondition={setSelectedCondition}
+      selectedLocation={selectedLocation} setSelectedLocation={setSelectedLocation}
+      selectedFuel={selectedFuel} setSelectedFuel={setSelectedFuel}
+      selectedTrans={selectedTrans} setSelectedTrans={setSelectedTrans}
+      priceRange={priceRange} setPriceRange={setPriceRange}
+    />
+  )
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" data-testid="marketplace-page">
       {/* Header */}
       <div className="bg-white border-b">
         <div className="section-padding mx-auto max-w-[1440px] py-8">
@@ -326,41 +571,109 @@ export default function Marketplace() {
 
       <div className="section-padding mx-auto max-w-[1440px] py-6">
         {/* Search & Sort Bar */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          <div className="relative flex-1 min-w-[250px]">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center mb-4">
+          <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
               placeholder="Search make, model, location, VIN, plate, chassis, or seller type..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchFilter(e.target.value)}
               className="pl-10"
               data-testid="marketplace-search-input"
             />
           </div>
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">Newest First</SelectItem>
-              <SelectItem value="price-low">Price: Low to High</SelectItem>
-              <SelectItem value="price-high">Price: High to Low</SelectItem>
-              <SelectItem value="trust">Highest Trust Score</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant={showFilters ? 'default' : 'outline'}
-            className={showFilters ? 'bg-orange-500 hover:bg-orange-600' : ''}
-            onClick={() => setShowFilters(!showFilters)}
-          >
-            <SlidersHorizontal className="w-4 h-4 mr-2" />
-            Filters
-            {activeFilterCount > 0 && (
-              <Badge variant="secondary" className="ml-2 text-[10px]">{activeFilterCount}</Badge>
+          <div className="flex items-center gap-2">
+            <Select value={sortBy} onValueChange={setSortFilter}>
+              <SelectTrigger className="w-[150px] sm:w-[170px]" data-testid="marketplace-sort-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="price-low">Price: Low to High</SelectItem>
+                <SelectItem value="price-high">Price: High to Low</SelectItem>
+                <SelectItem value="trust">Highest Trust Score</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {isMobile ? (
+              <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="outline" data-testid="marketplace-mobile-filter-button">
+                    <SlidersHorizontal className="w-4 h-4 mr-2" />
+                    Filters
+                    {activeFilterCount > 0 && (
+                      <Badge variant="secondary" className="ml-2 text-[10px]">{activeFilterCount}</Badge>
+                    )}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent
+                  side="left"
+                  className="w-[88%] max-w-sm overflow-y-auto"
+                  data-testid="marketplace-mobile-filter-drawer"
+                >
+                  <SheetHeader>
+                    <SheetTitle>Filters</SheetTitle>
+                  </SheetHeader>
+                  <div className="px-4 pb-2">
+                    {filterControls}
+                  </div>
+                  <SheetFooter className="flex-row gap-2">
+                    <Button variant="ghost" className="flex-1" onClick={resetFilters}>
+                      Clear all
+                    </Button>
+                    <Button
+                      className="flex-1 bg-orange-500 hover:bg-orange-600"
+                      onClick={() => setMobileFiltersOpen(false)}
+                      data-testid="marketplace-mobile-filter-close"
+                    >
+                      Show results
+                    </Button>
+                  </SheetFooter>
+                </SheetContent>
+              </Sheet>
+            ) : (
+              <Button
+                variant={showFilters ? 'default' : 'outline'}
+                className={showFilters ? 'bg-orange-500 hover:bg-orange-600' : ''}
+                onClick={() => setShowFilters(!showFilters)}
+              >
+                <SlidersHorizontal className="w-4 h-4 mr-2" />
+                Filters
+                {activeFilterCount > 0 && (
+                  <Badge variant="secondary" className="ml-2 text-[10px]">{activeFilterCount}</Badge>
+                )}
+              </Button>
             )}
-          </Button>
+          </div>
         </div>
 
+        {/* Quick filters (trust tags + condition categories) */}
+        <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
+          <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-gray-500">
+            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Quick filters
+          </span>
+          {TRUST_QUICK_FILTERS.map(filter => {
+            const active = selectedCategoryChip === filter.label
+            return (
+              <button
+                key={filter.label}
+                type="button"
+                data-testid={filter.testId}
+                aria-pressed={active}
+                onClick={() => setChipFilter(active ? 'All' : filter.label)}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  active
+                    ? 'border-orange-500 bg-orange-50 text-orange-700'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
+                }`}
+              >
+                {filter.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Marketplace category taxonomy */}
         <div className="mb-6 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -370,7 +683,7 @@ export default function Marketplace() {
               </p>
             </div>
             {selectedCategoryChip !== 'All' && (
-              <Button variant="ghost" size="sm" onClick={() => setSelectedCategoryChip('All')}>
+              <Button variant="ghost" size="sm" onClick={() => setChipFilter('All')}>
                 Clear category
               </Button>
             )}
@@ -380,7 +693,7 @@ export default function Marketplace() {
               <button
                 key={chip}
                 type="button"
-                onClick={() => setSelectedCategoryChip(chip)}
+                onClick={() => setChipFilter(chip)}
                 className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
                   selectedCategoryChip === chip
                     ? 'border-orange-500 bg-orange-50 text-orange-700'
@@ -394,8 +707,36 @@ export default function Marketplace() {
           </div>
         </div>
 
-        {/* Filters */}
-        {showFilters && (
+        {/* Active filters */}
+        {activeChips.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2" data-testid="marketplace-active-filters">
+            <span className="text-xs font-medium text-gray-500">Active:</span>
+            {activeChips.map(chip => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => removeChip(chip.key)}
+                data-testid="marketplace-active-filter-chip"
+                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-100"
+              >
+                {chip.label}
+                <X className="h-3 w-3" />
+              </button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetFilters}
+              data-testid="marketplace-clear-filters"
+              className="text-xs text-gray-600"
+            >
+              Clear all
+            </Button>
+          </div>
+        )}
+
+        {/* Desktop Filters Panel */}
+        {!isMobile && showFilters && (
           <Card className="mb-6 border-0 card-shadow">
             <CardContent className="p-5">
               <div className="flex items-center justify-between mb-4">
@@ -404,66 +745,29 @@ export default function Marketplace() {
                   <X className="w-4 h-4 mr-1" /> Reset
                 </Button>
               </div>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Make</label>
-                  <Select value={selectedMake} onValueChange={setSelectedMake}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{makes.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Category</label>
-                  <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Condition</label>
-                  <Select value={selectedCondition} onValueChange={setSelectedCondition}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{conditions.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Location</label>
-                  <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="All">All Locations</SelectItem>
-                      {zimbabweLocations.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Fuel Type</label>
-                  <Select value={selectedFuel} onValueChange={setSelectedFuel}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{fuelTypes.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-1.5 block">Transmission</label>
-                  <Select value={selectedTrans} onValueChange={setSelectedTrans}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{transmissions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="text-sm font-medium mb-1.5 block">
-                    Price Range: ${priceRange[0].toLocaleString()} - ${priceRange[1].toLocaleString()}
-                  </label>
-                  <Slider value={priceRange} onValueChange={setPriceRange} max={100000} step={1000} className="mt-3" />
-                </div>
+              <div data-testid="marketplace-filter-sidebar">
+                {filterControls}
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Results Count */}
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-sm text-gray-600">
+        {/* Fallback notice */}
+        {loadError && !loadingVehicles && (
+          <div
+            className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800"
+            data-testid="marketplace-error-state"
+          >
+            Showing sample marketplace listings while live data is unavailable.
+          </div>
+        )}
+
+        {/* Result summary + count */}
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-medium text-gray-800" data-testid="marketplace-results-summary">
+            {getResultSummary(filterState)}
+          </p>
+          <p className="text-sm text-gray-600" data-testid="marketplace-results-count">
             {loadingVehicles
               ? <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading vehicles...</span>
               : <><span className="font-semibold">{sorted.length}</span> vehicles found</>
@@ -473,18 +777,18 @@ export default function Marketplace() {
 
         {/* Grid */}
         {loadingVehicles ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="marketplace-loading-state">
             {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
         ) : sorted.length === 0 ? (
-          <div className="text-center py-20">
+          <div className="text-center py-20" data-testid="marketplace-empty-state">
             <Search className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No vehicles found</h3>
-            <p className="text-gray-500 mb-4">Try adjusting your filters or search term</p>
-            <Button variant="outline" onClick={resetFilters}>Reset Filters</Button>
+            <h3 className="text-lg font-semibold mb-2">No matching vehicles found</h3>
+            <p className="text-gray-500 mb-4">Try removing a filter or broadening your search term.</p>
+            <Button variant="outline" onClick={resetFilters}>Clear all filters</Button>
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="marketplace-results-grid">
             {sorted.map((vehicle: Vehicle) => {
               const isFav = favorites.includes(vehicle.vin || '')
               const isReserved = vehicle.status === 'reserved' || vehicle.status === 'Reserved'

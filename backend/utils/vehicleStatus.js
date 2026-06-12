@@ -1,6 +1,4 @@
 const PUBLIC_VEHICLE_STATUSES = ['Available', 'Reserved', 'available', 'reserved', 'ACTIVE', 'RESERVED'];
-const QUARANTINED_VEHICLE_STATUSES = ['Suspended', 'Flagged', 'Banned'];
-const MARKETPLACE_RESTORED_STATUSES = ['Available', 'Reserved'];
 
 const STATUS_ALIASES = new Map([
   ['available', 'Available'],
@@ -31,9 +29,12 @@ export function isPublicVehicleStatus(status) {
 }
 
 export function isVehicleQuarantinedStatus(status) {
-  return QUARANTINED_VEHICLE_STATUSES.includes(normalizeVehicleStatus(status));
+  const norm = normalizeVehicleStatus(status);
+  return norm === 'Suspended' || norm === 'Banned' || norm === 'Flagged';
 }
 
 export function isVehicleRestoredToMarketplaceStatus(status) {
-  return MARKETPLACE_RESTORED_STATUSES.includes(normalizeVehicleStatus(status));
+  const norm = normalizeVehicleStatus(status);
+  return norm === 'Available';
 }
+

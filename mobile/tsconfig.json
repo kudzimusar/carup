@@ -13,6 +13,12 @@
       "node"
     ],
     "paths": {
+      "@types/react": [
+        "./node_modules/@types/react"
+      ],
+      "@types/react/*": [
+        "./node_modules/@types/react/*"
+      ],
       "@/*": [
         "./*"
       ],
@@ -25,7 +31,8 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "expo-env.d.ts",
+    "nativewind-env.d.ts"
   ],
   "exclude": [
     "node_modules",

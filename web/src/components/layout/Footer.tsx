@@ -1,39 +1,32 @@
 import { Link } from 'react-router-dom'
 import { Car, Mail, Phone, MapPin, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react'
-
-const footerLinks = {
-  Product: [
-    { label: 'Buy Cars', href: '/marketplace' },
-    { label: 'Verify Vehicle', href: '/search' },
-    { label: 'Dealers', href: '/dealers' },
-    { label: 'Garages', href: '/garages' },
-    { label: 'Insurance', href: '/insurance' },
-    { label: 'Pricing', href: '/pricing' },
-  ],
-  Company: [
-    { label: 'About CarUp', href: '/about' },
-    { label: 'Contact Us', href: '/contact' },
-    { label: 'Careers', href: '/careers' },
-    { label: 'Press Kit', href: '/press' },
-    { label: 'Blog', href: '/blog' },
-  ],
-  Resources: [
-    { label: 'Help Center', href: '/help' },
-    { label: 'Trust & Safety', href: '/trust' },
-    { label: 'Privacy Policy', href: '/privacy' },
-    { label: 'Terms of Service', href: '/terms' },
-    { label: 'API Documentation', href: '/api-docs' },
-  ],
-  Stakeholders: [
-    { label: 'Car Owners', href: '/dashboard' },
-    { label: 'Dealers', href: '/dealer' },
-    { label: 'Mechanics', href: '/mechanic' },
-    { label: 'Insurance', href: '/insurance-dash' },
-    { label: 'Government', href: '/government' },
-  ],
-}
+import { getPublicFooterItems, getAllRoles, getRoleMetadata, getDashboardRoute } from '@/config/featureRegistry'
 
 export default function Footer() {
+  const getStakeholderLabel = (title: string) => {
+    if (title === 'Car Owner') return 'Car Owners'
+    if (title === 'Dealer') return 'Dealers'
+    if (title === 'Mechanic') return 'Mechanics'
+    if (title === 'Insurance') return 'Insurance'
+    if (title === 'Government') return 'Government'
+    if (title === 'Banker') return 'Bankers'
+    return `${title}s`
+  }
+
+  const footerLinks = {
+    Product: getPublicFooterItems('Product').map(item => ({ label: item.label, href: item.route })),
+    Company: getPublicFooterItems('Company').map(item => ({ label: item.label, href: item.route })),
+    Resources: getPublicFooterItems('Resources').map(item => ({ label: item.label, href: item.route })),
+    Stakeholders: getAllRoles()
+      .filter(role => role !== 'admin')
+      .map(role => {
+        const metadata = getRoleMetadata(role)
+        return {
+          label: getStakeholderLabel(metadata.title),
+          href: getDashboardRoute(role)
+        }
+      })
+  }
   return (
     <footer className="bg-[hsl(222,47%,8%)] text-gray-300">
       <div className="section-padding mx-auto max-w-[1440px] py-16">

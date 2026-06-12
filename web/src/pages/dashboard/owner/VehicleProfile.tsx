@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -7,16 +7,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import {
   ArrowLeft, Gauge, Calendar, FileText, Shield, CheckCircle,
-  Wrench, Palette, Hash, Upload, Star, Loader2
+  Wrench, Palette, Hash, Upload, Star, Loader2,
+  Eye, EyeOff, Lock
 } from 'lucide-react'
 
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import type { VehiclePassport, InsuranceRecord } from '@/types'
+import type { VehiclePassport, InsuranceRecord, VehicleEvidence } from '@/types'
+import EvidenceUploadModal from '@/components/EvidenceUploadModal'
 
 export default function VehicleProfile() {
   const { id } = useParams()
-  const { fetchVehiclePassport } = useCarUpApi()
+  const { fetchVehiclePassport, fetchVehicleEvidence } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
+  const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+
+  const loadEvidence = useCallback(() => {
+    if (!id) return
+    fetchVehicleEvidence(id)
+      .then(data => {
+        setEvidenceList(data || [])
+      })
+      .catch(err => console.error('Error fetching vehicle evidence:', err))
+  }, [fetchVehicleEvidence, id])
 
   useEffect(() => {
     if (!id) return
@@ -25,7 +38,9 @@ export default function VehicleProfile() {
         setPassportData(data)
       })
       .catch(err => console.error('Error fetching passport details:', err))
-  }, [fetchVehiclePassport, id])
+    
+    loadEvidence()
+  }, [fetchVehiclePassport, id, loadEvidence])
 
   if (!passportData) {
     return (
@@ -34,6 +49,13 @@ export default function VehicleProfile() {
       </div>
     )
   }
+
+  const documentTypes = [
+    'registration_document',
+    'insurance_document',
+    'police_clearance_document',
+    'ownership_transfer_document'
+  ]
 
   const vehicle = {
     make: passportData.vehicle?.make || 'Unknown',
@@ -49,7 +71,14 @@ export default function VehicleProfile() {
     registration: passportData.vehicle?.vin || id || '',
     engineNumber: 'UNKNOWN',
     purchaseDate: passportData.vehicle?.created_at || new Date().toISOString(),
-    documents: [] as { id: string; title: string; date: string; status: string }[],
+    documents: (evidenceList || [])
+      .filter((item) => documentTypes.includes(item.evidence_type))
+      .map((item) => ({
+        id: item.id,
+        title: item.evidence_type.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' '),
+        date: new Date(item.captured_at || item.uploaded_at || '').toLocaleDateString(),
+        status: item.verification_status
+      })),
     insuranceRecords: [] as InsuranceRecord[],
     serviceHistory: (passportData.timeline || [])
       .filter((e) => e.event_source === 'service')
@@ -139,11 +168,12 @@ export default function VehicleProfile() {
           </Card>
 
           <Tabs defaultValue="documents" className="w-full">
-            <TabsList className="w-full">
+            <TabsList className="w-full flex flex-wrap">
               <TabsTrigger value="documents" className="flex-1">Documents</TabsTrigger>
               <TabsTrigger value="service" className="flex-1">Service History</TabsTrigger>
               <TabsTrigger value="insurance" className="flex-1">Insurance</TabsTrigger>
               <TabsTrigger value="parts" className="flex-1">Parts</TabsTrigger>
+              <TabsTrigger value="evidence" className="flex-1">Evidence & Media</TabsTrigger>
             </TabsList>
             <TabsContent value="documents" className="mt-4">
               <Card className="border-0 card-shadow">
@@ -155,12 +185,14 @@ export default function VehicleProfile() {
                         <p className="text-sm font-medium">{doc.title}</p>
                         <p className="text-xs text-gray-500">{doc.date}</p>
                       </div>
-                      <Badge className={doc.status === 'verified' ? 'bg-green-500 text-white' : doc.status === 'expired' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}>
+                      <Badge className={doc.status === 'verified' ? 'bg-green-500 text-white' : doc.status === 'rejected' ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'}>
                         {doc.status}
                       </Badge>
                     </div>
                   ))}
-                  <Button variant="outline" className="w-full gap-1"><Upload className="w-4 h-4" /> Upload Document</Button>
+                  <Button variant="outline" className="w-full gap-1" onClick={() => setIsUploadModalOpen(true)}>
+                    <Upload className="w-4 h-4" /> Upload Document
+                  </Button>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -232,6 +264,100 @@ export default function VehicleProfile() {
                 </CardContent>
               </Card>
             </TabsContent>
+            <TabsContent value="evidence" className="mt-4">
+              <Card className="border-0 card-shadow">
+                <CardContent className="p-5 space-y-4">
+                  <div className="flex justify-between items-center pb-2 border-b">
+                    <div>
+                      <h3 className="font-semibold text-gray-800">Visual Evidence & Media</h3>
+                      <p className="text-xs text-gray-500">Photographs and documentation proving the condition and identity of the vehicle.</p>
+                    </div>
+                    <Button onClick={() => setIsUploadModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white gap-2">
+                      <Upload className="w-4 h-4" /> Upload Evidence
+                    </Button>
+                  </div>
+
+                  {evidenceList.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border-2 border-dashed rounded-lg border-gray-200">
+                      <FileText className="w-12 h-12 text-gray-400 mb-3" />
+                      <h3 className="font-semibold text-gray-800 mb-1">No Evidence Uploaded</h3>
+                      <p className="text-sm text-gray-500 text-center mb-4 max-w-sm">
+                        Upload photographs or documents such as odometer captures, damage records, or registration certificates.
+                      </p>
+                      <Button onClick={() => setIsUploadModalOpen(true)} className="bg-orange-500 hover:bg-orange-600 text-white gap-2">
+                        <Upload className="w-4 h-4" /> Upload Evidence
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {evidenceList.map((item) => (
+                        <div key={item.id} className="flex flex-col p-4 bg-gray-50 rounded-lg border border-gray-150 justify-between">
+                          <div className="flex items-start gap-3">
+                            {documentTypes.includes(item.evidence_type) ? (
+                              <FileText className="w-10 h-10 text-red-500 shrink-0" />
+                            ) : (
+                              <div className="w-16 h-16 shrink-0 bg-gray-200 rounded overflow-hidden">
+                                {item.file_url ? (
+                                  <img src={item.file_url} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                    <FileText className="w-5 h-5" />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium text-sm text-gray-800 truncate">
+                                {item.evidence_type.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}
+                              </h4>
+                              {item.verification_notes && (
+                                <p className="text-xs text-gray-600 mt-1 line-clamp-2 italic">"{item.verification_notes}"</p>
+                              )}
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {item.verification_status === 'verified' && (
+                                  <Badge className="bg-green-500 text-white text-[10px] py-0 px-1.5 hover:bg-green-600">Verified</Badge>
+                                )}
+                                {item.verification_status === 'rejected' && (
+                                  <Badge className="bg-red-500 text-white text-[10px] py-0 px-1.5 hover:bg-red-600">Rejected</Badge>
+                                )}
+                                {item.verification_status === 'pending' && (
+                                  <Badge className="bg-amber-500 text-white text-[10px] py-0 px-1.5 hover:bg-amber-600">Pending Review</Badge>
+                                )}
+
+                                {item.visibility_level === 'public_safe' && (
+                                  <Badge className="bg-blue-500 text-white text-[10px] py-0 px-1.5 flex items-center gap-0.5 hover:bg-blue-600">
+                                    <Eye className="w-2.5 h-2.5" /> Public
+                                  </Badge>
+                                )}
+                                {item.visibility_level === 'restricted' && (
+                                  <Badge className="bg-orange-500 text-white text-[10px] py-0 px-1.5 flex items-center gap-0.5 hover:bg-orange-600">
+                                    <EyeOff className="w-2.5 h-2.5" /> Restricted
+                                  </Badge>
+                                )}
+                                {item.visibility_level === 'private' && (
+                                  <Badge className="bg-gray-500 text-white text-[10px] py-0 px-1.5 flex items-center gap-0.5 hover:bg-gray-600">
+                                    <Lock className="w-2.5 h-2.5" /> Private
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="mt-3 pt-3 border-t border-gray-200/60 flex items-center justify-between text-[11px] text-gray-500">
+                            <span>Uploaded: {new Date(item.uploaded_at || '').toLocaleDateString()}</span>
+                            {item.linked_registry_event_id && (
+                              <Badge variant="outline" className="text-[10px] border-gray-300 text-gray-600 bg-white">
+                                Linked
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
         </div>
 
@@ -264,6 +390,20 @@ export default function VehicleProfile() {
           </Card>
         </div>
       </div>
+
+      <EvidenceUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        vin={vehicle.vin}
+        timelineEvents={passportData.timeline || []}
+        onSuccess={() => {
+          loadEvidence()
+          // Re-fetch passport as well in case status changed
+          fetchVehiclePassport(vehicle.vin)
+            .then(data => setPassportData(data))
+            .catch(err => console.error(err))
+        }}
+      />
     </div>
   )
 }

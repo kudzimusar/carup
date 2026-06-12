@@ -1,3 +1,4 @@
+process.env.NODE_ENV = 'test';
 import { supabase } from '../db/supabase.js';
 import { addEvent, verifyChain } from '../services/blockchain/blockchainService.js';
 import { getVehicleTimeline, runOdometerAudit, calculateVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
@@ -37,19 +38,26 @@ async function runTests() {
 
     // 2. Blockchain SHA-256 Event Chain Integrity Check
     console.log('\n🧪 Test 2: Blockchain SHA-256 Cryptographic Chain Audit...');
-    const vin = 'VIN74329849204928';
+    // Use a unique dynamic VIN to avoid conflict with immutable historical events in the DB
+    const blockchainVin = 'VIN_TC_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+    
+    // Clean up existing test events to prevent pollution
+    await supabase.from('blockchain_events').delete().eq('vin', blockchainVin);
+    await supabase.from('rolling_integrity_checkpoints').delete().eq('vin', blockchainVin);
     
     // Add custom event to the ledger chain
     const testPayload = { buyer: 'u1', source: 'CROCO_MOTORS' };
-    const event = await addEvent(vin, 'Custom Transfer Audit', testPayload);
+    const event = await addEvent(blockchainVin, 'Custom Transfer Audit', testPayload);
     console.log(`Added block to vehicle ledger. Hash: ${event.currentHash}`);
 
     // Verify blockchain event hashes
-    const verifyReport = await verifyChain(vin);
+    const verifyReport = await verifyChain(blockchainVin);
     if (!verifyReport.verified) {
       throw new Error(`Ledger chain corruption detected: ${verifyReport.reason}`);
     }
     console.log(`✅ SHA-256 Cryptographic Event Chain verified successfully. Blocks: ${verifyReport.count}`);
+
+    const vin = 'VIN74329849204928';
 
     // 3. Trust Graph Forensics & Odometer Auditing
     console.log('\n🧪 Test 3: Odometer Progressive Rollback Forensics...');
@@ -423,27 +431,47 @@ async function runTests() {
 
     // 21. Secure Telemetry Guard Check
     console.log('\n🧪 Test 21: Secure Telemetry Gateway Guardrails...');
+    
+    // Seed temporary bank partner user
+    await supabase.from('users').upsert({
+      id: 'u_test_bank_telemetry',
+      name: 'Test Bank Partner',
+      email: 'bank@test.co.zw',
+      role: 'bank',
+      join_date: new Date().toISOString()
+    });
+
+    // Seed temporary admin user
+    await supabase.from('users').upsert({
+      id: 'u_test_admin',
+      name: 'Test Super Admin',
+      email: 'admin@test.co.zw',
+      role: 'admin',
+      join_date: new Date().toISOString()
+    });
+
     const telemetryMiddleware = authorizeRole(['bank', 'insurance', 'government', 'admin']);
     let teleNextCalled = false;
     let teleErrorStatus = 0;
     
     const mockTeleReq = { headers: { 'x-stakeholder-role': 'owner', 'x-user-id': 'u1' } };
+    let teleErrorData = null;
     const mockTeleRes = {
       status(code) {
         teleErrorStatus = code;
-        return { json(data) {} };
+        return { json(data) { teleErrorData = data; } };
       }
     };
     await telemetryMiddleware(mockTeleReq, mockTeleRes, () => { teleNextCalled = true; });
     if (teleNextCalled || teleErrorStatus !== 403) {
-      throw new Error(`Security Failure: Allowed role 'owner' to access telemetry core!`);
+      throw new Error(`Security Failure: Allowed role 'owner' to access telemetry core! Status: ${teleErrorStatus}, Body: ${JSON.stringify(teleErrorData)}`);
     }
     
     let teleBankPassed = false;
-    const mockTeleBankReq = { headers: { 'x-stakeholder-role': 'bank', 'x-user-id': 'u3' } };
+    const mockTeleBankReq = { headers: { 'x-stakeholder-role': 'bank', 'x-user-id': 'u_test_bank_telemetry' } };
     await telemetryMiddleware(mockTeleBankReq, mockTeleRes, () => { teleBankPassed = true; });
     if (!teleBankPassed) {
-      throw new Error(`Security Failure: Blocked authorized bank partner from telemetry!`);
+      throw new Error(`Security Failure: Blocked authorized bank partner from telemetry! Status: ${teleErrorStatus}, Body: ${JSON.stringify(teleErrorData)}`);
     }
     console.log('✅ Telemetry gateway guardrails validated successfully.');
 
@@ -453,7 +481,7 @@ async function runTests() {
     let claimsNextCalled = false;
     let claimsErrorStatus = 0;
     
-    const mockClaimsReq = { headers: { 'x-stakeholder-role': 'bank', 'x-user-id': 'u3' } };
+    const mockClaimsReq = { headers: { 'x-stakeholder-role': 'bank', 'x-user-id': 'u_test_bank_telemetry' } };
     const mockClaimsRes = {
       status(code) {
         claimsErrorStatus = code;
@@ -462,7 +490,7 @@ async function runTests() {
     };
     await claimsMiddleware(mockClaimsReq, mockClaimsRes, () => { claimsNextCalled = true; });
     if (claimsNextCalled || claimsErrorStatus !== 403) {
-      throw new Error(`Security Failure: Allowed role 'bank' to access insurance claims registry!`);
+      throw new Error(`Security Failure: Allowed role 'bank' to access insurance claims registry! Status: ${claimsErrorStatus}`);
     }
     
     let claimsInsPassed = false;
@@ -518,7 +546,7 @@ async function runTests() {
     }
     
     let adminPassed = false;
-    const mockAdminPassedReq = { headers: { 'x-stakeholder-role': 'admin', 'x-user-id': 'u1' } };
+    const mockAdminPassedReq = { headers: { 'x-stakeholder-role': 'admin', 'x-user-id': 'u_test_admin' } };
     await adminMiddleware(mockAdminPassedReq, mockAdminRes, () => { adminPassed = true; });
     if (!adminPassed) {
       throw new Error(`Security Failure: Blocked super-admin from user manager!`);
@@ -913,7 +941,7 @@ async function runTests() {
 
     // Seed mock sessions
     console.log('  → Seeding mock sessions...');
-    await supabase.from('user_sessions').delete().in('token', ['token_u1', 'token_u2', 'token_u3']);
+    await supabase.from('user_sessions').delete().in('token', ['token_u1', 'token_u2', 'token_u3', 'token_admin']);
     
     const cryptoModule = await import('crypto');
     const randomUUID = cryptoModule.randomUUID || cryptoModule.default.randomUUID;
@@ -922,7 +950,8 @@ async function runTests() {
     const testSessions = [
       { id: genId(), user_id: 'u1', token: 'token_u1', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'owner', created_at: new Date().toISOString() },
       { id: genId(), user_id: 'u2', token: 'token_u2', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'mechanic', created_at: new Date().toISOString() },
-      { id: genId(), user_id: 'u3', token: 'token_u3', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'dealer', created_at: new Date().toISOString() }
+      { id: genId(), user_id: 'u3', token: 'token_u3', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'dealer', created_at: new Date().toISOString() },
+      { id: genId(), user_id: 'u_test_admin', token: 'token_admin', expires_at: new Date(Date.now() + 3600000).toISOString(), is_valid: true, active_role: 'admin', created_at: new Date().toISOString() }
     ];
     const { error: insertErr } = await supabase.from('user_sessions').insert(testSessions);
     if (insertErr) {
@@ -1015,7 +1044,7 @@ async function runTests() {
         method: 'PATCH',
         url: '/api/vehicles/VIN74329849204928/status',
         headers: {
-          'x-session-token': 'token_u1',
+          'x-session-token': 'token_admin',
           'x-stakeholder-role': 'admin'
         },
         body: { status: 'available' }
@@ -1105,7 +1134,7 @@ async function runTests() {
         method: 'GET',
         url: '/api/organizations/org_croco/audit-logs',
         headers: {
-          'x-session-token': 'token_u1',
+          'x-session-token': 'token_admin',
           'x-stakeholder-role': 'admin'
         }
       });
@@ -1117,7 +1146,7 @@ async function runTests() {
         method: 'POST',
         url: '/api/organizations/org_croco/audit-logs',
         headers: {
-          'x-session-token': 'token_u1',
+          'x-session-token': 'token_admin',
           'x-stakeholder-role': 'admin'
         },
         body: { userId: 'u3', action: 'TEST_ADMIN_POST', resource: 'inventory', details: 'Test admin details' }
@@ -1449,7 +1478,7 @@ async function runTests() {
 
       // 1. Test lookup by VIN
       const resVin = await runRequest(myApp, { method: 'GET', url: `/api/vehicles/passport/lookup/${testPlateVin}` });
-      if (resVin.statusCode !== 200) throw new Error(`Lookup by VIN failed. Status: ${resVin.statusCode}`);
+      if (resVin.statusCode !== 200) throw new Error(`Lookup by VIN failed. Status: ${resVin.statusCode}, Body: ${JSON.stringify(resVin.body)}`);
       if (resVin.body.identity.vin !== testPlateVin) throw new Error(`Lookup by VIN returned wrong vehicle: ${resVin.body.identity.vin}`);
       console.log('  ✅ Lookup by VIN passed.');
 
@@ -1568,11 +1597,300 @@ async function runTests() {
 
     console.log('✅ Test 33: Zimbabwe Plate & Owner Privacy lookup and redaction checks passed.');
 
+    // 34. Observability, Latency & Health Checks Verification
+    console.log('\n🧪 Test 34: Observability, Latency & Health Checks Verification...');
+    
+    // Import telemetry components and context
+    const { asyncStore } = await import('../utils/context.js');
+    const { metricsHub } = await import('../services/metrics.js');
+    const { logger } = await import('../utils/logger.js');
+    
+    // 1. Verify AsyncLocalStorage Log Correlation IDs are generated, propagated, and accessible
+    let outerStoreCorrelationId;
+    let innerStoreCorrelationId;
+    
+    await asyncStore.run({ correlationId: 'test-correlation-id-999', tenantId: 'tenant-999' }, async () => {
+      outerStoreCorrelationId = asyncStore.getStore()?.correlationId;
+      // Simulate nested asynchronous operation
+      await new Promise(resolve => setTimeout(resolve, 50));
+      innerStoreCorrelationId = asyncStore.getStore()?.correlationId;
+    });
+
+    if (outerStoreCorrelationId !== 'test-correlation-id-999' || innerStoreCorrelationId !== 'test-correlation-id-999') {
+      throw new Error(`Context correlation ID propagation failed. Outer: ${outerStoreCorrelationId}, Inner: ${innerStoreCorrelationId}`);
+    }
+    console.log('  ✅ Log correlation IDs are generated, propagated, and accessible.');
+
+    // 2. Verify Webhook/OCR dispatches record metric telemetry correctly
+    const initialOcrRequests = metricsHub.ocr.totalRequests;
+    metricsHub.recordOcrRequest('gemini', true, 120, 0.95, false, false);
+    if (metricsHub.ocr.totalRequests !== initialOcrRequests + 1) {
+      throw new Error(`OCR metric telemetry not recorded correctly. Expected requests count to increase.`);
+    }
+
+    const initialWebhooks = metricsHub.webhooks.totalDispatched;
+    metricsHub.recordWebhookDispatch('http://localhost:8000/webhook', 80, true);
+    if (metricsHub.webhooks.totalDispatched !== initialWebhooks + 1) {
+      throw new Error(`Webhook metric telemetry not recorded correctly. Expected dispatched count to increase.`);
+    }
+    console.log('  ✅ Webhook/OCR dispatches record metric telemetry correctly.');
+
+    // 3. Verify the /api/health check responds with 200 and complete JSON diagnostics
+    const serverModuleForHealth = await import('../server.js');
+    const myAppForHealth = serverModuleForHealth.app || serverModuleForHealth.default || app;
+    const resHealth = await runRequest(myAppForHealth, { method: 'GET', url: '/api/health' });
+    
+    if (resHealth.statusCode !== 200) {
+      throw new Error(`Health check failed. Status: ${resHealth.statusCode}, Body: ${JSON.stringify(resHealth.body)}`);
+    }
+    if (resHealth.body.status !== 'UP' || !resHealth.body.metrics || !resHealth.body.supabase) {
+      throw new Error(`Health check body does not contain complete diagnostics: ${JSON.stringify(resHealth.body)}`);
+    }
+    console.log('  ✅ The /api/health check responds with 200 and complete JSON diagnostics.');
+
+    // 4. Active database triggers prevent any modification of historical audit trails
+    console.log('  → Testing UPDATE block on blockchain_events via Test 34...');
+    const { data: latestEvent34, error: latestEventError34 } = await supabase
+      .from('blockchain_events')
+      .select('*')
+      .limit(1);
+
+    if (latestEventError34) throw latestEventError34;
+    if (latestEvent34 && latestEvent34.length > 0) {
+      const eventToTamper = latestEvent34[0];
+      const { error: updateTamperError } = await supabase
+        .from('blockchain_events')
+        .update({ event_type: 'FRAUDULENT_MUTATION_34' })
+        .eq('id', eventToTamper.id);
+
+      if (!updateTamperError) {
+        throw new Error('Security Violation: Database allowed updating a historical blockchain ledger entry in Test 34!');
+      } else {
+        console.log(`  ✅ UPDATE block verified: ${updateTamperError.message}`);
+      }
+    }
+    console.log('  ✅ Active database triggers prevent any modification of historical audit trails.');
+    console.log('✅ Test 34: Observability, Latency & Health Checks verification passed.');
+
+    // 35. Security Hardening & Abuse Protection
+    console.log('\n🧪 Test 35: Security Hardening & Abuse Protection...');
+    
+    const serverModule35 = await import('../server.js');
+    const myApp35 = serverModule35.app || serverModule35.default || app;
+
+    // 1. Verify Production Security Headers
+    console.log('  → Checking security headers...');
+    const resHeaders = await runRequest(myApp35, { method: 'GET', url: '/api/health' });
+    const headers = resHeaders.headers;
+    if (headers['x-frame-options'] !== 'DENY') {
+      throw new Error(`Security Header missing/incorrect: X-Frame-Options is ${headers['x-frame-options']}`);
+    }
+    if (headers['x-content-type-options'] !== 'nosniff') {
+      throw new Error(`Security Header missing/incorrect: X-Content-Type-Options is ${headers['x-content-type-options']}`);
+    }
+    if (headers['referrer-policy'] !== 'strict-origin-when-cross-origin') {
+      throw new Error(`Security Header missing/incorrect: Referrer-Policy is ${headers['referrer-policy']}`);
+    }
+    if (!headers['strict-transport-security'] || !headers['strict-transport-security'].includes('max-age')) {
+      throw new Error(`Security Header missing/incorrect: Strict-Transport-Security is ${headers['strict-transport-security']}`);
+    }
+    console.log('  ✅ Production security headers verified successfully.');
+
+    // 2. Verify Signed CSRF Token route and Double-Submit CSRF verification
+    console.log('  → Checking Signed CSRF token route and verification...');
+    const resCsrf = await runRequest(myApp35, { method: 'GET', url: '/api/security/csrf-token' });
+    if (resCsrf.statusCode !== 200 || !resCsrf.body.csrfToken) {
+      throw new Error('Failed to generate CSRF token via GET /api/security/csrf-token');
+    }
+    const token = resCsrf.body.csrfToken;
+    const cookieHeader = resCsrf.headers['set-cookie'] || resCsrf.headers['Set-Cookie'];
+    let csrfCookieValue = '';
+    if (cookieHeader) {
+      const match = cookieHeader[0].match(/csrf-token=([^;]+)/);
+      if (match) csrfCookieValue = match[1];
+    }
+    if (!csrfCookieValue) {
+      csrfCookieValue = token; // Fallback if set-cookie parsing failed in runRequest mock headers
+    }
+
+    // Try a POST request without CSRF token headers/cookies. It must fail with 403.
+    const resCsrfFail = await runRequest(myApp35, {
+      method: 'POST',
+      url: '/api/media/upload/vehicle',
+      headers: {
+        'x-verify-csrf': 'true'
+      },
+      body: { images: ['data:image/jpeg;base64,dGVzdA=='], vin: 'VIN74329849204928' }
+    });
+    if (resCsrfFail.statusCode !== 403) {
+      throw new Error(`Expected CSRF block (403), got status: ${resCsrfFail.statusCode}`);
+    }
+    console.log('  ✅ Modifying POST request blocked with 403 when CSRF is missing.');
+
+    // Try a POST request with a valid signed CSRF token.
+    const resCsrfPass = await runRequest(myApp35, {
+      method: 'POST',
+      url: '/api/media/upload/vehicle',
+      headers: {
+        'x-verify-csrf': 'true',
+        'x-csrf-token': token,
+        'cookie': `csrf-token=${csrfCookieValue}`,
+        'x-bypass-rate-limit': 'true' // bypass rate limiting
+      },
+      body: { images: ['data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA='], vin: 'VIN74329849204928' } // Valid JPEG magic bytes structure
+    });
+    if (resCsrfPass.statusCode === 403) {
+      throw new Error(`Unexpected CSRF block (403) with valid CSRF: ${JSON.stringify(resCsrfPass.body)}`);
+    }
+    console.log('  ✅ CSRF validation successfully accepts valid signed CSRF tokens.');
+
+    // 3. Verify Rate Limiting / Sensitive Route Throttling
+    console.log('  → Checking sensitive route rate limiting...');
+    // We send 6 rapid requests to /api/auth/switch-role. The 6th must return 429.
+    let rateStatus = 0;
+    for (let i = 0; i < 6; i++) {
+      const resRate = await runRequest(myApp35, {
+        method: 'POST',
+        url: '/api/auth/switch-role',
+        headers: {
+          'x-bypass-csrf': 'true'
+        },
+        body: { userId: 'u1', role: 'owner' }
+      });
+      if (resRate.statusCode === 429) {
+        rateStatus = 429;
+        break;
+      }
+    }
+    if (rateStatus !== 429) {
+      throw new Error(`Expected rate limit block (429) after 5 switch-role requests, but did not get it.`);
+    }
+    console.log('  ✅ Sensitive route rate limiting returns 429 successfully.');
+
+    // 4. Verify SafePay Webhook Anti-Replay checks
+    console.log('  → Checking SafePay webhook anti-replay validation...');
+    // Request with missing timestamp must fail
+    const resRep1 = await runRequest(myApp35, {
+      method: 'POST',
+      url: '/api/payments/webhook/ecocash',
+      body: { escrowId: 'escrow_123', amount: 100, currency: 'USD', reference: 'ref_123' }
+    });
+    if (resRep1.statusCode !== 401) {
+      throw new Error(`Expected 401 on webhook with missing timestamp, got: ${resRep1.statusCode}`);
+    }
+
+    // Request with expired timestamp (drift > 5 minutes) must fail
+    const expiredTimestamp = Date.now() - 360000; // 6 minutes ago
+    const resRep2 = await runRequest(myApp35, {
+      method: 'POST',
+      url: '/api/payments/webhook/ecocash',
+      headers: {
+        'x-paynow-signature': 'sig',
+        'x-paynow-timestamp': expiredTimestamp.toString()
+      },
+      body: { escrowId: 'escrow_123', amount: 100, currency: 'USD', reference: 'ref_123' }
+    });
+    if (resRep2.statusCode !== 401) {
+      throw new Error(`Expected 401 on webhook with expired timestamp, got: ${resRep2.statusCode}`);
+    }
+    console.log('  ✅ Webhook anti-replay timestamp checks reject invalid requests.');
+
+    // 5. Verify MIME spoofing detection
+    console.log('  → Checking MIME spoofing detection...');
+    // Base64 claims to be image/png, but contains PDF magic bytes
+    const resSpoof = await runRequest(myApp35, {
+      method: 'POST',
+      url: '/api/media/upload/vehicle',
+      headers: {
+        'x-bypass-csrf': 'true',
+        'x-bypass-rate-limit': 'true'
+      },
+      body: {
+        images: ['data:image/png;base64,JVBERi0xLjQKJdDFMyQKMSAwIG9iagogIDw8IC9UeXBlIC9DYXRhbG9nCiAgICAgL1BhZ2VzIDIgMCBSCiAgPj4KZW5kb2JqCg=='], // Starts with %PDF
+        vin: 'VIN74329849204928'
+      }
+    });
+    if (resSpoof.statusCode !== 400 || !resSpoof.body.error.includes('MIME verification failed')) {
+      throw new Error(`Expected MIME verification block, got: ${resSpoof.statusCode}, ${JSON.stringify(resSpoof.body)}`);
+    }
+    console.log('  ✅ MIME spoofing detection blocks mismatched files successfully.');
+
+    // 6. Verify Malware Scanning Hook
+    console.log('  → Checking malware/EICAR scanning hook...');
+    // Construct a buffer that starts with valid JPEG magic bytes but contains the EICAR string
+    const eicarBuffer = Buffer.concat([
+      Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]),
+      Buffer.from('X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*')
+    ]);
+    const eicarBase64 = `data:image/jpeg;base64,${eicarBuffer.toString('base64')}`;
+    const resMalware = await runRequest(myApp35, {
+      method: 'POST',
+      url: '/api/media/upload/vehicle',
+      headers: {
+        'x-bypass-csrf': 'true',
+        'x-bypass-rate-limit': 'true'
+      },
+      body: {
+        images: [eicarBase64],
+        vin: 'VIN74329849204928'
+      }
+    });
+    if (resMalware.statusCode !== 400 || !resMalware.body.error.includes('Malware scan failed')) {
+      throw new Error(`Expected Malware block, got: ${resMalware.statusCode}, ${JSON.stringify(resMalware.body)}`);
+    }
+    console.log('  ✅ Malware scanning hook intercepts the EICAR signature and blocks upload.');
+
+    // 7. Verify Signed URL Generation endpoints
+    console.log('  → Checking signed URL upload endpoint authorization...');
+    
+    // Non-authorized role (mechanic u2) must be blocked
+    const resSignedAuthFail = await runRequest(myApp35, {
+      method: 'GET',
+      url: '/api/media/upload/signed-url',
+      headers: {
+        'x-user-id': 'u2',
+        'x-stakeholder-role': 'mechanic'
+      },
+      query: {
+        bucket: 'vehicle-images',
+        vin: 'VIN74329849204928',
+        fileName: 'image.jpg',
+        fileType: 'image/jpeg',
+        fileSize: 1024
+      }
+    });
+    if (resSignedAuthFail.statusCode !== 403) {
+      throw new Error(`Expected 403 on signed URL endpoint for unauthorized role, got: ${resSignedAuthFail.statusCode}`);
+    }
+
+    // Authorized role (dealer u3) must pass
+    const resSignedPass = await runRequest(myApp35, {
+      method: 'GET',
+      url: '/api/media/upload/signed-url',
+      headers: {
+        'x-user-id': 'u3',
+        'x-stakeholder-role': 'dealer'
+      },
+      query: {
+        bucket: 'vehicle-images',
+        vin: 'VIN74329849204928',
+        fileName: 'image.jpg',
+        fileType: 'image/jpeg',
+        fileSize: 1024
+      }
+    });
+    if (resSignedPass.statusCode !== 200 || !resSignedPass.body.signedUrl) {
+      throw new Error(`Expected 200 and signedUrl for authorized role, got: ${resSignedPass.statusCode}, ${JSON.stringify(resSignedPass.body)}`);
+    }
+    console.log('  ✅ Signed URL generation endpoint scoped and audited successfully.');
+    console.log('✅ Test 35: Security Hardening & Abuse Protection verification passed.');
+
     // Cleanup mock data
     console.log('  → Cleaning up temporary test data...');
     await supabase.from('vehicles').delete().eq('vin', testVin);
     await supabase.from('stakeholder_profiles').delete().eq('user_id', testUserId);
     await supabase.from('users').delete().eq('id', testUserId);
+    await supabase.from('users').delete().eq('id', 'u_test_bank_telemetry');
 
     console.log('\n----------------------------------------------------');
     console.log('🎉 ALL GOVERNANCE, INTEGRATION, & TRUST ENGINE TESTS PASSED WITH EXIT CODE 0!');

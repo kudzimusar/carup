@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -13,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { Car, Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import type { UserRole } from '@shared/types'
 
 const roles = [
   { value: 'owner', label: 'Car Owner' },
@@ -21,12 +23,18 @@ const roles = [
   { value: 'insurance', label: 'Insurance Provider' },
 ]
 
+const API_BASE = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
+
 export default function Register() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', phone: '',
-    password: '', confirmPassword: '', role: '', location: ''
+    password: '', confirmPassword: '', role: 'owner' as UserRole, location: ''
   })
   const [loading, setLoading] = useState(false)
 
@@ -45,9 +53,20 @@ export default function Register() {
 
     setLoading(true)
     try {
-      const res = await fetch('https://carup-backend.vercel.app/api/auth/register', {
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+        method: 'GET',
+        credentials: 'include'
+      })
+      const csrfData = await csrfRes.json()
+      const csrfToken = csrfData.csrfToken
+
+      const res = await fetch(`${API_BASE}/auth/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-csrf-token': csrfToken
+        },
+        credentials: 'include',
         body: JSON.stringify({
           name: `${form.firstName} ${form.lastName}`,
           email: form.email,
@@ -61,7 +80,7 @@ export default function Register() {
         const data = await res.json()
         login(data.user, data.token)
         toast.success('Account created! Welcome to CarUp.')
-        window.location.href = '/dashboard'
+        navigate('/dashboard')
       } else {
         const errorData = await res.json()
         toast.error(errorData.error || 'Registration failed')
@@ -125,7 +144,7 @@ export default function Register() {
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">I am a...</label>
-                    <Select value={form.role} onValueChange={v => setForm({ ...form, role: v })}>
+                    <Select value={form.role} onValueChange={v => setForm({ ...form, role: v as UserRole })}>
                       <SelectTrigger><SelectValue placeholder="Select your role" /></SelectTrigger>
                       <SelectContent>
                         {roles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}

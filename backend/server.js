@@ -40,7 +40,18 @@ import { logAuditEvent } from './services/auditLogger.js';
 // Central Error Handling Imports
 import errorHandler from './middleware/errorMiddleware.js';
 import correlationMiddleware from './middleware/correlationMiddleware.js';
+import telemetryMiddleware from './middleware/telemetryMiddleware.js';
+import { metricsHub } from './services/metrics.js';
 import { NotFoundError, ForbiddenError, UnauthorizedError } from './utils/errors.js';
+import {
+  securityHeadersMiddleware,
+  rateLimiter,
+  csrfMiddleware,
+  generateCsrfToken,
+  parseCookies
+} from './middleware/securityMiddleware.js';
+import { corsOptions } from './config/corsOptions.js';
+import { buildSessionRow } from './services/auth/sessionRow.js';
 
 // Centralized Routes Imports (Batch 1)
 import leadsRouter from './routes/leadsRoutes.js';
@@ -55,9 +66,11 @@ import vehiclesRouter from './routes/vehiclesRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
+import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
+import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 
 dotenv.config();
 
@@ -79,40 +92,78 @@ if (
 }
 
 const app = express();
-app.use(correlationMiddleware);
 const PORT = process.env.PORT || 5001;
 
-const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-  ? process.env.CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : [];
+app.options(/.*/, cors(corsOptions), (req, res) => res.sendStatus(204));
+app.use(cors(corsOptions));
+app.use(correlationMiddleware);
+app.use(telemetryMiddleware);
+app.use(securityHeadersMiddleware);
+app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, postman)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is local development
-    const isLocal = origin.startsWith('http://localhost:') || 
-                    origin.startsWith('http://127.0.0.1:') ||
-                    origin === 'http://localhost' ||
-                    origin === 'http://127.0.0.1';
-                    
-    // Check if origin is vercel preview/prod domain
-    const isVercel = origin.endsWith('.vercel.app');
-    
-    // Check if origin is explicitly allowed
-    const isAllowed = allowedOrigins.includes(origin);
-    
-    if (isLocal || isVercel || isAllowed) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
+// Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
+
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.use(csrfMiddleware);
+
+// Signed CSRF token route
+app.get('/api/security/csrf-token', (req, res) => {
+  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+  const currentUserId = req.headers['x-user-id'] || 'guest';
+  const token = generateCsrfToken(currentUserId, sessionToken);
+  res.cookie('csrf-token', token, {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 3600000 * 2
+  });
+  res.json({ csrfToken: token });
+});
+
+// Expose operational health and metrics endpoint
+app.get('/api/health', async (req, res) => {
+  let supabaseHealth = 'healthy';
+  let outboxBacklog = 0;
+  try {
+    const { count, error } = await supabase
+      .from('domain_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    if (error) {
+      supabaseHealth = 'unhealthy';
+    } else {
+      outboxBacklog = count || 0;
+    }
+  } catch (e) {
+    supabaseHealth = 'unhealthy';
+  }
+
+  const snapshot = metricsHub.getSnapshot();
+
+  res.json({
+    status: 'UP',
+    timestamp: new Date().toISOString(),
+    supabase: {
+      status: supabaseHealth,
+      outboxBacklog
+    },
+    sentry: {
+      enabled: !!process.env.SENTRY_DSN
+    },
+    ocrProviders: {
+      gemini: !!process.env.GEMINI_API_KEY,
+      groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
+      openrouter: !!process.env.OPENROUTER_API_KEY,
+      moonshot: !!process.env.MOONSHOT_API_KEY
+    },
+    metrics: snapshot
+  });
+});
 
 // Mount payment gateway unified routes
 app.use('/api/payments', paymentRouter);
@@ -138,6 +189,9 @@ app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
 app.use(identityVerificationRouter);
+
+// Mount isolated Diaspora Trade bounded context
+app.use('/api/diaspora', diasporaRouter);
 
 // ✅ Verify Supabase connection on startup
 const { data: connectionTest, error: connectionError } = await supabase.from('vehicles').select('vin').limit(1);
@@ -228,15 +282,13 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
-      user_id: userId,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-    
+    const { error: switchSessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId, activeRole: role, token, expiresAt: expiresAt.toISOString(), req, tenantId: verifiedTenantId })
+    );
+    if (switchSessionError) {
+      throw new Error('Could not establish a session for the switched role.');
+    }
+
     await logAuditEvent(supabase, {
       ...auditBase,
       event_type: 'ROLE_SWITCH_GRANTED',
@@ -266,7 +318,7 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
   try {
     const { data: vehicle, error } = await supabase
       .from('vehicles')
-      .select('*, tenant:tenants(name, phone, logo_url)')
+      .select('*, tenant:tenants(name, type, status)')
       .eq('vin', vin)
       .single();
     if (error) throw error;
@@ -317,7 +369,7 @@ function validatePassportLookupIdentifier(identifier) {
   if (value.length < 2 || value.length > 64) {
     return null;
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9 -]*$/.test(value)) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(value)) {
     return null;
   }
   return value;
@@ -628,21 +680,37 @@ app.post('/api/safepay/create', authorizeRole(), async (req, res) => {
 app.get('/api/safepay/list', authorizeRole(), async (req, res) => {
   const { userId, role } = req.userContext;
   try {
-    let query = supabase
+    const escrowSelect = '*, vehicles(make, model, year, price, currency), buyer:users!safepay_escrows_buyer_id_fkey(name, email, phone), seller:users!safepay_escrows_seller_id_fkey(name, email, phone)';
+    const baseEscrowQuery = () => supabase
       .from('safepay_escrows')
-      .select('*, vehicles(make, model, year, price, currency), buyer:users!safepay_escrows_buyer_id_fkey(name, email, phone), seller:users!safepay_escrows_seller_id_fkey(name, email, phone)')
+      .select(escrowSelect)
       .order('created_at', { ascending: false });
 
     // Scope queries depending on who is asking
+    let escrows = [];
+    let error = null;
     if (role === 'dealer' || role === 'owner') {
-      query = query.or(`seller_id.eq.${userId},buyer_id.eq.${userId}`);
+      const [sellerResult, buyerResult] = await Promise.all([
+        baseEscrowQuery().eq('seller_id', userId),
+        baseEscrowQuery().eq('buyer_id', userId)
+      ]);
+      error = sellerResult.error || buyerResult.error;
+      const escrowMap = new Map();
+      for (const escrow of [...(sellerResult.data || []), ...(buyerResult.data || [])]) {
+        escrowMap.set(escrow.id, escrow);
+      }
+      escrows = [...escrowMap.values()].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     } else if (role === 'bank') {
       // For banks we just let them see all, or we could filter based on finance apps (simplified)
+      const result = await baseEscrowQuery();
+      escrows = result.data || [];
+      error = result.error;
     } else {
-      query = query.eq('buyer_id', userId);
+      const result = await baseEscrowQuery().eq('buyer_id', userId);
+      escrows = result.data || [];
+      error = result.error;
     }
-    
-    const { data: escrows, error } = await query;
+
     if (error) throw error;
     
     // Flatten relational data for the frontend
@@ -1055,22 +1123,38 @@ app.post('/api/auth/login', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    const { error: sessionError } = await supabase.from('user_sessions').insert({
-      user_id: user.id,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-
+    const { error: sessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId: user.id, activeRole: user.role, token, expiresAt: expiresAt.toISOString(), req })
+    );
+    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
     if (sessionError) {
-      return res.status(500).json({ error: 'Failed to persist login session: ' + sessionError.message });
+      console.error('Failed to persist user session on login:', sessionError.message);
+      return res.status(500).json({ error: 'Could not establish a session. Please try again.' });
     }
 
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
 
     res.json({ user, token });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- AUTH: Validate current session ---
+// authorizeRole() (no required roles) validates the x-session-token against user_sessions and
+// returns the authoritative user. The frontend calls this on boot to detect stale/expired tokens;
+// an invalid/expired token yields 401 "Unauthorized. Session is invalid or expired." (unchanged auth).
+app.get('/api/auth/me', authorizeRole(), async (req, res) => {
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, name, email, phone, role')
+      .eq('id', req.userContext.id)
+      .single();
+    if (error || !user) {
+      return res.status(401).json({ error: 'Unauthorized. User record not found.' });
+    }
+    res.json({ user });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1103,17 +1187,13 @@ app.post('/api/auth/register', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    const { error: sessionError } = await supabase.from('user_sessions').insert({
-      user_id: id,
-      token,
-      ip_address: req.ip || '127.0.0.1',
-      user_agent: req.headers['user-agent'],
-      expires_at: expiresAt.toISOString(),
-      is_valid: true
-    });
-
+    const { error: sessionError } = await supabase.from('user_sessions').insert(
+      buildSessionRow({ userId: id, activeRole: role || 'owner', token, expiresAt: expiresAt.toISOString(), req })
+    );
+    // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
     if (sessionError) {
-      return res.status(500).json({ error: 'Account created but session persistence failed: ' + sessionError.message });
+      console.error('Failed to persist user session on register:', sessionError.message);
+      return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
     }
 
     const newUser = { id, name, email, phone: phone || '', role: role || 'owner' };
@@ -1127,18 +1207,29 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
   const { vin, make, model, year, color, mileage, fuel_type, transmission, condition, category, price, currency, description, location, province, images } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+
+  // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
+  // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
+  const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
+  const eligibility = getListingEligibility(candidate);
+  if (!eligibility.eligible) {
+    return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
+  }
+
   try {
     const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
     if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
-    
-    const tenantId = req.userContext.tenantId;
 
     const { error: insertError } = await supabase.from('vehicles').insert({
-      vin, make, model, generation: '', trim: '', year: year || 2020, color: color || 'White', 
-      mileage: mileage || 0, fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', 
-      transmission: transmission || 'Automatic', import_source: 'Local', duty_paid: false, 
-      police_verified: false, status: normalizeVehicleStatus('Available'), trust_score: 50, price, currency: currency || 'USD',
-      tenant_id: tenantId // Force assignment to the current tenant
+      vin: candidate.vin, make: candidate.make, model: candidate.model, generation: '', trim: '',
+      year: candidate.year, color: color || 'White', mileage: mileage || 0,
+      fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
+      import_source: candidate.import_source, duty_paid: false, police_verified: false,
+      status: normalizeVehicleStatus(candidate.status), trust_score: 50, price: candidate.price, currency: currency || 'USD',
+      owner_id: candidate.owner_id,                       // NEW: set owner for private listings
+      tenant_id: candidate.tenant_id,                     // dealer/admin tenant from context
+      current_seller_type: candidate.current_seller_type, // reflect dealer vs private
+      registration_country: candidate.registration_country
     });
     if (insertError) throw insertError;
     
@@ -1196,16 +1287,6 @@ app.get('/api/vehicles/inventory', authorizeRole(['dealer', 'admin']), async (re
 // --- DEALER & MECHANIC ENDPOINTS MOVED TO MODULAR ROUTERS ---
 
 // --- VEHICLE STATUS UPDATE MOVED TO MODULAR ROUTER ---
-
-// ✅ Health check endpoint
-app.get('/api/health', async (req, res) => {
-  const { data, error } = await supabase.from('vehicles').select('count').limit(1);
-  res.json({
-    status: error ? 'degraded' : 'healthy',
-    database: error ? 'Supabase error: ' + error.message : 'Supabase connected',
-    timestamp: new Date().toISOString()
-  });
-});
 
 // --- DOMAIN 2: BANK & INSURANCE ENDPOINTS ---
 
@@ -1419,7 +1500,7 @@ app.use(errorHandler);
 
 
 let server;
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   server = app.listen(PORT, () => {
     console.log(`🚗 CarUp OS API Gateway listening on port ${PORT}`);
     console.log(`📡 Database: Supabase PostgreSQL (vhmnajoeicasaigiophh)`);
@@ -1427,3 +1508,4 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 export { app, server };
+export default app;
