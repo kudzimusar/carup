@@ -19,7 +19,8 @@ import {
   parseBase64Payload,
   reviewRoles,
   verificationStatuses,
-  validateEvidenceUploadPayload
+  validateEvidenceUploadPayload,
+  runAiAnalysis
 } from '../services/evidence/evidenceService.js';
 import {
   isVehicleQuarantinedStatus,
@@ -260,6 +261,11 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     throw new DatabaseError(insertError.message);
   }
 
+  // Trigger AI analysis asynchronously (non-blocking)
+  runAiAnalysis(inserted.id, fileBuffer, mimeType, normalized.evidenceType, normalized.metadata).catch(err => {
+    console.error('[AI Analysis Hook Error] Failed to launch background worker:', err.message);
+  });
+
   return normalizeEvidenceRecord(inserted);
 }
 
@@ -371,6 +377,7 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
 
   // Generate timed read URLs for private bucket items
   const enrichedEvidence = [];
+  const hasAdminAccess = ['admin', 'government', 'reviewer'].includes(activeUserRole);
   for (const item of (evidence || [])) {
     const enriched = normalizeEvidenceRecord(item);
     if (item.storage_bucket === 'ocr-documents' && item.file_path) {
@@ -378,6 +385,15 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
         enriched.file_url = await generateSecureReadUrl('ocr-documents', item.file_path, 3600);
       } catch (err) {
         console.warn(`[Storage Warning] Failed to generate signed URL for evidence ${item.id}:`, err.message);
+      }
+    }
+    // Sanitize AI analysis for non-admin roles
+    if (!hasAdminAccess) {
+      if (enriched.metadata && enriched.metadata.ai_analysis) {
+        if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
+          enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
+        }
+        delete enriched.metadata.ai_analysis;
       }
     }
     enrichedEvidence.push(enriched);
@@ -411,8 +427,29 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
     throw new DatabaseError(fetchErr.message);
   }
 
-  const timeline = (evidence || []).map((item) => evidenceToTimelineItem(normalizeEvidenceRecord(item)));
-  res.json({ vin, timeline, evidence: (evidence || []).map(normalizeEvidenceRecord) });
+  const timeline = (evidence || []).map((item) => {
+    const enriched = normalizeEvidenceRecord(item);
+    if (enriched.metadata && enriched.metadata.ai_analysis) {
+      if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
+        enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
+      }
+      delete enriched.metadata.ai_analysis;
+    }
+    return evidenceToTimelineItem(enriched);
+  });
+
+  const sanitizedEvidence = (evidence || []).map((item) => {
+    const enriched = normalizeEvidenceRecord(item);
+    if (enriched.metadata && enriched.metadata.ai_analysis) {
+      if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
+        enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
+      }
+      delete enriched.metadata.ai_analysis;
+    }
+    return enriched;
+  });
+
+  res.json({ vin, timeline, evidence: sanitizedEvidence });
 }));
 
 router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(async (req, res) => {

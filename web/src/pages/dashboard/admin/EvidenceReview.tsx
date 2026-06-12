@@ -157,6 +157,101 @@ export default function EvidenceReview() {
                       </div>
                     </div>
 
+                    {/* AI Assisted Analysis Section */}
+                    {item.metadata?.ai_analysis && (
+                      <div className="rounded-lg border border-orange-100 bg-orange-50/20 p-3.5 space-y-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-orange-100/50 pb-2">
+                          <div className="flex items-center gap-1.5 font-semibold text-orange-950">
+                            <span className="inline-block w-2 h-2 rounded-full bg-orange-500" />
+                            AI Copilot Fraud Scan
+                          </div>
+                          <div className="flex gap-2">
+                            <Badge className={`border-0 ${
+                              item.metadata.ai_analysis.ai_status === 'ai_passed' ? 'bg-green-100 text-green-700 hover:bg-green-100' :
+                              item.metadata.ai_analysis.ai_status === 'ai_flagged' ? 'bg-red-100 text-red-700 font-bold hover:bg-red-100' :
+                              item.metadata.ai_analysis.ai_status === 'ai_low_confidence' ? 'bg-amber-100 text-amber-700 hover:bg-amber-100' :
+                              'bg-gray-100 text-gray-700 hover:bg-gray-100'
+                            }`}>
+                              {labelize(item.metadata.ai_analysis.ai_status)}
+                            </Badge>
+                            <Badge className="bg-orange-100 text-orange-850 hover:bg-orange-100 border-0 font-normal">
+                              Confidence: {Math.round(item.metadata.ai_analysis.confidence * 100)}%
+                            </Badge>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <p className="text-gray-700">
+                            <strong className="text-gray-900 font-medium font-sans">Summary:</strong>
+                            {" "}{item.metadata.ai_analysis.reviewer_summary}
+                          </p>
+
+                          {/* Data Extraction & Mismatch Alert */}
+                          {(item.metadata.ai_analysis.visible_vin || item.metadata.ai_analysis.visible_plate || item.metadata.ai_analysis.visible_odometer) && (
+                            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+                              {item.metadata.ai_analysis.visible_vin && (
+                                <div className={`px-2.5 py-1.5 rounded border ${
+                                  item.metadata.ai_analysis.visible_vin !== item.vin
+                                    ? 'bg-red-50/50 border-red-200 text-red-800'
+                                    : 'bg-green-50/30 border-green-200 text-green-800'
+                                }`}>
+                                  Visible VIN: <span className="font-mono font-bold">{item.metadata.ai_analysis.visible_vin}</span>
+                                  {item.metadata.ai_analysis.visible_vin !== item.vin && (
+                                    <span className="block text-[10px] text-red-500 font-medium mt-0.5">⚠️ Mismatch with vehicle VIN</span>
+                                  )}
+                                </div>
+                              )}
+                              {item.metadata.ai_analysis.visible_plate && (
+                                <div className="px-2.5 py-1.5 rounded border bg-gray-50 border-gray-200 text-gray-800">
+                                  Visible Plate: <span className="font-bold">{item.metadata.ai_analysis.visible_plate}</span>
+                                </div>
+                              )}
+                              {item.metadata.ai_analysis.visible_odometer && (
+                                <div className="px-2.5 py-1.5 rounded border bg-gray-50 border-gray-200 text-gray-800">
+                                  Odometer: <span className="font-bold">{Number(item.metadata.ai_analysis.visible_odometer).toLocaleString()} km</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Indicators */}
+                          {item.metadata.ai_analysis.damage_indicators && item.metadata.ai_analysis.damage_indicators.length > 0 && (
+                            <div className="pt-1">
+                              <span className="font-semibold text-gray-900">Damage Indicators: </span>
+                              {item.metadata.ai_analysis.damage_indicators.map((d: any, idx: number) => (
+                                <span key={idx} className="inline-block bg-orange-100/50 text-orange-900 px-2 py-0.5 rounded mr-1">
+                                  {d.type} ({d.severity}) {d.location && `@ ${d.location}`}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {item.metadata.ai_analysis.manipulation_indicators && item.metadata.ai_analysis.manipulation_indicators.length > 0 && (
+                            <div className="pt-1 text-red-800">
+                              <span className="font-semibold">Manipulation Indicators: </span>
+                              {item.metadata.ai_analysis.manipulation_indicators.map((m: any, idx: number) => (
+                                <span key={idx} className="inline-block bg-red-100/50 px-2 py-0.5 rounded mr-1 font-medium">
+                                  {m.type} ({m.severity})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Recommended Action */}
+                          <div className="pt-1 flex items-center gap-1.5">
+                            <span className="font-semibold text-gray-900">Recommended Action: </span>
+                            <span className={`font-bold capitalize ${
+                              item.metadata.ai_analysis.recommended_action === 'approve' ? 'text-green-700' :
+                              item.metadata.ai_analysis.recommended_action === 'reject' ? 'text-red-700' :
+                              'text-amber-700'
+                            }`}>
+                              {item.metadata.ai_analysis.recommended_action}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {item.verification_notes && (
                       <p className="text-xs text-gray-700 bg-gray-50 p-2.5 rounded-md italic border border-gray-100">
                         "{item.verification_notes}"

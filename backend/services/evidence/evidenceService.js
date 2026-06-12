@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { supabase } from '../../db/supabase.js';
+import { analyzeEvidenceImage } from '../ai/aiVisionProvider.js';
 
 export const evidenceTypes = [
   'import_photo',
@@ -225,4 +227,101 @@ export function mergeEventsWithEvidence(events, evidence) {
   return [...(events || []), ...visualItems]
     .filter((event) => event.timestamp)
     .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+}
+
+export async function runAiAnalysis(evidenceId, fileBuffer, mimeType, evidenceType, initialMetadata = {}) {
+  // 1. Initial status update: set to ai_pending
+  const initialAiAnalysis = {
+    ai_status: 'ai_pending',
+    risk_score: 0.0,
+    confidence: 1.0,
+    reviewer_summary: 'AI analysis queued...'
+  };
+
+  const { data: currentRecord } = await supabase
+    .from('vehicle_evidence')
+    .select('metadata, checksum, id, vin')
+    .eq('id', evidenceId)
+    .single();
+
+  if (!currentRecord) return;
+
+  const currentMetadata = currentRecord.metadata || {};
+  let updatedMetadata = {
+    ...currentMetadata,
+    ai_analysis: initialAiAnalysis
+  };
+
+  await supabase
+    .from('vehicle_evidence')
+    .update({ metadata: updatedMetadata })
+    .eq('id', evidenceId);
+
+  try {
+    // 2. Perform duplicate check
+    let duplicateMatch = null;
+    const checksum = currentRecord.checksum;
+    if (checksum) {
+      const { data: duplicateRecord } = await supabase
+        .from('vehicle_evidence')
+        .select('id, vin, verification_status')
+        .eq('checksum', checksum)
+        .neq('id', evidenceId)
+        .limit(1);
+
+      if (duplicateRecord && duplicateRecord.length > 0) {
+        duplicateMatch = {
+          is_duplicate: true,
+          original_evidence_id: duplicateRecord[0].id,
+          original_vin: duplicateRecord[0].vin,
+          original_status: duplicateRecord[0].verification_status
+        };
+      }
+    }
+
+    // 3. Call AI Vision Provider
+    const aiResult = await analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, initialMetadata);
+
+    // If duplicate check flagged it, override status and risk_score
+    if (duplicateMatch) {
+      aiResult.ai_status = 'ai_flagged';
+      aiResult.risk_score = Math.max(aiResult.risk_score, 0.95);
+      aiResult.recommended_action = 'reject';
+      aiResult.reviewer_summary = `Duplicate photo detected! Matches existing evidence ID: ${duplicateMatch.original_evidence_id} (Vehicle VIN: ${duplicateMatch.original_vin}).`;
+      aiResult.duplicate_match = duplicateMatch;
+    }
+
+    // 4. Save results back to metadata
+    updatedMetadata = {
+      ...currentRecord.metadata,
+      ai_analysis: aiResult
+    };
+
+    await supabase
+      .from('vehicle_evidence')
+      .update({ metadata: updatedMetadata })
+      .eq('id', evidenceId);
+
+  } catch (err) {
+    console.error(`[AI Analysis Error] Failed for evidence ${evidenceId}:`, err.message);
+
+    // Save provider_unavailable status
+    const failureResult = {
+      ai_status: 'ai_provider_unavailable',
+      risk_score: 0.1,
+      confidence: 0.0,
+      reviewer_summary: `AI provider analysis failed: ${err.message}`,
+      recommended_action: 'inspect'
+    };
+
+    updatedMetadata = {
+      ...currentRecord.metadata,
+      ai_analysis: failureResult
+    };
+
+    await supabase
+      .from('vehicle_evidence')
+      .update({ metadata: updatedMetadata })
+      .eq('id', evidenceId);
+  }
 }
