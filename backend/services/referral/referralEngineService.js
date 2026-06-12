@@ -86,6 +86,25 @@ function calculateCouponValue(coupon, amount) {
   return Number(Math.min(discountValue, numericAmount || discountValue).toFixed(2));
 }
 
+function walletBucketForStatus(status) {
+  if ([WALLET_TRANSACTION_STATUSES.CREATED, WALLET_TRANSACTION_STATUSES.PENDING, WALLET_TRANSACTION_STATUSES.ELIGIBLE].includes(status)) {
+    return 'pending_balance';
+  }
+  if (status === WALLET_TRANSACTION_STATUSES.APPROVED) return 'approved_balance';
+  if (status === WALLET_TRANSACTION_STATUSES.PAYABLE) return 'payable_balance';
+  if (status === WALLET_TRANSACTION_STATUSES.PAID_OR_APPLIED) return 'paid_or_applied_balance';
+  return null;
+}
+
+function emptyWalletBalances() {
+  return {
+    pending_balance: 0,
+    approved_balance: 0,
+    payable_balance: 0,
+    paid_or_applied_balance: 0,
+  };
+}
+
 function buildCode39BarcodeSvg(code) {
   const value = normalizeReferralCode(code);
   const unit = 2;
@@ -381,6 +400,22 @@ export class ReferralEngineService {
     return { wallet, transactions };
   }
 
+  async recomputeWalletBalances(walletId) {
+    if (!walletId) throw new ValidationError('walletId is required.');
+    const transactions = await this.repository.list(REFERRAL_TABLES.walletTransactions, { wallet_id: walletId });
+    const balances = emptyWalletBalances();
+    for (const tx of transactions) {
+      const bucket = walletBucketForStatus(tx.status);
+      if (!bucket) continue;
+      balances[bucket] += Number(tx.amount || 0);
+    }
+    const rounded = Object.fromEntries(Object.entries(balances).map(([key, value]) => [key, Number(value.toFixed(2))]));
+    return this.repository.updateById(REFERRAL_TABLES.wallets, walletId, {
+      ...rounded,
+      updated_at: this.currentIso(),
+    });
+  }
+
   async createWalletTransaction(input = {}, actor = {}) {
     if (!input.user_id) throw new ValidationError('user_id is required.');
     const wallet = await this.getOrCreateWallet(input.user_id, actor);
@@ -406,6 +441,7 @@ export class ReferralEngineService {
       created_by: actor.actor_user_id || null,
       actor_type: actor.actor_type || ACTOR_TYPES.SYSTEM,
     });
+    await this.recomputeWalletBalances(wallet.id);
     await this.recordReferralEvent({ event_type: REFERRAL_EVENT_TYPES.WALLET_TRANSACTION_CREATED, wallet_transaction_id: tx.id, campaign_id: tx.campaign_id, code_id: tx.code_id, subject_type: 'wallet_transaction', subject_id: tx.id }, actor);
     return tx;
   }
@@ -428,6 +464,7 @@ export class ReferralEngineService {
       reviewed_at: this.currentIso(),
       updated_at: this.currentIso(),
     });
+    await this.recomputeWalletBalances(tx.wallet_id);
     await this.recordReferralEvent({ event_type: REFERRAL_EVENT_TYPES.WALLET_TRANSACTION_STATUS_CHANGED, wallet_transaction_id: id, campaign_id: tx.campaign_id, code_id: tx.code_id, metadata: { from: tx.status, to: nextStatus } }, actor);
     return updated;
   }
