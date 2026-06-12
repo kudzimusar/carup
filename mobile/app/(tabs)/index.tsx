@@ -66,8 +66,18 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      {/* Identity verification entry point */}
+      <Pressable
+        onPress={() => router.push('/(auth)/verification/intro')}
+        className="w-full bg-orange-500 rounded-xl h-14 justify-center items-center mb-4"
+        style={({ pressed }) => pressed ? { opacity: 0.8 } : {}}
+        testID="start-verification-flow"
+      >
+        <Text className="text-white text-base font-semibold">Start Verification Flow</Text>
+      </Pressable>
+
       {/* Account actions */}
-      <Pressable 
+      <Pressable
         onPress={handleLogout}
         className="w-full bg-red-50 border border-red-200 rounded-xl h-14 justify-center items-center mb-10"
         style={({ pressed }) => pressed ? { opacity: 0.8 } : {}}
