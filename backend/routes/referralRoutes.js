@@ -1,9 +1,10 @@
 import express from 'express';
 import { supabase } from '../db/supabase.js';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, isUserIdFallbackAllowed } from '../middleware/authMiddleware.js';
 import { ForbiddenError, ValidationError } from '../utils/errors.js';
 import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
 import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
+import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayService.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
 const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager'];
@@ -28,9 +29,44 @@ function assertSelfOrAdmin(req, userId) {
   throw new ForbiddenError('You cannot access another user wallet.');
 }
 
-export function createReferralRouter({ client = supabase, service = null } = {}) {
+function getAgentGatewayKey(req) {
+  return req.headers['x-agent-gateway-key'] || req.headers['x-carup-agent-key'] || req.headers['x-agent-key'];
+}
+
+function isValidAgentGatewayKey(req) {
+  const configured = process.env.CARUP_AGENT_GATEWAY_SECRET;
+  const supplied = getAgentGatewayKey(req);
+  return Boolean(configured && supplied && supplied === configured);
+}
+
+function assertAgentGatewayAccess(req) {
+  if (isValidAgentGatewayKey(req)) return;
+  if (req.userContext?.id) return;
+  if (isUserIdFallbackAllowed(process.env) && req.headers['x-user-id']) return;
+  throw new ForbiddenError('Agent gateway requires a trusted gateway key or authenticated user context.');
+}
+
+function createAgentGatewayActor(req) {
+  const bodyContext = req.body?.context || {};
+  const bodyInput = req.body?.input || {};
+  const fallbackUserId = req.headers['x-user-id'] || bodyContext.user_id || bodyInput.user_id || null;
+  const surface = req.headers['x-agent-surface'] || bodyContext.surface || bodyInput.surface || 'web';
+  return {
+    ...createActor(req, ACTOR_TYPES.AGENT),
+    actor_user_id: req.userContext?.id || fallbackUserId,
+    actor_role: req.userContext?.effectiveRole || req.userContext?.role || req.headers['x-stakeholder-role'] || req.headers['x-agent-role'] || 'agent',
+    actor_tenant_id: req.userContext?.tenantId || req.headers['x-tenant-id'] || bodyContext.tenant_id || bodyInput.tenant_id || 'platform',
+    actor_type: ACTOR_TYPES.AGENT,
+    gateway_trusted: isValidAgentGatewayKey(req),
+    surface,
+    session_id: req.headers['x-agent-session-id'] || bodyContext.session_id || bodyInput.session_id || null,
+  };
+}
+
+export function createReferralRouter({ client = supabase, service = null, agentGateway = null } = {}) {
   const router = express.Router();
   const referralService = service || new ReferralEngineService({ client });
+  const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
@@ -76,6 +112,30 @@ export function createReferralRouter({ client = supabase, service = null } = {})
   router.post('/events', asyncHandler(async (req, res) => {
     const event = await referralService.recordReferralEvent(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
     res.status(201).json({ success: true, event });
+  }));
+
+  router.get('/agent/tools', asyncHandler(async (req, res) => {
+    const actor = createAgentGatewayActor({ ...req, body: { context: req.query, input: {} } });
+    res.json({ success: true, tools: gatewayService.getToolCatalog(actor) });
+  }));
+
+  router.post('/agent/triage', asyncHandler(async (req, res) => {
+    assertAgentGatewayAccess(req);
+    const actor = createAgentGatewayActor(req);
+    const response = await gatewayService.executeTool({ tool: 'triage', input: req.body || {}, context: req.body?.context || {} }, actor);
+    res.json(response);
+  }));
+
+  router.post('/agent/execute', asyncHandler(async (req, res) => {
+    assertAgentGatewayAccess(req);
+    if (!req.body?.tool) throw new ValidationError('tool is required.');
+    const actor = createAgentGatewayActor(req);
+    const response = await gatewayService.executeTool({
+      tool: req.body.tool,
+      input: req.body.input || {},
+      context: req.body.context || {},
+    }, actor);
+    res.json(response);
   }));
 
   router.post('/share-assets', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
