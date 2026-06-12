@@ -5,6 +5,10 @@ import {
   getDiasporaWorkbookImportBatch,
   listDiasporaWorkbookImportRows,
 } from './diasporaWorkbookReviewService.js';
+import {
+  normalizeWorkbookBatchMetadata,
+  safeGetImportResult,
+} from './diasporaWorkbookMetadataUtils.js';
 
 const AUDIT_PAGE_SIZE = 500;
 const RETRYABLE_BATCH_STATUSES = new Set([
@@ -64,7 +68,7 @@ function rowTargetRecordId(row = {}) {
 }
 
 function rowImportResult(row = {}) {
-  return row.import_result || row.importResult || {};
+  return safeGetImportResult(row);
 }
 
 function importResultStatus(importResult = {}) {
@@ -376,6 +380,7 @@ async function loadAuditContext(batchId, userContext = {}, options = {}) {
 
 export async function getDiasporaWorkbookDraftImportAudit(batchId, userContext = {}, options = {}) {
   const { batch, rows, plan, rowSummaries } = await loadAuditContext(batchId, userContext, options);
+  const metadata = normalizeWorkbookBatchMetadata(batch.metadata);
   const consistency = validateDiasporaWorkbookDraftImportConsistency(batch, rows, plan);
   const retryPlan = buildRetryPlanFromRows(batch, rowSummaries);
   const rowsByStatus = groupBy(rowSummaries, 'executionStatus');
@@ -384,10 +389,10 @@ export async function getDiasporaWorkbookDraftImportAudit(batchId, userContext =
     batchId: batch.id,
     templateType: batch.template_type,
     importStatus: batch.import_status,
-    executionPhase: batch.metadata?.phase || null,
-    draftImportExecuted: Boolean(batch.metadata?.draftImportExecuted),
-    liveImportExecuted: Boolean(batch.metadata?.liveImportExecuted),
-    aiExecuted: Boolean(batch.metadata?.aiExecuted),
+    executionPhase: metadata.phase || null,
+    draftImportExecuted: Boolean(metadata.draftImportExecuted),
+    liveImportExecuted: Boolean(metadata.liveImportExecuted),
+    aiExecuted: Boolean(metadata.aiExecuted),
     canRetry: retryPlan.canRetry,
     canRollback: false,
     rollbackAvailable: false,
