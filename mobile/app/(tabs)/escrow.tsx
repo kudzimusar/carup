@@ -198,7 +198,7 @@ export default function EscrowDashboardScreen() {
             <Pressable
               onPress={() => handleAdvanceState(item)}
               disabled={updateEscrowMutation.isPending}
-              className="bg-slate-900 px-5 py-2.5 rounded-xl flex-row items-center active:opacity-90"
+              className="bg-slate-900 px-5 py-2.5 rounded-xl min-h-[44px] flex-row items-center justify-center active:opacity-90"
               style={({ pressed }) => pressed ? { opacity: 0.9 } : {}}
             >
               {updateEscrowMutation.isPending ? (
@@ -240,9 +240,13 @@ export default function EscrowDashboardScreen() {
         </View>
       ) : error ? (
         <View className="flex-1 justify-center items-center px-6">
-          <Text className="text-red-500 text-sm font-semibold text-center mb-4">Error fetching escrow contract records</Text>
-          <Pressable onPress={() => refetch()} className="bg-slate-900 px-6 py-3 rounded-xl">
-            <Text className="text-white text-xs font-semibold">Retry List</Text>
+          <View className="bg-red-50 p-4 rounded-full mb-4">
+            <Text className="text-red-500 text-3xl">⚠️</Text>
+          </View>
+          <Text className="text-slate-800 text-lg font-bold text-center mb-2">Unable to load data</Text>
+          <Text className="text-slate-500 text-sm text-center mb-8">We could not reach the server. Please check your connection and try again.</Text>
+          <Pressable onPress={() => refetch()} className="bg-slate-900 px-8 py-3.5 min-h-[48px] rounded-xl active:opacity-90">
+            <Text className="text-white text-sm font-semibold">Retry Fetch</Text>
           </Pressable>
         </View>
       ) : escrows.length === 0 ? (

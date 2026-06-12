@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -12,19 +13,36 @@ import type {
   VehicleEvidence,
   TimelineEvent,
   MarketplaceListingsResponse,
+  NavCoverageResponse,
   TrustAuditTrailResponse,
   TrustFactDecisionPayload,
   TrustFactDecisionResponse,
   TrustFactReviewQueueResponse,
   TrustFactReviewStatus,
   TrustFactName,
-  VehicleEvidenceSummary
+  DiasporaImportOrder,
+  DiasporaImportOrderPayload,
+  DiasporaTradeDocument,
+  DiasporaComplianceReview,
+  DiasporaCargoReservation,
+  DiasporaCargoReservationPayload,
+  DiasporaShipment,
+  DiasporaContainerShipment,
+  DiasporaWorkbookOperatorBatchSummary,
+  DiasporaWorkbookOperatorDashboard,
+  DiasporaWorkbookOperatorDashboardFilters,
+  DiasporaWorkbookOperatorHold,
+  DiasporaWorkbookOperatorNextActions,
+  DiasporaWorkbookOperatorNote
 } from '@/types'
 
 
-const BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:5001/api'
-  : 'https://carup-backend.vercel.app/api';
+// Honor VITE_API_URL so each environment targets its own backend (staging → staging backend),
+// falling back to same-origin /api on localhost and to the production backend otherwise.
+const BASE_URL = resolveApiBaseUrl(
+  import.meta.env.VITE_API_URL,
+  typeof window !== 'undefined' ? window.location.hostname : undefined,
+);
 
 export function useCarUpApi() {
   const { user, token } = useAuth()
@@ -34,34 +52,19 @@ export function useCarUpApi() {
   const request = useCallback(async <T = any>(path: string, options?: RequestInit): Promise<T> => {
     setLoading(true)
     setError(null)
-    
-    // Build Headers Dynamically based on current auth state
-    const defaultHeaders: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    
-    if (token) defaultHeaders['x-session-token'] = token
-    if (user?.id) defaultHeaders['x-user-id'] = user.id
-    if (user?.role) defaultHeaders['x-stakeholder-role'] = user.role
-    if (user?.active_tenant_id) defaultHeaders['x-tenant-id'] = user.active_tenant_id
+
+    // Build identity headers from current auth state. These are sent on every request AND used to
+    // bind the CSRF token, so an unsafe request always carries a token bound to its own identity.
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
 
     try {
-      const response = await fetch(`${BASE_URL}${path}`, {
-        headers: {
-          ...defaultHeaders,
-          ...(options?.headers || {})
-        },
-        ...options
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
-      }
-      
-      const data = await response.json()
+      const data = await apiRequest<T>({ baseUrl: BASE_URL, path, options, authHeaders })
       setLoading(false)
-      return data as T
+      return data
     } catch (err: unknown) {
       setLoading(false)
       const errMsg = err instanceof Error ? err.message : 'Something went wrong'
@@ -90,6 +93,10 @@ export function useCarUpApi() {
       ? '?' + new URLSearchParams(Object.entries(filters).filter(([_, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
       : ''
     return request<MarketplaceListingsResponse>(`/marketplace/listings${query}`)
+  }, [request])
+
+  const fetchMarketplaceNavCoverage = useCallback(async (): Promise<NavCoverageResponse> => {
+    return request<NavCoverageResponse>('/marketplace/nav-coverage')
   }, [request])
 
   const fetchDealerInventory = useCallback(async (): Promise<Vehicle[]> => {
@@ -146,8 +153,8 @@ export function useCarUpApi() {
     return request<TrustAuditTrailResponse>(`/verification/audit-trail/${encodeURIComponent(vin)}`)
   }, [request])
 
-  const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidenceSummary[]> => {
-    return request<VehicleEvidenceSummary[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
+  const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidence[]> => {
+    return request<VehicleEvidence[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
   }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
@@ -249,6 +256,178 @@ export function useCarUpApi() {
       method: 'POST',
       body: JSON.stringify({ price, year, engineCc })
     })
+  }, [request])
+
+  const fetchDiasporaImportOrders = useCallback(async (): Promise<DiasporaImportOrder[]> => {
+    const response = await request<{ data: DiasporaImportOrder[] }>('/diaspora/import-orders')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaImportOrder = useCallback(async (payload: DiasporaImportOrderPayload): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>('/diaspora/import-orders', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchDiasporaImportOrder = useCallback(async (id: string): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(id)}`)
+  }, [request])
+
+  const fetchDiasporaTradeDocuments = useCallback(async (importOrderId: string): Promise<DiasporaTradeDocument[]> => {
+    const response = await request<{ data: DiasporaTradeDocument[] }>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/documents`)
+    return response.data || []
+  }, [request])
+
+  const uploadDiasporaDocument = useCallback(async (file: File, documentType: string, importOrderId: string): Promise<{ storagePath: string; docType: string; uploadedBy: string }> => {
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+
+    return request<{ storagePath: string; docType: string; uploadedBy: string }>('/media/upload/document', {
+      method: 'POST',
+      body: JSON.stringify({
+        document: base64,
+        docType: documentType,
+        vin: importOrderId
+      })
+    })
+  }, [request])
+
+  const createDiasporaTradeDocument = useCallback(async (importOrderId: string, payload: { document_type: string; file_name?: string; storage_path?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchDiasporaTradeDocument = useCallback(async (documentId: string): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}`)
+  }, [request])
+
+  const runDiasporaDocumentExtraction = useCallback(async (documentId: string, payload: { extraction_provider?: string; extracted_fields?: Record<string, unknown>; confidence_score?: number; raw_response?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/extractions`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const runDiasporaOcr = useCallback(async (documentId: string): Promise<{ extraction: DiasporaTradeDocument; ocr: { success: boolean; ocrDocumentId: string; qualityMetrics: Record<string, unknown> } }> => {
+    return request(`/diaspora/documents/${encodeURIComponent(documentId)}/run-ocr`, {
+      method: 'POST'
+    })
+  }, [request])
+
+  const verifyDiasporaTradeDocument = useCallback(async (documentId: string, payload: { notes?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/verify`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const rejectDiasporaTradeDocument = useCallback(async (documentId: string, payload: { reason: string; notes?: string; metadata?: Record<string, unknown> }): Promise<DiasporaTradeDocument> => {
+    return request<DiasporaTradeDocument>(`/diaspora/documents/${encodeURIComponent(documentId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchDiasporaComplianceReviews = useCallback(async (): Promise<DiasporaComplianceReview[]> => {
+    const response = await request<{ data: DiasporaComplianceReview[] }>('/diaspora/compliance')
+    return response.data || []
+  }, [request])
+
+  // --- Container reservation + shipment tracking (read-path + buyer reservation request) ---
+  const fetchDiasporaReservations = useCallback(async (importOrderId: string): Promise<DiasporaCargoReservation[]> => {
+    const response = await request<{ data: DiasporaCargoReservation[] }>(`/diaspora/reservations?importOrderId=${encodeURIComponent(importOrderId)}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaShipments = useCallback(async (importOrderId: string): Promise<DiasporaShipment[]> => {
+    const response = await request<{ data: DiasporaShipment[] }>(`/diaspora/shipments?importOrderId=${encodeURIComponent(importOrderId)}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaOpenContainers = useCallback(async (): Promise<DiasporaContainerShipment[]> => {
+    const response = await request<{ data: DiasporaContainerShipment[] }>('/diaspora/containers?status=BOOKING_OPEN')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaReservation = useCallback(async (payload: DiasporaCargoReservationPayload): Promise<DiasporaCargoReservation> => {
+    return request<DiasporaCargoReservation>('/diaspora/reservations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // Admin/logistics only (UI role-gated). Backend route: POST /diaspora/reservations/:id/{approve|reject}
+  // approve/reject are admin/reviewer only; cancel is allowed for the reservation owner (backend-enforced).
+  const updateDiasporaReservationStatus = useCallback(async (reservationId: string, action: 'approve' | 'reject' | 'cancel'): Promise<DiasporaCargoReservation> => {
+    return request<DiasporaCargoReservation>(`/diaspora/reservations/${encodeURIComponent(reservationId)}/${action}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  }, [request])
+
+  // Logistics/admin lifecycle (backend role-gated): create a shipment for an order, advance its stage.
+  const createDiasporaShipment = useCallback(async (importOrderId: string): Promise<DiasporaShipment> => {
+    return request<DiasporaShipment>('/diaspora/shipments', {
+      method: 'POST',
+      body: JSON.stringify({ import_order_id: importOrderId }),
+    })
+  }, [request])
+
+  const updateDiasporaShipmentStage = useCallback(async (shipmentId: string, stage: string): Promise<{ shipment: DiasporaShipment }> => {
+    return request<{ shipment: DiasporaShipment }>(`/diaspora/shipments/${encodeURIComponent(shipmentId)}/stage`, {
+      method: 'PATCH',
+      body: JSON.stringify({ stage }),
+    })
+  }, [request])
+
+  const fetchDiasporaWorkbookOperatorDashboard = useCallback(async (filters?: DiasporaWorkbookOperatorDashboardFilters): Promise<DiasporaWorkbookOperatorDashboard> => {
+    const query = filters
+      ? '?' + new URLSearchParams(
+        Object.entries(filters)
+          .filter(([, value]) => value !== undefined && value !== '')
+          .map(([key, value]) => [key, String(value)])
+      ).toString()
+      : ''
+    return request<DiasporaWorkbookOperatorDashboard>(`/diaspora/workbook/operator-dashboard${query}`)
+  }, [request])
+
+  const fetchDiasporaWorkbookOperatorBatchSummary = useCallback(async (batchId: string): Promise<DiasporaWorkbookOperatorBatchSummary> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorBatchSummary }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-summary`)
+    return response.data
+  }, [request])
+
+  const fetchDiasporaWorkbookOperatorNextActions = useCallback(async (batchId: string): Promise<DiasporaWorkbookOperatorNextActions> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorNextActions }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/next-actions`)
+    return response.data
+  }, [request])
+
+  const addDiasporaWorkbookOperatorNote = useCallback(async (batchId: string, note: string): Promise<{ data?: unknown; note: DiasporaWorkbookOperatorNote }> => {
+    return request<{ data?: unknown; note: DiasporaWorkbookOperatorNote }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-notes`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    })
+  }, [request])
+
+  const setDiasporaWorkbookOperatorHold = useCallback(async (batchId: string, reason: string): Promise<DiasporaWorkbookOperatorHold> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorHold }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-hold`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    })
+    return response.data
+  }, [request])
+
+  const clearDiasporaWorkbookOperatorHold = useCallback(async (batchId: string): Promise<DiasporaWorkbookOperatorHold> => {
+    const response = await request<{ data: DiasporaWorkbookOperatorHold }>(`/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/operator-hold`, {
+      method: 'DELETE',
+    })
+    return response.data
   }, [request])
 
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
@@ -455,9 +634,35 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  const uploadEvidence = useCallback(async (vin: string, payload: {
+    evidence_type: string;
+    file: string; // base64 string
+    captured_at?: string;
+    visibility_level?: string;
+    linked_registry_event_id?: string;
+    verification_notes?: string;
+  }): Promise<VehicleEvidence> => {
+    return request<VehicleEvidence>(`/vehicles/${vin}/evidence/upload`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const linkEvidenceToEvent = useCallback(async (vin: string, evidenceId: string, payload: {
+    linked_registry_event_id: string;
+    event_type: string;
+  }): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
+    return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/link-event`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
 
   return {
     uploadKycDocument,
+    uploadEvidence,
+    linkEvidenceToEvent,
     createVehicleListing,
     uploadVehicleImages,
     fetchOwnedVehicles,
@@ -475,6 +680,7 @@ export function useCarUpApi() {
     switchRole,
     fetchVehicles,
     fetchMarketplaceListings,
+    fetchMarketplaceNavCoverage,
     fetchDealerInventory,
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,
@@ -502,6 +708,31 @@ export function useCarUpApi() {
     submitFinancing,
     fetchInsuranceQuote,
     fetchZimraDuty,
+    fetchDiasporaImportOrders,
+    createDiasporaImportOrder,
+    fetchDiasporaImportOrder,
+    fetchDiasporaTradeDocuments,
+    uploadDiasporaDocument,
+    createDiasporaTradeDocument,
+    fetchDiasporaTradeDocument,
+    runDiasporaDocumentExtraction,
+    runDiasporaOcr,
+    verifyDiasporaTradeDocument,
+    rejectDiasporaTradeDocument,
+    fetchDiasporaComplianceReviews,
+    fetchDiasporaReservations,
+    fetchDiasporaShipments,
+    fetchDiasporaOpenContainers,
+    createDiasporaReservation,
+    updateDiasporaReservationStatus,
+    createDiasporaShipment,
+    updateDiasporaShipmentStage,
+    fetchDiasporaWorkbookOperatorDashboard,
+    fetchDiasporaWorkbookOperatorBatchSummary,
+    fetchDiasporaWorkbookOperatorNextActions,
+    addDiasporaWorkbookOperatorNote,
+    setDiasporaWorkbookOperatorHold,
+    clearDiasporaWorkbookOperatorHold,
     reportStolen,
     checkStolen,
     fetchDealerReputation,

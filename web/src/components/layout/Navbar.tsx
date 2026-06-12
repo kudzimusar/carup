@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +29,11 @@ import {
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { resolveCoverageNavHref } from '@/lib/marketplaceParams'
+import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems } from '@/config/featureRegistry'
+import type { NavCoverageResponse } from '@/types'
+import type { UserRole } from '@shared/types'
 
 interface MenuItem {
   label: string
@@ -49,7 +54,7 @@ const buyMenu: MenuSection[] = [
       { label: 'Recently Imported', href: '/marketplace' },
       { label: 'Locally Used', href: '/marketplace' },
       { label: 'Second Hand Cars', href: '/marketplace' },
-      { label: 'Dealer Verified Cars', href: '/marketplace' },
+      { label: 'Dealer Verified Cars', href: '/marketplace?tag=dealer_verified' },
       { label: 'Passport Verified Cars', href: '/marketplace' },
     ],
   },
@@ -63,8 +68,8 @@ const buyMenu: MenuSection[] = [
       { label: 'Toyota', href: '/marketplace' },
       { label: 'Honda', href: '/marketplace' },
       { label: 'Mazda', href: '/marketplace' },
-      { label: 'Under $5,000', href: '/marketplace' },
-      { label: 'Under $10,000', href: '/marketplace' },
+      { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
+      { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
     ],
   },
   {
@@ -72,7 +77,7 @@ const buyMenu: MenuSection[] = [
     items: [
       { label: 'Verify Before You Buy', href: '/search' },
       { label: 'View Vehicle Passport', href: '/search' },
-      { label: 'Compare Trust Scores', href: '/marketplace' },
+      { label: 'Highest Trust Listings', href: '/marketplace?sort=trust' },
       { label: 'PartSentry Checked Vehicles', href: '/marketplace' },
     ],
   },
@@ -81,37 +86,6 @@ const buyMenu: MenuSection[] = [
     items: [
       { label: 'Brand New vs Imported vs Locally Used', href: '/marketplace' },
       { label: 'How to check a vehicle Passport before paying', href: '/search' },
-    ],
-  },
-]
-
-const verifyMenu: MenuSection[] = [
-  {
-    title: 'Vehicle Verification',
-    items: [
-      { label: 'Verify by Plate', href: '/search' },
-      { label: 'Verify by VIN', href: '/search' },
-      { label: 'Verify by Chassis', href: '/search' },
-      { label: 'Open Vehicle Passport', href: '/search' },
-    ],
-  },
-  {
-    title: 'Trust Checks',
-    items: [
-      { label: 'Ownership Privacy Summary', href: '/search' },
-      { label: 'Evidence Timeline', href: '/search' },
-      { label: 'ZIMRA / Duty Signals', href: '/search' },
-      { label: 'CID / Theft Signals', href: '/search' },
-      { label: 'Odometer / Mileage Signals', href: '/search' },
-    ],
-  },
-  {
-    title: 'PartSentry Verification',
-    items: [
-      { label: 'Check Part History', href: '/search' },
-      { label: 'Check Repair Logs', href: '/search' },
-      { label: 'Check Swapped Parts', href: '/search' },
-      { label: 'Check Stolen/Suspicious Parts', href: '/search' },
     ],
   },
 ]
@@ -166,6 +140,7 @@ const moreMenu: MenuSection[] = [
     items: [
       { label: 'Insurance', href: '/insurance' },
       { label: 'Pricing', href: '/pricing' },
+      { label: 'Diaspora Trade', href: '/diaspora' },
       { label: 'How It Works', href: '/' },
       { label: 'Trust & Safety', href: '/trust' },
       { label: 'Help', href: '/help' },
@@ -230,35 +205,73 @@ export default function Navbar() {
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
   const { currency, setCurrency } = useApp()
+  const { fetchMarketplaceNavCoverage } = useCarUpApi()
+  const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [fetchMarketplaceNavCoverage])
+  // Data-driven Buy menu: a coverage-gated link (e.g. Locally Used) activates its category deep-link
+  // ONLY when live coverage says active; otherwise it stays the deferred /marketplace href.
+  const resolvedBuyMenu = buyMenu.map(section => ({
+    ...section,
+    items: section.items.map(item => ({ ...item, href: resolveCoverageNavHref(item.label, item.href, navCoverage) })),
+  }))
   const unreadCount = notifications.filter(n => !n.read).length
 
-  const dashboardRoutes: Record<string, string> = {
-    owner: '/dashboard',
-    dealer: '/dealer',
-    mechanic: '/mechanic',
-    insurance: '/insurance-dash',
-    government: '/government',
-    admin: '/admin'
-  }
-  const activeDashboardPath = dashboardRoutes[user?.role || 'owner'] || '/dashboard'
+  const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
+  const evidencePath = user ? '/dashboard/garage' : '/register'
+
+  const verifyMenu: MenuSection[] = [
+    {
+      title: 'Vehicle Verification',
+      items: [
+        { label: 'Verify by Plate', href: '/search' },
+        { label: 'Verify by VIN', href: '/search' },
+        { label: 'Verify by Chassis', href: '/search' },
+        { label: 'Open Vehicle Passport', href: '/search' },
+      ],
+    },
+    {
+      title: 'Trust Checks',
+      items: [
+        { label: 'Ownership Privacy Summary', href: '/search' },
+        { label: 'Evidence Timeline', href: user ? '/dashboard/garage' : '/search' },
+        { label: 'ZIMRA / Duty Signals', href: '/search' },
+        { label: 'CID / Theft Signals', href: '/search' },
+        { label: 'Odometer / Mileage Signals', href: '/search' },
+      ],
+    },
+    {
+      title: 'PartSentry Verification',
+      items: [
+        { label: 'Check Part History', href: '/search' },
+        { label: 'Check Repair Logs', href: '/search' },
+        { label: 'Check Swapped Parts', href: '/search' },
+        { label: 'Check Stolen/Suspicious Parts', href: '/search' },
+      ],
+    },
+  ]
+
   const sellMenu: MenuSection[] = [
     {
       title: 'Sell Vehicles',
       items: [
         { label: 'Sell Your Car', href: sellerPath },
-        { label: 'Create Vehicle Passport', href: '/register' },
-        { label: 'Dealer Listing', href: '/register' },
-        { label: 'Sell as Private Owner', href: '/register' },
+        { label: 'Create Vehicle Passport', href: user ? '/dashboard/garage' : '/register' },
+        { label: 'Dealer Listing', href: user ? '/dealer/inventory' : '/register' },
+        { label: 'Sell as Private Owner', href: sellerPath },
       ],
     },
     {
       title: 'Seller Tools',
       items: [
         { label: 'Start with Plate / VIN', href: sellerPath },
-        { label: 'Upload Vehicle Evidence', href: '/register' },
-        { label: 'Add Service History', href: '/register' },
-        { label: 'SafePay / Reservation Ready', href: '/register' },
+        { label: 'Upload Vehicle Evidence', href: evidencePath },
+        { label: 'Add Service History', href: user ? '/dashboard/service-history' : '/register' },
+        { label: 'SafePay / Reservation Ready', href: user ? '/dashboard/listings' : '/register' },
       ],
     },
     {
@@ -281,7 +294,7 @@ export default function Navbar() {
   const handleRoleChange = async (newRole: string) => {
     try {
       await switchRole(newRole as any)
-      navigate(dashboardRoutes[newRole] || '/dashboard')
+      navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
     }
@@ -303,27 +316,27 @@ export default function Navbar() {
 
           {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1" data-testid="public-primary-nav">
-            <CommerceMenu label="Buy" icon={ShoppingCart} sections={buyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
+            <CommerceMenu label="Buy" icon={ShoppingCart} sections={resolvedBuyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
             <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" />
             <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" />
             <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" />
-            {[
-              { label: 'Dealers', href: '/dealers', icon: Building2, testId: 'nav-dealers' },
-              { label: 'Garages', href: '/garages', icon: Wrench, testId: 'nav-garages' },
-            ].map((link) => (
-              <Link
-                key={link.href}
-                to={link.href}
-                data-testid={link.testId}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  location.pathname === link.href
-                    ? 'bg-orange-50 text-orange-700'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
+            {getPublicNavigationItems().map((link) => {
+              const testId = `nav-${link.label.toLowerCase()}`
+              return (
+                <Link
+                  key={link.route}
+                  to={link.route}
+                  data-testid={testId}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === link.route
+                      ? 'bg-orange-50 text-orange-700'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              )
+            })}
             <CommerceMenu label="More" icon={MoreHorizontal} sections={moreMenu} testId="nav-more" menuTestId="nav-more-menu" />
           </nav>
 
@@ -414,19 +427,11 @@ export default function Navbar() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
-                  {['owner', 'dealer', 'mechanic', 'insurance', 'government', 'admin'].map((r) => {
+                  {getAllRoles().map((r) => {
                     if (r === user.role) return null;
-                    const labels: Record<string, string> = {
-                      owner: 'Car Owner',
-                      dealer: 'Dealer',
-                      mechanic: 'Mechanic',
-                      insurance: 'Insurance',
-                      government: 'Government',
-                      admin: 'Admin'
-                    }
                     return (
                       <DropdownMenuItem key={r} onClick={() => handleRoleChange(r)} className="cursor-pointer text-xs">
-                        Change to {labels[r]}
+                        Change to {getRoleMetadata(r).title}
                       </DropdownMenuItem>
                     );
                   })}
@@ -505,7 +510,7 @@ export default function Navbar() {
             <div className="pt-2 border-t mt-2">
               {user ? (
                 <>
-                  <Link to="/dashboard" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600">
+                  <Link to={activeDashboardPath} onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600">
                     <LayoutDashboard className="w-4 h-4" /> Dashboard
                   </Link>
                   <button onClick={() => {

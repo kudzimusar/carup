@@ -136,7 +136,7 @@ export async function downloadFromStorage(bucketName, storagePath) {
     .download(storagePath);
 
   if (error) {
-    console.error('❌ [Storage Service] Failed to download private object:', error.message);
+    console.error('\u274c [Storage Service] Failed to download private object:', error.message);
     throw new Error(`Storage download failed: ${error.message}`);
   }
 
@@ -145,6 +145,27 @@ export async function downloadFromStorage(bucketName, storagePath) {
     buffer: Buffer.from(arrayBuffer),
     mimeType: data.type || 'application/octet-stream',
   };
+}
+
+/**
+ * Generate a secure, timed, temporary signed upload URL for direct client upload
+ * 
+ * @param {string} bucketName - Target bucket ('vehicle-images' or 'ocr-documents')
+ * @param {string} fileName - Destination path (e.g. 'VIN123/image_1.jpg')
+ * @param {number} expiresInSeconds - Expiration time (default 5 minutes)
+ * @returns {Promise<{signedUrl: string, token: string}>} The signed upload URL and authorization token
+ */
+export async function generateSecureUploadUrl(bucketName, fileName, expiresInSeconds = 300) {
+  const { data, error } = await supabase.storage
+    .from(bucketName)
+    .createSignedUploadUrl(fileName, { expiresIn: expiresInSeconds });
+
+  if (error) {
+    console.error('\u274c [Storage Service] Failed to generate signed upload URL:', error.message);
+    throw new Error(`Signed upload URL generation failed: ${error.message}`);
+  }
+
+  return { signedUrl: data.signedUrl, token: data.token };
 }
 
 console.log('✅ Enterprise Object Storage Service loaded.');

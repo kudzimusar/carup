@@ -31,6 +31,16 @@ import TrustSafety from './pages/TrustSafety'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
 import APIDocs from './pages/APIDocs'
+import {
+  DiasporaComplianceAdmin,
+  DiasporaImportDetail,
+  DiasporaImportDocuments,
+  DiasporaImportList,
+  DiasporaImportShipment,
+  DiasporaLanding,
+  NewDiasporaImportOrder,
+} from './pages/diaspora/DiasporaTrade'
+import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -166,6 +176,14 @@ export default function App() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/api-docs" element={<APIDocs />} />
+          <Route path="/diaspora" element={<DiasporaLanding />} />
+          <Route path="/diaspora/imports" element={<DiasporaImportList />} />
+          <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
+          <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
+          <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
+          <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
+          <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
         </Route>
 
         {/* Auth Routes */}
@@ -185,7 +203,6 @@ export default function App() {
           <Route path="/dashboard/insurance" element={<InsuranceRecords />} />
           <Route path="/dashboard/partsentry" element={<PartSentry />} />
           <Route path="/dashboard/listings" element={<MyListings />} />
-          <Route path="/dashboard/my-listings" element={<MyListings />} />
           <Route path="/dashboard/saved" element={<SavedCars />} />
           <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />

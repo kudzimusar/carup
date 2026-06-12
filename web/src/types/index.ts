@@ -78,6 +78,295 @@ export interface MarketplaceListingSummary extends SharedMarketplaceListingSumma
 
 export interface MarketplaceListingsResponse extends SharedMarketplaceListingsResponse {}
 
+export interface NavCoverageEntry { count: number; active: boolean }
+export interface NavCoverageResponse {
+  threshold: number
+  categories: Record<string, NavCoverageEntry>
+  tags: Record<string, NavCoverageEntry>
+  governed_deferred: string[]
+}
+
+export type DiasporaOrderType = 'vehicle' | 'parts' | 'mixed';
+
+export interface DiasporaImportOrder {
+  id: string;
+  tenant_id?: string | null;
+  buyer_id?: string | null;
+  order_type: DiasporaOrderType;
+  origin_country: string;
+  origin_city?: string | null;
+  destination_country: string;
+  destination_city?: string | null;
+  requested_make?: string | null;
+  requested_model?: string | null;
+  requested_year_min?: number | null;
+  requested_year_max?: number | null;
+  budget_amount?: number | string | null;
+  budget_currency?: string | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  metadata?: Record<string, unknown>;
+  diaspora_trade_documents?: DiasporaTradeDocument[];
+}
+
+export interface DiasporaImportOrderPayload {
+  order_type: DiasporaOrderType;
+  origin_country: string;
+  origin_city?: string;
+  destination_country: string;
+  destination_city?: string;
+  requested_make?: string;
+  requested_model?: string;
+  requested_year_min?: number;
+  requested_year_max?: number;
+  budget_amount?: number;
+  budget_currency?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaTradeDocument {
+  id: string;
+  import_order_id?: string;
+  document_type: string;
+  verification_status?: string;
+  uploaded_by?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  file_name?: string | null;
+  created_at?: string;
+  storage_path?: string | null;
+  ocr_document_id?: string | null;
+  metadata?: Record<string, unknown>;
+  extractions?: DiasporaTradeDocumentExtraction[];
+  verifications?: DiasporaTradeDocumentVerification[];
+}
+
+export interface DiasporaTradeDocumentExtraction {
+  id: string;
+  trade_document_id: string;
+  extraction_provider?: string;
+  extracted_fields?: Record<string, unknown>;
+  confidence_score?: number;
+  verification_status?: string;
+  created_at?: string;
+}
+
+export interface DiasporaTradeDocumentVerification {
+  id: string;
+  trade_document_id: string;
+  verification_status: string;
+  verified_by?: string;
+  verified_at?: string;
+  notes?: string;
+}
+
+export interface DiasporaTradeDocumentPayload {
+  document_type: string;
+  file_name?: string;
+  storage_path?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaComplianceReview {
+  id: string;
+  import_order_id?: string;
+  status: string;
+  review_type?: string;
+  created_at?: string;
+}
+
+export interface DiasporaContainerShipment {
+  id: string;
+  origin_country?: string | null;
+  origin_city?: string | null;
+  destination_country?: string | null;
+  destination_city?: string | null;
+  departure_date?: string | null;
+  booking_deadline?: string | null;
+  estimated_arrival_date?: string | null;
+  container_type?: string | null;
+  total_capacity_volume?: number | null;
+  used_capacity_volume?: number | null;
+  available_capacity_volume?: number | null;
+  status: string;
+}
+
+export interface DiasporaCargoReservation {
+  id: string;
+  container_id?: string | null;
+  import_order_id?: string | null;
+  buyer_id?: string | null;
+  cargo_type?: string | null;
+  estimated_volume?: number | null;
+  reservation_status: string;
+  created_at?: string;
+}
+
+export interface DiasporaCargoReservationPayload {
+  container_id: string;
+  import_order_id: string;
+  cargo_type: 'vehicle' | 'parts' | 'mixed' | 'other';
+  estimated_volume: number;
+}
+
+export interface DiasporaShipment {
+  id: string;
+  import_order_id?: string | null;
+  container_id?: string | null;
+  carrier_name?: string | null;
+  tracking_number?: string | null;
+  origin_port?: string | null;
+  destination_port?: string | null;
+  departure_date?: string | null;
+  estimated_arrival_date?: string | null;
+  actual_arrival_date?: string | null;
+  status: string;
+  created_at?: string;
+}
+
+export type DiasporaWorkbookOperatorAction = string;
+
+export interface DiasporaWorkbookOperatorDashboardFilters {
+  status?: string;
+  templateType?: string;
+  uploadedBy?: string;
+  tenantId?: string;
+  needsReview?: boolean | string;
+  hasFailures?: boolean | string;
+  hasRetryableRows?: boolean | string;
+  held?: boolean | string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DiasporaWorkbookOperatorDashboardItem {
+  batchId: string;
+  templateType?: string;
+  importStatus?: string;
+  uploadedBy?: string | null;
+  tenantId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  totalRows?: number;
+  acceptedRows?: number;
+  warningRows?: number;
+  rejectedRows?: number;
+  errorCount?: number;
+  warningCount?: number;
+  draftImportExecuted?: boolean;
+  liveImportExecuted?: boolean;
+  aiExecuted?: boolean;
+  needsReview?: boolean;
+  hasFailures?: boolean;
+  hasRetryableRows?: boolean;
+  hasBlockedRows?: boolean;
+  held?: boolean;
+  holdReason?: string | null;
+  nextRecommendedAction?: string;
+  riskLevel?: string;
+  summaryBadges?: string[];
+}
+
+export interface DiasporaWorkbookOperatorDashboard {
+  items: DiasporaWorkbookOperatorDashboardItem[];
+  pagination?: {
+    limit?: number;
+    offset?: number;
+    count?: number;
+  };
+  totals?: Record<string, number>;
+}
+
+export interface DiasporaWorkbookOperatorNote {
+  id?: string;
+  note: string;
+  createdAt?: string;
+  createdBy?: string | null;
+  role?: string;
+  visibility?: string;
+  phase?: string;
+}
+
+export interface DiasporaWorkbookOperatorHold {
+  active?: boolean;
+  reason?: string | null;
+  placedAt?: string;
+  placedBy?: string | null;
+  clearedAt?: string;
+  clearedBy?: string | null;
+  role?: string;
+  phase?: string;
+}
+
+export interface DiasporaWorkbookRetryPlan {
+  canRetry?: boolean;
+  reason?: string;
+  totals?: Record<string, number>;
+  retryableRows?: unknown[];
+  blockedRows?: unknown[];
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookExecutionAudit {
+  batchId?: string;
+  templateType?: string;
+  importStatus?: string;
+  executionPhase?: string | null;
+  draftImportExecuted?: boolean;
+  liveImportExecuted?: boolean;
+  aiExecuted?: boolean;
+  totals?: Record<string, number>;
+  consistency?: {
+    valid?: boolean;
+    errors?: unknown[];
+    warnings?: unknown[];
+  };
+  retryPlan?: DiasporaWorkbookRetryPlan | null;
+  createdTargetRecords?: unknown[];
+  failedRows?: unknown[];
+  skippedRows?: unknown[];
+  blockedRows?: unknown[];
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookOperatorNextActions {
+  allowed: DiasporaWorkbookOperatorAction[];
+  forbidden: DiasporaWorkbookOperatorAction[];
+  warnings?: string[];
+  nextRecommendedAction?: string;
+}
+
+export interface DiasporaWorkbookOperatorBatchSummary {
+  batch?: {
+    id?: string;
+    importStatus?: string;
+    templateType?: string;
+    totalRows?: number;
+    acceptedRows?: number;
+    rejectedRows?: number;
+    warningCount?: number;
+    errorCount?: number;
+    createdAt?: string;
+    updatedAt?: string;
+    metadata?: Record<string, unknown>;
+  };
+  plan?: Record<string, unknown>;
+  audit?: DiasporaWorkbookExecutionAudit | null;
+  retryPlan?: DiasporaWorkbookRetryPlan | null;
+  operator?: {
+    held?: boolean;
+    holdReason?: string | null;
+    notes?: DiasporaWorkbookOperatorNote[];
+    nextActions?: DiasporaWorkbookOperatorAction[];
+    forbiddenActions?: DiasporaWorkbookOperatorAction[];
+    warnings?: string[];
+    statusTimeline?: unknown[];
+  };
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;
@@ -379,7 +668,7 @@ export interface VehicleEvidence {
   timeline_event_id?: string | null;
   trust_score_impact: number;
   trust_impact?: number;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, any> & { ai_analysis?: EvidenceAiAnalysis; ai_public_summary?: string };
   image_hash?: string | null;
   checksum?: string | null;
   storage_bucket?: string;
@@ -393,6 +682,27 @@ export interface VehicleEvidence {
     year?: number;
     trust_score?: number;
   };
+}
+
+export interface EvidenceAiAnalysis {
+  risk_score: number;
+  confidence: number;
+  ai_status: 'ai_pending' | 'ai_passed' | 'ai_flagged' | 'ai_low_confidence' | 'ai_provider_unavailable' | 'ai_manual_review_required';
+  reviewer_summary: string;
+  recommended_action: 'approve' | 'reject' | 'inspect';
+  visible_plate?: string | null;
+  visible_vin?: string | null;
+  visible_odometer?: number | null;
+  damage_indicators?: Array<{ type: string; severity: string; location?: string }> | null;
+  manipulation_indicators?: Array<{ type: string; severity: string; notes?: string }> | null;
+  detected_objects?: string[];
+  duplicate_match?: {
+    is_duplicate: boolean;
+    original_evidence_id: string;
+    original_vin: string;
+    original_status: string;
+  } | null;
+  public_safe_summary?: string | null;
 }
 
 export type TrustFactReviewStatus = 'pending' | 'approved' | 'rejected' | 'revoked' | 'superseded';

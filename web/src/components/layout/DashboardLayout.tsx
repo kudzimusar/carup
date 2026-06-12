@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Car,
   LayoutDashboard,
@@ -26,82 +26,52 @@ import {
   Brain,
   UserCog,
   Store,
-  MapPin
+  MapPin,
+  Building2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
+import {
+  getDashboardItems,
+  getDashboardRoute,
+  getRoleMetadata,
+  getAllRoles,
+  canRoleAccessRoute,
+  type LucideIconName,
+  type FeatureRegistryItem,
+} from '@/config/featureRegistry'
+import type { UserRole } from '@shared/types'
 
-interface NavItem {
-  label: string
-  href: string
-  icon: React.ElementType
-  badge?: string | number
+/** Maps LucideIconName strings from the registry to actual icon components */
+const ICON_MAP: Record<LucideIconName, React.ElementType> = {
+  LayoutDashboard,
+  Car,
+  FileText,
+  Wrench,
+  Shield,
+  Gauge,
+  ClipboardList,
+  Tag,
+  Heart,
+  MessageSquare,
+  Users,
+  BarChart3,
+  BookOpen,
+  AlertTriangle,
+  Search,
+  CheckCircle,
+  ShieldAlert,
+  Brain,
+  UserCog,
+  MapPin,
+  Building2,
+  Settings,
 }
 
-const roleNavItems: Record<string, NavItem[]> = {
-  owner: [
-    { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-    { label: 'My Garage', href: '/dashboard/garage', icon: Car },
-    { label: 'Service History', href: '/dashboard/service-history', icon: Wrench },
-    { label: 'Insurance', href: '/dashboard/insurance', icon: Shield },
-    { label: 'PartSentry', href: '/dashboard/partsentry', icon: Gauge },
-    { label: 'My Listings', href: '/dashboard/listings', icon: Tag },
-    { label: 'Saved Cars', href: '/dashboard/saved', icon: Heart },
-    { label: 'Gutu AI', href: '/dashboard/ai', icon: MessageSquare, badge: 'AI' },
-  ],
-  dealer: [
-    { label: 'Overview', href: '/dealer', icon: LayoutDashboard },
-    { label: 'Inventory', href: '/dealer/inventory', icon: Car },
-    { label: 'Leads', href: '/dealer/leads', icon: Users, badge: 12 },
-    { label: 'Promotions', href: '/dealer/promotions', icon: Tag },
-    { label: 'Analytics', href: '/dealer/analytics', icon: BarChart3 },
-    { label: 'Evidence Review', href: '/dealer/evidence', icon: FileText },
-  ],
-  mechanic: [
-    { label: 'Overview', href: '/mechanic', icon: LayoutDashboard },
-    { label: 'Work Orders', href: '/mechanic/work-orders', icon: ClipboardList, badge: 8 },
-    { label: 'Service Logs', href: '/mechanic/service-logs', icon: BookOpen },
-    { label: 'Parts Tracking', href: '/mechanic/parts', icon: Gauge },
-    { label: 'Customers', href: '/mechanic/customers', icon: Users },
-  ],
-  insurance: [
-    { label: 'Overview', href: '/insurance-dash', icon: LayoutDashboard },
-    { label: 'Claims', href: '/insurance-dash/claims', icon: FileText, badge: 12 },
-    { label: 'Risk Analysis', href: '/insurance-dash/risk', icon: BarChart3 },
-    { label: 'Fraud Alerts', href: '/insurance-dash/fraud', icon: AlertTriangle, badge: 3 },
-  ],
-  government: [
-    { label: 'Overview', href: '/government', icon: LayoutDashboard },
-    { label: 'Registry Verification', href: '/government/registry', icon: Search },
-    { label: 'Compliance', href: '/government/compliance', icon: CheckCircle },
-    { label: 'Evidence Review', href: '/government/evidence', icon: FileText },
-    { label: 'Trust Review', href: '/government/trust-review', icon: ShieldAlert },
-  ],
-  admin: [
-    { label: 'Overview', href: '/admin', icon: LayoutDashboard },
-    { label: 'Users', href: '/admin/users', icon: UserCog },
-    { label: 'AI Monitoring', href: '/admin/ai', icon: Brain },
-    { label: 'Moderation', href: '/admin/moderation', icon: ShieldAlert },
-    { label: 'Evidence Review', href: '/admin/evidence', icon: FileText },
-    { label: 'Trust Review', href: '/admin/trust-review', icon: CheckCircle },
-  ],
-  bank: [
-    { label: 'Overview', href: '/bank', icon: LayoutDashboard },
-    { label: 'Lending Queue', href: '/bank/applications', icon: ClipboardList, badge: 2 },
-    { label: 'Collateral Map', href: '/bank/collateral', icon: MapPin },
-    { label: 'Credit Risk Analysis', href: '/bank/risk', icon: BarChart3 },
-  ],
-}
-
-const roleLabels: Record<string, { title: string; color: string }> = {
-  owner: { title: 'Car Owner', color: 'bg-blue-500' },
-  dealer: { title: 'Dealer', color: 'bg-purple-500' },
-  mechanic: { title: 'Mechanic', color: 'bg-emerald-500' },
-  insurance: { title: 'Insurance', color: 'bg-rose-500' },
-  government: { title: 'Government', color: 'bg-amber-500' },
-  admin: { title: 'Administrator', color: 'bg-red-500' },
-  bank: { title: 'Banker', color: 'bg-indigo-600' },
+/** Resolves a FeatureRegistryItem to its icon component */
+function resolveIcon(item: FeatureRegistryItem): React.ElementType {
+  return ICON_MAP[item.icon] || FileText
 }
 
 export default function DashboardLayout({ role }: { role: string }) {
@@ -112,25 +82,24 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   const handleRoleChange = async (newRole: string) => {
     try {
-      await switchRole(newRole as any)
-      
-      const routes: Record<string, string> = {
-        owner: '/dashboard',
-        dealer: '/dealer',
-        mechanic: '/mechanic',
-        insurance: '/insurance-dash',
-        government: '/government',
-        admin: '/admin',
-        bank: '/bank'
-      }
-      navigate(routes[newRole] || '/dashboard')
+      await switchRole(newRole as Parameters<typeof switchRole>[0])
+      navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
     }
   }
 
-  const navItems = roleNavItems[role] || []
-  const roleInfo = roleLabels[role] || { title: 'Dashboard', color: 'bg-gray-500' }
+  const registryItems = getDashboardItems(role as UserRole)
+  const roleInfo = getRoleMetadata(role as UserRole)
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  // Centralized route guard: verify that the user's current role matches the dashboard layout and has access to this route
+  if (user.role !== role || !canRoleAccessRoute(user.role as UserRole, location.pathname)) {
+    return <Navigate to={getDashboardRoute(user.role as UserRole)} replace />
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -185,13 +154,9 @@ export default function DashboardLayout({ role }: { role: string }) {
                   onChange={(e) => handleRoleChange(e.target.value)}
                   className="text-xs text-gray-500 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
                 >
-                  <option value="owner">Car Owner</option>
-                  <option value="dealer">Dealer</option>
-                  <option value="mechanic">Mechanic</option>
-                  <option value="insurance">Insurance</option>
-                  <option value="government">Government</option>
-                  <option value="admin">Administrator</option>
-                  <option value="bank">Bank Partner</option>
+                  {getAllRoles().map((r) => (
+                    <option key={r} value={r}>{getRoleMetadata(r).title}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -200,8 +165,8 @@ export default function DashboardLayout({ role }: { role: string }) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.href
+          {registryItems.map((item) => {
+            const isActive = location.pathname === item.route
             const navIdMap: Record<string, string> = {
               'Overview': 'nav-dashboard',
               'My Garage': 'nav-garage',
@@ -209,11 +174,16 @@ export default function DashboardLayout({ role }: { role: string }) {
               'Claims': 'nav-claims',
               'Work Orders': 'nav-workorders',
               'Registry Verification': 'nav-registry',
+              'Import Orders': 'nav-diaspora-imports',
+              'Start Import Order': 'nav-diaspora-new-import',
+              'Diaspora Compliance': 'nav-diaspora-compliance',
+              'Workbook Console': 'diaspora-workbook-console-nav-link',
             }
+            const IconComponent = resolveIcon(item)
             return (
               <Link
-                key={item.href}
-                to={item.href}
+                key={item.id}
+                to={item.route}
                 onClick={() => setSidebarOpen(false)}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
@@ -222,7 +192,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 }`}
                 data-testid={navIdMap[item.label]}
               >
-                <item.icon className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
+                <IconComponent className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
                 <span className="flex-1">{item.label}</span>
                 {item.badge && (
                   <Badge variant={isActive ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
