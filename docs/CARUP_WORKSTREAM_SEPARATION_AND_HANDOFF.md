@@ -10,15 +10,14 @@ Codex
 
 ## Current Completion State
 
-CarUp Diaspora Trade OS is complete through Phase 2A: Workbook Operator Console UI Shell.
-
-Phase 2B is ready for local commit.
+CarUp Diaspora Trade OS is complete through Phase 2B: Operator Console UX Stabilization.
 
 Latest completed Diaspora UI commit:
 
+- `821106e7ee9563439fefe558ec4b729e00290bcb` - `feat: polish diaspora workbook operator console ux`
 - `a1642c96f6390c6799a1f8c1abc8a15e01aed116` - `feat: add diaspora workbook operator console ui`
 
-Phase 2B local work stabilizes the operator console UX without adding backend execution behavior.
+Phase 2B stabilized the operator console UX without adding backend execution behavior.
 
 ## Completed Phases
 
@@ -113,7 +112,15 @@ Known commit:
 
 ### Phase 2B - Operator Console UX Stabilization
 
-Ready for local commit. Scope is limited to console discoverability, loading/empty/error states, API-state resilience, guardrail labels, focused e2e coverage, and documentation.
+Phase 2B completed:
+
+- Added guarded admin/government navigation to `/admin/diaspora/workbooks`.
+- Added loading, empty, and error states.
+- Hardened API-state rendering.
+- Added read-only blocked guardrail indicators.
+- Improved note/hold double-submit behavior.
+- Expanded focused Playwright coverage.
+- No backend execution behavior was changed.
 
 Phase 2B does not add live import, retry execution, rollback execution, AI execution, Drive/OAuth, backend import execution, migrations, or production Supabase changes.
 
@@ -121,6 +128,7 @@ Phase 2B does not add live import, retry execution, rollback execution, AI execu
 
 - Navigation Intelligence - Antigravity
 - Vehicle Evidence AI/Fraud Controls - separate PR/workstream, now merged into main via PR #60
+- Vehicle Evidence QA backend blockers - separate PR/workstream, now merged into main via PR #61
 - Mobile Identity Verification - separate workstream
 - PartSentry Governance - separate workstream
 
@@ -128,17 +136,17 @@ These workstreams must remain separate from Diaspora Trade OS unless an explicit
 
 ## Current Safe Next Options
 
-### Option A - Codex: Publish/Verify Phase 2B
+### Option A - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
 
-Publish and verify Phase 2B if it has not been pushed yet.
+Start the next Diaspora UI phase only after an explicit Phase 2C handoff.
 
-### Option B - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
-
-Start the next UI phase only after Phase 2B has been published and verified.
-
-### Option C - Codex: Diaspora Phase 1J Backend Readiness Checklist
+### Option B - Codex: Diaspora Phase 1J Backend Readiness Checklist
 
 Run a backend readiness checklist before any UI or execution expansion.
+
+### Option C - Codex: Vehicle Evidence stash/PR61 cleanup review as a separate workstream
+
+Review Vehicle Evidence stash or PR #61 follow-up separately from Diaspora Trade OS.
 
 ### Option D - Antigravity: Resume Navigation Intelligence Separately
 
@@ -146,7 +154,7 @@ Resume Navigation Intelligence as a separate Antigravity workstream, not as part
 
 ## Recommendation
 
-Complete and verify Phase 2B before starting any new backend behavior or adjacent workstream.
+Do not start Phase 2C, Vehicle Evidence cleanup, or Navigation Intelligence without an explicit handoff.
 
 ## Guardrails
 
@@ -174,33 +182,52 @@ Complete and verify Phase 2B before starting any new backend behavior or adjacen
 - Vercel check `carup-staging` is success.
 - Vercel check `carup-backend` is success.
 - Vercel check `carup-backend-staging` is success.
-- Phase 2B local UI stabilization is ready for local commit.
+- Phase 2B PR #65 merged.
+- Phase 2B squash merge commit exists: `821106e7ee9563439fefe558ec4b729e00290bcb`.
+- PR #65 checks passed before merge.
+- Current main includes later PR #61 Vehicle Evidence QA backend blocker merge.
+- Current Vercel build-rate-limit statuses, if present, are quota/deployment-limit signals, not Phase 2B code failures.
+- `stash@{0}` remains unapplied/unpopped.
+- `stash@{0}` is not Diaspora Trade OS.
+- `stash@{0}` must not be applied during Phase 2C.
 
 ## Mainline Reconciliation Update
 
-1. Diaspora Trade OS is complete through Phase 2A.
-2. Latest completed Diaspora UI commit: `a1642c96f6390c6799a1f8c1abc8a15e01aed116`.
+1. Diaspora Trade OS is complete through Phase 2B.
+2. Latest completed Diaspora UI commit: `821106e7ee9563439fefe558ec4b729e00290bcb`.
 3. Phase 1I was backend hardening only.
 4. Phase 2A was frontend operator-console UI only.
-5. PR #60 Vehicle Evidence AI/Fraud Controls has been merged into main.
-6. PR #60 merge commit: `3fd0d157755da737a9c8e3c71ea55d0231b0ca36`.
-7. PR #60 must remain classified as a separate workstream from Diaspora Trade OS.
-8. Navigation Intelligence remains paused and belongs to Antigravity.
-9. Phase 2B local UI stabilization is ready for local commit.
-10. No Navigation Intelligence work has resumed.
-11. No new feature should start until the user chooses one of:
-    - Codex: publish/verify Phase 2B if not pushed
+5. Phase 2B was frontend operator-console UX stabilization only.
+6. PR #60 Vehicle Evidence AI/Fraud Controls has been merged into main.
+7. PR #60 merge commit: `3fd0d157755da737a9c8e3c71ea55d0231b0ca36`.
+8. PR #60 must remain classified as a separate workstream from Diaspora Trade OS.
+9. PR #61 Vehicle Evidence QA backend blockers has been merged into main.
+10. PR #61 merge commit: `9d56b353a5a64cafbd548b41cf2cc17de068f817`.
+11. PR #61 is separate from Diaspora Trade OS.
+12. PR #61 must not be mixed into Diaspora Phase 2C.
+13. Navigation Intelligence remains paused and belongs to Antigravity.
+14. No Navigation Intelligence work has resumed.
+15. No new feature should start until the user chooses one of:
     - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
     - Codex: Diaspora Phase 1J backend readiness checklist
+    - Codex: Vehicle Evidence stash/PR61 cleanup review as a separate workstream
     - Antigravity: Resume Navigation Intelligence separately
 
-## Phase 2B Local Update
+## Phase 2B Completed Update
 
 1. Phase 2A is now present on main at `a1642c96f6390c6799a1f8c1abc8a15e01aed116`.
-2. Phase 2B local changes add guarded admin/government dashboard navigation to `/admin/diaspora/workbooks`.
-3. Phase 2B local changes add explicit dashboard and selected-batch loading, empty, and error states.
-4. Phase 2B local changes add fixed read-only guardrail indicators for live import, retry execution, rollback execution, AI execution, and Drive/OAuth.
-5. Phase 2B local changes harden malformed/missing dashboard, summary, audit, retry plan, notes, warnings, next actions, and hold reason rendering.
-6. Phase 2B local changes refresh dashboard and selected-batch summary after note, hold, and clear-hold success.
-7. Phase 2B local changes prevent note and hold repeat submissions while requests are in flight.
-8. No stash was applied or modified as part of this work.
+2. Phase 2B is now present on main at `821106e7ee9563439fefe558ec4b729e00290bcb`.
+3. Phase 2B added guarded admin/government dashboard navigation to `/admin/diaspora/workbooks`.
+4. Phase 2B added explicit dashboard and selected-batch loading, empty, and error states.
+5. Phase 2B added fixed read-only guardrail indicators for live import, retry execution, rollback execution, AI execution, and Drive/OAuth.
+6. Phase 2B hardened malformed/missing dashboard, summary, audit, retry plan, notes, warnings, next actions, and hold reason rendering.
+7. Phase 2B refreshes dashboard and selected-batch summary after note, hold, and clear-hold success.
+8. Phase 2B prevents note and hold repeat submissions while requests are in flight.
+9. No backend execution behavior was changed.
+
+## Stash Note
+
+1. `stash@{0}` remains unapplied/unpopped.
+2. `stash@{0}` is not Diaspora Trade OS.
+3. `stash@{0}` must not be applied during Phase 2C.
+4. No stash was applied or modified as part of this work.
