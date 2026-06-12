@@ -10,13 +10,15 @@ Codex
 
 ## Current Completion State
 
-CarUp Diaspora Trade OS is complete through Phase 1I: Backend Hardening, Consistency, Access-Control, and Observability Review.
+CarUp Diaspora Trade OS is complete through Phase 2A: Workbook Operator Console UI Shell.
 
-Latest completed commit:
+Phase 2B is ready for local commit.
 
-- `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca` - `test: harden diaspora workbook backend controls`
+Latest completed Diaspora UI commit:
 
-No next phase has started as part of this handoff reset.
+- `a1642c96f6390c6799a1f8c1abc8a15e01aed116` - `feat: add diaspora workbook operator console ui`
+
+Phase 2B local work stabilizes the operator console UX without adding backend execution behavior.
 
 ## Completed Phases
 
@@ -101,6 +103,20 @@ Known commit:
 
 Phase 1I did not add live import, retry execution, rollback execution, AI execution, Drive/OAuth, frontend UI, migrations, or production Supabase changes.
 
+### Phase 2A - Workbook Operator Console UI Shell
+
+Added the initial frontend operator console route at `/admin/diaspora/workbooks`, consuming existing Phase 1H read/metadata APIs and keeping execution controls out of the UI.
+
+Known commit:
+
+- `a1642c96f6390c6799a1f8c1abc8a15e01aed116` - `feat: add diaspora workbook operator console ui`
+
+### Phase 2B - Operator Console UX Stabilization
+
+Ready for local commit. Scope is limited to console discoverability, loading/empty/error states, API-state resilience, guardrail labels, focused e2e coverage, and documentation.
+
+Phase 2B does not add live import, retry execution, rollback execution, AI execution, Drive/OAuth, backend import execution, migrations, or production Supabase changes.
+
 ## Paused Workstreams
 
 - Navigation Intelligence - Antigravity
@@ -112,23 +128,25 @@ These workstreams must remain separate from Diaspora Trade OS unless an explicit
 
 ## Current Safe Next Options
 
-### Option A - Codex: Diaspora Phase 2A UI Shell
+### Option A - Codex: Publish/Verify Phase 2B
 
-Start the Diaspora Phase 2A UI shell only after explicit handoff approval.
+Publish and verify Phase 2B if it has not been pushed yet.
 
-### Option B - Codex: Diaspora Phase 1J Backend Readiness Checklist
+### Option B - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
+
+Start the next UI phase only after Phase 2B has been published and verified.
+
+### Option C - Codex: Diaspora Phase 1J Backend Readiness Checklist
 
 Run a backend readiness checklist before any UI or execution expansion.
 
-### Option C - Antigravity: Resume Navigation Intelligence Separately
+### Option D - Antigravity: Resume Navigation Intelligence Separately
 
 Resume Navigation Intelligence as a separate Antigravity workstream, not as part of Diaspora Trade OS.
 
 ## Recommendation
 
-Do not start Phase 2A yet.
-
-First complete this handoff reset, verify repository and deployment state, and confirm the next agent/workstream explicitly before starting new implementation.
+Complete and verify Phase 2B before starting any new backend behavior or adjacent workstream.
 
 ## Guardrails
 
@@ -152,23 +170,37 @@ First complete this handoff reset, verify repository and deployment state, and c
 - Phase 1G commit exists: `52b0fdbebc0cd8f4183b14c983640f074026770c`.
 - Phase 1H commit exists: `d99a96623ec2c32510bd430c3ce3436e42c9b0ac`.
 - Phase 1I commit exists: `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca`.
-- Production Vercel check `carup` is success.
-- Production Vercel check `carup-backend` is success.
-- Staging Vercel failures for `carup-staging` and `carup-backend-staging` are build-rate-limit only.
-- No next phase has started.
+- Vercel check `carup` is success.
+- Vercel check `carup-staging` is success.
+- Vercel check `carup-backend` is success.
+- Vercel check `carup-backend-staging` is success.
+- Phase 2B local UI stabilization is ready for local commit.
 
 ## Mainline Reconciliation Update
 
-1. Diaspora Trade OS is complete through Phase 1I.
-2. Latest Diaspora commit: `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca`.
+1. Diaspora Trade OS is complete through Phase 2A.
+2. Latest completed Diaspora UI commit: `a1642c96f6390c6799a1f8c1abc8a15e01aed116`.
 3. Phase 1I was backend hardening only.
-4. PR #60 Vehicle Evidence AI/Fraud Controls has been merged into main.
-5. PR #60 merge commit: `3fd0d157755da737a9c8e3c71ea55d0231b0ca36`.
-6. PR #60 must remain classified as a separate workstream from Diaspora Trade OS.
-7. Navigation Intelligence remains paused and belongs to Antigravity.
-8. No Phase 2A has started.
-9. No Navigation Intelligence work has resumed.
-10. No new feature should start until the user chooses one of:
-    - Codex: Diaspora Phase 2A UI Shell
+4. Phase 2A was frontend operator-console UI only.
+5. PR #60 Vehicle Evidence AI/Fraud Controls has been merged into main.
+6. PR #60 merge commit: `3fd0d157755da737a9c8e3c71ea55d0231b0ca36`.
+7. PR #60 must remain classified as a separate workstream from Diaspora Trade OS.
+8. Navigation Intelligence remains paused and belongs to Antigravity.
+9. Phase 2B local UI stabilization is ready for local commit.
+10. No Navigation Intelligence work has resumed.
+11. No new feature should start until the user chooses one of:
+    - Codex: publish/verify Phase 2B if not pushed
+    - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
     - Codex: Diaspora Phase 1J backend readiness checklist
     - Antigravity: Resume Navigation Intelligence separately
+
+## Phase 2B Local Update
+
+1. Phase 2A is now present on main at `a1642c96f6390c6799a1f8c1abc8a15e01aed116`.
+2. Phase 2B local changes add guarded admin/government dashboard navigation to `/admin/diaspora/workbooks`.
+3. Phase 2B local changes add explicit dashboard and selected-batch loading, empty, and error states.
+4. Phase 2B local changes add fixed read-only guardrail indicators for live import, retry execution, rollback execution, AI execution, and Drive/OAuth.
+5. Phase 2B local changes harden malformed/missing dashboard, summary, audit, retry plan, notes, warnings, next actions, and hold reason rendering.
+6. Phase 2B local changes refresh dashboard and selected-batch summary after note, hold, and clear-hold success.
+7. Phase 2B local changes prevent note and hold repeat submissions while requests are in flight.
+8. No stash was applied or modified as part of this work.
