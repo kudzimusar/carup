@@ -181,15 +181,39 @@ CREATE TABLE IF NOT EXISTS referral_admin_audit_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+DO $$
+BEGIN
+  ALTER TABLE referral_events
+    ADD CONSTRAINT referral_events_coupon_id_fkey
+    FOREIGN KEY (coupon_id) REFERENCES referral_coupons(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE referral_events
+    ADD CONSTRAINT referral_events_wallet_transaction_id_fkey
+    FOREIGN KEY (wallet_transaction_id) REFERENCES referral_wallet_transactions(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_referral_campaigns_status ON referral_campaigns(status, campaign_type, priority_scope);
 CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code);
 CREATE INDEX IF NOT EXISTS idx_referral_codes_campaign ON referral_codes(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_referral_events_code ON referral_events(code_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_referral_events_campaign ON referral_events(campaign_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_referral_events_subject ON referral_events(subject_type, subject_id);
+CREATE INDEX IF NOT EXISTS idx_referral_events_coupon ON referral_events(coupon_id);
+CREATE INDEX IF NOT EXISTS idx_referral_events_wallet_transaction ON referral_events(wallet_transaction_id);
 CREATE INDEX IF NOT EXISTS idx_referral_coupons_code ON referral_coupons(code);
+CREATE INDEX IF NOT EXISTS idx_referral_coupons_campaign ON referral_coupons(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_referral_wallets_user ON referral_wallets(user_id);
 CREATE INDEX IF NOT EXISTS idx_referral_wallet_transactions_wallet ON referral_wallet_transactions(wallet_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_wallet_transactions_campaign ON referral_wallet_transactions(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_referral_wallet_transactions_code ON referral_wallet_transactions(code_id);
+CREATE INDEX IF NOT EXISTS idx_referral_wallet_transactions_source_event ON referral_wallet_transactions(source_event_id);
+CREATE INDEX IF NOT EXISTS idx_referral_share_assets_code ON referral_share_assets(code_id);
+CREATE INDEX IF NOT EXISTS idx_referral_share_assets_campaign ON referral_share_assets(campaign_id);
 
 DROP TRIGGER IF EXISTS referral_campaigns_updated_at ON referral_campaigns;
 CREATE TRIGGER referral_campaigns_updated_at BEFORE UPDATE ON referral_campaigns FOR EACH ROW EXECUTE FUNCTION set_referral_updated_at();
