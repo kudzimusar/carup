@@ -6,6 +6,7 @@ import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
 import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
+import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
 const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager'];
@@ -20,10 +21,7 @@ function isPlatformAdmin(ctx = {}) {
 }
 
 function createActor(req, fallbackType = ACTOR_TYPES.USER) {
-  return {
-    ...buildActorContext(req),
-    actor_type: req.headers['x-actor-type'] || fallbackType,
-  };
+  return { ...buildActorContext(req), actor_type: req.headers['x-actor-type'] || fallbackType };
 }
 
 function assertSelfOrAdmin(req, userId) {
@@ -60,6 +58,7 @@ function assertAgentGatewayAccess(req) {
 
 function assertChannelAccess(req, channel) {
   const normalized = normalizeChannel(channel);
+  if (normalized === 'telegram' && isValidTelegramWebhookSecret(req.headers, process.env)) return;
   if (isValidAgentGatewayKey(req) || isValidChannelWebhookKey(req) || req.userContext?.id) return;
   if (isUserIdFallbackAllowed(process.env) && req.headers['x-user-id']) return;
   if (WEBHOOK_CHANNELS.has(normalized)) throw new ForbiddenError('Channel webhook requires a valid webhook secret.');
@@ -77,7 +76,7 @@ function createAgentGatewayActor(req) {
     actor_role: req.userContext?.effectiveRole || req.userContext?.role || req.headers['x-stakeholder-role'] || req.headers['x-agent-role'] || 'agent',
     actor_tenant_id: req.userContext?.tenantId || req.headers['x-tenant-id'] || bodyContext.tenant_id || bodyInput.tenant_id || 'platform',
     actor_type: ACTOR_TYPES.AGENT,
-    gateway_trusted: isValidAgentGatewayKey(req) || isValidChannelWebhookKey(req),
+    gateway_trusted: isValidAgentGatewayKey(req) || isValidChannelWebhookKey(req) || isValidTelegramWebhookSecret(req.headers, process.env),
     surface,
     session_id: req.headers['x-agent-session-id'] || bodyContext.session_id || bodyInput.session_id || null,
   };
@@ -86,6 +85,11 @@ function createAgentGatewayActor(req) {
 function createChannelActor(req, channel) {
   const actor = createAgentGatewayActor(req);
   return { ...actor, surface: normalizeChannel(channel), session_id: req.headers['x-channel-session-id'] || req.body?.conversation_id || req.body?.thread_id || req.body?.session_id || actor.session_id };
+}
+
+function handleMetaVerification(req, res) {
+  const challenge = verifyMetaWebhookChallenge(req.query, process.env);
+  res.status(200).send(challenge);
 }
 
 export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null } = {}) {
@@ -100,12 +104,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   }));
 
   router.get('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const filters = {
-      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
-      status: req.query.status || undefined,
-      campaign_type: req.query.campaign_type || undefined,
-      priority_scope: req.query.priority_scope || undefined,
-    };
+    const filters = { tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, status: req.query.status || undefined, campaign_type: req.query.campaign_type || undefined, priority_scope: req.query.priority_scope || undefined };
     const campaigns = await referralService.listCampaigns(filters);
     res.json({ success: true, campaigns });
   }));
@@ -169,27 +168,43 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.json(response);
   }));
 
+  router.get('/channels/whatsapp/webhook', asyncHandler(handleMetaVerification));
+  router.get('/channels/facebook/webhook', asyncHandler(handleMetaVerification));
+  router.get('/channels/instagram/webhook', asyncHandler(handleMetaVerification));
+
   router.post('/channels/whatsapp/webhook', asyncHandler(async (req, res) => {
     assertChannelAccess(req, 'whatsapp');
-    const response = await channelService.processInbound('whatsapp', req.body || {}, createChannelActor(req, 'whatsapp'));
+    const response = await processParsedChannelMessages('whatsapp', req.body || {}, channelService, createChannelActor(req, 'whatsapp'));
     res.json(response);
   }));
 
   router.post('/channels/telegram/webhook', asyncHandler(async (req, res) => {
     assertChannelAccess(req, 'telegram');
-    const response = await channelService.processInbound('telegram', req.body || {}, createChannelActor(req, 'telegram'));
+    const response = await processParsedChannelMessages('telegram', req.body || {}, channelService, createChannelActor(req, 'telegram'));
+    res.json(response);
+  }));
+
+  router.post('/channels/facebook/webhook', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, 'facebook');
+    const response = await processParsedChannelMessages('facebook', req.body || {}, channelService, createChannelActor(req, 'facebook'));
+    res.json(response);
+  }));
+
+  router.post('/channels/instagram/webhook', asyncHandler(async (req, res) => {
+    assertChannelAccess(req, 'instagram');
+    const response = await processParsedChannelMessages('instagram', req.body || {}, channelService, createChannelActor(req, 'instagram'));
     res.json(response);
   }));
 
   router.post('/channels/web-chat/message', asyncHandler(async (req, res) => {
     assertChannelAccess(req, 'web_chat');
-    const response = await channelService.processInbound('web_chat', req.body || {}, createChannelActor(req, 'web_chat'));
+    const response = await processParsedChannelMessages('web_chat', req.body || {}, channelService, createChannelActor(req, 'web_chat'));
     res.json(response);
   }));
 
   router.post('/channels/mobile-chat/message', asyncHandler(async (req, res) => {
     assertChannelAccess(req, 'mobile_chat');
-    const response = await channelService.processInbound('mobile_chat', req.body || {}, createChannelActor(req, 'mobile_chat'));
+    const response = await processParsedChannelMessages('mobile_chat', req.body || {}, channelService, createChannelActor(req, 'mobile_chat'));
     res.json(response);
   }));
 
