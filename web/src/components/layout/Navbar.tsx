@@ -24,14 +24,35 @@ import {
   Building2,
   MessageSquare,
   Package,
-  MoreHorizontal
+  MoreHorizontal,
+  FileText,
+  ClipboardList,
+  Tag,
+  Heart,
+  Users,
+  BarChart3,
+  BookOpen,
+  AlertTriangle,
+  Search,
+  CheckCircle,
+  ShieldAlert,
+  Brain,
+  UserCog,
+  MapPin,
+  Gauge
 } from 'lucide-react'
+
+const ICON_MAP: Record<string, React.ElementType> = {
+  LayoutDashboard, Car, FileText, Wrench, Shield, Gauge, ClipboardList,
+  Tag, Heart, MessageSquare, Users, BarChart3, BookOpen, AlertTriangle,
+  Search, CheckCircle, ShieldAlert, Brain, UserCog, MapPin, Building2, Settings
+}
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { resolveCoverageNavHref } from '@/lib/marketplaceParams'
-import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems } from '@/config/featureRegistry'
+import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems, getMobileNavItems } from '@/config/featureRegistry'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
@@ -472,28 +493,29 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="lg:hidden border-t bg-white">
           <div className="section-padding py-4 space-y-1">
-            {[
-              { label: 'Buy', href: '/marketplace', icon: ShoppingCart },
-              { label: 'Sell', href: sellerPath, icon: Car },
-              { label: 'Verify', href: '/search', icon: Shield },
-              { label: 'Parts', href: '/garages', icon: Package },
-              { label: 'Dealers', href: '/dealers', icon: Building2 },
-              { label: 'Garages', href: '/garages', icon: Wrench },
-            ].map((link) => (
-              <Link
-                key={`${link.label}-${link.href}`}
-                to={link.href}
-                onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
-                  location.pathname === link.href
-                    ? 'bg-orange-50 text-orange-700'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <link.icon className="w-4 h-4" />
-                {link.label}
-              </Link>
-            ))}
+            {getMobileNavItems((user?.role as UserRole) || undefined).map((item) => {
+              const IconComponent = ICON_MAP[item.icon] || FileText
+              return (
+                <Link
+                  key={item.id}
+                  to={item.route}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    location.pathname === item.route
+                      ? 'bg-orange-50 text-orange-700'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <IconComponent className="w-4 h-4" />
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge && (
+                    <Badge variant={location.pathname === item.route ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
+                      {item.badge}
+                    </Badge>
+                  )}
+                </Link>
+              )
+            })}
             <div className="border-t pt-2">
               <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">More</p>
               {moreMenu[0].items.map(link => (
