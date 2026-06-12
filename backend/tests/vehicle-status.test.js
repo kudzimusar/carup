@@ -23,7 +23,9 @@ test('identifies quarantined vehicle statuses', () => {
 
 test('identifies marketplace restoration statuses without broadening public filtering', () => {
   assert.equal(isVehicleRestoredToMarketplaceStatus('Available'), true);
-  assert.equal(isVehicleRestoredToMarketplaceStatus('reserved'), true);
+  // Reserved vehicles are mid-transaction: per mainline semantics they do
+  // not count as restored to the public marketplace.
+  assert.equal(isVehicleRestoredToMarketplaceStatus('reserved'), false);
   assert.equal(isVehicleRestoredToMarketplaceStatus('Suspended'), false);
   assert.equal(isPublicVehicleStatus('Suspended'), false);
 });
