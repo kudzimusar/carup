@@ -10,11 +10,11 @@ Codex
 
 ## Current Completion State
 
-CarUp Diaspora Trade OS is complete through Phase 1H: Backend Operator Console API and Import Batch Control Polish.
+CarUp Diaspora Trade OS is complete through Phase 1I: Backend Hardening, Consistency, Access-Control, and Observability Review.
 
 Latest completed commit:
 
-- `d99a96623ec2c32510bd430c3ce3436e42c9b0ac` - `feat: add diaspora workbook operator console api`
+- `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca` - `test: harden diaspora workbook backend controls`
 
 No next phase has started as part of this handoff reset.
 
@@ -91,10 +91,20 @@ Known commit:
 
 - `d99a96623ec2c32510bd430c3ce3436e42c9b0ac` - `feat: add diaspora workbook operator console api`
 
+### Phase 1I - Backend Hardening, Consistency, Access-Control, and Observability Review
+
+Hardened the existing Diaspora workbook backend without adding new import behavior. Phase 1I added metadata normalization helpers, hardened malformed metadata handling, sanitized database errors, and added backend hardening tests.
+
+Known commit:
+
+- `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca` - `test: harden diaspora workbook backend controls`
+
+Phase 1I did not add live import, retry execution, rollback execution, AI execution, Drive/OAuth, frontend UI, migrations, or production Supabase changes.
+
 ## Paused Workstreams
 
 - Navigation Intelligence - Antigravity
-- Vehicle Evidence AI/Fraud Controls - separate PR/workstream
+- Vehicle Evidence AI/Fraud Controls - separate PR/workstream, now merged into main via PR #60
 - Mobile Identity Verification - separate workstream
 - PartSentry Governance - separate workstream
 
@@ -102,13 +112,13 @@ These workstreams must remain separate from Diaspora Trade OS unless an explicit
 
 ## Current Safe Next Options
 
-### Option A - Codex: Phase 1I Backend Hardening Only
+### Option A - Codex: Diaspora Phase 2A UI Shell
 
-Continue backend-only hardening for Diaspora Trade OS, focused on tests, access controls, consistency checks, observability, and documentation. Do not broaden import capabilities.
+Start the Diaspora Phase 2A UI shell only after explicit handoff approval.
 
-### Option B - Codex/Frontend: Phase 2A UI Shell
+### Option B - Codex: Diaspora Phase 1J Backend Readiness Checklist
 
-Start the Phase 2A UI shell only after explicit handoff approval. This should not begin during the handoff reset.
+Run a backend readiness checklist before any UI or execution expansion.
 
 ### Option C - Antigravity: Resume Navigation Intelligence Separately
 
@@ -141,7 +151,24 @@ First complete this handoff reset, verify repository and deployment state, and c
 - Local `main` is aligned with `origin/main`.
 - Phase 1G commit exists: `52b0fdbebc0cd8f4183b14c983640f074026770c`.
 - Phase 1H commit exists: `d99a96623ec2c32510bd430c3ce3436e42c9b0ac`.
+- Phase 1I commit exists: `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca`.
 - Production Vercel check `carup` is success.
 - Production Vercel check `carup-backend` is success.
 - Staging Vercel failures for `carup-staging` and `carup-backend-staging` are build-rate-limit only.
 - No next phase has started.
+
+## Mainline Reconciliation Update
+
+1. Diaspora Trade OS is complete through Phase 1I.
+2. Latest Diaspora commit: `fcb9d660bcf31c08010ff7fdc6fcd20bbd5c36ca`.
+3. Phase 1I was backend hardening only.
+4. PR #60 Vehicle Evidence AI/Fraud Controls has been merged into main.
+5. PR #60 merge commit: `3fd0d157755da737a9c8e3c71ea55d0231b0ca36`.
+6. PR #60 must remain classified as a separate workstream from Diaspora Trade OS.
+7. Navigation Intelligence remains paused and belongs to Antigravity.
+8. No Phase 2A has started.
+9. No Navigation Intelligence work has resumed.
+10. No new feature should start until the user chooses one of:
+    - Codex: Diaspora Phase 2A UI Shell
+    - Codex: Diaspora Phase 1J backend readiness checklist
+    - Antigravity: Resume Navigation Intelligence separately
