@@ -4,7 +4,7 @@ import { authorizeRole, isUserIdFallbackAllowed } from '../middleware/authMiddle
 import { ForbiddenError, ValidationError } from '../utils/errors.js';
 import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
 import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
-import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayService.js';
+import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
 const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager'];
