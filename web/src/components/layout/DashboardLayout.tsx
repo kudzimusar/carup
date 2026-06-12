@@ -177,6 +177,7 @@ export default function DashboardLayout({ role }: { role: string }) {
               'Import Orders': 'nav-diaspora-imports',
               'Start Import Order': 'nav-diaspora-new-import',
               'Diaspora Compliance': 'nav-diaspora-compliance',
+              'Workbook Console': 'diaspora-workbook-console-nav-link',
             }
             const IconComponent = resolveIcon(item)
             return (

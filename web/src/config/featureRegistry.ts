@@ -511,6 +511,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'ShieldAlert',
   },
   {
+    id: 'diaspora.workbook-operator-console',
+    label: 'Workbook Console',
+    route: '/admin/diaspora/workbooks',
+    domain: 'diaspora',
+    roles: ['admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',

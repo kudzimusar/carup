@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Ban,
@@ -58,6 +58,14 @@ const filterBooleanOptions = [
   { value: 'false', label: 'No' },
 ]
 
+const explicitGuardrails = [
+  { id: 'diaspora-workbook-live-import-blocked', label: 'Live import is not available.', action: 'EXECUTE_LIVE_IMPORT' },
+  { id: 'diaspora-workbook-retry-execution-blocked', label: 'Retry execution is not available.', action: 'RETRY_DRAFT_IMPORT' },
+  { id: 'diaspora-workbook-rollback-blocked', label: 'Rollback execution is not available.', action: 'ROLLBACK_DRAFTS' },
+  { id: 'diaspora-workbook-ai-execution-blocked', label: 'AI execution is not available.', action: 'EXECUTE_AI' },
+  { id: 'diaspora-workbook-drive-blocked', label: 'Drive/OAuth is not available.', action: 'DRIVE_OAUTH' },
+]
+
 function labelize(value?: string | null) {
   if (!value) return 'Not set'
   return value
@@ -75,6 +83,14 @@ function formatDateTime(value?: string | null) {
 
 function numberValue(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function safeArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : []
+}
+
+function safeTotals(value: unknown): Record<string, number> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, number> : {}
 }
 
 function planTotals(summary: DiasporaWorkbookOperatorBatchSummary | null) {
@@ -198,62 +214,66 @@ function DashboardTable({
                 No workbook batches found.
               </TableCell>
             </TableRow>
-          ) : items.map(item => (
-            <TableRow
-              key={item.batchId}
-              data-testid="diaspora-workbook-dashboard-row"
-              className={selectedBatchId === item.batchId ? 'bg-orange-50/70' : ''}
-            >
-              <TableCell>
-                <div className="min-w-48">
-                  <p className="font-medium text-gray-950">{item.batchId}</p>
-                  <p className="text-xs text-gray-500">{labelize(item.templateType)} · {formatDateTime(item.createdAt)}</p>
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={item.importStatus} />
-                  {item.held && (
-                    <Badge className="bg-slate-900 text-white hover:bg-slate-900" data-testid="diaspora-workbook-held-badge">
-                      Held
-                    </Badge>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="text-sm text-gray-700">
-                  <p>{numberValue(item.totalRows)} total</p>
-                  <p className="text-xs text-gray-500">
-                    {numberValue(item.acceptedRows)} accepted · {numberValue(item.rejectedRows)} rejected
-                  </p>
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1.5">
-                  {item.needsReview && <Badge variant="outline">Needs review</Badge>}
-                  {item.hasFailures && <Badge variant="outline">Failures</Badge>}
-                  {item.hasRetryableRows && <Badge variant="outline">Retryable</Badge>}
-                </div>
-              </TableCell>
-              <TableCell><RiskBadge riskLevel={item.riskLevel} /></TableCell>
-              <TableCell>
-                <span className="text-sm font-medium text-gray-800" data-testid="diaspora-workbook-next-action">
-                  {labelize(item.nextRecommendedAction)}
-                </span>
-              </TableCell>
-              <TableCell>
-                <Button
-                  type="button"
-                  variant={selectedBatchId === item.batchId ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => onSelect(item.batchId)}
-                  data-testid="diaspora-workbook-batch-select"
-                >
-                  Open
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
+          ) : items.map((item, index) => {
+            const batchId = item.batchId || `missing-batch-${index + 1}`
+            return (
+              <TableRow
+                key={batchId}
+                data-testid="diaspora-workbook-dashboard-row"
+                className={selectedBatchId === batchId ? 'bg-orange-50/70' : ''}
+              >
+                <TableCell>
+                  <div className="min-w-48">
+                    <p className="font-medium text-gray-950">{item.batchId || 'Batch ID missing'}</p>
+                    <p className="text-xs text-gray-500">{labelize(item.templateType)} · {formatDateTime(item.createdAt)}</p>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={item.importStatus} />
+                    {item.held && (
+                      <Badge className="bg-slate-900 text-white hover:bg-slate-900" data-testid="diaspora-workbook-held-badge">
+                        Held
+                      </Badge>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="text-sm text-gray-700">
+                    <p>{numberValue(item.totalRows)} total</p>
+                    <p className="text-xs text-gray-500">
+                      {numberValue(item.acceptedRows)} accepted · {numberValue(item.rejectedRows)} rejected
+                    </p>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1.5">
+                    {item.needsReview && <Badge variant="outline">Needs review</Badge>}
+                    {item.hasFailures && <Badge variant="outline">Failures</Badge>}
+                    {item.hasRetryableRows && <Badge variant="outline">Retryable</Badge>}
+                  </div>
+                </TableCell>
+                <TableCell><RiskBadge riskLevel={item.riskLevel} /></TableCell>
+                <TableCell>
+                  <span className="text-sm font-medium text-gray-800" data-testid="diaspora-workbook-next-action">
+                    {labelize(item.nextRecommendedAction)}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <Button
+                    type="button"
+                    variant={selectedBatchId === batchId ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => onSelect(batchId)}
+                    disabled={!item.batchId}
+                    data-testid="diaspora-workbook-batch-select"
+                  >
+                    Open
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>
@@ -363,9 +383,9 @@ function RetryPlanPanel({ summary }: { summary: DiasporaWorkbookOperatorBatchSum
 }
 
 function ActionsPanel({ summary }: { summary: DiasporaWorkbookOperatorBatchSummary | null }) {
-  const nextActions = summary?.operator?.nextActions || []
-  const forbiddenActions = summary?.operator?.forbiddenActions || []
-  const warnings = summary?.operator?.warnings || []
+  const nextActions = safeArray(summary?.operator?.nextActions)
+  const forbiddenActions = safeArray(summary?.operator?.forbiddenActions)
+  const warnings = safeArray(summary?.operator?.warnings)
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -401,18 +421,27 @@ function ActionsPanel({ summary }: { summary: DiasporaWorkbookOperatorBatchSumma
           <h2 className="text-lg font-semibold text-gray-950">Blocked actions</h2>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {forbiddenActions.length === 0 ? (
-            <span className="text-sm text-gray-500">No blocked actions reported.</span>
-          ) : forbiddenActions.map(action => (
+          {explicitGuardrails.map(guardrail => (
             <span
-              key={action}
-              className={`inline-flex min-h-8 items-center rounded-full border px-3 py-1 text-xs font-semibold ${
-                forbiddenExecutionActions.has(action) ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'
-              }`}
+              key={guardrail.id}
+              className="inline-flex min-h-8 items-center rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-800"
+              data-testid={guardrail.id}
             >
-              {labelize(action)}
+              {guardrail.label}
             </span>
           ))}
+          {forbiddenActions
+            .filter(action => !explicitGuardrails.some(guardrail => guardrail.action === action))
+            .map(action => (
+              <span
+                key={action}
+                className={`inline-flex min-h-8 items-center rounded-full border px-3 py-1 text-xs font-semibold ${
+                  forbiddenExecutionActions.has(action) ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'
+                }`}
+              >
+                {labelize(action)}
+              </span>
+            ))}
         </div>
       </section>
     </div>
@@ -434,7 +463,7 @@ function NotesPanel({
   onNoteChange: (value: string) => void;
   onSubmit: () => void;
 }) {
-  const notes = summary?.operator?.notes || []
+  const notes = safeArray(summary?.operator?.notes)
   return (
     <section className="rounded-md border border-gray-200 bg-white p-5" data-testid="diaspora-workbook-notes-panel">
       <div className="flex items-center gap-2">
@@ -451,6 +480,12 @@ function NotesPanel({
         />
         {noteError && (
           <p className="text-sm font-medium text-red-700" data-testid="diaspora-workbook-note-error">{noteError}</p>
+        )}
+        {submitting && (
+          <p className="flex items-center gap-2 text-sm font-medium text-orange-700" data-testid="diaspora-workbook-note-loading">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Saving operator note...
+          </p>
         )}
         <Button type="button" onClick={onSubmit} disabled={submitting || !summary?.batch?.id} data-testid="diaspora-workbook-note-submit">
           {submitting ? 'Saving...' : 'Add note'}
@@ -510,7 +545,7 @@ function HoldPanel({
           placeholder="Reason for hold"
           data-testid="diaspora-workbook-hold-reason"
         />
-        {holdError && <p className="text-sm font-medium text-red-700">{holdError}</p>}
+        {holdError && <p className="text-sm font-medium text-red-700" data-testid="diaspora-workbook-hold-error">{holdError}</p>}
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -558,35 +593,60 @@ export default function DiasporaWorkbookOperatorConsole() {
   const [summary, setSummary] = useState<DiasporaWorkbookOperatorBatchSummary | null>(null)
   const [dashboardLoading, setDashboardLoading] = useState(false)
   const [summaryLoading, setSummaryLoading] = useState(false)
-  const [pageError, setPageError] = useState('')
+  const [dashboardError, setDashboardError] = useState('')
+  const [summaryError, setSummaryError] = useState('')
   const [noteText, setNoteText] = useState('')
   const [noteError, setNoteError] = useState('')
   const [holdReason, setHoldReason] = useState('')
   const [holdError, setHoldError] = useState('')
   const [submittingNote, setSubmittingNote] = useState(false)
   const [submittingHold, setSubmittingHold] = useState(false)
+  const submittingNoteRef = useRef(false)
+  const submittingHoldRef = useRef(false)
 
   const canView = useMemo(() => (
     isAuthenticated && allowedOperatorRoles.has((user?.role || '').toLowerCase())
   ), [isAuthenticated, user?.role])
 
+  const dashboardItems = safeArray(dashboard.items)
+  const dashboardTotals = safeTotals(dashboard.totals)
+
   const updateFilter = (key: keyof typeof filters, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }))
+  }
+
+  const resetFilters = () => {
+    setFilters({
+      status: '',
+      needsReview: '',
+      hasFailures: '',
+      hasRetryableRows: '',
+      held: '',
+    })
   }
 
   const loadDashboard = useCallback(async () => {
     if (!canView) return
     setDashboardLoading(true)
-    setPageError('')
+    setDashboardError('')
     try {
       const result = await fetchDiasporaWorkbookOperatorDashboard(buildFilters(filters))
-      setDashboard(result)
+      const safeResult = result && typeof result === 'object' ? result : { items: [] }
+      const items = safeArray(safeResult.items)
+      setDashboard({
+        ...safeResult,
+        items,
+        totals: safeTotals(safeResult.totals),
+      })
       setSelectedBatchId(current => {
-        if (current && result.items.some(item => item.batchId === current)) return current
-        return result.items[0]?.batchId || ''
+        if (current && items.some(item => item.batchId === current)) return current
+        return items[0]?.batchId || ''
       })
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : 'Unable to load operator dashboard.')
+      setDashboard({ items: [] })
+      setSelectedBatchId('')
+      setSummary(null)
+      setDashboardError(err instanceof Error ? err.message : 'Unable to load operator dashboard.')
     } finally {
       setDashboardLoading(false)
     }
@@ -598,26 +658,36 @@ export default function DiasporaWorkbookOperatorConsole() {
       return
     }
     setSummaryLoading(true)
-    setPageError('')
+    setSummaryError('')
     try {
       const result = await fetchDiasporaWorkbookOperatorBatchSummary(batchId)
-      setSummary(result)
+      setSummary(result && typeof result === 'object' ? result : null)
     } catch (err) {
-      setPageError(err instanceof Error ? err.message : 'Unable to load batch summary.')
+      setSummary(null)
+      setSummaryError(err instanceof Error ? err.message : 'Unable to load batch summary.')
     } finally {
       setSummaryLoading(false)
     }
   }, [canView, fetchDiasporaWorkbookOperatorBatchSummary])
 
   useEffect(() => {
-    if (!authLoading && canView) void loadDashboard()
+    if (authLoading || !canView) return
+    const timeoutId = window.setTimeout(() => {
+      void loadDashboard()
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
   }, [authLoading, canView, loadDashboard])
 
   useEffect(() => {
-    if (!authLoading && canView && selectedBatchId) void loadSummary(selectedBatchId)
+    if (authLoading || !canView || !selectedBatchId) return
+    const timeoutId = window.setTimeout(() => {
+      void loadSummary(selectedBatchId)
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
   }, [authLoading, canView, selectedBatchId, loadSummary])
 
   const submitNote = async () => {
+    if (submittingNoteRef.current) return
     const trimmed = noteText.trim()
     if (!trimmed) {
       setNoteError('Operator note text is required.')
@@ -628,26 +698,30 @@ export default function DiasporaWorkbookOperatorConsole() {
       return
     }
     if (!summary?.batch?.id) return
+    submittingNoteRef.current = true
     setSubmittingNote(true)
     setNoteError('')
     try {
       await addDiasporaWorkbookOperatorNote(summary.batch.id, trimmed)
       setNoteText('')
-      await loadSummary(summary.batch.id)
+      await Promise.all([loadSummary(summary.batch.id), loadDashboard()])
     } catch (err) {
       setNoteError(err instanceof Error ? err.message : 'Unable to save operator note.')
     } finally {
+      submittingNoteRef.current = false
       setSubmittingNote(false)
     }
   }
 
   const placeHold = async () => {
+    if (submittingHoldRef.current) return
     const reason = holdReason.trim()
     if (!reason) {
       setHoldError('Hold reason is required.')
       return
     }
     if (!summary?.batch?.id) return
+    submittingHoldRef.current = true
     setSubmittingHold(true)
     setHoldError('')
     try {
@@ -657,12 +731,15 @@ export default function DiasporaWorkbookOperatorConsole() {
     } catch (err) {
       setHoldError(err instanceof Error ? err.message : 'Unable to place operator hold.')
     } finally {
+      submittingHoldRef.current = false
       setSubmittingHold(false)
     }
   }
 
   const clearHold = async () => {
+    if (submittingHoldRef.current) return
     if (!summary?.batch?.id) return
+    submittingHoldRef.current = true
     setSubmittingHold(true)
     setHoldError('')
     try {
@@ -671,6 +748,7 @@ export default function DiasporaWorkbookOperatorConsole() {
     } catch (err) {
       setHoldError(err instanceof Error ? err.message : 'Unable to clear operator hold.')
     } finally {
+      submittingHoldRef.current = false
       setSubmittingHold(false)
     }
   }
@@ -724,38 +802,63 @@ export default function DiasporaWorkbookOperatorConsole() {
         <BooleanFilter id="diaspora-workbook-failures-filter" label="Has failures" value={filters.hasFailures} onChange={value => updateFilter('hasFailures', value)} testId="diaspora-workbook-dashboard-filter-has-failures" />
         <BooleanFilter id="diaspora-workbook-retryable-filter" label="Has retryable" value={filters.hasRetryableRows} onChange={value => updateFilter('hasRetryableRows', value)} testId="diaspora-workbook-dashboard-filter-has-retryable" />
         <BooleanFilter id="diaspora-workbook-held-filter" label="Held" value={filters.held} onChange={value => updateFilter('held', value)} testId="diaspora-workbook-dashboard-filter-held" />
+        <div className="flex items-end">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={resetFilters}
+            data-testid="diaspora-workbook-dashboard-reset-filters"
+          >
+            Reset
+          </Button>
+        </div>
       </div>
-
-      {pageError && (
-        <Alert className="mt-4 border-red-200 bg-red-50">
-          <AlertTriangle className="h-4 w-4 text-red-700" />
-          <AlertTitle>Unable to load console data</AlertTitle>
-          <AlertDescription>{pageError}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
+          {dashboardError && (
+            <Alert className="border-red-200 bg-red-50" data-testid="diaspora-workbook-dashboard-error">
+              <AlertTriangle className="h-4 w-4 text-red-700" />
+              <AlertTitle>Unable to load workbook batches</AlertTitle>
+              <AlertDescription>{dashboardError}</AlertDescription>
+            </Alert>
+          )}
+
           {dashboardLoading ? (
-            <div className="rounded-md border border-gray-200 bg-white p-8 text-center text-orange-600">
+            <div className="rounded-md border border-gray-200 bg-white p-8 text-center text-orange-600" data-testid="diaspora-workbook-dashboard-loading">
               <Loader2 className="mx-auto h-5 w-5 animate-spin" />
               <p className="mt-3 text-sm">Loading workbook batches...</p>
             </div>
+          ) : !dashboardError && dashboardItems.length === 0 ? (
+            <div className="rounded-md border border-gray-200 bg-white p-8 text-center" data-testid="diaspora-workbook-dashboard-empty">
+              <ClipboardList className="mx-auto h-6 w-6 text-gray-400" />
+              <p className="mt-3 text-sm font-medium text-gray-900">No workbook batches found.</p>
+              <p className="mt-1 text-sm text-gray-500">Try clearing filters or refresh when new dry-run batches are available.</p>
+            </div>
           ) : (
-            <DashboardTable items={dashboard.items} selectedBatchId={selectedBatchId} onSelect={setSelectedBatchId} />
+            <DashboardTable items={dashboardItems} selectedBatchId={selectedBatchId} onSelect={setSelectedBatchId} />
           )}
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryMetric label="Total batches" value={dashboard.totals?.totalBatches} />
-            <SummaryMetric label="Ready review" value={dashboard.totals?.readyForReview} />
-            <SummaryMetric label="Failed drafts" value={dashboard.totals?.failedDraftImports} />
-            <SummaryMetric label="Held" value={dashboard.totals?.held} />
+            <SummaryMetric label="Total batches" value={dashboardTotals.totalBatches} />
+            <SummaryMetric label="Ready review" value={dashboardTotals.readyForReview} />
+            <SummaryMetric label="Failed drafts" value={dashboardTotals.failedDraftImports} />
+            <SummaryMetric label="Held" value={dashboardTotals.held} />
           </div>
         </div>
 
         <div className="space-y-4">
+          {summaryError && (
+            <Alert className="border-red-200 bg-red-50" data-testid="diaspora-workbook-batch-summary-error">
+              <AlertTriangle className="h-4 w-4 text-red-700" />
+              <AlertTitle>Unable to load selected batch</AlertTitle>
+              <AlertDescription>{summaryError}</AlertDescription>
+            </Alert>
+          )}
+
           {summaryLoading ? (
-            <div className="rounded-md border border-gray-200 bg-white p-8 text-center text-orange-600">
+            <div className="rounded-md border border-gray-200 bg-white p-8 text-center text-orange-600" data-testid="diaspora-workbook-batch-summary-loading">
               <Loader2 className="mx-auto h-5 w-5 animate-spin" />
               <p className="mt-3 text-sm">Loading batch summary...</p>
             </div>
