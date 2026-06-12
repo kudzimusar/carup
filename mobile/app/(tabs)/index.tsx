@@ -69,20 +69,45 @@ export default function DashboardScreen() {
       {/* Identity verification entry point */}
       <Pressable
         onPress={() => router.push('/(auth)/verification/intro')}
-        className="w-full bg-orange-500 rounded-xl h-14 justify-center items-center mb-4"
-        style={({ pressed }) => pressed ? { opacity: 0.8 } : {}}
+        style={({ pressed }) => ({
+          width: '100%',
+          backgroundColor: '#F97316',
+          borderRadius: 12,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginBottom: 16,
+          opacity: pressed ? 0.8 : 1,
+        })}
         testID="start-verification-flow"
       >
-        <Text className="text-white text-base font-semibold">Start Verification Flow</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+          Start Verification Flow
+        </Text>
       </Pressable>
 
       {/* Account actions */}
       <Pressable
         onPress={handleLogout}
-        className="w-full bg-red-50 border border-red-200 rounded-xl h-14 justify-center items-center mb-10"
-        style={({ pressed }) => pressed ? { opacity: 0.8 } : {}}
+        style={({ pressed }) => ({
+          width: '100%',
+          backgroundColor: '#FEF2F2',
+          borderWidth: 1,
+          borderColor: '#FECACA',
+          borderRadius: 12,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginBottom: 40,
+          opacity: pressed ? 0.8 : 1,
+        })}
+        testID="sign-out-session"
       >
-        <Text className="text-red-600 text-base font-semibold">Sign Out Session</Text>
+        <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+          Sign Out Session
+        </Text>
       </Pressable>
     </ScrollView>
   );
