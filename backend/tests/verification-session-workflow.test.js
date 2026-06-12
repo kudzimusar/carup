@@ -255,3 +255,89 @@ test('audit failure blocks session creation', async () => {
     /Verification audit failed/
   );
 });
+
+// --- Phase 7B quality gate: OCR completing is not sufficient evidence ---
+
+async function createUploadedSession(client) {
+  const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
+  await uploadVerificationSessionImage(client, owner, session.id, 'front', { image }, {
+    storage: { uploadToStorage: async () => 'front-path.jpg' },
+  });
+  await uploadVerificationSessionImage(client, owner, session.id, 'selfie', { image }, {
+    storage: { uploadToStorage: async () => 'selfie-path.jpg' },
+  });
+  return session;
+}
+
+function submitWithOcr(client, sessionId, ocrResult) {
+  return submitVerificationSession(client, owner, sessionId, {
+    storage: {
+      downloadFromStorage: async () => ({ buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), mimeType: 'image/png' }),
+    },
+    ocr: { extractDocumentData: async () => ocrResult },
+  });
+}
+
+test('blank/1x1 image (OCR success with zero confidence, no fields) cannot become verified', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: { confidenceScore: 0 },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+});
+
+test('high confidence without extracted identity fields cannot become verified', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: { confidenceScore: 0.99, country: 'Zimbabwe' },
+  });
+
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /identity fields required/);
+});
+
+test('identity fields with low confidence cannot become verified', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.4,
+      first_name: 'Ruvimbo',
+      last_name: 'Chigumba',
+      national_id_number: 'ZN0943248',
+    },
+  });
+
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+});
+
+test('evaluateOcrEvidence unit cases', async () => {
+  const { evaluateOcrEvidence } = await import('../services/identity/verificationSessionService.js');
+
+  assert.equal(evaluateOcrEvidence({ success: false }).sufficient, false);
+  assert.equal(evaluateOcrEvidence({ success: true, extractedData: {} }).sufficient, false);
+  assert.equal(evaluateOcrEvidence({ success: true, extractedData: { confidenceScore: 0.9, national_id_number: '  ' } }).sufficient, false);
+  assert.equal(
+    evaluateOcrEvidence({ success: true, extractedData: { confidenceScore: 0.9, national_id_number: 'ZN1' } }).sufficient,
+    true
+  );
+  assert.equal(
+    evaluateOcrEvidence({ success: true, extractedData: { confidenceScore: 0.9, first_name: 'A', last_name: 'B' } }).sufficient,
+    true
+  );
+});
