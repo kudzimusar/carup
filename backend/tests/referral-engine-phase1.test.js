@@ -3,13 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ReferralEngineService, buildReferralShareAssets, normalizeReferralCode } from '../services/referral/referralEngineService.js';
 import { REFERRAL_TABLES } from '../services/referral/referralEngineRepository.js';
-import {
-  COUPON_DISCOUNT_TYPES,
-  REFERRAL_CAMPAIGN_TYPES,
-  REFERRAL_CODE_TYPES,
-  REFERRAL_EVENT_TYPES,
-  WALLET_TRANSACTION_STATUSES,
-} from '../constants/referral/referralConstants.js';
+import { COUPON_DISCOUNT_TYPES, REFERRAL_CAMPAIGN_TYPES, REFERRAL_CODE_TYPES, REFERRAL_EVENT_TYPES, WALLET_TRANSACTION_STATUSES } from '../constants/referral/referralConstants.js';
 import { ForbiddenError, ValidationError } from '../utils/errors.js';
 
 const migrationFile = readFileSync(new URL('../../database/migrations/016_referral_engine_phase1.sql', import.meta.url), 'utf8');
@@ -18,101 +12,46 @@ const promotionsRouteFile = readFileSync(new URL('../routes/promotionsRoutes.js'
 const serviceFile = readFileSync(new URL('../services/referral/referralEngineService.js', import.meta.url), 'utf8');
 
 class MemoryReferralRepository {
-  constructor() {
-    this.counter = 0;
-    this.tables = new Map(Object.values(REFERRAL_TABLES).map((table) => [table, []]));
-  }
-
-  nextId(table) {
-    this.counter += 1;
-    return `${table}-${this.counter}`;
-  }
-
-  match(row, filters = {}) {
-    return Object.entries(filters).every(([key, value]) => value === undefined || value === null || row[key] === value);
-  }
-
-  async insert(table, payload) {
-    const row = { id: payload.id || this.nextId(table), created_at: payload.created_at || '2026-06-12T00:00:00.000Z', ...payload };
-    this.tables.get(table).push(row);
-    return row;
-  }
-
-  async findOne(table, filters = {}) {
-    return this.tables.get(table).find((row) => this.match(row, filters)) || null;
-  }
-
-  async list(table, filters = {}) {
-    return this.tables.get(table).filter((row) => this.match(row, filters));
-  }
-
-  async updateById(table, id, patch) {
-    const rows = this.tables.get(table);
-    const index = rows.findIndex((row) => row.id === id);
-    if (index === -1) return null;
-    rows[index] = { ...rows[index], ...patch };
-    return rows[index];
-  }
-
-  async count(table, filters = {}) {
-    return (await this.list(table, filters)).length;
-  }
+  constructor() { this.counter = 0; this.tables = new Map(Object.values(REFERRAL_TABLES).map((table) => [table, []])); }
+  nextId(table) { this.counter += 1; return `${table}-${this.counter}`; }
+  match(row, filters = {}) { return Object.entries(filters).every(([key, value]) => value === undefined || value === null || row[key] === value); }
+  async insert(table, payload) { const row = { id: payload.id || this.nextId(table), created_at: payload.created_at || '2026-06-12T00:00:00.000Z', ...payload }; this.tables.get(table).push(row); return row; }
+  async findOne(table, filters = {}) { return this.tables.get(table).find((row) => this.match(row, filters)) || null; }
+  async list(table, filters = {}) { return this.tables.get(table).filter((row) => this.match(row, filters)); }
+  async updateById(table, id, patch) { const rows = this.tables.get(table); const index = rows.findIndex((row) => row.id === id); if (index === -1) return null; rows[index] = { ...rows[index], ...patch }; return rows[index]; }
+  async count(table, filters = {}) { return (await this.list(table, filters)).length; }
 }
 
 function createService() {
   const repository = new MemoryReferralRepository();
-  const service = new ReferralEngineService({
-    repository,
-    now: () => new Date('2026-06-12T00:00:00.000Z'),
-    shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpTestBot' },
-  });
+  const service = new ReferralEngineService({ repository, now: () => new Date('2026-06-12T00:00:00.000Z'), shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpTestBot' } });
   return { repository, service };
 }
 
 const adminActor = Object.freeze({ actor_user_id: 'admin-1', actor_role: 'admin', actor_tenant_id: 'tenant-1', actor_type: 'admin' });
 
-test('Phase 1 migration contains all required foundation tables with RLS enabled', () => {
-  for (const table of [
-    'referral_campaigns',
-    'referral_codes',
-    'referral_events',
-    'referral_coupons',
-    'referral_coupon_redemptions',
-    'referral_wallets',
-    'referral_wallet_transactions',
-    'referral_share_assets',
-    'referral_admin_audit_events',
-  ]) {
+test('Phase 1 migration contains required tables, RLS, foreign keys, and indexes', () => {
+  for (const table of ['referral_campaigns','referral_codes','referral_events','referral_coupons','referral_coupon_redemptions','referral_wallets','referral_wallet_transactions','referral_share_assets','referral_admin_audit_events']) {
     assert.equal(migrationFile.includes(`CREATE TABLE IF NOT EXISTS ${table}`), true, `${table} should be created`);
     assert.equal(migrationFile.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`), true, `${table} should enable RLS`);
   }
-  assert.equal(migrationFile.includes('referral_signup_only_not_matured'), true);
-  assert.equal(migrationFile.includes('idx_referral_codes_code'), true);
-  assert.equal(migrationFile.includes('idx_referral_events_campaign'), true);
+  for (const marker of ['referral_signup_only_not_matured','referral_events_coupon_id_fkey','referral_events_wallet_transaction_id_fkey','idx_referral_codes_code','idx_referral_events_campaign','idx_referral_coupons_campaign','idx_referral_share_assets_code','idx_referral_wallet_transactions_source_event']) {
+    assert.equal(migrationFile.includes(marker), true, `${marker} should exist`);
+  }
 });
 
 test('Referral API is mounted and exposes Phase 1 endpoints', () => {
   assert.equal(promotionsRouteFile.includes("router.use('/api/referrals', referralRouter)"), true);
-  for (const marker of ["router.post('/campaigns'", "router.post('/validate'", "router.post('/coupons/apply'", "router.patch('/wallets/transactions/:id/status'", "router.get('/admin/events'"]) {
-    assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
-  }
+  for (const marker of ["router.post('/campaigns'", "router.post('/validate'", "router.post('/coupons/apply'", "router.patch('/wallets/transactions/:id/status'", "router.get('/admin/events'"]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
 });
 
 test('Referral service is AI-ready with structured actor and event hooks', () => {
-  for (const marker of ['actor_type', 'buildActorContext', 'recordReferralEvent', 'REFERRAL_EVENT_TYPES.CODE_VALIDATED', 'REFERRAL_EVENT_TYPES.WALLET_TRANSACTION_STATUS_CHANGED']) {
-    assert.equal(serviceFile.includes(marker), true, `${marker} should be present`);
-  }
+  for (const marker of ['actor_type', 'buildActorContext', 'recordReferralEvent', 'REFERRAL_EVENT_TYPES.CODE_VALIDATED', 'REFERRAL_EVENT_TYPES.WALLET_TRANSACTION_STATUS_CHANGED']) assert.equal(serviceFile.includes(marker), true, `${marker} should be present`);
 });
 
 test('creates an import-priority campaign and records the event', async () => {
   const { repository, service } = createService();
-  const campaign = await service.createCampaign({
-    name: 'Japan to Zimbabwe July Container',
-    campaign_type: REFERRAL_CAMPAIGN_TYPES.CONTAINER_SPACE,
-    route_origin: 'Japan',
-    route_destination: 'Zimbabwe',
-    status: 'ACTIVE',
-  }, adminActor);
+  const campaign = await service.createCampaign({ name: 'Japan to Zimbabwe July Container', campaign_type: REFERRAL_CAMPAIGN_TYPES.CONTAINER_SPACE, route_origin: 'Japan', route_destination: 'Zimbabwe', status: 'ACTIVE' }, adminActor);
   assert.equal(campaign.priority_scope, 'IMPORT');
   assert.equal(campaign.slug, 'japan-to-zimbabwe-july-container');
   const events = await repository.list(REFERRAL_TABLES.events, { campaign_id: campaign.id });
@@ -135,9 +74,7 @@ test('creates and validates referral codes with attribution preserved', async ()
 
 test('invalid, expired, and exhausted codes fail safely', async () => {
   const { service } = createService();
-  const missing = await service.validateReferralCode({ code: 'NOPE' });
-  assert.equal(missing.valid, false);
-  assert.equal(missing.error.code, 'CODE_NOT_FOUND');
+  assert.equal((await service.validateReferralCode({ code: 'NOPE' })).error.code, 'CODE_NOT_FOUND');
   await service.createReferralCode({ code: 'old-code', expires_at: '2026-01-01T00:00:00.000Z' }, adminActor);
   assert.equal((await service.validateReferralCode({ code: 'OLD-CODE' })).reason, 'CODE_EXPIRED');
   await service.createReferralCode({ code: 'maxed-code', max_uses: 0 }, adminActor);
@@ -145,11 +82,7 @@ test('invalid, expired, and exhausted codes fail safely', async () => {
 });
 
 test('share assets include URL, QR payload, barcode, chat links, social URL, and UTM metadata', () => {
-  const assets = buildReferralShareAssets(
-    { code: 'CARUP-SHADRECK-8392', channel: 'whatsapp' },
-    { slug: 'japan-to-zimbabwe-import' },
-    { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' },
-  );
+  const assets = buildReferralShareAssets({ code: 'CARUP-SHADRECK-8392', channel: 'whatsapp' }, { slug: 'japan-to-zimbabwe-import' }, { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' });
   assert.equal(assets.short_referral_url, 'https://carup.test/r/CARUP-SHADRECK-8392');
   assert.equal(assets.qr_payload, assets.short_referral_url);
   assert.equal(assets.barcode_svg.includes('<svg'), true);
@@ -169,12 +102,17 @@ test('coupon application calculates discounts and duplicate redemptions are bloc
   await assert.rejects(() => service.redeemCoupon({ code: 'zim-buyer-10', order_amount: 300, redeemer_user_id: 'buyer-1', order_reference: 'order-2' }, { actor_user_id: 'buyer-1', actor_type: 'user' }), ValidationError);
 });
 
-test('wallet transactions follow milestone-safe state transitions and block signup-only maturation', async () => {
+test('wallet transactions follow state transitions, update balances, and block signup-only maturation', async () => {
   const { service } = createService();
   const tx = await service.createWalletTransaction({ user_id: 'referrer-1', amount: 15, source_event_type: 'order.paid', reason: 'Successful parts order referral' }, adminActor);
   assert.equal(tx.status, WALLET_TRANSACTION_STATUSES.PENDING);
+  assert.equal((await service.getWallet('referrer-1')).wallet.pending_balance, 15);
   assert.equal((await service.transitionWalletTransaction(tx.id, WALLET_TRANSACTION_STATUSES.ELIGIBLE, adminActor)).status, WALLET_TRANSACTION_STATUSES.ELIGIBLE);
+  assert.equal((await service.getWallet('referrer-1')).wallet.pending_balance, 15);
   assert.equal((await service.transitionWalletTransaction(tx.id, WALLET_TRANSACTION_STATUSES.APPROVED, adminActor)).status, WALLET_TRANSACTION_STATUSES.APPROVED);
+  const approvedWallet = await service.getWallet('referrer-1');
+  assert.equal(approvedWallet.wallet.pending_balance, 0);
+  assert.equal(approvedWallet.wallet.approved_balance, 15);
   const signupTx = await service.createWalletTransaction({ user_id: 'referrer-2', amount: 10, source_event_type: 'user.signup', reason: 'Registration only' }, adminActor);
   await assert.rejects(() => service.transitionWalletTransaction(signupTx.id, WALLET_TRANSACTION_STATUSES.ELIGIBLE, adminActor), ForbiddenError);
 });
