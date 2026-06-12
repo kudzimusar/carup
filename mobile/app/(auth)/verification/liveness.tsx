@@ -138,15 +138,15 @@ export default function ActiveLiveness() {
         <View style={styles.challengePanel}>
           {success ? (
             <View style={styles.successCard}>
-              <Text style={styles.successTitle}>Spoof Check Passed</Text>
+              <Text style={styles.successTitle}>Liveness Step Complete (Simulated)</Text>
               <Text style={styles.successDesc}>
-                Biometric active liveness was confirmed. Redirecting to Quality Review.
+                This challenge is a simulation for development builds and is not used as biometric confidence. Redirecting to Quality Review.
               </Text>
             </View>
           ) : (
             <View style={styles.challengeCard}>
               <Text style={styles.challengeLabel}>
-                Active Spoof Protection
+                Liveness Challenge (Simulated)
               </Text>
               <Text style={styles.challengeInstruction}>
                 {currentChallenge?.instruction}
@@ -177,7 +177,7 @@ export default function ActiveLiveness() {
           )}
 
           <Text style={styles.helpText}>
-            Active biometric checks block fraudulent attempts, video replay scams, and deepfakes.
+            Real biometric liveness detection is deferred to a later phase. This step is a UI simulation and does not contribute to verification results.
           </Text>
         </View>
 

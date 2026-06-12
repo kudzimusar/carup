@@ -39,11 +39,11 @@ export default function VerificationProcessing() {
     'Compressing and preparing encrypted upload stream...',
     'Uploading Front Document to secure processing pipeline...',
     params.doubleSided === 'true' ? 'Uploading Back Document to secure processing pipeline...' : null,
-    'Uploading biometric selfie for liveness cross-reference...',
+    'Uploading selfie image...',
     'Streaming documents to AI OCR engine...',
     'Extracting structured identity fields (name, ID, VIN)...',
-    'Running risk compliance & spoof verification scans...',
-    'Indexing trust badges and structuring identity records...'
+    'Submitting session for backend verification...',
+    'Finalizing verification session records...'
   ].filter(Boolean) as string[];
 
   const addLog = useCallback((msg: string) => {
