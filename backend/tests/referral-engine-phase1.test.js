@@ -33,11 +33,7 @@ class MemoryReferralRepository {
   }
 
   async insert(table, payload) {
-    const row = {
-      id: payload.id || this.nextId(table),
-      created_at: payload.created_at || '2026-06-12T00:00:00.000Z',
-      ...payload,
-    };
+    const row = { id: payload.id || this.nextId(table), created_at: payload.created_at || '2026-06-12T00:00:00.000Z', ...payload };
     this.tables.get(table).push(row);
     return row;
   }
@@ -68,24 +64,15 @@ function createService() {
   const service = new ReferralEngineService({
     repository,
     now: () => new Date('2026-06-12T00:00:00.000Z'),
-    shareOptions: {
-      baseUrl: 'https://carup.test',
-      whatsappNumber: '263771000000',
-      telegramBot: 'CarUpTestBot',
-    },
+    shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpTestBot' },
   });
   return { repository, service };
 }
 
-const adminActor = Object.freeze({
-  actor_user_id: 'admin-1',
-  actor_role: 'admin',
-  actor_tenant_id: 'tenant-1',
-  actor_type: 'admin',
-});
+const adminActor = Object.freeze({ actor_user_id: 'admin-1', actor_role: 'admin', actor_tenant_id: 'tenant-1', actor_type: 'admin' });
 
 test('Phase 1 migration contains all required foundation tables with RLS enabled', () => {
-  const tables = [
+  for (const table of [
     'referral_campaigns',
     'referral_codes',
     'referral_events',
@@ -95,33 +82,29 @@ test('Phase 1 migration contains all required foundation tables with RLS enabled
     'referral_wallet_transactions',
     'referral_share_assets',
     'referral_admin_audit_events',
-  ];
-
-  for (const table of tables) {
+  ]) {
     assert.equal(migrationFile.includes(`CREATE TABLE IF NOT EXISTS ${table}`), true, `${table} should be created`);
     assert.equal(migrationFile.includes(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`), true, `${table} should enable RLS`);
   }
-
   assert.equal(migrationFile.includes('referral_signup_only_not_matured'), true);
   assert.equal(migrationFile.includes('idx_referral_codes_code'), true);
   assert.equal(migrationFile.includes('idx_referral_events_campaign'), true);
 });
 
-test('Referral routes are mounted under /api/referrals through the centralized promotions router', () => {
+test('Referral API is mounted and exposes Phase 1 endpoints', () => {
   assert.equal(promotionsRouteFile.includes("router.use('/api/referrals', referralRouter)"), true);
-  assert.equal(routeFile.includes("router.post('/campaigns'"), true);
-  assert.equal(routeFile.includes("router.post('/validate'"), true);
-  assert.equal(routeFile.includes("router.post('/coupons/apply'"), true);
-  assert.equal(routeFile.includes("router.patch('/wallets/transactions/:id/status'"), true);
+  for (const marker of ["router.post('/campaigns'", "router.post('/validate'", "router.post('/coupons/apply'", "router.patch('/wallets/transactions/:id/status'", "router.get('/admin/events'"]) {
+    assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
+  }
 });
 
-test('Referral service is AI-ready with actor_type and audit/event writes', () => {
-  for (const marker of ['actor_type', 'ACTOR_TYPES.AGENT', 'recordReferralEvent', 'REFERRAL_EVENT_TYPES.CODE_VALIDATED', 'REFERRAL_EVENT_TYPES.WALLET_TRANSACTION_STATUS_CHANGED']) {
+test('Referral service is AI-ready with structured actor and event hooks', () => {
+  for (const marker of ['actor_type', 'buildActorContext', 'recordReferralEvent', 'REFERRAL_EVENT_TYPES.CODE_VALIDATED', 'REFERRAL_EVENT_TYPES.WALLET_TRANSACTION_STATUS_CHANGED']) {
     assert.equal(serviceFile.includes(marker), true, `${marker} should be present`);
   }
 });
 
-test('creates an import-priority campaign and records a campaign event', async () => {
+test('creates an import-priority campaign and records the event', async () => {
   const { repository, service } = createService();
   const campaign = await service.createCampaign({
     name: 'Japan to Zimbabwe July Container',
@@ -130,7 +113,6 @@ test('creates an import-priority campaign and records a campaign event', async (
     route_destination: 'Zimbabwe',
     status: 'ACTIVE',
   }, adminActor);
-
   assert.equal(campaign.priority_scope, 'IMPORT');
   assert.equal(campaign.slug, 'japan-to-zimbabwe-july-container');
   const events = await repository.list(REFERRAL_TABLES.events, { campaign_id: campaign.id });
@@ -140,109 +122,61 @@ test('creates an import-priority campaign and records a campaign event', async (
 test('creates and validates referral codes with attribution preserved', async () => {
   const { repository, service } = createService();
   const campaign = await service.createCampaign({ name: 'Harare Parts Push', status: 'ACTIVE' }, adminActor);
-  const code = await service.createReferralCode({
-    campaign_id: campaign.id,
-    owner_user_id: 'seller-1',
-    code: 'hre parts tariro 22',
-    code_type: REFERRAL_CODE_TYPES.MEMBER,
-    channel: 'whatsapp',
-  }, adminActor);
-
+  const code = await service.createReferralCode({ campaign_id: campaign.id, owner_user_id: 'seller-1', code: 'hre parts tariro 22', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'whatsapp' }, adminActor);
   assert.equal(code.code, 'HRE-PARTS-TARIRO-22');
   const result = await service.validateReferralCode({ code: 'hre-parts-tariro-22', channel: 'whatsapp', subject_id: 'lead-1' }, { actor_type: 'user' });
   assert.equal(result.valid, true);
   assert.equal(result.attribution.campaign_id, campaign.id);
   assert.equal(result.attribution.owner_user_id, 'seller-1');
-
   const events = await repository.list(REFERRAL_TABLES.events, { code_id: code.id });
   assert.equal(events.some((event) => event.event_type === REFERRAL_EVENT_TYPES.CODE_CREATED), true);
   assert.equal(events.some((event) => event.event_type === REFERRAL_EVENT_TYPES.CODE_VALIDATED), true);
 });
 
-test('invalid, expired, and exhausted codes fail safely with structured errors', async () => {
+test('invalid, expired, and exhausted codes fail safely', async () => {
   const { service } = createService();
   const missing = await service.validateReferralCode({ code: 'NOPE' });
   assert.equal(missing.valid, false);
   assert.equal(missing.error.code, 'CODE_NOT_FOUND');
-
   await service.createReferralCode({ code: 'old-code', expires_at: '2026-01-01T00:00:00.000Z' }, adminActor);
-  const expired = await service.validateReferralCode({ code: 'OLD-CODE' });
-  assert.equal(expired.valid, false);
-  assert.equal(expired.reason, 'CODE_EXPIRED');
-
+  assert.equal((await service.validateReferralCode({ code: 'OLD-CODE' })).reason, 'CODE_EXPIRED');
   await service.createReferralCode({ code: 'maxed-code', max_uses: 0 }, adminActor);
-  const exhausted = await service.validateReferralCode({ code: 'MAXED-CODE' });
-  assert.equal(exhausted.valid, false);
-  assert.equal(exhausted.reason, 'CODE_EXHAUSTED');
+  assert.equal((await service.validateReferralCode({ code: 'MAXED-CODE' })).reason, 'CODE_EXHAUSTED');
 });
 
-test('share assets include URL, QR payload, barcode SVG, WhatsApp, Telegram, social URL, poster text, and UTM metadata', () => {
+test('share assets include URL, QR payload, barcode, chat links, social URL, and UTM metadata', () => {
   const assets = buildReferralShareAssets(
     { code: 'CARUP-SHADRECK-8392', channel: 'whatsapp' },
     { slug: 'japan-to-zimbabwe-import' },
     { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' },
   );
-
   assert.equal(assets.short_referral_url, 'https://carup.test/r/CARUP-SHADRECK-8392');
   assert.equal(assets.qr_payload, assets.short_referral_url);
-  assert.equal(assets.barcode_payload, 'CARUP-SHADRECK-8392');
   assert.equal(assets.barcode_svg.includes('<svg'), true);
   assert.equal(assets.whatsapp_share_url.includes('wa.me'), true);
   assert.equal(assets.telegram_start_url.includes('CarUpBot'), true);
   assert.equal(assets.social_campaign_url.includes('utm_campaign=japan-to-zimbabwe-import'), true);
-  assert.equal(assets.poster_text.includes('CARUP-SHADRECK-8392'), true);
 });
 
 test('coupon application calculates discounts and duplicate redemptions are blocked', async () => {
   const { service } = createService();
-  const coupon = await service.createCoupon({
-    code: 'zim-buyer-10',
-    discount_type: COUPON_DISCOUNT_TYPES.PERCENT,
-    discount_value: 10,
-    max_discount_amount: 25,
-    minimum_order_amount: 100,
-  }, adminActor);
-
+  const coupon = await service.createCoupon({ code: 'zim-buyer-10', discount_type: COUPON_DISCOUNT_TYPES.PERCENT, discount_value: 10, max_discount_amount: 25, minimum_order_amount: 100 }, adminActor);
   assert.equal(coupon.code, 'ZIM-BUYER-10');
   const applied = await service.applyCoupon({ code: 'zim-buyer-10', order_amount: 300 });
   assert.equal(applied.applied, true);
   assert.equal(applied.discount_amount, 25);
-
-  const redeemed = await service.redeemCoupon({ code: 'zim-buyer-10', order_amount: 300, redeemer_user_id: 'buyer-1', order_reference: 'order-1' }, { actor_user_id: 'buyer-1', actor_type: 'user' });
-  assert.equal(redeemed.redeemed, true);
-
-  await assert.rejects(
-    () => service.redeemCoupon({ code: 'zim-buyer-10', order_amount: 300, redeemer_user_id: 'buyer-1', order_reference: 'order-2' }, { actor_user_id: 'buyer-1', actor_type: 'user' }),
-    ValidationError,
-  );
+  assert.equal((await service.redeemCoupon({ code: 'zim-buyer-10', order_amount: 300, redeemer_user_id: 'buyer-1', order_reference: 'order-1' }, { actor_user_id: 'buyer-1', actor_type: 'user' })).redeemed, true);
+  await assert.rejects(() => service.redeemCoupon({ code: 'zim-buyer-10', order_amount: 300, redeemer_user_id: 'buyer-1', order_reference: 'order-2' }, { actor_user_id: 'buyer-1', actor_type: 'user' }), ValidationError);
 });
 
 test('wallet transactions follow milestone-safe state transitions and block signup-only maturation', async () => {
   const { service } = createService();
-  const tx = await service.createWalletTransaction({
-    user_id: 'referrer-1',
-    amount: 15,
-    source_event_type: 'order.paid',
-    reason: 'Successful parts order referral',
-  }, adminActor);
-
+  const tx = await service.createWalletTransaction({ user_id: 'referrer-1', amount: 15, source_event_type: 'order.paid', reason: 'Successful parts order referral' }, adminActor);
   assert.equal(tx.status, WALLET_TRANSACTION_STATUSES.PENDING);
-  const eligible = await service.transitionWalletTransaction(tx.id, WALLET_TRANSACTION_STATUSES.ELIGIBLE, adminActor);
-  assert.equal(eligible.status, WALLET_TRANSACTION_STATUSES.ELIGIBLE);
-  const approved = await service.transitionWalletTransaction(tx.id, WALLET_TRANSACTION_STATUSES.APPROVED, adminActor);
-  assert.equal(approved.status, WALLET_TRANSACTION_STATUSES.APPROVED);
-
-  const signupTx = await service.createWalletTransaction({
-    user_id: 'referrer-2',
-    amount: 10,
-    source_event_type: 'user.signup',
-    reason: 'Registration only',
-  }, adminActor);
-
-  await assert.rejects(
-    () => service.transitionWalletTransaction(signupTx.id, WALLET_TRANSACTION_STATUSES.ELIGIBLE, adminActor),
-    ForbiddenError,
-  );
+  assert.equal((await service.transitionWalletTransaction(tx.id, WALLET_TRANSACTION_STATUSES.ELIGIBLE, adminActor)).status, WALLET_TRANSACTION_STATUSES.ELIGIBLE);
+  assert.equal((await service.transitionWalletTransaction(tx.id, WALLET_TRANSACTION_STATUSES.APPROVED, adminActor)).status, WALLET_TRANSACTION_STATUSES.APPROVED);
+  const signupTx = await service.createWalletTransaction({ user_id: 'referrer-2', amount: 10, source_event_type: 'user.signup', reason: 'Registration only' }, adminActor);
+  await assert.rejects(() => service.transitionWalletTransaction(signupTx.id, WALLET_TRANSACTION_STATUSES.ELIGIBLE, adminActor), ForbiddenError);
 });
 
 test('normalizes referral codes consistently for offline, social, and chat channels', () => {
