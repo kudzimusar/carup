@@ -225,6 +225,148 @@ export interface DiasporaShipment {
   created_at?: string;
 }
 
+export type DiasporaWorkbookOperatorAction = string;
+
+export interface DiasporaWorkbookOperatorDashboardFilters {
+  status?: string;
+  templateType?: string;
+  uploadedBy?: string;
+  tenantId?: string;
+  needsReview?: boolean | string;
+  hasFailures?: boolean | string;
+  hasRetryableRows?: boolean | string;
+  held?: boolean | string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface DiasporaWorkbookOperatorDashboardItem {
+  batchId: string;
+  templateType?: string;
+  importStatus?: string;
+  uploadedBy?: string | null;
+  tenantId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  totalRows?: number;
+  acceptedRows?: number;
+  warningRows?: number;
+  rejectedRows?: number;
+  errorCount?: number;
+  warningCount?: number;
+  draftImportExecuted?: boolean;
+  liveImportExecuted?: boolean;
+  aiExecuted?: boolean;
+  needsReview?: boolean;
+  hasFailures?: boolean;
+  hasRetryableRows?: boolean;
+  hasBlockedRows?: boolean;
+  held?: boolean;
+  holdReason?: string | null;
+  nextRecommendedAction?: string;
+  riskLevel?: string;
+  summaryBadges?: string[];
+}
+
+export interface DiasporaWorkbookOperatorDashboard {
+  items: DiasporaWorkbookOperatorDashboardItem[];
+  pagination?: {
+    limit?: number;
+    offset?: number;
+    count?: number;
+  };
+  totals?: Record<string, number>;
+}
+
+export interface DiasporaWorkbookOperatorNote {
+  id?: string;
+  note: string;
+  createdAt?: string;
+  createdBy?: string | null;
+  role?: string;
+  visibility?: string;
+  phase?: string;
+}
+
+export interface DiasporaWorkbookOperatorHold {
+  active?: boolean;
+  reason?: string | null;
+  placedAt?: string;
+  placedBy?: string | null;
+  clearedAt?: string;
+  clearedBy?: string | null;
+  role?: string;
+  phase?: string;
+}
+
+export interface DiasporaWorkbookRetryPlan {
+  canRetry?: boolean;
+  reason?: string;
+  totals?: Record<string, number>;
+  retryableRows?: unknown[];
+  blockedRows?: unknown[];
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookExecutionAudit {
+  batchId?: string;
+  templateType?: string;
+  importStatus?: string;
+  executionPhase?: string | null;
+  draftImportExecuted?: boolean;
+  liveImportExecuted?: boolean;
+  aiExecuted?: boolean;
+  totals?: Record<string, number>;
+  consistency?: {
+    valid?: boolean;
+    errors?: unknown[];
+    warnings?: unknown[];
+  };
+  retryPlan?: DiasporaWorkbookRetryPlan | null;
+  createdTargetRecords?: unknown[];
+  failedRows?: unknown[];
+  skippedRows?: unknown[];
+  blockedRows?: unknown[];
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookOperatorNextActions {
+  allowed: DiasporaWorkbookOperatorAction[];
+  forbidden: DiasporaWorkbookOperatorAction[];
+  warnings?: string[];
+  nextRecommendedAction?: string;
+}
+
+export interface DiasporaWorkbookOperatorBatchSummary {
+  batch?: {
+    id?: string;
+    importStatus?: string;
+    templateType?: string;
+    totalRows?: number;
+    acceptedRows?: number;
+    rejectedRows?: number;
+    warningCount?: number;
+    errorCount?: number;
+    createdAt?: string;
+    updatedAt?: string;
+    metadata?: Record<string, unknown>;
+  };
+  plan?: Record<string, unknown>;
+  audit?: DiasporaWorkbookExecutionAudit | null;
+  retryPlan?: DiasporaWorkbookRetryPlan | null;
+  operator?: {
+    held?: boolean;
+    holdReason?: string | null;
+    notes?: DiasporaWorkbookOperatorNote[];
+    nextActions?: DiasporaWorkbookOperatorAction[];
+    forbiddenActions?: DiasporaWorkbookOperatorAction[];
+    warnings?: string[];
+    statusTimeline?: unknown[];
+  };
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;
