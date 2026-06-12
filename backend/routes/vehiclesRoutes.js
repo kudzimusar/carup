@@ -460,7 +460,7 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
 
   let query = supabase
     .from('vehicle_evidence')
-    .select('*, vehicles(make, model, year, trust_score)')
+    .select('*, vehicles!vehicle_evidence_vin_fkey(make, model, year, trust_score)')
     .eq('verification_status', status)
     .order('uploaded_at', { ascending: false })
     .limit(100);

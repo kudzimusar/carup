@@ -315,7 +315,7 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
   try {
     const { data: vehicle, error } = await supabase
       .from('vehicles')
-      .select('*, tenant:tenants(name, phone, logo_url)')
+      .select('*, tenant:tenants(name, type, status)')
       .eq('vin', vin)
       .single();
     if (error) throw error;
