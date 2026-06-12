@@ -6,11 +6,14 @@ import { useRouter } from 'expo-router';
 export default function DashboardScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const logout = useAuthStore((state) => state.logout);
   const switchRole = useAuthStore((state) => state.switchRole);
 
   const handleLogout = async () => {
-    await logout();
+    if (isAuthenticated) {
+      await logout();
+    }
     router.replace('/(auth)/login');
   };
 
@@ -109,7 +112,7 @@ export default function DashboardScreen() {
         testID="sign-out-session"
       >
         <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
-          Sign Out Session
+          {isAuthenticated ? 'Sign Out Session' : 'Sign In to CarUp'}
         </Text>
       </Pressable>
     </ScrollView>

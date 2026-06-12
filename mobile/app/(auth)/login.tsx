@@ -5,9 +5,37 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginSchema } from '@shared/schemas';
 import { useAuthStore } from '../../store/authStore';
+import { getVerificationApiBaseUrl } from '../../utils/verificationApi';
 import { z } from 'zod';
 
 type LoginFormValues = z.infer<typeof LoginSchema>;
+
+const inputStyle = {
+  backgroundColor: '#F8FAFC',
+  borderWidth: 1,
+  borderColor: '#E2E8F0',
+  color: '#0F172A',
+  padding: 16,
+  borderRadius: 12,
+  fontSize: 16,
+  height: 52,
+};
+
+const fieldLabelStyle = {
+  fontSize: 12,
+  fontWeight: '600' as const,
+  color: '#334155',
+  textTransform: 'uppercase' as const,
+  letterSpacing: 1,
+  marginBottom: 8,
+};
+
+const errorTextStyle = {
+  color: '#EF4444',
+  fontSize: 12,
+  marginTop: 4,
+  fontWeight: '500' as const,
+};
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -25,7 +53,8 @@ export default function LoginScreen() {
   const onSubmit = async (data: LoginFormValues) => {
     setServerError(null);
     try {
-      const response = await fetch('http://localhost:5001/api/auth/login', {
+      const baseUrl = getVerificationApiBaseUrl();
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -40,7 +69,7 @@ export default function LoginScreen() {
 
       const result = await response.json();
       await login(result.user, result.token);
-      
+
       // Redirect to main tabs dashboard
       router.replace('/(tabs)');
     } catch (error: any) {
@@ -49,36 +78,36 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      className="flex-1 bg-white"
+      style={{ flex: 1, backgroundColor: '#FFFFFF' }}
     >
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} className="px-6 py-12 justify-center">
+      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingVertical: 48, justifyContent: 'center' }}>
         {/* Header Block */}
-        <View className="mb-10 items-center">
-          <Text className="text-3xl font-bold text-slate-900 tracking-tight">CarUp OS</Text>
-          <Text className="text-sm text-slate-500 mt-2 text-center">
+        <View style={{ marginBottom: 40, alignItems: 'center' }}>
+          <Text style={{ fontSize: 30, fontWeight: '700', color: '#0F172A', letterSpacing: -0.5 }}>CarUp OS</Text>
+          <Text style={{ fontSize: 14, color: '#64748B', marginTop: 8, textAlign: 'center' }}>
             Log in to manage your multi-tenant automotive ecosystem and escrow ledgers.
           </Text>
         </View>
 
         {/* Form Body */}
-        <View className="space-y-5">
+        <View>
           {serverError && (
-            <View className="bg-red-50 p-3 rounded-lg border border-red-200">
-              <Text className="text-red-600 text-xs font-semibold text-center">{serverError}</Text>
+            <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 }}>
+              <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', textAlign: 'center' }}>{serverError}</Text>
             </View>
           )}
 
           {/* Email Block */}
           <View>
-            <Text className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Email Address</Text>
+            <Text style={fieldLabelStyle}>Email Address</Text>
             <Controller
               control={control}
               name="email"
               render={({ field: { onChange, onBlur, value } }) => (
                 <TextInput
-                  className="bg-slate-50 border border-slate-200 text-slate-900 p-4 rounded-xl text-base h-12"
+                  style={inputStyle}
                   placeholder="Enter email address"
                   placeholderTextColor="#94a3b8"
                   onBlur={onBlur}
@@ -86,23 +115,24 @@ export default function LoginScreen() {
                   value={value}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  testID="login-email"
                 />
               )}
             />
             {errors.email && (
-              <Text className="text-red-500 text-xs mt-1 font-medium">{errors.email.message}</Text>
+              <Text style={errorTextStyle}>{errors.email.message}</Text>
             )}
           </View>
 
           {/* Password Block */}
-          <View className="mt-4">
-            <Text className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Password</Text>
+          <View style={{ marginTop: 16 }}>
+            <Text style={fieldLabelStyle}>Password</Text>
             <Controller
               control={control}
               name="password"
               render={({ field: { onChange, onBlur, value } }) => (
                 <TextInput
-                  className="bg-slate-50 border border-slate-200 text-slate-900 p-4 rounded-xl text-base h-12"
+                  style={inputStyle}
                   placeholder="Enter password"
                   placeholderTextColor="#94a3b8"
                   onBlur={onBlur}
@@ -110,32 +140,42 @@ export default function LoginScreen() {
                   value={value}
                   secureTextEntry
                   autoCapitalize="none"
+                  testID="login-password"
                 />
               )}
             />
             {errors.password && (
-              <Text className="text-red-500 text-xs mt-1 font-medium">{errors.password.message}</Text>
+              <Text style={errorTextStyle}>{errors.password.message}</Text>
             )}
           </View>
 
           {/* Premium Login Button - 48px Target Area */}
           <Pressable
-            className={`w-full bg-slate-900 rounded-xl h-14 mt-8 justify-center items-center ${isSubmitting ? 'opacity-70' : ''}`}
             onPress={handleSubmit(onSubmit)}
             disabled={isSubmitting}
-            style={({ pressed }) => pressed ? { opacity: 0.85 } : {}}
+            testID="login-submit"
+            style={({ pressed }) => ({
+              width: '100%',
+              backgroundColor: '#0F172A',
+              borderRadius: 12,
+              height: 56,
+              marginTop: 32,
+              justifyContent: 'center',
+              alignItems: 'center',
+              opacity: isSubmitting ? 0.7 : pressed ? 0.85 : 1,
+            })}
           >
             {isSubmitting ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <Text className="text-white text-base font-semibold">Sign In</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In</Text>
             )}
           </Pressable>
         </View>
 
         {/* Footer info */}
-        <View className="mt-12 items-center">
-          <Text className="text-xs text-slate-400">
+        <View style={{ marginTop: 48, alignItems: 'center' }}>
+          <Text style={{ fontSize: 12, color: '#94A3B8' }}>
             Secure bank-escrow platform compliance enabled
           </Text>
         </View>
