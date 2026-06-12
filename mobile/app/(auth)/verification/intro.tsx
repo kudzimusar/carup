@@ -2,64 +2,108 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
 
+const benefitCardStyle = {
+  flexDirection: 'row' as const,
+  alignItems: 'flex-start' as const,
+  padding: 16,
+  backgroundColor: 'rgba(22, 28, 44, 0.5)',
+  borderWidth: 1,
+  borderColor: 'rgba(43, 53, 82, 0.4)',
+  borderRadius: 16,
+};
+
+const benefitIconStyle = {
+  width: 40,
+  height: 40,
+  borderRadius: 12,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  marginRight: 16,
+  borderWidth: 1,
+};
+
+const benefitTitleStyle = {
+  color: '#FFFFFF',
+  fontWeight: '600' as const,
+  fontSize: 14,
+  marginBottom: 4,
+};
+
+const benefitBodyStyle = {
+  color: '#94A3B8',
+  fontSize: 12,
+  lineHeight: 19,
+};
+
 export default function VerificationIntro() {
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0A0E1A]">
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'space-between' }}>
-        
+
         {/* Header & Title */}
-        <View className="mt-8">
-          <View className="flex-row items-center justify-between mb-8">
-            <TouchableOpacity 
+        <View style={{ marginTop: 32 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
+            <TouchableOpacity
               onPress={() => router.back()}
-              className="w-10 h-10 bg-[#161C2C] border border-[#2B3552] rounded-xl items-center justify-center"
+              style={{
+                width: 40,
+                height: 40,
+                backgroundColor: '#161C2C',
+                borderWidth: 1,
+                borderColor: '#2B3552',
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <Text className="text-white text-lg">←</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 18 }}>←</Text>
             </TouchableOpacity>
-            <Text className="text-slate-500 font-semibold text-xs tracking-widest uppercase">Step 1 of 9</Text>
+            <Text style={{ color: '#64748B', fontWeight: '600', fontSize: 12, letterSpacing: 1.5, textTransform: 'uppercase' }}>
+              Step 1 of 9
+            </Text>
           </View>
 
-          <Text className="text-white text-3xl font-extrabold tracking-tight mb-4 leading-tight">
+          <Text style={{ color: '#FFFFFF', fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16, lineHeight: 38 }}>
             Trust & Identity Verification
           </Text>
-          <Text className="text-slate-400 text-sm leading-relaxed mb-8">
+          <Text style={{ color: '#94A3B8', fontSize: 14, lineHeight: 22, marginBottom: 32 }}>
             To prevent fraud and enable features like CBZ SafePay Escrow, vehicle listings, and automatic ownership transfer, we need to verify your physical identity.
           </Text>
 
           {/* Benefits Grid */}
-          <View className="space-y-4">
-            <View className="flex-row items-start p-4 bg-[#161C2C]/50 border border-[#2B3552]/40 rounded-2xl">
-              <View className="w-10 h-10 bg-blue-500/10 rounded-xl items-center justify-center mr-4 border border-blue-500/20">
-                <Text className="text-blue-500 font-bold">✓</Text>
+          <View>
+            <View style={benefitCardStyle}>
+              <View style={[benefitIconStyle, { backgroundColor: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.2)' }]}>
+                <Text style={{ color: '#3B82F6', fontWeight: '700' }}>✓</Text>
               </View>
-              <View className="flex-1">
-                <Text className="text-white font-semibold text-sm mb-1">List & Sell Vehicles</Text>
-                <Text className="text-slate-400 text-xs leading-relaxed">
+              <View style={{ flex: 1 }}>
+                <Text style={benefitTitleStyle}>List & Sell Vehicles</Text>
+                <Text style={benefitBodyStyle}>
                   Only verified owners and dealerships can post vehicle listings onto the CarUp network.
                 </Text>
               </View>
             </View>
 
-            <View className="flex-row items-start p-4 bg-[#161C2C]/50 border border-[#2B3552]/40 rounded-2xl">
-              <View className="w-10 h-10 bg-green-500/10 rounded-xl items-center justify-center mr-4 border border-green-500/20">
-                <Text className="text-green-500 font-bold">$</Text>
+            <View style={[benefitCardStyle, { marginTop: 16 }]}>
+              <View style={[benefitIconStyle, { backgroundColor: 'rgba(34, 197, 94, 0.1)', borderColor: 'rgba(34, 197, 94, 0.2)' }]}>
+                <Text style={{ color: '#22C55E', fontWeight: '700' }}>$</Text>
               </View>
-              <View className="flex-1">
-                <Text className="text-white font-semibold text-sm mb-1">Escrow & Financing Ready</Text>
-                <Text className="text-slate-400 text-xs leading-relaxed">
+              <View style={{ flex: 1 }}>
+                <Text style={benefitTitleStyle}>Escrow & Financing Ready</Text>
+                <Text style={benefitBodyStyle}>
                   Unlock access to direct secure bank transfers and CBZ pre-approval loans.
                 </Text>
               </View>
             </View>
 
-            <View className="flex-row items-start p-4 bg-[#161C2C]/50 border border-[#2B3552]/40 rounded-2xl">
-              <View className="w-10 h-10 bg-indigo-500/10 rounded-xl items-center justify-center mr-4 border border-indigo-500/20">
-                <Text className="text-indigo-500 font-bold">🔒</Text>
+            <View style={[benefitCardStyle, { marginTop: 16 }]}>
+              <View style={[benefitIconStyle, { backgroundColor: 'rgba(99, 102, 241, 0.1)', borderColor: 'rgba(99, 102, 241, 0.2)' }]}>
+                <Text style={{ color: '#6366F1', fontWeight: '700' }}>🔒</Text>
               </View>
-              <View className="flex-1">
-                <Text className="text-white font-semibold text-sm mb-1">Secure & Compliant</Text>
-                <Text className="text-slate-400 text-xs leading-relaxed">
+              <View style={{ flex: 1 }}>
+                <Text style={benefitTitleStyle}>Secure & Compliant</Text>
+                <Text style={benefitBodyStyle}>
                   Your document images are fully encrypted locally before being transmitted via secure channels.
                 </Text>
               </View>
@@ -68,9 +112,9 @@ export default function VerificationIntro() {
         </View>
 
         {/* Action Button & Time Estimate */}
-        <View className="mt-8">
-          <View className="items-center mb-4">
-            <Text className="text-slate-500 text-xs font-medium">
+        <View style={{ marginTop: 32 }}>
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '500' }}>
               Requires National ID, Passport or License • Takes ~2 mins
             </Text>
           </View>
@@ -78,9 +122,17 @@ export default function VerificationIntro() {
           <TouchableOpacity
             onPress={() => router.push('/(auth)/verification/document-select')}
             activeOpacity={0.8}
-            className="w-full h-14 bg-blue-600 rounded-2xl justify-center items-center shadow-lg shadow-blue-500/25 active:bg-blue-700"
+            testID="start-identity-verification"
+            style={{
+              width: '100%',
+              height: 56,
+              backgroundColor: '#2563EB',
+              borderRadius: 16,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
           >
-            <Text className="text-white font-semibold text-base">Start Identity Verification</Text>
+            <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 16 }}>Start Identity Verification</Text>
           </TouchableOpacity>
         </View>
 
