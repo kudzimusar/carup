@@ -1047,7 +1047,7 @@ app.post('/api/auth/login', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
+    const { error: sessionError } = await supabase.from('user_sessions').insert({
       user_id: user.id,
       token,
       ip_address: req.ip || '127.0.0.1',
@@ -1055,9 +1055,13 @@ app.post('/api/auth/login', async (req, res) => {
       expires_at: expiresAt.toISOString(),
       is_valid: true
     });
-    
+
+    if (sessionError) {
+      return res.status(500).json({ error: 'Failed to persist login session: ' + sessionError.message });
+    }
+
     await supabase.from('login_attempts').insert({ user_id: user.id, success: true, method: 'password', ip_address: req.ip || '127.0.0.1' });
-    
+
     res.json({ user, token });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1089,7 +1093,7 @@ app.post('/api/auth/register', async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
     
-    await supabase.from('user_sessions').insert({
+    const { error: sessionError } = await supabase.from('user_sessions').insert({
       user_id: id,
       token,
       ip_address: req.ip || '127.0.0.1',
@@ -1097,7 +1101,11 @@ app.post('/api/auth/register', async (req, res) => {
       expires_at: expiresAt.toISOString(),
       is_valid: true
     });
-    
+
+    if (sessionError) {
+      return res.status(500).json({ error: 'Account created but session persistence failed: ' + sessionError.message });
+    }
+
     const newUser = { id, name, email, phone: phone || '', role: role || 'owner' };
     res.json({ user: newUser, token });
   } catch (error) {
