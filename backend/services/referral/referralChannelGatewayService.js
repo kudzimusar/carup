@@ -47,17 +47,38 @@ export function normalizeChannel(channel) {
   return normalized;
 }
 
+function directCodeCandidate(value) {
+  const direct = normalizeReferralCode(value);
+  if (!/^[A-Z0-9]+(?:-[A-Z0-9]+){1,8}$/.test(direct)) return null;
+  if (direct.length > 80) return null;
+  return direct;
+}
+
+function extractFromNaturalText(raw) {
+  if (!raw) return null;
+  const value = String(raw);
+  const startMatch = value.match(/(?:^|\s)\/start\s+([A-Za-z0-9][A-Za-z0-9-_]{2,80})/i);
+  if (startMatch) return normalizeReferralCode(startMatch[1]);
+  const pathMatch = value.match(/\/r\/([A-Za-z0-9][A-Za-z0-9-_]{2,80})/i);
+  if (pathMatch) return normalizeReferralCode(pathMatch[1]);
+  const labelMatch = value.match(/(?:code|coupon|referral)[:#\s-]+([A-Za-z0-9][A-Za-z0-9-_]{2,80})/i);
+  if (labelMatch) return normalizeReferralCode(labelMatch[1]);
+  return null;
+}
+
 export function extractReferralCode(input = {}) {
-  const candidates = [input.referral_code, input.code, input.start_payload, input.text, input.message, input.url, input.deep_link].filter(Boolean).map(String);
-  for (const raw of candidates) {
-    const startMatch = raw.match(/(?:^|\s)\/start\s+([A-Za-z0-9][A-Za-z0-9-_]{2,80})/i);
-    if (startMatch) return normalizeReferralCode(startMatch[1]);
-    const pathMatch = raw.match(/\/r\/([A-Za-z0-9][A-Za-z0-9-_]{2,80})/i);
-    if (pathMatch) return normalizeReferralCode(pathMatch[1]);
-    const labelMatch = raw.match(/(?:code|coupon|referral)[:#\s-]+([A-Za-z0-9][A-Za-z0-9-_]{2,80})/i);
-    if (labelMatch) return normalizeReferralCode(labelMatch[1]);
-    const direct = normalizeReferralCode(raw);
-    if (/^[A-Z0-9]+(?:-[A-Z0-9]+){1,8}$/.test(direct) && direct.length <= 80) return direct;
+  const explicitCandidates = [input.referral_code, input.code, input.start_payload, input.deep_link].filter(Boolean).map(String);
+  for (const raw of explicitCandidates) {
+    const fromText = extractFromNaturalText(raw);
+    if (fromText) return fromText;
+    const direct = directCodeCandidate(raw);
+    if (direct) return direct;
+  }
+
+  const naturalTextCandidates = [input.text, input.message, input.caption, input.query, input.url].filter(Boolean).map(String);
+  for (const raw of naturalTextCandidates) {
+    const fromText = extractFromNaturalText(raw);
+    if (fromText) return fromText;
   }
   return null;
 }
