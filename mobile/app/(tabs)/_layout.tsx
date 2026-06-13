@@ -51,6 +51,13 @@ export default function TabLayout() {
           headerTitle: 'CarUp Vehicles',
         }}
       />
+      <Tabs.Screen
+        name="referral"
+        options={{
+          title: 'Referrals',
+          headerTitle: 'Refer & Earn',
+        }}
+      />
     </Tabs>
   );
 }

@@ -164,13 +164,15 @@ export interface ReferralWalletTransaction {
 }
 
 export interface ReferralWallet {
+  id?: string
   user_id?: string
   tenant_id?: string
-  balance?: number
   currency?: string | null
+  // Balance buckets as written by recomputeWalletBalances() on the wallet row.
   pending_balance?: number
-  available_balance?: number
-  transactions?: ReferralWalletTransaction[]
+  approved_balance?: number
+  payable_balance?: number
+  paid_or_applied_balance?: number
   metadata?: Record<string, unknown>
 }
 
@@ -370,8 +372,16 @@ export interface ReferralCouponRedeemResponse {
   [key: string]: unknown
 }
 
-/** `GET /wallets/:userId` spreads the wallet onto the envelope: `{ success, ...wallet }`. */
-export type ReferralWalletResponse = { success: boolean } & ReferralWallet
+/**
+ * `GET /wallets/:userId` returns `{ success, wallet, transactions }`: the service's
+ * getWallet() returns `{ wallet, transactions }`, which the route spreads onto
+ * `{ success: true, ... }`. Balances live on the nested `wallet` row.
+ */
+export interface ReferralWalletResponse {
+  success: boolean
+  wallet?: ReferralWallet
+  transactions?: ReferralWalletTransaction[]
+}
 
 export interface ReferralWalletTransactionResponse {
   success: boolean

@@ -59,6 +59,7 @@ import MyListings from './pages/dashboard/owner/MyListings'
 import SavedCars from './pages/dashboard/owner/SavedCars'
 import SellVehicle from './pages/dashboard/owner/SellVehicle'
 import AIDashboard from './pages/dashboard/owner/AIDashboard'
+import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
 
 // Dealer Dashboard
 import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
@@ -206,6 +207,7 @@ export default function App() {
           <Route path="/dashboard/saved" element={<SavedCars />} />
           <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />
+          <Route path="/dashboard/referrals" element={<ReferralWallet />} />
         </Route>
 
         {/* Dealer Dashboard */}

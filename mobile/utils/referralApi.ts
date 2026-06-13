@@ -35,12 +35,19 @@ export interface ReferralWalletTransactionLite {
   [key: string]: unknown;
 }
 
+export interface ReferralWalletLite {
+  pending_balance?: number;
+  approved_balance?: number;
+  payable_balance?: number;
+  paid_or_applied_balance?: number;
+  currency?: string | null;
+  [key: string]: unknown;
+}
+
+// GET /api/referrals/wallets/:userId -> { success, wallet, transactions }
 export interface ReferralWalletResponse {
   success: boolean;
-  balance?: number;
-  currency?: string | null;
-  pending_balance?: number;
-  available_balance?: number;
+  wallet?: ReferralWalletLite;
   transactions?: ReferralWalletTransactionLite[];
   [key: string]: unknown;
 }

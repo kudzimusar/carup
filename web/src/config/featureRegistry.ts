@@ -28,6 +28,7 @@ export type FeatureDomain =
   | 'diaspora'
   | 'admin'
   | 'finance'
+  | 'referral'
   | 'info'
 
 // ── Placement — where a feature appears in the UI ──────────────────────────
@@ -225,6 +226,17 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'MessageSquare',
     badge: 'AI',
     description: 'AI-powered vehicle assistant',
+  },
+  {
+    id: 'owner.referrals',
+    label: 'Refer & Earn',
+    route: '/dashboard/referrals',
+    domain: 'referral',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Tag',
+    description: 'Your referral benefits, sharing, and disputes',
   },
 
   // ─── Dealer Dashboard ──────────────────────────────────────────────────
