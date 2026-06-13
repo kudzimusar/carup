@@ -404,14 +404,23 @@ export interface ReferralAgentToolsResponse {
   tools: ReferralAgentTool[]
 }
 
+/**
+ * `GET /trust/review-cases` — listReviewCases returns the raw REVIEW_CASE_CREATED
+ * events (case data lives in event.metadata; the case id for a decision is event.id).
+ */
 export interface ReferralReviewCaseListResponse {
   success: boolean
-  review_cases: ReferralTrustReviewCase[]
+  review_cases?: ReferralEvent[]
 }
 
+/**
+ * `GET /marketing/assets` — listAssets returns the raw ai_marketing.asset_drafted
+ * events (asset_type/status/seo/disclosure live in event.metadata; the asset id for
+ * a status transition is event.id).
+ */
 export interface ReferralMarketingAssetListResponse {
   success: boolean
-  assets: ReferralMarketingAsset[]
+  assets?: ReferralEvent[]
 }
 
 /**

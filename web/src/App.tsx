@@ -97,6 +97,8 @@ import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
 import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
 import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
 import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
+import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
+import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -270,6 +272,8 @@ export default function App() {
           <Route path="/admin/referrals/codes" element={<ReferralCodes />} />
           <Route path="/admin/referrals/local-leads" element={<ReferralLocalLeads />} />
           <Route path="/admin/referrals/import-routes" element={<ReferralImportRoutes />} />
+          <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
+          <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
         </Route>
       </Routes>
     </AppContext.Provider>
