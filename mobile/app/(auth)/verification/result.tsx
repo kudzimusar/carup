@@ -1,19 +1,45 @@
-import React, { useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, TouchableOpacity, ActivityIndicator, ScrollView, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
 import { useVerificationStore } from '../../../store/verificationStore';
+import {
+  getVerificationSession,
+  mapSessionToVerificationOutcome,
+  VerificationApiError,
+} from '../../../utils/verificationApi';
+import { getVerificationStatusMeta } from '@shared/types';
 
 export default function VerificationResult() {
   const ocrResult = useVerificationStore(state => state.ocrResult);
   const processingError = useVerificationStore(state => state.processingError);
   const verificationStatus = useVerificationStore(state => state.verificationStatus);
   const verificationSessionId = useVerificationStore(state => state.verificationSessionId);
+  const verificationSessionStatus = useVerificationStore(state => state.verificationSessionStatus);
+  const isRefreshing = useVerificationStore(state => state.isRefreshing);
+  const setVerificationOutcome = useVerificationStore(state => state.setVerificationOutcome);
+  const setOcrResult = useVerificationStore(state => state.setOcrResult);
+  const setRefreshing = useVerificationStore(state => state.setRefreshing);
   const clearVerificationStore = useVerificationStore(state => state.clear);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const firstName = ocrResult?.first_name || null;
   const lastName = ocrResult?.last_name || null;
   const idNumber = ocrResult?.national_id_number || null;
   const country = ocrResult?.country || null;
+
+  // Shared status copy keyed by the backend status (source of truth). Falls
+  // back to local pre-submit states (idle/incomplete) that have no backend row.
+  const sharedMeta = verificationSessionStatus
+    ? getVerificationStatusMeta(verificationSessionStatus)
+    : null;
+
+  // Restart is offered only when the user can act: a reviewer asked for a
+  // retry, OCR failed, the session was rejected, or capture was incomplete.
+  const allowsRestart =
+    verificationStatus === 'retry_requested' ||
+    verificationStatus === 'ocr_failed' ||
+    verificationStatus === 'rejected' ||
+    verificationStatus === 'incomplete';
 
   const statusCopy = {
     verified: {
@@ -40,6 +66,12 @@ export default function VerificationResult() {
       accent: '#fbbf24',
       panel: 'rgba(245,158,11,0.1)',
     },
+    retry_requested: {
+      title: 'Retake Required',
+      badge: 'Reviewer Requested a Retry',
+      accent: '#fbbf24',
+      panel: 'rgba(245,158,11,0.1)',
+    },
     incomplete: {
       title: 'Verification Incomplete',
       badge: 'Retake Required',
@@ -63,6 +95,36 @@ export default function VerificationResult() {
   const handleFinish = useCallback(() => {
     clearVerificationStore();
     router.replace('/(tabs)');
+  }, [clearVerificationStore]);
+
+  // Re-fetch the session so the screen reflects an admin decision after manual
+  // review. The mapped status comes straight from the backend — never invented.
+  const handleRefresh = useCallback(async () => {
+    if (!verificationSessionId) return;
+    setRefreshError(null);
+    setRefreshing(true);
+    try {
+      const session = await getVerificationSession(verificationSessionId);
+      const outcome = mapSessionToVerificationOutcome(session);
+      setVerificationOutcome(outcome.status, outcome.sessionId, outcome.processingError, outcome.sessionStatus);
+      if (outcome.ocrResult) {
+        setOcrResult(outcome.ocrResult);
+      }
+    } catch (error) {
+      const message =
+        error instanceof VerificationApiError
+          ? error.message
+          : 'Could not refresh status. Check your connection and try again.';
+      setRefreshError(message);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [verificationSessionId, setRefreshing, setVerificationOutcome, setOcrResult]);
+
+  // Restart routes back to the start of the verification flow with a clean store.
+  const handleRestart = useCallback(() => {
+    clearVerificationStore();
+    router.replace('/(auth)/verification/intro');
   }, [clearVerificationStore]);
 
   return (
@@ -98,6 +160,11 @@ export default function VerificationResult() {
               <Text style={{ color: statusCopy.accent, fontSize: 12, fontWeight: '600', marginBottom: 4 }}>
                 Verification Status
               </Text>
+              {sharedMeta && (
+                <Text style={{ color: '#cbd5e1', fontSize: 11, lineHeight: 16, marginBottom: processingError ? 6 : 0 }}>
+                  {sharedMeta.description}
+                </Text>
+              )}
               <Text style={{ color: '#94a3b8', fontSize: 11, lineHeight: 16 }}>
                 {processingError || `Session ${verificationSessionId} was processed by the backend.`}
               </Text>
@@ -166,13 +233,56 @@ export default function VerificationResult() {
           </View>
         </View>
 
-        <View style={{ marginTop: 32 }}>
+        <View style={{ marginTop: 32, gap: 12 }}>
+          {refreshError && (
+            <Text style={{ color: '#f87171', fontSize: 11, textAlign: 'center' }}>{refreshError}</Text>
+          )}
+
+          {/* Manual status refresh — reflects an admin decision after review. */}
+          {verificationSessionId && (
+            <TouchableOpacity
+              onPress={handleRefresh}
+              disabled={isRefreshing}
+              activeOpacity={0.8}
+              testID="refresh-verification-status"
+              style={{
+                width: '100%', height: 52, backgroundColor: '#1e293b', borderRadius: 16,
+                borderWidth: 1, borderColor: '#2B3552',
+                justifyContent: 'center', alignItems: 'center', opacity: isRefreshing ? 0.7 : 1,
+              }}
+            >
+              {isRefreshing ? (
+                <ActivityIndicator color="#cbd5e1" />
+              ) : (
+                <Text style={{ color: '#cbd5e1', fontWeight: '600', fontSize: 15 }}>Refresh status</Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* Restart verification when a retry is needed. */}
+          {allowsRestart && (
+            <TouchableOpacity
+              onPress={handleRestart}
+              activeOpacity={0.8}
+              testID="restart-verification"
+              style={{ width: '100%', height: 56, backgroundColor: '#f97316', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Restart Verification</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             onPress={handleFinish}
             activeOpacity={0.8}
-            style={{ width: '100%', height: 56, backgroundColor: '#2563eb', borderRadius: 16, justifyContent: 'center', alignItems: 'center' }}
+            style={{
+              width: '100%', height: 56, borderRadius: 16, justifyContent: 'center', alignItems: 'center',
+              backgroundColor: allowsRestart ? 'transparent' : '#2563eb',
+              borderWidth: allowsRestart ? 1 : 0, borderColor: '#2B3552',
+            }}
           >
-            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Enter CarUp Marketplace</Text>
+            <Text style={{ color: allowsRestart ? '#94a3b8' : '#fff', fontWeight: '600', fontSize: 16 }}>
+              {allowsRestart ? 'Back to Dashboard' : 'Enter CarUp Marketplace'}
+            </Text>
           </TouchableOpacity>
         </View>
 

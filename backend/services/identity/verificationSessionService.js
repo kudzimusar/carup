@@ -161,6 +161,10 @@ function sanitizeSession(session) {
       : Number(session.confidence_score),
     failure_reason: session.failure_reason || null,
     review_notes: session.review_notes || null,
+    // Reviewer guidance the END USER needs to act on a retry request. Safe to
+    // surface (it is not a private document path); the mobile result screen
+    // shows it when a reviewer asks for a new capture.
+    retry_reason: session.retry_reason || null,
     created_at: session.created_at,
     updated_at: session.updated_at,
     submitted_at: session.submitted_at || null,
