@@ -91,6 +91,7 @@ import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import VerificationReview from './pages/dashboard/admin/VerificationReview'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 
 // Bank Dashboard
@@ -259,6 +260,7 @@ export default function App() {
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/verification" element={<VerificationReview />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
         </Route>
       </Routes>
