@@ -141,9 +141,9 @@ test('asset status workflow enforces approval, scheduling, publication, and attr
   const { campaign } = await seedCampaign(referralService);
   const draft = await marketingSeo.draftSeoPage({ campaign_id: campaign.id, asset_type: 'corridor_landing_page', base_url: 'https://carup.test' }, operatorActor);
   await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'published' }, memberActor), ForbiddenError);
-  await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled' }, sellerActor), ValidationError);
   const approved = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'approved', reason: 'copy verified' }, operatorActor);
   assert.equal(approved.asset.metadata.status, 'approved');
+  await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled' }, sellerActor), ValidationError);
   const scheduled = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled', scheduled_at: '2026-07-01T09:00:00.000Z' }, operatorActor);
   assert.equal(scheduled.asset.metadata.scheduled_at, '2026-07-01T09:00:00.000Z');
   const published = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'published' }, operatorActor);
