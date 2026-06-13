@@ -146,3 +146,6 @@ export interface ServiceRecord {
   signature: string;
   timestamp: string;
 }
+
+// Phase 7C: shared identity-verification status mapping + admin review contracts.
+export * from './verificationStatus';
