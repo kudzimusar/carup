@@ -6,6 +6,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Users } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import ReferralEventLog from '@/components/referral/ReferralEventLog'
+import ReferralRealList from '@/components/referral/ReferralRealList'
+import type { ReferralLocalMarketplaceLead } from '@/types/referral'
 
 /**
  * Admin Local Marketplace Leads (/admin/referrals/local-leads). Records intent,
@@ -27,7 +29,13 @@ export default function ReferralLocalLeads() {
     createReferralLocalMarketplaceLead,
     createReferralLocalMarketplaceBundle,
     qualifyReferralLocalMarketplaceLead,
+    listReferralLocalMarketplaceLeads,
   } = useCarUpApi()
+
+  const loadLeads = useCallback(async () => {
+    const res = await listReferralLocalMarketplaceLeads({ limit: 50 })
+    return { items: res.leads ?? [], pagination: res.pagination }
+  }, [listReferralLocalMarketplaceLeads])
 
   const [intentText, setIntentText] = useState('')
   const [intentMsg, setIntentMsg] = useState<string | null>(null)
@@ -165,7 +173,19 @@ export default function ReferralLocalLeads() {
         </Card>
       </div>
 
-      <ReferralEventLog title="Recent local marketplace activity" />
+      <ReferralRealList
+        title="Local Marketplace Leads"
+        load={loadLeads}
+        emptyText="No leads yet — create one above."
+        renderRow={(lead: ReferralLocalMarketplaceLead) => (
+          <div key={lead.lead_event_id} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+            <span className="text-gray-500">{[lead.flow_type, lead.participant_type].filter(Boolean).join(' · ') || 'lead'}</span>
+            <span className="text-gray-400 font-mono break-all mx-2">{lead.lead_event_id}</span>
+            <span className="text-gray-400 shrink-0">{lead.status || ''}</span>
+          </div>
+        )}
+      />
+      <ReferralEventLog title="Audit activity (event log)" />
     </div>
   )
 }

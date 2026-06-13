@@ -9,7 +9,7 @@ import {
   WALLET_TRANSACTION_STATUSES,
 } from '../../constants/referral/referralConstants.js';
 import { REFERRAL_TABLES } from './referralEngineRepository.js';
-import { ReferralEngineService, normalizeReferralCode, slugify } from './referralEngineService.js';
+import { ReferralEngineService, normalizeReferralCode, slugify, paginateReferralRows } from './referralEngineService.js';
 import { ReferralChannelGatewayService, normalizeChannel } from './referralChannelGatewayService.js';
 
 export const LOCAL_MARKETPLACE_EVENT_TYPES = Object.freeze({
@@ -316,6 +316,40 @@ export class ReferralLocalMarketplaceService {
     }, actor);
 
     return { success: true, campaign, code, coupon, shareAsset, event_id: event.id };
+  }
+
+  // Phase E: list local marketplace leads from real LEAD_CREATED events (curated;
+  // contact/consent PII intentionally excluded). Tenant-safe + paginated.
+  async listLeads(filters = {}) {
+    const events = await this.referralService.repository.list(REFERRAL_TABLES.events, { event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED }, { orderBy: 'created_at', ascending: false, limit: 1000 });
+    const md = (event) => event.metadata || {};
+    let rows = (events || []).filter(Boolean);
+    if (filters.tenant_id) rows = rows.filter((event) => event.tenant_id === filters.tenant_id);
+    if (filters.campaign_id) rows = rows.filter((event) => event.campaign_id === filters.campaign_id);
+    if (filters.referral_code) rows = rows.filter((event) => md(event).referral_code === filters.referral_code || md(event).attribution_code === filters.referral_code);
+    if (filters.status) rows = rows.filter((event) => md(event).status === filters.status);
+    if (filters.participant_type) rows = rows.filter((event) => md(event).participant_type === filters.participant_type);
+    if (filters.flow) rows = rows.filter((event) => md(event).flow_type === filters.flow);
+    const { page, pagination } = paginateReferralRows(rows, filters);
+    const leads = page.map((event) => {
+      const meta = md(event);
+      return {
+        lead_event_id: event.id,
+        flow_type: meta.flow_type ?? null,
+        participant_type: meta.participant_type ?? null,
+        status: meta.status ?? null,
+        target: meta.target ?? null,
+        location: meta.location ?? null,
+        lead_reference: meta.lead_reference ?? null,
+        listing_id: meta.listing_id ?? null,
+        service_type: meta.service_type ?? null,
+        code_id: event.code_id ?? null,
+        campaign_id: event.campaign_id ?? null,
+        channel: event.channel ?? null,
+        created_at: event.created_at ?? null,
+      };
+    });
+    return { leads, pagination };
   }
 
   async qualifyLead(input = {}, actor = {}) {

@@ -57,6 +57,12 @@ import type {
   ReferralReviewCaseListResponse,
   ReferralServiceResponse,
   ReferralAuditExportFilters,
+  ReferralListFilters,
+  ReferralCodeListResponse,
+  ReferralCouponListResponse,
+  ReferralLocalLeadListResponse,
+  ReferralImportRouteListResponse,
+  ReferralDisputeListResponse,
 } from '@/types/referral'
 
 
@@ -733,6 +739,18 @@ export function useCarUpApi() {
   const getReferralAdminEvents = useCallback((filters?: ReferralAdminEventFilters): Promise<ReferralAdminEventsResponse> =>
     request<ReferralAdminEventsResponse>(`/referrals/admin/events${referralQuery(filters)}`), [request])
 
+  // Phase E: real GET-list endpoints (replace the interim /admin/events views).
+  const listReferralCodes = useCallback((filters?: ReferralListFilters): Promise<ReferralCodeListResponse> =>
+    request<ReferralCodeListResponse>(`/referrals/codes${referralQuery(filters)}`), [request])
+  const listReferralCoupons = useCallback((filters?: ReferralListFilters): Promise<ReferralCouponListResponse> =>
+    request<ReferralCouponListResponse>(`/referrals/coupons${referralQuery(filters)}`), [request])
+  const listReferralLocalMarketplaceLeads = useCallback((filters?: ReferralListFilters): Promise<ReferralLocalLeadListResponse> =>
+    request<ReferralLocalLeadListResponse>(`/referrals/local-marketplace/leads${referralQuery(filters)}`), [request])
+  const listReferralImportRoutes = useCallback((filters?: ReferralListFilters): Promise<ReferralImportRouteListResponse> =>
+    request<ReferralImportRouteListResponse>(`/referrals/import-campaigns/routes${referralQuery(filters)}`), [request])
+  const listReferralDisputes = useCallback((filters?: ReferralListFilters): Promise<ReferralDisputeListResponse> =>
+    request<ReferralDisputeListResponse>(`/referrals/trust/disputes${referralQuery(filters)}`), [request])
+
   // Agent gateway
   const getReferralAgentTools = useCallback((context?: Record<string, string | undefined>): Promise<ReferralAgentToolsResponse> =>
     request<ReferralAgentToolsResponse>(`/referrals/agent/tools${referralQuery(context)}`), [request])
@@ -937,6 +955,11 @@ export function useCarUpApi() {
     createReferralWalletTransaction,
     transitionReferralWalletTransaction,
     getReferralAdminEvents,
+    listReferralCodes,
+    listReferralCoupons,
+    listReferralLocalMarketplaceLeads,
+    listReferralImportRoutes,
+    listReferralDisputes,
     getReferralAgentTools,
     triageReferralAgent,
     executeReferralAgentTool,

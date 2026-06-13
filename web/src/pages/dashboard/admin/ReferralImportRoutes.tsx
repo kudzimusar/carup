@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { MapPin } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import ReferralEventLog from '@/components/referral/ReferralEventLog'
+import ReferralRealList from '@/components/referral/ReferralRealList'
+import type { ReferralImportRoute } from '@/types/referral'
 
 /**
  * Admin Import Routes & Capacity (/admin/referrals/import-routes). Creates routes,
@@ -31,7 +33,13 @@ export default function ReferralImportRoutes() {
     updateReferralImportRouteCapacity,
     createReferralImportLead,
     qualifyReferralImportLead,
+    listReferralImportRoutes,
   } = useCarUpApi()
+
+  const loadRoutes = useCallback(async () => {
+    const res = await listReferralImportRoutes({ limit: 50 })
+    return { items: res.routes ?? [], pagination: res.pagination }
+  }, [listReferralImportRoutes])
 
   // Create route
   const [origin, setOrigin] = useState('')
@@ -232,7 +240,19 @@ export default function ReferralImportRoutes() {
       </div>
 
       <Badge variant="outline" className="text-[11px]">Container-space = flow_type “container_space” + requested capacity</Badge>
-      <ReferralEventLog title="Recent import activity" />
+      <ReferralRealList
+        title="Import Routes"
+        load={loadRoutes}
+        emptyText="No routes yet — create one above."
+        renderRow={(route: ReferralImportRoute) => (
+          <div key={route.route_key} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+            <span className="font-mono break-all">{route.route_key}</span>
+            <span className="text-gray-500 mx-2">{[route.flow_type, route.capacity_status].filter(Boolean).join(' · ')}</span>
+            <span className="text-gray-400 shrink-0">{route.available_capacity_units ?? '—'}/{route.total_capacity_units ?? '—'} {route.unit_label || ''}</span>
+          </div>
+        )}
+      />
+      <ReferralEventLog title="Audit activity (event log)" />
     </div>
   )
 }

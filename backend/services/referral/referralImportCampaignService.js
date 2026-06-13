@@ -9,7 +9,7 @@ import {
   WALLET_TRANSACTION_STATUSES,
 } from '../../constants/referral/referralConstants.js';
 import { REFERRAL_TABLES } from './referralEngineRepository.js';
-import { ReferralEngineService, normalizeReferralCode, slugify } from './referralEngineService.js';
+import { ReferralEngineService, normalizeReferralCode, slugify, paginateReferralRows } from './referralEngineService.js';
 import { ReferralChannelGatewayService, normalizeChannel } from './referralChannelGatewayService.js';
 
 export const IMPORT_CAMPAIGN_EVENT_TYPES = Object.freeze({
@@ -214,6 +214,53 @@ export class ReferralImportCampaignService {
       },
     }, { ...actor, actor_type: ACTOR_TYPES.AGENT });
     return { success: true, route_key: routeKey, capacity: event.metadata, event_id: event.id };
+  }
+
+  // Phase E: list import routes from real ROUTE_PAGE_CREATED events, collapsed to
+  // the latest page per route_key. Tenant-safe + paginated. Capacity status is
+  // derived from real capacity fields (not fabricated).
+  async listRoutes(filters = {}) {
+    const events = await this.referralService.repository.list(REFERRAL_TABLES.events, { event_type: IMPORT_CAMPAIGN_EVENT_TYPES.ROUTE_PAGE_CREATED }, { orderBy: 'created_at', ascending: false, limit: 1000 });
+    const md = (event) => event.metadata || {};
+    const byKey = new Map();
+    for (const event of (events || [])) {
+      const key = md(event).route_key || event.subject_id;
+      if (!key) continue;
+      const existing = byKey.get(key);
+      if (!existing || String(event.created_at || '') > String(existing.created_at || '')) byKey.set(key, event);
+    }
+    const capacityStatus = (event) => {
+      const total = Number(md(event).total_capacity_units || 0);
+      const booked = Number(md(event).booked_capacity_units || 0);
+      return total > 0 && booked >= total ? 'full' : 'open';
+    };
+    let rows = [...byKey.values()];
+    if (filters.tenant_id) rows = rows.filter((event) => event.tenant_id === filters.tenant_id);
+    if (filters.route_key) rows = rows.filter((event) => (md(event).route_key || event.subject_id) === filters.route_key);
+    if (filters.flow) rows = rows.filter((event) => md(event).flow_type === filters.flow);
+    if (filters.origin) rows = rows.filter((event) => md(event).route_origin === filters.origin);
+    if (filters.destination) rows = rows.filter((event) => md(event).route_destination === filters.destination);
+    if (filters.status) rows = rows.filter((event) => capacityStatus(event) === filters.status);
+    const { page, pagination } = paginateReferralRows(rows, filters);
+    const routes = page.map((event) => {
+      const meta = md(event);
+      const total = Number(meta.total_capacity_units || 0);
+      const booked = Number(meta.booked_capacity_units || 0);
+      return {
+        route_key: meta.route_key || event.subject_id || null,
+        route_origin: meta.route_origin ?? null,
+        route_destination: meta.route_destination ?? null,
+        flow_type: meta.flow_type ?? null,
+        title: meta.title ?? null,
+        total_capacity_units: total,
+        booked_capacity_units: booked,
+        available_capacity_units: Math.max(total - booked, 0),
+        unit_label: meta.unit_label ?? null,
+        capacity_status: capacityStatus(event),
+        created_at: event.created_at ?? null,
+      };
+    });
+    return { routes, pagination };
   }
 
   async getRouteStatus(routeKey) {

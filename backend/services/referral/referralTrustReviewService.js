@@ -6,7 +6,7 @@ import {
   WALLET_TRANSACTION_STATUSES,
 } from '../../constants/referral/referralConstants.js';
 import { REFERRAL_TABLES } from './referralEngineRepository.js';
-import { ReferralEngineService } from './referralEngineService.js';
+import { ReferralEngineService, paginateReferralRows } from './referralEngineService.js';
 
 export const TRUST_EVENT_TYPES = Object.freeze({
   RISK_CHECK_RUN: 'trust.risk_check_run',
@@ -318,6 +318,36 @@ export class ReferralTrustReviewService {
       metadata: { status: transaction.status, explanation, risk_check_event_id: latestRisk?.id || null, user_id: transaction.user_id || null, created_at: timestamp(this.now) },
     }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.AGENT });
     return { success: true, explanation, status: transaction.status, event };
+  }
+
+  // Phase E: list referral disputes from real DISPUTE_CREATED events (status reflects
+  // resolution, which updates the same event in place). Tenant-safe + paginated.
+  async listDisputes(filters = {}) {
+    const events = await this.referralService.repository.list(REFERRAL_TABLES.events, { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED }, { orderBy: 'created_at', ascending: false, limit: 1000 });
+    const md = (event) => event.metadata || {};
+    let rows = (events || []).filter(Boolean);
+    if (filters.tenant_id) rows = rows.filter((event) => event.tenant_id === filters.tenant_id);
+    if (filters.status) rows = rows.filter((event) => md(event).status === filters.status);
+    if (filters.wallet_transaction_id) rows = rows.filter((event) => md(event).wallet_transaction_id === filters.wallet_transaction_id || event.wallet_transaction_id === filters.wallet_transaction_id);
+    if (filters.user_id) rows = rows.filter((event) => md(event).opened_by === filters.user_id);
+    if (filters.dispute_event_id) rows = rows.filter((event) => event.id === filters.dispute_event_id);
+    const { page, pagination } = paginateReferralRows(rows, filters);
+    const disputes = page.map((event) => {
+      const meta = md(event);
+      return {
+        dispute_event_id: event.id,
+        status: meta.status ?? null,
+        target_type: meta.target_type ?? null,
+        target_id: meta.target_id ?? null,
+        wallet_transaction_id: meta.wallet_transaction_id ?? event.wallet_transaction_id ?? null,
+        opened_by: meta.opened_by ?? null,
+        reason: meta.reason ?? null,
+        resolution_reason: meta.resolution_reason ?? null,
+        resolved_at: meta.resolved_at ?? null,
+        created_at: event.created_at ?? null,
+      };
+    });
+    return { disputes, pagination };
   }
 
   async createDispute(input = {}, actor = {}) {
