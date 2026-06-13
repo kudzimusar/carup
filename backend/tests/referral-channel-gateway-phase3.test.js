@@ -50,13 +50,17 @@ test('Phase 3 routes expose channel inbound, platform webhooks, verification, an
     "router.post('/channels/web-chat/message'",
     "router.post('/channels/mobile-chat/message'",
     'CARUP_CHANNEL_WEBHOOK_SECRET',
-    'CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN',
     'processParsedChannelMessages',
   ]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
+  // The Telegram secret-token env var is consumed by the parser helper the route
+  // delegates to (isValidTelegramWebhookSecret), so assert it where it lives.
+  assert.equal(parserFile.includes('CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN'), true, 'CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN should exist in the parser');
 });
 
 test('social webhooks bypass CSRF but still rely on route-level webhook secrets', () => {
-  assert.equal(securityFile.includes('/api/referrals/channels'), true);
+  // Security middleware matches the channel webhook path via a RegExp literal with
+  // escaped slashes (\/api\/referrals\/channels\/...), so assert the escaped form.
+  assert.equal(securityFile.includes('referrals\\/channels'), true);
   assert.equal(securityFile.includes('(whatsapp|telegram|facebook|instagram)'), true);
   assert.equal(routeFile.includes('Channel webhook requires a valid webhook secret.'), true);
   assert.equal(routeFile.includes('isValidChannelWebhookKey'), true);

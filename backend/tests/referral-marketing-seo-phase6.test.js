@@ -70,7 +70,8 @@ test('Phase 6 docs, routes, and service cover AI marketing and SEO requirements'
     "router.get('/marketing/assets'",
     "router.patch('/marketing/assets/:assetId/status'",
     "router.post('/marketing/analytics/suggestions'",
-    'ReferralMarketingSeoService',
+    // The router wires the benchmark subclass (which extends ReferralMarketingSeoService).
+    'ReferralMarketingSeoBenchmarkService',
   ]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
 });
 
