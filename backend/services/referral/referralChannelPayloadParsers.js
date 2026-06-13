@@ -1,5 +1,7 @@
 import { ValidationError, ForbiddenError } from '../../utils/errors.js';
-import { SUPPORTED_CHANNELS } from './referralChannelGatewayService.js';
+import { SUPPORTED_CHANNELS, normalizeChannel } from './referralChannelGatewayService.js';
+
+export const MAX_CHANNEL_MESSAGES_PER_WEBHOOK = 25;
 
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== '');
@@ -8,6 +10,13 @@ function firstDefined(...values) {
 function cleanObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
+}
+
+function limitMessages(messages) {
+  if (messages.length > MAX_CHANNEL_MESSAGES_PER_WEBHOOK) {
+    throw new ValidationError('Channel webhook message batch is too large.', { max: MAX_CHANNEL_MESSAGES_PER_WEBHOOK, received: messages.length });
+  }
+  return messages;
 }
 
 function extractInteractiveText(message = {}) {
@@ -97,61 +106,65 @@ export function parseWhatsAppWebhook(body = {}) {
   if (messages.length === 0 && (body.text || body.message || body.sender_id)) {
     messages.push(normalizeGenericMessage(SUPPORTED_CHANNELS.WHATSAPP, body));
   }
-  return messages;
+  return limitMessages(messages);
 }
 
 export function parseMetaMessagingWebhook(body = {}, channel = SUPPORTED_CHANNELS.FACEBOOK) {
+  const normalizedChannel = normalizeChannel(channel);
   const messages = [];
   for (const entry of body.entry || []) {
     for (const item of entry.messaging || []) {
       const text = firstDefined(item.message?.text, item.postback?.payload, item.message?.quick_reply?.payload, '');
-      messages.push(normalizeGenericMessage(channel, {
+      messages.push(normalizeGenericMessage(normalizedChannel, {
         text,
         sender_id: item.sender?.id,
         conversation_id: firstDefined(item.thread_id, item.sender?.id),
         thread_id: firstDefined(item.thread_id, item.sender?.id),
         message_id: firstDefined(item.message?.mid, item.postback?.mid, item.timestamp),
-        source: `${channel}_webhook`,
+        source: `${normalizedChannel}_webhook`,
         payload: { entry_id: entry.id, time: entry.time, messaging: item },
       }));
     }
   }
   if (messages.length === 0 && (body.text || body.message || body.sender_id)) {
-    messages.push(normalizeGenericMessage(channel, body));
+    messages.push(normalizeGenericMessage(normalizedChannel, body));
   }
-  return messages;
+  return limitMessages(messages);
 }
 
 export function parseChannelPayload(channel, body = {}) {
-  if (Array.isArray(body?.messages)) return body.messages.map((message) => normalizeGenericMessage(channel, message));
-  if (channel === SUPPORTED_CHANNELS.WHATSAPP) return parseWhatsAppWebhook(body);
-  if (channel === SUPPORTED_CHANNELS.TELEGRAM) return parseTelegramUpdate(body);
-  if (channel === SUPPORTED_CHANNELS.FACEBOOK || channel === SUPPORTED_CHANNELS.INSTAGRAM) return parseMetaMessagingWebhook(body, channel);
-  return [normalizeGenericMessage(channel, body)];
+  const normalizedChannel = normalizeChannel(channel);
+  if (Array.isArray(body?.messages)) return limitMessages(body.messages.map((message) => normalizeGenericMessage(normalizedChannel, message)));
+  if (normalizedChannel === SUPPORTED_CHANNELS.WHATSAPP) return parseWhatsAppWebhook(body);
+  if (normalizedChannel === SUPPORTED_CHANNELS.TELEGRAM) return limitMessages(parseTelegramUpdate(body));
+  if (normalizedChannel === SUPPORTED_CHANNELS.FACEBOOK || normalizedChannel === SUPPORTED_CHANNELS.INSTAGRAM) return parseMetaMessagingWebhook(body, normalizedChannel);
+  return limitMessages([normalizeGenericMessage(normalizedChannel, body)]);
 }
 
 export function buildChannelWebhookReply(channel, processed = {}) {
+  const normalizedChannel = normalizeChannel(channel);
   const text = processed.reply || 'CarUp received your message.';
   const conversationId = processed.metadata?.conversation_id || null;
-  if (channel === SUPPORTED_CHANNELS.TELEGRAM) {
+  if (normalizedChannel === SUPPORTED_CHANNELS.TELEGRAM) {
     return { method: 'sendMessage', chat_id: conversationId, text };
   }
-  if (channel === SUPPORTED_CHANNELS.WHATSAPP) {
+  if (normalizedChannel === SUPPORTED_CHANNELS.WHATSAPP) {
     return { messaging_product: 'whatsapp', to: processed.metadata?.sender_id || conversationId, type: 'text', text: { body: text } };
   }
-  if (channel === SUPPORTED_CHANNELS.FACEBOOK || channel === SUPPORTED_CHANNELS.INSTAGRAM) {
+  if (normalizedChannel === SUPPORTED_CHANNELS.FACEBOOK || normalizedChannel === SUPPORTED_CHANNELS.INSTAGRAM) {
     return { recipient: { id: processed.metadata?.sender_id || conversationId }, message: { text } };
   }
   return { text, conversation_id: conversationId };
 }
 
 export async function processParsedChannelMessages(channel, body, channelGateway, actor) {
-  const parsedMessages = parseChannelPayload(channel, body);
+  const normalizedChannel = normalizeChannel(channel);
+  const parsedMessages = parseChannelPayload(normalizedChannel, body);
   if (parsedMessages.length === 0) throw new ValidationError('No processable channel messages found.');
   const results = [];
   for (const message of parsedMessages) {
-    const processed = await channelGateway.processInbound(channel, message, actor);
-    results.push({ ...processed, outbound_payload: buildChannelWebhookReply(channel, processed) });
+    const processed = await channelGateway.processInbound(normalizedChannel, message, actor);
+    results.push({ ...processed, outbound_payload: buildChannelWebhookReply(normalizedChannel, processed) });
   }
-  return { success: true, channel, count: results.length, results };
+  return { success: true, channel: normalizedChannel, count: results.length, results };
 }
