@@ -34,12 +34,19 @@ export default function VerificationResult() {
     : null;
 
   // Restart is offered only when the user can act: a reviewer asked for a
-  // retry, OCR failed, the session was rejected, or capture was incomplete.
+  // retry, OCR failed, the session was rejected, capture was incomplete, or the
+  // backend was unreachable so nothing was submitted.
   const allowsRestart =
     verificationStatus === 'retry_requested' ||
     verificationStatus === 'ocr_failed' ||
     verificationStatus === 'rejected' ||
-    verificationStatus === 'incomplete';
+    verificationStatus === 'incomplete' ||
+    verificationStatus === 'backend_pending';
+
+  // The verified UI (success glyph, verified copy, unlocked capabilities) may
+  // ONLY render when the backend itself reports verified. Every other state —
+  // including a backend-unreachable failure — must read as not-verified.
+  const isBackendVerified = verificationStatus === 'verified';
 
   const statusCopy = {
     verified: {
@@ -49,10 +56,10 @@ export default function VerificationResult() {
       panel: 'rgba(16,185,129,0.1)',
     },
     backend_pending: {
-      title: 'Verification Captured — Backend Review Pending',
-      badge: 'Backend Review Pending',
-      accent: '#fbbf24',
-      panel: 'rgba(245,158,11,0.1)',
+      title: 'Verification Could Not Be Completed',
+      badge: 'Backend Unreachable — Please Retry',
+      accent: '#f87171',
+      panel: 'rgba(248,113,113,0.1)',
     },
     ocr_failed: {
       title: 'Verification Needs Review',
@@ -210,7 +217,7 @@ export default function VerificationResult() {
             </View>
           </View>
 
-          <View style={{ width: '100%', gap: 12, marginBottom: 16 }}>
+          {isBackendVerified && (<View style={{ width: '100%', gap: 12, marginBottom: 16 }}>
             <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, paddingLeft: 4 }}>
               Unlocked Capabilities
             </Text>
@@ -230,7 +237,7 @@ export default function VerificationResult() {
                 <Text style={{ color: '#64748b', fontSize: 10 }}>Escrow access remains subject to backend eligibility checks</Text>
               </View>
             </View>
-          </View>
+          </View>)}
         </View>
 
         <View style={{ marginTop: 32, gap: 12 }}>

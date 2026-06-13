@@ -192,6 +192,16 @@ async function runTests() {
   test('clear resets verificationSessionStatus', useVerificationStore.getState().verificationSessionStatus === null, String(useVerificationStore.getState().verificationSessionStatus));
   test('clear resets isRefreshing', useVerificationStore.getState().isRefreshing === false, String(useVerificationStore.getState().isRefreshing));
 
+  // --- Test 13: backend-unreachable must never render verified (Phase 7C blocker) ---
+  console.log('\n13. Backend-unreachable never renders verified');
+  useVerificationStore.getState().clear();
+  useVerificationStore.getState().setVerificationOutcome('backend_pending', null, 'Backend unreachable. Please retry.', null);
+  test('backend-unreachable is NOT verified', useVerificationStore.getState().verificationStatus !== 'verified', useVerificationStore.getState().verificationStatus);
+  test('backend-unreachable carries no backend session status', useVerificationStore.getState().verificationSessionStatus === null, String(useVerificationStore.getState().verificationSessionStatus));
+  useVerificationStore.getState().setVerificationOutcome('ocr_failed', 's1', 'OCR failed', 'ocr_failed');
+  test('ocr_failed is NOT verified', useVerificationStore.getState().verificationStatus !== 'verified', useVerificationStore.getState().verificationStatus);
+  useVerificationStore.getState().clear();
+
   // --- Summary ---
   console.log('\n=== RESULTS ===');
   const passed = results.filter(r => r.pass).length;
