@@ -35,6 +35,29 @@ import type {
   DiasporaWorkbookOperatorNextActions,
   DiasporaWorkbookOperatorNote
 } from '@/types'
+import type {
+  ReferralCampaignFilters,
+  ReferralCampaignListResponse,
+  ReferralCampaignResponse,
+  ReferralCodeResponse,
+  ReferralValidateResponse,
+  ReferralShareAssetResponse,
+  ReferralCouponResponse,
+  ReferralCouponApplyResponse,
+  ReferralCouponRedeemResponse,
+  ReferralWalletResponse,
+  ReferralWalletTransactionResponse,
+  ReferralAdminEventFilters,
+  ReferralAdminEventsResponse,
+  ReferralAgentToolsResponse,
+  ReferralRuleCatalogResponse,
+  ReferralMarketingAssetFilters,
+  ReferralMarketingAssetListResponse,
+  ReferralReviewCaseFilters,
+  ReferralReviewCaseListResponse,
+  ReferralServiceResponse,
+  ReferralAuditExportFilters,
+} from '@/types/referral'
 
 
 // Honor VITE_API_URL so each environment targets its own backend (staging → staging backend),
@@ -43,6 +66,19 @@ const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
   typeof window !== 'undefined' ? window.location.hostname : undefined,
 );
+
+/**
+ * Build a `?a=1&b=2` query string from a filter object, dropping undefined/null/empty
+ * values. Accepts any object (uses Object.entries) so typed filter interfaces pass
+ * without index-signature friction. Returns '' when there is nothing to encode.
+ */
+function referralQuery(filters?: object): string {
+  if (!filters) return ''
+  const pairs = Object.entries(filters)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => [k, String(v)] as [string, string])
+  return pairs.length ? `?${new URLSearchParams(pairs).toString()}` : ''
+}
 
 export function useCarUpApi() {
   const { user, token } = useAuth()
@@ -659,6 +695,132 @@ export function useCarUpApi() {
   }, [request])
 
 
+  // ── Referral Engine API (phases 1–7; mounted at /api/referrals) ──────────
+  // NOTE (Phase E follow-up): the backend exposes NO list endpoints for referral
+  // codes, coupons, local-marketplace leads, import routes, or disputes. Until the
+  // additive GET-list endpoints land (see
+  // docs/referral-ai-engine/REFERRAL_ENGINE_UI_MOBILE_INTEGRATION_PLAN.md §10/§11),
+  // admin surfaces should derive those lists from getReferralAdminEvents(). Do not
+  // add fabricated list methods here.
+
+  // Foundation
+  const listReferralCampaigns = useCallback((filters?: ReferralCampaignFilters): Promise<ReferralCampaignListResponse> =>
+    request<ReferralCampaignListResponse>(`/referrals/campaigns${referralQuery(filters)}`), [request])
+  const createReferralCampaign = useCallback((payload: Record<string, unknown>): Promise<ReferralCampaignResponse> =>
+    request<ReferralCampaignResponse>('/referrals/campaigns', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const updateReferralCampaign = useCallback((id: string, payload: Record<string, unknown>): Promise<ReferralCampaignResponse> =>
+    request<ReferralCampaignResponse>(`/referrals/campaigns/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }), [request])
+  const createReferralCode = useCallback((payload: Record<string, unknown>): Promise<ReferralCodeResponse> =>
+    request<ReferralCodeResponse>('/referrals/codes', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const validateReferralCode = useCallback((payload: Record<string, unknown>): Promise<ReferralValidateResponse> =>
+    request<ReferralValidateResponse>('/referrals/validate', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const getReferralCode = useCallback((code: string, query?: Record<string, string | undefined>): Promise<ReferralValidateResponse> =>
+    request<ReferralValidateResponse>(`/referrals/codes/${encodeURIComponent(code)}${referralQuery(query)}`), [request])
+  const createReferralShareAssets = useCallback((payload: Record<string, unknown>): Promise<ReferralShareAssetResponse> =>
+    request<ReferralShareAssetResponse>('/referrals/share-assets', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralCoupon = useCallback((payload: Record<string, unknown>): Promise<ReferralCouponResponse> =>
+    request<ReferralCouponResponse>('/referrals/coupons', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const applyReferralCoupon = useCallback((payload: Record<string, unknown>): Promise<ReferralCouponApplyResponse> =>
+    request<ReferralCouponApplyResponse>('/referrals/coupons/apply', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const redeemReferralCoupon = useCallback((payload: Record<string, unknown>): Promise<ReferralCouponRedeemResponse> =>
+    request<ReferralCouponRedeemResponse>('/referrals/coupons/redeem', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const getReferralWallet = useCallback((userId: string): Promise<ReferralWalletResponse> =>
+    request<ReferralWalletResponse>(`/referrals/wallets/${encodeURIComponent(userId)}`), [request])
+  const createReferralWalletTransaction = useCallback((payload: Record<string, unknown>): Promise<ReferralWalletTransactionResponse> =>
+    request<ReferralWalletTransactionResponse>('/referrals/wallets/transactions', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const transitionReferralWalletTransaction = useCallback((id: string, status: string): Promise<ReferralWalletTransactionResponse> =>
+    request<ReferralWalletTransactionResponse>(`/referrals/wallets/transactions/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
+  const getReferralAdminEvents = useCallback((filters?: ReferralAdminEventFilters): Promise<ReferralAdminEventsResponse> =>
+    request<ReferralAdminEventsResponse>(`/referrals/admin/events${referralQuery(filters)}`), [request])
+
+  // Agent gateway
+  const getReferralAgentTools = useCallback((context?: Record<string, string | undefined>): Promise<ReferralAgentToolsResponse> =>
+    request<ReferralAgentToolsResponse>(`/referrals/agent/tools${referralQuery(context)}`), [request])
+  const triageReferralAgent = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/agent/triage', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const executeReferralAgentTool = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/agent/execute', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // Channels
+  const processReferralChannelInbound = useCallback((channel: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/channels/${encodeURIComponent(channel)}/inbound`, { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralChannelShareKit = useCallback((channel: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/channels/${encodeURIComponent(channel)}/share-kit`, { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // Local marketplace
+  const getReferralLocalMarketplaceRules = useCallback((): Promise<ReferralRuleCatalogResponse> =>
+    request<ReferralRuleCatalogResponse>('/referrals/local-marketplace/rules'), [request])
+  const createReferralLocalMarketplaceIntent = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/local-marketplace/intent', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralLocalMarketplaceLead = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/local-marketplace/leads', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralLocalMarketplaceBundle = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/local-marketplace/referral-bundles', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const qualifyReferralLocalMarketplaceLead = useCallback((leadEventId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/local-marketplace/leads/${encodeURIComponent(leadEventId)}/qualify`, { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralLocalMarketplaceShareKit = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/local-marketplace/share-kit', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // Import campaigns
+  const getReferralImportCampaignRules = useCallback((): Promise<ReferralRuleCatalogResponse> =>
+    request<ReferralRuleCatalogResponse>('/referrals/import-campaigns/rules'), [request])
+  const createReferralImportRoute = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/import-campaigns/routes', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const getReferralImportRouteStatus = useCallback((routeKey: string): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/import-campaigns/routes/${encodeURIComponent(routeKey)}/status`), [request])
+  const updateReferralImportRouteCapacity = useCallback((routeKey: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/import-campaigns/routes/${encodeURIComponent(routeKey)}/capacity`, { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralImportBundle = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/import-campaigns/referral-bundles', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralImportLead = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/import-campaigns/leads', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const qualifyReferralImportLead = useCallback((leadEventId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/import-campaigns/leads/${encodeURIComponent(leadEventId)}/qualify`, { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralImportShareKit = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/import-campaigns/share-kit', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // Marketing & SEO
+  const getReferralMarketingRules = useCallback((): Promise<ReferralRuleCatalogResponse> =>
+    request<ReferralRuleCatalogResponse>('/referrals/marketing/rules'), [request])
+  const createReferralMarketingCampaignKit = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/marketing/campaign-kits', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralSeoPage = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/marketing/seo-pages', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralChannelMessage = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/marketing/channel-messages', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralProofStory = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/marketing/proof-stories', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralFaq = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/marketing/faqs', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const listReferralMarketingAssets = useCallback((filters?: ReferralMarketingAssetFilters): Promise<ReferralMarketingAssetListResponse> =>
+    request<ReferralMarketingAssetListResponse>(`/referrals/marketing/assets${referralQuery(filters)}`), [request])
+  const updateReferralMarketingAssetStatus = useCallback((assetId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/marketing/assets/${encodeURIComponent(assetId)}/status`, { method: 'PATCH', body: JSON.stringify(payload) }), [request])
+  const createReferralMarketingAnalyticsSuggestion = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/marketing/analytics/suggestions', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // Trust, fraud & compliance
+  const getReferralTrustRules = useCallback((): Promise<ReferralRuleCatalogResponse> =>
+    request<ReferralRuleCatalogResponse>('/referrals/trust/rules'), [request])
+  const runReferralRiskCheck = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/trust/risk-checks', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const createReferralReviewCase = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/trust/review-cases', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const listReferralReviewCases = useCallback((filters?: ReferralReviewCaseFilters): Promise<ReferralReviewCaseListResponse> =>
+    request<ReferralReviewCaseListResponse>(`/referrals/trust/review-cases${referralQuery(filters)}`), [request])
+  const decideReferralReviewCase = useCallback((caseEventId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/trust/review-cases/${encodeURIComponent(caseEventId)}/decision`, { method: 'PATCH', body: JSON.stringify(payload) }), [request])
+  const applyReferralWalletHold = useCallback((transactionId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/trust/wallet-transactions/${encodeURIComponent(transactionId)}/hold`, { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const explainReferralBenefit = useCallback((transactionId: string): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/trust/benefits/${encodeURIComponent(transactionId)}/explain`), [request])
+  const createReferralDispute = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>('/referrals/trust/disputes', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const resolveReferralDispute = useCallback((disputeEventId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/trust/disputes/${encodeURIComponent(disputeEventId)}/resolve`, { method: 'PATCH', body: JSON.stringify(payload) }), [request])
+  const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
+    request<ReferralServiceResponse>(`/referrals/trust/audit-export${referralQuery(filters)}`), [request])
+
   return {
     uploadKycDocument,
     uploadEvidence,
@@ -758,6 +920,60 @@ export function useCarUpApi() {
     fetchServerHealth,
     fetchUsers,
     suspendUser,
-    updateVehicleStatus
+    updateVehicleStatus,
+
+    // ── Referral Engine ──
+    listReferralCampaigns,
+    createReferralCampaign,
+    updateReferralCampaign,
+    createReferralCode,
+    validateReferralCode,
+    getReferralCode,
+    createReferralShareAssets,
+    createReferralCoupon,
+    applyReferralCoupon,
+    redeemReferralCoupon,
+    getReferralWallet,
+    createReferralWalletTransaction,
+    transitionReferralWalletTransaction,
+    getReferralAdminEvents,
+    getReferralAgentTools,
+    triageReferralAgent,
+    executeReferralAgentTool,
+    processReferralChannelInbound,
+    createReferralChannelShareKit,
+    getReferralLocalMarketplaceRules,
+    createReferralLocalMarketplaceIntent,
+    createReferralLocalMarketplaceLead,
+    createReferralLocalMarketplaceBundle,
+    qualifyReferralLocalMarketplaceLead,
+    createReferralLocalMarketplaceShareKit,
+    getReferralImportCampaignRules,
+    createReferralImportRoute,
+    getReferralImportRouteStatus,
+    updateReferralImportRouteCapacity,
+    createReferralImportBundle,
+    createReferralImportLead,
+    qualifyReferralImportLead,
+    createReferralImportShareKit,
+    getReferralMarketingRules,
+    createReferralMarketingCampaignKit,
+    createReferralSeoPage,
+    createReferralChannelMessage,
+    createReferralProofStory,
+    createReferralFaq,
+    listReferralMarketingAssets,
+    updateReferralMarketingAssetStatus,
+    createReferralMarketingAnalyticsSuggestion,
+    getReferralTrustRules,
+    runReferralRiskCheck,
+    createReferralReviewCase,
+    listReferralReviewCases,
+    decideReferralReviewCase,
+    applyReferralWalletHold,
+    explainReferralBenefit,
+    createReferralDispute,
+    resolveReferralDispute,
+    exportReferralAudit
   }
 }
