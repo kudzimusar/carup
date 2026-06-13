@@ -228,3 +228,108 @@ Before any Phase 7C PR merge:
 9. If pending: log in to web admin `/admin/verification`, locate session, approve.
 10. Return to mobile, refresh result screen, confirm status updates to verified.
 11. Confirm wrong password → 401; missing CSRF → 403 with honest error.
+
+---
+
+## 10. Workstream D + E — Implementation (delivered)
+
+The end-to-end verification governance loop is implemented: a submitted session
+can be listed, inspected, and decided by an admin on the web, persisted by the
+backend, and reflected truthfully to the mobile user via status refresh.
+
+### Route map (Phase 7C additions)
+
+| Layer | Method / Route | Notes |
+|-------|----------------|-------|
+| Backend | `GET /api/admin/identity/verification-sessions?status=` | Admin list (7C.2) |
+| Backend | `GET /api/admin/identity/verification-sessions/:id` | Admin detail (7C.2) |
+| Backend | `POST /api/admin/identity/verification-sessions/:id/review` | approve / reject / request_retry / add_review_notes (7C.2) |
+| Backend | `GET /api/identity/verification-sessions/:id` | Reused by mobile refresh; `sanitizeSession` now also returns `retry_reason` |
+| Web | `/admin/verification` | Admin console page (role-gated by `DashboardLayout role="admin"`) |
+| Mobile | `app/(auth)/verification/result.tsx` | "Refresh status" + "Restart Verification" |
+
+### Workstream D — Web admin console
+
+- **`/admin/verification`** (`web/src/pages/dashboard/admin/VerificationReview.tsx`),
+  registered in `App.tsx` under the admin `DashboardLayout` and in `featureRegistry`
+  (sidebar nav + `canRoleAccessRoute`). Non-admins are redirected before render.
+- **Status tabs**: pending_manual_review, ocr_failed, retry_requested, verified, rejected.
+- **Detail per session**: document type, double-sided, uploaded-side status,
+  sanitized OCR fields (name / ID / DOB / country), confidence, failure reason,
+  review notes, retry reason, last decision + reviewer + timestamp.
+- **Actions**: approve (two-step confirm + optional notes), reject (notes required),
+  request_retry (retry reason required), add_review_notes (status unchanged). The
+  queue refetches after each action — the backend remains source of truth.
+- **States**: loading, empty, load-error with Retry, action errors via toast.
+- **API client**: `web/src/lib/verificationAdminApi.ts` (pure, unit-tested) +
+  thin `useCarUpApi` methods. CSRF is attached automatically for the review POST;
+  `apiClient` now extracts messages from both backend error shapes
+  (`{error:string}` and `{error:{message}}`).
+
+### Workstream E — Mobile status refresh
+
+- **`getVerificationSession(id)`** added; `mapSessionToVerificationOutcome` now
+  carries the raw backend `sessionStatus` and handles `retry_requested`.
+- **Result screen**: a "Refresh status" button re-fetches the session and renders
+  the backend's decision; a "Restart Verification" CTA appears for
+  retry_requested / ocr_failed / rejected / incomplete. The status panel uses the
+  shared status-map description for copy consistent with the web console.
+- **Truthful status**: `pending_manual_review` → needs review (never verified);
+  `ocr_failed` → retry needed; `rejected` → rejected with reason;
+  `retry_requested` → retry needed with reason + restart CTA; `verified` only when
+  the backend says verified.
+
+### Shared status mapping
+
+`shared/types/verificationStatus.ts` is the single source of labels, copy, tone,
+`retryAllowed`, and `adminActionAllowed`, keyed by backend session status. Both
+the web console and the mobile result screen import it via `@shared/types`.
+
+### Security — document preview
+
+**Document preview is intentionally restricted.** The backend's
+`sanitizeReviewSession` / `sanitizeSession` never return `*_storage_path` or any
+document URL — only uploaded-side booleans and sanitized OCR fields. The admin UI
+shows "Document preview restricted" rather than rendering images. No short-lived
+signed-URL preview was added in this phase (it would require admin-only signed
+access with its own tests; deferred).
+
+### Tests (this phase)
+
+| Suite | Result |
+|-------|--------|
+| backend `evidence-ai-fraud` | 5/5 |
+| backend `verification-admin-review` | 13/13 |
+| backend `auth-login` | 8/8 |
+| backend `verification-session-workflow` | 10/10 |
+| web `vitest` (incl. `verificationAdminApi.test.ts` + shared status map) | 92/92 |
+| mobile `verification-api.test.ts` (tsx) | 10/10 |
+| mobile `verification-flow-smoke.ts` (tsx) | 56/56 |
+| mobile `ts:check` (`tsc --noEmit`) | exit 0 |
+| web `tsc -b` | exit 0 |
+
+### Manual test plan (web + mobile loop)
+
+1. Submit a verification on mobile that lands in `pending_manual_review` (e.g. a
+   low-confidence capture). Confirm the result screen reads "Needs Review" — not verified.
+2. Web: sign in as an admin, open `/admin/verification`, `pending_manual_review` tab.
+   Confirm the session appears with OCR fields and "Document preview restricted".
+3. Approve it (Approve → Confirm approve). Confirm the toast and that it leaves the
+   pending tab and appears under "Verified".
+4. Mobile: tap "Refresh status" on the result screen. Confirm it now reads "Identity Verified".
+5. Repeat with **Reject** (notes required) → mobile refresh shows "Verification Failed" + reason.
+6. Repeat with **Request retry** (retry reason required) → mobile refresh shows
+   "Retake Required" + the retry reason + a "Restart Verification" CTA that returns to the flow.
+7. Negative auth: signed-out web user hitting `/admin/verification` is redirected;
+   a non-admin session calling the API gets 403 surfaced as an actionable message.
+
+### Known limitations
+
+- **No real liveness** (Workstream C) — out of scope here; `liveness_status` column
+  exists for forward compatibility but is never set to verified.
+- **No document image preview** in the admin console (restricted by design; see above).
+- **Manual refresh only** on mobile — no background polling (deliberately, per scope).
+- **Trust integration** (Workstream G) not wired — `verified` does not yet emit a
+  `passport_verified` trust fact.
+- `evidence-ai-fraud` was stabilized in 7C.1; all six originally-suspected baseline
+  suites are now green.
