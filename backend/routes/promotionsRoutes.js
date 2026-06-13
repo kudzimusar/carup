@@ -2,12 +2,16 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { DatabaseError } from '../utils/errors.js';
+import referralRouter from './referralRoutes.js';
 
 const router = express.Router();
 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
+
+// --- PHASE 1: REFERRAL ENGINE FOUNDATION ---
+router.use('/api/referrals', referralRouter);
 
 // --- DEALER: PROMOTIONS ---
 router.get('/api/promotions', authorizeRole(['dealer', 'admin']), asyncHandler(async (req, res) => {
