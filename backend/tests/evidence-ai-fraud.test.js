@@ -12,6 +12,19 @@ process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
+// The Node 20 `node --test` runner streams child stdout over an IPC channel
+// that intermittently corrupts ("Unable to deserialize cloned data") when this
+// suite's services log heavily while the runner serializes results — a known
+// runner-transport flake, not an assertion failure. Silence the noisy service
+// logs for this file (assertion failures are reported via the runner, not
+// console) so the suite is deterministic on its own and alongside others.
+const __originalConsole = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
+console.log = () => {};
+console.info = () => {};
+console.warn = () => {};
+console.error = () => {};
+console.debug = () => {};
+
 const express = (await import('express')).default;
 const vehiclesRouter = (await import('../routes/vehiclesRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
@@ -184,7 +197,10 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(async () => { if (server) await new Promise((r) => server.close(r)); });
+after(async () => {
+  if (server) await new Promise((r) => server.close(r));
+  Object.assign(console, __originalConsole);
+});
 beforeEach(resetDb);
 
 function sleep(ms) {
