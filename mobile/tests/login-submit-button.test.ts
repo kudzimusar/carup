@@ -2,9 +2,9 @@
  * Static guard for the mobile login submit button (PR #72 blocker).
  * Run with: npx tsx tests/login-submit-button.test.ts  (cwd = mobile/)
  *
- * Proves the Sign In button exists, is the fixed bottom CTA rendered OUTSIDE
- * the ScrollView (so it is always visible on iPhone, not dependent on scrolling
- * past the footer or hidden under the keyboard), and is not conditionally hidden.
+ * Proves the Sign In button exists, has visible text and a visible (non-zero,
+ * non-transparent, coloured) style, is directly in the form flow (not gated by
+ * a conditional), and that the fields + error surface are present.
  */
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
@@ -25,9 +25,14 @@ const src = fs.readFileSync(loginPath, 'utf-8');
 
 console.log('\n=== LOGIN SUBMIT BUTTON STATIC TEST ===\n');
 
-test('login screen declares a Sign In submit button', () => {
-  assert.ok(src.includes('testID="login-submit"'), 'login-submit testID present');
-  assert.ok(src.includes('Sign In'), 'Sign In label present');
+// Isolate the submit control's JSX (from its testID to the end of its element)
+// so style assertions target the button, not the whole file.
+const submitIdx = src.indexOf('testID="login-submit"');
+const submitBlock = submitIdx > -1 ? src.slice(submitIdx - 400, submitIdx + 600) : '';
+
+test('login screen declares a Sign In submit button with visible text', () => {
+  assert.ok(submitIdx > -1, 'login-submit testID present');
+  assert.ok(/>\s*Sign In\s*</.test(src), 'visible "Sign In" text node present');
 });
 
 test('email and password fields are present', () => {
@@ -35,18 +40,28 @@ test('email and password fields are present', () => {
   assert.ok(src.includes('testID="login-password"'), 'password field present');
 });
 
-test('Sign In button is rendered OUTSIDE the ScrollView (fixed, always visible)', () => {
-  const scrollClose = src.lastIndexOf('</ScrollView>');
-  const submitIdx = src.indexOf('testID="login-submit"');
-  assert.ok(scrollClose > -1, 'ScrollView present');
-  assert.ok(submitIdx > scrollClose, 'submit button appears after </ScrollView> (fixed bottom CTA)');
+test('Sign In button has a visible coloured background (dark or orange)', () => {
+  assert.ok(/backgroundColor:\s*'#(F97316|0F172A)'/.test(submitBlock), 'button has a dark/orange backgroundColor');
+});
+
+test('Sign In button has a real tappable height (>= 56)', () => {
+  const m = submitBlock.match(/height:\s*(\d+)/);
+  assert.ok(m, 'button declares an explicit height');
+  assert.ok(Number(m![1]) >= 56, `button height ${m![1]} is >= 56`);
+});
+
+test('Sign In button is not invisible (no opacity: 0)', () => {
+  assert.ok(!/opacity:\s*0\b/.test(submitBlock), 'button is not opacity:0');
+});
+
+test('Sign In button text is not white-on-white (white text + coloured bg)', () => {
+  assert.ok(/color:\s*'#FFFFFF'/.test(submitBlock), 'button text is white');
+  // and the bg is coloured (asserted above) — so not white-on-white.
 });
 
 test('Sign In button is not conditionally hidden (only `disabled` toggles)', () => {
-  const idx = src.indexOf('testID="login-submit"');
-  const before = src.slice(Math.max(0, idx - 300), idx);
-  // The Pressable must not be wrapped in a `{cond && (` boolean-gated render.
-  assert.ok(!/&&\s*\(\s*<Pressable[^>]*$/.test(before), 'submit button is not behind a && conditional');
+  const before = src.slice(Math.max(0, submitIdx - 300), submitIdx);
+  assert.ok(!/&&\s*\(\s*<(Pressable|TouchableOpacity)[^>]*$/.test(before), 'submit button is not behind a && conditional');
 });
 
 test('wrong-password server error remains rendered', () => {

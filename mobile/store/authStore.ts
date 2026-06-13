@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { AuthUser, UserRole } from '@shared/types';
+import { fetchCsrfToken, getVerificationApiBaseUrl } from '../utils/verificationApi';
+
+export interface RoleSwitchResult {
+  ok: boolean;
+  error?: string;
+}
 
 interface AuthState {
   user: AuthUser | null;
@@ -10,7 +16,7 @@ interface AuthState {
   initialize: () => Promise<void>;
   login: (user: AuthUser, token: string) => Promise<void>;
   logout: () => Promise<void>;
-  switchRole: (role: UserRole, tenantId?: string) => Promise<void>;
+  switchRole: (role: UserRole, tenantId?: string) => Promise<RoleSwitchResult>;
 }
 
 const SECURE_USER_KEY = 'carup_secure_user';
@@ -74,17 +80,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  switchRole: async (role: UserRole, tenantId?: string) => {
+  switchRole: async (role: UserRole, tenantId?: string): Promise<RoleSwitchResult> => {
     const current = get();
-    if (!current.user || !current.token) return;
+    if (!current.user || !current.token) {
+      return { ok: false, error: 'Not signed in.' };
+    }
 
+    // Role switching is OPTIONAL convenience. It must never crash the app or
+    // disable authenticated actions (e.g. Start Verification Flow). Failures are
+    // returned to the caller as a non-blocking result, not thrown.
     try {
-      // Simulate/Trigger backend call (matching web switch-role endpoint)
-      const res = await fetch('http://localhost:5001/api/auth/switch-role', {
+      // Use the configured backend (EXPO_PUBLIC_API_URL / ngrok), NOT a
+      // hardcoded localhost — localhost is unreachable from a physical device.
+      const baseUrl = getVerificationApiBaseUrl();
+      const csrfToken = await fetchCsrfToken(baseUrl, current.token);
+      const res = await fetch(`${baseUrl}/api/auth/switch-role`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           'x-session-token': current.token,
+          'x-user-id': current.user.id,
+          'x-csrf-token': csrfToken,
         },
         body: JSON.stringify({
           userId: current.user.id,
@@ -93,26 +110,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const updatedUser: AuthUser = {
-          ...current.user,
-          ...data.user,
-          role,
-          active_tenant_id: data.user.active_tenant_id || tenantId || null,
-        };
-
-        await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(updatedUser));
-        if (data.token) {
-          await SecureStore.setItemAsync(SECURE_TOKEN_KEY, data.token);
-          set({ token: data.token });
-        }
-        set({ user: updatedUser });
-      } else {
-        console.error('Failed backend role switch status:', res.status);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { error?: string }));
+        return { ok: false, error: body.error || `Role switch failed (HTTP ${res.status}).` };
       }
-    } catch (error) {
-      console.error('Dynamic role switch failed:', error);
+
+      const data = await res.json();
+      const updatedUser: AuthUser = {
+        ...current.user,
+        ...data.user,
+        role,
+        active_tenant_id: data.user?.active_tenant_id || tenantId || null,
+      };
+
+      await SecureStore.setItemAsync(SECURE_USER_KEY, JSON.stringify(updatedUser));
+      if (data.token) {
+        await SecureStore.setItemAsync(SECURE_TOKEN_KEY, data.token);
+        set({ token: data.token });
+      }
+      set({ user: updatedUser });
+      return { ok: true };
+    } catch (error: any) {
+      // Non-blocking: warn (not error) so it doesn't surface as a red crash,
+      // and surface the reason to the caller for a clear inline notice.
+      const message = error?.message?.includes('EXPO_PUBLIC_API_URL')
+        ? 'Role switch unavailable: backend URL is not configured for this device.'
+        : 'Role switch unavailable: backend unreachable.';
+      console.warn('Role switch failed:', error?.message || error);
+      return { ok: false, error: message };
     }
   },
 }));

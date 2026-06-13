@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
@@ -10,6 +10,7 @@ export default function DashboardScreen() {
   const loading = useAuthStore((state) => state.loading);
   const logout = useAuthStore((state) => state.logout);
   const switchRole = useAuthStore((state) => state.switchRole);
+  const [roleSwitchWarning, setRoleSwitchWarning] = useState<string | null>(null);
 
   const goToLogin = () => router.replace('/(auth)/login');
 
@@ -18,8 +19,15 @@ export default function DashboardScreen() {
     router.replace('/(auth)/login');
   };
 
+  // Role switching is optional convenience. A failure shows a non-blocking
+  // warning and NEVER disables Start Verification Flow (which depends only on
+  // being authenticated).
   const handleRoleSwitch = async (role: 'owner' | 'dealer' | 'mechanic') => {
-    await switchRole(role);
+    setRoleSwitchWarning(null);
+    const result = await switchRole(role);
+    if (!result.ok) {
+      setRoleSwitchWarning(result.error || 'Role switch is unavailable right now. You can still continue.');
+    }
   };
 
   // While the secure store hydrates we must NOT flash a signed-in-looking
@@ -118,7 +126,17 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Identity verification entry point — enabled because the user is authenticated */}
+      {/* Non-blocking notice if an optional role switch failed. Does NOT gate
+          verification — Start Verification Flow stays enabled while signed in. */}
+      {roleSwitchWarning && (
+        <View style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+          <Text style={{ color: '#92400E', fontSize: 12, fontWeight: '600', marginBottom: 2 }}>Role switch unavailable</Text>
+          <Text style={{ color: '#B45309', fontSize: 11 }} testID="role-switch-warning">{roleSwitchWarning}</Text>
+        </View>
+      )}
+
+      {/* Identity verification entry point — enabled because the user is
+          authenticated (independent of any role-switch outcome). */}
       <Pressable
         onPress={() => router.push('/(auth)/verification/intro')}
         testID="start-verification-flow"
