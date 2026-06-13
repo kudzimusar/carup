@@ -50,7 +50,8 @@ test('Phase 4 roadmap and routes cover local marketplace scope', () => {
     "router.post('/local-marketplace/referral-bundles'",
     "router.post('/local-marketplace/leads/:leadEventId/qualify'",
     "router.post('/local-marketplace/share-kit'",
-    'ReferralLocalMarketplaceService',
+    // The router wires the hardened subclass (which extends ReferralLocalMarketplaceService).
+    'ReferralLocalMarketplaceHardenedService',
   ]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
 });
 

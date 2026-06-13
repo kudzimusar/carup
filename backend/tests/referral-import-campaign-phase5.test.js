@@ -53,7 +53,8 @@ test('Phase 5 roadmap and routes cover import campaigns, route pages, and capaci
     "router.post('/import-campaigns/leads'",
     "router.post('/import-campaigns/leads/:leadEventId/qualify'",
     "router.post('/import-campaigns/share-kit'",
-    'ReferralImportCampaignService',
+    // The router wires the benchmark subclass (which extends ReferralImportCampaignService).
+    'ReferralImportCampaignBenchmarkService',
   ]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
 });
 
