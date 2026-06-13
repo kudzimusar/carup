@@ -101,12 +101,16 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={{ flex: 1, backgroundColor: '#FFFFFF' }}
     >
+      {/* Scrollable form body. The Sign In CTA is a FIXED bar below the
+          ScrollView (see footer) so it is always visible on iPhone and never
+          depends on scrolling past the form/footer or sits under the keyboard. */}
       <ScrollView
+        style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingVertical: 48, justifyContent: 'center' }}
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 24 }}
       >
         {/* Header Block */}
-        <View style={{ marginBottom: 40, alignItems: 'center' }}>
+        <View style={{ marginBottom: 36, alignItems: 'center' }}>
           <Text style={{ fontSize: 30, fontWeight: '700', color: '#0F172A', letterSpacing: -0.5 }}>CarUp OS</Text>
           <Text style={{ fontSize: 14, color: '#64748B', marginTop: 8, textAlign: 'center' }}>
             Log in to manage your multi-tenant automotive ecosystem and escrow ledgers.
@@ -117,7 +121,7 @@ export default function LoginScreen() {
         <View>
           {serverError && (
             <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 }}>
-              <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', textAlign: 'center' }}>{serverError}</Text>
+              <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', textAlign: 'center' }} testID="login-server-error">{serverError}</Text>
             </View>
           )}
 
@@ -171,37 +175,49 @@ export default function LoginScreen() {
             )}
           </View>
 
-          {/* Premium Login Button - 48px Target Area */}
-          <Pressable
-            onPress={handleSubmit(onSubmit)}
-            disabled={isSubmitting}
-            testID="login-submit"
-            style={({ pressed }) => ({
-              width: '100%',
-              backgroundColor: '#0F172A',
-              borderRadius: 12,
-              height: 56,
-              marginTop: 32,
-              justifyContent: 'center',
-              alignItems: 'center',
-              opacity: isSubmitting ? 0.7 : pressed ? 0.85 : 1,
-            })}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In</Text>
-            )}
-          </Pressable>
-        </View>
-
-        {/* Footer info */}
-        <View style={{ marginTop: 48, alignItems: 'center' }}>
-          <Text style={{ fontSize: 12, color: '#94A3B8' }}>
-            Secure bank-escrow platform compliance enabled
-          </Text>
+          {/* Footer info */}
+          <View style={{ marginTop: 32, alignItems: 'center' }}>
+            <Text style={{ fontSize: 12, color: '#94A3B8' }}>
+              Secure bank-escrow platform compliance enabled
+            </Text>
+          </View>
         </View>
       </ScrollView>
+
+      {/* Fixed bottom Sign In CTA — always visible; KeyboardAvoidingView lifts
+          it above the keyboard. Rendered unconditionally (only `disabled`
+          toggles while submitting); never hidden behind a conditional. */}
+      <View
+        style={{
+          paddingHorizontal: 24,
+          paddingTop: 12,
+          paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+          borderTopWidth: 1,
+          borderTopColor: '#F1F5F9',
+          backgroundColor: '#FFFFFF',
+        }}
+      >
+        <Pressable
+          onPress={handleSubmit(onSubmit)}
+          disabled={isSubmitting}
+          testID="login-submit"
+          style={({ pressed }) => ({
+            width: '100%',
+            backgroundColor: '#0F172A',
+            borderRadius: 12,
+            height: 56,
+            justifyContent: 'center',
+            alignItems: 'center',
+            opacity: isSubmitting ? 0.7 : pressed ? 0.85 : 1,
+          })}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In</Text>
+          )}
+        </Pressable>
+      </View>
     </KeyboardAvoidingView>
   );
 }
