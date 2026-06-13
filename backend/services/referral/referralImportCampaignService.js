@@ -87,11 +87,16 @@ function participantForFlow(flowType, explicitParticipant) {
   return IMPORT_PARTICIPANT_TYPES.IMPORT_BUYER;
 }
 
+// Importers name makes/models ("import a Toyota Aqua from Japan") far more often
+// than the generic word "vehicle", so the vehicle-import heuristic recognises
+// common makes and JDM models too.
+const IMPORT_VEHICLE_MAKE_MODEL_RE = /\b(vehicle|car|auction|truck|bus|van|toyota|honda|nissan|mazda|mitsubishi|mercedes|benz|bmw|audi|volkswagen|vw|ford|isuzu|subaru|suzuki|hyundai|kia|lexus|land\s?rover|range\s?rover|jeep|chevrolet|renault|peugeot|datsun|aqua|vitz|fit|corolla|hilux|fortuner|prado|harrier|allion|premio|wish|noah|voxy|fielder|axio|demio|axela|x-?trail|qashqai|juke|ranger|everest)\b/;
+
 function detectImportFlow(input = {}) {
   const text = [input.message, input.text, input.query, input.category, input.part_name].filter(Boolean).join(' ').toLowerCase();
   if (/\b(container|space|shipment|cbm|route|consolidation)\b/.test(text)) return IMPORT_FLOW_TYPES.CONTAINER_SPACE;
   if (/\b(part|spare|engine|gearbox|tyre|battery|bumper|headlight)\b/.test(text)) return IMPORT_FLOW_TYPES.PARTS_IMPORT;
-  if (/\b(vehicle|car|auction|import car|truck|bus|van)\b/.test(text)) return IMPORT_FLOW_TYPES.VEHICLE_IMPORT;
+  if (IMPORT_VEHICLE_MAKE_MODEL_RE.test(text)) return IMPORT_FLOW_TYPES.VEHICLE_IMPORT;
   return input.flow_type || IMPORT_FLOW_TYPES.CONTAINER_SPACE;
 }
 

@@ -84,15 +84,26 @@ function channelToReferralChannel(channel) {
   }
 }
 
+// Buyers and sellers in the Zimbabwe market almost always name a make/model
+// (e.g. "Toyota Aqua", "Honda Fit") instead of the generic word "car", so the
+// vehicle-intent heuristics must recognise common makes and JDM models too.
+export const VEHICLE_MAKE_MODEL_RE = /\b(car|cars|vehicle|vehicles|truck|trucks|bus|van|sedan|hatchback|suv|bakkie|toyota|honda|nissan|mazda|mitsubishi|mercedes|benz|bmw|audi|volkswagen|vw|ford|isuzu|subaru|suzuki|hyundai|kia|lexus|land\s?rover|range\s?rover|jeep|chevrolet|renault|peugeot|datsun|aqua|vitz|fit|corolla|hilux|fortuner|prado|harrier|allion|premio|wish|noah|voxy|fielder|axio|demio|axela|x-?trail|qashqai|juke|ranger|everest)\b/;
+
+function mentionsVehicle(value) {
+  return VEHICLE_MAKE_MODEL_RE.test(value);
+}
+
 function detectFlowFromText(text = '') {
   const value = String(text || '').toLowerCase();
-  if (/\b(sell|listing|list my|advertise)\b/.test(value) && /\b(car|vehicle|truck|bus)\b/.test(value)) return LOCAL_FLOW_TYPES.SELL_VEHICLE;
-  if (/\b(buy|looking|find|need)\b/.test(value) && /\b(car|vehicle|truck|bus)\b/.test(value)) return LOCAL_FLOW_TYPES.BUY_VEHICLE;
+  // Service/parts/supplier intent must win before generic buy/sell, otherwise a
+  // request like "need a mechanic to repair my car" is misread as a car purchase.
+  if (/\b(mechanic|repair|repairs|diagnose|garage|servicing|service my)\b/.test(value)) return LOCAL_FLOW_TYPES.MECHANIC_SERVICE;
   if (/\b(part|spare|engine|gearbox|tyre|battery|bumper|headlight)\b/.test(value)) return LOCAL_FLOW_TYPES.FIND_PARTS;
   if (/\b(supplier|quote|stock|bulk|wholesale)\b/.test(value)) return LOCAL_FLOW_TYPES.SUPPLIER_QUOTE;
-  if (/\b(mechanic|repair|service|diagnose|garage)\b/.test(value)) return LOCAL_FLOW_TYPES.MECHANIC_SERVICE;
   if (/\b(inspect|inspection|verify|check vehicle)\b/.test(value)) return LOCAL_FLOW_TYPES.INSPECTION_BOOKING;
   if (/\b(safepay|escrow|secure payment|safe pay)\b/.test(value)) return LOCAL_FLOW_TYPES.SAFEPAY_REQUEST;
+  if (/\b(sell|listing|list my|advertise)\b/.test(value) && mentionsVehicle(value)) return LOCAL_FLOW_TYPES.SELL_VEHICLE;
+  if (/\b(buy|buying|looking|find|need|want|wanted)\b/.test(value) && mentionsVehicle(value)) return LOCAL_FLOW_TYPES.BUY_VEHICLE;
   return LOCAL_FLOW_TYPES.GENERAL_MARKETPLACE;
 }
 
