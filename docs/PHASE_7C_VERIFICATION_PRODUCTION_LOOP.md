@@ -138,7 +138,7 @@ Tested on Node v20.20.2.
 |-------|-------|------|------|--------|
 | `audit-logger.test.js` | 4 | 4 | 0 | ✅ Green |
 | `auth-middleware.test.js` | 5 | 5 | 0 | ✅ Green |
-| `evidence-ai-fraud.test.js` | 2 | 1 | 1 | ❌ Pre-existing failure |
+| `evidence-ai-fraud.test.js` | 5 | 5 | 0 | ✅ Fixed in Slice 7C.1 (was 1 pass + crash) |
 | `evidence-api.test.js` | 1 | 1 | 0 | ✅ Green |
 | `evidence-validation.test.js` | 6 | 6 | 0 | ✅ Green |
 | `trust-fact-workflow.test.js` | 15 | 15 | 0 | ✅ Green |
@@ -153,10 +153,7 @@ Tested on Node v20.20.2.
 
 **Classification:** Pre-existing defect, present on `main` before Phase 7B. Not introduced by this branch.
 
-**Fix options (Phase 7C scope):**
-1. Hoist the dynamic import to top-level (simplest — avoids in-body import).
-2. Move `runAiAnalysis` call to a helper imported statically.
-3. Upgrade Node to 22 LTS where this IPC bug is resolved.
+**Resolution (Slice 7C.1):** Hoisted the `runAiAnalysis` import out of the test body to module scope, alongside the existing top-level imports. No fraud/evidence assertions changed. Suite is now 5/5 green.
 
 Any new test failure introduced by Phase 7C commits is a blocker.
 
@@ -180,10 +177,14 @@ Any new test failure introduced by Phase 7C commits is a blocker.
 
 ### Workstream D — Admin / manual-review dashboard
 
-- No `GET /api/identity/verification-sessions` admin list route.
-- No `PATCH /api/identity/verification-sessions/:id/review` route.
-- `reviewed_by` and `reviewed_at` columns exist in the table but are never written.
-- `review_decision`, `retry_reason` columns do not yet exist.
+**Backend implemented in Slice 7C.2:**
+- `GET /api/admin/identity/verification-sessions?status=` — admin list (filterable by reviewable status).
+- `GET /api/admin/identity/verification-sessions/:sessionId` — admin detail.
+- `POST /api/admin/identity/verification-sessions/:sessionId/review` — actions: `approve`, `reject`, `request_retry`, `add_review_notes`.
+- All three routes guarded by `authorizeRole(['admin'])`; the service re-checks the admin role defensively. Every action writes a `trust_audit_events` entry. Responses are projected through `sanitizeReviewSession`, which omits all `*_storage_path` fields — no private document path or URL leaks.
+- Migration `20260613020000_verification_admin_review.sql` adds `review_decision`, `retry_reason`, `liveness_status` (forward-compat only, never set to verified), extends the status CHECK to allow `retry_requested`, and indexes `reviewed_by`. `reviewed_by`/`reviewed_at` already existed and are now written.
+
+**Still pending (Workstream D web layer):**
 - No `/admin/verification` web page; `EvidenceReview.tsx` is the closest reusable template.
 
 ### Workstream F — Production auth / security hardening
