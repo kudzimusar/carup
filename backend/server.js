@@ -8,6 +8,7 @@ import { supabase } from './db/supabase.js';
 
 // Import Middleware
 import { authorizeRole } from './middleware/authMiddleware.js';
+import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
 import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
@@ -67,6 +68,7 @@ import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
+import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 
@@ -186,6 +188,7 @@ app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
+app.use(identityVerificationRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -1095,19 +1098,26 @@ app.post('/api/organizations/:id/audit-logs', authorizeRole(), async (req, res, 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
-  
+
   try {
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, name, email, phone, role')
+      .select('id, name, email, phone, role, password_hash')
       .eq('email', email)
       .single();
-      
+
     if (error || !user) {
       await supabase.from('login_attempts').insert({ success: false, method: 'password', ip_address: req.ip || '127.0.0.1' });
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
-    
+
+    const credentials = await evaluateLoginCredentials({ user, password });
+    if (!credentials.ok) {
+      await supabase.from('login_attempts').insert({ user_id: user.id, success: false, method: 'password', ip_address: req.ip || '127.0.0.1' });
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+    delete user.password_hash;
+
     // Generate actual session token in the database (No more mocks)
     const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
     const expiresAt = new Date();
@@ -1162,12 +1172,14 @@ app.post('/api/auth/register', async (req, res) => {
       .single();
       
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
-    
+
+    const password_hash = password ? await hashPassword(password) : null;
+
     const id = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
     const { error } = await supabase.from('users').insert({
-      id, name, email, phone: phone || '', role: role || 'owner', join_date: new Date().toISOString()
+      id, name, email, phone: phone || '', role: role || 'owner', password_hash, join_date: new Date().toISOString()
     });
-    
+
     if (error) throw error;
     
     // Automatically issue a session
@@ -1187,7 +1199,7 @@ app.post('/api/auth/register', async (req, res) => {
     const newUser = { id, name, email, phone: phone || '', role: role || 'owner' };
     res.json({ user: newUser, token });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 

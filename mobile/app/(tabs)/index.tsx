@@ -6,11 +6,14 @@ import { useRouter } from 'expo-router';
 export default function DashboardScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const logout = useAuthStore((state) => state.logout);
   const switchRole = useAuthStore((state) => state.switchRole);
 
   const handleLogout = async () => {
-    await logout();
+    if (isAuthenticated) {
+      await logout();
+    }
     router.replace('/(auth)/login');
   };
 
@@ -39,48 +42,78 @@ export default function DashboardScreen() {
           Instantly shift your authorization context across multi-tenant ledger systems.
         </Text>
 
-        <View className="space-y-3">
-          <Pressable 
-            onPress={() => handleRoleSwitch('owner')}
-            className={`p-4 rounded-xl min-h-[56px] border ${user?.role === 'owner' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
-          >
-            <Text className={`font-semibold ${user?.role === 'owner' ? 'text-orange-600' : 'text-slate-800'}`}>Vehicle Owner Portal</Text>
-            <Text className="text-slate-400 text-xxs mt-1">Manage private garages, service logs, and listings.</Text>
-          </Pressable>
-
-          <Pressable 
-            onPress={() => handleRoleSwitch('dealer')}
-            className={`p-4 rounded-xl min-h-[56px] border mt-3 ${user?.role === 'dealer' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
-          >
-            <Text className={`font-semibold ${user?.role === 'dealer' ? 'text-orange-600' : 'text-slate-800'}`}>Dealership Portal</Text>
-            <Text className="text-slate-400 text-xxs mt-1">Review showroom inventories, active sales, and buyer leads.</Text>
-          </Pressable>
-
-          <Pressable 
-            onPress={() => handleRoleSwitch('mechanic')}
-            className={`p-4 rounded-xl min-h-[56px] border mt-3 ${user?.role === 'mechanic' ? 'bg-orange-50 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
-          >
-            <Text className={`font-semibold ${user?.role === 'mechanic' ? 'text-orange-600' : 'text-slate-800'}`}>Certified Mechanic Portal</Text>
-            <Text className="text-slate-400 text-xxs mt-1">Mint immutable Partsentry logs and authorize inspection hashes.</Text>
-          </Pressable>
+        <View>
+          {([
+            { role: 'owner' as const, title: 'Vehicle Owner Portal', subtitle: 'Manage private garages, service logs, and listings.' },
+            { role: 'dealer' as const, title: 'Dealership Portal', subtitle: 'Review showroom inventories, active sales, and buyer leads.' },
+            { role: 'mechanic' as const, title: 'Certified Mechanic Portal', subtitle: 'Mint immutable Partsentry logs and authorize inspection hashes.' },
+          ]).map((portal, idx) => {
+            const active = user?.role === portal.role;
+            return (
+              <Pressable
+                key={portal.role}
+                onPress={() => handleRoleSwitch(portal.role)}
+                testID={`switch-role-${portal.role}`}
+                style={({ pressed }) => ({
+                  padding: 16,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  marginTop: idx === 0 ? 0 : 12,
+                  backgroundColor: active ? '#FFF7ED' : '#F8FAFC',
+                  borderColor: active ? '#F97316' : '#E2E8F0',
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Text style={{ fontWeight: '600', fontSize: 15, color: active ? '#EA580C' : '#1E293B' }}>{portal.title}</Text>
+                <Text style={{ color: '#94A3B8', fontSize: 11, marginTop: 4 }}>{portal.subtitle}</Text>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
-      {/* KYC Testing Entry Point */}
-      <Pressable 
+      {/* Identity verification entry point */}
+      <Pressable
         onPress={() => router.push('/(auth)/verification/intro')}
-        className="w-full bg-slate-900 rounded-xl min-h-[56px] justify-center items-center shadow-lg active:opacity-90 mb-6"
+        style={({ pressed }) => ({
+          width: '100%',
+          backgroundColor: '#F97316',
+          borderRadius: 12,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginBottom: 16,
+          opacity: pressed ? 0.8 : 1,
+        })}
+        testID="start-verification-flow"
       >
-        <Text className="text-white text-base font-semibold">Start Verification Flow</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+          Start Verification Flow
+        </Text>
       </Pressable>
 
       {/* Account actions */}
-      <Pressable 
+      <Pressable
         onPress={handleLogout}
-        className="w-full bg-red-50 border border-red-200 rounded-xl h-14 justify-center items-center mb-10"
-        style={({ pressed }) => pressed ? { opacity: 0.8 } : {}}
+        style={({ pressed }) => ({
+          width: '100%',
+          backgroundColor: '#FEF2F2',
+          borderWidth: 1,
+          borderColor: '#FECACA',
+          borderRadius: 12,
+          paddingVertical: 18,
+          paddingHorizontal: 16,
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginBottom: 40,
+          opacity: pressed ? 0.8 : 1,
+        })}
+        testID="sign-out-session"
       >
-        <Text className="text-red-600 text-base font-semibold">Sign Out Session</Text>
+        <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
+          {isAuthenticated ? 'Sign Out Session' : 'Sign In to CarUp'}
+        </Text>
       </Pressable>
     </ScrollView>
   );

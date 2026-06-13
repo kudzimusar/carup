@@ -6,8 +6,18 @@ export interface OcrResult {
   national_id_number?: string;
   date_of_birth?: string;
   country?: string;
-  [key: string]: string | undefined;
+  additional_fields?: Record<string, string>;
+  [key: string]: string | Record<string, string> | undefined;
 }
+
+export type VerificationOutcomeStatus =
+  | 'idle'
+  | 'verified'
+  | 'backend_pending'
+  | 'ocr_failed'
+  | 'needs_review'
+  | 'incomplete'
+  | 'rejected';
 
 export interface VerificationState {
   capturedFront: string | null;
@@ -15,11 +25,14 @@ export interface VerificationState {
   capturedSelfie: string | null;
   ocrResult: OcrResult | null;
   processingError: string | null;
-  setCapturedFront: (uri: string) => void;
-  setCapturedBack: (uri: string) => void;
-  setCapturedSelfie: (uri: string) => void;
+  verificationStatus: VerificationOutcomeStatus;
+  verificationSessionId: string | null;
+  setCapturedFront: (uri: string | null) => void;
+  setCapturedBack: (uri: string | null) => void;
+  setCapturedSelfie: (uri: string | null) => void;
   setOcrResult: (result: OcrResult | null) => void;
   setProcessingError: (error: string | null) => void;
+  setVerificationOutcome: (status: VerificationOutcomeStatus, sessionId?: string | null, error?: string | null) => void;
   hasRequiredImages: (doubleSided: boolean) => boolean;
   clear: () => void;
 }
@@ -30,11 +43,18 @@ export const useVerificationStore = create<VerificationState>((set, get) => ({
   capturedSelfie: null,
   ocrResult: null,
   processingError: null,
+  verificationStatus: 'idle',
+  verificationSessionId: null,
   setCapturedFront: (uri) => set({ capturedFront: uri }),
   setCapturedBack: (uri) => set({ capturedBack: uri }),
   setCapturedSelfie: (uri) => set({ capturedSelfie: uri }),
   setOcrResult: (result) => set({ ocrResult: result }),
   setProcessingError: (error) => set({ processingError: error }),
+  setVerificationOutcome: (status, sessionId = null, error = null) => set({
+    verificationStatus: status,
+    verificationSessionId: sessionId,
+    processingError: error,
+  }),
   hasRequiredImages: (doubleSided) => {
     const state = get();
     if (!state.capturedFront) return false;
@@ -48,5 +68,7 @@ export const useVerificationStore = create<VerificationState>((set, get) => ({
     capturedSelfie: null,
     ocrResult: null,
     processingError: null,
+    verificationStatus: 'idle',
+    verificationSessionId: null,
   }),
 }));
