@@ -4,12 +4,13 @@ import { readFileSync } from 'node:fs';
 import { ReferralEngineService } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService } from '../services/referral/referralChannelGatewayService.js';
-import { ReferralImportCampaignHardenedService } from '../services/referral/referralImportCampaignHardenedService.js';
+import { ReferralImportCampaignBenchmarkService } from '../services/referral/referralImportCampaignBenchmarkService.js';
 import { IMPORT_CAMPAIGN_EVENT_TYPES } from '../services/referral/referralImportCampaignService.js';
 import { REFERRAL_TABLES } from '../services/referral/referralEngineRepository.js';
 import { ValidationError } from '../utils/errors.js';
 
 const routeFile = readFileSync(new URL('../routes/referralRoutes.js', import.meta.url), 'utf8');
+const benchmarkServiceFile = readFileSync(new URL('../services/referral/referralImportCampaignBenchmarkService.js', import.meta.url), 'utf8');
 const hardenedServiceFile = readFileSync(new URL('../services/referral/referralImportCampaignHardenedService.js', import.meta.url), 'utf8');
 
 class MemoryReferralRepository {
@@ -28,19 +29,21 @@ function createHarness() {
   const referralService = new ReferralEngineService({ repository, now: () => new Date('2026-06-12T00:00:00.000Z'), shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' } });
   const agentGateway = new ReferralAgentGatewayService({ referralService, now: () => new Date('2026-06-12T00:00:00.000Z'), shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' } });
   const channelGateway = new ReferralChannelGatewayService({ agentGateway, referralService, now: () => new Date('2026-06-12T00:00:00.000Z') });
-  const importCampaign = new ReferralImportCampaignHardenedService({ referralService, channelGateway, now: () => new Date('2026-06-12T00:00:00.000Z') });
+  const importCampaign = new ReferralImportCampaignBenchmarkService({ referralService, channelGateway, now: () => new Date('2026-06-12T00:00:00.000Z') });
   return { repository, referralService, importCampaign };
 }
 
 const operatorActor = Object.freeze({ actor_user_id: 'route-agent-hardening', actor_role: 'route_agent', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'web', session_id: 'operator-session' });
 const buyerActor = Object.freeze({ actor_user_id: 'import-buyer-hardening', actor_role: 'member', actor_tenant_id: 'tenant-1', actor_type: 'user', gateway_trusted: false, surface: 'web', session_id: 'buyer-session' });
 
-test('Phase 5 routes use the hardened import campaign service wrapper', () => {
-  assert.equal(routeFile.includes('ReferralImportCampaignHardenedService'), true);
-  assert.equal(routeFile.includes('referralImportCampaignHardenedService.js'), true);
+test('Phase 5 routes use the benchmark import campaign service wrapper', () => {
+  assert.equal(routeFile.includes('ReferralImportCampaignBenchmarkService'), true);
+  assert.equal(routeFile.includes('referralImportCampaignBenchmarkService.js'), true);
+  assert.equal(routeFile.includes("'operator'"), true);
   assert.equal(hardenedServiceFile.includes('preflightMilestoneQualification'), true);
   assert.equal(hardenedServiceFile.includes('preflightCapacity'), true);
-  assert.equal(hardenedServiceFile.includes('preflightRequestedCapacity'), true);
+  assert.equal(benchmarkServiceFile.includes('preflightRequestedCapacity'), true);
+  assert.equal(benchmarkServiceFile.includes('orderBy'), true);
 });
 
 test('generated import campaign slugs are monotonic even when time is fixed', async () => {
@@ -56,13 +59,23 @@ test('route page creation rejects overbooked capacity before route event side ef
   assert.equal((await repository.list(REFERRAL_TABLES.events)).some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.ROUTE_PAGE_CREATED), false);
 });
 
-test('import lead creation rejects requested space above available capacity before lead side effects', async () => {
+test('import lead creation rejects requested space above latest available capacity before lead side effects', async () => {
   const { repository, importCampaign } = createHarness();
   await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 4 }, operatorActor);
   await importCampaign.updateCapacity({ route_key: 'japan-zimbabwe-container-space', flow_type: 'container_space', total_cbm: 10, booked_cbm: 6 }, operatorActor);
   await assert.rejects(() => importCampaign.createLead({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', requested_cbm: 5, session_id: 'over-capacity-lead' }, buyerActor), ValidationError);
   const events = await repository.list(REFERRAL_TABLES.events);
   assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.IMPORT_LEAD_CREATED), false);
+});
+
+test('latest route capacity update wins when multiple updates share fixed timestamps', async () => {
+  const { importCampaign } = createHarness();
+  await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 2 }, operatorActor);
+  await importCampaign.updateCapacity({ route_key: 'japan-zimbabwe-container-space', flow_type: 'container_space', total_cbm: 10, booked_cbm: 3 }, operatorActor);
+  await importCampaign.updateCapacity({ route_key: 'japan-zimbabwe-container-space', flow_type: 'container_space', total_cbm: 10, booked_cbm: 7 }, operatorActor);
+  const status = await importCampaign.getRouteStatus('japan-zimbabwe-container-space');
+  assert.equal(status.capacity.booked_capacity_units, 7);
+  assert.equal(status.capacity.available_capacity_units, 3);
 });
 
 test('zero manual import reward override is rejected before qualification or wallet mutation', async () => {
