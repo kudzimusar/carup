@@ -22,6 +22,7 @@ function session(status: VerificationSession['status'], overrides: Partial<Verif
     confidence_score: null,
     failure_reason: null,
     review_notes: null,
+    retry_reason: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     submitted_at: null,
