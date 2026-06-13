@@ -50,25 +50,40 @@ export default function LoginScreen() {
     },
   });
 
+  const postLogin = async (baseUrl: string, data: LoginFormValues) => {
+    // Mutating routes require a signed CSRF token; pre-login it is bound
+    // to the guest context (no session token yet).
+    const csrfToken = await fetchCsrfToken(baseUrl, null);
+    return fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
+        'x-csrf-token': csrfToken,
+      },
+      body: JSON.stringify(data),
+    });
+  };
+
   const onSubmit = async (data: LoginFormValues) => {
     setServerError(null);
     try {
       const baseUrl = getVerificationApiBaseUrl();
-      // Mutating routes require a signed CSRF token; pre-login it is bound
-      // to the guest context (no session token yet).
-      const csrfToken = await fetchCsrfToken(baseUrl, null);
-      const response = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-csrf-token': csrfToken,
-        },
-        body: JSON.stringify(data),
-      });
+      let response = await postLogin(baseUrl, data);
+      if (response.status === 403) {
+        // Stale/mismatched CSRF token — fetch a fresh one and retry once.
+        response = await postLogin(baseUrl, data);
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Login failed. Invalid credentials.');
+        if (response.status === 401) {
+          throw new Error(errorData.error || 'Invalid email or password.');
+        }
+        if (response.status === 403) {
+          throw new Error('Secure session handshake failed (CSRF). Please try again.');
+        }
+        throw new Error(errorData.error || `Login failed (HTTP ${response.status}). Please try again.`);
       }
 
       const result = await response.json();
