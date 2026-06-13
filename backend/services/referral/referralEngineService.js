@@ -105,6 +105,83 @@ function emptyWalletBalances() {
   };
 }
 
+// ── Phase E: safe read/list helpers (additive; no behaviour change) ─────────
+const REFERRAL_LIST_DEFAULT_LIMIT = 25;
+const REFERRAL_LIST_MAX_LIMIT = 100;
+
+export function clampReferralLimit(limit, fallback = REFERRAL_LIST_DEFAULT_LIMIT, max = REFERRAL_LIST_MAX_LIMIT) {
+  const n = Number(limit);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
+}
+
+export function clampReferralOffset(offset) {
+  const n = Number(offset);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.floor(n);
+}
+
+export function definedFilters(obj = {}) {
+  const out = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined && value !== null && value !== '') out[key] = value;
+  }
+  return out;
+}
+
+function referralCreatedKey(row = {}) {
+  return String(row.created_at || row.occurred_at || '');
+}
+
+/**
+ * Deterministic newest-first sort + offset/limit slice. Pagination lives in the
+ * service (not the repository) so it behaves identically for the Supabase client
+ * and the in-memory repository used by tests. Returns the page plus a pagination
+ * descriptor { limit, offset, total, has_more }.
+ */
+export function paginateReferralRows(rows = [], filters = {}) {
+  const limit = clampReferralLimit(filters.limit);
+  const offset = clampReferralOffset(filters.offset);
+  const sorted = [...rows].sort((a, b) => referralCreatedKey(b).localeCompare(referralCreatedKey(a)));
+  const total = sorted.length;
+  const page = sorted.slice(offset, offset + limit);
+  return { page, pagination: { limit, offset, total, has_more: offset + limit < total } };
+}
+
+// Curated read projections — expose stable, non-sensitive list fields only.
+export function normalizeReferralCodeRecord(row = {}) {
+  return {
+    id: row.id,
+    code: row.code,
+    code_type: row.code_type ?? null,
+    status: row.status ?? null,
+    campaign_id: row.campaign_id ?? null,
+    owner_user_id: row.owner_user_id ?? null,
+    channel: row.channel ?? null,
+    max_uses: row.max_uses ?? null,
+    uses_count: row.uses_count ?? 0,
+    expires_at: row.expires_at ?? null,
+    created_at: row.created_at ?? null,
+  };
+}
+
+export function normalizeReferralCouponRecord(row = {}) {
+  return {
+    id: row.id,
+    code: row.code,
+    discount_type: row.discount_type ?? null,
+    discount_value: row.discount_value ?? null,
+    benefit_type: row.benefit_type ?? null,
+    status: row.status ?? null,
+    campaign_id: row.campaign_id ?? null,
+    currency: row.currency ?? null,
+    max_redemptions: row.max_redemptions ?? null,
+    redemption_count: row.redemption_count ?? row.redeemed_count ?? 0,
+    expires_at: row.expires_at ?? null,
+    created_at: row.created_at ?? null,
+  };
+}
+
 function buildCode39BarcodeSvg(code) {
   const value = normalizeReferralCode(code);
   const unit = 2;
@@ -225,6 +302,33 @@ export class ReferralEngineService {
 
   async listCampaigns(filters = {}) {
     return this.repository.list(REFERRAL_TABLES.campaigns, filters, { orderBy: 'created_at', ascending: false, limit: 200 });
+  }
+
+  // Phase E: additive read endpoints. Tenant-safe, paginated, curated projections.
+  async listCodes(filters = {}) {
+    const columnFilters = definedFilters({
+      tenant_id: filters.tenant_id,
+      campaign_id: filters.campaign_id,
+      status: filters.status,
+      code_type: filters.code_type,
+      owner_user_id: filters.owner_user_id,
+      channel: filters.channel,
+    });
+    const rows = await this.repository.list(REFERRAL_TABLES.codes, columnFilters, { orderBy: 'created_at', ascending: false, limit: 1000 });
+    const { page, pagination } = paginateReferralRows(rows || [], filters);
+    return { codes: page.map(normalizeReferralCodeRecord), pagination };
+  }
+
+  async listCoupons(filters = {}) {
+    const columnFilters = definedFilters({
+      tenant_id: filters.tenant_id,
+      campaign_id: filters.campaign_id,
+      status: filters.status,
+      discount_type: filters.discount_type,
+    });
+    const rows = await this.repository.list(REFERRAL_TABLES.coupons, columnFilters, { orderBy: 'created_at', ascending: false, limit: 1000 });
+    const { page, pagination } = paginateReferralRows(rows || [], filters);
+    return { coupons: page.map(normalizeReferralCouponRecord), pagination };
   }
 
   async updateCampaign(id, patch = {}, actor = {}) {

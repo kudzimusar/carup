@@ -212,28 +212,36 @@ export interface ReferralChannel {
   metadata?: Record<string, unknown>
 }
 
+// Normalized lead record from GET /local-marketplace/leads (PII excluded server-side).
 export interface ReferralLocalMarketplaceLead {
-  id?: string
   lead_event_id?: string
-  flow_type?: string
-  attribution_code?: string | null
-  contact?: Record<string, unknown>
-  status?: string
-  qualified?: boolean
-  created_at?: string
-  metadata?: Record<string, unknown>
+  flow_type?: string | null
+  participant_type?: string | null
+  status?: string | null
+  target?: string | null
+  location?: string | null
+  lead_reference?: string | null
+  listing_id?: string | null
+  service_type?: string | null
+  code_id?: string | null
+  campaign_id?: string | null
+  channel?: string | null
+  created_at?: string | null
 }
 
+// Normalized route record from GET /import-campaigns/routes.
 export interface ReferralImportRoute {
-  route_key: string
-  origin?: string
-  destination?: string
-  capacity_total?: number
-  capacity_used?: number
-  capacity_remaining?: number
-  unit?: string
-  status?: string
-  metadata?: Record<string, unknown>
+  route_key?: string | null
+  route_origin?: string | null
+  route_destination?: string | null
+  flow_type?: string | null
+  title?: string | null
+  total_capacity_units?: number
+  booked_capacity_units?: number
+  available_capacity_units?: number
+  unit_label?: string | null
+  capacity_status?: string | null
+  created_at?: string | null
 }
 
 export interface ReferralImportLead {
@@ -298,18 +306,77 @@ export interface ReferralBenefitExplanation {
   metadata?: Record<string, unknown>
 }
 
+// Normalized dispute record from GET /trust/disputes.
 export interface ReferralDispute {
-  id?: string
   dispute_event_id?: string
-  transaction_id?: string | null
-  benefit_id?: string | null
-  reason?: string
-  status?: string
-  resolution_outcome?: string | null
+  status?: string | null
+  target_type?: string | null
+  target_id?: string | null
+  wallet_transaction_id?: string | null
+  opened_by?: string | null
+  reason?: string | null
   resolution_reason?: string | null
-  created_at?: string
   resolved_at?: string | null
-  metadata?: Record<string, unknown>
+  created_at?: string | null
+}
+
+// Pagination descriptor returned by every Phase E list endpoint.
+export interface ReferralPagination {
+  limit: number
+  offset: number
+  total: number
+  has_more: boolean
+}
+
+export interface ReferralCodeListResponse {
+  success: boolean
+  codes?: ReferralCode[]
+  pagination?: ReferralPagination
+}
+
+export interface ReferralCouponListResponse {
+  success: boolean
+  coupons?: ReferralCoupon[]
+  pagination?: ReferralPagination
+}
+
+export interface ReferralLocalLeadListResponse {
+  success: boolean
+  leads?: ReferralLocalMarketplaceLead[]
+  pagination?: ReferralPagination
+}
+
+export interface ReferralImportRouteListResponse {
+  success: boolean
+  routes?: ReferralImportRoute[]
+  pagination?: ReferralPagination
+}
+
+export interface ReferralDisputeListResponse {
+  success: boolean
+  disputes?: ReferralDispute[]
+  pagination?: ReferralPagination
+}
+
+export interface ReferralListFilters {
+  tenant_id?: string
+  campaign_id?: string
+  status?: string
+  code_type?: string
+  owner_user_id?: string
+  channel?: string
+  discount_type?: string
+  participant_type?: string
+  flow?: string
+  referral_code?: string
+  route_key?: string
+  origin?: string
+  destination?: string
+  wallet_transaction_id?: string
+  user_id?: string
+  dispute_event_id?: string
+  limit?: number
+  offset?: number
 }
 
 export interface ReferralAuditExport {

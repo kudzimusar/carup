@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { ShieldAlert, RefreshCw } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import ReferralEventLog from '@/components/referral/ReferralEventLog'
-import type { ReferralEvent } from '@/types/referral'
+import ReferralRealList from '@/components/referral/ReferralRealList'
+import type { ReferralEvent, ReferralDispute } from '@/types/referral'
 
 /**
  * Admin Referral Trust Review (/admin/referrals/trust). REFERRAL trust — distinct
@@ -93,7 +94,13 @@ export default function ReferralTrustReview() {
     createReferralDispute,
     resolveReferralDispute,
     exportReferralAudit,
+    listReferralDisputes,
   } = useCarUpApi()
+
+  const loadDisputes = useCallback(async () => {
+    const res = await listReferralDisputes({ limit: 50 })
+    return { items: res.disputes ?? [], pagination: res.pagination }
+  }, [listReferralDisputes])
 
   const [rules, setRules] = useState<Record<string, unknown> | null>(null)
   const [cases, setCases] = useState<ReferralEvent[]>([])
@@ -356,7 +363,19 @@ export default function ReferralTrustReview() {
         </CardContent>
       </Card>
 
-      <ReferralEventLog title="Recent trust & dispute activity" />
+      <ReferralRealList
+        title="Disputes"
+        load={loadDisputes}
+        emptyText="No disputes yet."
+        renderRow={(d: ReferralDispute) => (
+          <div key={d.dispute_event_id} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+            <span className="font-mono break-all">{d.dispute_event_id}</span>
+            <span className="text-gray-500 mx-2">{[d.target_type, d.target_id].filter(Boolean).join(' ')}</span>
+            <span className="text-gray-400 shrink-0">{d.status}</span>
+          </div>
+        )}
+      />
+      <ReferralEventLog title="Audit activity (event log)" />
     </div>
   )
 }

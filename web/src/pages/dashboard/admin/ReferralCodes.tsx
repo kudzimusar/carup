@@ -6,9 +6,12 @@ import { Badge } from '@/components/ui/badge'
 import { Ticket } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import ReferralEventLog from '@/components/referral/ReferralEventLog'
+import ReferralRealList from '@/components/referral/ReferralRealList'
 import type {
   ReferralCodeType,
   ReferralCouponDiscountType,
+  ReferralCode,
+  ReferralCoupon,
 } from '@/types/referral'
 
 /**
@@ -33,7 +36,18 @@ export default function ReferralCodes() {
     applyReferralCoupon,
     redeemReferralCoupon,
     createReferralShareAssets,
+    listReferralCodes,
+    listReferralCoupons,
   } = useCarUpApi()
+
+  const loadCodes = useCallback(async () => {
+    const res = await listReferralCodes({ limit: 50 })
+    return { items: res.codes ?? [], pagination: res.pagination }
+  }, [listReferralCodes])
+  const loadCoupons = useCallback(async () => {
+    const res = await listReferralCoupons({ limit: 50 })
+    return { items: res.coupons ?? [], pagination: res.pagination }
+  }, [listReferralCoupons])
 
   // Create code
   const [codeType, setCodeType] = useState<ReferralCodeType>('MEMBER')
@@ -263,7 +277,31 @@ export default function ReferralCodes() {
         </CardContent>
       </Card>
 
-      <ReferralEventLog title="Recent code & coupon activity" />
+      <ReferralRealList
+        title="Referral Codes"
+        load={loadCodes}
+        emptyText="No referral codes yet — create one above."
+        renderRow={(c: ReferralCode) => (
+          <div key={c.id} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+            <span className="font-mono">{c.code}</span>
+            <span className="text-gray-500">{[c.code_type, c.status].filter(Boolean).join(' · ')}</span>
+            <span className="text-gray-400">{c.created_at ? new Date(c.created_at).toLocaleDateString() : ''}</span>
+          </div>
+        )}
+      />
+      <ReferralRealList
+        title="Coupons"
+        load={loadCoupons}
+        emptyText="No coupons yet — create one above."
+        renderRow={(c: ReferralCoupon) => (
+          <div key={c.id} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+            <span className="font-mono">{c.code}</span>
+            <span className="text-gray-500">{[c.discount_type, c.discount_value].filter((v) => v !== undefined && v !== null).join(' · ')}</span>
+            <span className="text-gray-400">{c.status}</span>
+          </div>
+        )}
+      />
+      <ReferralEventLog title="Audit activity (event log)" />
     </div>
   )
 }

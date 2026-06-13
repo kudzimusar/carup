@@ -128,6 +128,20 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.status(201).json({ success: true, code });
   }));
 
+  router.get('/codes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const result = await referralService.listCodes({
+      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      campaign_id: req.query.campaign_id || undefined,
+      status: req.query.status || undefined,
+      code_type: req.query.code_type || undefined,
+      owner_user_id: req.query.owner_user_id || undefined,
+      channel: req.query.channel || undefined,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json({ success: true, ...result });
+  }));
+
   router.post('/validate', asyncHandler(async (req, res) => {
     const result = await referralService.validateReferralCode(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
     res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
@@ -233,6 +247,20 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.status(201).json(response);
   }));
 
+  router.get('/local-marketplace/leads', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const result = await localMarketplaceService.listLeads({
+      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      campaign_id: req.query.campaign_id || undefined,
+      status: req.query.status || undefined,
+      participant_type: req.query.participant_type || undefined,
+      flow: req.query.flow || undefined,
+      referral_code: req.query.referral_code || undefined,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json({ success: true, ...result });
+  }));
+
   router.post('/local-marketplace/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const response = await localMarketplaceService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
     res.status(201).json(response);
@@ -256,6 +284,20 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   router.post('/import-campaigns/routes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const response = await importCampaignService.createRoutePage(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
     res.status(201).json(response);
+  }));
+
+  router.get('/import-campaigns/routes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const result = await importCampaignService.listRoutes({
+      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      route_key: req.query.route_key || undefined,
+      flow: req.query.flow || undefined,
+      status: req.query.status || undefined,
+      origin: req.query.origin || undefined,
+      destination: req.query.destination || undefined,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json({ success: true, ...result });
   }));
 
   router.get('/import-campaigns/routes/:routeKey/status', asyncHandler(async (req, res) => {
@@ -373,6 +415,19 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.status(201).json(response);
   }));
 
+  router.get('/trust/disputes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const result = await trustReviewService.listDisputes({
+      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      status: req.query.status || undefined,
+      wallet_transaction_id: req.query.wallet_transaction_id || undefined,
+      user_id: req.query.user_id || undefined,
+      dispute_event_id: req.query.dispute_event_id || undefined,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json({ success: true, ...result });
+  }));
+
   router.patch('/trust/disputes/:disputeEventId/resolve', authorizeRole(TRUST_DECISION_ROLES), asyncHandler(async (req, res) => {
     const response = await trustReviewService.resolveDispute(req.params.disputeEventId, req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
     res.json(response);
@@ -392,6 +447,18 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   router.post('/coupons', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const coupon = await referralService.createCoupon(req.body, createActor(req, ACTOR_TYPES.ADMIN));
     res.status(201).json({ success: true, coupon });
+  }));
+
+  router.get('/coupons', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const result = await referralService.listCoupons({
+      tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,
+      campaign_id: req.query.campaign_id || undefined,
+      status: req.query.status || undefined,
+      discount_type: req.query.discount_type || undefined,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json({ success: true, ...result });
   }));
 
   router.post('/coupons/apply', asyncHandler(async (req, res) => {

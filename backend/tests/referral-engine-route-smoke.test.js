@@ -104,6 +104,8 @@ const DOCUMENTED_ROUTES = [
   'PATCH /trust/review-cases/:caseEventId/decision', 'POST /trust/wallet-transactions/:transactionId/hold',
   'GET /trust/benefits/:transactionId/explain', 'POST /trust/disputes', 'PATCH /trust/disputes/:disputeEventId/resolve',
   'GET /trust/audit-export',
+  // Phase E additive read/list endpoints
+  'GET /codes', 'GET /coupons', 'GET /local-marketplace/leads', 'GET /import-campaigns/routes', 'GET /trust/disputes',
 ];
 
 test('every documented referral route is registered on the mounted router', () => {
@@ -126,6 +128,13 @@ test('operator-protected route rejects unauthenticated requests with 401', async
 test('admin-only timeline rejects unauthenticated requests with 401', async () => {
   const res = await call('GET', '/api/referrals/admin/events');
   assert.equal(res.status, 401);
+});
+
+test('Phase E list endpoints reject unauthenticated requests with 401', async () => {
+  for (const path of ['/api/referrals/codes', '/api/referrals/coupons', '/api/referrals/local-marketplace/leads', '/api/referrals/import-campaigns/routes', '/api/referrals/trust/disputes']) {
+    const res = await call('GET', path);
+    assert.equal(res.status, 401, `${path} should require auth`);
+  }
 });
 
 test('public rule catalogs are reachable without auth', async () => {
