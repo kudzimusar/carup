@@ -88,7 +88,7 @@ export function parseCookies(cookieHeader) {
 }
 
 /**
- * Generate CSRF Token bound to user/session context
+ * Generate Signed CSRF Token
  */
 export function generateCsrfToken(userId, sessionToken) {
   const payload = {
@@ -149,9 +149,11 @@ export function csrfMiddleware(req, res, next) {
     return next();
   }
 
-  // Webhooks are machine-to-machine and bypass CSRF (authenticated via HMAC/signatures)
-  const isWebhook = req.originalUrl?.startsWith('/api/payments/webhook') || 
-                    req.originalUrl?.startsWith('/api/safepay/webhook');
+  // Webhooks are machine-to-machine and bypass CSRF (authenticated via HMAC/signatures or webhook secrets)
+  const url = req.originalUrl || req.url || '';
+  const isWebhook = url.startsWith('/api/payments/webhook') ||
+                    url.startsWith('/api/safepay/webhook') ||
+                    /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url);
   if (isWebhook) {
     return next();
   }
