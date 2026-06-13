@@ -76,6 +76,7 @@ async function authHeaders() {
   const { token, user } = useAuthStore.getState();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
   };
 
   if (token) {
@@ -100,7 +101,13 @@ const CSRF_TOKEN_TTL_MS = 90 * 60 * 1000;
 let csrfCache: { sessionKey: string; token: string; fetchedAt: number } | null = null;
 
 export async function fetchCsrfToken(baseUrl: string, sessionToken: string | null): Promise<string> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    // ngrok's free tier serves an HTML warning page to browser-like
+    // User-Agents (which RN/Expo Go fetch uses); this documented header
+    // bypasses it and is ignored by every other backend.
+    'ngrok-skip-browser-warning': 'true',
+  };
   if (sessionToken) {
     headers['x-session-token'] = sessionToken;
   }
@@ -108,7 +115,15 @@ export async function fetchCsrfToken(baseUrl: string, sessionToken: string | nul
   if (!response.ok) {
     throw new VerificationApiError(`Failed to obtain CSRF token (HTTP ${response.status}).`, response.status);
   }
-  const body = await response.json();
+  let body: { csrfToken?: string };
+  try {
+    body = await response.json();
+  } catch {
+    throw new VerificationApiError(
+      'Security endpoint returned a non-JSON response — a tunnel or proxy may be intercepting requests.',
+      response.status
+    );
+  }
   if (!body?.csrfToken) {
     throw new VerificationApiError('CSRF token missing from security endpoint response.', response.status);
   }
