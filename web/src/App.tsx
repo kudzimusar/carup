@@ -93,6 +93,10 @@ import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
+import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
+import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
+import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
+import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -262,6 +266,10 @@ export default function App() {
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
+          <Route path="/admin/referrals" element={<ReferralCampaigns />} />
+          <Route path="/admin/referrals/codes" element={<ReferralCodes />} />
+          <Route path="/admin/referrals/local-leads" element={<ReferralLocalLeads />} />
+          <Route path="/admin/referrals/import-routes" element={<ReferralImportRoutes />} />
         </Route>
       </Routes>
     </AppContext.Provider>

@@ -136,14 +136,14 @@ export interface ReferralCouponRedemption {
 
 export interface ReferralShareAsset {
   id?: string
-  code: string
-  share_url?: string
-  deep_link?: string
-  qr_payload?: string
-  qr_data_url?: string
-  barcode_payload?: string
+  code?: string
+  code_id?: string
+  campaign_id?: string
+  asset_type?: string
   channel?: ReferralChannelName
-  assets?: Array<Record<string, unknown>>
+  // Generated assets live under `payload`: short_referral_url, qr_payload,
+  // barcode_svg, whatsapp_share_url, telegram_start_url, social_campaign_url, poster_text.
+  payload?: Record<string, unknown>
   metadata?: Record<string, unknown>
 }
 
@@ -182,9 +182,15 @@ export interface ReferralEvent {
   tenant_id?: string
   campaign_id?: string | null
   code_id?: string | null
+  coupon_id?: string | null
+  wallet_transaction_id?: string | null
+  subject_type?: string | null
+  subject_id?: string | null
   actor_type?: ReferralActorType
   actor_user_id?: string | null
   channel?: ReferralChannelName
+  source?: string | null
+  session_id?: string | null
   occurred_at?: string
   payload?: Record<string, unknown>
   metadata?: Record<string, unknown>
