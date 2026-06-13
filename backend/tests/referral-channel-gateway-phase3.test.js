@@ -4,12 +4,13 @@ import { readFileSync } from 'node:fs';
 import { ReferralEngineService } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, CHANNEL_GATEWAY_EVENT_TYPES, extractReferralCode, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
-import { MAX_CHANNEL_MESSAGES_PER_WEBHOOK, buildChannelWebhookReply, isValidTelegramWebhookSecret, parseChannelPayload, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
+import { MAX_CHANNEL_MESSAGES_PER_WEBHOOK, isValidTelegramWebhookSecret, parseChannelPayload, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 import { REFERRAL_TABLES } from '../services/referral/referralEngineRepository.js';
 import { REFERRAL_CODE_TYPES } from '../constants/referral/referralConstants.js';
 import { ValidationError, ForbiddenError } from '../utils/errors.js';
 
 const routeFile = readFileSync(new URL('../routes/referralRoutes.js', import.meta.url), 'utf8');
+const securityFile = readFileSync(new URL('../middleware/securityMiddleware.js', import.meta.url), 'utf8');
 const channelServiceFile = readFileSync(new URL('../services/referral/referralChannelGatewayService.js', import.meta.url), 'utf8');
 const parserFile = readFileSync(new URL('../services/referral/referralChannelPayloadParsers.js', import.meta.url), 'utf8');
 
@@ -52,6 +53,14 @@ test('Phase 3 routes expose channel inbound, platform webhooks, verification, an
     'CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN',
     'processParsedChannelMessages',
   ]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
+});
+
+test('social webhooks bypass CSRF but still rely on route-level webhook secrets', () => {
+  assert.equal(securityFile.includes('/api/referrals/channels'), true);
+  assert.equal(securityFile.includes('(whatsapp|telegram|facebook|instagram)'), true);
+  assert.equal(routeFile.includes('Channel webhook requires a valid webhook secret.'), true);
+  assert.equal(routeFile.includes('isValidChannelWebhookKey'), true);
+  assert.equal(routeFile.includes('isValidTelegramWebhookSecret'), true);
 });
 
 test('channel service supports required channels and rejects unsupported channels', () => {
