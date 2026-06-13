@@ -7,10 +7,11 @@ import { ReferralEngineService, buildActorContext } from '../services/referral/r
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
 import { ReferralLocalMarketplaceHardenedService } from '../services/referral/referralLocalMarketplaceHardenedService.js';
+import { ReferralImportCampaignBenchmarkService } from '../services/referral/referralImportCampaignBenchmarkService.js';
 import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
-const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager'];
+const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager', 'operator', 'route_agent'];
 const WEBHOOK_CHANNELS = new Set(['whatsapp', 'telegram', 'facebook', 'instagram']);
 
 const asyncHandler = (fn) => (req, res, next) => {
@@ -93,12 +94,13 @@ function handleMetaVerification(req, res) {
   res.status(200).send(challenge);
 }
 
-export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null } = {}) {
+export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null, importCampaign = null } = {}) {
   const router = express.Router();
   const referralService = service || new ReferralEngineService({ client });
   const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
   const channelService = channelGateway || new ReferralChannelGatewayService({ agentGateway: gatewayService, referralService });
   const localMarketplaceService = localMarketplace || new ReferralLocalMarketplaceHardenedService({ referralService, channelGateway: channelService });
+  const importCampaignService = importCampaign || new ReferralImportCampaignBenchmarkService({ referralService, channelGateway: channelService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
@@ -239,6 +241,47 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   router.post('/local-marketplace/share-kit', asyncHandler(async (req, res) => {
     assertAgentGatewayAccess(req);
     const response = await localMarketplaceService.prepareLocalShareKit(req.body || {}, createAgentGatewayActor(req));
+    res.json(response);
+  }));
+
+  router.get('/import-campaigns/rules', asyncHandler(async (req, res) => {
+    res.json({ success: true, rules: importCampaignService.getRuleCatalog() });
+  }));
+
+  router.post('/import-campaigns/routes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await importCampaignService.createRoutePage(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.get('/import-campaigns/routes/:routeKey/status', asyncHandler(async (req, res) => {
+    const response = await importCampaignService.getRouteStatus(req.params.routeKey);
+    res.json(response);
+  }));
+
+  router.post('/import-campaigns/routes/:routeKey/capacity', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await importCampaignService.updateCapacity({ ...req.body, route_key: req.params.routeKey }, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/import-campaigns/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await importCampaignService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/import-campaigns/leads', asyncHandler(async (req, res) => {
+    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
+    const response = await importCampaignService.createLead(req.body || {}, actor);
+    res.status(201).json(response);
+  }));
+
+  router.post('/import-campaigns/leads/:leadEventId/qualify', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await importCampaignService.qualifyMilestone({ ...req.body, lead_event_id: req.params.leadEventId }, createActor(req, ACTOR_TYPES.ADMIN));
+    res.json(response);
+  }));
+
+  router.post('/import-campaigns/share-kit', asyncHandler(async (req, res) => {
+    assertAgentGatewayAccess(req);
+    const response = await importCampaignService.prepareShareKit(req.body || {}, createAgentGatewayActor(req));
     res.json(response);
   }));
 
