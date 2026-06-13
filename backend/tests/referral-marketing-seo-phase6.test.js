@@ -53,7 +53,6 @@ async function seedCampaign(referralService) {
 }
 
 const operatorActor = Object.freeze({ actor_user_id: 'marketing-operator-1', actor_role: 'marketing_manager', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'web', session_id: 'marketing-session' });
-const sellerActor = Object.freeze({ actor_user_id: 'seller-1', actor_role: 'seller', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: false, surface: 'web', session_id: 'seller-session' });
 const memberActor = Object.freeze({ actor_user_id: 'member-1', actor_role: 'member', actor_tenant_id: 'tenant-1', actor_type: 'user', gateway_trusted: false, surface: 'web', session_id: 'member-session' });
 
 test('Phase 6 docs, routes, and service cover AI marketing and SEO requirements', () => {
@@ -143,7 +142,7 @@ test('asset status workflow enforces approval, scheduling, publication, and attr
   await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'published' }, memberActor), ForbiddenError);
   const approved = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'approved', reason: 'copy verified' }, operatorActor);
   assert.equal(approved.asset.metadata.status, 'approved');
-  await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled' }, sellerActor), ValidationError);
+  await assert.rejects(() => marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled' }, operatorActor), ValidationError);
   const scheduled = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'scheduled', scheduled_at: '2026-07-01T09:00:00.000Z' }, operatorActor);
   assert.equal(scheduled.asset.metadata.scheduled_at, '2026-07-01T09:00:00.000Z');
   const published = await marketingSeo.transitionAssetStatus(draft.asset.id, { status: 'published' }, operatorActor);
