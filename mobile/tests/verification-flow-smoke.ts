@@ -33,6 +33,8 @@ async function runTests() {
   test('capturedSelfie initially null', store.capturedSelfie === null, String(store.capturedSelfie));
   test('ocrResult initially null', store.ocrResult === null, String(store.ocrResult));
   test('processingError initially null', store.processingError === null, String(store.processingError));
+  test('verificationStatus initially idle', store.verificationStatus === 'idle', store.verificationStatus);
+  test('verificationSessionId initially null', store.verificationSessionId === null, String(store.verificationSessionId));
 
   // --- Test 2: hasRequiredImages validation ---
   console.log('\n2. hasRequiredImages validation');
@@ -82,8 +84,12 @@ async function runTests() {
 
   // --- Test 8: Processing error storage ---
   console.log('\n8. Processing error storage');
-  store.setProcessingError('Backend unreachable. Using offline verification.');
+  store.setProcessingError('Backend unreachable. Verification captured on device but not marked verified.');
   test('setProcessingError works', useVerificationStore.getState().processingError?.includes('unreachable') ?? false, String(useVerificationStore.getState().processingError));
+
+  useVerificationStore.getState().setVerificationOutcome('backend_pending', 'session-123', 'Backend unreachable.');
+  test('setVerificationOutcome status works', useVerificationStore.getState().verificationStatus === 'backend_pending', useVerificationStore.getState().verificationStatus);
+  test('setVerificationOutcome session works', useVerificationStore.getState().verificationSessionId === 'session-123', String(useVerificationStore.getState().verificationSessionId));
 
   // --- Test 9: Store clear ---
   console.log('\n9. Store clear');
@@ -94,6 +100,8 @@ async function runTests() {
   test('clear resets capturedSelfie', cleared.capturedSelfie === null, String(cleared.capturedSelfie));
   test('clear resets ocrResult', cleared.ocrResult === null, String(cleared.ocrResult));
   test('clear resets processingError', cleared.processingError === null, String(cleared.processingError));
+  test('clear resets verificationStatus', cleared.verificationStatus === 'idle', cleared.verificationStatus);
+  test('clear resets verificationSessionId', cleared.verificationSessionId === null, String(cleared.verificationSessionId));
   test('hasRequiredImages after clear → false', !cleared.hasRequiredImages(true), 'all cleared');
 
   // --- Test 10: Double-sided flow simulation ---
