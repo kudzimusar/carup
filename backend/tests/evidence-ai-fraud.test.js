@@ -16,6 +16,10 @@ const express = (await import('express')).default;
 const vehiclesRouter = (await import('../routes/vehiclesRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
+// Hoisted to module scope: importing evidenceService inside a running test body
+// triggers a Node 20 test-runner IPC "Unable to deserialize cloned data" crash
+// (worker-thread structured clone races with the module's top-level side effects).
+const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
 
 let db;
 function resetDb() {
@@ -334,8 +338,8 @@ test('Duplicate photo checksum check flags duplicates automatically', async () =
   // Set uploader file checksum to trigger duplicate detection match
   db.evidence[data.id].checksum = 'duplicate-checksum-sha256';
 
-  // Re-run worker logic with preset checksum in database
-  const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
+  // Re-run worker logic with preset checksum in database (runAiAnalysis is
+  // imported at module scope; see the hoist note above).
   await runAiAnalysis(data.id, Buffer.from('test-image-bytes'), 'image/png', 'odometer_photo');
 
   const ev = db.evidence[data.id];
