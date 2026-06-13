@@ -2,9 +2,10 @@
  * Static guard for the mobile login submit button (PR #72 blocker).
  * Run with: npx tsx tests/login-submit-button.test.ts  (cwd = mobile/)
  *
- * Proves the Sign In button exists, has visible text and a visible (non-zero,
- * non-transparent, coloured) style, is directly in the form flow (not gated by
- * a conditional), and that the fields + error surface are present.
+ * Proves the radically-simple login layout: the visible marker text and the
+ * visible CTA strings are present, the button has a coloured background, real
+ * height (minHeight >= 64), no opacity:0, white text, and is not conditionally
+ * hidden. These are source-level guards; final visibility is confirmed on device.
  */
 import { strict as assert } from 'node:assert';
 import fs from 'node:fs';
@@ -25,14 +26,19 @@ const src = fs.readFileSync(loginPath, 'utf-8');
 
 console.log('\n=== LOGIN SUBMIT BUTTON STATIC TEST ===\n');
 
-// Isolate the submit control's JSX (from its testID to the end of its element)
-// so style assertions target the button, not the whole file.
 const submitIdx = src.indexOf('testID="login-submit"');
-const submitBlock = submitIdx > -1 ? src.slice(submitIdx - 400, submitIdx + 600) : '';
+const submitBlock = submitIdx > -1 ? src.slice(submitIdx - 200, submitIdx + 700) : '';
 
-test('login screen declares a Sign In submit button with visible text', () => {
+test('exact visible marker string is present: VISIBLE LOGIN BUTTON BELOW', () => {
+  assert.ok(src.includes('VISIBLE LOGIN BUTTON BELOW'), 'marker text present');
+});
+
+test('exact CTA string is present: SIGN IN — VISIBLE CTA', () => {
+  assert.ok(src.includes('SIGN IN — VISIBLE CTA'), 'CTA label present');
+});
+
+test('submit control declares testID="login-submit"', () => {
   assert.ok(submitIdx > -1, 'login-submit testID present');
-  assert.ok(/>\s*Sign In\s*</.test(src), 'visible "Sign In" text node present');
 });
 
 test('email and password fields are present', () => {
@@ -40,26 +46,30 @@ test('email and password fields are present', () => {
   assert.ok(src.includes('testID="login-password"'), 'password field present');
 });
 
-test('Sign In button has a visible coloured background (dark or orange)', () => {
+test('button has a visible coloured background (dark or orange)', () => {
   assert.ok(/backgroundColor:\s*'#(F97316|0F172A)'/.test(submitBlock), 'button has a dark/orange backgroundColor');
 });
 
-test('Sign In button has a real tappable height (>= 56)', () => {
-  const m = submitBlock.match(/height:\s*(\d+)/);
-  assert.ok(m, 'button declares an explicit height');
-  assert.ok(Number(m![1]) >= 56, `button height ${m![1]} is >= 56`);
+test('button has a real tappable height (minHeight >= 64)', () => {
+  const m = submitBlock.match(/minHeight:\s*(\d+)/) || submitBlock.match(/height:\s*(\d+)/);
+  assert.ok(m, 'button declares a (min)height');
+  assert.ok(Number(m![1]) >= 64, `button (min)height ${m![1]} is >= 64`);
 });
 
-test('Sign In button is not invisible (no opacity: 0)', () => {
+test('button is not invisible (no opacity: 0)', () => {
   assert.ok(!/opacity:\s*0\b/.test(submitBlock), 'button is not opacity:0');
 });
 
-test('Sign In button text is not white-on-white (white text + coloured bg)', () => {
+test('button text is white (not white-on-white — bg is coloured)', () => {
   assert.ok(/color:\s*'#FFFFFF'/.test(submitBlock), 'button text is white');
-  // and the bg is coloured (asserted above) — so not white-on-white.
 });
 
-test('Sign In button is not conditionally hidden (only `disabled` toggles)', () => {
+test('marker appears before the submit button (button is below the marker)', () => {
+  const markerIdx = src.indexOf('VISIBLE LOGIN BUTTON BELOW');
+  assert.ok(markerIdx > -1 && submitIdx > markerIdx, 'marker precedes the submit button');
+});
+
+test('submit button is not conditionally hidden (only `disabled` toggles)', () => {
   const before = src.slice(Math.max(0, submitIdx - 300), submitIdx);
   assert.ok(!/&&\s*\(\s*<(Pressable|TouchableOpacity)[^>]*$/.test(before), 'submit button is not behind a && conditional');
 });
