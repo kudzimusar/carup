@@ -40,6 +40,7 @@ test('Phase 5 routes use the hardened import campaign service wrapper', () => {
   assert.equal(routeFile.includes('referralImportCampaignHardenedService.js'), true);
   assert.equal(hardenedServiceFile.includes('preflightMilestoneQualification'), true);
   assert.equal(hardenedServiceFile.includes('preflightCapacity'), true);
+  assert.equal(hardenedServiceFile.includes('preflightRequestedCapacity'), true);
 });
 
 test('generated import campaign slugs are monotonic even when time is fixed', async () => {
@@ -53,6 +54,15 @@ test('route page creation rejects overbooked capacity before route event side ef
   const { repository, importCampaign } = createHarness();
   await assert.rejects(() => importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 11 }, operatorActor), ValidationError);
   assert.equal((await repository.list(REFERRAL_TABLES.events)).some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.ROUTE_PAGE_CREATED), false);
+});
+
+test('import lead creation rejects requested space above available capacity before lead side effects', async () => {
+  const { repository, importCampaign } = createHarness();
+  await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 4 }, operatorActor);
+  await importCampaign.updateCapacity({ route_key: 'japan-zimbabwe-container-space', flow_type: 'container_space', total_cbm: 10, booked_cbm: 6 }, operatorActor);
+  await assert.rejects(() => importCampaign.createLead({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', requested_cbm: 5, session_id: 'over-capacity-lead' }, buyerActor), ValidationError);
+  const events = await repository.list(REFERRAL_TABLES.events);
+  assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.IMPORT_LEAD_CREATED), false);
 });
 
 test('zero manual import reward override is rejected before qualification or wallet mutation', async () => {
