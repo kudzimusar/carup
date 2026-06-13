@@ -6,6 +6,7 @@ import { ACTOR_TYPES } from '../constants/referral/referralConstants.js';
 import { ReferralEngineService, buildActorContext } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
+import { ReferralLocalMarketplaceService } from '../services/referral/referralLocalMarketplaceService.js';
 import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
@@ -92,11 +93,12 @@ function handleMetaVerification(req, res) {
   res.status(200).send(challenge);
 }
 
-export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null } = {}) {
+export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null } = {}) {
   const router = express.Router();
   const referralService = service || new ReferralEngineService({ client });
   const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
   const channelService = channelGateway || new ReferralChannelGatewayService({ agentGateway: gatewayService, referralService });
+  const localMarketplaceService = localMarketplace || new ReferralLocalMarketplaceService({ referralService, channelGateway: channelService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
@@ -205,6 +207,38 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   router.post('/channels/mobile-chat/message', asyncHandler(async (req, res) => {
     assertChannelAccess(req, 'mobile_chat');
     const response = await processParsedChannelMessages('mobile_chat', req.body || {}, channelService, createChannelActor(req, 'mobile_chat'));
+    res.json(response);
+  }));
+
+  router.get('/local-marketplace/rules', asyncHandler(async (req, res) => {
+    res.json({ success: true, rules: localMarketplaceService.getRuleCatalog() });
+  }));
+
+  router.post('/local-marketplace/intent', asyncHandler(async (req, res) => {
+    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
+    const response = await localMarketplaceService.recordIntent(req.body || {}, actor);
+    res.status(201).json(response);
+  }));
+
+  router.post('/local-marketplace/leads', asyncHandler(async (req, res) => {
+    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
+    const response = await localMarketplaceService.createLead(req.body || {}, actor);
+    res.status(201).json(response);
+  }));
+
+  router.post('/local-marketplace/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await localMarketplaceService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/local-marketplace/leads/:leadEventId/qualify', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await localMarketplaceService.qualifyLead({ ...req.body, lead_event_id: req.params.leadEventId }, createActor(req, ACTOR_TYPES.ADMIN));
+    res.json(response);
+  }));
+
+  router.post('/local-marketplace/share-kit', asyncHandler(async (req, res) => {
+    assertAgentGatewayAccess(req);
+    const response = await localMarketplaceService.prepareLocalShareKit(req.body || {}, createAgentGatewayActor(req));
     res.json(response);
   }));
 
