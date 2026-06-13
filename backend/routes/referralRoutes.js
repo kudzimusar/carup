@@ -7,7 +7,7 @@ import { ReferralEngineService, buildActorContext } from '../services/referral/r
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
 import { ReferralLocalMarketplaceHardenedService } from '../services/referral/referralLocalMarketplaceHardenedService.js';
-import { ReferralImportCampaignService } from '../services/referral/referralImportCampaignService.js';
+import { ReferralImportCampaignHardenedService } from '../services/referral/referralImportCampaignHardenedService.js';
 import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
@@ -100,235 +100,56 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
   const channelService = channelGateway || new ReferralChannelGatewayService({ agentGateway: gatewayService, referralService });
   const localMarketplaceService = localMarketplace || new ReferralLocalMarketplaceHardenedService({ referralService, channelGateway: channelService });
-  const importCampaignService = importCampaign || new ReferralImportCampaignService({ referralService, channelGateway: channelService });
+  const importCampaignService = importCampaign || new ReferralImportCampaignHardenedService({ referralService, channelGateway: channelService });
 
-  router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json({ success: true, campaign });
-  }));
+  router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json({ success: true, campaign }); }));
+  router.get('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const filters = { tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, status: req.query.status || undefined, campaign_type: req.query.campaign_type || undefined, priority_scope: req.query.priority_scope || undefined }; const campaigns = await referralService.listCampaigns(filters); res.json({ success: true, campaigns }); }));
+  router.patch('/campaigns/:id', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const campaign = await referralService.updateCampaign(req.params.id, req.body, createActor(req, ACTOR_TYPES.ADMIN)); res.json({ success: true, campaign }); }));
+  router.post('/codes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const code = await referralService.createReferralCode(req.body, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json({ success: true, code }); }));
+  router.post('/validate', asyncHandler(async (req, res) => { const result = await referralService.validateReferralCode(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER)); res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result }); }));
+  router.get('/codes/:code', asyncHandler(async (req, res) => { const result = await referralService.validateReferralCode({ code: req.params.code, channel: req.query.channel, source: req.query.source, session_id: req.query.session_id }, createActor(req, ACTOR_TYPES.USER)); res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result }); }));
+  router.post('/events', asyncHandler(async (req, res) => { const event = await referralService.recordReferralEvent(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER)); res.status(201).json({ success: true, event }); }));
 
-  router.get('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const filters = { tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, status: req.query.status || undefined, campaign_type: req.query.campaign_type || undefined, priority_scope: req.query.priority_scope || undefined };
-    const campaigns = await referralService.listCampaigns(filters);
-    res.json({ success: true, campaigns });
-  }));
+  router.get('/agent/tools', asyncHandler(async (req, res) => { const actor = createAgentGatewayActor({ ...req, body: { context: req.query, input: {} } }); res.json({ success: true, tools: gatewayService.getToolCatalog(actor) }); }));
+  router.post('/agent/triage', asyncHandler(async (req, res) => { assertAgentGatewayAccess(req); const actor = createAgentGatewayActor(req); const response = await gatewayService.executeTool({ tool: 'triage', input: req.body || {}, context: req.body?.context || {} }, actor); res.json(response); }));
+  router.post('/agent/execute', asyncHandler(async (req, res) => { assertAgentGatewayAccess(req); if (!req.body?.tool) throw new ValidationError('tool is required.'); const actor = createAgentGatewayActor(req); const response = await gatewayService.executeTool({ tool: req.body.tool, input: req.body.input || {}, context: req.body.context || {} }, actor); res.json(response); }));
 
-  router.patch('/campaigns/:id', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const campaign = await referralService.updateCampaign(req.params.id, req.body, createActor(req, ACTOR_TYPES.ADMIN));
-    res.json({ success: true, campaign });
-  }));
-
-  router.post('/codes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const code = await referralService.createReferralCode(req.body, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json({ success: true, code });
-  }));
-
-  router.post('/validate', asyncHandler(async (req, res) => {
-    const result = await referralService.validateReferralCode(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
-    res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
-  }));
-
-  router.get('/codes/:code', asyncHandler(async (req, res) => {
-    const result = await referralService.validateReferralCode({ code: req.params.code, channel: req.query.channel, source: req.query.source, session_id: req.query.session_id }, createActor(req, ACTOR_TYPES.USER));
-    res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });
-  }));
-
-  router.post('/events', asyncHandler(async (req, res) => {
-    const event = await referralService.recordReferralEvent(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
-    res.status(201).json({ success: true, event });
-  }));
-
-  router.get('/agent/tools', asyncHandler(async (req, res) => {
-    const actor = createAgentGatewayActor({ ...req, body: { context: req.query, input: {} } });
-    res.json({ success: true, tools: gatewayService.getToolCatalog(actor) });
-  }));
-
-  router.post('/agent/triage', asyncHandler(async (req, res) => {
-    assertAgentGatewayAccess(req);
-    const actor = createAgentGatewayActor(req);
-    const response = await gatewayService.executeTool({ tool: 'triage', input: req.body || {}, context: req.body?.context || {} }, actor);
-    res.json(response);
-  }));
-
-  router.post('/agent/execute', asyncHandler(async (req, res) => {
-    assertAgentGatewayAccess(req);
-    if (!req.body?.tool) throw new ValidationError('tool is required.');
-    const actor = createAgentGatewayActor(req);
-    const response = await gatewayService.executeTool({ tool: req.body.tool, input: req.body.input || {}, context: req.body.context || {} }, actor);
-    res.json(response);
-  }));
-
-  router.post('/channels/:channel/inbound', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, req.params.channel);
-    const actor = createChannelActor(req, req.params.channel);
-    const response = await channelService.processInbound(req.params.channel, req.body || {}, actor);
-    res.json(response);
-  }));
-
-  router.post('/channels/:channel/share-kit', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, req.params.channel);
-    const actor = createChannelActor(req, req.params.channel);
-    const response = await channelService.prepareShareKit(req.params.channel, req.body || {}, actor);
-    res.json(response);
-  }));
-
+  router.post('/channels/:channel/inbound', asyncHandler(async (req, res) => { assertChannelAccess(req, req.params.channel); const actor = createChannelActor(req, req.params.channel); const response = await channelService.processInbound(req.params.channel, req.body || {}, actor); res.json(response); }));
+  router.post('/channels/:channel/share-kit', asyncHandler(async (req, res) => { assertChannelAccess(req, req.params.channel); const actor = createChannelActor(req, req.params.channel); const response = await channelService.prepareShareKit(req.params.channel, req.body || {}, actor); res.json(response); }));
   router.get('/channels/whatsapp/webhook', asyncHandler(handleMetaVerification));
   router.get('/channels/facebook/webhook', asyncHandler(handleMetaVerification));
   router.get('/channels/instagram/webhook', asyncHandler(handleMetaVerification));
+  router.post('/channels/whatsapp/webhook', asyncHandler(async (req, res) => { assertChannelAccess(req, 'whatsapp'); const response = await processParsedChannelMessages('whatsapp', req.body || {}, channelService, createChannelActor(req, 'whatsapp')); res.json(response); }));
+  router.post('/channels/telegram/webhook', asyncHandler(async (req, res) => { assertChannelAccess(req, 'telegram'); const response = await processParsedChannelMessages('telegram', req.body || {}, channelService, createChannelActor(req, 'telegram')); res.json(response); }));
+  router.post('/channels/facebook/webhook', asyncHandler(async (req, res) => { assertChannelAccess(req, 'facebook'); const response = await processParsedChannelMessages('facebook', req.body || {}, channelService, createChannelActor(req, 'facebook')); res.json(response); }));
+  router.post('/channels/instagram/webhook', asyncHandler(async (req, res) => { assertChannelAccess(req, 'instagram'); const response = await processParsedChannelMessages('instagram', req.body || {}, channelService, createChannelActor(req, 'instagram')); res.json(response); }));
+  router.post('/channels/web-chat/message', asyncHandler(async (req, res) => { assertChannelAccess(req, 'web_chat'); const response = await processParsedChannelMessages('web_chat', req.body || {}, channelService, createChannelActor(req, 'web_chat')); res.json(response); }));
+  router.post('/channels/mobile-chat/message', asyncHandler(async (req, res) => { assertChannelAccess(req, 'mobile_chat'); const response = await processParsedChannelMessages('mobile_chat', req.body || {}, channelService, createChannelActor(req, 'mobile_chat')); res.json(response); }));
 
-  router.post('/channels/whatsapp/webhook', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, 'whatsapp');
-    const response = await processParsedChannelMessages('whatsapp', req.body || {}, channelService, createChannelActor(req, 'whatsapp'));
-    res.json(response);
-  }));
+  router.get('/local-marketplace/rules', asyncHandler(async (req, res) => { res.json({ success: true, rules: localMarketplaceService.getRuleCatalog() }); }));
+  router.post('/local-marketplace/intent', asyncHandler(async (req, res) => { const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER); const response = await localMarketplaceService.recordIntent(req.body || {}, actor); res.status(201).json(response); }));
+  router.post('/local-marketplace/leads', asyncHandler(async (req, res) => { const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER); const response = await localMarketplaceService.createLead(req.body || {}, actor); res.status(201).json(response); }));
+  router.post('/local-marketplace/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const response = await localMarketplaceService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json(response); }));
+  router.post('/local-marketplace/leads/:leadEventId/qualify', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const response = await localMarketplaceService.qualifyLead({ ...req.body, lead_event_id: req.params.leadEventId }, createActor(req, ACTOR_TYPES.ADMIN)); res.json(response); }));
+  router.post('/local-marketplace/share-kit', asyncHandler(async (req, res) => { assertAgentGatewayAccess(req); const response = await localMarketplaceService.prepareLocalShareKit(req.body || {}, createAgentGatewayActor(req)); res.json(response); }));
 
-  router.post('/channels/telegram/webhook', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, 'telegram');
-    const response = await processParsedChannelMessages('telegram', req.body || {}, channelService, createChannelActor(req, 'telegram'));
-    res.json(response);
-  }));
+  router.get('/import-campaigns/rules', asyncHandler(async (req, res) => { res.json({ success: true, rules: importCampaignService.getRuleCatalog() }); }));
+  router.post('/import-campaigns/routes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const response = await importCampaignService.createRoutePage(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json(response); }));
+  router.get('/import-campaigns/routes/:routeKey/status', asyncHandler(async (req, res) => { const response = await importCampaignService.getRouteStatus(req.params.routeKey); res.json(response); }));
+  router.post('/import-campaigns/routes/:routeKey/capacity', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const response = await importCampaignService.updateCapacity({ ...req.body, route_key: req.params.routeKey }, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json(response); }));
+  router.post('/import-campaigns/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const response = await importCampaignService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json(response); }));
+  router.post('/import-campaigns/leads', asyncHandler(async (req, res) => { const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER); const response = await importCampaignService.createLead(req.body || {}, actor); res.status(201).json(response); }));
+  router.post('/import-campaigns/leads/:leadEventId/qualify', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const response = await importCampaignService.qualifyMilestone({ ...req.body, lead_event_id: req.params.leadEventId }, createActor(req, ACTOR_TYPES.ADMIN)); res.json(response); }));
+  router.post('/import-campaigns/share-kit', asyncHandler(async (req, res) => { assertAgentGatewayAccess(req); const response = await importCampaignService.prepareShareKit(req.body || {}, createAgentGatewayActor(req)); res.json(response); }));
 
-  router.post('/channels/facebook/webhook', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, 'facebook');
-    const response = await processParsedChannelMessages('facebook', req.body || {}, channelService, createChannelActor(req, 'facebook'));
-    res.json(response);
-  }));
-
-  router.post('/channels/instagram/webhook', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, 'instagram');
-    const response = await processParsedChannelMessages('instagram', req.body || {}, channelService, createChannelActor(req, 'instagram'));
-    res.json(response);
-  }));
-
-  router.post('/channels/web-chat/message', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, 'web_chat');
-    const response = await processParsedChannelMessages('web_chat', req.body || {}, channelService, createChannelActor(req, 'web_chat'));
-    res.json(response);
-  }));
-
-  router.post('/channels/mobile-chat/message', asyncHandler(async (req, res) => {
-    assertChannelAccess(req, 'mobile_chat');
-    const response = await processParsedChannelMessages('mobile_chat', req.body || {}, channelService, createChannelActor(req, 'mobile_chat'));
-    res.json(response);
-  }));
-
-  router.get('/local-marketplace/rules', asyncHandler(async (req, res) => {
-    res.json({ success: true, rules: localMarketplaceService.getRuleCatalog() });
-  }));
-
-  router.post('/local-marketplace/intent', asyncHandler(async (req, res) => {
-    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
-    const response = await localMarketplaceService.recordIntent(req.body || {}, actor);
-    res.status(201).json(response);
-  }));
-
-  router.post('/local-marketplace/leads', asyncHandler(async (req, res) => {
-    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
-    const response = await localMarketplaceService.createLead(req.body || {}, actor);
-    res.status(201).json(response);
-  }));
-
-  router.post('/local-marketplace/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const response = await localMarketplaceService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json(response);
-  }));
-
-  router.post('/local-marketplace/leads/:leadEventId/qualify', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const response = await localMarketplaceService.qualifyLead({ ...req.body, lead_event_id: req.params.leadEventId }, createActor(req, ACTOR_TYPES.ADMIN));
-    res.json(response);
-  }));
-
-  router.post('/local-marketplace/share-kit', asyncHandler(async (req, res) => {
-    assertAgentGatewayAccess(req);
-    const response = await localMarketplaceService.prepareLocalShareKit(req.body || {}, createAgentGatewayActor(req));
-    res.json(response);
-  }));
-
-  router.get('/import-campaigns/rules', asyncHandler(async (req, res) => {
-    res.json({ success: true, rules: importCampaignService.getRuleCatalog() });
-  }));
-
-  router.post('/import-campaigns/routes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const response = await importCampaignService.createRoutePage(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json(response);
-  }));
-
-  router.get('/import-campaigns/routes/:routeKey/status', asyncHandler(async (req, res) => {
-    const response = await importCampaignService.getRouteStatus(req.params.routeKey);
-    res.json(response);
-  }));
-
-  router.post('/import-campaigns/routes/:routeKey/capacity', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const response = await importCampaignService.updateCapacity({ ...req.body, route_key: req.params.routeKey }, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json(response);
-  }));
-
-  router.post('/import-campaigns/referral-bundles', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const response = await importCampaignService.createReferralBundle(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json(response);
-  }));
-
-  router.post('/import-campaigns/leads', asyncHandler(async (req, res) => {
-    const actor = createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER);
-    const response = await importCampaignService.createLead(req.body || {}, actor);
-    res.status(201).json(response);
-  }));
-
-  router.post('/import-campaigns/leads/:leadEventId/qualify', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const response = await importCampaignService.qualifyMilestone({ ...req.body, lead_event_id: req.params.leadEventId }, createActor(req, ACTOR_TYPES.ADMIN));
-    res.json(response);
-  }));
-
-  router.post('/import-campaigns/share-kit', asyncHandler(async (req, res) => {
-    assertAgentGatewayAccess(req);
-    const response = await importCampaignService.prepareShareKit(req.body || {}, createAgentGatewayActor(req));
-    res.json(response);
-  }));
-
-  router.post('/share-assets', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    if (!req.body?.code) throw new ValidationError('code is required.');
-    const shareAsset = await referralService.createShareAssets(req.body, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json({ success: true, shareAsset });
-  }));
-
-  router.post('/coupons', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const coupon = await referralService.createCoupon(req.body, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json({ success: true, coupon });
-  }));
-
-  router.post('/coupons/apply', asyncHandler(async (req, res) => {
-    const result = await referralService.applyCoupon(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
-    res.status(result.applied ? 200 : 422).json({ success: result.applied, ...result });
-  }));
-
-  router.post('/coupons/redeem', authorizeRole(), asyncHandler(async (req, res) => {
-    const actor = createActor(req, ACTOR_TYPES.USER);
-    const redeemerUserId = req.body.redeemer_user_id || req.userContext?.id;
-    if (redeemerUserId !== req.userContext?.id && !isPlatformAdmin(req.userContext)) throw new ForbiddenError('You cannot redeem a coupon for another user.');
-    const result = await referralService.redeemCoupon({ ...req.body, redeemer_user_id: redeemerUserId }, actor);
-    res.status(result.redeemed ? 201 : 422).json({ success: Boolean(result.redeemed), ...result });
-  }));
-
-  router.get('/wallets/:userId', authorizeRole(), asyncHandler(async (req, res) => {
-    assertSelfOrAdmin(req, req.params.userId);
-    const wallet = await referralService.getWallet(req.params.userId);
-    res.json({ success: true, ...wallet });
-  }));
-
-  router.post('/wallets/transactions', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
-    const transaction = await referralService.createWalletTransaction(req.body, createActor(req, ACTOR_TYPES.ADMIN));
-    res.status(201).json({ success: true, transaction });
-  }));
-
-  router.patch('/wallets/transactions/:id/status', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const transaction = await referralService.transitionWalletTransaction(req.params.id, req.body.status, createActor(req, ACTOR_TYPES.ADMIN));
-    res.json({ success: true, transaction });
-  }));
-
-  router.get('/admin/events', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const events = await referralService.getAdminTimeline({ tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, campaign_id: req.query.campaign_id || undefined, code_id: req.query.code_id || undefined, event_type: req.query.event_type || undefined, limit: Number(req.query.limit || 200) });
-    res.json({ success: true, events });
-  }));
+  router.post('/share-assets', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { if (!req.body?.code) throw new ValidationError('code is required.'); const shareAsset = await referralService.createShareAssets(req.body, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json({ success: true, shareAsset }); }));
+  router.post('/coupons', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const coupon = await referralService.createCoupon(req.body, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json({ success: true, coupon }); }));
+  router.post('/coupons/apply', asyncHandler(async (req, res) => { const result = await referralService.applyCoupon(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER)); res.status(result.applied ? 200 : 422).json({ success: result.applied, ...result }); }));
+  router.post('/coupons/redeem', authorizeRole(), asyncHandler(async (req, res) => { const actor = createActor(req, ACTOR_TYPES.USER); const redeemerUserId = req.body.redeemer_user_id || req.userContext?.id; if (redeemerUserId !== req.userContext?.id && !isPlatformAdmin(req.userContext)) throw new ForbiddenError('You cannot redeem a coupon for another user.'); const result = await referralService.redeemCoupon({ ...req.body, redeemer_user_id: redeemerUserId }, actor); res.status(result.redeemed ? 201 : 422).json({ success: Boolean(result.redeemed), ...result }); }));
+  router.get('/wallets/:userId', authorizeRole(), asyncHandler(async (req, res) => { assertSelfOrAdmin(req, req.params.userId); const wallet = await referralService.getWallet(req.params.userId); res.json({ success: true, ...wallet }); }));
+  router.post('/wallets/transactions', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => { const transaction = await referralService.createWalletTransaction(req.body, createActor(req, ACTOR_TYPES.ADMIN)); res.status(201).json({ success: true, transaction }); }));
+  router.patch('/wallets/transactions/:id/status', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => { const transaction = await referralService.transitionWalletTransaction(req.params.id, req.body.status, createActor(req, ACTOR_TYPES.ADMIN)); res.json({ success: true, transaction }); }));
+  router.get('/admin/events', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => { const events = await referralService.getAdminTimeline({ tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined, campaign_id: req.query.campaign_id || undefined, code_id: req.query.code_id || undefined, event_type: req.query.event_type || undefined, limit: Number(req.query.limit || 200) }); res.json({ success: true, events }); }));
 
   return router;
 }
