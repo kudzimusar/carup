@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
 
@@ -7,13 +7,14 @@ export default function DashboardScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const loading = useAuthStore((state) => state.loading);
   const logout = useAuthStore((state) => state.logout);
   const switchRole = useAuthStore((state) => state.switchRole);
 
+  const goToLogin = () => router.replace('/(auth)/login');
+
   const handleLogout = async () => {
-    if (isAuthenticated) {
-      await logout();
-    }
+    await logout();
     router.replace('/(auth)/login');
   };
 
@@ -21,27 +22,75 @@ export default function DashboardScreen() {
     await switchRole(role);
   };
 
-  return (
-    <ScrollView className="flex-1 bg-slate-50 px-6 py-6">
-      {/* Welcome Block */}
-      <View className="bg-slate-900 p-6 rounded-2xl shadow-lg mb-6">
-        <Text className="text-white text-xs font-semibold uppercase tracking-wider text-orange-500">Welcome Back</Text>
-        <Text className="text-white text-2xl font-bold mt-1">{user?.name || 'CarUp Stakeholder'}</Text>
-        <Text className="text-slate-400 text-sm mt-1">{user?.email}</Text>
-        
-        {/* Role Tag */}
-        <View className="bg-orange-500/20 border border-orange-500/30 rounded-full px-3 py-1 self-start mt-4">
-          <Text className="text-orange-500 text-xs font-semibold uppercase tracking-wider">Active Role: {user?.role}</Text>
+  // While the secure store hydrates we must NOT flash a signed-in-looking
+  // header before auth state is known.
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color="#F97316" />
+      </View>
+    );
+  }
+
+  // ---- Signed-out state: never imply an authenticated session -------------
+  if (!isAuthenticated) {
+    return (
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1, padding: 24, justifyContent: 'center' }}
+        style={{ backgroundColor: '#F8FAFC' }}
+      >
+        <View style={{ backgroundColor: '#0F172A', padding: 24, borderRadius: 16, marginBottom: 24 }}>
+          <Text style={{ color: '#F97316', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>CarUp</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '700', marginTop: 6 }} testID="dashboard-signed-out-title">You're signed out</Text>
+          <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 6 }}>Sign in to access your dashboard and identity verification.</Text>
         </View>
+
+        <Pressable
+          onPress={goToLogin}
+          testID="sign-in-to-carup"
+          style={({ pressed }) => ({
+            width: '100%', backgroundColor: '#0F172A', borderRadius: 12,
+            paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
+            marginBottom: 16, opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In to CarUp</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={goToLogin}
+          testID="verification-requires-login"
+          style={({ pressed }) => ({
+            width: '100%', backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA',
+            borderRadius: 12, paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <Text style={{ color: '#EA580C', fontSize: 15, fontWeight: '600' }}>Sign in to start verification</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
+
+  // ---- Authenticated state ------------------------------------------------
+  return (
+    <ScrollView contentContainerStyle={{ padding: 24 }} style={{ backgroundColor: '#F8FAFC' }}>
+      {/* Welcome Block */}
+      <View style={{ backgroundColor: '#0F172A', padding: 24, borderRadius: 16, marginBottom: 24 }}>
+        <Text style={{ color: '#F97316', fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Welcome Back</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '700', marginTop: 4 }}>{user?.name || 'CarUp Stakeholder'}</Text>
+        {user?.email ? <Text style={{ color: '#94A3B8', fontSize: 13, marginTop: 4 }}>{user.email}</Text> : null}
+        {user?.role ? (
+          <View style={{ alignSelf: 'flex-start', backgroundColor: 'rgba(249,115,22,0.2)', borderWidth: 1, borderColor: 'rgba(249,115,22,0.3)', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4, marginTop: 16 }}>
+            <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Active Role: {user.role}</Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Multi-Tenant Stakeholder Switcher */}
-      <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
-        <Text className="text-slate-900 text-base font-bold mb-2">Stakeholder Portal Switching</Text>
-        <Text className="text-slate-500 text-xs mb-4">
-          Instantly shift your authorization context across multi-tenant ledger systems.
-        </Text>
-
+      <View style={{ backgroundColor: '#FFFFFF', padding: 20, borderRadius: 16, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 24 }}>
+        <Text style={{ color: '#0F172A', fontSize: 16, fontWeight: '700', marginBottom: 8 }}>Stakeholder Portal Switching</Text>
+        <Text style={{ color: '#64748B', fontSize: 12, marginBottom: 16 }}>Shift your authorization context across multi-tenant ledger systems.</Text>
         <View>
           {([
             { role: 'owner' as const, title: 'Vehicle Owner Portal', subtitle: 'Manage private garages, service logs, and listings.' },
@@ -55,10 +104,7 @@ export default function DashboardScreen() {
                 onPress={() => handleRoleSwitch(portal.role)}
                 testID={`switch-role-${portal.role}`}
                 style={({ pressed }) => ({
-                  padding: 16,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  marginTop: idx === 0 ? 0 : 12,
+                  padding: 16, borderRadius: 12, borderWidth: 1, marginTop: idx === 0 ? 0 : 12,
                   backgroundColor: active ? '#FFF7ED' : '#F8FAFC',
                   borderColor: active ? '#F97316' : '#E2E8F0',
                   opacity: pressed ? 0.8 : 1,
@@ -72,48 +118,30 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Identity verification entry point */}
+      {/* Identity verification entry point — enabled because the user is authenticated */}
       <Pressable
         onPress={() => router.push('/(auth)/verification/intro')}
-        style={({ pressed }) => ({
-          width: '100%',
-          backgroundColor: '#F97316',
-          borderRadius: 12,
-          paddingVertical: 18,
-          paddingHorizontal: 16,
-          justifyContent: 'center',
-          alignItems: 'center',
-          marginBottom: 16,
-          opacity: pressed ? 0.8 : 1,
-        })}
         testID="start-verification-flow"
+        style={({ pressed }) => ({
+          width: '100%', backgroundColor: '#F97316', borderRadius: 12,
+          paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
+          marginBottom: 16, opacity: pressed ? 0.8 : 1,
+        })}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
-          Start Verification Flow
-        </Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Start Verification Flow</Text>
       </Pressable>
 
       {/* Account actions */}
       <Pressable
         onPress={handleLogout}
-        style={({ pressed }) => ({
-          width: '100%',
-          backgroundColor: '#FEF2F2',
-          borderWidth: 1,
-          borderColor: '#FECACA',
-          borderRadius: 12,
-          paddingVertical: 18,
-          paddingHorizontal: 16,
-          justifyContent: 'center',
-          alignItems: 'center',
-          marginBottom: 40,
-          opacity: pressed ? 0.8 : 1,
-        })}
         testID="sign-out-session"
+        style={({ pressed }) => ({
+          width: '100%', backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA',
+          borderRadius: 12, paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
+          marginBottom: 40, opacity: pressed ? 0.8 : 1,
+        })}
       >
-        <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600', textAlign: 'center' }}>
-          {isAuthenticated ? 'Sign Out Session' : 'Sign In to CarUp'}
-        </Text>
+        <Text style={{ color: '#DC2626', fontSize: 16, fontWeight: '600' }}>Sign Out Session</Text>
       </Pressable>
     </ScrollView>
   );
