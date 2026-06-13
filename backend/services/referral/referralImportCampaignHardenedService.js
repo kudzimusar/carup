@@ -73,6 +73,35 @@ export class ReferralImportCampaignHardenedService extends ReferralImportCampaig
     return super.createReferralBundle(hardenedInput, actor);
   }
 
+  async preflightRequestedCapacity(input = {}, actor = {}) {
+    const requested = nonNegativeNumber(input.requested_capacity_units ?? input.requested_cbm ?? input.requested_slots, 'requested_capacity_units');
+    if (requested <= 0) return { requested, checked: false };
+    const intent = this.classifyImportIntent(input, actor);
+    let routeStatus = null;
+    try {
+      routeStatus = await this.getRouteStatus(intent.route_key);
+    } catch {
+      return { requested, checked: false };
+    }
+    const availableRaw = routeStatus?.capacity?.available_capacity_units;
+    if (availableRaw === undefined || availableRaw === null) return { requested, checked: false, route_key: intent.route_key };
+    const available = nonNegativeNumber(availableRaw, 'available_capacity_units');
+    if (requested > available) {
+      throw new ValidationError('requested capacity exceeds available route capacity.', {
+        route_key: intent.route_key,
+        requested,
+        available,
+        capacity_status: routeStatus?.capacity?.capacity_status || null,
+      });
+    }
+    return { requested, available, checked: true, route_key: intent.route_key };
+  }
+
+  async createLead(input = {}, actor = {}) {
+    await this.preflightRequestedCapacity(input, actor);
+    return super.createLead(input, actor);
+  }
+
   async getLeadEventForQualification(leadEventId) {
     if (!leadEventId) throw new ValidationError('lead_event_id is required.');
     const leadEvent = await this.referralService.repository.findOne(REFERRAL_TABLES.events, { id: leadEventId });
