@@ -37,11 +37,12 @@ function timestampSeed(now) {
 
 export class ReferralLocalMarketplaceHardenedService extends ReferralLocalMarketplaceService {
   buildCollisionResistantSlug(input = {}, actor = {}) {
+    this.localBundleSlugCounter = (this.localBundleSlugCounter || 0) + 1;
     const flow = input.flow_type || 'general_marketplace';
     const participant = input.participant_type || flow;
     const owner = input.owner_user_id || actor.actor_user_id || 'owner';
     const name = input.campaign_name || `Local ${String(flow).replace(/_/g, ' ')} referral`;
-    const seed = `${name}-${participant}-${owner}-${timestampSeed(this.now())}`;
+    const seed = `${name}-${participant}-${owner}-${timestampSeed(this.now())}-${this.localBundleSlugCounter}`;
     return slugify(seed);
   }
 
