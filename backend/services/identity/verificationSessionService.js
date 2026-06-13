@@ -3,7 +3,7 @@ import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { DocumentIntelligenceService } from '../document-intelligence/documentIntelligenceService.js';
 import { downloadFromStorage, uploadToStorage } from '../storage/storageService.js';
-import { NotFoundError, ValidationError } from '../../utils/errors.js';
+import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -11,6 +11,19 @@ const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'ima
 const DOUBLE_SIDED_DOCUMENTS = new Set(['national_id', 'driver_license', 'drivers_license', 'registration_book']);
 const PUBLIC_OCR_FIELDS = ['first_name', 'last_name', 'national_id_number', 'date_of_birth', 'country'];
 const VALID_SIDES = new Set(['front', 'back', 'selfie']);
+
+// Admin manual-review surface (Phase 7C). Review is admin-only; the routes are
+// also guarded by authorizeRole(['admin']), but the service re-checks so direct
+// service callers cannot bypass the role gate.
+const ADMIN_REVIEW_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
+const REVIEWABLE_STATUSES = new Set([
+  'pending_manual_review',
+  'ocr_failed',
+  'retry_requested',
+  'verified',
+  'rejected',
+]);
+const REVIEW_ACTIONS = new Set(['approve', 'reject', 'request_retry', 'add_review_notes']);
 
 function now() {
   return new Date().toISOString();
@@ -404,8 +417,156 @@ export async function getVerificationSession(client = supabase, actor = {}, sess
   return sanitizeSession(session);
 }
 
+// --- Phase 7C: admin manual-review surface -------------------------------
+
+function assertAdminReviewer(actor = {}) {
+  const role = String(actor.role || actor.effectiveRole || actor.platformRole || '').toLowerCase();
+  if (!ADMIN_REVIEW_ROLES.has(role)) {
+    throw new ForbiddenError('Admin role is required to review verification sessions.');
+  }
+}
+
+/**
+ * Reviewer-facing projection. Builds on sanitizeSession (which already omits
+ * every *_storage_path), so private document storage paths and any signed URL
+ * never leave the service. Adds reviewer/decision metadata for the admin queue.
+ */
+function sanitizeReviewSession(session) {
+  const base = sanitizeSession(session);
+  if (!base) return null;
+  return {
+    ...base,
+    reviewed_by: session.reviewed_by || null,
+    reviewed_at: session.reviewed_at || null,
+    review_decision: session.review_decision || null,
+    retry_reason: session.retry_reason || null,
+    liveness_status: session.liveness_status || null,
+    submitted_at: session.submitted_at || null,
+    ocr_started_at: session.ocr_started_at || null,
+  };
+}
+
+async function fetchSessionForReview(client, sessionId) {
+  const { data, error } = await client
+    .from('verification_sessions')
+    .select('*')
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new NotFoundError('Verification session not found.');
+  return data;
+}
+
+export async function listVerificationSessionsForReview(client = supabase, actor = {}, filters = {}) {
+  assertAdminReviewer(actor);
+
+  let query = client.from('verification_sessions').select('*');
+  if (filters.status !== undefined && filters.status !== null && filters.status !== '') {
+    const normalized = String(filters.status).trim().toLowerCase();
+    if (!REVIEWABLE_STATUSES.has(normalized)) {
+      throw new ValidationError(`Unsupported verification review status filter: ${normalized}.`);
+    }
+    query = query.eq('status', normalized);
+  }
+  query = query.order('created_at', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data || []).map(sanitizeReviewSession);
+}
+
+export async function getVerificationSessionForReview(client = supabase, actor = {}, sessionId) {
+  assertAdminReviewer(actor);
+  const session = await fetchSessionForReview(client, sessionId);
+  return sanitizeReviewSession(session);
+}
+
+export async function reviewVerificationSession(client = supabase, actor = {}, sessionId, payload = {}, options = {}) {
+  assertAdminReviewer(actor);
+
+  const reviewerId = actorId(actor);
+  if (!reviewerId) {
+    throw new ValidationError('Authenticated reviewer context is required.');
+  }
+
+  const action = String(payload.action || '').trim().toLowerCase();
+  if (!REVIEW_ACTIONS.has(action)) {
+    throw new ValidationError(`Unsupported review action: ${action || '(missing)'}.`);
+  }
+
+  const reviewNotes = typeof payload.reviewNotes === 'string' ? payload.reviewNotes.trim() : '';
+  const retryReason = typeof payload.retryReason === 'string' ? payload.retryReason.trim() : '';
+
+  const session = await fetchSessionForReview(client, sessionId);
+  const timestamp = now();
+
+  const update = {
+    reviewed_by: reviewerId,
+    reviewed_at: timestamp,
+    updated_at: timestamp,
+  };
+  let eventType;
+
+  if (action === 'approve') {
+    update.status = 'verified';
+    update.review_decision = 'approve';
+    update.failure_reason = null;
+    if (reviewNotes) update.review_notes = reviewNotes;
+    eventType = 'VERIFICATION_REVIEW_APPROVED';
+  } else if (action === 'reject') {
+    update.status = 'rejected';
+    update.review_decision = 'reject';
+    update.review_notes = reviewNotes || session.review_notes || null;
+    update.failure_reason = reviewNotes || 'Verification rejected by reviewer.';
+    eventType = 'VERIFICATION_REVIEW_REJECTED';
+  } else if (action === 'request_retry') {
+    if (!retryReason) {
+      throw new ValidationError('retryReason is required to request a retry.');
+    }
+    update.status = 'retry_requested';
+    update.review_decision = 'request_retry';
+    update.retry_reason = retryReason;
+    if (reviewNotes) update.review_notes = reviewNotes;
+    eventType = 'VERIFICATION_REVIEW_RETRY_REQUESTED';
+  } else {
+    // add_review_notes: status is intentionally left unchanged.
+    if (!reviewNotes) {
+      throw new ValidationError('reviewNotes is required to add a review note.');
+    }
+    update.review_notes = reviewNotes;
+    eventType = 'VERIFICATION_REVIEW_NOTE_ADDED';
+  }
+
+  const { data, error } = await client
+    .from('verification_sessions')
+    .update(update)
+    .eq('id', session.id)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  await writeAudit(client, {
+    req: options.req,
+    event_type: eventType,
+    actor_user_id: reviewerId,
+    actor_role: actor.role,
+    actor_tenant_id: actor.tenantId,
+    source_route: `/api/admin/identity/verification-sessions/${session.id}/review`,
+    targetType: 'verification_session',
+    targetId: session.id,
+    previous_value: { status: session.status, review_decision: session.review_decision || null },
+    new_value: { status: data.status, review_decision: data.review_decision || null },
+    reason: retryReason || (action === 'reject' ? (reviewNotes || 'Verification rejected by reviewer.') : null),
+    decision_notes: reviewNotes || null,
+  });
+
+  return sanitizeReviewSession(data);
+}
+
 export {
   parseImagePayload,
   sanitizeOcrResult,
   sanitizeSession,
+  sanitizeReviewSession,
 };
