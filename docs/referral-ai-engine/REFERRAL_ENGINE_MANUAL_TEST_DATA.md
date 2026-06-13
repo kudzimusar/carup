@@ -9,19 +9,41 @@
 
 ## 0. Prerequisites
 
-1. **One test account is enough.** You'll switch its role between **admin** (to seed) and **owner** (to verify the wallet). Role-switching keeps the **same `user.id`**, which is what the wallet is keyed on.
-   - If you prefer two accounts, use a dedicated **admin** account for seeding and a separate **owner** account — but then create the bundle (step 3) with the *owner's* id so the reward lands in the owner's wallet.
-2. **Find your `user.id`** (needed once, as `<OWNER_USER_ID>`):
-   - Open the web app, log in, open **DevTools → Network**.
-   - Trigger any action (e.g. open a dashboard page) and click any `/api/...` request.
-   - In **Request Headers**, copy the value of **`x-user-id`** — that is your `<OWNER_USER_ID>`.
-3. **Role switch:** use the in-app role switcher (AuthContext `switchRole`) to become **admin** for seeding, then **owner** for verification.
-4. All admin surfaces live under **`/admin/referrals*`**; the owner surface is **`/dashboard/referrals`**.
+> ⚠️ **Two separate accounts are required.** You cannot log in as the owner and
+> switch to admin: `/api/auth/switch-role` only grants a role already verified for
+> your user context, and **admin can only be assumed when `users.role === 'admin'`**
+> (the tenant-role path explicitly excludes admin). Switching owner→admin returns
+> *"Forbidden. Role 'admin' is not verified for this user context."* — by design.
+> So use a dedicated admin account and a dedicated owner account.
+
+1. **Seed the two UAT accounts (local/staging only).** In a shell that has your
+   local/staging `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, run:
+   ```bash
+   UAT_SEED_CONFIRM=yes node backend/scripts/seed-uat-referral-users.mjs
+   ```
+   This upserts two accounts (idempotent; refuses to run when `NODE_ENV=production`
+   or without `UAT_SEED_CONFIRM=yes`) and prints the owner's user id:
+
+   | Role | Email | Password | Reaches |
+   |---|---|---|---|
+   | **admin** | `uat-admin@carup.local` | `UatAdmin!2026` | `/admin/referrals*` |
+   | **owner** | `uat-owner@carup.local` | `UatOwner!2026` | `/dashboard/referrals` |
+
+   *(Quick alternative, no script — register each via the API; `/api/auth/register`
+   accepts a `role`: `curl -X POST $API/api/auth/register -H 'content-type: application/json'
+   -d '{"name":"UAT Admin","email":"uat-admin@carup.local","password":"UatAdmin!2026","role":"admin"}'`,
+   and again with `role":"owner"`.)*
+2. **Log in normally at `/login`** with each account (no role switching anywhere).
+3. **`<OWNER_USER_ID>`** = the owner id the seed prints. (Alternatively: log in as the
+   owner, open **DevTools → Network**, trigger any `/api/...` call, and copy the
+   **`x-user-id`** request header.) Use it when the **admin** creates the bundle in step 3.
+4. All admin surfaces live under **`/admin/referrals*`** (admin account); the owner
+   surface is **`/dashboard/referrals`** (owner account).
 
 ### Identifiers to capture as you go
 | Token | How you get it | Example |
 |---|---|---|
-| `<OWNER_USER_ID>` | from `x-user-id` header (step 0.2) | `a1b2c3d4-…` |
+| `<OWNER_USER_ID>` | printed by the seed script (or `x-user-id` header) | `u_1a2b3c4d…` |
 | `<CAMPAIGN_ID>` | from the campaign you create (step 1) | copy from Campaigns list / success |
 | `<BUNDLE_CODE>` | from "Bundle created. code: …" (step 3) | `carup-owner-reward-test-…` |
 | `<LEAD_EVENT_ID>` | from "Lead created. event_id: …" (step 4) | `referral_events-…` |
@@ -189,14 +211,14 @@ Form **Create Draft Assets**:
 
 ## 10. Identify the test users  (records: owner user, admin user)
 
-- **Owner user** = your account while in the **owner** role. Its id is `<OWNER_USER_ID>` (the wallet owner from step 3/5).
-- **Admin user** = the same account switched to the **admin** role (or your dedicated admin account). Confirm by visiting `/admin/referrals` — the four+two referral items must be visible in the sidebar (admin-gated).
+- **Owner user** = the seeded `uat-owner@carup.local` account (role `owner`). Its id is `<OWNER_USER_ID>` (the wallet owner from step 3/5).
+- **Admin user** = the seeded `uat-admin@carup.local` account (role `admin`), logged in **directly via `/login`** — not by switching from the owner. Confirm by visiting `/admin/referrals` — the six referral items must be visible in the sidebar (admin-gated).
 
 ---
 
 ## 11. Owner verification  →  `/dashboard/referrals`  (verify wallet + dispute)
 
-Switch the account to the **owner** role and open **Refer & Earn**:
+Log in as the **owner** account (`uat-owner@carup.local`) and open **Refer & Earn**:
 - **Benefit Wallet** shows **Pending = $5** (from step 5; **$15** if you also qualified the import lead). Approved/Settled stay $0 (benefits never mature on signup — they wait for operator approval).
 - On the pending transaction click **"Why?"** → ✅ an explanation like *"This benefit is pending because CarUp must verify…"*.
 - **Validate & Share a Code**: enter `<BUNDLE_CODE>` → **Validate** → ✅ *"This referral code is valid."*; **Create Share Kit** → a copyable link appears.
@@ -206,7 +228,7 @@ Switch the account to the **owner** role and open **Refer & Earn**:
 
 ## 12. Resolve the dispute  →  `/admin/referrals/trust`  (verify Phase E disputes list)
 
-Switch back to **admin**, open **Referral Trust**:
+Log in as the **admin** account (`uat-admin@carup.local`), open **Referral Trust**:
 - The **Disputes** list now shows the owner's dispute with its **`dispute_event_id`** — copy it as `<DISPUTE_EVENT_ID>`.
 - In **Disputes → Resolve**: **dispute_event_id** `<DISPUTE_EVENT_ID>`, outcome `resolved_upheld`, **reason (required)** `Verified — benefit will be released on approval` → **Resolve Dispute** → ✅ *"Dispute resolved."*
 - Refresh the **Disputes** list → status now reads `resolved_upheld`.
