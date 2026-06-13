@@ -75,6 +75,24 @@ function isSessionFailure(status: number, message?: string): boolean {
   return status === 401 && (!message || message.startsWith('Unauthorized'))
 }
 
+/**
+ * The backend reports errors in two shapes:
+ *   - authMiddleware / direct route handlers: `{ error: "string" }`
+ *   - errorMiddleware (thrown CarUpError, e.g. 400/404/500): `{ success: false, error: { code, message } }`
+ * Extract a human message from either so callers (and the verification admin
+ * client) surface an actionable string instead of "[object Object]".
+ */
+function extractErrorMessage(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const error = (body as { error?: unknown }).error
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message
+  }
+  const topMessage = (body as { message?: unknown }).message
+  return typeof topMessage === 'string' ? topMessage : undefined
+}
+
 // Registered by AuthContext; invoked whenever a request fails with an invalid session so the app
 // can clear its stored auth and redirect to login. Module-level so the framework-agnostic core can
 // signal React without importing it.
@@ -190,8 +208,8 @@ export async function apiRequest<T = any>({
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({} as { error?: string }))
-    const message = (errorData as { error?: string }).error
+    const errorData = await response.json().catch(() => ({} as Record<string, unknown>))
+    const message = extractErrorMessage(errorData)
 
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a
