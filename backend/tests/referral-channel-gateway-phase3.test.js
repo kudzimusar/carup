@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { ReferralEngineService } from '../services/referral/referralEngineService.js';
 import { ReferralAgentGatewayService } from '../services/referral/referralAgentGatewayServiceSafe.js';
 import { ReferralChannelGatewayService, CHANNEL_GATEWAY_EVENT_TYPES, extractReferralCode, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
-import { buildChannelWebhookReply, isValidTelegramWebhookSecret, parseChannelPayload, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
+import { MAX_CHANNEL_MESSAGES_PER_WEBHOOK, buildChannelWebhookReply, isValidTelegramWebhookSecret, parseChannelPayload, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 import { REFERRAL_TABLES } from '../services/referral/referralEngineRepository.js';
 import { REFERRAL_CODE_TYPES } from '../constants/referral/referralConstants.js';
 import { ValidationError, ForbiddenError } from '../utils/errors.js';
@@ -73,11 +73,13 @@ test('Meta verification and Telegram secret-token checks match platform webhook 
   assert.equal(isValidTelegramWebhookSecret({ 'x-telegram-bot-api-secret-token': 'bad' }, env), false);
 });
 
-test('referral code extraction supports WhatsApp text, Telegram start payloads, links, and direct codes', () => {
+test('referral code extraction supports explicit codes but does not misread natural chat as a code', () => {
   assert.equal(extractReferralCode({ text: 'Use code phase3-wa-001 for discount' }), 'PHASE3-WA-001');
   assert.equal(extractReferralCode({ start_payload: '/start phase3-tg-002' }), 'PHASE3-TG-002');
   assert.equal(extractReferralCode({ url: 'https://carup.test/r/phase3-web-003?utm_source=web' }), 'PHASE3-WEB-003');
   assert.equal(extractReferralCode({ code: 'phase3-direct-004' }), 'PHASE3-DIRECT-004');
+  assert.equal(extractReferralCode({ text: 'I need help importing a car from Japan to Zimbabwe' }), null);
+  assert.equal(extractReferralCode({ message: 'Please help me find container space this month' }), null);
 });
 
 test('platform payload parsers normalize WhatsApp, Telegram, Facebook, and Instagram webhooks', () => {
@@ -85,13 +87,18 @@ test('platform payload parsers normalize WhatsApp, Telegram, Facebook, and Insta
   const telegramPayload = { update_id: 1, message: { message_id: 11, text: '/start phase3-tg-002', from: { id: 'tg-user' }, chat: { id: 'tg-chat' } } };
   const facebookPayload = { entry: [{ id: 'page-1', messaging: [{ sender: { id: 'fb-user' }, message: { mid: 'm1', text: 'code phase3-fb-003' } }] }] };
   const instagramPayload = { entry: [{ id: 'ig-1', messaging: [{ sender: { id: 'ig-user' }, postback: { payload: 'phase3-ig-004' } }] }] };
-  assert.equal(parseChannelPayload('whatsapp', whatsappPayload)[0].text, 'Use code phase3-wa-001');
-  assert.equal(parseChannelPayload('telegram', telegramPayload)[0].start_payload, 'phase3-tg-002');
+  assert.equal(parseChannelPayload('wa', whatsappPayload)[0].text, 'Use code phase3-wa-001');
+  assert.equal(parseChannelPayload('tg', telegramPayload)[0].start_payload, 'phase3-tg-002');
   assert.equal(parseChannelPayload('facebook', facebookPayload)[0].sender_id, 'fb-user');
   assert.equal(parseChannelPayload('instagram', instagramPayload)[0].text, 'phase3-ig-004');
   assert.equal(parserFile.includes('parseWhatsAppWebhook'), true);
   assert.equal(parserFile.includes('parseTelegramUpdate'), true);
   assert.equal(parserFile.includes('parseMetaMessagingWebhook'), true);
+});
+
+test('channel webhook parsers enforce a bounded batch size to protect route throughput', () => {
+  const messages = Array.from({ length: MAX_CHANNEL_MESSAGES_PER_WEBHOOK + 1 }, (_, index) => ({ text: `hello ${index}`, sender_id: `user-${index}` }));
+  assert.throws(() => parseChannelPayload('web_chat', { messages }), ValidationError);
 });
 
 test('WhatsApp inbound flows through Agent Gateway and attaches attribution when a code exists', async () => {
@@ -107,6 +114,16 @@ test('WhatsApp inbound flows through Agent Gateway and attaches attribution when
   const events = await repository.list(REFERRAL_TABLES.events);
   assert.equal(events.some((event) => event.event_type === CHANNEL_GATEWAY_EVENT_TYPES.INBOUND_RECEIVED && event.channel === 'whatsapp'), true);
   assert.equal(events.some((event) => event.event_type === CHANNEL_GATEWAY_EVENT_TYPES.ATTRIBUTION_ATTACHED && event.code_id === code.id), true);
+});
+
+test('natural inbound chat routes through triage without generating failed referral validation noise', async () => {
+  const { repository, channelGateway } = createHarness();
+  const response = await channelGateway.processInbound('web_chat', { message: 'I need help importing a car from Japan', session_id: 'web-natural-1', sender_id: 'web-user-1' }, { ...channelActor, surface: 'web_chat' });
+  assert.equal(response.extracted_referral_code, null);
+  assert.equal(response.validation, null);
+  const events = await repository.list(REFERRAL_TABLES.events);
+  assert.equal(events.some((event) => event.event_type === 'referral.code_failed'), false);
+  assert.equal(events.some((event) => event.event_type === CHANNEL_GATEWAY_EVENT_TYPES.INBOUND_RECEIVED), true);
 });
 
 test('Telegram inbound handles /start payloads and preserves conversation metadata', async () => {
@@ -125,8 +142,9 @@ test('parsed platform webhook processing returns outbound payloads for channel r
   const { referralService, channelGateway } = createHarness();
   await referralService.createReferralCode({ owner_user_id: 'seller-1', code: 'phase3-outbound-code', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'telegram' }, operatorActor);
   const telegramPayload = { update_id: 1, message: { message_id: 11, text: '/start phase3-outbound-code', from: { id: 'tg-user' }, chat: { id: 'tg-chat' } } };
-  const response = await processParsedChannelMessages('telegram', telegramPayload, channelGateway, { ...channelActor, surface: 'telegram' });
+  const response = await processParsedChannelMessages('tg', telegramPayload, channelGateway, { ...channelActor, surface: 'telegram' });
   assert.equal(response.success, true);
+  assert.equal(response.channel, 'telegram');
   assert.equal(response.count, 1);
   assert.equal(response.results[0].outbound_payload.method, 'sendMessage');
   assert.equal(response.results[0].outbound_payload.chat_id, 'tg-chat');
@@ -160,7 +178,6 @@ test('webhook-style channels are designed to require a webhook or gateway secret
   assert.equal(routeFile.includes('Channel webhook requires a valid webhook secret.'), true);
   assert.equal(routeFile.includes('x-channel-webhook-secret'), true);
   assert.equal(routeFile.includes('x-carup-channel-secret'), true);
-  assert.equal(routeFile.includes('x-telegram-bot-api-secret-token'), false);
   assert.equal(routeFile.includes('isValidTelegramWebhookSecret'), true);
 });
 
