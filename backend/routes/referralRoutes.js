@@ -8,10 +8,11 @@ import { ReferralAgentGatewayService } from '../services/referral/referralAgentG
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
 import { ReferralLocalMarketplaceHardenedService } from '../services/referral/referralLocalMarketplaceHardenedService.js';
 import { ReferralImportCampaignBenchmarkService } from '../services/referral/referralImportCampaignBenchmarkService.js';
+import { ReferralMarketingSeoBenchmarkService } from '../services/referral/referralMarketingSeoBenchmarkService.js';
 import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
-const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager', 'operator', 'route_agent'];
+const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager', 'operator', 'route_agent', 'marketing_manager'];
 const WEBHOOK_CHANNELS = new Set(['whatsapp', 'telegram', 'facebook', 'instagram']);
 
 const asyncHandler = (fn) => (req, res, next) => {
@@ -94,13 +95,14 @@ function handleMetaVerification(req, res) {
   res.status(200).send(challenge);
 }
 
-export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null, importCampaign = null } = {}) {
+export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null, importCampaign = null, marketingSeo = null } = {}) {
   const router = express.Router();
   const referralService = service || new ReferralEngineService({ client });
   const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
   const channelService = channelGateway || new ReferralChannelGatewayService({ agentGateway: gatewayService, referralService });
   const localMarketplaceService = localMarketplace || new ReferralLocalMarketplaceHardenedService({ referralService, channelGateway: channelService });
   const importCampaignService = importCampaign || new ReferralImportCampaignBenchmarkService({ referralService, channelGateway: channelService });
+  const marketingSeoService = marketingSeo || new ReferralMarketingSeoBenchmarkService({ referralService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
@@ -283,6 +285,50 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     assertAgentGatewayAccess(req);
     const response = await importCampaignService.prepareShareKit(req.body || {}, createAgentGatewayActor(req));
     res.json(response);
+  }));
+
+  router.get('/marketing/rules', asyncHandler(async (req, res) => {
+    res.json({ success: true, rules: marketingSeoService.getRuleCatalog() });
+  }));
+
+  router.post('/marketing/campaign-kits', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.createCampaignKit(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/marketing/seo-pages', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.draftSeoPage(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/marketing/channel-messages', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.draftChannelMessages(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/marketing/proof-stories', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.draftProofStory(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.post('/marketing/faqs', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.draftFaq(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.get('/marketing/assets', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const assets = await marketingSeoService.listAssets(req.query || {});
+    res.json({ success: true, assets });
+  }));
+
+  router.patch('/marketing/assets/:assetId/status', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.transitionAssetStatus(req.params.assetId, req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.json(response);
+  }));
+
+  router.post('/marketing/analytics/suggestions', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await marketingSeoService.createAnalyticsSuggestion(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
   }));
 
   router.post('/share-assets', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
