@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -101,123 +101,108 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={{ flex: 1, backgroundColor: '#FFFFFF' }}
     >
-      {/* Scrollable form body. The Sign In CTA is a FIXED bar below the
-          ScrollView (see footer) so it is always visible on iPhone and never
-          depends on scrolling past the form/footer or sits under the keyboard. */}
       <ScrollView
         style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 56, paddingBottom: 48 }}
       >
         {/* Header Block */}
-        <View style={{ marginBottom: 36, alignItems: 'center' }}>
-          <Text style={{ fontSize: 30, fontWeight: '700', color: '#0F172A', letterSpacing: -0.5 }}>CarUp OS</Text>
+        <View style={{ marginBottom: 32, alignItems: 'center' }}>
+          <Text style={{ fontSize: 28, fontWeight: '700', color: '#0F172A', letterSpacing: -0.5 }}>CarUp OS</Text>
           <Text style={{ fontSize: 14, color: '#64748B', marginTop: 8, textAlign: 'center' }}>
-            Log in to manage your multi-tenant automotive ecosystem and escrow ledgers.
+            Log in to continue.
           </Text>
         </View>
 
-        {/* Form Body */}
+        {serverError && (
+          <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 }}>
+            <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', textAlign: 'center' }} testID="login-server-error">{serverError}</Text>
+          </View>
+        )}
+
+        {/* Email Block */}
         <View>
-          {serverError && (
-            <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 }}>
-              <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', textAlign: 'center' }} testID="login-server-error">{serverError}</Text>
-            </View>
+          <Text style={fieldLabelStyle}>Email Address</Text>
+          <Controller
+            control={control}
+            name="email"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextInput
+                style={inputStyle}
+                placeholder="Enter email address"
+                placeholderTextColor="#94a3b8"
+                onBlur={onBlur}
+                onChangeText={onChange}
+                value={value}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                testID="login-email"
+              />
+            )}
+          />
+          {errors.email && (
+            <Text style={errorTextStyle}>{errors.email.message}</Text>
           )}
-
-          {/* Email Block */}
-          <View>
-            <Text style={fieldLabelStyle}>Email Address</Text>
-            <Controller
-              control={control}
-              name="email"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={inputStyle}
-                  placeholder="Enter email address"
-                  placeholderTextColor="#94a3b8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  testID="login-email"
-                />
-              )}
-            />
-            {errors.email && (
-              <Text style={errorTextStyle}>{errors.email.message}</Text>
-            )}
-          </View>
-
-          {/* Password Block */}
-          <View style={{ marginTop: 16 }}>
-            <Text style={fieldLabelStyle}>Password</Text>
-            <Controller
-              control={control}
-              name="password"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={inputStyle}
-                  placeholder="Enter password"
-                  placeholderTextColor="#94a3b8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  testID="login-password"
-                />
-              )}
-            />
-            {errors.password && (
-              <Text style={errorTextStyle}>{errors.password.message}</Text>
-            )}
-          </View>
-
-          {/* Footer info */}
-          <View style={{ marginTop: 32, alignItems: 'center' }}>
-            <Text style={{ fontSize: 12, color: '#94A3B8' }}>
-              Secure bank-escrow platform compliance enabled
-            </Text>
-          </View>
         </View>
-      </ScrollView>
 
-      {/* Fixed bottom Sign In CTA — always visible; KeyboardAvoidingView lifts
-          it above the keyboard. Rendered unconditionally (only `disabled`
-          toggles while submitting); never hidden behind a conditional. */}
-      <View
-        style={{
-          paddingHorizontal: 24,
-          paddingTop: 12,
-          paddingBottom: Platform.OS === 'ios' ? 32 : 16,
-          borderTopWidth: 1,
-          borderTopColor: '#F1F5F9',
-          backgroundColor: '#FFFFFF',
-        }}
-      >
-        <Pressable
+        {/* Password Block */}
+        <View style={{ marginTop: 16 }}>
+          <Text style={fieldLabelStyle}>Password</Text>
+          <Controller
+            control={control}
+            name="password"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextInput
+                style={inputStyle}
+                placeholder="Enter password"
+                placeholderTextColor="#94a3b8"
+                onBlur={onBlur}
+                onChangeText={onChange}
+                value={value}
+                secureTextEntry
+                autoCapitalize="none"
+                testID="login-password"
+              />
+            )}
+          />
+          {errors.password && (
+            <Text style={errorTextStyle}>{errors.password.message}</Text>
+          )}
+        </View>
+
+        {/* TEMP visibility marker — remove after the owner confirms the button shows. */}
+        <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '700', textAlign: 'center', marginTop: 24, letterSpacing: 1 }}>
+          LOGIN SUBMIT BUTTON
+        </Text>
+
+        {/* Sign In — plain in-flow button directly below the password field.
+            Orange background, white text, full width, 56px tall. Same pattern as
+            the dashboard buttons that already render for the owner. Rendered
+            unconditionally (only `disabled` toggles). */}
+        <TouchableOpacity
           onPress={handleSubmit(onSubmit)}
           disabled={isSubmitting}
+          activeOpacity={0.85}
           testID="login-submit"
-          style={({ pressed }) => ({
+          accessibilityRole="button"
+          accessibilityLabel="Sign In"
+          style={{
             width: '100%',
-            backgroundColor: '#0F172A',
-            borderRadius: 12,
             height: 56,
+            marginTop: 8,
+            backgroundColor: '#F97316',
+            borderRadius: 12,
             justifyContent: 'center',
             alignItems: 'center',
-            opacity: isSubmitting ? 0.7 : pressed ? 0.85 : 1,
-          })}
+          }}
         >
           {isSubmitting ? (
-            <ActivityIndicator color="#ffffff" />
+            <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '700' }}>Sign In</Text>
           )}
-        </Pressable>
-      </View>
+        </TouchableOpacity>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
