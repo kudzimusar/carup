@@ -8,7 +8,7 @@ import { ReferralAgentGatewayService } from '../services/referral/referralAgentG
 import { ReferralChannelGatewayService, normalizeChannel } from '../services/referral/referralChannelGatewayService.js';
 import { ReferralLocalMarketplaceHardenedService } from '../services/referral/referralLocalMarketplaceHardenedService.js';
 import { ReferralImportCampaignBenchmarkService } from '../services/referral/referralImportCampaignBenchmarkService.js';
-import { ReferralMarketingSeoService } from '../services/referral/referralMarketingSeoService.js';
+import { ReferralMarketingSeoBenchmarkService } from '../services/referral/referralMarketingSeoBenchmarkService.js';
 import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
@@ -102,7 +102,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   const channelService = channelGateway || new ReferralChannelGatewayService({ agentGateway: gatewayService, referralService });
   const localMarketplaceService = localMarketplace || new ReferralLocalMarketplaceHardenedService({ referralService, channelGateway: channelService });
   const importCampaignService = importCampaign || new ReferralImportCampaignBenchmarkService({ referralService, channelGateway: channelService });
-  const marketingSeoService = marketingSeo || new ReferralMarketingSeoService({ referralService });
+  const marketingSeoService = marketingSeo || new ReferralMarketingSeoBenchmarkService({ referralService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
