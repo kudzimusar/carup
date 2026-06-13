@@ -263,6 +263,17 @@ export default function App() {
           <Route path="/admin/verification" element={<VerificationReview />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
         </Route>
+        <Route path="*" element={
+          <div style={{ padding: '4rem 1.5rem', textAlign: 'center', fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '0 auto' }}>
+            <h1 style={{ fontSize: 22, marginBottom: 12 }}>404 — Route not matched</h1>
+            <p style={{ color: '#475569', lineHeight: 1.5 }}>
+              This running build did not match the requested URL. If you expected
+              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4 }}> /admin/verification</code>,
+              confirm the app is on the <strong>phase-7c-native-verification-production-loop</strong> branch and hard-reload
+              (DevTools → Application → Service Workers → Unregister, then reload) to clear a stale cached bundle.
+            </p>
+          </div>
+        } />
       </Routes>
     </AppContext.Provider>
   )
