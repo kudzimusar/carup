@@ -486,6 +486,11 @@ export class ReferralEngineService {
   }
 
   async getAdminTimeline(filters = {}) {
-    return this.repository.list(REFERRAL_TABLES.events, filters, { orderBy: 'occurred_at', ascending: false, limit: filters.limit || 200 });
+    // `limit` is a pagination option, not a row filter. Passing it through the
+    // column-filter argument makes the Supabase repository emit `.eq('limit', N)`
+    // against a non-existent column (and makes in-memory repositories match zero
+    // rows), so keep it out of the equality filters and only use it as an option.
+    const { limit, ...columnFilters } = filters;
+    return this.repository.list(REFERRAL_TABLES.events, columnFilters, { orderBy: 'occurred_at', ascending: false, limit: limit || 200 });
   }
 }

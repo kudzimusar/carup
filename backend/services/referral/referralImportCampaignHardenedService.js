@@ -47,7 +47,14 @@ export class ReferralImportCampaignHardenedService extends ReferralImportCampaig
     const owner = input.owner_user_id || actor.actor_user_id || 'owner';
     const route = input.route_key || [input.route_origin || input.origin, input.route_destination || input.destination].filter(Boolean).join('-') || 'route';
     const campaign = input.campaign_name || `Import ${String(flow).replace(/_/g, ' ')} campaign`;
-    return slugify(`${campaign}-${flow}-${owner}-${route}-${timestampSeed(this.now())}-${this.importBundleSlugCounter}`);
+    // slugify() truncates to 80 chars. If the uniqueness suffix (timestamp +
+    // monotonic counter) is appended before truncation, a long descriptive prefix
+    // can push the suffix past the cut-off, so two bundles created in the same
+    // millisecond collapse to an identical slug. Build the descriptive part first,
+    // truncate it, then append the suffix so it always survives.
+    const uniqueSuffix = `${timestampSeed(this.now()).toString(36)}-${this.importBundleSlugCounter}`;
+    const descriptive = slugify(`${campaign}-${flow}-${owner}-${route}`).slice(0, Math.max(1, 80 - uniqueSuffix.length - 1));
+    return `${descriptive}-${uniqueSuffix}`.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
   }
 
   preflightCapacity(input = {}) {

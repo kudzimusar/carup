@@ -9,10 +9,12 @@ import { ReferralChannelGatewayService, normalizeChannel } from '../services/ref
 import { ReferralLocalMarketplaceHardenedService } from '../services/referral/referralLocalMarketplaceHardenedService.js';
 import { ReferralImportCampaignBenchmarkService } from '../services/referral/referralImportCampaignBenchmarkService.js';
 import { ReferralMarketingSeoBenchmarkService } from '../services/referral/referralMarketingSeoBenchmarkService.js';
+import { ReferralTrustReviewBenchmarkService } from '../services/referral/referralTrustReviewBenchmarkService.js';
 import { isValidTelegramWebhookSecret, processParsedChannelMessages, verifyMetaWebhookChallenge } from '../services/referral/referralChannelPayloadParsers.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
-const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager', 'operator', 'route_agent', 'marketing_manager'];
+const OPERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'dealer', 'seller', 'agent', 'manager', 'operator', 'route_agent', 'marketing_manager', 'trust_manager', 'compliance_manager'];
+const TRUST_DECISION_ROLES = ['admin', 'platform_admin', 'super_admin', 'trust_manager', 'compliance_manager'];
 const WEBHOOK_CHANNELS = new Set(['whatsapp', 'telegram', 'facebook', 'instagram']);
 
 const asyncHandler = (fn) => (req, res, next) => {
@@ -95,7 +97,7 @@ function handleMetaVerification(req, res) {
   res.status(200).send(challenge);
 }
 
-export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null, importCampaign = null, marketingSeo = null } = {}) {
+export function createReferralRouter({ client = supabase, service = null, agentGateway = null, channelGateway = null, localMarketplace = null, importCampaign = null, marketingSeo = null, trustReview = null } = {}) {
   const router = express.Router();
   const referralService = service || new ReferralEngineService({ client });
   const gatewayService = agentGateway || new ReferralAgentGatewayService({ referralService });
@@ -103,6 +105,7 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   const localMarketplaceService = localMarketplace || new ReferralLocalMarketplaceHardenedService({ referralService, channelGateway: channelService });
   const importCampaignService = importCampaign || new ReferralImportCampaignBenchmarkService({ referralService, channelGateway: channelService });
   const marketingSeoService = marketingSeo || new ReferralMarketingSeoBenchmarkService({ referralService });
+  const trustReviewService = trustReview || new ReferralTrustReviewBenchmarkService({ referralService });
 
   router.post('/campaigns', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const campaign = await referralService.createCampaign(req.body, createActor(req, ACTOR_TYPES.ADMIN));
@@ -329,6 +332,55 @@ export function createReferralRouter({ client = supabase, service = null, agentG
   router.post('/marketing/analytics/suggestions', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const response = await marketingSeoService.createAnalyticsSuggestion(req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
     res.status(201).json(response);
+  }));
+
+  router.get('/trust/rules', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    res.json({ success: true, rules: trustReviewService.getRuleCatalog() });
+  }));
+
+  router.post('/trust/risk-checks', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.runRiskCheck(req.body || {}, createActor(req, ACTOR_TYPES.AGENT));
+    res.status(201).json(response);
+  }));
+
+  router.post('/trust/review-cases', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.createReviewCase(req.body || {}, createActor(req, ACTOR_TYPES.AGENT));
+    res.status(201).json(response);
+  }));
+
+  router.get('/trust/review-cases', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const review_cases = await trustReviewService.listReviewCases(req.query || {});
+    res.json({ success: true, review_cases });
+  }));
+
+  router.patch('/trust/review-cases/:caseEventId/decision', authorizeRole(TRUST_DECISION_ROLES), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.decideReviewCase(req.params.caseEventId, req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.json(response);
+  }));
+
+  router.post('/trust/wallet-transactions/:transactionId/hold', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.applyWalletHold(req.params.transactionId, req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.status(201).json(response);
+  }));
+
+  router.get('/trust/benefits/:transactionId/explain', authorizeRole(), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.explainBenefitStatus(req.params.transactionId, createActor(req, ACTOR_TYPES.USER));
+    res.json(response);
+  }));
+
+  router.post('/trust/disputes', authorizeRole(), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.createDispute(req.body || {}, createActor(req, ACTOR_TYPES.USER));
+    res.status(201).json(response);
+  }));
+
+  router.patch('/trust/disputes/:disputeEventId/resolve', authorizeRole(TRUST_DECISION_ROLES), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.resolveDispute(req.params.disputeEventId, req.body || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.json(response);
+  }));
+
+  router.get('/trust/audit-export', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const response = await trustReviewService.exportAuditTrail(req.query || {}, createActor(req, ACTOR_TYPES.ADMIN));
+    res.json(response);
   }));
 
   router.post('/share-assets', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
