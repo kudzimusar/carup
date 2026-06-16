@@ -12,9 +12,12 @@ import {
   buildMarketplaceListingSummary,
   fetchListingRelatedRows,
   filterVisibleVehicles,
+  shouldShowFixtures,
 } from './listingSummaryService.js';
+import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { buildTrustSummary, buildVerificationSummary } from './marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
+import { deriveListingPublicStatus } from './marketplaceModerationService.js';
 import { NotFoundError } from '../../utils/errors.js';
 
 const PUBLIC_SAFETY_WARNINGS = [
@@ -82,14 +85,18 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   const candidate = Array.isArray(rows) ? rows[0] : rows;
   if (!candidate) throw new NotFoundError('Listing not found');
 
-  // Admin may view any non-fixture listing (including suppressed); public sees only visible listings.
-  const visible = filterVisibleVehicles([candidate], { showFixtures });
-  if (!visible.length && audience !== 'admin') {
-    throw new NotFoundError('Listing not found');
-  }
-  // For admin, still hide fixtures unless explicitly allowed.
-  if (!visible.length && audience === 'admin' && filterVisibleVehicles([candidate], { showFixtures: true }).length === 0) {
-    throw new NotFoundError('Listing not found');
+  if (audience === 'admin') {
+    // Admins may inspect ANY non-fixture listing (incl. suppressed / rejected / flagged / pending) —
+    // the exact listings they must moderate. Apply ONLY the fixture guard, never the public-status
+    // filter (which would 404 every quarantined listing).
+    const showFx = showFixtures ?? shouldShowFixtures();
+    if (!showFx && getFixtureExclusion(candidate) !== null) {
+      throw new NotFoundError('Listing not found');
+    }
+  } else {
+    // Public/buyer audience: only publicly-visible, non-fixture listings resolve.
+    const visible = filterVisibleVehicles([candidate], { showFixtures });
+    if (!visible.length) throw new NotFoundError('Listing not found');
   }
   const vehicle = candidate;
 
@@ -123,7 +130,8 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   return {
     ...listingSummary,
     listing_type: 'vehicle',
-    public_status: 'public',
+    // Public audience only ever sees public listings; admins see the true governed status.
+    public_status: audience === 'admin' ? deriveListingPublicStatus(vehicle.status) : 'public',
     risk_status: trust_summary.risk_status,
     short_description: buildShortDescription(listingSummary),
     description: buildDescription(listingSummary),

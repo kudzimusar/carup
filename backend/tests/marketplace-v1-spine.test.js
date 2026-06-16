@@ -21,7 +21,7 @@ import {
 } from '../services/marketplace/marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from '../services/marketplace/marketplacePricingService.js';
 import { getMarketplaceListingDetail } from '../services/marketplace/marketplaceListingDetailService.js';
-import { createInquiry, assessInquiryRisk, listInquiriesForAdmin, updateInquiryStatus } from '../services/marketplace/marketplaceInquiryService.js';
+import { createInquiry, assessInquiryRisk, listInquiriesForAdmin, listInquiriesForSeller, updateInquiryStatus } from '../services/marketplace/marketplaceInquiryService.js';
 import { MarketplaceReferralBridgeService } from '../services/marketplace/marketplaceReferralBridgeService.js';
 import { saveListing, unsaveListing, listSavedListings } from '../services/marketplace/marketplaceSavedService.js';
 import { compareListings } from '../services/marketplace/marketplaceDiscoveryService.js';
@@ -475,6 +475,39 @@ test('updateInquiryStatus 404s a missing inquiry (maybeSingle, not a 500)', asyn
     () => updateInquiryStatus(buildMockSupabase({ marketplace_inquiries: [] }), 'nope', 'contacted', adminActor),
     /not found/i
   );
+});
+
+test('signed-in inquiry enriches buyer contact from profile so the seller has a reply channel (P1)', async () => {
+  const store = {
+    vehicles: [publicVehicle({ owner_id: 'seller-1' })],
+    users: [{ id: 'buyer-9', name: 'Tariro N', email: 'tariro@example.com', phone: '+263772111222' }],
+    marketplace_inquiries: [],
+  };
+  const client = buildMockSupabase(store);
+  // Mobile-style: authenticated buyer sends NO guest contact.
+  await createInquiry(client, { inquiry_type: 'vehicle_purchase_interest', listing_id: REAL_VIN }, { id: 'buyer-9' }, { referralBridge: spyBridge() });
+  const row = store.marketplace_inquiries[0];
+  assert.equal(row.buyer_id, 'buyer-9');
+  assert.equal(row.guest_email, 'tariro@example.com');
+  assert.equal(row.guest_phone, '+263772111222');
+  // Seller (owner of the listing) can now see a usable contact.
+  const sellerView = await listInquiriesForSeller(client, { id: 'seller-1' });
+  assert.equal(sellerView.length, 1);
+  assert.equal(sellerView[0].contact_email, 'tariro@example.com');
+});
+
+test('admin listing detail can read a suppressed listing (P2 — not 404), public audience 404s it', async () => {
+  const store = { vehicles: [publicVehicle({ status: 'Suspended' })] };
+  const admin = await getMarketplaceListingDetail(buildMockSupabase(store), REAL_VIN, { audience: 'admin' });
+  assert.equal(admin.vin, REAL_VIN);
+  assert.equal(admin.public_status, 'suppressed');
+  assert.ok(admin.trust_summary);
+  await assert.rejects(() => getMarketplaceListingDetail(buildMockSupabase(store), REAL_VIN, { audience: 'public' }), /not found/i);
+});
+
+test('admin detail still 404s a fixture/seed listing', async () => {
+  const store = { vehicles: [{ ...publicVehicle({ status: 'Suspended' }), vin: 'VIN_FIXTURE_1', owner_id: 'u3' }] };
+  await assert.rejects(() => getMarketplaceListingDetail(buildMockSupabase(store), 'VIN_FIXTURE_1', { audience: 'admin' }), /not found/i);
 });
 
 test('saveListing treats a unique-violation (23505) as idempotent success', async () => {

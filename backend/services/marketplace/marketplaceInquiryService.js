@@ -110,6 +110,18 @@ function toAdminInquiry(row) {
   };
 }
 
+/** Look up a buyer's consented contact (name/email/phone) for seller reply. Best-effort; never throws. */
+async function lookupUserContact(client, userId) {
+  try {
+    const { data, error } = await client.from('users').select('name, email, phone').eq('id', userId).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  } catch (error) {
+    console.warn('[marketplace-inquiry] buyer contact enrichment skipped:', error.message);
+    return null;
+  }
+}
+
 async function resolveListingSeller(client, vin) {
   try {
     const { data, error } = await client.from('vehicles').select('vin, owner_id, tenant_id, status').eq('vin', vin);
@@ -155,6 +167,20 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   if (guestEmail && !EMAIL_RE.test(guestEmail)) throw new ValidationError('Invalid email address.');
   if (guestPhone && !PHONE_RE.test(guestPhone)) throw new ValidationError('Invalid phone number.');
 
+  // Contact-for-this-inquiry: preserve what the buyer submitted; for an AUTHENTICATED buyer, enrich any
+  // missing field from their profile so the seller ALWAYS has a reply channel (the mobile Express
+  // Interest flow sends no contact at all, and the web modal may submit a partial prefill). Stored on
+  // the inquiry (service-role table) and surfaced ONLY to the owning seller / admin — never publicly.
+  let contactName = guestName;
+  let contactEmail = guestEmail;
+  let contactPhone = guestPhone;
+  if (buyerId && (!contactName || !contactEmail || !contactPhone)) {
+    const profile = await lookupUserContact(client, buyerId);
+    contactName = contactName || profile?.name || null;
+    contactEmail = contactEmail || profile?.email || null;
+    contactPhone = contactPhone || profile?.phone || null;
+  }
+
   // Vehicle-bound inquiries must point at a real, visible vehicle; capture seller routing fields.
   let sellerId = null;
   let sellerTenantId = null;
@@ -172,9 +198,9 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     listing_id: listingId,
     listing_type: isDiaspora ? 'diaspora_request' : 'vehicle',
     buyer_id: buyerId,
-    guest_name: buyerId ? null : guestName,
-    guest_email: buyerId ? null : guestEmail,
-    guest_phone: buyerId ? null : guestPhone,
+    guest_name: contactName,
+    guest_email: contactEmail,
+    guest_phone: contactPhone,
     seller_id: sellerId,
     seller_tenant_id: sellerTenantId,
     inquiry_type: inquiryType,
