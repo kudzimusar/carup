@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -48,6 +49,8 @@ export default function MyListings() {
           <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> New Listing</Link>
         </Button>
       </div>
+
+      <SellerInquiriesCard />
 
       {myListings.length === 0 ? (
         <Card className="border-0 card-shadow">
