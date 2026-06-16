@@ -28,9 +28,12 @@ export async function saveListing(client, vin, actor) {
     const { data: existing } = await client.from(TABLE).select('id, user_id, vin').eq('user_id', userId).eq('vin', vin);
     if (Array.isArray(existing) && existing.length) return { saved: true, vin };
     const { error } = await client.from(TABLE).insert({ user_id: userId, vin, created_at: new Date().toISOString() });
-    if (error) throw error;
+    // saved_vehicles has UNIQUE(user_id, vin) (migration 010). A concurrent double-save races past the
+    // existence check above; treat the unique violation (23505) as an idempotent success, not an error.
+    if (error && error.code !== '23505') throw error;
     return { saved: true, vin };
   } catch (error) {
+    if (error && error.code === '23505') return { saved: true, vin };
     throw new DatabaseError('Failed to save listing.', { reason: error.message });
   }
 }

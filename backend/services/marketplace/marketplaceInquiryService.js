@@ -43,6 +43,21 @@ function clampStr(value, max) {
   return s.slice(0, max);
 }
 
+// Only these keys are persisted from the client metadata blob. Everything else (including any
+// shipment/container fields a diaspora inquiry might try to smuggle in, or extra PII) is dropped, so
+// the PR #58 boundary and the no-PII-leak invariant hold at-rest, not just at the column level.
+const ALLOWED_METADATA_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'source_page', 'referrer', 'preferred_contact'];
+function sanitizeInquiryMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
+  const out = {};
+  for (const key of ALLOWED_METADATA_KEYS) {
+    const v = metadata[key];
+    if (v === undefined || v === null) continue;
+    out[key] = String(v).slice(0, 200);
+  }
+  return out;
+}
+
 /** Lightweight, public-safe risk heuristic. Off-platform payment pushes -> watch. */
 export function assessInquiryRisk(message) {
   const text = String(message || '').toLowerCase();
@@ -172,7 +187,7 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     risk_status: assessInquiryRisk(message),
     assigned_operator: null,
     country: clampStr(payload.country, 80),
-    metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {},
+    metadata: sanitizeInquiryMetadata(payload.metadata),
     created_at: now,
     updated_at: now,
   };
@@ -212,8 +227,9 @@ export async function listInquiriesForSeller(client, actor) {
   return mine.map(toSellerInquiry);
 }
 
-/** Admin/operator view with optional status/type filters. */
-export async function listInquiriesForAdmin(client, filters = {}) {
+/** Admin/operator view with optional status/type filters. Re-checks reviewer authority server-side. */
+export async function listInquiriesForAdmin(client, filters = {}, actor = filters.actor) {
+  assertReviewer(actor);
   const rows = await fetchInquiries(client);
   let out = rows;
   if (filters.status && MARKETPLACE_INQUIRY_STATUSES.includes(filters.status)) {
@@ -249,22 +265,28 @@ export async function updateInquiryStatus(client, inquiryId, status, actor) {
   return patchInquiry(client, inquiryId, { status });
 }
 
+// Canonical platform-level reviewer set, identical to marketplace moderation, so the route guard and
+// the service re-check agree. Keyed on the PLATFORM/base role only (never the header-derived effective
+// role) so a tenant-scoped elevation cannot grant cross-tenant inquiry management over guest PII.
+const MARKETPLACE_REVIEWER_ROLES = ['admin', 'platform_admin', 'super_admin', 'government'];
 function assertReviewer(actor) {
-  const role = String(actor?.role || actor?.platformRole || '').toLowerCase();
-  if (!['admin', 'platform_admin', 'super_admin', 'operator'].includes(role)) {
-    throw new ForbiddenError('Operator or admin role required.');
+  const role = String(actor?.platformRole || actor?.baseRole || '').toLowerCase();
+  if (!MARKETPLACE_REVIEWER_ROLES.includes(role)) {
+    throw new ForbiddenError('Platform admin or government role required.');
   }
 }
 
 async function patchInquiry(client, inquiryId, patch) {
   if (!inquiryId) throw new ValidationError('inquiry id is required.');
   try {
+    // maybeSingle(): a zero-row update resolves to { data: null, error: null } on real Supabase, so the
+    // intended 404 (below) is reachable rather than being rewrapped as a 500 DatabaseError.
     const { data, error } = await client
       .from(TABLE)
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('id', inquiryId)
       .select()
-      .single();
+      .maybeSingle();
     if (error) throw error;
     if (!data) throw new NotFoundError('Inquiry not found.');
     return toAdminInquiry(data);

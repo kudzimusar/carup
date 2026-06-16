@@ -21,7 +21,7 @@ import {
 } from '../services/marketplace/marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from '../services/marketplace/marketplacePricingService.js';
 import { getMarketplaceListingDetail } from '../services/marketplace/marketplaceListingDetailService.js';
-import { createInquiry, assessInquiryRisk } from '../services/marketplace/marketplaceInquiryService.js';
+import { createInquiry, assessInquiryRisk, listInquiriesForAdmin, updateInquiryStatus } from '../services/marketplace/marketplaceInquiryService.js';
 import { MarketplaceReferralBridgeService } from '../services/marketplace/marketplaceReferralBridgeService.js';
 import { saveListing, unsaveListing, listSavedListings } from '../services/marketplace/marketplaceSavedService.js';
 import { compareListings } from '../services/marketplace/marketplaceDiscoveryService.js';
@@ -341,7 +341,7 @@ test('compare rejects more than 4 listings', async () => {
 // Moderation
 // ---------------------------------------------------------------------------
 
-const adminActor = { id: 'admin-1', role: 'admin' };
+const adminActor = { id: 'admin-1', role: 'admin', platformRole: 'admin' };
 
 test('moderation: approve sets Available + writes audit; suppress requires reason', async () => {
   const store = { vehicles: [publicVehicle({ status: 'Suspended' })], trust_audit_events: [] };
@@ -356,9 +356,18 @@ test('moderation: approve sets Available + writes audit; suppress requires reaso
   await assert.rejects(() => moderateListing(client, REAL_VIN, 'suppress', {}, adminActor), /reason is required/i);
 });
 
-test('moderation requires a reviewer role', async () => {
+test('moderation requires a platform reviewer role', async () => {
   await assert.rejects(
-    () => moderateListing(buildMockSupabase({ vehicles: [publicVehicle()] }), REAL_VIN, 'approve', {}, { id: 'u', role: 'owner' }),
+    () => moderateListing(buildMockSupabase({ vehicles: [publicVehicle()] }), REAL_VIN, 'approve', {}, { id: 'u', role: 'owner', platformRole: 'owner' }),
+    /role required/i
+  );
+});
+
+test('moderation blocks a tenant-elevated effective role (no platform authority)', async () => {
+  // Header-derived effectiveRole 'operator' but platform role is only 'member' -> must be rejected.
+  const escalated = { id: 'u', role: 'operator', platformRole: 'member', tenantRole: 'operator', tenantId: 't1' };
+  await assert.rejects(
+    () => moderateListing(buildMockSupabase({ vehicles: [publicVehicle()] }), REAL_VIN, 'approve', {}, escalated),
     /role required/i
   );
 });
@@ -384,7 +393,7 @@ test('analytics aggregates listing statuses and is resilient to a missing inquir
 });
 
 test('analytics requires a reviewer role', async () => {
-  await assert.rejects(() => getMarketplaceAnalytics(buildMockSupabase({ vehicles: [] }), { role: 'owner' }), /role required/i);
+  await assert.rejects(() => getMarketplaceAnalytics(buildMockSupabase({ vehicles: [] }), { role: 'owner', platformRole: 'owner' }), /role required/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -410,4 +419,78 @@ test('deterministic share copy is always available', () => {
   const copy = deterministicShareCopy({ make: 'Toyota', model: 'Corolla', year: 2018, price: 9500, url: 'https://carup/x' });
   assert.ok(copy.whatsapp.includes('Toyota'));
   assert.ok(copy.telegram && copy.facebook && copy.short);
+});
+
+// ---------------------------------------------------------------------------
+// Review hardening regressions
+// ---------------------------------------------------------------------------
+
+test('PartSentry fail-closed: an unknown/future suspicion value suppresses all signals', () => {
+  const s = summarizePartSentry([
+    { action_type: 'Replaced', timestamp: NOW, verification_status: 'verified', part_verification_status: 'verified', public_card_eligible: true, suspicion_status: 'under_review' },
+  ]);
+  assert.equal(s.suppressed, true);
+  assert.equal(s.partsentry_checked, false);
+  assert.equal(s.public_status, 'suppressed');
+});
+
+test('PartSentry: legacy rows with absent suspicion_status are treated as non-suspicious', () => {
+  const s = summarizePartSentry([
+    { action_type: 'Replaced', timestamp: NOW, verification_status: 'verified', part_verification_status: 'verified', public_card_eligible: true },
+  ]);
+  assert.equal(s.suppressed, false);
+  assert.equal(s.partsentry_checked, true);
+});
+
+test('inquiry metadata is allow-list sanitized (off-contract keys + shipment data dropped)', async () => {
+  const store = { marketplace_inquiries: [] };
+  await createInquiry(
+    buildMockSupabase(store),
+    {
+      inquiry_type: 'import_quote_request',
+      guest_email: 'b@example.com',
+      metadata: { utm_source: 'fb', tracking_number: 'SECRET123', container_id: 'C1', guest_email: 'leak@x.com' },
+    },
+    null,
+    { referralBridge: spyBridge() }
+  );
+  const meta = store.marketplace_inquiries[0].metadata;
+  assert.equal(meta.utm_source, 'fb');
+  assert.equal('tracking_number' in meta, false);
+  assert.equal('container_id' in meta, false);
+  assert.equal('guest_email' in meta, false);
+});
+
+test('listInquiriesForAdmin re-checks reviewer authority server-side', async () => {
+  await assert.rejects(
+    () => listInquiriesForAdmin(buildMockSupabase({ marketplace_inquiries: [] }), {}, { role: 'owner', platformRole: 'owner' }),
+    /role required/i
+  );
+  const ok = await listInquiriesForAdmin(buildMockSupabase({ marketplace_inquiries: [] }), {}, adminActor);
+  assert.ok(Array.isArray(ok));
+});
+
+test('updateInquiryStatus 404s a missing inquiry (maybeSingle, not a 500)', async () => {
+  await assert.rejects(
+    () => updateInquiryStatus(buildMockSupabase({ marketplace_inquiries: [] }), 'nope', 'contacted', adminActor),
+    /not found/i
+  );
+});
+
+test('saveListing treats a unique-violation (23505) as idempotent success', async () => {
+  // Custom client whose insert resolves with a 23505 unique_violation.
+  const client = {
+    from() {
+      const builder = {
+        select() { return builder; },
+        eq() { return builder; },
+        insert() { return builder; },
+        then(res) { return Promise.resolve({ data: [], error: { code: '23505', message: 'duplicate key' } }).then(res); },
+      };
+      return builder;
+    },
+  };
+  const out = await saveListing(client, REAL_VIN, { id: 'user-1' });
+  assert.equal(out.saved, true);
+  assert.equal(out.vin, REAL_VIN);
 });

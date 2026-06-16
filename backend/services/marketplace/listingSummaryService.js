@@ -122,11 +122,17 @@ export function summarizeEvidence(rows = []) {
 }
 
 /**
- * Active suspicion states suppress ALL PartSentry public claims (ports PR #11 governance into
- * the read path: main's summary fetched suspicion_status but ignored it). If ANY log on the
- * vehicle is watch/flagged, no PartSentry signal may surface publicly.
+ * Suspicion handling is FAIL-CLOSED via an allowlist of known-safe states (ports PR #11 governance
+ * into the read path: main's summary fetched suspicion_status but ignored it). A log may contribute a
+ * public PartSentry claim ONLY when its suspicion_status is one of the known non-suspicious values
+ * (empty/absent is treated as non-suspicious for legacy rows without the column). ANY other value —
+ * including watch/flagged AND any future/unknown enum value (e.g. 'under_review') — suppresses ALL
+ * PartSentry signals for the vehicle. Allowlist, not denylist, so new states never silently publish.
  */
-const ACTIVE_SUSPICION_STATUSES = ['watch', 'flagged'];
+const NON_SUSPICIOUS_PARTSENTRY_STATUSES = ['none', 'cleared', ''];
+function isSuspiciousPartSentryRow(row) {
+  return !NON_SUSPICIOUS_PARTSENTRY_STATUSES.includes(normalizeText(row?.suspicion_status));
+}
 
 /** Self-approval guard: a mechanic approving their own log can never produce a public claim. */
 function isSelfApprovedPartSentry(row) {
@@ -147,14 +153,15 @@ function derivePartSentryPublicStatus(allRows, { suppressed, eligibleVerifiedCou
 
 export function summarizePartSentry(rows = []) {
   const all = rows || [];
-  // PR #11 suppression: any active suspicion (watch/flagged) on the vehicle hides every PartSentry claim.
-  const suppressed = all.some(row => ACTIVE_SUSPICION_STATUSES.includes(normalizeText(row?.suspicion_status)));
+  // Fail-closed suppression: any row whose suspicion_status is not in the non-suspicious allowlist
+  // (watch/flagged or any unknown/future value) hides every PartSentry claim for the vehicle.
+  const suppressed = all.some(isSuspiciousPartSentryRow);
   // Governed public-card eligibility: opt-in flag + non-suspicious + not self-approved.
   const eligibleRows = suppressed
     ? []
     : all.filter(row =>
         boolValue(row?.public_card_eligible) &&
-        !ACTIVE_SUSPICION_STATUSES.includes(normalizeText(row?.suspicion_status)) &&
+        !isSuspiciousPartSentryRow(row) &&
         !isSelfApprovedPartSentry(row)
       );
 

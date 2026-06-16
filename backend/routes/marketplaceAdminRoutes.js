@@ -22,8 +22,10 @@ import { moderationSummary } from '../services/marketplace/marketplaceAiAssistan
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// Reviewer-capable roles. The service layer re-checks via assertModerator (defense in depth).
-const REVIEWER_ROLES = ['admin', 'government', 'operator', 'reviewer'];
+// Platform-level reviewer roles. authorizeRole additionally bypasses for platform_admin/super_admin.
+// The service layer independently re-checks the PLATFORM/base role (assertModerator / assertReviewer),
+// so a tenant-scoped x-stakeholder-role elevation that slips past the route guard still fails closed.
+const REVIEWER_ROLES = ['admin', 'government'];
 
 // ---- Listing moderation ----------------------------------------------------
 
@@ -50,7 +52,7 @@ router.patch('/api/admin/marketplace/listings/:id/clear-risk', authorizeRole(REV
 // ---- Inquiry management ----------------------------------------------------
 
 router.get('/api/admin/marketplace/inquiries', authorizeRole(REVIEWER_ROLES), asyncHandler(async (req, res) => {
-  res.json({ inquiries: await listInquiriesForAdmin(supabase, req.query) });
+  res.json({ inquiries: await listInquiriesForAdmin(supabase, req.query, req.userContext) });
 }));
 
 router.patch('/api/admin/marketplace/inquiries/:id/assign', authorizeRole(REVIEWER_ROLES), asyncHandler(async (req, res) => {
