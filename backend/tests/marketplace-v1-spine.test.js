@@ -28,6 +28,7 @@ import { compareListings } from '../services/marketplace/marketplaceDiscoverySer
 import { moderateListing, deriveListingPublicStatus } from '../services/marketplace/marketplaceModerationService.js';
 import { getMarketplaceAnalytics } from '../services/marketplace/marketplaceAnalyticsService.js';
 import { listingDraft, deterministicShareCopy } from '../services/marketplace/marketplaceAiAssistantService.js';
+import { getPartsListings, getServiceListings, buildPartSummary } from '../services/marketplace/marketplacePartsService.js';
 
 const NOW = new Date().toISOString();
 const REAL_VIN = '1HGBH41JXMN109186';
@@ -475,6 +476,21 @@ test('updateInquiryStatus 404s a missing inquiry (maybeSingle, not a 500)', asyn
     () => updateInquiryStatus(buildMockSupabase({ marketplace_inquiries: [] }), 'nope', 'contacted', adminActor),
     /not found/i
   );
+});
+
+test('parts/services v1 surfaces are governed (empty + no fabricated trust) and parts summary is sanitized', async () => {
+  const parts = await getPartsListings(buildMockSupabase({}), {});
+  assert.equal(parts.governed, true);
+  assert.equal(parts.listing_type, 'part');
+  assert.equal(parts.total, 0);
+  const services = await getServiceListings(buildMockSupabase({}), {});
+  assert.equal(services.governed, true);
+  // Part summary never fabricates verified-parts/PartSentry status and carries no supplier PII.
+  const summary = buildPartSummary({ id: 'p1', part_name: 'Brake pad', supplier_id: 'mech-1', supplier_phone: '+263' });
+  assert.equal(summary.verified_parts, false);
+  assert.equal(summary.partsentry_public_status, 'not_applicable');
+  assert.equal('supplier_id' in summary, false);
+  assert.equal('supplier_phone' in summary, false);
 });
 
 test('signed-in inquiry enriches buyer contact from profile so the seller has a reply channel (P1)', async () => {

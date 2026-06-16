@@ -160,6 +160,16 @@ export function useCarUpApi() {
     return request<MarketplaceListingsResponse>(`/marketplace/recommendations?vin=${encodeURIComponent(vin)}`)
   }, [request])
 
+  const fetchMarketplaceParts = useCallback(async (filters?: Record<string, string | number | undefined>): Promise<{ listings: any[]; total: number; governed?: boolean; note?: string }> => {
+    const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString() : ''
+    return request(`/marketplace/parts${query}`)
+  }, [request])
+
+  const fetchMarketplaceServices = useCallback(async (filters?: Record<string, string | number | undefined>): Promise<{ listings: any[]; total: number; governed?: boolean; note?: string }> => {
+    const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString() : ''
+    return request(`/marketplace/services${query}`)
+  }, [request])
+
   const compareMarketplaceListings = useCallback(async (vins: string[]): Promise<{ listings: any[]; total: number }> => {
     return request('/marketplace/compare', { method: 'POST', body: JSON.stringify({ vins }) })
   }, [request])
@@ -938,6 +948,8 @@ export function useCarUpApi() {
     fetchMarketplaceListingDetail,
     fetchMarketplaceCategories,
     fetchMarketplaceRecommendations,
+    fetchMarketplaceParts,
+    fetchMarketplaceServices,
     compareMarketplaceListings,
     createMarketplaceInquiry,
     saveMarketplaceListing,

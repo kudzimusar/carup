@@ -10,6 +10,7 @@ import {
   getMarketplaceRecommendations,
   getMarketplaceCategories,
 } from '../services/marketplace/marketplaceDiscoveryService.js';
+import { getPartsListings, getServiceListings } from '../services/marketplace/marketplacePartsService.js';
 import { createInquiry, listInquiriesForSeller } from '../services/marketplace/marketplaceInquiryService.js';
 import { saveListing, unsaveListing, listSavedListings } from '../services/marketplace/marketplaceSavedService.js';
 import { marketplaceReferralBridge } from '../services/marketplace/marketplaceReferralBridgeService.js';
@@ -52,6 +53,15 @@ router.get('/api/marketplace/nav-coverage', asyncHandler(async (req, res) => {
 
 router.get('/api/marketplace/categories', asyncHandler(async (_req, res) => {
   res.json(getMarketplaceCategories());
+}));
+
+// Parts & garage/service marketplace v1 (governed, gated). Public, sanitized, PartSentry-respecting.
+router.get('/api/marketplace/parts', asyncHandler(async (req, res) => {
+  res.json(await getPartsListings(supabase, req.query));
+}));
+
+router.get('/api/marketplace/services', asyncHandler(async (req, res) => {
+  res.json(await getServiceListings(supabase, req.query));
 }));
 
 router.get('/api/marketplace/recommendations', asyncHandler(async (req, res) => {
