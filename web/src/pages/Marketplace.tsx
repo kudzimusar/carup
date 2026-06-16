@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -14,12 +14,39 @@ import {
 } from '@/components/ui/sheet'
 import {
   Search, SlidersHorizontal, CheckCircle, Heart, MapPin, Gauge, Fuel, Settings2, X, Loader2, ShieldCheck,
+  GitCompare, Share2, Globe2,
 } from 'lucide-react'
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
-import type { MarketplaceListingSummary, Vehicle } from '@/types'
+import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from '@/types'
+import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
+import { InquiryModal } from '@/components/marketplace/InquiryModal'
+import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
+
+const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
+  'import_quote_request',
+  'container_space_interest',
+  'diaspora_vehicle_request',
+  'diaspora_parts_request',
+  'family_purchase_support',
+]
+const MAX_COMPARE = 4
+
+async function shareListing(vin: string, name: string) {
+  const url = `${window.location.origin}/marketplace/${encodeURIComponent(vin)}`
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: name, text: `Check out ${name} on CarUp`, url })
+    } else {
+      await navigator.clipboard.writeText(url)
+      toast.success('Listing link copied to clipboard')
+    }
+  } catch {
+    /* user cancelled share — ignore */
+  }
+}
 import {
   paramsToState,
   stateToParams,
@@ -339,6 +366,25 @@ export default function Marketplace() {
 
   const { fetchMarketplaceListings, fetchVehicles } = useCarUpApi()
   const isMobile = useIsMobile()
+  const navigate = useNavigate()
+
+  // Capture referral/campaign/UTM attribution from the URL once, so a later inquiry can forward it.
+  useEffect(() => { captureReferralFromUrl() }, [])
+
+  // Compare selection (up to 4 listings) -> /marketplace/compare?vins=...
+  const [compareVins, setCompareVins] = useState<string[]>([])
+  const toggleCompare = useCallback((e: React.MouseEvent, vin: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCompareVins((prev) => {
+      if (prev.includes(vin)) return prev.filter((v) => v !== vin)
+      if (prev.length >= MAX_COMPARE) {
+        toast.info(`You can compare up to ${MAX_COMPARE} listings.`)
+        return prev
+      }
+      return [...prev, vin]
+    })
+  }, [])
 
   // The URL is the single source of truth for the shareable, structural filters. Deriving them
   // straight from searchParams means browser back/forward and deep-links update the page for free.
@@ -566,6 +612,18 @@ export default function Marketplace() {
           <p className="text-gray-600">
             Browse {liveVehicles.length} verified vehicles across Zimbabwe, with parts and repair trust signals where data exists.
           </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
+            <BuyerAssistantDrawer />
+            <InquiryModal
+              inquiryTypes={DIASPORA_INQUIRY_TYPES}
+              defaultInquiryType="import_quote_request"
+              triggerLabel="Import to Zimbabwe"
+              triggerVariant="outline"
+            />
+            <span className="hidden items-center gap-1 text-xs text-gray-500 sm:flex">
+              <Globe2 className="h-3.5 w-3.5 text-blue-500" /> Diaspora & import inquiries — no shipment data exposed
+            </span>
+          </div>
         </div>
       </div>
 
@@ -834,12 +892,39 @@ export default function Marketplace() {
                           </Badge>
                         )}
                       </div>
-                      <button
-                        onClick={(e) => toggleFavorite(e, vehicle.vin || vehicle.id || '', vehicleName)}
-                        className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
-                      >
-                        <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
-                      </button>
+                      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          aria-label="Add to compare"
+                          aria-pressed={compareVins.includes(vehicle.vin || '')}
+                          onClick={(e) => toggleCompare(e, vehicle.vin || '')}
+                          data-testid="marketplace-compare-toggle"
+                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-opacity hover:scale-110 ${
+                            compareVins.includes(vehicle.vin || '')
+                              ? 'bg-orange-500 text-white opacity-100'
+                              : 'bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          <GitCompare className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Share listing"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); shareListing(vehicle.vin || '', vehicleName) }}
+                          data-testid="marketplace-share-button"
+                          className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 text-gray-600"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Save listing"
+                          onClick={(e) => toggleFavorite(e, vehicle.vin || vehicle.id || '', vehicleName)}
+                          className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
+                        >
+                          <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
+                        </button>
+                      </div>
                     </div>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-1">
@@ -897,6 +982,26 @@ export default function Marketplace() {
           </div>
         )}
       </div>
+
+      {/* Floating compare bar */}
+      {compareVins.length > 0 && (
+        <div
+          className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border border-gray-200 bg-white px-4 py-2 shadow-lg"
+          data-testid="marketplace-compare-bar"
+        >
+          <span className="text-sm font-medium text-gray-700">{compareVins.length} selected to compare</span>
+          <Button variant="ghost" size="sm" onClick={() => setCompareVins([])}>Clear</Button>
+          <Button
+            size="sm"
+            className="bg-orange-500 hover:bg-orange-600"
+            disabled={compareVins.length < 2}
+            onClick={() => navigate(`/marketplace/compare?vins=${compareVins.join(',')}`)}
+            data-testid="marketplace-compare-go"
+          >
+            <GitCompare className="mr-1 h-4 w-4" /> Compare
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

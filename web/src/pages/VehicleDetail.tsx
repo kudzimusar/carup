@@ -28,7 +28,13 @@ import type {
   VehiclePassport,
   TimelineEvent,
   PassportVerificationSource,
+  MarketplaceListingDetail,
 } from '@/types'
+import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
+import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
+import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
+import { InquiryModal } from '@/components/marketplace/InquiryModal'
+import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 
 // ── localStorage helpers ─────────────────────────────────────────────────────
 function getFavorites(): string[] {
@@ -156,10 +162,11 @@ function buildTrustBreakdown(passport: VehiclePassport | null): { label: string;
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport } = useCarUpApi()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail } = useCarUpApi()
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
   const [passport, setPassport] = useState<VehiclePassport | null>(null)
+  const [detail, setDetail]     = useState<MarketplaceListingDetail | null>(null)
   const [loading, setLoading]   = useState(true)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
@@ -264,6 +271,19 @@ export default function VehicleDetail() {
     load()
     return () => { mounted = false }
   }, [id, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport])
+
+  // Backend-governed marketplace detail (trust/verification/pricing summaries). Best-effort: if the
+  // listing is not a public marketplace listing this stays null and the page renders the passport view.
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    captureReferralFromUrl()
+    const attr = getStoredAttribution()
+    fetchMarketplaceListingDetail(id, { ref: attr.referral_code, campaign: attr.campaign_code, source: attr.source })
+      .then((d) => { if (mounted) setDetail(d) })
+      .catch(() => { if (mounted) setDetail(null) })
+    return () => { mounted = false }
+  }, [id, fetchMarketplaceListingDetail])
 
   const toggleFavorite = useCallback(() => {
     if (!vehicle) return
@@ -402,6 +422,39 @@ export default function VehicleDetail() {
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
+
+        {/* Backend-governed marketplace panels (trust, all-in price, inquiry, safety) */}
+        {detail && (
+          <div className="mb-6 grid gap-4 lg:grid-cols-3" data-testid="marketplace-detail-panels">
+            <div className="space-y-4 lg:col-span-2">
+              <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
+              <SafetyWarnings warnings={detail.safety_warnings} />
+            </div>
+            <div className="space-y-4">
+              <AllInPricePanel pricing={detail.pricing_summary} />
+              <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                <h3 className="mb-2 text-sm font-semibold text-gray-900">Contact &amp; inquire</h3>
+                <div className="flex flex-col gap-2">
+                  <InquiryModal
+                    listingId={detail.vin}
+                    inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                    triggerLabel="Send inquiry"
+                    triggerClassName="w-full"
+                  />
+                  <InquiryModal
+                    listingId={detail.vin}
+                    inquiryTypes={['vehicle_inspection_request']}
+                    defaultInquiryType="vehicle_inspection_request"
+                    triggerLabel="Request inspection"
+                    triggerVariant="outline"
+                    triggerClassName="w-full"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500">Inquiries are safe — the CarUp team helps connect you. Never pay outside CarUp.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* ── Left column ─────────────────────────────────────────────── */}
