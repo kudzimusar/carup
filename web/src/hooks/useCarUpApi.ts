@@ -13,6 +13,9 @@ import type {
   VehicleEvidence,
   TimelineEvent,
   MarketplaceListingsResponse,
+  MarketplaceListingDetail,
+  MarketplaceInquiry,
+  MarketplaceInquiryInput,
   NavCoverageResponse,
   TrustAuditTrailResponse,
   TrustFactDecisionPayload,
@@ -140,6 +143,77 @@ export function useCarUpApi() {
   const fetchMarketplaceNavCoverage = useCallback(async (): Promise<NavCoverageResponse> => {
     return request<NavCoverageResponse>('/marketplace/nav-coverage')
   }, [request])
+
+  // ── Marketplace v1 (detail / inquiry / save / compare / recommendations / AI) ──
+  const fetchMarketplaceListingDetail = useCallback(async (vin: string, attribution?: { ref?: string; campaign?: string; source?: string }): Promise<MarketplaceListingDetail> => {
+    const query = attribution
+      ? '?' + new URLSearchParams(Object.entries(attribution).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<MarketplaceListingDetail>(`/marketplace/listings/${encodeURIComponent(vin)}${query}`)
+  }, [request])
+
+  const fetchMarketplaceCategories = useCallback(async (): Promise<{ listing_types: { slug: string; label: string }[]; condition_categories: { slug: string; label: string }[]; trust_tags: { slug: string; label: string }[] }> => {
+    return request('/marketplace/categories')
+  }, [request])
+
+  const fetchMarketplaceRecommendations = useCallback(async (vin: string): Promise<MarketplaceListingsResponse> => {
+    return request<MarketplaceListingsResponse>(`/marketplace/recommendations?vin=${encodeURIComponent(vin)}`)
+  }, [request])
+
+  const compareMarketplaceListings = useCallback(async (vins: string[]): Promise<{ listings: any[]; total: number }> => {
+    return request('/marketplace/compare', { method: 'POST', body: JSON.stringify({ vins }) })
+  }, [request])
+
+  const createMarketplaceInquiry = useCallback(async (payload: MarketplaceInquiryInput): Promise<{ inquiry: MarketplaceInquiry }> => {
+    return request('/marketplace/inquiries', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const saveMarketplaceListing = useCallback(async (vin: string): Promise<{ saved: boolean; vin: string }> => {
+    return request(`/marketplace/listings/${encodeURIComponent(vin)}/save`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
+  const unsaveMarketplaceListing = useCallback(async (vin: string): Promise<{ saved: boolean; vin: string }> => {
+    return request(`/marketplace/listings/${encodeURIComponent(vin)}/save`, { method: 'DELETE' })
+  }, [request])
+
+  const fetchSavedMarketplaceListings = useCallback(async (): Promise<MarketplaceListingsResponse> => {
+    return request<MarketplaceListingsResponse>('/marketplace/saved')
+  }, [request])
+
+  const fetchMyMarketplaceInquiries = useCallback(async (): Promise<{ inquiries: any[] }> => {
+    return request('/marketplace/my-listings/inquiries')
+  }, [request])
+
+  const marketplaceAiListingDraft = useCallback(async (payload: Record<string, unknown>): Promise<any> =>
+    request('/marketplace/ai/listing-draft', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const marketplaceAiBuyerAssistant = useCallback(async (payload: Record<string, unknown>): Promise<any> =>
+    request('/marketplace/ai/buyer-assistant', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const marketplaceAiPriceEstimate = useCallback(async (payload: Record<string, unknown>): Promise<any> =>
+    request('/marketplace/ai/price-estimate', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const marketplaceAiShareCopy = useCallback(async (payload: Record<string, unknown>): Promise<any> =>
+    request('/marketplace/ai/share-copy', { method: 'POST', body: JSON.stringify(payload) }), [request])
+
+  // ── Admin marketplace command center ──
+  const fetchAdminMarketplaceListings = useCallback(async (filters?: { public_status?: string; risk_status?: string }): Promise<{ listings: any[]; total: number }> => {
+    const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request(`/admin/marketplace/listings${query}`)
+  }, [request])
+  const fetchAdminMarketplaceListingDetail = useCallback(async (vin: string): Promise<MarketplaceListingDetail> =>
+    request<MarketplaceListingDetail>(`/admin/marketplace/listings/${encodeURIComponent(vin)}`), [request])
+  const moderateMarketplaceListing = useCallback(async (vin: string, action: 'approve' | 'reject' | 'suppress' | 'request-evidence' | 'flag-risk' | 'clear-risk', body?: { reason?: string; notes?: string }): Promise<any> =>
+    request(`/admin/marketplace/listings/${encodeURIComponent(vin)}/${action}`, { method: 'PATCH', body: JSON.stringify(body || {}) }), [request])
+  const fetchAdminMarketplaceInquiries = useCallback(async (filters?: { status?: string; inquiry_type?: string; risk_status?: string }): Promise<{ inquiries: any[] }> => {
+    const query = filters ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request(`/admin/marketplace/inquiries${query}`)
+  }, [request])
+  const assignMarketplaceInquiry = useCallback(async (id: string, operatorId: string): Promise<any> =>
+    request(`/admin/marketplace/inquiries/${encodeURIComponent(id)}/assign`, { method: 'PATCH', body: JSON.stringify({ operator_id: operatorId }) }), [request])
+  const setMarketplaceInquiryStatus = useCallback(async (id: string, status: string): Promise<any> =>
+    request(`/admin/marketplace/inquiries/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), [request])
+  const fetchMarketplaceAnalytics = useCallback(async (): Promise<any> =>
+    request('/admin/marketplace/analytics'), [request])
+  const marketplaceAiModerationSummary = useCallback(async (payload: { vin?: string; listingSummary?: unknown; trustSummary?: unknown }): Promise<any> =>
+    request('/admin/marketplace/ai/moderation-summary', { method: 'POST', body: JSON.stringify(payload) }), [request])
 
   const fetchDealerInventory = useCallback(async (): Promise<Vehicle[]> => {
     return request<Vehicle[]>('/vehicles/inventory')
@@ -861,6 +935,27 @@ export function useCarUpApi() {
     fetchVehicles,
     fetchMarketplaceListings,
     fetchMarketplaceNavCoverage,
+    fetchMarketplaceListingDetail,
+    fetchMarketplaceCategories,
+    fetchMarketplaceRecommendations,
+    compareMarketplaceListings,
+    createMarketplaceInquiry,
+    saveMarketplaceListing,
+    unsaveMarketplaceListing,
+    fetchSavedMarketplaceListings,
+    fetchMyMarketplaceInquiries,
+    marketplaceAiListingDraft,
+    marketplaceAiBuyerAssistant,
+    marketplaceAiPriceEstimate,
+    marketplaceAiShareCopy,
+    fetchAdminMarketplaceListings,
+    fetchAdminMarketplaceListingDetail,
+    moderateMarketplaceListing,
+    fetchAdminMarketplaceInquiries,
+    assignMarketplaceInquiry,
+    setMarketplaceInquiryStatus,
+    fetchMarketplaceAnalytics,
+    marketplaceAiModerationSummary,
     fetchDealerInventory,
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,
