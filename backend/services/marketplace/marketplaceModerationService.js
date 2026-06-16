@@ -21,7 +21,10 @@ import { deriveSuspicionLevel } from './marketplaceTrustSummaryService.js';
 import { normalizeVehicleStatus, isVehicleQuarantinedStatus } from '../../utils/vehicleStatus.js';
 import { ValidationError, ForbiddenError, NotFoundError } from '../../utils/errors.js';
 
-const MODERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'reviewer', 'operator', 'government'];
+// Marketplace moderation is a PLATFORM-level capability over GLOBAL (cross-tenant) listings. It is
+// gated on the PLATFORM/base role only — never the header-derived effective role — so a tenant-scoped
+// role elevation (x-stakeholder-role + x-tenant-id) can never confer global moderation power.
+const MODERATOR_ROLES = ['admin', 'platform_admin', 'super_admin', 'government'];
 
 /** action -> { targetStatus (null = no status change), event } */
 const MODERATION_ACTIONS = {
@@ -34,9 +37,11 @@ const MODERATION_ACTIONS = {
 };
 
 export function assertModerator(actor) {
-  const role = String(actor?.role || actor?.platformRole || '').toLowerCase();
+  // platformRole/baseRole are server-derived (users.role); never trust actor.role (effectiveRole),
+  // which can be elevated from the client x-stakeholder-role header within a single tenant.
+  const role = String(actor?.platformRole || actor?.baseRole || '').toLowerCase();
   if (!MODERATOR_ROLES.includes(role)) {
-    throw new ForbiddenError('Admin or reviewer role required for marketplace moderation.');
+    throw new ForbiddenError('Platform admin or government role required for marketplace moderation.');
   }
 }
 
