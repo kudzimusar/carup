@@ -54,6 +54,12 @@ export interface MarketplaceTrustSummary {
   safe_public_copy: string;
   /** Admin-only narrative — present only for admin/reviewer audiences. Never sent to public. */
   admin_explanation?: string;
+  // Plan §6 MarketplaceTrustSummary contract aliases (additive superset; same governed values).
+  public_copy?: string;
+  safe_public_claims?: string[];
+  risk_flags_public?: string[];
+  verification_status?: 'unverified' | 'pending' | 'verified' | 'rejected' | 'manual_review';
+  trust_score?: number | null;
 }
 
 export interface MarketplaceVerificationSummary {
