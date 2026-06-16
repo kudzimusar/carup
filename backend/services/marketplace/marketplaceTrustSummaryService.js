@@ -119,6 +119,12 @@ export function buildTrustSummary({ vehicle = {}, listingSummary = {}, evidenceR
     partsentry_status: partSentry.public_status,
   });
 
+  // Plan §6 verification_status (single enum) derived from public evidence state.
+  const verification_status =
+    evidenceStatus === 'verified' || evidenceStatus === 'partial' ? 'verified'
+      : evidenceStatus === 'review_required' ? 'manual_review'
+      : 'unverified';
+
   const summary = {
     trust_badges,
     public_badge_copy,
@@ -131,6 +137,12 @@ export function buildTrustSummary({ vehicle = {}, listingSummary = {}, evidenceR
     risk_status,
     risk_reasons,
     safe_public_copy,
+    // Plan §6 MarketplaceTrustSummary aliases (additive superset; identical governed values).
+    public_copy: safe_public_copy,
+    safe_public_claims: public_badge_copy,
+    risk_flags_public: risk_reasons,
+    verification_status,
+    trust_score: typeof listingSummary.trust_score === 'number' ? listingSummary.trust_score : null,
   };
 
   if (audience === 'admin') {
