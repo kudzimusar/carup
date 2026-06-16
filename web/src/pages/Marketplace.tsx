@@ -614,6 +614,12 @@ export default function Marketplace() {
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
             <BuyerAssistantDrawer />
+            <Button asChild variant="outline" data-testid="marketplace-parts-link">
+              <Link to="/marketplace/parts">Parts</Link>
+            </Button>
+            <Button asChild variant="outline" data-testid="marketplace-services-link">
+              <Link to="/marketplace/services">Garages &amp; Services</Link>
+            </Button>
             <InquiryModal
               inquiryTypes={DIASPORA_INQUIRY_TYPES}
               defaultInquiryType="import_quote_request"
