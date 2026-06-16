@@ -121,11 +121,46 @@ export function summarizeEvidence(rows = []) {
   };
 }
 
+/**
+ * Active suspicion states suppress ALL PartSentry public claims (ports PR #11 governance into
+ * the read path: main's summary fetched suspicion_status but ignored it). If ANY log on the
+ * vehicle is watch/flagged, no PartSentry signal may surface publicly.
+ */
+const ACTIVE_SUSPICION_STATUSES = ['watch', 'flagged'];
+
+/** Self-approval guard: a mechanic approving their own log can never produce a public claim. */
+function isSelfApprovedPartSentry(row) {
+  return row?.approved_by != null && row?.mechanic_id != null && String(row.approved_by) === String(row.mechanic_id);
+}
+
+/** Map raw PartSentry log state to the public-card status enum (not_applicable|suppressed|eligible|review_required|ineligible). */
+function derivePartSentryPublicStatus(allRows, { suppressed, eligibleVerifiedCount }) {
+  if (!allRows.length) return 'not_applicable';
+  if (suppressed) return 'suppressed';
+  if (eligibleVerifiedCount > 0) return 'eligible';
+  const reviewPending = allRows.some(row =>
+    ['pending', 'pending_review', 'review_required'].includes(normalizeText(row?.verification_status)) ||
+    ['pending', 'pending_review', 'review_required'].includes(normalizeText(row?.part_verification_status))
+  );
+  return reviewPending ? 'review_required' : 'ineligible';
+}
+
 export function summarizePartSentry(rows = []) {
-  const publicRows = rows.filter(row => boolValue(row?.public_card_eligible));
-  const verifiedRows = publicRows.filter(row => row?.verification_status === 'verified');
-  const verifiedPartRows = publicRows.filter(row => row?.part_verification_status === 'verified');
-  const repairRows = publicRows.filter(row => ['Repaired', 'Replaced', 'Inspected', 'Diagnosed'].includes(row?.action_type));
+  const all = rows || [];
+  // PR #11 suppression: any active suspicion (watch/flagged) on the vehicle hides every PartSentry claim.
+  const suppressed = all.some(row => ACTIVE_SUSPICION_STATUSES.includes(normalizeText(row?.suspicion_status)));
+  // Governed public-card eligibility: opt-in flag + non-suspicious + not self-approved.
+  const eligibleRows = suppressed
+    ? []
+    : all.filter(row =>
+        boolValue(row?.public_card_eligible) &&
+        !ACTIVE_SUSPICION_STATUSES.includes(normalizeText(row?.suspicion_status)) &&
+        !isSelfApprovedPartSentry(row)
+      );
+
+  const verifiedRows = eligibleRows.filter(row => normalizeText(row?.verification_status) === 'verified');
+  const verifiedPartRows = eligibleRows.filter(row => normalizeText(row?.part_verification_status) === 'verified');
+  const repairRows = eligibleRows.filter(row => ['Repaired', 'Replaced', 'Inspected', 'Diagnosed'].includes(row?.action_type));
   const recentService = repairRows.some(row => daysSince(row?.timestamp || row?.created_at) <= RECENT_SERVICE_DAYS);
 
   return {
@@ -133,6 +168,8 @@ export function summarizePartSentry(rows = []) {
     repair_history_count: repairRows.length,
     verified_parts_count: verifiedPartRows.length,
     recent_service: recentService,
+    suppressed,
+    public_status: derivePartSentryPublicStatus(all, { suppressed, eligibleVerifiedCount: verifiedRows.length }),
   };
 }
 
@@ -288,16 +325,9 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
     .filter(vehicle => show || getFixtureExclusion(vehicle) === null);
 }
 
-export async function listMarketplaceListings(supabaseClient, params = {}) {
-  const limit = safeLimit(params.limit);
-  const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
-  const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
-  const requestedTag = normalizeTag(params.tag || params.category);
-  const requestedCondition = normalizeTag(params.condition);
-
-  let query = supabaseClient
-    .from('vehicles')
-    .select(`
+/** Columns selected for a marketplace listing. owner_id/tenant_id are fetched ONLY for fixture
+ *  filtering + seller derivation and are NEVER echoed in the public summary. */
+export const LISTING_SELECT_COLUMNS = `
       vin,
       owner_id,
       tenant_id,
@@ -329,7 +359,44 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
       safe_pay_ready,
       inspection_ready,
       tenant:tenants(name, type, status)
-    `);
+    `;
+
+/**
+ * Fetch the evidence/partsentry/ownership/image rows for a set of VINs and return them grouped by VIN.
+ * Shared by the list and detail paths so the trust pipeline reads identical inputs.
+ */
+export async function fetchListingRelatedRows(supabaseClient, vins = []) {
+  const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
+    maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
+    maybeFetchRows(
+      supabaseClient,
+      'partsentry_logs',
+      // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
+      'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible, approved_by, mechanic_id',
+      vins,
+      { column: 'timestamp', ascending: false }
+    ),
+    maybeFetchRows(supabaseClient, 'vehicle_ownership_history', 'vin', vins),
+    maybeFetchRows(supabaseClient, 'listing_images', 'vin, image_url, is_primary, display_order', vins, { column: 'display_order', ascending: true }),
+  ]);
+  return {
+    evidenceByVin: toRecordMap(evidenceRows),
+    partSentryByVin: toRecordMap(partSentryRows),
+    ownershipByVin: toRecordMap(ownershipRows),
+    imagesByVin: toRecordMap(imageRows),
+  };
+}
+
+export async function listMarketplaceListings(supabaseClient, params = {}) {
+  const limit = safeLimit(params.limit);
+  const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
+  const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
+  const requestedTag = normalizeTag(params.tag || params.category);
+  const requestedCondition = normalizeTag(params.condition);
+
+  let query = supabaseClient
+    .from('vehicles')
+    .select(LISTING_SELECT_COLUMNS);
 
   if (params.make) query = query.eq('make', params.make);
   if (minPrice !== null) query = query.gte('price', minPrice);
@@ -343,23 +410,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
 
   const publicVehicles = filterVisibleVehicles(vehicles);
   const vins = publicVehicles.map(vehicle => vehicle.vin).filter(Boolean);
-  const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
-    maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
-    maybeFetchRows(
-      supabaseClient,
-      'partsentry_logs',
-      'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible',
-      vins,
-      { column: 'timestamp', ascending: false }
-    ),
-    maybeFetchRows(supabaseClient, 'vehicle_ownership_history', 'vin', vins),
-    maybeFetchRows(supabaseClient, 'listing_images', 'vin, image_url, is_primary, display_order', vins, { column: 'display_order', ascending: true }),
-  ]);
-
-  const evidenceByVin = toRecordMap(evidenceRows);
-  const partSentryByVin = toRecordMap(partSentryRows);
-  const ownershipByVin = toRecordMap(ownershipRows);
-  const imagesByVin = toRecordMap(imageRows);
+  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } =
+    await fetchListingRelatedRows(supabaseClient, vins);
 
   const summaries = publicVehicles.map(vehicle => buildMarketplaceListingSummary({
     vehicle,

@@ -146,3 +146,6 @@ export interface ServiceRecord {
   signature: string;
   timestamp: string;
 }
+
+// Marketplace v1 canonical contracts (trust/verification/pricing/inquiry/referral).
+export * from './marketplace';
