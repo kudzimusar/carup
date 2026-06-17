@@ -17,7 +17,9 @@ import {
   PRODUCTION_SUPABASE_REF,
   QA_ACCOUNTS,
   QA_SELLER_ID,
-  UPSERT_SQL,
+  RECONCILE_FIND_SQL,
+  RECONCILE_UPDATE_SQL,
+  RECONCILE_INSERT_SQL,
   ALLOWED_USER_ROLES,
   extractSupabaseRef,
   assertStagingTarget,
@@ -87,9 +89,12 @@ test('no plaintext password is embedded in generated SQL or rows', async () => {
   const env = Object.fromEntries(QA_ACCOUNTS.map((a) => [a.passwordEnv, `${TEST_PW}-${a.id}`]));
   const rows = await buildQaAccountRows(readQaPasswords(env));
 
-  // The static upsert is fully parameterized ($1..$7) — no inline credential possible.
-  assert.match(UPSERT_SQL, /\$1.*\$2.*\$3.*\$4.*\$5.*\$6.*\$7/s);
-  assert.equal(/scrypt:/.test(UPSERT_SQL), false);
+  // The reconcile statements are fully parameterized — no inline credential possible.
+  assert.match(RECONCILE_INSERT_SQL, /\$1.*\$2.*\$3.*\$4.*\$5.*\$6.*\$7/s);
+  assert.match(RECONCILE_UPDATE_SQL, /\$1.*\$2.*\$3.*\$4.*\$5.*\$6/s);
+  for (const sql of [RECONCILE_FIND_SQL, RECONCILE_UPDATE_SQL, RECONCILE_INSERT_SQL]) {
+    assert.equal(/scrypt:/.test(sql), false);
+  }
 
   // The materialized rows carry hashes, never plaintext.
   const serialized = JSON.stringify(rows);
@@ -97,10 +102,16 @@ test('no plaintext password is embedded in generated SQL or rows', async () => {
   assert.match(serialized, /scrypt:/);
 });
 
-test('the on-conflict clause updates every required login/profile field', () => {
+test('reconciles by canonical email OR id and refreshes every login/profile field', () => {
+  // Match on email (preferred) or canonical id — so an app-created row (canonical email, random id)
+  // is reconciled in place rather than colliding on the email UNIQUE constraint.
+  assert.match(RECONCILE_FIND_SQL, /where\s+email\s*=\s*\$1\s+or\s+id\s*=\s*\$2/i);
+  assert.match(RECONCILE_FIND_SQL, /order by\s*\(email\s*=\s*\$1\)\s*desc/i);
+  // The UPDATE refreshes the required login/profile fields, keyed on the resolved id.
   for (const field of ['name', 'email', 'phone', 'role', 'password_hash']) {
-    assert.match(UPSERT_SQL, new RegExp(`${field}\\s*=\\s*EXCLUDED\\.${field}`));
+    assert.match(RECONCILE_UPDATE_SQL, new RegExp(`${field}\\s*=\\s*\\$`));
   }
+  assert.match(RECONCILE_UPDATE_SQL, /where\s+id\s*=\s*\$6/i);
 });
 
 test('buyer (owner) and seller (owner) cannot moderate; admin can; gating is platform-role based', () => {
