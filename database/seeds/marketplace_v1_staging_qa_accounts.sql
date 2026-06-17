@@ -23,10 +23,22 @@
 --   QA_BUYER_PASSWORD='…' QA_SELLER_PASSWORD='…' QA_ADMIN_PASSWORD='…' \
 --   node scripts/provision-staging-qa-accounts.mjs
 --
+-- PRODUCT MODEL (buyer role): CarUp has no distinct "buyer"/"member" role, and the real
+-- public.users.users_role_check constraint only permits:
+--   owner, dealer, mechanic, insurance, government, bank, admin   ('member' is REJECTED)
+-- An ordinary Marketplace buyer is therefore an `owner` (buyer endpoints use authorizeRole([]) — any
+-- authenticated user — and `owner` is NOT a moderator role, so a buyer-as-owner still cannot moderate).
+-- The buyer account is distinguished from the seller by owning NO listings, not by role.
+--
 -- Accounts provisioned (idempotent upsert; on conflict updates name/email/phone/role/password_hash):
---   qa-staging-buyer-73   role=member   (non-privileged buyer — must NOT be able to moderate)
---   qa-staging-seller-73  role=owner    (owns ONLY the QA listings in marketplace_v1_staging_qa_seed.sql)
---   qa-staging-admin-73   role=admin    (platform moderation; platform-role gated)
+--   qa-staging-buyer-73   role=owner   (owns NO listings — buyer flows; must NOT be able to moderate)
+--   qa-staging-seller-73  role=owner   (owns ONLY the QA listings in marketplace_v1_staging_qa_seed.sql)
+--   qa-staging-admin-73   role=admin   (platform moderation; platform-role gated)
+--
+-- CANONICAL STAGING ROLE-QA ACCOUNTS (what staging role QA currently uses):
+--   uat-owner@carup.local   role=owner   — buyer AND seller testing (one owner account covers both)
+--   uat-admin@carup.local    role=admin   — platform-admin / Marketplace moderation testing
+-- (Passwords for these live only in the operator's secret store — never in this repo or the PR.)
 --
 -- ============================================================================
 -- CLEANUP — remove QA sessions + the buyer/admin accounts (credential-free; safe to run on STAGING):

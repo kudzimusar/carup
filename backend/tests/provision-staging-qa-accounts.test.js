@@ -18,8 +18,10 @@ import {
   QA_ACCOUNTS,
   QA_SELLER_ID,
   UPSERT_SQL,
+  ALLOWED_USER_ROLES,
   extractSupabaseRef,
   assertStagingTarget,
+  assertAccountRolesAllowed,
   readQaPasswords,
   buildQaAccountRows,
 } from '../../scripts/provision-staging-qa-accounts.mjs';
@@ -65,7 +67,8 @@ test('all three accounts receive valid roles and runtime-generated valid hashes'
   assert.equal(rows.length, 3);
 
   const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
-  assert.equal(byId['qa-staging-buyer-73'].role, 'member');
+  // Buyer is an `owner` (no distinct buyer/member role exists; 'member' violates users_role_check).
+  assert.equal(byId['qa-staging-buyer-73'].role, 'owner');
   assert.equal(byId['qa-staging-seller-73'].role, 'owner');
   assert.equal(byId['qa-staging-admin-73'].role, 'admin');
 
@@ -100,14 +103,66 @@ test('the on-conflict clause updates every required login/profile field', () => 
   }
 });
 
-test('buyer (member) cannot moderate; seller (owner) cannot moderate; admin can; gating is platform-role based', () => {
+test('buyer (owner) and seller (owner) cannot moderate; admin can; gating is platform-role based', () => {
   const roleOf = (id) => QA_ACCOUNTS.find((a) => a.id === id).role;
+  assert.equal(roleOf('qa-staging-buyer-73'), 'owner');
+  assert.equal(roleOf('qa-staging-seller-73'), 'owner');
   assert.throws(() => assertModerator({ platformRole: roleOf('qa-staging-buyer-73') }), /required/i);
   assert.throws(() => assertModerator({ platformRole: roleOf('qa-staging-seller-73') }), /required/i);
   assert.doesNotThrow(() => assertModerator({ platformRole: roleOf('qa-staging-admin-73') }));
   // A tenant/effective-role elevation must NOT confer moderation: only platformRole/baseRole counts.
-  assert.throws(() => assertModerator({ role: 'admin', platformRole: 'member' }), /required/i);
+  assert.throws(() => assertModerator({ role: 'admin', platformRole: 'owner' }), /required/i);
   assert.throws(() => assertModerator({}), /required/i);
+});
+
+test('every provisioned role is valid against the REAL users role catalog/constraint (not a mock)', async () => {
+  // Source of truth #1 — the DB CHECK constraint DDL committed to the repo.
+  const schema = readFileSync(resolve(REPO_ROOT, 'database/migrations/supabase_schema.sql'), 'utf8');
+  const m = schema.match(/role\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*role\s+IN\s*\(([^)]*)\)/i);
+  assert.ok(m, 'could not locate the users.role CHECK constraint in supabase_schema.sql');
+  const schemaRoles = m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
+
+  // Source of truth #2 — the application role catalog enforced on role switch.
+  const serverJs = readFileSync(resolve(REPO_ROOT, 'backend/server.js'), 'utf8');
+  const cm = serverJs.match(/approvedRoles\s*=\s*\[([^\]]*)\]/);
+  assert.ok(cm, 'could not locate approvedRoles in server.js');
+  const catalogRoles = cm[1].split(',').map((s) => s.trim().replace(/^'|'$/g, '')).filter(Boolean);
+
+  const asSet = (a) => JSON.stringify([...a].sort());
+  // The script constant must equal BOTH real sources (catches drift from the real constraint).
+  assert.equal(asSet(ALLOWED_USER_ROLES), asSet(schemaRoles), 'ALLOWED_USER_ROLES drifted from the schema constraint');
+  assert.equal(asSet(ALLOWED_USER_ROLES), asSet(catalogRoles), 'ALLOWED_USER_ROLES drifted from server.js approvedRoles');
+  assert.equal(schemaRoles.includes('member'), false, "'member' must NOT be an allowed role");
+
+  // Every account this script would provision must satisfy the real constraint.
+  for (const a of QA_ACCOUNTS) {
+    assert.ok(schemaRoles.includes(a.role), `account ${a.id} role '${a.role}' violates users_role_check`);
+  }
+  assert.doesNotThrow(() => assertAccountRolesAllowed());
+  // The guard must reject the original defect (buyer as 'member').
+  assert.throws(
+    () => assertAccountRolesAllowed([{ id: 'x', role: 'member' }]),
+    /users_role_check/i
+  );
+
+  // Real integration check: when a DB is reachable, validate against the LIVE pg_constraint too.
+  if (process.env.SUPABASE_DB_URL) {
+    const pg = (await import('pg')).default;
+    const client = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL });
+    await client.connect();
+    try {
+      const { rows } = await client.query(
+        "select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'users_role_check'"
+      );
+      assert.ok(rows.length, 'users_role_check not found in the live database');
+      const live = [...rows[0].def.matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
+      for (const a of QA_ACCOUNTS) {
+        assert.ok(live.includes(a.role), `account ${a.id} role '${a.role}' rejected by the LIVE constraint`);
+      }
+    } finally {
+      await client.end();
+    }
+  }
 });
 
 test('seller owns only the intended QA listings; buyer/admin own nothing', () => {

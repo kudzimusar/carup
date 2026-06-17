@@ -42,16 +42,40 @@ export const MIN_PASSWORD_LENGTH = 12;
 const JOIN_DATE = '2026-06-17';
 
 /**
+ * The real public.users.users_role_check constraint (database/migrations/supabase_schema.sql) — and
+ * the application role catalog (backend/server.js approvedRoles). 'member' is NOT permitted, so a QA
+ * account can only use one of these. Kept here so the script fails BEFORE a DB write if a future edit
+ * introduces an out-of-catalog role.
+ */
+export const ALLOWED_USER_ROLES = ['owner', 'dealer', 'mechanic', 'insurance', 'government', 'bank', 'admin'];
+
+/**
  * QA account definitions — NO credentials here. The password for each account is supplied at runtime
- * via its `passwordEnv` environment variable. The seller is the owner of the QA listings seeded by
- * database/seeds/marketplace_v1_staging_qa_seed.sql (owner_id = 'qa-staging-seller-73').
+ * via its `passwordEnv` environment variable.
+ *
+ * PRODUCT MODEL: CarUp has no distinct "buyer"/"member" role. An ordinary Marketplace buyer is just an
+ * `owner` (the buyer endpoints use authorizeRole([]) — any authenticated user — and `owner` is not a
+ * moderator role, so a buyer-as-owner still cannot moderate). The buyer QA account is therefore an
+ * `owner` that owns NO listings; the seller QA account is an `owner` that owns the QA listings seeded by
+ * database/seeds/marketplace_v1_staging_qa_seed.sql (owner_id = 'qa-staging-seller-73'). They are
+ * distinguished by listing ownership, not by role. (See also the canonical staging UAT accounts
+ * uat-owner@carup.local / uat-admin@carup.local documented in the companion .sql.)
  */
 export const QA_SELLER_ID = 'qa-staging-seller-73';
 export const QA_ACCOUNTS = [
-  { id: 'qa-staging-buyer-73',  email: 'qa-buyer-73@staging.carup.local',  name: 'QA Staging Buyer',  phone: '+263772000074', role: 'member', passwordEnv: 'QA_BUYER_PASSWORD' },
-  { id: QA_SELLER_ID,           email: 'qa-seller-73@staging.carup.local', name: 'QA Staging Seller', phone: '+263772000073', role: 'owner',  passwordEnv: 'QA_SELLER_PASSWORD' },
-  { id: 'qa-staging-admin-73',  email: 'qa-admin-73@staging.carup.local',  name: 'QA Staging Admin',  phone: '+263772000075', role: 'admin',  passwordEnv: 'QA_ADMIN_PASSWORD' },
+  { id: 'qa-staging-buyer-73',  email: 'qa-buyer-73@staging.carup.local',  name: 'QA Staging Buyer',  phone: '+263772000074', role: 'owner', passwordEnv: 'QA_BUYER_PASSWORD' },
+  { id: QA_SELLER_ID,           email: 'qa-seller-73@staging.carup.local', name: 'QA Staging Seller', phone: '+263772000073', role: 'owner', passwordEnv: 'QA_SELLER_PASSWORD' },
+  { id: 'qa-staging-admin-73',  email: 'qa-admin-73@staging.carup.local',  name: 'QA Staging Admin',  phone: '+263772000075', role: 'admin', passwordEnv: 'QA_ADMIN_PASSWORD' },
 ];
+
+/** Fail before any DB write if a provisioned role is not in the real users role catalog/constraint. */
+export function assertAccountRolesAllowed(accounts = QA_ACCOUNTS) {
+  const bad = accounts.filter((a) => !ALLOWED_USER_ROLES.includes(a.role));
+  if (bad.length) {
+    throw new Error(`Account role(s) violate users_role_check (${ALLOWED_USER_ROLES.join(', ')}): ${bad.map((a) => `${a.id}=${a.role}`).join(', ')}`);
+  }
+  return true;
+}
 
 const UPSERT_SQL = `
   INSERT INTO users (id, name, email, phone, role, password_hash, join_date)
@@ -114,6 +138,7 @@ export function readQaPasswords(env = process.env) {
 
 /** Build the rows to upsert, hashing each password at runtime. Returned rows carry the hash, never the plaintext. */
 export async function buildQaAccountRows(passwordsById) {
+  assertAccountRolesAllowed(); // never attempt an upsert that would violate users_role_check
   const rows = [];
   for (const acct of QA_ACCOUNTS) {
     const password = passwordsById[acct.id];
