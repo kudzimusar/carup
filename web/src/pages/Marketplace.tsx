@@ -24,6 +24,7 @@ import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from 
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
+import { ListingImage } from '@/components/marketplace/ListingImage'
 
 const DIASPORA_INQUIRY_TYPES: MarketplaceInquiryType[] = [
   'import_quote_request',
@@ -66,6 +67,9 @@ import {
   getActiveFilterChips,
   getResultSummary,
   TRUST_QUICK_FILTERS,
+  CATEGORY_CHIPS,
+  TRUST_TAG_CHIPS,
+  isCategoryChip,
   ALL,
 } from '@/lib/marketplaceParams'
 import type { MarketplaceUrlState, MarketplaceSort, ActiveFilterKey } from '@/lib/marketplaceParams'
@@ -76,22 +80,11 @@ const makes = ['All', 'Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volk
 const fuelTypes = ['All', 'Petrol', 'Diesel', 'Hybrid', 'Electric']
 const transmissions = ['All', 'Automatic', 'Manual']
 
-const marketplaceCategoryChips = [
-  'Brand New',
-  'Recently Imported',
-  'Fresh Import',
-  'Locally Used',
-  'Second Hand',
-  'Dealer Verified',
-  'Passport Verified',
-  'Duty Cleared',
-  'Low Mileage',
-  'Evidence Available',
-  'PartSentry Checked',
-  'Repair History Available',
-  'Verified Parts',
-  'Parts & Accessories',
-]
+// Single-select condition/category chips (one active at a time). 'Parts & Accessories' is a
+// non-serialized convenience filter (it has no backend slug — see marketplaceParams.ts).
+const CONDITION_CHIPS = [...CATEGORY_CHIPS, 'Parts & Accessories']
+// Stackable trust-signal chips — multiple can be active together (AND semantics).
+const TRUST_CHIPS = TRUST_TAG_CHIPS
 
 function normalizeText(value?: string | null) {
   return (value || '').toLowerCase()
@@ -182,10 +175,17 @@ function getVehicleLabels(vehicle: Vehicle) {
   return Array.from(new Set([...labels, ...backendTagLabels]))
 }
 
-function matchesCategoryChip(vehicle: Vehicle, chip: string) {
-  if (chip === 'All') return true
-  if (chip === 'Parts & Accessories') return true
+/** Single condition/category match. 'All' and 'Parts & Accessories' (no backend slug) never narrow. */
+function matchesConditionChip(vehicle: Vehicle, chip: string) {
+  if (chip === 'All' || chip === 'Parts & Accessories') return true
   return getVehicleLabels(vehicle).includes(chip)
+}
+
+/** AND semantics across stackable trust tags: a vehicle must carry EVERY selected trust label. */
+function matchesAllTrustTags(vehicle: Vehicle, tags: string[]) {
+  if (!tags.length) return true
+  const labels = getVehicleLabels(vehicle)
+  return tags.every(tag => labels.includes(tag))
 }
 
 function SkeletonCard() {
@@ -402,7 +402,11 @@ export default function Marketplace() {
   // straight from searchParams means browser back/forward and deep-links update the page for free.
   const url = useMemo(() => paramsToState(searchParams), [searchParams])
   const selectedMake = url.selectedMake
-  const selectedCategoryChip = url.selectedCategoryChip
+  // QA Round 4: ONE mutually-exclusive condition/category chip + MANY stackable trust tags (AND).
+  const marketplaceCategory = url.selectedCategory
+  // `trustTags` keeps a stable identity per URL (derived from the memoized `url`), so it can drive the
+  // fetch effect directly without re-firing on unrelated re-renders.
+  const trustTags = url.selectedTags
   const sortBy = url.sortBy
   // Committed (URL) price drives the API fetch; the live `priceRange` draft below drives the slider
   // and instant client-side filtering. They diverge only while the user is dragging/typing.
@@ -434,15 +438,31 @@ export default function Marketplace() {
     setSearchParams(prev => stateToParams({ ...paramsToState(prev), ...patch }), { replace })
   }, [setSearchParams])
 
+  // Like updateUrl, but the patch is derived from the LIVE URL (read from window.location at click
+  // time), NOT a React render closure. Essential for toggles (stacking trust tags / removing one):
+  // react-router hands setSearchParams' functional `prev` the stale render-closure value, so two fast
+  // clicks could race and overwrite the array. Reading window.location.search — which navigation
+  // updates synchronously — makes every toggle compose on the freshest committed state.
+  const mutateUrl = useCallback((mutate: (state: MarketplaceUrlState) => Partial<MarketplaceUrlState>, replace = false) => {
+    const current = paramsToState(new URLSearchParams(window.location.search))
+    setSearchParams(stateToParams({ ...current, ...mutate(current) }), { replace })
+  }, [setSearchParams])
+
   const setMakeFilter = (value: string) => updateUrl({ selectedMake: value })
-  const setChipFilter = (value: string) => updateUrl({ selectedCategoryChip: value })
+  // Single-select condition/category: clicking the active one clears it back to 'All'.
+  const setCategoryFilter = (value: string) =>
+    mutateUrl(s => ({ selectedCategory: s.selectedCategory === value ? ALL : value }))
+  // Multi-select trust tags: toggle membership; stacks combine with AND.
+  const toggleTrustTag = (label: string) =>
+    mutateUrl(s => ({ selectedTags: s.selectedTags.includes(label) ? s.selectedTags.filter(t => t !== label) : [...s.selectedTags, label] }))
   const setSortFilter = (value: string) => updateUrl({ sortBy: value as MarketplaceSort })
   const setSearchFilter = (value: string) => { setSearchQuery(value); updateUrl({ searchQuery: value }, true) }
 
   const filterState: MarketplaceUrlState = {
     searchQuery,
     selectedMake,
-    selectedCategoryChip,
+    selectedCategory: marketplaceCategory,
+    selectedTags: trustTags,
     priceRange: [priceRange[0], priceRange[1]],
     sortBy,
   }
@@ -482,7 +502,8 @@ export default function Marketplace() {
     const apiFilters = stateToApiFilters({
       searchQuery: searchQueryRef.current,
       selectedMake,
-      selectedCategoryChip,
+      selectedCategory: marketplaceCategory,
+      selectedTags: trustTags,
       priceRange: [committedMinPrice, committedMaxPrice],
       sortBy,
     }) as Record<string, string | number | boolean | undefined>
@@ -517,7 +538,7 @@ export default function Marketplace() {
       })
       .finally(() => { if (!cancelled) setLoadingVehicles(false) })
     return () => { cancelled = true }
-  }, [selectedMake, selectedCategoryChip, committedMinPrice, committedMaxPrice, sortBy, fetchMarketplaceListings, fetchVehicles])
+  }, [selectedMake, marketplaceCategory, trustTags, committedMinPrice, committedMaxPrice, sortBy, fetchMarketplaceListings, fetchVehicles])
 
   const toggleFavorite = useCallback((e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
     e.preventDefault()
@@ -562,14 +583,15 @@ export default function Marketplace() {
       normalizePlate(v.normalized_plate_number).includes(normalizedQuery) ||
       normalizePlate(v.chassis_number).includes(normalizedQuery)
     const matchCat = selectedCategory === 'All' || v.category === selectedCategory
-    const matchMarketplaceCategory = matchesCategoryChip(v, selectedCategoryChip)
+    const matchMarketplaceCategory = matchesConditionChip(v, marketplaceCategory)
+    const matchTrustTags = matchesAllTrustTags(v, trustTags)
     const matchMake = selectedMake === 'All' || v.make === selectedMake
     const matchCond = selectedCondition === 'All' || v.condition === selectedCondition
     const matchFuel = selectedFuel === 'All' || getFuelType(v) === selectedFuel
     const matchTrans = selectedTrans === 'All' || v.transmission === selectedTrans
     const matchLoc = selectedLocation === 'All' || loc === selectedLocation
     const matchPrice = (v.price || 0) >= priceRange[0] && (v.price || 0) <= priceRange[1]
-    return matchSearch && matchCat && matchMarketplaceCategory && matchMake && matchCond && matchFuel && matchTrans && matchLoc && matchPrice
+    return matchSearch && matchCat && matchMarketplaceCategory && matchTrustTags && matchMake && matchCond && matchFuel && matchTrans && matchLoc && matchPrice
   })
 
   const sorted = [...filtered].sort((a: Vehicle, b: Vehicle) => {
@@ -583,9 +605,9 @@ export default function Marketplace() {
   const activeFilterCount = [
     selectedCategory !== 'All', selectedMake !== 'All', selectedCondition !== 'All',
     selectedFuel !== 'All', selectedTrans !== 'All', selectedLocation !== 'All',
-    selectedCategoryChip !== 'All',
+    marketplaceCategory !== 'All',
     priceRange[0] > 0 || priceRange[1] < 100000,
-  ].filter(Boolean).length
+  ].filter(Boolean).length + trustTags.length
 
   const resetFilters = () => {
     setSelectedCategory('All'); setSelectedCondition('All')
@@ -595,10 +617,11 @@ export default function Marketplace() {
   }
 
   const activeChips = getActiveFilterChips(filterState)
-  const removeChip = (key: ActiveFilterKey) => {
+  const removeChip = (key: ActiveFilterKey, value?: string) => {
     if (key === 'make') updateUrl({ selectedMake: ALL })
     else if (key === 'q') setSearchFilter('')
-    else if (key === 'chip') updateUrl({ selectedCategoryChip: ALL })
+    else if (key === 'category') updateUrl({ selectedCategory: ALL })
+    else if (key === 'tag') mutateUrl(s => ({ selectedTags: s.selectedTags.filter(t => t !== value) }))
     else if (key === 'price') updateUrl({ priceRange: [0, 100000] }, true)
     else if (key === 'sort') updateUrl({ sortBy: 'newest' })
   }
@@ -723,21 +746,21 @@ export default function Marketplace() {
           </div>
         </div>
 
-        {/* Quick filters (trust tags + condition categories) */}
-        <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
+        {/* Quick filters — condition chips pick one, trust chips stack (routed by kind) */}
+        <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1" data-testid="marketplace-quick-filters">
           <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-gray-500">
-            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Trust filters
-            <span className="font-normal text-gray-400">(pick one)</span>
+            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Quick filters
           </span>
           {TRUST_QUICK_FILTERS.map(filter => {
-            const active = selectedCategoryChip === filter.label
+            const isCategory = isCategoryChip(filter.label)
+            const active = isCategory ? marketplaceCategory === filter.label : trustTags.includes(filter.label)
             return (
               <button
                 key={filter.label}
                 type="button"
                 data-testid={filter.testId}
                 aria-pressed={active}
-                onClick={() => setChipFilter(active ? 'All' : filter.label)}
+                onClick={() => (isCategory ? setCategoryFilter(filter.label) : toggleTrustTag(filter.label))}
                 className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
                   active
                     ? 'border-orange-500 bg-orange-50 text-orange-700'
@@ -750,37 +773,78 @@ export default function Marketplace() {
           })}
         </div>
 
-        {/* Marketplace category taxonomy */}
-        <div className="mb-6 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Browse by category <span className="font-normal text-gray-400">(pick one)</span></p>
-              <p className="text-xs text-gray-500">
-                One filter is active at a time — choosing a category or a trust filter above replaces the current selection. Use "Clear" to reset.
-              </p>
+        {/* Filter taxonomy — ONE condition + MANY stackable trust filters, visually separated */}
+        <div className="mb-6 space-y-4 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+          {/* Condition / category — single-select (mutually exclusive) */}
+          <div data-testid="marketplace-condition-group">
+            <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Condition <span className="font-normal text-gray-400">(choose one)</span></p>
+                <p className="text-xs text-gray-500">Pick a single vehicle classification. Selecting another replaces it.</p>
+              </div>
+              {marketplaceCategory !== 'All' && (
+                <Button variant="ghost" size="sm" onClick={() => setCategoryFilter('All')} data-testid="marketplace-clear-condition">
+                  Clear condition
+                </Button>
+              )}
             </div>
-            {selectedCategoryChip !== 'All' && (
-              <Button variant="ghost" size="sm" onClick={() => setChipFilter('All')}>
-                Clear category
-              </Button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {['All', ...CONDITION_CHIPS].map(chip => {
+                const active = chip === 'All' ? marketplaceCategory === 'All' : marketplaceCategory === chip
+                return (
+                  <button
+                    key={chip}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setCategoryFilter(chip === 'All' ? ALL : chip)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      active
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
+                    }`}
+                    data-testid="marketplace-category-chip"
+                  >
+                    {chip}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {['All', ...marketplaceCategoryChips].map(chip => (
-              <button
-                key={chip}
-                type="button"
-                onClick={() => setChipFilter(chip)}
-                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  selectedCategoryChip === chip
-                    ? 'border-orange-500 bg-orange-50 text-orange-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
-                }`}
-                data-testid="marketplace-category-chip"
-              >
-                {chip}
-              </button>
-            ))}
+
+          {/* Trust filters — multi-select (stackable, AND) */}
+          <div className="border-t border-gray-100 pt-4" data-testid="marketplace-trust-group">
+            <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Trust filters <span className="font-normal text-gray-400">(stack any — all must match)</span></p>
+                <p className="text-xs text-gray-500">Combine multiple trust signals; results match every selected filter.</p>
+              </div>
+              {trustTags.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => updateUrl({ selectedTags: [] })} data-testid="marketplace-clear-trust">
+                  Clear trust filters
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {TRUST_CHIPS.map(chip => {
+                const active = trustTags.includes(chip)
+                return (
+                  <button
+                    key={chip}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggleTrustTag(chip)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      active
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:bg-orange-50'
+                    }`}
+                    data-testid="marketplace-trust-chip"
+                  >
+                    {chip}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 
@@ -790,9 +854,9 @@ export default function Marketplace() {
             <span className="text-xs font-medium text-gray-500">Active:</span>
             {activeChips.map(chip => (
               <button
-                key={chip.key}
+                key={`${chip.key}:${chip.value ?? chip.label}`}
                 type="button"
-                onClick={() => removeChip(chip.key)}
+                onClick={() => removeChip(chip.key, chip.value)}
                 data-testid="marketplace-active-filter-chip"
                 className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-100"
               >
@@ -869,8 +933,8 @@ export default function Marketplace() {
             {sorted.map((vehicle: Vehicle) => {
               const isFav = favorites.includes(vehicle.vin || '')
               const isReserved = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
-              const fallbackImage = 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&q=80&w=800'
-              const primaryImage = vehicle.images?.[0] || vehicle.primary_image_url || fallbackImage
+              // Real public listing media only — no misleading stock vehicle fallback (QA Round 4).
+              const primaryImage = vehicle.images?.[0] || vehicle.primary_image_url || null
               const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
               const vehicleLabels = getVehicleLabels(vehicle)
               const cardLabels = vehicleLabels.filter(label => label !== 'Verified').slice(0, 4)
@@ -888,10 +952,11 @@ export default function Marketplace() {
                 >
                   <Card className="overflow-hidden border-0 card-shadow hover-lift h-full bg-white" data-testid="marketplace-vehicle-card">
                     <div className="relative aspect-[16/10] overflow-hidden bg-gray-100">
-                      <img
+                      <ListingImage
                         src={primaryImage}
                         alt={vehicleName}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        className="h-full w-full"
+                        imgClassName="group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute top-3 left-3 flex flex-wrap gap-2">
                         {isVerifiedVehicle(vehicle) && (
