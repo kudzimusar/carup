@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
 import type {
   Vehicle,
@@ -185,7 +186,8 @@ function buildTrustBreakdown(passport: VehiclePassport | null): { label: string;
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail } = useCarUpApi()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings } = useCarUpApi()
+  const { isAuthenticated } = useAuth()
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
   const [passport, setPassport] = useState<VehiclePassport | null>(null)
@@ -318,8 +320,44 @@ export default function VehicleDetail() {
     return () => { mounted = false }
   }, [id, fetchMarketplaceListingDetail])
 
-  const toggleFavorite = useCallback(() => {
+  // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
+  // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    let active = true
+    fetchSavedMarketplaceListings()
+      .then(res => { if (active) setIsFav((res.listings || []).some(l => l.vin === vin)) })
+      .catch(() => { /* server unavailable — keep current */ })
+    return () => { active = false }
+  }, [isAuthenticated, vehicle?.vin, id, fetchSavedMarketplaceListings])
+
+  const toggleFavorite = useCallback(async () => {
     if (!vehicle) return
+
+    if (isAuthenticated) {
+      // Server-backed + account-scoped. Optimistic toggle, rolled back on error. No localStorage write.
+      const vin = vehicle.vin || id || ''
+      if (!vin) return
+      const previous = isFav
+      setIsFav(!previous)
+      try {
+        if (previous) {
+          await unsaveMarketplaceListing(vin)
+          toast.info('Removed from saved cars')
+        } else {
+          await saveMarketplaceListing(vin)
+          toast.success(`${vehicle.make ?? ''} ${vehicle.model ?? ''} saved!`)
+        }
+      } catch {
+        setIsFav(previous)
+        toast.error('Could not update saved cars. Please try again.')
+      }
+      return
+    }
+
+    // Guest fallback: browser-local only (unchanged behavior).
     const current = getFavorites()
     let updated: string[]
     if (current.includes(vehicle.id || '')) {
@@ -332,7 +370,7 @@ export default function VehicleDetail() {
       toast.success(`${vehicle.make ?? ''} ${vehicle.model ?? ''} saved!`)
     }
     localStorage.setItem('carup_favorites', JSON.stringify(updated))
-  }, [vehicle])
+  }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing])
 
   const handleShare = useCallback(async () => {
     const url = window.location.href

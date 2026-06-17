@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Notification, Escrow } from '@/types'
 
 const valueData = [
@@ -34,6 +35,7 @@ const valueData = [
 
 export default function OwnerDashboard() {
   const { runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
+  const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
@@ -111,7 +113,7 @@ export default function OwnerDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Owner Dashboard</h1>
-          <p className="text-gray-500">Welcome back, Tendai Moyo! Monitor your vehicles, escrows, and insurance logs.</p>
+          <p className="text-gray-500">Welcome back{user?.name ? `, ${user.name}` : ''}! Monitor your vehicles, escrows, and insurance logs.</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Low Bandwidth mode toggle */}
