@@ -33,7 +33,9 @@ export default function RegisterScreen() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        // Public sign-up is always a Car Owner; never transmit a client-chosen role. The server also
+        // rejects any non-owner role request.
+        body: JSON.stringify({ ...data, role: 'owner' }),
       });
 
       if (!response.ok) {
@@ -166,28 +168,13 @@ export default function RegisterScreen() {
             )}
           </View>
 
-          {/* Role Picker Selection */}
-          <View className="mt-4">
-            <Text className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Primary Stakeholder Role</Text>
-            <Controller
-              control={control}
-              name="role"
-              render={({ field: { onChange, value } }) => (
-                <View className="flex-row flex-wrap gap-2 mt-1">
-                  {(['owner', 'dealer', 'mechanic'] as const).map((r) => (
-                    <Pressable
-                      key={r}
-                      onPress={() => onChange(r)}
-                      className={`px-4 py-2.5 rounded-full border ${value === r ? 'bg-orange-500 border-orange-500' : 'bg-slate-50 border-slate-200'}`}
-                    >
-                      <Text className={`text-xs font-semibold capitalize ${value === r ? 'text-white' : 'text-slate-700'}`}>
-                        {r}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            />
+          {/* Public sign-up always creates a Car Owner. Dealers, garages, and partners are onboarded
+              through governed, authenticated flows — no privileged role is selectable or transmitted. */}
+          <View className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <Text className="text-xs text-slate-600">
+              You're creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account. Dealers, garages, and
+              partners are onboarded separately by the CarUp team.
+            </Text>
           </View>
 
           {/* Submit Action - 48px Target */}

@@ -77,17 +77,34 @@ export function assertAccountRolesAllowed(accounts = QA_ACCOUNTS) {
   return true;
 }
 
-const UPSERT_SQL = `
-  INSERT INTO users (id, name, email, phone, role, password_hash, join_date)
-  VALUES ($1, $2, $3, $4, $5, $6, $7)
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name,
-    email = EXCLUDED.email,
-    phone = EXCLUDED.phone,
-    role = EXCLUDED.role,
-    password_hash = EXCLUDED.password_hash
-`;
-export { UPSERT_SQL };
+// Reconcile by canonical EMAIL first, then canonical ID. A QA account may already exist with the
+// canonical email but a DIFFERENT id — e.g. created through the app /register path, which mints a
+// random `u_...` id. Matching on email keeps that existing row (and its id) and just refreshes the
+// login/profile fields; otherwise we match the canonical id; only when neither exists do we INSERT.
+// (`users` has UNIQUE(email) and a TEXT PRIMARY KEY(id), so a blind ON CONFLICT(id) upsert would hit
+// the email uniqueness violation against an app-created row.)
+const RECONCILE_FIND_SQL =
+  'SELECT id FROM users WHERE email = $1 OR id = $2 ORDER BY (email = $1) DESC LIMIT 1';
+const RECONCILE_UPDATE_SQL =
+  'UPDATE users SET name = $1, email = $2, phone = $3, role = $4, password_hash = $5 WHERE id = $6';
+const RECONCILE_INSERT_SQL =
+  'INSERT INTO users (id, name, email, phone, role, password_hash, join_date) VALUES ($1, $2, $3, $4, $5, $6, $7)';
+export { RECONCILE_FIND_SQL, RECONCILE_UPDATE_SQL, RECONCILE_INSERT_SQL };
+
+/**
+ * Upsert one QA account, reconciling by canonical email OR canonical id. Parameterized — the hash is
+ * bound as a value, never interpolated or logged. Returns { id, action: 'created' | 'updated' }.
+ */
+export async function reconcileAccount(client, r, joinDate = JOIN_DATE) {
+  const found = await client.query(RECONCILE_FIND_SQL, [r.email, r.id]);
+  if (found.rows.length) {
+    const existingId = found.rows[0].id;
+    await client.query(RECONCILE_UPDATE_SQL, [r.name, r.email, r.phone, r.role, r.password_hash, existingId]);
+    return { id: existingId, action: 'updated' };
+  }
+  await client.query(RECONCILE_INSERT_SQL, [r.id, r.name, r.email, r.phone, r.role, r.password_hash, joinDate]);
+  return { id: r.id, action: 'created' };
+}
 
 /** Extract the 20-char Supabase project ref from a DB URL (pooler `postgres.<ref>`) or a `<ref>.supabase.co` URL. */
 export function extractSupabaseRef(source) {
@@ -165,9 +182,8 @@ async function main() {
     await client.connect();
     try {
       for (const r of rows) {
-        // Parameterized — the hash is bound as a value, never interpolated or logged.
-        await client.query(UPSERT_SQL, [r.id, r.name, r.email, r.phone, r.role, r.password_hash, JOIN_DATE]);
-        console.log(`✅ provisioned ${r.id} (role=${r.role})`); // no password, no hash in logs
+        const result = await reconcileAccount(client, r); // reconciles by canonical email OR id
+        console.log(`✅ provisioned ${r.email} (role=${r.role}, ${result.action})`); // no password/hash in logs
       }
     } finally {
       await client.end();
