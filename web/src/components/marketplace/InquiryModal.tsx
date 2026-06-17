@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger, DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,6 +99,9 @@ export function InquiryModal({
       <DialogContent className="max-w-md" data-testid="marketplace-inquiry-modal">
         <DialogHeader>
           <DialogTitle>Send an inquiry</DialogTitle>
+          <DialogDescription>
+            We'll connect you safely through CarUp. Add your contact details and an optional message.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
           {inquiryTypes.length > 1 && (

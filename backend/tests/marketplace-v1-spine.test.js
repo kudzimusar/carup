@@ -12,6 +12,7 @@ import { buildMockSupabase } from './fixtures/marketplaceListings.js';
 import {
   summarizePartSentry,
   buildMarketplaceListingSummary,
+  listMarketplaceListings,
 } from '../services/marketplace/listingSummaryService.js';
 import {
   buildTrustSummary,
@@ -198,6 +199,38 @@ test('listing detail 404s a non-public (Sold) listing and an unknown vin', async
   const store = { vehicles: [publicVehicle({ status: 'Sold' })] };
   await assert.rejects(() => getMarketplaceListingDetail(buildMockSupabase(store), REAL_VIN), /not found/i);
   await assert.rejects(() => getMarketplaceListingDetail(buildMockSupabase({ vehicles: [] }), 'NOPE'), /not found/i);
+});
+
+// QA Round 2 — prove the backend does NOT filter the seeded staging QA vehicles (rules out cause #3).
+const QA_VINS = ['JTDKARFP0H3000731', 'WBA8E9C50HK000732', 'MAJFP1CD0HC000733'];
+const QA_VEHICLES = [
+  { vin: 'JTDKARFP0H3000731', make: 'Toyota', model: 'Corolla', year: 2018, mileage: 68000, price: 9500, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, trust_score: 74, created_at: NOW },
+  { vin: 'WBA8E9C50HK000732', make: 'BMW', model: '320i', year: 2020, mileage: 41000, price: 24000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Japan', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, zimra_verified: true, safe_pay_ready: true, inspection_ready: true, trust_score: 90, created_at: NOW },
+  { vin: 'MAJFP1CD0HC000733', make: 'Ford', model: 'Ranger', year: 2019, mileage: 88000, price: 21000, currency: 'USD', status: 'Available', owner_id: 'qa-staging-seller-73', tenant_id: null, registration_country: 'ZW', import_source: 'Local', current_seller_type: 'Private Owner', duty_paid: true, police_verified: true, trust_score: 80, created_at: NOW },
+];
+
+test('seeded staging QA vehicles are returned by the marketplace list (total>=3, all VINs present)', async () => {
+  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), {});
+  assert.ok(res.total >= 3, `expected >=3, got ${res.total}`);
+  const vins = res.listings.map((l) => l.vin);
+  for (const v of QA_VINS) assert.ok(vins.includes(v), `seeded QA VIN missing from list: ${v}`);
+});
+
+test('each seeded QA detail resolves and never leaks owner_id/tenant_id; suppressed part stays suppressed', async () => {
+  const store = {
+    vehicles: QA_VEHICLES,
+    // The Ford Ranger has a verified+public-card-eligible BUT flagged PartSentry log -> must suppress.
+    partsentry_logs: [{ vin: 'MAJFP1CD0HC000733', mechanic_id: 'qa-staging-seller-73', action_type: 'Replaced', timestamp: NOW, verification_status: 'verified', part_verification_status: 'verified', public_card_eligible: true, suspicion_status: 'flagged' }],
+  };
+  for (const v of QA_VINS) {
+    const d = await getMarketplaceListingDetail(buildMockSupabase(store), v);
+    assert.equal(d.vin, v);
+    assert.equal('owner_id' in d, false);
+    assert.equal('tenant_id' in d, false);
+  }
+  const ranger = await getMarketplaceListingDetail(buildMockSupabase(store), 'MAJFP1CD0HC000733');
+  assert.equal(ranger.trust_summary.partsentry_public_status, 'suppressed');
+  assert.equal(ranger.partsentry_checked, false);
 });
 
 // ---------------------------------------------------------------------------

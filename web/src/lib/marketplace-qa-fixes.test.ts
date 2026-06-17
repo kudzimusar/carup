@@ -1,7 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { extractApiErrorMessage } from './apiClient'
+import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL } from './apiClient'
 import { getErrorMessage } from './errorMessage'
 import { withMockFallback } from '../pages/Marketplace'
+
+// QA Round 2 — a staging/preview frontend MUST set VITE_API_URL, or it targets the production backend
+// (unseeded + missing this PR's routes -> 0 vehicles + "Route not found"). Pin the behavior.
+describe('resolveApiBaseUrl — which backend the frontend targets', () => {
+  it('honors a configured VITE_API_URL (staging -> staging backend)', () => {
+    expect(resolveApiBaseUrl('https://carup-backend-staging.example.app', 'carup-staging.example.app')).toBe(
+      'https://carup-backend-staging.example.app/api'
+    )
+  })
+  it('uses same-origin /api on localhost', () => {
+    expect(resolveApiBaseUrl(undefined, 'localhost')).toBe('/api')
+  })
+  it('falls back to the PRODUCTION backend when VITE_API_URL is unset on a non-localhost host (the staging trap)', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  })
+})
 
 // QA blocker 1 — backend errors must never render as "[object Object]".
 describe('API error message extraction (no [object Object])', () => {
