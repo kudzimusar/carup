@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Ban,
@@ -8,6 +9,7 @@ import {
   Loader2,
   Lock,
   PauseCircle,
+  PlusCircle,
   RefreshCw,
   ShieldCheck,
   StickyNote,
@@ -781,10 +783,18 @@ export default function DiasporaWorkbookOperatorConsole() {
           <h1 className="mt-3 text-2xl font-semibold text-gray-950">Workbook operator console</h1>
           <p className="mt-1 text-sm text-gray-500">Dry-run batches, draft planning state, operator holds, and audit visibility.</p>
         </div>
-        <Button type="button" variant="outline" onClick={loadDashboard} disabled={dashboardLoading} data-testid="diaspora-workbook-dashboard-refresh">
-          <RefreshCw className={`mr-2 h-4 w-4 ${dashboardLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="default" data-testid="diaspora-workbook-new-dry-run-link">
+            <Link to="/admin/diaspora/workbooks/new">
+              <PlusCircle className="h-4 w-4" />
+              New Dry Run
+            </Link>
+          </Button>
+          <Button type="button" variant="outline" onClick={loadDashboard} disabled={dashboardLoading} data-testid="diaspora-workbook-dashboard-refresh">
+            <RefreshCw className={`mr-2 h-4 w-4 ${dashboardLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-3 rounded-md border border-gray-200 bg-white p-4 md:grid-cols-3 xl:grid-cols-6">

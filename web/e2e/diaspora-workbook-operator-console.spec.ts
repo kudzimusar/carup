@@ -302,6 +302,7 @@ test.describe('Diaspora workbook operator console UI', () => {
     await page.goto('/admin/diaspora/workbooks', { waitUntil: 'domcontentloaded' })
 
     await expect(page.locator('[data-testid="diaspora-workbook-console-page"]')).toBeVisible()
+    await expect(page.locator('[data-testid="diaspora-workbook-new-dry-run-link"]')).toContainText('New Dry Run')
     await expect(page.locator('[data-testid="diaspora-workbook-dashboard-loading"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-workbook-dashboard-table"]')).toBeVisible()
     await expect(page.locator('[data-testid="diaspora-workbook-dashboard-row"]')).toHaveCount(1)
@@ -435,6 +436,8 @@ test.describe('Diaspora workbook operator console UI', () => {
     await mockOperatorApi(page, adminUser, state, { mutationDelay: 800 })
 
     await page.goto('/admin/diaspora/workbooks', { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-testid="diaspora-workbook-batch-summary"]')).toContainText('Batch summary')
+    await expect(page.locator('[data-testid="diaspora-workbook-note-submit"]')).toBeVisible()
     await page.locator('[data-testid="diaspora-workbook-note-input"]').fill('One guarded note.')
 
     const submit = page.locator('[data-testid="diaspora-workbook-note-submit"]')
@@ -475,14 +478,16 @@ test.describe('Diaspora workbook operator console UI', () => {
     await mockOperatorApi(page, adminUser, state, { mutationDelay: 300 })
 
     await page.goto('/admin/diaspora/workbooks', { waitUntil: 'domcontentloaded' })
+    await expect(page.locator('[data-testid="diaspora-workbook-batch-summary"]')).toContainText('Batch summary')
+    await expect(page.locator('[data-testid="diaspora-workbook-place-hold"]')).toBeVisible()
     await page.locator('[data-testid="diaspora-workbook-hold-reason"]').fill('Awaiting reviewer assignment.')
 
     const holdButton = page.locator('[data-testid="diaspora-workbook-place-hold"]')
     await holdButton.click()
     await holdButton.click({ force: true })
 
+    await expect.poll(() => state.holdCalls).toBe(1)
     await expect(page.locator('[data-testid="diaspora-workbook-active-hold-warning"]')).toContainText('Awaiting reviewer assignment.')
-    expect(state.holdCalls).toBe(1)
 
     const errorPage = await page.context().newPage()
     const errorState = initialState()
@@ -490,6 +495,7 @@ test.describe('Diaspora workbook operator console UI', () => {
     await mockOperatorApi(errorPage, adminUser, errorState, { holdStatus: 500 })
 
     await errorPage.goto('/admin/diaspora/workbooks', { waitUntil: 'domcontentloaded' })
+    await expect(errorPage.locator('[data-testid="diaspora-workbook-place-hold"]')).toBeVisible()
     await errorPage.locator('[data-testid="diaspora-workbook-hold-reason"]').fill('Needs error handling.')
     await errorPage.locator('[data-testid="diaspora-workbook-place-hold"]').click()
     await expect(errorPage.locator('[data-testid="diaspora-workbook-hold-error"]')).toBeVisible()
