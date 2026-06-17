@@ -73,4 +73,14 @@ test('a failing inquiry shows a readable backend message, never "[object Object]
 
   await expect(page.getByText('Failed to record inquiry.')).toBeVisible()
   await expect(page.getByText('[object Object]')).toHaveCount(0)
+
+  // The toast text must actually contrast with its background (not blend in / invisible).
+  const toast = page.locator('[data-sonner-toast]').first()
+  await expect(toast).toBeVisible()
+  const { bg, fg } = await toast.evaluate((el) => {
+    const titleEl = (el.querySelector('[data-title]') as HTMLElement) || (el as HTMLElement)
+    return { bg: getComputedStyle(el as HTMLElement).backgroundColor, fg: getComputedStyle(titleEl).color }
+  })
+  expect(bg).not.toBe('rgba(0, 0, 0, 0)') // toast has a real (non-transparent) background
+  expect(bg).not.toBe(fg)                 // text colour differs from the background -> readable
 })
