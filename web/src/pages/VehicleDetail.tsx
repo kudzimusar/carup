@@ -36,6 +36,29 @@ import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 
+/** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
+function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
+  return {
+    vin: d.vin,
+    id: d.vin,
+    make: d.make,
+    model: d.model,
+    year: d.year,
+    mileage: d.mileage,
+    price: d.price,
+    currency: d.currency,
+    fuel_type: d.fuel_type || undefined,
+    transmission: d.transmission || undefined,
+    status: d.status,
+    trust_score: d.trust_score,
+    images: (d.media || []).filter((m) => m.type === 'image').map((m) => m.url),
+    location: d.location || 'Zimbabwe',
+    sellerName: d.seller_summary?.display_label || 'Seller',
+    sellerType: d.seller_summary?.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
+    created_at: d.created_at || undefined,
+  } as Vehicle
+}
+
 // ── localStorage helpers ─────────────────────────────────────────────────────
 function getFavorites(): string[] {
   try { return JSON.parse(localStorage.getItem('carup_favorites') || '[]') } catch { return [] }
@@ -167,6 +190,7 @@ export default function VehicleDetail() {
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
   const [passport, setPassport] = useState<VehiclePassport | null>(null)
   const [detail, setDetail]     = useState<MarketplaceListingDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(true)
   const [loading, setLoading]   = useState(true)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
@@ -279,9 +303,18 @@ export default function VehicleDetail() {
     let mounted = true
     captureReferralFromUrl()
     const attr = getStoredAttribution()
+    setDetailLoading(true)
     fetchMarketplaceListingDetail(id, { ref: attr.referral_code, campaign: attr.campaign_code, source: attr.source })
-      .then((d) => { if (mounted) setDetail(d) })
+      .then((d) => {
+        if (!mounted) return
+        setDetail(d)
+        // Fallback: a real public marketplace listing must always open a real detail page. If the
+        // passport lookup didn't resolve a vehicle, hydrate from the marketplace detail so the page
+        // renders instead of showing "Vehicle Not Found".
+        setVehicle((prev) => prev ?? vehicleFromMarketplaceDetail(d))
+      })
       .catch(() => { if (mounted) setDetail(null) })
+      .finally(() => { if (mounted) setDetailLoading(false) })
     return () => { mounted = false }
   }, [id, fetchMarketplaceListingDetail])
 
@@ -347,7 +380,7 @@ export default function VehicleDetail() {
   }
 
   // ── Loading / 404 states ─────────────────────────────────────────────────
-  if (loading) {
+  if (loading || (!vehicle && detailLoading)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-orange-500" />

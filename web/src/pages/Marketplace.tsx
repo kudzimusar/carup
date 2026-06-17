@@ -47,6 +47,18 @@ async function shareListing(vin: string, name: string) {
     /* user cancelled share — ignore */
   }
 }
+
+// Mock listings are a DEV/demo convenience ONLY. In staging/production an empty or failed live result
+// must NOT render fake cards — those link to nonexistent detail pages ("Vehicle Not Found"). Enable
+// explicitly with VITE_MARKETPLACE_ALLOW_MOCK=true only for a backend-less demo.
+const ALLOW_MOCK_LISTINGS =
+  import.meta.env.DEV || import.meta.env.VITE_MARKETPLACE_ALLOW_MOCK === 'true'
+
+/** Real listings when present; mock only when explicitly allowed; otherwise an honest empty list. */
+export function withMockFallback<T>(live: T[], mock: T[], allowMock: boolean = ALLOW_MOCK_LISTINGS): T[] {
+  if (live.length > 0) return live
+  return allowMock ? mock : []
+}
 import {
   paramsToState,
   stateToParams,
@@ -483,9 +495,9 @@ export default function Marketplace() {
       .then((data) => {
         if (cancelled) return
         if (data && Array.isArray(data.listings)) {
-          setLiveVehicles(data.listings.length > 0 ? data.listings.map(marketplaceSummaryToVehicle) : (mockVehicles as unknown as Vehicle[]))
+          setLiveVehicles(withMockFallback(data.listings.map(marketplaceSummaryToVehicle), mockVehicles as unknown as Vehicle[]))
         } else {
-          setLiveVehicles(mockVehicles as unknown as Vehicle[])
+          setLiveVehicles(withMockFallback([], mockVehicles as unknown as Vehicle[]))
         }
       })
       .catch(async (err) => {
@@ -494,12 +506,12 @@ export default function Marketplace() {
         try {
           const data = await fetchVehicles(apiFilters)
           if (cancelled) return
-          setLiveVehicles(data.length > 0 ? data : (mockVehicles as unknown as Vehicle[]))
+          setLiveVehicles(withMockFallback(data, mockVehicles as unknown as Vehicle[]))
           setLoadError(true)
         } catch (fallbackErr) {
           if (cancelled) return
           console.error('Failed to fetch marketplace vehicles:', fallbackErr)
-          setLiveVehicles(mockVehicles as unknown as Vehicle[])
+          setLiveVehicles(withMockFallback([], mockVehicles as unknown as Vehicle[]))
           setLoadError(true)
         }
       })
@@ -714,7 +726,8 @@ export default function Marketplace() {
         {/* Quick filters (trust tags + condition categories) */}
         <div className="mb-4 flex items-center gap-2 overflow-x-auto pb-1">
           <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-gray-500">
-            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Quick filters
+            <ShieldCheck className="h-3.5 w-3.5 text-orange-500" /> Trust filters
+            <span className="font-normal text-gray-400">(pick one)</span>
           </span>
           {TRUST_QUICK_FILTERS.map(filter => {
             const active = selectedCategoryChip === filter.label
@@ -741,9 +754,9 @@ export default function Marketplace() {
         <div className="mb-6 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-gray-900">Marketplace categories</p>
+              <p className="text-sm font-semibold text-gray-900">Browse by category <span className="font-normal text-gray-400">(pick one)</span></p>
               <p className="text-xs text-gray-500">
-                Unsupported backend tags stay frontend-only or Phase 2B until real data exists.
+                One filter is active at a time — choosing a category or a trust filter above replaces the current selection. Use "Clear" to reset.
               </p>
             </div>
             {selectedCategoryChip !== 'All' && (
