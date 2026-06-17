@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { vehicles as mockVehicles, zimbabweLocations } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAuth } from '@/context/AuthContext'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from '@/types'
@@ -376,7 +377,8 @@ function FilterControls(props: FilterControlsProps) {
 export default function Marketplace() {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const { fetchMarketplaceListings, fetchVehicles } = useCarUpApi()
+  const { fetchMarketplaceListings, fetchVehicles, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings } = useCarUpApi()
+  const { isAuthenticated } = useAuth()
   const isMobile = useIsMobile()
   const navigate = useNavigate()
 
@@ -421,6 +423,21 @@ export default function Marketplace() {
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
+
+  // Saved listings are SERVER-backed and account-scoped for authenticated users (existing
+  // /marketplace/saved API). Guests fall back to the browser-local list. Loading from the server on
+  // auth change makes saved state survive refresh and never leak across accounts.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setFavoritesState(getFavorites())
+      return
+    }
+    let active = true
+    fetchSavedMarketplaceListings()
+      .then(res => { if (active) setFavoritesState((res.listings || []).map(l => l.vin).filter(Boolean)) })
+      .catch(() => { /* server unavailable — keep current view, no localStorage write for authed users */ })
+    return () => { active = false }
+  }, [isAuthenticated, fetchSavedMarketplaceListings])
 
   // Client-side-only refinements (not yet in the URL contract — see marketplaceParams.ts / Phase 6)
   const [selectedCategory, setSelectedCategory] = useState('All')
@@ -540,21 +557,36 @@ export default function Marketplace() {
     return () => { cancelled = true }
   }, [selectedMake, marketplaceCategory, trustTags, committedMinPrice, committedMaxPrice, sortBy, fetchMarketplaceListings, fetchVehicles])
 
-  const toggleFavorite = useCallback((e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
+  const toggleFavorite = useCallback(async (e: React.MouseEvent, vehicleId: string, vehicleName: string) => {
     e.preventDefault()
     e.stopPropagation()
-    const current = getFavorites()
-    let updated: string[]
-    if (current.includes(vehicleId)) {
-      updated = current.filter(id => id !== vehicleId)
-      toast.info(`Removed from saved cars`)
-    } else {
-      updated = [...current, vehicleId]
-      toast.success(`${vehicleName} saved!`)
+    const isSaved = favorites.includes(vehicleId)
+    const optimistic = isSaved ? favorites.filter(id => id !== vehicleId) : [...favorites, vehicleId]
+
+    if (isAuthenticated) {
+      // Server-backed + account-scoped. Optimistic UI, rolled back on error. No localStorage write.
+      const previous = favorites
+      setFavoritesState(optimistic)
+      try {
+        if (isSaved) {
+          await unsaveMarketplaceListing(vehicleId)
+          toast.info('Removed from saved cars')
+        } else {
+          await saveMarketplaceListing(vehicleId)
+          toast.success(`${vehicleName} saved!`)
+        }
+      } catch {
+        setFavoritesState(previous)
+        toast.error('Could not update saved cars. Please try again.')
+      }
+      return
     }
-    setFavorites(updated)
-    setFavoritesState(updated)
-  }, [setFavoritesState])
+
+    // Guest fallback: browser-local only (clearly guest-scoped).
+    setFavorites(optimistic)
+    setFavoritesState(optimistic)
+    toast[isSaved ? 'info' : 'success'](isSaved ? 'Removed from saved cars' : `${vehicleName} saved!`)
+  }, [favorites, isAuthenticated, saveMarketplaceListing, unsaveMarketplaceListing])
 
   const filtered = liveVehicles.filter((v: Vehicle) => {
     const loc = v.location || ''
@@ -983,10 +1015,10 @@ export default function Marketplace() {
                           aria-pressed={compareVins.includes(vehicle.vin || '')}
                           onClick={(e) => toggleCompare(e, vehicle.vin || '')}
                           data-testid="marketplace-compare-toggle"
-                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-opacity hover:scale-110 ${
+                          className={`w-8 h-8 rounded-full flex items-center justify-center shadow-sm transition-transform hover:scale-110 ${
                             compareVins.includes(vehicle.vin || '')
-                              ? 'bg-orange-500 text-white opacity-100'
-                              : 'bg-white/90 text-gray-600 opacity-0 group-hover:opacity-100'
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-white/90 text-gray-600'
                           }`}
                         >
                           <GitCompare className="w-4 h-4" />
@@ -1003,6 +1035,8 @@ export default function Marketplace() {
                         <button
                           type="button"
                           aria-label="Save listing"
+                          aria-pressed={isFav}
+                          data-testid="marketplace-save-toggle"
                           onClick={(e) => toggleFavorite(e, vehicle.vin || vehicle.id || '', vehicleName)}
                           className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
                         >
