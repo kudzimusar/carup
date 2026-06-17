@@ -2,7 +2,13 @@
 -- Marketplace v1 — STAGING QA SEED (PR #73)
 -- ----------------------------------------------------------------------------
 -- Inserts 3 PUBLIC, NON-FIXTURE test vehicles so the marketplace can be browsed,
--- opened, and inquired on during staging QA. Idempotent (ON CONFLICT DO NOTHING).
+-- opened, and inquired on during staging QA. Fully idempotent: users/vehicles use
+-- ON CONFLICT DO NOTHING; the evidence + PartSentry enrichment rows use NOT EXISTS
+-- guards, so re-running never duplicates (matches the rows already on staging).
+--
+-- Matches the real STAGING schema (corrected after first apply):
+--   * users.join_date is TEXT NOT NULL          -> provided
+--   * vehicle_evidence.event_type is NOT NULL    -> provided ('document_upload')
 --
 --   ⚠️  STAGING ONLY — apply to the CarUp STAGING Supabase project
 --       (ref: eoyenigwevnxwwhyhaer). DO NOT run on production (vhmnajoeicasaigiophh).
@@ -26,8 +32,9 @@
 -- ============================================================================
 
 -- 1) QA seller user (FK target for owner_id / mechanic_id / uploaded_by)
-INSERT INTO users (id, name, email, phone, role)
-VALUES ('qa-staging-seller-73', 'QA Staging Seller', 'qa-seller-73@staging.carup.local', '+263772000073', 'owner')
+--    NOTE: public.users.join_date is TEXT NOT NULL in staging — must be provided.
+INSERT INTO users (id, name, email, phone, role, join_date)
+VALUES ('qa-staging-seller-73', 'QA Staging Seller', 'qa-seller-73@staging.carup.local', '+263772000073', 'owner', '2026-06-17')
 ON CONFLICT (id) DO NOTHING;
 
 -- 2) Three public, non-fixture vehicles (valid VINs, real owner, status Available)
@@ -53,15 +60,21 @@ ON CONFLICT (vin) DO NOTHING;
 
 -- 3) Best-effort: verified public-safe EVIDENCE for the trusted vehicle (b) -> "evidence available".
 --    Wrapped so a schema difference cannot abort the core vehicle seed above.
+-- NOTE: public.vehicle_evidence.event_type is NOT NULL in staging (the 014 migration had it
+-- nullable; staging diverged) — must be provided. Insert is guarded by NOT EXISTS so re-running
+-- the seed never duplicates the row (idempotent).
 DO $$
 BEGIN
   INSERT INTO vehicle_evidence (
-    vehicle_id, vin, evidence_type, file_url, storage_bucket, file_path, mime_type, file_size,
+    vehicle_id, vin, evidence_type, event_type, file_url, storage_bucket, file_path, mime_type, file_size,
     uploaded_by, uploader_role, verification_status, visibility_level
-  ) VALUES (
-    'WBA8E9C50HK000732', 'WBA8E9C50HK000732', 'registration_document',
+  )
+  SELECT
+    'WBA8E9C50HK000732', 'WBA8E9C50HK000732', 'registration_document', 'document_upload',
     'https://staging.carup.local/qa/evidence-73.jpg', 'vehicle-images', 'qa/evidence-73.jpg', 'image/jpeg', 1024,
     'qa-staging-seller-73', 'owner', 'verified', 'public_safe'
+  WHERE NOT EXISTS (
+    SELECT 1 FROM vehicle_evidence WHERE vin = 'WBA8E9C50HK000732' AND uploaded_by = 'qa-staging-seller-73'
   );
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'QA seed: vehicle_evidence insert skipped (%): %', SQLSTATE, SQLERRM;
@@ -70,15 +83,19 @@ END $$;
 -- 4) Best-effort: a PartSentry log for vehicle (c) that is verified + public_card_eligible BUT
 --    suspicion_status='flagged' -> summarizePartSentry SUPPRESSES all PartSentry/verified-parts
 --    badges. This proves badge suppression on a real listing.
+-- Guarded by NOT EXISTS so re-running the seed never duplicates the row (idempotent).
 DO $$
 BEGIN
   INSERT INTO partsentry_logs (
     vin, mechanic_id, part_name, part_oem, action_type, description, mileage, signature, timestamp,
     verification_status, part_verification_status, suspicion_status, public_card_eligible
-  ) VALUES (
+  )
+  SELECT
     'MAJFP1CD0HC000733', 'qa-staging-seller-73', 'Alternator', 'OEM-ALT-73', 'Replaced',
     'QA suppressed-case part log', 88000, 'QA-STAGING-SIG-73', now()::text,
     'verified', 'verified', 'flagged', true
+  WHERE NOT EXISTS (
+    SELECT 1 FROM partsentry_logs WHERE vin = 'MAJFP1CD0HC000733' AND mechanic_id = 'qa-staging-seller-73'
   );
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'QA seed: partsentry_logs insert skipped (%): %', SQLSTATE, SQLERRM;
