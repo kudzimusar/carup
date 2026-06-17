@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -75,6 +75,23 @@ const BASE_URL = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
   typeof window !== 'undefined' ? window.location.hostname : undefined,
 );
+
+// Diagnostic: a deployed (non-localhost) frontend with NO VITE_API_URL silently targets the PRODUCTION
+// backend. On a staging/preview deployment this is a misconfiguration — it calls the unseeded, route-less
+// prod backend (marketplace shows 0 vehicles; new routes 404 "Route not found"). Warn loudly so it's caught.
+if (
+  typeof window !== 'undefined' &&
+  !import.meta.env.VITE_API_URL &&
+  BASE_URL === DEFAULT_PRODUCTION_API_BASE_URL &&
+  !['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[CarUp] VITE_API_URL is not set — API calls default to the PRODUCTION backend (${BASE_URL}). ` +
+    `On a staging/preview deployment, set VITE_API_URL to the matching staging backend, ` +
+    `otherwise marketplace data is empty and new routes 404.`,
+  );
+}
 
 /**
  * Build a `?a=1&b=2` query string from a filter object, dropping undefined/null/empty
