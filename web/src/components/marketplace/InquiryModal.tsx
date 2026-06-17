@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import { inquiryAttributionFields } from '@/lib/marketplaceReferral'
+import { getErrorMessage } from '@/lib/errorMessage'
 import type { MarketplaceInquiryType } from '@/types'
 
 const INQUIRY_TYPE_LABELS: Record<string, string> = {
@@ -81,7 +82,7 @@ export function InquiryModal({
       setMessage('')
       onSubmitted?.(inquiry.id)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not send inquiry. Please try again.')
+      toast.error(getErrorMessage(err, 'Could not send inquiry. Please try again.'))
     } finally {
       setSubmitting(false)
     }

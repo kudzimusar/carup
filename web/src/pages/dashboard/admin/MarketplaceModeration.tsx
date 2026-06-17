@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+import { getErrorMessage } from '@/lib/errorMessage'
 
 interface AdminListing {
   vin: string
@@ -57,7 +58,7 @@ export default function MarketplaceModeration() {
       if (l.status === 'fulfilled') setListings(l.value.listings || [])
       if (a.status === 'fulfilled') setAnalytics(a.value)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load moderation queue')
+      toast.error(getErrorMessage(err, 'Failed to load moderation queue'))
     } finally {
       setLoading(false)
     }
@@ -83,7 +84,7 @@ export default function MarketplaceModeration() {
       toast.success(`Listing ${action} applied`)
       load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Moderation action failed')
+      toast.error(getErrorMessage(err, 'Moderation action failed'))
     }
   }
 
@@ -92,7 +93,7 @@ export default function MarketplaceModeration() {
       const res = await marketplaceAiModerationSummary({ vin })
       toast.message(res.ai_available ? 'AI moderation summary' : 'Moderation summary (deterministic)', { description: `${res.summary} · suggested: ${res.suggested_action}` })
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Summary unavailable')
+      toast.error(getErrorMessage(err, 'Summary unavailable'))
     }
   }
 
@@ -102,7 +103,7 @@ export default function MarketplaceModeration() {
       toast.success(`Inquiry marked ${status}`)
       load()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update inquiry')
+      toast.error(getErrorMessage(err, 'Failed to update inquiry'))
     }
   }
 
