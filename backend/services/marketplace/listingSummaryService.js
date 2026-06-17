@@ -278,10 +278,31 @@ function summaryMatchesSearch(summary, query) {
   return haystack.includes(normalized);
 }
 
-function summaryMatchesCategory(summary, category) {
-  const normalized = normalizeTag(category);
-  if (!normalized || normalized === 'all') return true;
-  return summary.condition_category === normalized || summary.marketplace_tags.includes(normalized);
+/** Single mutually-exclusive condition/category match (NOT trust tags). */
+function summaryMatchesCondition(summary, condition) {
+  if (!condition || condition === 'all') return true;
+  return summary.condition_category === condition;
+}
+
+/** AND semantics: a listing must carry EVERY requested trust tag to qualify. */
+function summaryMatchesTags(summary, tags) {
+  if (!tags || !tags.length) return true;
+  return tags.every(tag => summary.marketplace_tags.includes(tag));
+}
+
+/**
+ * Parse a `tag` filter into a deduped list of normalized trust slugs. Accepts a repeated-param array
+ * (Express yields an array for `?tag=a&tag=b`) OR a CSV string (`?tag=a,b`). 'all'/empty are dropped.
+ */
+function parseTagList(value) {
+  if (value === undefined || value === null) return [];
+  const raw = Array.isArray(value) ? value : String(value).split(',');
+  const out = [];
+  for (const item of raw) {
+    const tag = normalizeTag(item);
+    if (tag && tag !== 'all' && !out.includes(tag)) out.push(tag);
+  }
+  return out;
 }
 
 function sortSummaries(summaries, sort) {
@@ -398,8 +419,22 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
   const limit = safeLimit(params.limit);
   const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
   const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
-  const requestedTag = normalizeTag(params.tag || params.category);
-  const requestedCondition = normalizeTag(params.condition);
+
+  // QA Round 4: ONE mutually-exclusive condition/category + MANY stackable trust tags (AND).
+  const requestedTags = parseTagList(params.tag);
+  const categorySlug = normalizeTag(params.category);
+  // Condition comes from explicit `condition`, else from `category` when it names a real condition.
+  const requestedCondition = (() => {
+    const explicit = normalizeTag(params.condition);
+    if (explicit && CONDITION_CATEGORIES.includes(explicit)) return explicit;
+    if (categorySlug && CONDITION_CATEGORIES.includes(categorySlug)) return categorySlug;
+    return '';
+  })();
+  // Backward-compat: a legacy `category=<trust-slug>` folds into the AND tag list.
+  if (categorySlug && !CONDITION_CATEGORIES.includes(categorySlug)
+    && MARKETPLACE_TAGS.includes(categorySlug) && !requestedTags.includes(categorySlug)) {
+    requestedTags.push(categorySlug);
+  }
 
   let query = supabaseClient
     .from('vehicles')
@@ -430,9 +465,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
 
   const filtered = summaries
     .filter(summary => summaryMatchesSearch(summary, params.q))
-    .filter(summary => summaryMatchesCategory(summary, requestedTag))
-    .filter(summary => !requestedCondition || summary.condition_category === requestedCondition)
-    .filter(summary => !params.tag || summary.marketplace_tags.includes(normalizeTag(params.tag)));
+    .filter(summary => summaryMatchesCondition(summary, requestedCondition))
+    .filter(summary => summaryMatchesTags(summary, requestedTags));
 
   const sorted = sortSummaries(filtered, params.sort);
 

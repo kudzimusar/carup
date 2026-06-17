@@ -234,6 +234,49 @@ test('each seeded QA detail resolves and never leaks owner_id/tenant_id; suppres
 });
 
 // ---------------------------------------------------------------------------
+// QA Round 4 — single condition/category + stackable trust tags (AND semantics)
+// ---------------------------------------------------------------------------
+
+test('multi-tag filter uses AND semantics (CSV value)', async () => {
+  const sb = () => buildMockSupabase({ vehicles: QA_VEHICLES });
+  // duty_cleared is carried by all 3 seeded QA vehicles.
+  assert.equal((await listMarketplaceListings(sb(), { tag: 'duty_cleared' })).total, 3);
+  // low_mileage (<=50k km) is only the BMW (41k); Toyota 68k + Ranger 88k are excluded.
+  assert.deepEqual((await listMarketplaceListings(sb(), { tag: 'low_mileage' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+  // AND: a listing must carry BOTH tags -> only the BMW qualifies.
+  assert.deepEqual((await listMarketplaceListings(sb(), { tag: 'duty_cleared,low_mileage' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+  // AND with a tag none carry (all QA sellers are private, never dealer_verified) -> empty (no silent OR fallback).
+  assert.equal((await listMarketplaceListings(sb(), { tag: 'low_mileage,dealer_verified' })).total, 0);
+});
+
+test('multi-tag filter accepts a repeated-param array (Express ?tag=a&tag=b style)', async () => {
+  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), { tag: ['duty_cleared', 'zimra_verified'] });
+  assert.deepEqual(res.listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+});
+
+test('a condition category and a trust tag both apply together (no conflation)', async () => {
+  const catVehicles = [
+    { ...QA_VEHICLES[0], vehicle_condition_category: 'brand_new' },   // Toyota, 68k km (NOT low_mileage)
+    { ...QA_VEHICLES[1], vehicle_condition_category: 'second_hand' }, // BMW, 41k km + zimra_verified
+  ];
+  const sb = () => buildMockSupabase({ vehicles: catVehicles });
+  // Category alone selects only the brand_new Toyota.
+  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'brand_new' })).listings.map((l) => l.vin), ['JTDKARFP0H3000731']);
+  // Category AND a tag it carries -> still the Toyota.
+  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'brand_new', tag: 'duty_cleared' })).listings.map((l) => l.vin), ['JTDKARFP0H3000731']);
+  // Category AND a tag it lacks -> empty (category does not loosen the tag AND).
+  assert.equal((await listMarketplaceListings(sb(), { category: 'brand_new', tag: 'low_mileage' })).total, 0);
+  // The other condition with its own tag resolves independently.
+  assert.deepEqual((await listMarketplaceListings(sb(), { category: 'second_hand', tag: 'zimra_verified' })).listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+});
+
+test('legacy category=<trust-slug> still narrows by that tag (backward compatible)', async () => {
+  // zimra_verified is a TRUST slug, not a condition — folded into the AND tag list -> only the BMW.
+  const res = await listMarketplaceListings(buildMockSupabase({ vehicles: QA_VEHICLES }), { category: 'zimra_verified' });
+  assert.deepEqual(res.listings.map((l) => l.vin), ['WBA8E9C50HK000732']);
+});
+
+// ---------------------------------------------------------------------------
 // Inquiries + referral emission
 // ---------------------------------------------------------------------------
 
