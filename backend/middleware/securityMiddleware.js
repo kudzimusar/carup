@@ -6,7 +6,12 @@ const globalStore = new Map();
 const sensitiveStore = new Map();
 
 // Secret for CSRF signing
-const CSRF_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'csrf_fallback_secret_999';
+const CSRF_SECRET = process.env.JWT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+// Guard: CSRF requires a real secret in production
+if (!CSRF_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('CSRF_SECRET not configured. Set JWT_SECRET or SUPABASE_SERVICE_ROLE_KEY.');
+}
 
 /**
  * Production Security Headers (Helmet replacement)

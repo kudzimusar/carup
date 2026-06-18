@@ -35,4 +35,10 @@ describe('admin /admin/verification route registration', () => {
     expect(entry?.isPlanned).not.toBe(true)
     expect(entry?.isHidden).not.toBe(true)
   })
+
+  it('loads IdentityVerificationCaseManagement (not legacy VerificationReview)', () => {
+    expect(appContent).toContain('IdentityVerificationCaseManagement')
+    expect(appContent).not.toContain('import VerificationReview')
+    expect(appContent).toMatch(/element=\{<IdentityVerificationCaseManagement/)
+  })
 })

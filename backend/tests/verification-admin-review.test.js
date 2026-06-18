@@ -308,18 +308,26 @@ test('admin approve sets status verified and audit fields, writes audit event', 
 test('admin reject sets status rejected with notes and audit fields', async () => {
   const res = await req('POST', `${LIST_PATH}/vs-pending/review`, {
     token: 'admin-token',
-    body: { action: 'reject', reviewNotes: 'Document is illegible.' },
+    body: {
+      action: 'reject',
+      reasonCode: 'NON_DOCUMENT',
+      reviewNotes: 'Document is illegible.',
+      applicantMessage: 'Document does not meet requirements.',
+    },
   });
   assert.equal(res.status, 200);
-  const { session } = await res.json();
+  const body = await res.json();
+  const { session } = body;
   assert.equal(session.status, 'rejected');
   assert.equal(session.review_decision, 'reject');
   assert.equal(session.review_notes, 'Document is illegible.');
   assert.equal(session.reviewed_by, 'admin-1');
 
   const row = db.verification_sessions.find((s) => s.id === 'vs-pending');
-  assert.equal(row.failure_reason, 'Document is illegible.');
+  assert.equal(row.failure_reason, 'Document does not meet requirements.');
   assert.ok(db.trust_audit_events.some((e) => e.event_type === 'VERIFICATION_REVIEW_REJECTED'));
+  assert.equal(body.decision.reason_code, 'NON_DOCUMENT');
+  assert.ok(body.allowed_actions.length > 0);
 });
 
 // --- Review: request_retry -------------------------------------------------
@@ -327,7 +335,7 @@ test('admin reject sets status rejected with notes and audit fields', async () =
 test('admin request_retry sets status retry_requested and retry_reason', async () => {
   const res = await req('POST', `${LIST_PATH}/vs-pending/review`, {
     token: 'admin-token',
-    body: { action: 'request_retry', retryReason: 'Reupload a sharper back photo.' },
+    body: { action: 'request_retry', reasonCode: 'DOCUMENT_NOT_VISIBLE', retryReason: 'Reupload a sharper back photo.' },
   });
   assert.equal(res.status, 200);
   const { session } = await res.json();

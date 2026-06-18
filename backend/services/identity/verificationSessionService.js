@@ -5,6 +5,19 @@ import { DocumentIntelligenceService } from '../document-intelligence/documentIn
 import { downloadFromStorage, uploadToStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { validateEvidenceImages } from './evidenceValidation.js';
 import { compareAccountToDocument, documentHolderName } from './identityBinding.js';
+import { DocumentClassifier, EVIDENCE_CLASSIFICATION, EXTRACTION_TRUST_STATUS } from './documentClassifier.js';
+import { DecisionPolicyEngine } from './decisionPolicy.js';
+import { VerificationDecisionRecorder } from './decisionRecorder.js';
+import {
+  DECISION_ACTION,
+  WORKFLOW_PHASE,
+  LEGACY_REVIEWABLE_STATUSES,
+  legacyStatusToPhase,
+  decisionToLegacyStatus,
+  decisionToDisposition,
+  decisionToPhase,
+} from './caseWorkflow.js';
+import { getReasonConfig } from './reasonCodes.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
@@ -14,18 +27,7 @@ const DOUBLE_SIDED_DOCUMENTS = new Set(['national_id', 'driver_license', 'driver
 const PUBLIC_OCR_FIELDS = ['first_name', 'last_name', 'national_id_number', 'date_of_birth', 'country'];
 const VALID_SIDES = new Set(['front', 'back', 'selfie']);
 
-// Admin manual-review surface (Phase 7C). Review is admin-only; the routes are
-// also guarded by authorizeRole(['admin']), but the service re-checks so direct
-// service callers cannot bypass the role gate.
 const ADMIN_REVIEW_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
-const REVIEWABLE_STATUSES = new Set([
-  'pending_manual_review',
-  'ocr_failed',
-  'retry_requested',
-  'verified',
-  'rejected',
-]);
-const REVIEW_ACTIONS = new Set(['approve', 'reject', 'request_retry', 'add_review_notes']);
 
 function now() {
   return new Date().toISOString();
@@ -207,6 +209,12 @@ function sanitizeSession(session) {
     document_type: session.document_type,
     double_sided: Boolean(session.double_sided),
     status: session.status,
+    workflow_phase: session.workflow_phase || null,
+    primary_reason_code: session.primary_reason_code || null,
+    evidence_classification: session.evidence_classification || null,
+    ocr_execution_status: session.ocr_execution_status || null,
+    extraction_trust_status: session.extraction_trust_status || null,
+    identity_binding_status: session.identity_binding_status || null,
     uploaded_sides: {
       front: Boolean(session.front_storage_path),
       back: Boolean(session.back_storage_path),
@@ -219,9 +227,8 @@ function sanitizeSession(session) {
       : Number(session.confidence_score),
     failure_reason: session.failure_reason || null,
     review_notes: session.review_notes || null,
-    // Reviewer guidance the END USER needs to act on a retry request. Safe to
-    // surface (it is not a private document path); the mobile result screen
-    // shows it when a reviewer asks for a new capture.
+    reviewer_identity: session.reviewer_identity || null,
+    review_decision: session.review_decision || null,
     retry_reason: session.retry_reason || null,
     created_at: session.created_at,
     updated_at: session.updated_at,
@@ -358,6 +365,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     .from('verification_sessions')
     .update({
       status: 'ocr_pending',
+      workflow_phase: WORKFLOW_PHASE.SYSTEM_PROCESSING,
       submitted_at: session.submitted_at || timestamp,
       ocr_started_at: timestamp,
       updated_at: timestamp,
@@ -380,40 +388,69 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     targetType: 'verification_session',
     targetId: session.id,
     previous_value: { status: session.status },
-    new_value: { status: pendingSession.status, document_type: session.document_type },
+    new_value: { status: pendingSession.status, document_type: session.document_type, workflow_phase: WORKFLOW_PHASE.SYSTEM_PROCESSING },
   });
 
-  // Workstream D — hoisted so OCR provenance (success or failure) can record the
-  // hash of the actual bytes the system processed.
   let evidenceHashes = null;
 
   try {
     const frontDocument = await storage.downloadFromStorage(BUCKET, session.front_storage_path);
+    let backBuffer = null;
+    let selfieBuffer = null;
 
-    // Workstream C: fail-closed evidence validation BEFORE OCR. A blank/tiny or
-    // non-image front (and obvious duplicates) cannot be an identity document,
-    // so don't even run OCR — route to manual review with a clear reason and no
-    // identity fields. (Content-level cup-vs-ID detection is deferred to a vision
-    // model; the admin still reviews via the secure preview.)
-    const evidenceCheck = validateEvidenceImages({ front: frontDocument.buffer });
-    evidenceHashes = evidenceCheck.hashes;
-    if (!evidenceCheck.valid) {
-      const failedAt = now();
-      const reason = `No supported identity document detected. ${evidenceCheck.reasons.join(' ')}`;
+    if (session.back_storage_path) {
+      const backDoc = await storage.downloadFromStorage(BUCKET, session.back_storage_path);
+      backBuffer = backDoc.buffer;
+    }
+    if (session.selfie_storage_path) {
+      const selfieDoc = await storage.downloadFromStorage(BUCKET, session.selfie_storage_path);
+      selfieBuffer = selfieDoc.buffer;
+    }
+
+    // -------------------------------------------------------
+    // STAGE 1: Document classification (Layer 1 + Layer 2)
+    // -------------------------------------------------------
+    const classificationResult = await DocumentClassifier.classify(
+      { front: frontDocument.buffer, back: backBuffer, selfie: selfieBuffer },
+      session.document_type
+    );
+
+    evidenceHashes = classificationResult.hashes;
+
+    // Persist classification assessment
+    await DocumentClassifier.persistClassification(client, session.id, classificationResult);
+
+    const completedAt = now();
+
+    // -------------------------------------------------------
+    // STAGE 2: Route based on classification
+    // -------------------------------------------------------
+    if (!classificationResult.extractionAllowed) {
+      // Non-document or unreadable: route to manual review with NO identity fields
+      const reasonCode = classificationResult.reasonCode || 'DOCUMENT_NOT_VISIBLE';
+      const reasonConfig = getReasonConfig(reasonCode);
+      const reasonText = classificationResult.reasons.join(' ') || reasonConfig.internalDescription;
+
       const { data: invalidSession, error: invalidError } = await client
         .from('verification_sessions')
         .update({
           status: 'pending_manual_review',
-          failure_reason: reason,
-          review_notes: 'Submitted evidence failed automated document validation; manual review required.',
-          ocr_completed_at: failedAt,
-          updated_at: failedAt,
+          workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+          primary_reason_code: reasonCode,
+          failure_reason: reasonText,
+          review_notes: `Evidence classified as "${classificationResult.classification}". ${reasonText}. Manual review required.`,
+          ocr_result: null,
+          confidence_score: null,
+          ocr_completed_at: completedAt,
+          updated_at: completedAt,
         })
         .eq('id', session.id)
         .eq('user_id', session.user_id)
         .select()
         .single();
+
       if (invalidError) throw new Error(invalidError.message);
+
       await writeAudit(client, {
         req: options.req,
         event_type: 'VERIFICATION_EVIDENCE_INVALID',
@@ -423,60 +460,102 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         source_route: `/api/identity/verification-sessions/${session.id}/submit`,
         targetType: 'verification_session',
         targetId: session.id,
-        new_value: { status: 'pending_manual_review' },
-        reason,
+        new_value: {
+          status: 'pending_manual_review',
+          workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+          reason_code: reasonCode,
+          evidence_classification: classificationResult.classification,
+        },
+        reason: reasonText,
       });
+
       return sanitizeSession(invalidSession);
     }
 
+    // -------------------------------------------------------
+    // STAGE 3: OCR extraction (only after classification passes)
+    // -------------------------------------------------------
     const frontDataUri = `data:${session.front_mime_type || frontDocument.mimeType || 'image/jpeg'};base64,${frontDocument.buffer.toString('base64')}`;
     const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id);
     const confidence = result.extractedData?.confidenceScore ?? result.qualityMetrics?.blurScore ?? null;
     const sanitizedResult = sanitizeOcrResult(result.extractedData || {});
-    const evidence = evaluateOcrEvidence(result);
-    // SECURITY (P0 — fail closed): the automated OCR path is NOT trustworthy
-    // enough to auto-verify. It performs no document-type detection and the
-    // providers can return plausible identity fields for a non-document (a cup,
-    // a screenshot, a random photo). Until real document detection + OCR
-    // provenance exist, NEVER set 'verified' here — every submitted session
-    // goes to manual review so an admin inspects the actual evidence and makes
-    // the verified decision via the admin review route. A failed/blank/low-
-    // confidence capture is still surfaced honestly as the reason.
-    const finalStatus = 'pending_manual_review';
 
-    // Workstream F — account-holder vs document-holder identity binding. The
-    // authenticated account and the person named on the document are separate
-    // facts; a material mismatch must be surfaced to the reviewer and can never
-    // auto-verify (the status is already manual-review). We fold the binding
-    // outcome into the truthful failure_reason / review_notes; the account
-    // profile is never overwritten from OCR.
+    // Determine extraction trust status
+    // Provider succeeded does NOT imply trusted extraction
+    const ocrExecStatus = result.success ? 'provider_succeeded' : 'provider_failed';
+    let extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
+    let extractionReasonCode = 'OCR_RESULT_UNTRUSTED';
+
+    if (result.success) {
+      const hasText = (v) => typeof v === 'string' && v.trim().length > 0;
+      const hasCoreIdentityFields =
+        hasText(sanitizedResult.national_id_number) ||
+        (hasText(sanitizedResult.first_name) && hasText(sanitizedResult.last_name));
+      const hasFields = Object.keys(sanitizedResult).length > 0;
+      if (hasCoreIdentityFields && classificationResult.classification === EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT) {
+        extractionTrust = EXTRACTION_TRUST_STATUS.PARTIALLY_TRUSTED;
+        extractionReasonCode = null;
+      } else if (hasCoreIdentityFields) {
+        extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
+        extractionReasonCode = 'OCR_RESULT_UNTRUSTED';
+      } else if (hasFields) {
+        extractionTrust = EXTRACTION_TRUST_STATUS.UNTRUSTED;
+        extractionReasonCode = 'REQUIRED_FIELDS_MISSING';
+      } else {
+        extractionTrust = EXTRACTION_TRUST_STATUS.NO_FIELDS;
+        extractionReasonCode = 'REQUIRED_FIELDS_MISSING';
+      }
+    } else {
+      extractionTrust = EXTRACTION_TRUST_STATUS.NO_FIELDS;
+      extractionReasonCode = 'OCR_PROVIDER_FAILED';
+    }
+
+    // Compute identity binding
     const documentName = documentHolderName(sanitizedResult);
     const accountName = await fetchAccountHolderName(client, session.user_id);
     const binding = compareAccountToDocument({ accountName, documentName });
+    const identityBindingStatus = binding.status;
 
-    const baseReason = evidence.sufficient
-      ? 'Automated OCR completed. Verification requires manual review of the uploaded document — automated OCR cannot confirm a genuine identity document on its own.'
-      : evidence.reason;
+    // Build the primary reason
+    const primaryReasonCode = extractionReasonCode || (
+      binding.status === 'mismatch' ? 'ACCOUNT_DOCUMENT_MISMATCH' : null
+    );
+
+    const baseReason = 'Verification requires manual review. Automated OCR cannot confirm document authenticity on its own.';
+
     const failureReason = binding.status === 'mismatch'
       ? `Identity mismatch: ${binding.reason} ${baseReason}`
       : baseReason;
+
     const reviewNote = binding.status === 'mismatch'
       ? `Account/document identity MISMATCH — account holder "${accountName}" vs document holder "${documentName}". Manual review required.`
       : 'OCR completed but requires manual review.';
-    const completedAt = now();
+
+    // -------------------------------------------------------
+    // STAGE 4: Persist — NEVER auto-verify
+    // -------------------------------------------------------
+    const finalStatus = 'pending_manual_review';
+
+    const updateData = {
+      status: finalStatus,
+      workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+      primary_reason_code: primaryReasonCode,
+      evidence_classification: classificationResult.classification,
+      ocr_execution_status: ocrExecStatus,
+      extraction_trust_status: extractionTrust,
+      identity_binding_status: identityBindingStatus,
+      ocr_document_id: result.ocrDocumentId || null,
+      ocr_result: sanitizedResult,
+      confidence_score: confidence,
+      failure_reason: failureReason,
+      review_notes: reviewNote,
+      ocr_completed_at: completedAt,
+      updated_at: completedAt,
+    };
 
     const { data: completedSession, error: completedError } = await client
       .from('verification_sessions')
-      .update({
-        status: finalStatus,
-        ocr_document_id: result.ocrDocumentId || null,
-        ocr_result: sanitizedResult,
-        confidence_score: confidence,
-        failure_reason: failureReason,
-        review_notes: finalStatus === 'pending_manual_review' ? reviewNote : null,
-        ocr_completed_at: completedAt,
-        updated_at: completedAt,
-      })
+      .update(updateData)
       .eq('id', session.id)
       .eq('user_id', session.user_id)
       .select()
@@ -503,14 +582,16 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       previous_value: { status: 'ocr_pending' },
       new_value: {
         status: finalStatus,
+        workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
         confidence_score: confidence,
-        ocr_document_id: result.ocrDocumentId || null,
+        evidence_classification: classificationResult.classification,
+        extraction_trust_status: extractionTrust,
         identity_binding: binding.status,
       },
       reason: failureReason,
     });
 
-    // Workstream D — provenance for the completed OCR run.
+    // Workstream D — provenance for the completed OCR run
     await recordOcrProvenance(client, {
       session,
       result,
@@ -518,7 +599,12 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       confidence,
       evidenceHashes,
       failureReason: result.success ? null : failureReason,
-      metadata: { identity_binding: binding.status, final_status: finalStatus },
+      metadata: {
+        identity_binding: binding.status,
+        final_status: finalStatus,
+        evidence_classification: classificationResult.classification,
+        extraction_trust_status: extractionTrust,
+      },
     });
 
     return sanitizeSession(completedSession);
@@ -528,6 +614,8 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       .from('verification_sessions')
       .update({
         status: 'ocr_failed',
+        workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+        primary_reason_code: 'TECHNICAL_ERROR',
         failure_reason: error.message,
         ocr_completed_at: failedAt,
         updated_at: failedAt,
@@ -549,11 +637,10 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       targetType: 'verification_session',
       targetId: session.id,
       previous_value: { status: 'ocr_pending' },
-      new_value: { status: 'ocr_failed' },
+      new_value: { status: 'ocr_failed', workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED },
       reason: error.message,
     });
 
-    // Workstream D — provenance for the failed OCR run (no identity fields).
     await recordOcrProvenance(client, {
       session,
       result: {},
@@ -599,6 +686,16 @@ function sanitizeReviewSession(session, identity = null) {
     liveness_status: session.liveness_status || null,
     submitted_at: session.submitted_at || null,
     ocr_started_at: session.ocr_started_at || null,
+    // New case management fields
+    workflow_phase: session.workflow_phase || null,
+    final_disposition: session.final_disposition || null,
+    primary_reason_code: session.primary_reason_code || null,
+    next_actor: session.next_actor || null,
+    required_action: session.required_action || null,
+    evidence_classification: session.evidence_classification || null,
+    ocr_execution_status: session.ocr_execution_status || null,
+    extraction_trust_status: session.extraction_trust_status || null,
+    identity_binding_status: session.identity_binding_status || null,
     // Workstream F — surface BOTH identities + the comparison so the reviewer
     // can see an account-vs-document mismatch at a glance. null on the list view.
     identity_binding: identity,
@@ -620,13 +717,18 @@ export async function listVerificationSessionsForReview(client = supabase, actor
   assertAdminReviewer(actor);
 
   let query = client.from('verification_sessions').select('*');
-  if (filters.status !== undefined && filters.status !== null && filters.status !== '') {
+
+  // Support both legacy status and workflow phase filters
+  if (filters.workflow_phase !== undefined && filters.workflow_phase !== null && filters.workflow_phase !== '') {
+    query = query.eq('workflow_phase', String(filters.workflow_phase).trim().toLowerCase());
+  } else if (filters.status !== undefined && filters.status !== null && filters.status !== '') {
     const normalized = String(filters.status).trim().toLowerCase();
-    if (!REVIEWABLE_STATUSES.has(normalized)) {
+    if (!LEGACY_REVIEWABLE_STATUSES.has(normalized)) {
       throw new ValidationError(`Unsupported verification review status filter: ${normalized}.`);
     }
     query = query.eq('status', normalized);
   }
+
   query = query.order('created_at', { ascending: false });
 
   const { data, error } = await query;
@@ -637,8 +739,8 @@ export async function listVerificationSessionsForReview(client = supabase, actor
 export async function getVerificationSessionForReview(client = supabase, actor = {}, sessionId) {
   assertAdminReviewer(actor);
   const session = await fetchSessionForReview(client, sessionId);
-  // Workstream F — compute the account-vs-document identity binding live so the
-  // reviewer sees both identities and the comparison verdict.
+
+  // Compute identity binding
   const documentName = documentHolderName(session.ocr_result || {});
   const accountName = await fetchAccountHolderName(client, session.user_id);
   const binding = compareAccountToDocument({ accountName, documentName });
@@ -648,7 +750,23 @@ export async function getVerificationSessionForReview(client = supabase, actor =
     status: binding.status,
     reason: binding.reason,
   };
-  return sanitizeReviewSession(session, identity);
+
+  // Build policy assessment summary
+  const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, binding);
+
+  const reviewSession = sanitizeReviewSession(session, identity);
+  reviewSession.assessment = assessment;
+
+  // Fetch decisions
+  const { data: decisions } = await client
+    .from('verification_decisions')
+    .select('*')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: true });
+
+  reviewSession.decisions = decisions || [];
+
+  return reviewSession;
 }
 
 export async function reviewVerificationSession(client = supabase, actor = {}, sessionId, payload = {}, options = {}) {
@@ -659,79 +777,51 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
     throw new ValidationError('Authenticated reviewer context is required.');
   }
 
-  const action = String(payload.action || '').trim().toLowerCase();
-  if (!REVIEW_ACTIONS.has(action)) {
-    throw new ValidationError(`Unsupported review action: ${action || '(missing)'}.`);
+  // Map legacy action names to new decision actions for backward compatibility
+  const legacyAction = String(payload.action || payload.decision || '').trim().toLowerCase();
+  let action;
+
+  switch (legacyAction) {
+    case 'approve':
+      action = DECISION_ACTION.APPROVE;
+      break;
+    case 'request_retry':
+    case 'request_resubmission':
+      action = DECISION_ACTION.REQUEST_RESUBMISSION;
+      break;
+    case 'reject':
+      action = DECISION_ACTION.REJECT;
+      break;
+    case 'escalate':
+      action = DECISION_ACTION.ESCALATE;
+      break;
+    case 'add_review_notes':
+    case 'add_internal_note':
+    case 'internal_note':
+      action = DECISION_ACTION.ADD_INTERNAL_NOTE;
+      break;
+    default:
+      throw new ValidationError(`Unsupported review action: ${legacyAction || '(missing)'}. Supported: approve, request_resubmission, reject, escalate, add_internal_note.`);
   }
 
-  const reviewNotes = typeof payload.reviewNotes === 'string' ? payload.reviewNotes.trim() : '';
-  const retryReason = typeof payload.retryReason === 'string' ? payload.retryReason.trim() : '';
+  const reasonCode = payload.reasonCode || payload.reason_code || null;
+  const internalNote = payload.internalNote || payload.internal_note || payload.reviewNotes || payload.review_notes || '';
+  const applicantMessage = payload.applicantMessage || payload.applicant_message || payload.retryReason || payload.retry_reason || '';
 
   const session = await fetchSessionForReview(client, sessionId);
-  const timestamp = now();
+  const currentWorkflowPhase = session.workflow_phase || legacyStatusToPhase(session.status);
 
-  const update = {
-    reviewed_by: reviewerId,
-    reviewed_at: timestamp,
-    updated_at: timestamp,
-  };
-  let eventType;
-
-  if (action === 'approve') {
-    update.status = 'verified';
-    update.review_decision = 'approve';
-    update.failure_reason = null;
-    if (reviewNotes) update.review_notes = reviewNotes;
-    eventType = 'VERIFICATION_REVIEW_APPROVED';
-  } else if (action === 'reject') {
-    update.status = 'rejected';
-    update.review_decision = 'reject';
-    update.review_notes = reviewNotes || session.review_notes || null;
-    update.failure_reason = reviewNotes || 'Verification rejected by reviewer.';
-    eventType = 'VERIFICATION_REVIEW_REJECTED';
-  } else if (action === 'request_retry') {
-    if (!retryReason) {
-      throw new ValidationError('retryReason is required to request a retry.');
-    }
-    update.status = 'retry_requested';
-    update.review_decision = 'request_retry';
-    update.retry_reason = retryReason;
-    if (reviewNotes) update.review_notes = reviewNotes;
-    eventType = 'VERIFICATION_REVIEW_RETRY_REQUESTED';
-  } else {
-    // add_review_notes: status is intentionally left unchanged.
-    if (!reviewNotes) {
-      throw new ValidationError('reviewNotes is required to add a review note.');
-    }
-    update.review_notes = reviewNotes;
-    eventType = 'VERIFICATION_REVIEW_NOTE_ADDED';
-  }
-
-  const { data, error } = await client
-    .from('verification_sessions')
-    .update(update)
-    .eq('id', session.id)
-    .select()
-    .single();
-
-  if (error) throw new Error(error.message);
-
-  await writeAudit(client, {
+  return VerificationDecisionRecorder.recordDecision(client, {
+    session,
+    action,
+    reasonCode,
+    internalNote,
+    applicantMessage,
+    reviewerId,
+    reviewerRole: actor.role,
+    currentWorkflowPhase,
     req: options.req,
-    event_type: eventType,
-    actor_user_id: reviewerId,
-    actor_role: actor.role,
-    actor_tenant_id: actor.tenantId,
-    source_route: `/api/admin/identity/verification-sessions/${session.id}/review`,
-    targetType: 'verification_session',
-    targetId: session.id,
-    previous_value: { status: session.status, review_decision: session.review_decision || null },
-    new_value: { status: data.status, review_decision: data.review_decision || null },
-    reason: retryReason || (action === 'reject' ? (reviewNotes || 'Verification rejected by reviewer.') : null),
-    decision_notes: reviewNotes || null,
   });
-
-  return sanitizeReviewSession(data);
 }
 
 // --- Phase 7C Workstream G: secure, short-lived admin evidence previews ------

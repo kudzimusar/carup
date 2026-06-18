@@ -121,7 +121,8 @@ app.get('/api/security/csrf-token', (req, res) => {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 3600000 * 2
+    maxAge: 3600000 * 2,
+    path: '/',
   });
   res.json({ csrfToken: token });
 });

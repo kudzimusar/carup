@@ -1,16 +1,8 @@
 /**
- * Canonical identity-verification status mapping shared by the web admin
- * console and the mobile result screen so labels, copy, and decision rules
- * stay consistent across platforms.
+ * Phase 7C — Verification case management types.
  *
- * Keyed by the BACKEND session status (the single source of truth). The mobile
- * app maps its internal capture states onto these where a backend status
- * exists; pre-submit local states (idle/incomplete) are handled in the mobile
- * UI directly.
- *
- * This module is plain TypeScript (no React, no platform APIs) so both the
- * Vite/React web app and the React Native/Expo mobile app can import it via the
- * shared `@shared/types` alias.
+ * Extends the legacy verificationStatus with workflow phase, evidence
+ * classification, decision record, and reason-code taxonomy.
  */
 
 export type VerificationSessionStatus =
@@ -158,7 +150,7 @@ export interface VerificationOcrFields {
 }
 
 /** Account-holder vs document-holder comparison (Workstream F). */
-export type IdentityBindingStatus = 'match' | 'mismatch' | 'indeterminate';
+export type IdentityBindingStatus = 'match' | 'mismatch' | 'indeterminate' | 'not_run' | 'not_assessable';
 
 export interface IdentityBinding {
   account_holder_name: string | null;
@@ -214,3 +206,189 @@ export interface VerificationReviewRequest {
   reviewNotes?: string;
   retryReason?: string;
 }
+
+// ============================================================
+// Phase 7C — Case management extended types
+// ============================================================
+
+export type WorkflowPhase =
+  | 'system_processing'
+  | 'reviewer_action_required'
+  | 'applicant_action_required'
+  | 'escalated'
+  | 'resolved_approved'
+  | 'resolved_rejected'
+  | 'cancelled';
+
+export type EvidenceClassification =
+  | 'not_run'
+  | 'valid_identity_document'
+  | 'likely_identity_document'
+  | 'unsupported_document'
+  | 'non_document'
+  | 'unreadable'
+  | 'uncertain';
+
+export type ExtractionTrustStatus =
+  | 'not_run'
+  | 'trusted'
+  | 'partially_trusted'
+  | 'untrusted'
+  | 'no_fields';
+
+export type WorkflowFinalDisposition =
+  | 'none'
+  | 'approved'
+  | 'resubmission_requested'
+  | 'rejected_invalid_evidence'
+  | 'rejected_identity_mismatch'
+  | 'rejected_suspected_fraud'
+  | 'rejected_unsupported_document'
+  | 'escalated_specialist_review';
+
+export type DecisionAction =
+  | 'approve'
+  | 'request_resubmission'
+  | 'reject'
+  | 'escalate'
+  | 'add_internal_note';
+
+export type ReasonCode =
+  | 'NON_DOCUMENT'
+  | 'DOCUMENT_NOT_VISIBLE'
+  | 'DOCUMENT_TOO_SMALL'
+  | 'BLURRY'
+  | 'GLARE'
+  | 'CROPPED'
+  | 'FRONT_BACK_DUPLICATE'
+  | 'SELFIE_DOCUMENT_DUPLICATE'
+  | 'UNSUPPORTED_DOCUMENT_TYPE'
+  | 'EXPIRED_DOCUMENT'
+  | 'UNREADABLE_DOCUMENT'
+  | 'OCR_PROVIDER_FAILED'
+  | 'OCR_RESULT_UNTRUSTED'
+  | 'REQUIRED_FIELDS_MISSING'
+  | 'ACCOUNT_DOCUMENT_MISMATCH'
+  | 'DOCUMENT_SIDE_MISMATCH'
+  | 'SUSPECTED_TAMPERING'
+  | 'SUSPECTED_FRAUD'
+  | 'TECHNICAL_ERROR'
+  | 'SPECIALIST_REVIEW_REQUIRED'
+  | 'OTHER';
+
+export interface VerificationDecisionRecord {
+  id: string;
+  session_id: string;
+  decision: DecisionAction;
+  reason_code: ReasonCode | null;
+  internal_note: string | null;
+  applicant_message: string | null;
+  reviewer_id: string;
+  reviewer_role: string | null;
+  previous_workflow_phase: string | null;
+  resulting_workflow_phase: string | null;
+  previous_legacy_status: string | null;
+  resulting_legacy_status: string | null;
+  final_disposition: string | null;
+  created_at: string;
+}
+
+export interface AssessmentSummary {
+  workflow_phase: WorkflowPhase;
+  evidence_classification: EvidenceClassification;
+  ocr_execution_status: string;
+  extraction_trust_status: ExtractionTrustStatus;
+  identity_binding_status: IdentityBindingStatus;
+  primary_reason_code: ReasonCode | null;
+  risk_level: string;
+  final_disposition: WorkflowFinalDisposition;
+  selfie_check_status: string;
+  allowed_actions: DecisionAction[];
+  recommended_action: DecisionAction | null;
+}
+
+export interface ExtendedAdminVerificationSession extends AdminVerificationSession {
+  workflow_phase: WorkflowPhase | null;
+  final_disposition: WorkflowFinalDisposition | null;
+  primary_reason_code: ReasonCode | null;
+  next_actor: string | null;
+  required_action: string | null;
+  evidence_classification: EvidenceClassification | null;
+  ocr_execution_status: string | null;
+  extraction_trust_status: ExtractionTrustStatus | null;
+  identity_binding_status: IdentityBindingStatus | null;
+  assessment?: AssessmentSummary | null;
+  decisions?: VerificationDecisionRecord[];
+}
+
+export interface DecisionResponse {
+  decision: {
+    id: string;
+    action: DecisionAction;
+    reason_code: ReasonCode | null;
+    previous_phase: string | null;
+    resulting_phase: string | null;
+    legacy_status: string | null;
+    final_disposition: string | null;
+    applicant_message: string | null;
+    internal_note: string | null;
+    reviewer_id: string;
+    created_at: string;
+    audit_event_type: string;
+  };
+  session: ExtendedAdminVerificationSession;
+  allowed_actions: DecisionAction[];
+  idempotent_replay?: boolean;
+}
+
+export const WORKFLOW_PHASE_META: Record<string, { label: string; description: string; tone: string }> = {
+  system_processing: { label: 'System Processing', description: 'Automated checks in progress.', tone: 'neutral' },
+  reviewer_action_required: { label: 'Reviewer Action Required', description: 'Awaiting human reviewer decision.', tone: 'warning' },
+  applicant_action_required: { label: 'Waiting for Applicant', description: 'Applicant needs to resubmit evidence.', tone: 'warning' },
+  escalated: { label: 'Escalated', description: 'Case requires specialist review.', tone: 'error' },
+  resolved_approved: { label: 'Approved', description: 'Identity verified and approved.', tone: 'positive' },
+  resolved_rejected: { label: 'Rejected / Closed', description: 'Verification was rejected.', tone: 'negative' },
+  cancelled: { label: 'Cancelled', description: 'Verification was cancelled.', tone: 'neutral' },
+};
+
+export const EVIDENCE_CLASSIFICATION_LABELS: Record<string, string> = {
+  not_run: 'Not checked',
+  valid_identity_document: 'Valid identity document',
+  likely_identity_document: 'Likely identity document',
+  unsupported_document: 'Unsupported document type',
+  non_document: 'Non-document',
+  unreadable: 'Unreadable',
+  uncertain: 'Uncertain',
+};
+
+export const EXTRACTION_TRUST_LABELS: Record<string, string> = {
+  not_run: 'Not run',
+  trusted: 'Trusted',
+  partially_trusted: 'Partially trusted',
+  untrusted: 'Untrusted — disregard',
+  no_fields: 'No fields extracted',
+};
+
+export const REASON_CODE_LABELS: Record<string, string> = {
+  NON_DOCUMENT: 'Not an identity document',
+  DOCUMENT_NOT_VISIBLE: 'Document not visible',
+  DOCUMENT_TOO_SMALL: 'Document too small',
+  BLURRY: 'Blurry image',
+  GLARE: 'Glare or reflection',
+  CROPPED: 'Document cropped',
+  FRONT_BACK_DUPLICATE: 'Duplicate front/back',
+  SELFIE_DOCUMENT_DUPLICATE: 'Duplicate selfie/document',
+  UNSUPPORTED_DOCUMENT_TYPE: 'Unsupported document type',
+  EXPIRED_DOCUMENT: 'Expired document',
+  UNREADABLE_DOCUMENT: 'Unreadable document',
+  OCR_PROVIDER_FAILED: 'OCR provider failed',
+  OCR_RESULT_UNTRUSTED: 'OCR result untrusted',
+  REQUIRED_FIELDS_MISSING: 'Required fields missing',
+  ACCOUNT_DOCUMENT_MISMATCH: 'Identity mismatch',
+  DOCUMENT_SIDE_MISMATCH: 'Document side mismatch',
+  SUSPECTED_TAMPERING: 'Suspected tampering',
+  SUSPECTED_FRAUD: 'Suspected fraud',
+  TECHNICAL_ERROR: 'Technical error',
+  SPECIALIST_REVIEW_REQUIRED: 'Specialist review',
+  OTHER: 'Other',
+};

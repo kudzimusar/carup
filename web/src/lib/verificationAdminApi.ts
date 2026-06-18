@@ -1,57 +1,44 @@
 /**
- * Admin identity-verification API client (Phase 7C, Workstream D).
+ * Admin identity-verification API client (Phase 7C).
  *
- * A small, framework-agnostic module so admin verification calls aren't
- * scattered as raw fetches across components, and so they can be unit-tested
- * without rendering React (mirrors apiClient.test.ts).
- *
- * It delegates transport to apiRequest, which already:
- *   - attaches the identity headers (x-session-token / x-user-id / role / tenant),
- *   - fetches a correctly-bound CSRF token for the mutating review POST,
- *   - guards against non-JSON (HTML/proxy) responses, and
- *   - maps 401 → SessionExpiredError and surfaces actionable messages otherwise.
- *
- * The backend never returns private document storage paths or URLs in these
- * payloads (sanitizeReviewSession strips them), so this client cannot leak them.
+ * Updated to support the new case management response format including
+ * decisions, assessment summaries, and allowed actions.
  */
+
 import { apiRequest, type AuthHeaders } from './apiClient'
-import type {
-  AdminVerificationSession,
-  EvidencePreview,
-  VerificationReviewRequest,
-  VerificationSessionStatus,
-} from '@shared/types'
 
 const BASE_PATH = '/admin/identity/verification-sessions'
 
 export interface VerificationAdminClientConfig {
   baseUrl: string
   authHeaders: AuthHeaders
-  /** Injectable for tests; defaults to global fetch via apiRequest. */
   fetchImpl?: typeof fetch
 }
 
 interface ListResponse {
   success: boolean
-  sessions: AdminVerificationSession[]
+  sessions: any[]
 }
 
 interface SessionResponse {
   success: boolean
-  session: AdminVerificationSession
+  session: any
 }
 
 interface EvidencePreviewResponse {
   success: boolean
-  preview: EvidencePreview
+  preview: { side: string; url: string; expiresInSeconds: number }
 }
 
-/** List sessions in the review queue, optionally filtered by backend status. */
+/** List sessions in the review queue, optionally filtered by workflow phase or status. */
 export async function fetchVerificationReviewQueue(
   config: VerificationAdminClientConfig,
-  status?: VerificationSessionStatus | string,
-): Promise<AdminVerificationSession[]> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  filter?: { workflow_phase?: string; status?: string },
+): Promise<any[]> {
+  const params = new URLSearchParams()
+  if (filter?.workflow_phase) params.set('workflow_phase', filter.workflow_phase)
+  else if (filter?.status) params.set('status', filter.status)
+  const query = params.toString() ? `?${params.toString()}` : ''
   const res = await apiRequest<ListResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}${query}`,
@@ -61,11 +48,11 @@ export async function fetchVerificationReviewQueue(
   return res.sessions ?? []
 }
 
-/** Fetch one session's review detail. */
+/** Fetch one session's review detail including assessment and decisions. */
 export async function fetchVerificationSessionDetail(
   config: VerificationAdminClientConfig,
   sessionId: string,
-): Promise<AdminVerificationSession> {
+): Promise<any> {
   const res = await apiRequest<SessionResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}`,
@@ -76,16 +63,13 @@ export async function fetchVerificationSessionDetail(
 }
 
 /**
- * Fetch a short-lived signed preview URL for one evidence side. The URL expires
- * server-side (default 180s); the backend audits each access and never returns
- * the private storage path. Fetch on demand (when the reviewer opens a session)
- * so a stale queue list never holds live document URLs.
+ * Fetch a short-lived signed preview URL for one evidence side.
  */
 export async function fetchEvidencePreview(
   config: VerificationAdminClientConfig,
   sessionId: string,
   side: 'front' | 'back' | 'selfie',
-): Promise<EvidencePreview> {
+): Promise<{ side: string; url: string; expiresInSeconds: number }> {
   const res = await apiRequest<EvidencePreviewResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}/evidence/${encodeURIComponent(side)}/preview`,
@@ -95,18 +79,32 @@ export async function fetchEvidencePreview(
   return res.preview
 }
 
-/** Submit a review decision. The POST is CSRF-protected by apiRequest. */
+/**
+ * Submit a review decision. Returns the full decision response including
+ * allowed_actions for the resulting state.
+ */
 export async function reviewVerificationSession(
   config: VerificationAdminClientConfig,
   sessionId: string,
-  body: VerificationReviewRequest,
-): Promise<AdminVerificationSession> {
-  const res = await apiRequest<SessionResponse>({
+  body: {
+    action: string
+    reasonCode?: string | null
+    internalNote?: string | null
+    applicantMessage?: string | null
+  },
+): Promise<{
+  success: boolean
+  decision: any
+  session: any
+  allowed_actions: string[]
+  idempotent_replay?: boolean
+}> {
+  const res = await apiRequest<any>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}/review`,
     options: { method: 'POST', body: JSON.stringify(body) },
     authHeaders: config.authHeaders,
     fetchImpl: config.fetchImpl,
   })
-  return res.session
+  return res
 }

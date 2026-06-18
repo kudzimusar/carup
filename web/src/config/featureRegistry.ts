@@ -492,14 +492,14 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
   },
   {
     id: 'admin.verification',
-    label: 'Verification Review',
+    label: 'Verification Cases',
     route: '/admin/verification',
     domain: 'trust',
     roles: ['admin'],
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
-    icon: 'ShieldAlert',
-    description: 'Review submitted identity verification sessions: approve, reject, request retry.',
+    icon: 'FileSearch',
+    description: 'Identity verification case management: review, approve, request resubmission, reject, and escalate.',
   },
   {
     id: 'admin.trust-review',

@@ -178,44 +178,67 @@ export default function VerificationResult() {
             </View>
           )}
 
-          <View style={{
-            width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
-            borderRadius: 24, padding: 24, marginBottom: 32,
-          }}>
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b', paddingBottom: 8 }}>
-              Secure KYC Register Record
-            </Text>
+          {isBackendVerified ? (
+            <View style={{
+              width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
+              borderRadius: 24, padding: 24, marginBottom: 32,
+            }}>
+              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#1e293b', paddingBottom: 8 }}>
+                Secure KYC Register Record
+              </Text>
 
-            <View style={{ gap: 16 }}>
-              {firstName || lastName ? (
+              <View style={{ gap: 16 }}>
+                {firstName || lastName ? (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>Full Legal Name</Text>
+                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{[firstName, lastName].filter(Boolean).join(' ')}</Text>
+                  </View>
+                ) : null}
+
+                {idNumber ? (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>National ID Number</Text>
+                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 1 }}>{idNumber}</Text>
+                  </View>
+                ) : null}
+
+                {country ? (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#94a3b8', fontSize: 11 }}>Issuing Country</Text>
+                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{country}</Text>
+                  </View>
+                ) : null}
+
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>Full Legal Name</Text>
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{[firstName, lastName].filter(Boolean).join(' ')}</Text>
+                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>Selfie Capture</Text>
+                  <Text style={{ color: statusCopy.accent, fontSize: 11, fontWeight: 'bold' }}>
+                    Submitted with verified session
+                  </Text>
                 </View>
-              ) : null}
-
-              {idNumber ? (
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>National ID Number</Text>
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600', letterSpacing: 1 }}>{idNumber}</Text>
-                </View>
-              ) : null}
-
-              {country ? (
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ color: '#94a3b8', fontSize: 11 }}>Issuing Country</Text>
-                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{country}</Text>
-                </View>
-              ) : null}
-
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: '#94a3b8', fontSize: 11 }}>Selfie Capture</Text>
-                <Text style={{ color: statusCopy.accent, fontSize: 11, fontWeight: 'bold' }}>
-                  {verificationStatus === 'verified' ? 'Submitted with verified session' : 'Submitted for review'}
-                </Text>
               </View>
             </View>
-          </View>
+          ) : (
+            <View style={{
+              width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
+              borderRadius: 24, padding: 24, marginBottom: 32,
+            }}>
+              <Text style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 14, marginBottom: 8 }}>
+                {verificationStatus === 'retry_requested'
+                  ? 'Retake Required — Photos Did Not Pass Review'
+                  : 'Verification Under Review'}
+              </Text>
+              <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
+                {verificationStatus === 'retry_requested'
+                  ? 'A reviewer found issues with your submitted documents. Please retake and resubmit clear photos of your identity document and selfie.'
+                  : 'Your verification has been submitted for manual review. OCR-extracted identity fields are not confirmed until a reviewer approves your documents.'}
+              </Text>
+              {processingError ? (
+                <Text style={{ color: '#f87171', fontSize: 12, lineHeight: 18, marginTop: 8 }}>
+                  {processingError}
+                </Text>
+              ) : null}
+            </View>
+          )}
 
           {isBackendVerified && (<View style={{ width: '100%', gap: 12, marginBottom: 16 }}>
             <Text style={{ color: '#64748b', fontWeight: 'bold', fontSize: 11, textTransform: 'uppercase', letterSpacing: 2, paddingLeft: 4 }}>
