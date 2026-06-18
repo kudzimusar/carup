@@ -332,8 +332,18 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     const confidence = result.extractedData?.confidenceScore ?? result.qualityMetrics?.blurScore ?? null;
     const sanitizedResult = sanitizeOcrResult(result.extractedData || {});
     const evidence = evaluateOcrEvidence(result);
-    const finalStatus = evidence.sufficient ? 'verified' : 'pending_manual_review';
-    const failureReason = evidence.sufficient ? null : evidence.reason;
+    // SECURITY (P0 — fail closed): the automated OCR path is NOT trustworthy
+    // enough to auto-verify. It performs no document-type detection and the
+    // providers can return plausible identity fields for a non-document (a cup,
+    // a screenshot, a random photo). Until real document detection + OCR
+    // provenance exist, NEVER set 'verified' here — every submitted session
+    // goes to manual review so an admin inspects the actual evidence and makes
+    // the verified decision via the admin review route. A failed/blank/low-
+    // confidence capture is still surfaced honestly as the reason.
+    const finalStatus = 'pending_manual_review';
+    const failureReason = evidence.sufficient
+      ? 'Automated OCR completed. Verification requires manual review of the uploaded document — automated OCR cannot confirm a genuine identity document on its own.'
+      : evidence.reason;
     const completedAt = now();
 
     const { data: completedSession, error: completedError } = await client
