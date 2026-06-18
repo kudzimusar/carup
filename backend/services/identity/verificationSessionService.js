@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { DocumentIntelligenceService } from '../document-intelligence/documentIntelligenceService.js';
-import { downloadFromStorage, uploadToStorage } from '../storage/storageService.js';
+import { downloadFromStorage, uploadToStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
@@ -578,9 +578,59 @@ export async function reviewVerificationSession(client = supabase, actor = {}, s
   return sanitizeReviewSession(data);
 }
 
+// --- Phase 7C Workstream G: secure, short-lived admin evidence previews ------
+
+const EVIDENCE_PREVIEW_TTL_SECONDS = 180; // 3 minutes
+const PREVIEWABLE_SIDES = new Set(['front', 'back', 'selfie']);
+
+/**
+ * Issue a short-lived signed URL so an admin can VIEW one piece of evidence
+ * (front/back/selfie) for a session. The raw private storage path never leaves
+ * the server; the signed URL expires in EVIDENCE_PREVIEW_TTL_SECONDS and is
+ * never persisted. Every request is audited. Admin-only.
+ */
+export async function getEvidencePreviewUrl(client = supabase, actor = {}, sessionId, side, options = {}) {
+  assertAdminReviewer(actor);
+
+  const normalizedSide = String(side || '').trim().toLowerCase();
+  if (!PREVIEWABLE_SIDES.has(normalizedSide)) {
+    throw new ValidationError(`Unsupported evidence side: ${normalizedSide || '(missing)'}.`);
+  }
+
+  // fetchSessionForReview returns the RAW row (with *_storage_path); those paths
+  // stay server-side and are used only to mint the signed URL.
+  const session = await fetchSessionForReview(client, sessionId);
+  const storagePath = session[`${normalizedSide}_storage_path`];
+  if (!storagePath) {
+    throw new NotFoundError(`No ${normalizedSide} image was uploaded for this verification session.`);
+  }
+
+  const storage = options.storage || { generateSecureReadUrl };
+  const url = await storage.generateSecureReadUrl(BUCKET, storagePath, EVIDENCE_PREVIEW_TTL_SECONDS);
+  if (!url) {
+    throw new Error('Could not generate a secure preview URL for this evidence.');
+  }
+
+  await writeAudit(client, {
+    req: options.req,
+    event_type: 'VERIFICATION_EVIDENCE_PREVIEWED',
+    actor_user_id: actorId(actor),
+    actor_role: actor.role,
+    actor_tenant_id: actor.tenantId,
+    source_route: `/api/admin/identity/verification-sessions/${sessionId}/evidence/${normalizedSide}/preview`,
+    targetType: 'verification_session',
+    targetId: sessionId,
+    new_value: { side: normalizedSide, ttl_seconds: EVIDENCE_PREVIEW_TTL_SECONDS },
+  });
+
+  // Return ONLY the short-lived signed URL — never the raw storage path.
+  return { side: normalizedSide, url, expiresInSeconds: EVIDENCE_PREVIEW_TTL_SECONDS };
+}
+
 export {
   parseImagePayload,
   sanitizeOcrResult,
   sanitizeSession,
   sanitizeReviewSession,
+  EVIDENCE_PREVIEW_TTL_SECONDS,
 };
