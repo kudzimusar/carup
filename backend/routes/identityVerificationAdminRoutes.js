@@ -22,6 +22,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const sessions = await listVerificationSessionsForReview(undefined, req.userContext, {
       status: req.query.status,
+      workflow_phase: req.query.workflow_phase,
     });
     res.json({ success: true, sessions });
   })
@@ -40,14 +41,14 @@ router.post(
   '/api/admin/identity/verification-sessions/:sessionId/review',
   authorizeRole(['admin']),
   asyncHandler(async (req, res) => {
-    const session = await reviewVerificationSession(
+    const result = await reviewVerificationSession(
       undefined,
       req.userContext,
       req.params.sessionId,
       req.body,
       { req }
     );
-    res.json({ success: true, session });
+    res.json({ success: true, ...result });
   })
 );
 
