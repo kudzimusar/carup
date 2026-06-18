@@ -403,6 +403,54 @@ test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed bef
   assert.ok(!result.ocr_result || result.ocr_result.first_name === undefined);
 });
 
+test('F: account/document identity MISMATCH is surfaced (and never auto-verifies)', async () => {
+  const client = createMockClient();
+  client.data.users = [{ id: 'owner-1', name: 'Phase7B Tester' }];
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.98,
+      first_name: 'Tafadzwa',
+      last_name: 'Moyo',
+      national_id_number: '63-123456-A-77',
+      country: 'Zimbabwe',
+    },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /Identity mismatch/i);
+  assert.match(result.review_notes, /MISMATCH/);
+  assert.match(result.review_notes, /Phase7B Tester/);
+  assert.match(result.review_notes, /Tafadzwa Moyo/);
+  const ocrEvent = client.data.trust_audit_events.find(e => e.event_type === 'VERIFICATION_OCR_COMPLETED');
+  assert.equal(ocrEvent.new_value.identity_binding, 'mismatch');
+});
+
+test('F: matching account/document identity is NOT flagged as a mismatch', async () => {
+  const client = createMockClient();
+  client.data.users = [{ id: 'owner-1', name: 'Ruvimbo Chigumba' }];
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.98,
+      first_name: 'Ruvimbo',
+      last_name: 'Chigumba',
+      national_id_number: 'ZN0943248',
+    },
+  });
+
+  assert.equal(result.status, 'pending_manual_review');
+  assert.doesNotMatch(result.failure_reason, /Identity mismatch/i);
+  assert.doesNotMatch(result.review_notes, /MISMATCH/);
+});
+
 test('evaluateOcrEvidence unit cases', async () => {
   const { evaluateOcrEvidence } = await import('../services/identity/verificationSessionService.js');
 

@@ -256,6 +256,18 @@ test('admin detail of a missing session returns 404', async () => {
   assert.equal(res.status, 404);
 });
 
+test('F: admin detail surfaces account-vs-document identity binding (mismatch)', async () => {
+  // owner-2 account name differs from the document holder ("Tata Moyo").
+  db.users.find((u) => u.id === 'owner-2').name = 'Brian Ncube';
+  const res = await req('GET', `${LIST_PATH}/vs-pending`, { token: 'admin-token' });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.ok(body.session.identity_binding, 'identity_binding present on detail');
+  assert.equal(body.session.identity_binding.account_holder_name, 'Brian Ncube');
+  assert.equal(body.session.identity_binding.document_holder_name, 'Tata Moyo');
+  assert.equal(body.session.identity_binding.status, 'mismatch');
+});
+
 // --- No private storage path / URL leak ------------------------------------
 
 test('private storage paths are never exposed in list or detail responses', async () => {
