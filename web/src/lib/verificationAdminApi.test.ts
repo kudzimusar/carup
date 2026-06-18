@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   fetchVerificationReviewQueue,
   fetchVerificationSessionDetail,
+  fetchEvidencePreview,
   reviewVerificationSession,
   type VerificationAdminClientConfig,
 } from './verificationAdminApi'
@@ -98,6 +99,30 @@ describe('verificationAdminApi — detail', () => {
     const session = await fetchVerificationSessionDetail(config(impl), 'vs-1')
     expect(session.document_type).toBe('national_id')
     expect(calls[0].url).toContain('/admin/identity/verification-sessions/vs-1')
+  })
+})
+
+describe('verificationAdminApi — evidence preview (Workstream G)', () => {
+  it('GETs the per-side preview URL (no CSRF) and returns the signed URL', async () => {
+    const { impl, calls } = makeFetch({
+      api: (u) =>
+        u.includes('/evidence/front/preview')
+          ? makeResponse({ success: true, preview: { side: 'front', url: 'https://signed.test/front?exp=180', expiresInSeconds: 180 } })
+          : makeResponse({ success: true }),
+    })
+    const preview = await fetchEvidencePreview(config(impl), 'vs-1', 'front')
+
+    expect(preview.url).toBe('https://signed.test/front?exp=180')
+    expect(preview.expiresInSeconds).toBe(180)
+    expect(calls[0].url).toContain('/admin/identity/verification-sessions/vs-1/evidence/front/preview')
+    // Read-only: must not fetch a CSRF token.
+    expect(calls.some((c) => c.url.includes('/security/csrf-token'))).toBe(false)
+    expect((calls[0].init.headers as Record<string, string>)['x-session-token']).toBe('sess-admin')
+  })
+
+  it('surfaces a 403 when a non-admin requests a preview', async () => {
+    const { impl } = makeFetch({ api: () => makeResponse({ error: "Forbidden. Role 'owner' cannot access this resource." }, { ok: false, status: 403 }) })
+    await expect(fetchEvidencePreview(config(impl), 'vs-1', 'selfie')).rejects.toThrow(/Forbidden/)
   })
 })
 

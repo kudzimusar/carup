@@ -4,11 +4,13 @@ import { apiRequest, resolveApiBaseUrl, type AuthHeaders } from '@/lib/apiClient
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
+  fetchEvidencePreview as fetchEvidencePreviewRequest,
   reviewVerificationSession as reviewVerificationSessionRequest,
   type VerificationAdminClientConfig,
 } from '@/lib/verificationAdminApi'
 import type {
   AdminVerificationSession,
+  EvidencePreview,
   VerificationReviewRequest,
   VerificationSessionStatus,
 } from '@shared/types'
@@ -106,6 +108,12 @@ export function useCarUpApi() {
   const fetchVerificationSessionDetail = useCallback(
     (sessionId: string): Promise<AdminVerificationSession> =>
       fetchVerificationSessionDetailRequest(verificationClientConfig, sessionId),
+    [verificationClientConfig],
+  )
+
+  const fetchEvidencePreview = useCallback(
+    (sessionId: string, side: 'front' | 'back' | 'selfie'): Promise<EvidencePreview> =>
+      fetchEvidencePreviewRequest(verificationClientConfig, sessionId, side),
     [verificationClientConfig],
   )
 
@@ -728,6 +736,7 @@ export function useCarUpApi() {
     fetchEvidenceReviewQueue,
     fetchVerificationReviewQueue,
     fetchVerificationSessionDetail,
+    fetchEvidencePreview,
     reviewVerificationSession,
     fetchTrustReviewQueue,
     approveTrustFactRequest,

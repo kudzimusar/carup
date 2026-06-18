@@ -6,12 +6,13 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { CheckCircle, Loader2, RotateCcw, ShieldAlert, StickyNote, XCircle } from 'lucide-react'
+import { CheckCircle, Eye, EyeOff, ImageOff, Loader2, RotateCcw, ShieldAlert, ShieldCheck, StickyNote, UserCheck, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   REVIEWABLE_VERIFICATION_STATUSES,
   getVerificationStatusMeta,
   type AdminVerificationSession,
+  type IdentityBindingStatus,
   type VerificationReviewRequest,
   type VerificationSessionStatus,
   type VerificationStatusTone,
@@ -53,6 +54,137 @@ const OCR_FIELDS: Array<{ key: ScalarOcrField; label: string }> = [
   { key: 'date_of_birth', label: 'Date of birth' },
   { key: 'country', label: 'Country' },
 ]
+
+const EVIDENCE_SIDES = ['front', 'back', 'selfie'] as const
+type EvidenceSide = (typeof EVIDENCE_SIDES)[number]
+type PreviewState = { loading?: boolean; url?: string; error?: string }
+
+const bindingTone: Record<IdentityBindingStatus, string> = {
+  match: 'bg-green-50 border-green-200 text-green-800',
+  mismatch: 'bg-red-50 border-red-300 text-red-800',
+  indeterminate: 'bg-amber-50 border-amber-200 text-amber-800',
+}
+
+/**
+ * Workstream F + G — on-demand secure evidence + identity binding panel.
+ *
+ * Document images and the account/document identity comparison are fetched only
+ * when the reviewer explicitly reveals them (not pre-loaded into the queue), so
+ * the list never holds live signed URLs. Each side's URL is a short-lived
+ * signed URL minted + audited by the backend; the private storage path is never
+ * exposed. The identity binding comes from the detail endpoint.
+ */
+function SessionEvidence({ session }: { session: AdminVerificationSession }) {
+  const { fetchEvidencePreview, fetchVerificationSessionDetail } = useCarUpApi()
+  const [open, setOpen] = useState(false)
+  const [detail, setDetail] = useState<AdminVerificationSession | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [previews, setPreviews] = useState<Partial<Record<EvidenceSide, PreviewState>>>({})
+
+  const sides = useMemo(
+    () => EVIDENCE_SIDES.filter((side) => session.uploaded_sides?.[side]),
+    [session.uploaded_sides],
+  )
+
+  const reveal = useCallback(async () => {
+    setOpen(true)
+    fetchVerificationSessionDetail(session.id)
+      .then((d) => { setDetail(d); setDetailError(null) })
+      .catch((err) => setDetailError(err instanceof Error ? err.message : 'Failed to load identity details.'))
+    sides.forEach((side) => {
+      setPreviews((current) => ({ ...current, [side]: { loading: true } }))
+      fetchEvidencePreview(session.id, side)
+        .then((preview) => setPreviews((current) => ({ ...current, [side]: { url: preview.url } })))
+        .catch((err) =>
+          setPreviews((current) => ({
+            ...current,
+            [side]: { error: err instanceof Error ? err.message : 'Preview failed.' },
+          })),
+        )
+    })
+  }, [fetchEvidencePreview, fetchVerificationSessionDetail, session.id, sides])
+
+  if (!open) {
+    return (
+      <Button
+        variant="outline"
+        className="gap-2"
+        data-testid="reveal-evidence"
+        onClick={reveal}
+      >
+        <Eye className="w-4 h-4" />
+        Show evidence &amp; identity
+      </Button>
+    )
+  }
+
+  const binding = detail?.identity_binding ?? null
+
+  return (
+    <div className="space-y-3" data-testid="evidence-panel">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+          <ShieldCheck className="w-4 h-4 text-orange-500" />
+          Secure evidence preview · URLs expire shortly &amp; access is audited
+        </p>
+        <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500" onClick={() => setOpen(false)}>
+          <EyeOff className="w-3.5 h-3.5" />
+          Hide
+        </Button>
+      </div>
+
+      {/* Workstream F — account-holder vs document-holder identity binding */}
+      {detailError ? (
+        <p className="text-xs text-red-500">{detailError}</p>
+      ) : binding ? (
+        <div className={`rounded-md border px-3 py-2 text-xs ${bindingTone[binding.status]}`} data-testid="identity-binding">
+          <p className="font-semibold flex items-center gap-1.5">
+            <UserCheck className="w-4 h-4" />
+            Identity binding: {labelize(binding.status)}
+          </p>
+          <div className="mt-1 grid sm:grid-cols-2 gap-1">
+            <span>Account holder: <span className="font-medium">{binding.account_holder_name || '—'}</span></span>
+            <span>Document holder: <span className="font-medium">{binding.document_holder_name || '—'}</span></span>
+          </div>
+          {binding.reason && <p className="mt-1">{binding.reason}</p>}
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading identity binding…</p>
+      )}
+
+      {/* Front / back / selfie previews */}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {sides.map((side) => {
+          const state = previews[side] || {}
+          return (
+            <div key={side} className="rounded-md border border-gray-100 bg-gray-50 overflow-hidden">
+              <div className="px-2.5 py-1.5 text-[11px] font-semibold text-gray-600 border-b border-gray-100">
+                {labelize(side)}
+              </div>
+              <div className="aspect-[4/3] flex items-center justify-center bg-white">
+                {state.loading ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+                ) : state.error ? (
+                  <div className="text-center text-[11px] text-red-500 px-2">
+                    <ImageOff className="w-6 h-6 mx-auto mb-1 opacity-50" />
+                    {state.error}
+                  </div>
+                ) : state.url ? (
+                  <img
+                    src={state.url}
+                    alt={`${side} evidence`}
+                    className="max-h-full max-w-full object-contain"
+                    data-testid={`evidence-image-${side}`}
+                  />
+                ) : null}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 export default function VerificationReview() {
   const { fetchVerificationReviewQueue, reviewVerificationSession } = useCarUpApi()
@@ -228,8 +360,8 @@ export default function VerificationReview() {
                     </div>
                   </div>
 
-                  {/* Uploaded sides + document-preview restriction notice */}
-                  <div className="grid md:grid-cols-2 gap-3 text-xs">
+                  {/* Uploaded sides */}
+                  <div className="text-xs">
                     <div className="rounded-md bg-gray-50 px-3 py-2">
                       Uploaded sides:{' '}
                       <span className="font-medium">
@@ -239,10 +371,10 @@ export default function VerificationReview() {
                           .join(', ') || 'none'}
                       </span>
                     </div>
-                    <div className="rounded-md bg-gray-50 px-3 py-2 text-gray-500 italic">
-                      Document preview restricted — private images are not exposed to the console.
-                    </div>
                   </div>
+
+                  {/* Secure evidence + identity binding (revealed on demand) */}
+                  <SessionEvidence session={item} />
 
                   {/* Sanitized OCR fields */}
                   {ocrEntries.length > 0 && (
