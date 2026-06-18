@@ -41,6 +41,16 @@ test('CTA has a visible coloured background (dark navy or orange)', () => {
   assert.ok(/backgroundColor:\s*'#(0F172A|F97316)'/.test(ctaBlock), 'CTA has a dark/orange backgroundColor inline');
 });
 
+test('CTA is full-width (width: 100%)', () => {
+  assert.ok(/width:\s*'100%'/.test(ctaBlock), "CTA declares width: '100%'");
+});
+
+test('CTA is a TouchableOpacity (reliable paint), not a function-style Pressable', () => {
+  // A static-object style on TouchableOpacity paints reliably on iPhone; the
+  // earlier invisible-CTA bug came from styles not applying. Guard the element.
+  assert.ok(/<TouchableOpacity[\s\S]*?testID="start-verification-flow"/.test(src), 'CTA is a TouchableOpacity');
+});
+
 test('CTA has a real tappable height (minHeight >= 60)', () => {
   const m = ctaBlock.match(/minHeight:\s*(\d+)/) || ctaBlock.match(/height:\s*(\d+)/);
   assert.ok(m, 'CTA declares a (min)height');
