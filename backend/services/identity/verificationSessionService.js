@@ -36,6 +36,45 @@ function actorId(actor = {}) {
 }
 
 /**
+ * Workstream D — record OCR provenance (best-effort, append-only).
+ *
+ * Captures WHERE an extracted identity came from: provider, model, whether the
+ * run was a mock/seed, the evidence hash, confidence and success/failure. This
+ * is the audit trail that lets a reviewer prove a verified identity is backed by
+ * a real provider run on the actual bytes — and lets us detect mock/seeded data.
+ *
+ * A provenance write must NEVER block the verification flow: failures (including
+ * the table not yet existing before the migration is applied) are swallowed and
+ * logged, mirroring the existing structured-OCR persistence pattern.
+ */
+async function recordOcrProvenance(client, entry) {
+  try {
+    const result = entry.result || {};
+    const isMock = result.mock === true;
+    const row = {
+      session_id: entry.session.id,
+      user_id: entry.session.user_id,
+      ocr_document_id: result.ocrDocumentId || null,
+      provider: result.provider || (isMock ? 'mock' : 'unknown'),
+      model: result.model || null,
+      is_mock: isMock,
+      succeeded: Boolean(entry.succeeded),
+      confidence_score: entry.confidence ?? null,
+      document_type: entry.session.document_type || null,
+      evidence_hashes: entry.evidenceHashes || null,
+      failure_reason: entry.failureReason || null,
+      metadata: entry.metadata || null,
+    };
+    const { error } = await client.from('verification_ocr_provenance').insert(row);
+    if (error) {
+      console.warn('⚠️ OCR provenance persistence failed:', error.message);
+    }
+  } catch (err) {
+    console.warn('⚠️ OCR provenance persistence failed:', err?.message || err);
+  }
+}
+
+/**
  * Workstream F — fetch the authenticated ACCOUNT holder's name for the
  * account-vs-document identity binding. Tolerant of lookup failure: returns ''
  * so the binding is reported as indeterminate rather than a false mismatch, and
@@ -344,6 +383,10 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     new_value: { status: pendingSession.status, document_type: session.document_type },
   });
 
+  // Workstream D — hoisted so OCR provenance (success or failure) can record the
+  // hash of the actual bytes the system processed.
+  let evidenceHashes = null;
+
   try {
     const frontDocument = await storage.downloadFromStorage(BUCKET, session.front_storage_path);
 
@@ -353,6 +396,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // identity fields. (Content-level cup-vs-ID detection is deferred to a vision
     // model; the admin still reviews via the secure preview.)
     const evidenceCheck = validateEvidenceImages({ front: frontDocument.buffer });
+    evidenceHashes = evidenceCheck.hashes;
     if (!evidenceCheck.valid) {
       const failedAt = now();
       const reason = `No supported identity document detected. ${evidenceCheck.reasons.join(' ')}`;
@@ -466,6 +510,17 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       reason: failureReason,
     });
 
+    // Workstream D — provenance for the completed OCR run.
+    await recordOcrProvenance(client, {
+      session,
+      result,
+      succeeded: Boolean(result.success),
+      confidence,
+      evidenceHashes,
+      failureReason: result.success ? null : failureReason,
+      metadata: { identity_binding: binding.status, final_status: finalStatus },
+    });
+
     return sanitizeSession(completedSession);
   } catch (error) {
     const failedAt = now();
@@ -496,6 +551,17 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
       previous_value: { status: 'ocr_pending' },
       new_value: { status: 'ocr_failed' },
       reason: error.message,
+    });
+
+    // Workstream D — provenance for the failed OCR run (no identity fields).
+    await recordOcrProvenance(client, {
+      session,
+      result: {},
+      succeeded: false,
+      confidence: null,
+      evidenceHashes,
+      failureReason: error.message,
+      metadata: { final_status: 'ocr_failed' },
     });
 
     return sanitizeSession(failedSession);

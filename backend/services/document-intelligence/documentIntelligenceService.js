@@ -190,7 +190,8 @@ export class DocumentIntelligenceService {
           ...quality,
           qualityIssues
         },
-        ocrDocumentId: id
+        ocrDocumentId: id,
+        provider: 'gemini'
       };
     } catch (error) {
       const elapsedMs = Date.now() - startTime;
@@ -260,7 +261,8 @@ export class DocumentIntelligenceService {
           extractedData: mockResult,
           qualityMetrics: quality,
           ocrDocumentId: id,
-          mock: true
+          mock: true,
+          provider: 'mock'
         };
       }
 
@@ -272,7 +274,8 @@ export class DocumentIntelligenceService {
           ...quality,
           qualityIssues
         },
-        ocrDocumentId: id
+        ocrDocumentId: id,
+        provider: 'gemini'
       };
     }
   }
