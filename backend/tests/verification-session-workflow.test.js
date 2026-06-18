@@ -172,7 +172,7 @@ test('submit requires all requested sides before OCR', async () => {
   await assert.rejects(() => submitVerificationSession(client, owner, session.id), /back document/);
 });
 
-test('submit runs OCR from private storage and records verified status without raw image response', async () => {
+test('submit runs OCR but NEVER auto-verifies — routes to manual review (fail closed)', async () => {
   const client = createMockClient();
   const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
   await uploadVerificationSessionImage(client, owner, session.id, 'front', { image }, {
@@ -208,13 +208,57 @@ test('submit runs OCR from private storage and records verified status without r
     },
   });
 
-  assert.equal(result.status, 'verified');
+  // P0: even a clean, high-confidence OCR result must NOT auto-verify. Verified
+  // is reachable only through admin review of the actual evidence.
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /manual review/i);
+  // Sanitization still holds: extracted fields surface, private notes stripped.
   assert.equal(result.ocr_result.first_name, 'Ruvimbo');
   assert.equal(result.ocr_result.additional_fields.expiry, '2030-05-18');
   assert.equal(result.ocr_result.additional_fields.private_note, undefined);
   assert.equal(Object.hasOwn(result, 'front_storage_path'), false);
   assert.equal(client.data.ocr_documents[0].file_path, client.data.verification_sessions[0].front_storage_path);
   assert.ok(client.data.trust_audit_events.some(event => event.event_type === 'VERIFICATION_OCR_COMPLETED'));
+});
+
+test('P0: a non-document with HALLUCINATED high-confidence identity fields cannot become verified (cup scenario)', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  // Simulates the real failure mode: a cup image is sent to an OCR provider
+  // which hallucinates a plausible Zimbabwe ID with high confidence.
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.98,
+      first_name: 'Tafadzwa',
+      last_name: 'Moyo',
+      national_id_number: '63-123456-A-77',
+      country: 'Zimbabwe',
+    },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+});
+
+test('P0: OCR provider failure surfaces NO identity fields (no seeded fallback)', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  const result = await submitVerificationSession(client, owner, session.id, {
+    storage: { downloadFromStorage: async () => ({ buffer: Buffer.from('x'), mimeType: 'image/jpeg' }) },
+    ocr: { extractDocumentData: async () => ({ success: false, error: 'AI_OCR_EXTRACTION_FAILED' }) },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.ok(['ocr_failed', 'pending_manual_review'].includes(result.status));
+  // No seeded identity must appear on a failed extraction.
+  const ocr = result.ocr_result || {};
+  assert.equal(ocr.first_name, undefined);
+  assert.equal(ocr.national_id_number, undefined);
 });
 
 test('OCR failure marks session ocr_failed and remains fetchable as sanitized status', async () => {

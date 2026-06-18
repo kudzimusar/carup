@@ -7,6 +7,16 @@ import { metricsHub } from '../metrics.js';
 
 export class DocumentIntelligenceService {
   /**
+   * Mock/sample identity OCR output is allowed ONLY inside the test suite, and
+   * only with an explicit flag. It must never be reachable in production or
+   * development runtime, where it previously let seeded identities (and failed
+   * extractions of non-documents) become "verified".
+   */
+  static isOcrMockAllowed() {
+    return process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
+  }
+
+  /**
    * Preprocesses captured document, calculating blur, glare, and crop normalization
    */
   static analyzeImageQuality(base64Data) {
@@ -240,13 +250,17 @@ export class DocumentIntelligenceService {
         created_at: new Date().toISOString()
       });
 
-      if (process.env.ALLOW_OCR_MOCK === 'true') {
+      // FAIL CLOSED: on extraction failure, only test mode may substitute a
+      // sample document. In any real runtime we return an honest failure with
+      // NO extracted identity fields — never seeded data.
+      if (DocumentIntelligenceService.isOcrMockAllowed()) {
         const mockResult = this.getMockZimbabweDocument(docType);
         return {
           success: true,
           extractedData: mockResult,
           qualityMetrics: quality,
-          ocrDocumentId: id
+          ocrDocumentId: id,
+          mock: true
         };
       }
 
