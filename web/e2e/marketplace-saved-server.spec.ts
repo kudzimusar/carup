@@ -38,8 +38,7 @@ async function seedAuth(page: Page, token: string) {
   }, [JSON.stringify({ id: token, name: 'QA', email: 'qa@x.test', role: 'owner' }), token])
 }
 
-const card = (page: Page, i: number) => page.locator('[data-testid="marketplace-vehicle-card"]').nth(i)
-const saveBtn = (page: Page, i: number) => card(page, i).locator('[data-testid="marketplace-save-toggle"]')
+const saveBtn = (page: Page, i: number) => page.locator('[data-testid="marketplace-save-toggle"]').nth(i)
 
 test('authenticated save calls the existing POST save endpoint', async ({ page }) => {
   const calls: string[] = []
@@ -59,6 +58,27 @@ test('authenticated unsave calls the existing DELETE save endpoint', async ({ pa
   await expect(saveBtn(page, 0)).toHaveAttribute('aria-pressed', 'true') // server-loaded saved state
   await saveBtn(page, 0).click()
   await expect.poll(() => calls).toContain('DELETE')
+})
+
+test('saved heart remains visible without hover when selected', async ({ page }) => {
+  await routeAll(page, () => ['VINAAA0000000001'])
+  await seedAuth(page, 'tok')
+  await page.goto('/marketplace')
+  const btn = saveBtn(page, 0)
+  await expect(btn).toHaveAttribute('aria-pressed', 'true')
+  const opacity = await btn.evaluate(el => getComputedStyle(el).opacity)
+  expect(opacity).toBe('1')
+})
+
+test('unsaved heart is discoverable on touch/mobile without hover', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await routeAll(page, () => [])
+  await seedAuth(page, 'tok')
+  await page.goto('/marketplace')
+  const btn = saveBtn(page, 0)
+  await expect(btn).toHaveAttribute('aria-pressed', 'false')
+  const opacity = await btn.evaluate(el => getComputedStyle(el).opacity)
+  expect(opacity).toBe('1')
 })
 
 test('saved state reloads from the server (not localStorage) after refresh', async ({ page }) => {

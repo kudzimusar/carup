@@ -17,7 +17,7 @@ async function mockListings(page: Page) {
 }
 
 const compareBtn = (page: Page, i: number) =>
-  page.locator('[data-testid="marketplace-vehicle-card"]').nth(i).locator('[data-testid="marketplace-compare-toggle"]')
+  page.locator('[data-testid="marketplace-compare-toggle"]').nth(i)
 
 test('compare toggle is visible without hover (computed opacity is 1)', async ({ page }) => {
   await mockListings(page)
@@ -35,9 +35,8 @@ test('compare toggle is visible without hover (computed opacity is 1)', async ({
 test('compare toggle remains visible for a no-image (placeholder) listing', async ({ page }) => {
   await mockListings(page)
   await page.goto('/marketplace')
-  const firstCard = page.locator('[data-testid="marketplace-vehicle-card"]').first()
   // The seeded listing has no media -> the neutral placeholder renders.
-  await expect(firstCard.locator('[data-testid="listing-image-placeholder"]')).toBeVisible()
+  await expect(page.locator('[data-testid="listing-image-placeholder"]').first()).toBeVisible()
   const opacity = await compareBtn(page, 0).evaluate(el => getComputedStyle(el).opacity)
   expect(opacity).toBe('1')
 })
