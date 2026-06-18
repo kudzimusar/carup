@@ -359,7 +359,7 @@ test('two-pass: provider_succeeded does NOT imply extraction_trusted', async () 
   // This invariant is enforced at the submit-flow level, not by the
   // classifier. The code in verificationSessionService.js separates
   // ocr_execution_status from extraction_trust_status.
-  // 
+  //
   // Test the separation logic:
   const ocrProviderSucceeded = true;
   const classificationIsValid = EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT;
