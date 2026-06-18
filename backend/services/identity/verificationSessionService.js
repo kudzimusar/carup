@@ -3,6 +3,7 @@ import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { DocumentIntelligenceService } from '../document-intelligence/documentIntelligenceService.js';
 import { downloadFromStorage, uploadToStorage, generateSecureReadUrl } from '../storage/storageService.js';
+import { validateEvidenceImages } from './evidenceValidation.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
@@ -327,6 +328,45 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
 
   try {
     const frontDocument = await storage.downloadFromStorage(BUCKET, session.front_storage_path);
+
+    // Workstream C: fail-closed evidence validation BEFORE OCR. A blank/tiny or
+    // non-image front (and obvious duplicates) cannot be an identity document,
+    // so don't even run OCR — route to manual review with a clear reason and no
+    // identity fields. (Content-level cup-vs-ID detection is deferred to a vision
+    // model; the admin still reviews via the secure preview.)
+    const evidenceCheck = validateEvidenceImages({ front: frontDocument.buffer });
+    if (!evidenceCheck.valid) {
+      const failedAt = now();
+      const reason = `No supported identity document detected. ${evidenceCheck.reasons.join(' ')}`;
+      const { data: invalidSession, error: invalidError } = await client
+        .from('verification_sessions')
+        .update({
+          status: 'pending_manual_review',
+          failure_reason: reason,
+          review_notes: 'Submitted evidence failed automated document validation; manual review required.',
+          ocr_completed_at: failedAt,
+          updated_at: failedAt,
+        })
+        .eq('id', session.id)
+        .eq('user_id', session.user_id)
+        .select()
+        .single();
+      if (invalidError) throw new Error(invalidError.message);
+      await writeAudit(client, {
+        req: options.req,
+        event_type: 'VERIFICATION_EVIDENCE_INVALID',
+        actor_user_id: actorId(actor),
+        actor_role: actor.role,
+        actor_tenant_id: actor.tenantId,
+        source_route: `/api/identity/verification-sessions/${session.id}/submit`,
+        targetType: 'verification_session',
+        targetId: session.id,
+        new_value: { status: 'pending_manual_review' },
+        reason,
+      });
+      return sanitizeSession(invalidSession);
+    }
+
     const frontDataUri = `data:${session.front_mime_type || frontDocument.mimeType || 'image/jpeg'};base64,${frontDocument.buffer.toString('base64')}`;
     const result = await ocr.extractDocumentData(session.document_type, frontDataUri, session.user_id);
     const confidence = result.extractedData?.confidenceScore ?? result.qualityMetrics?.blurScore ?? null;

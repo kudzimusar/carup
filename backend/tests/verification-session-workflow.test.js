@@ -125,6 +125,16 @@ function createMockClient() {
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
 const image = 'data:image/jpeg;base64,' + Buffer.from('not-a-real-document').toString('base64');
 
+// A buffer that passes Workstream C evidence validation (valid JPEG magic,
+// non-trivial size) so the OCR-decision path is exercised. Distinct fill per
+// call avoids false duplicate detection.
+let __imgSeq = 0;
+function validImage() {
+  const buf = Buffer.alloc(3000, (__imgSeq++ % 200) + 30);
+  buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff;
+  return buf;
+}
+
 test('creates verification session and writes audit event', async () => {
   const client = createMockClient();
   const session = await createVerificationSession(client, owner, {
@@ -184,7 +194,7 @@ test('submit runs OCR but NEVER auto-verifies — routes to manual review (fail 
 
   const result = await submitVerificationSession(client, owner, session.id, {
     storage: {
-      downloadFromStorage: async () => ({ buffer: Buffer.from('stored-private-bytes'), mimeType: 'image/jpeg' }),
+      downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/jpeg' }),
     },
     ocr: {
       extractDocumentData: async (_docType, dataUri) => {
@@ -249,7 +259,7 @@ test('P0: OCR provider failure surfaces NO identity fields (no seeded fallback)'
   const session = await createUploadedSession(client);
 
   const result = await submitVerificationSession(client, owner, session.id, {
-    storage: { downloadFromStorage: async () => ({ buffer: Buffer.from('x'), mimeType: 'image/jpeg' }) },
+    storage: { downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/jpeg' }) },
     ocr: { extractDocumentData: async () => ({ success: false, error: 'AI_OCR_EXTRACTION_FAILED' }) },
   });
 
@@ -273,7 +283,7 @@ test('OCR failure marks session ocr_failed and remains fetchable as sanitized st
 
   const result = await submitVerificationSession(client, owner, session.id, {
     storage: {
-      downloadFromStorage: async () => ({ buffer: Buffer.from('stored-private-bytes'), mimeType: 'image/jpeg' }),
+      downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/jpeg' }),
     },
     ocr: {
       extractDocumentData: async () => {
@@ -316,7 +326,7 @@ async function createUploadedSession(client) {
 function submitWithOcr(client, sessionId, ocrResult) {
   return submitVerificationSession(client, owner, sessionId, {
     storage: {
-      downloadFromStorage: async () => ({ buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), mimeType: 'image/png' }),
+      downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/png' }),
     },
     ocr: { extractDocumentData: async () => ocrResult },
   });
@@ -368,6 +378,29 @@ test('identity fields with low confidence cannot become verified', async () => {
 
   assert.equal(result.status, 'pending_manual_review');
   assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+});
+
+test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed before OCR', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  let ocrCalled = false;
+  const result = await submitVerificationSession(client, owner, session.id, {
+    storage: {
+      // 12-byte non-image buffer — fails Workstream C validation.
+      downloadFromStorage: async () => ({ buffer: Buffer.from('not an image'), mimeType: 'image/jpeg' }),
+    },
+    ocr: {
+      extractDocumentData: async () => { ocrCalled = true; return { success: true, extractedData: { confidenceScore: 0.99, first_name: 'X', last_name: 'Y', national_id_number: 'Z' } }; },
+    },
+  });
+
+  assert.equal(ocrCalled, false); // OCR must not run on invalid evidence
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /No supported identity document detected/);
+  // No identity fields populated from a non-document.
+  assert.ok(!result.ocr_result || result.ocr_result.first_name === undefined);
 });
 
 test('evaluateOcrEvidence unit cases', async () => {
