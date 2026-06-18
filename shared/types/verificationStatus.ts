@@ -157,6 +157,16 @@ export interface VerificationOcrFields {
   additional_fields?: Record<string, string>;
 }
 
+/** Account-holder vs document-holder comparison (Workstream F). */
+export type IdentityBindingStatus = 'match' | 'mismatch' | 'indeterminate';
+
+export interface IdentityBinding {
+  account_holder_name: string | null;
+  document_holder_name: string | null;
+  status: IdentityBindingStatus;
+  reason: string | null;
+}
+
 /**
  * Shape returned by the backend admin review endpoints
  * (sanitizeReviewSession). Contains NO private storage paths or document URLs —
@@ -188,6 +198,15 @@ export interface AdminVerificationSession {
   submitted_at: string | null;
   ocr_started_at: string | null;
   ocr_completed_at: string | null;
+  /** Present on the detail view (null on the list). */
+  identity_binding?: IdentityBinding | null;
+}
+
+/** Backend response for a short-lived signed evidence preview URL. */
+export interface EvidencePreview {
+  side: 'front' | 'back' | 'selfie';
+  url: string;
+  expiresInSeconds: number;
 }
 
 export interface VerificationReviewRequest {

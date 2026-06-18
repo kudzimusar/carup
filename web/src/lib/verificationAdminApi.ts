@@ -17,6 +17,7 @@
 import { apiRequest, type AuthHeaders } from './apiClient'
 import type {
   AdminVerificationSession,
+  EvidencePreview,
   VerificationReviewRequest,
   VerificationSessionStatus,
 } from '@shared/types'
@@ -38,6 +39,11 @@ interface ListResponse {
 interface SessionResponse {
   success: boolean
   session: AdminVerificationSession
+}
+
+interface EvidencePreviewResponse {
+  success: boolean
+  preview: EvidencePreview
 }
 
 /** List sessions in the review queue, optionally filtered by backend status. */
@@ -67,6 +73,26 @@ export async function fetchVerificationSessionDetail(
     fetchImpl: config.fetchImpl,
   })
   return res.session
+}
+
+/**
+ * Fetch a short-lived signed preview URL for one evidence side. The URL expires
+ * server-side (default 180s); the backend audits each access and never returns
+ * the private storage path. Fetch on demand (when the reviewer opens a session)
+ * so a stale queue list never holds live document URLs.
+ */
+export async function fetchEvidencePreview(
+  config: VerificationAdminClientConfig,
+  sessionId: string,
+  side: 'front' | 'back' | 'selfie',
+): Promise<EvidencePreview> {
+  const res = await apiRequest<EvidencePreviewResponse>({
+    baseUrl: config.baseUrl,
+    path: `${BASE_PATH}/${encodeURIComponent(sessionId)}/evidence/${encodeURIComponent(side)}/preview`,
+    authHeaders: config.authHeaders,
+    fetchImpl: config.fetchImpl,
+  })
+  return res.preview
 }
 
 /** Submit a review decision. The POST is CSRF-protected by apiRequest. */
