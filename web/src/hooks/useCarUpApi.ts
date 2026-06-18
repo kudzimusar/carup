@@ -10,6 +10,8 @@ import {
 } from '@/lib/verificationAdminApi'
 import type {
   AdminVerificationSession,
+  DecisionAction,
+  DecisionResponse,
   EvidencePreview,
   VerificationReviewRequest,
   VerificationSessionStatus,
@@ -101,7 +103,7 @@ export function useCarUpApi() {
 
   const fetchVerificationReviewQueue = useCallback(
     (status?: VerificationSessionStatus | string): Promise<AdminVerificationSession[]> =>
-      fetchVerificationReviewQueueRequest(verificationClientConfig, status),
+      fetchVerificationReviewQueueRequest(verificationClientConfig, status ? { status } : undefined),
     [verificationClientConfig],
   )
 
@@ -118,7 +120,7 @@ export function useCarUpApi() {
   )
 
   const reviewVerificationSession = useCallback(
-    (sessionId: string, body: VerificationReviewRequest): Promise<AdminVerificationSession> =>
+    (sessionId: string, body: VerificationReviewRequest): Promise<{ decision: DecisionResponse['decision']; session: AdminVerificationSession; allowed_actions: DecisionAction[] }> =>
       reviewVerificationSessionRequest(verificationClientConfig, sessionId, body),
     [verificationClientConfig],
   )
