@@ -92,18 +92,22 @@ export class VerificationDecisionRecorder {
       }
     }
 
-    // Optimistic concurrency check — ensure the session version hasn't changed
-    const sessionVersion = session.version || 1;
-    const { data: versionRow } = await client
-      .from('verification_sessions')
-      .select('version')
-      .eq('id', session.id)
-      .single();
+    // Optimistic concurrency: check version before any writes.
+    // Skip entirely when session has no version field (pre-migration rows).
+    const sessionVersion = session.version;
+    if (sessionVersion != null) {
+      const { data: versionRow } = await client
+        .from('verification_sessions')
+        .select('version')
+        .eq('id', session.id)
+        .maybeSingle();
 
-    if (versionRow && versionRow.version !== sessionVersion) {
-      throw new ConflictError(
-        `Session version ${sessionVersion} is stale. Current version is ${versionRow.version}.`
-      );
+      const dbVersion = versionRow?.version;
+      if (dbVersion != null && dbVersion !== sessionVersion) {
+        throw new ConflictError(
+          `Session version ${sessionVersion} is stale. Current version is ${dbVersion}.`
+        );
+      }
     }
 
     // Map applicant message
@@ -155,8 +159,11 @@ export class VerificationDecisionRecorder {
     // Update the session for legacy compatibility
     const sessionUpdate = {
       updated_at: timestamp,
-      version: sessionVersion + 1,
     };
+
+    if (sessionVersion != null) {
+      sessionUpdate.version = sessionVersion + 1;
+    }
 
     if (resultingPhase) {
       sessionUpdate.workflow_phase = resultingPhase;
@@ -199,17 +206,20 @@ export class VerificationDecisionRecorder {
       }
     }
 
-    const { data: updatedSession, error: updateError } = await client
+    const updateQuery = client
       .from('verification_sessions')
       .update(sessionUpdate)
-      .eq('id', session.id)
-      .eq('version', sessionVersion)
+      .eq('id', session.id);
+    if (sessionVersion != null) {
+      updateQuery.eq('version', sessionVersion);
+    }
+    const { data: updatedSession, error: updateError } = await updateQuery
       .select()
       .single();
 
     if (!updatedSession) {
       throw new ConflictError(
-        `Session version ${sessionVersion} is stale. The session has been modified by another request.`
+        `Session version ${sessionVersion ?? 1} is stale. The session has been modified by another request.`
       );
     }
 
