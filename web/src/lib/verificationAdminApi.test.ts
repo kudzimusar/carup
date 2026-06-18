@@ -77,7 +77,7 @@ beforeEach(() => {
 describe('verificationAdminApi — list', () => {
   it('builds the status-filtered URL, sends auth headers, and skips CSRF on GET', async () => {
     const { impl, calls } = makeFetch({ api: () => makeResponse({ success: true, sessions: [SANITIZED_SESSION] }) })
-    const sessions = await fetchVerificationReviewQueue(config(impl), 'pending_manual_review')
+    const sessions = await fetchVerificationReviewQueue(config(impl), { status: 'pending_manual_review' })
 
     expect(sessions).toHaveLength(1)
     expect(sessions[0].id).toBe('vs-1')
@@ -131,12 +131,18 @@ describe('verificationAdminApi — review (mutating, CSRF-protected)', () => {
     const { impl, calls } = makeFetch({
       api: (_u, init) =>
         init.method === 'POST'
-          ? makeResponse({ success: true, session: { ...SANITIZED_SESSION, status: 'verified', review_decision: 'approve' } })
+          ? makeResponse({
+              success: true,
+              session: { ...SANITIZED_SESSION, status: 'verified', review_decision: 'approve' },
+              decision: { action: 'approve', reason_code: null },
+              allowed_actions: [],
+            })
           : makeResponse({ success: true }),
     })
-    const session = await reviewVerificationSession(config(impl), 'vs-1', { action: 'approve', reviewNotes: 'ID matches selfie.' })
+    const result = await reviewVerificationSession(config(impl), 'vs-1', { action: 'approve', reviewNotes: 'ID matches selfie.' })
 
-    expect(session.status).toBe('verified')
+    expect(result.session.status).toBe('verified')
+    expect(result.decision.action).toBe('approve')
     expect(calls.some((c) => c.url.endsWith('/security/csrf-token'))).toBe(true)
     const post = calls.find((c) => (c.init.method || 'GET') === 'POST')!
     expect(post.url).toContain('/admin/identity/verification-sessions/vs-1/review')

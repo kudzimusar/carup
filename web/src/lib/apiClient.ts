@@ -183,13 +183,13 @@ export async function apiRequest<T = any>({
 
   const method = options?.method?.toUpperCase() || 'GET'
   const fetchOptions: RequestInit = { ...options }
+  let csrfToken: string | undefined
   
   if (!(fetchOptions.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
   }
 
   if (!SAFE_METHODS.includes(method)) {
-    let csrfToken: string
     try {
       csrfToken = await fetchCsrfToken(baseUrl, authHeaders, fetchImpl)
     } catch {
@@ -210,6 +210,30 @@ export async function apiRequest<T = any>({
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({} as Record<string, unknown>))
     const message = extractErrorMessage(errorData)
+
+    if (response.status === 403 && !SAFE_METHODS.includes(method)) {
+      // Stale CSRF token: bust cache and retry exactly once.
+      cachedCsrfToken = null
+      cachedCsrfIdentity = null
+      try {
+        csrfToken = await fetchCsrfToken(baseUrl, authHeaders, fetchImpl)
+      } catch {
+        throw new Error(CSRF_ERROR_MESSAGE)
+      }
+      headers['x-csrf-token'] = csrfToken
+      const retryResponse = await fetchImpl(`${baseUrl}${path}`, {
+        ...fetchOptions,
+        headers: {
+          ...headers,
+          ...((fetchOptions.headers as Record<string, string>) || {}),
+        },
+      })
+      if (retryResponse.ok) {
+        return retryResponse.json() as Promise<T>
+      }
+      const retryErrorData = await retryResponse.json().catch(() => ({} as Record<string, unknown>))
+      throw new Error(extractErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`)
+    }
 
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a
