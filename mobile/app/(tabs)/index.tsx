@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
 
@@ -136,18 +136,32 @@ export default function DashboardScreen() {
       )}
 
       {/* Identity verification entry point — enabled because the user is
-          authenticated (independent of any role-switch outcome). */}
-      <Pressable
+          authenticated (independent of any role-switch outcome). Uses a STATIC
+          inline style (same pattern as the dark welcome card that renders
+          reliably) on a TouchableOpacity, not a function-style Pressable, so the
+          high-contrast background always paints on iPhone. */}
+      <TouchableOpacity
         onPress={() => router.push('/(auth)/verification/intro')}
         testID="start-verification-flow"
-        style={({ pressed }) => ({
-          width: '100%', backgroundColor: '#F97316', borderRadius: 12,
-          paddingVertical: 18, justifyContent: 'center', alignItems: 'center',
-          marginBottom: 16, opacity: pressed ? 0.8 : 1,
-        })}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Start Verification Flow"
+        style={{
+          width: '100%',
+          minHeight: 60,
+          backgroundColor: '#0F172A',
+          borderWidth: 2,
+          borderColor: '#F97316',
+          borderRadius: 14,
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingVertical: 16,
+          marginBottom: 16,
+        }}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Start Verification Flow</Text>
-      </Pressable>
+        <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800' }}>Start Verification Flow</Text>
+        <Text style={{ color: '#F97316', fontSize: 11, fontWeight: '700', marginTop: 2 }}>Tap to verify your identity →</Text>
+      </TouchableOpacity>
 
       {/* Account actions */}
       <Pressable

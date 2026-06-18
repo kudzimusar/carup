@@ -4,6 +4,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
+import { getVerificationApiBaseUrl } from '../../utils/verificationApi';
 
 interface Vehicle {
   vin: string;
@@ -28,9 +29,10 @@ export default function MarketplaceScreen() {
     queryKey: ['vehicles', selectedMake],
     queryFn: async () => {
       const makeQuery = selectedMake ? `?make=${selectedMake}` : '';
-      const response = await fetch(`http://localhost:5001/api/vehicles${makeQuery}`, {
+      const response = await fetch(`${getVerificationApiBaseUrl()}/api/vehicles${makeQuery}`, {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
