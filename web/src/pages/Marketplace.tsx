@@ -1038,7 +1038,9 @@ export default function Marketplace() {
                           aria-pressed={isFav}
                           data-testid="marketplace-save-toggle"
                           onClick={(e) => toggleFavorite(e, vehicle.vin || vehicle.id || '', vehicleName)}
-                          className="w-8 h-8 rounded-full bg-white/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
+                          className={`w-8 h-8 rounded-full bg-white/90 flex items-center justify-center transition-opacity hover:scale-110 ${
+                            isFav ? 'opacity-100 shadow-sm' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+                          }`}
                         >
                           <Heart className={`w-4 h-4 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
                         </button>
