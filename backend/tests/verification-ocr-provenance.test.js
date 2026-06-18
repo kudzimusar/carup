@@ -83,8 +83,9 @@ function createMockClient() {
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
 const image = 'data:image/jpeg;base64,' + Buffer.from('seed').toString('base64');
 
+let __imgSeq = 0;
 function validImage() {
-  const buf = Buffer.alloc(3000, 0x33);
+  const buf = Buffer.alloc(3000, (__imgSeq++ % 200) + 30);
   buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff;
   return buf;
 }

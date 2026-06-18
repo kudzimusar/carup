@@ -344,7 +344,8 @@ test('blank/1x1 image (OCR success with zero confidence, no fields) cannot becom
 
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+  assert.equal(result.extraction_trust_status, 'no_fields');
+  assert.match(result.failure_reason, /requires manual review/);
 });
 
 test('high confidence without extracted identity fields cannot become verified', async () => {
@@ -358,7 +359,9 @@ test('high confidence without extracted identity fields cannot become verified',
   });
 
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /identity fields required/);
+  assert.equal(result.extraction_trust_status, 'untrusted');
+  assert.equal(result.primary_reason_code, 'REQUIRED_FIELDS_MISSING');
+  assert.match(result.failure_reason, /requires manual review/);
 });
 
 test('identity fields with low confidence cannot become verified', async () => {
@@ -377,7 +380,10 @@ test('identity fields with low confidence cannot become verified', async () => {
   });
 
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+  // Has identity fields but identity binding is indeterminate (no account user)
+  assert.equal(result.extraction_trust_status, 'partially_trusted');
+  assert.equal(result.primary_reason_code, null);
+  assert.notEqual(result.failure_reason, null);
 });
 
 test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed before OCR', async () => {
@@ -398,7 +404,7 @@ test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed bef
   assert.equal(ocrCalled, false); // OCR must not run on invalid evidence
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /No supported identity document detected/);
+  assert.match(result.failure_reason, /too small|not a supported/);
   // No identity fields populated from a non-document.
   assert.ok(!result.ocr_result || result.ocr_result.first_name === undefined);
 });
