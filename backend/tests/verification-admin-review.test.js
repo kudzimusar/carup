@@ -158,6 +158,18 @@ before(async () => {
     value: (table) => new MockQuery(table),
   });
 
+  // Mock Supabase Storage so evidence-preview signed URLs can be generated
+  // without touching real storage. The mock returns a fresh signed URL string.
+  supabase.storage = {
+    from() {
+      return {
+        async createSignedUrl(storagePath, expiresInSeconds) {
+          return { data: { signedUrl: `https://signed.test/${storagePath}?exp=${expiresInSeconds}` }, error: null };
+        },
+      };
+    },
+  };
+
   const app = express();
   app.use(express.json());
   app.use(adminRouter);
@@ -345,4 +357,43 @@ test('unsupported review action is a 400', async () => {
     body: { action: 'delete_everything' },
   });
   assert.equal(res.status, 400);
+});
+
+// --- Workstream G: secure evidence previews --------------------------------
+
+test('unauthenticated evidence preview is rejected with 401', async () => {
+  const res = await req('GET', `${LIST_PATH}/vs-pending/evidence/front/preview`);
+  assert.equal(res.status, 401);
+});
+
+test('non-admin evidence preview is rejected with 403', async () => {
+  const res = await req('GET', `${LIST_PATH}/vs-pending/evidence/front/preview`, { token: 'owner-token' });
+  assert.equal(res.status, 403);
+});
+
+test('admin gets a short-lived signed preview URL with no-store and no raw path leak', async () => {
+  const res = await req('GET', `${LIST_PATH}/vs-pending/evidence/front/preview`, { token: 'admin-token' });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('cache-control'), 'no-store');
+  const body = await res.json();
+  assert.equal(body.preview.side, 'front');
+  assert.equal(body.preview.expiresInSeconds, 180);
+  assert.match(body.preview.url, /^https:\/\/signed\.test\//);
+  // Only a signed URL is returned — never a raw *_storage_path field.
+  const serialized = JSON.stringify(body);
+  assert.equal(serialized.includes('storage_path'), false);
+  assert.equal(body.preview.front_storage_path, undefined);
+  // An audit event is written for the preview.
+  assert.ok(db.trust_audit_events.some((e) => e.event_type === 'VERIFICATION_EVIDENCE_PREVIEWED'));
+});
+
+test('invalid evidence side is a 400', async () => {
+  const res = await req('GET', `${LIST_PATH}/vs-pending/evidence/passport/preview`, { token: 'admin-token' });
+  assert.equal(res.status, 400);
+});
+
+test('preview for a side with no uploaded image is a 404', async () => {
+  // vs-verified has no back_storage_path in the seed.
+  const res = await req('GET', `${LIST_PATH}/vs-verified/evidence/back/preview`, { token: 'admin-token' });
+  assert.equal(res.status, 404);
 });

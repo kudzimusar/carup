@@ -2,6 +2,7 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import {
   getVerificationSessionForReview,
+  getEvidencePreviewUrl,
   listVerificationSessionsForReview,
   reviewVerificationSession,
 } from '../services/identity/verificationSessionService.js';
@@ -47,6 +48,25 @@ router.post(
       { req }
     );
     res.json({ success: true, session });
+  })
+);
+
+// Secure, short-lived evidence preview (Workstream G). Admin-only + session-
+// scoped; returns only a signed URL (never the raw storage path), audited, and
+// marked no-store so the URL is not cached by intermediaries.
+router.get(
+  '/api/admin/identity/verification-sessions/:sessionId/evidence/:side/preview',
+  authorizeRole(['admin']),
+  asyncHandler(async (req, res) => {
+    const preview = await getEvidencePreviewUrl(
+      undefined,
+      req.userContext,
+      req.params.sessionId,
+      req.params.side,
+      { req }
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, preview });
   })
 );
 
