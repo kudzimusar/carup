@@ -4,6 +4,7 @@ import { logAuditEvent } from '../auditLogger.js';
 import { DocumentIntelligenceService } from '../document-intelligence/documentIntelligenceService.js';
 import { downloadFromStorage, uploadToStorage, generateSecureReadUrl } from '../storage/storageService.js';
 import { validateEvidenceImages } from './evidenceValidation.js';
+import { compareAccountToDocument, documentHolderName } from './identityBinding.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
 
 const BUCKET = 'ocr-documents';
@@ -32,6 +33,23 @@ function now() {
 
 function actorId(actor = {}) {
   return actor.id || actor.userId;
+}
+
+/**
+ * Workstream F — fetch the authenticated ACCOUNT holder's name for the
+ * account-vs-document identity binding. Tolerant of lookup failure: returns ''
+ * so the binding is reported as indeterminate rather than a false mismatch, and
+ * the account profile is never mutated from OCR.
+ */
+async function fetchAccountHolderName(client, userId) {
+  if (!client || !userId) return '';
+  try {
+    const { data, error } = await client.from('users').select('name').eq('id', userId).single();
+    if (error || !data || typeof data.name !== 'string') return '';
+    return data.name;
+  } catch {
+    return '';
+  }
 }
 
 function normalizeDocumentType(value) {
@@ -381,9 +399,26 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // the verified decision via the admin review route. A failed/blank/low-
     // confidence capture is still surfaced honestly as the reason.
     const finalStatus = 'pending_manual_review';
-    const failureReason = evidence.sufficient
+
+    // Workstream F — account-holder vs document-holder identity binding. The
+    // authenticated account and the person named on the document are separate
+    // facts; a material mismatch must be surfaced to the reviewer and can never
+    // auto-verify (the status is already manual-review). We fold the binding
+    // outcome into the truthful failure_reason / review_notes; the account
+    // profile is never overwritten from OCR.
+    const documentName = documentHolderName(sanitizedResult);
+    const accountName = await fetchAccountHolderName(client, session.user_id);
+    const binding = compareAccountToDocument({ accountName, documentName });
+
+    const baseReason = evidence.sufficient
       ? 'Automated OCR completed. Verification requires manual review of the uploaded document — automated OCR cannot confirm a genuine identity document on its own.'
       : evidence.reason;
+    const failureReason = binding.status === 'mismatch'
+      ? `Identity mismatch: ${binding.reason} ${baseReason}`
+      : baseReason;
+    const reviewNote = binding.status === 'mismatch'
+      ? `Account/document identity MISMATCH — account holder "${accountName}" vs document holder "${documentName}". Manual review required.`
+      : 'OCR completed but requires manual review.';
     const completedAt = now();
 
     const { data: completedSession, error: completedError } = await client
@@ -394,7 +429,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         ocr_result: sanitizedResult,
         confidence_score: confidence,
         failure_reason: failureReason,
-        review_notes: finalStatus === 'pending_manual_review' ? 'OCR completed but requires manual review.' : null,
+        review_notes: finalStatus === 'pending_manual_review' ? reviewNote : null,
         ocr_completed_at: completedAt,
         updated_at: completedAt,
       })
@@ -426,6 +461,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
         status: finalStatus,
         confidence_score: confidence,
         ocr_document_id: result.ocrDocumentId || null,
+        identity_binding: binding.status,
       },
       reason: failureReason,
     });
@@ -485,7 +521,7 @@ function assertAdminReviewer(actor = {}) {
  * every *_storage_path), so private document storage paths and any signed URL
  * never leave the service. Adds reviewer/decision metadata for the admin queue.
  */
-function sanitizeReviewSession(session) {
+function sanitizeReviewSession(session, identity = null) {
   const base = sanitizeSession(session);
   if (!base) return null;
   return {
@@ -497,6 +533,9 @@ function sanitizeReviewSession(session) {
     liveness_status: session.liveness_status || null,
     submitted_at: session.submitted_at || null,
     ocr_started_at: session.ocr_started_at || null,
+    // Workstream F — surface BOTH identities + the comparison so the reviewer
+    // can see an account-vs-document mismatch at a glance. null on the list view.
+    identity_binding: identity,
   };
 }
 
@@ -532,7 +571,18 @@ export async function listVerificationSessionsForReview(client = supabase, actor
 export async function getVerificationSessionForReview(client = supabase, actor = {}, sessionId) {
   assertAdminReviewer(actor);
   const session = await fetchSessionForReview(client, sessionId);
-  return sanitizeReviewSession(session);
+  // Workstream F — compute the account-vs-document identity binding live so the
+  // reviewer sees both identities and the comparison verdict.
+  const documentName = documentHolderName(session.ocr_result || {});
+  const accountName = await fetchAccountHolderName(client, session.user_id);
+  const binding = compareAccountToDocument({ accountName, documentName });
+  const identity = {
+    account_holder_name: accountName || null,
+    document_holder_name: documentName || null,
+    status: binding.status,
+    reason: binding.reason,
+  };
+  return sanitizeReviewSession(session, identity);
 }
 
 export async function reviewVerificationSession(client = supabase, actor = {}, sessionId, payload = {}, options = {}) {
