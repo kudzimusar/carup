@@ -75,6 +75,24 @@ function isSessionFailure(status: number, message?: string): boolean {
   return status === 401 && (!message || message.startsWith('Unauthorized'))
 }
 
+/**
+ * The backend reports errors in two shapes:
+ *   - authMiddleware / direct route handlers: `{ error: "string" }`
+ *   - errorMiddleware (thrown CarUpError, e.g. 400/404/500): `{ success: false, error: { code, message } }`
+ * Extract a human message from either so callers (and the verification admin
+ * client) surface an actionable string instead of "[object Object]".
+ */
+function extractErrorMessage(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined
+  const error = (body as { error?: unknown }).error
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string') {
+    return (error as { message: string }).message
+  }
+  const topMessage = (body as { message?: unknown }).message
+  return typeof topMessage === 'string' ? topMessage : undefined
+}
+
 // Registered by AuthContext; invoked whenever a request fails with an invalid session so the app
 // can clear its stored auth and redirect to login. Module-level so the framework-agnostic core can
 // signal React without importing it.
@@ -183,13 +201,13 @@ export async function apiRequest<T = any>({
 
   const method = options?.method?.toUpperCase() || 'GET'
   const fetchOptions: RequestInit = { ...options }
+  let csrfToken: string | undefined
   
   if (!(fetchOptions.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
   }
 
   if (!SAFE_METHODS.includes(method)) {
-    let csrfToken: string
     try {
       csrfToken = await fetchCsrfToken(baseUrl, authHeaders, fetchImpl)
     } catch {
@@ -210,6 +228,30 @@ export async function apiRequest<T = any>({
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}))
     const message = extractApiErrorMessage(errorData)
+
+    if (response.status === 403 && !SAFE_METHODS.includes(method)) {
+      // Stale CSRF token: bust cache and retry exactly once.
+      cachedCsrfToken = null
+      cachedCsrfIdentity = null
+      try {
+        csrfToken = await fetchCsrfToken(baseUrl, authHeaders, fetchImpl)
+      } catch {
+        throw new Error(CSRF_ERROR_MESSAGE)
+      }
+      headers['x-csrf-token'] = csrfToken
+      const retryResponse = await fetchImpl(`${baseUrl}${path}`, {
+        ...fetchOptions,
+        headers: {
+          ...headers,
+          ...((fetchOptions.headers as Record<string, string>) || {}),
+        },
+      })
+      if (retryResponse.ok) {
+        return retryResponse.json() as Promise<T>
+      }
+      const retryErrorData = await retryResponse.json().catch(() => ({}))
+      throw new Error(extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`)
+    }
 
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a

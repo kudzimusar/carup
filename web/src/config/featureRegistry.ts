@@ -44,6 +44,7 @@ export type LucideIconName =
   | 'LayoutDashboard'
   | 'Car'
   | 'FileText'
+  | 'FileSearch'
   | 'Wrench'
   | 'Shield'
   | 'Gauge'
@@ -501,6 +502,17 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'FileText',
+  },
+  {
+    id: 'admin.verification',
+    label: 'Verification Cases',
+    route: '/admin/verification',
+    domain: 'trust',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'FileSearch',
+    description: 'Identity verification case management: review, approve, request resubmission, reject, and escalate.',
   },
   {
     id: 'admin.trust-review',

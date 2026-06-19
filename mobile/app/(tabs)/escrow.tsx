@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
+import { getVerificationApiBaseUrl } from '../../utils/verificationApi';
 
 interface EscrowTransaction {
   id: string;
@@ -27,9 +28,10 @@ export default function EscrowDashboardScreen() {
   const { data: escrows = [], isLoading, error, refetch } = useQuery<EscrowTransaction[]>({
     queryKey: ['escrows'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:5001/api/safepay/list', {
+      const response = await fetch(`${getVerificationApiBaseUrl()}/api/safepay/list`, {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
@@ -43,10 +45,11 @@ export default function EscrowDashboardScreen() {
   // Advance escrow milestones mutation
   const updateEscrowMutation = useMutation({
     mutationFn: async ({ id, status, details }: { id: string; status: string; details?: string }) => {
-      const response = await fetch(`http://localhost:5001/api/safepay/${id}/update`, {
+      const response = await fetch(`${getVerificationApiBaseUrl()}/api/safepay/${id}/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
         body: JSON.stringify({ status, details }),

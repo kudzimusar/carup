@@ -4,8 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
 import { captureOdometerPhoto, formatFileSize } from '../../utils/camera';
-
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5001';
+import { getVerificationApiBaseUrl } from '../../utils/verificationApi';
 
 interface Vehicle {
   vin: string;
@@ -46,9 +45,10 @@ export default function GarageScreen() {
   const { data: vehicles = [], isLoading: isLoadingVehicles, error: vehiclesError, refetch: refetchVehicles } = useQuery<Vehicle[]>({
     queryKey: ['my-vehicles'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:5001/api/vehicles/me', {
+      const response = await fetch(`${getVerificationApiBaseUrl()}/api/vehicles/me`, {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
@@ -63,9 +63,10 @@ export default function GarageScreen() {
   const { data: serviceHistory = [], isLoading: isLoadingHistory, error: historyError, refetch: refetchHistory } = useQuery<ServiceLog[]>({
     queryKey: ['my-service-history'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:5001/api/service-history/me', {
+      const response = await fetch(`${getVerificationApiBaseUrl()}/api/service-history/me`, {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
@@ -102,10 +103,11 @@ export default function GarageScreen() {
 
       // Submit captured odometer image to the backend OCR service
       try {
-        const response = await fetch(`${API_BASE_URL}/api/ai/ocr`, {
+        const response = await fetch(`${getVerificationApiBaseUrl()}/api/ai/ocr`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
             ...(token ? { 'x-session-token': token } : {}),
           },
           body: JSON.stringify({
