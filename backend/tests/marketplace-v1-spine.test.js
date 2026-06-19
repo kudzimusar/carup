@@ -427,10 +427,63 @@ test('moderation: approve sets Available + writes audit; suppress requires reaso
   assert.equal(res.status, 'Available');
   assert.equal(res.public_status, 'public');
   assert.equal(store.vehicles[0].status, 'Available');
+  assert.equal('updated_at' in store.vehicles[0], false);
   assert.equal(store.trust_audit_events.length, 1);
   assert.equal(store.trust_audit_events[0].event_type, 'MARKETPLACE_LISTING_APPROVED');
 
   await assert.rejects(() => moderateListing(client, REAL_VIN, 'suppress', {}, adminActor), /reason is required/i);
+});
+
+test('moderation: status-changing actions map to existing vehicle statuses', async () => {
+  const cases = [
+    ['suppress', 'Suspended', 'MARKETPLACE_LISTING_SUPPRESSED'],
+    ['reject', 'Banned', 'MARKETPLACE_LISTING_REJECTED'],
+    ['flag_risk', 'Flagged', 'MARKETPLACE_LISTING_FLAGGED'],
+    ['clear_risk', 'Available', 'MARKETPLACE_LISTING_RISK_CLEARED'],
+  ];
+
+  for (const [action, status, event] of cases) {
+    const store = { vehicles: [publicVehicle({ status: 'Available' })], trust_audit_events: [] };
+    const body = ['suppress', 'reject', 'flag_risk'].includes(action) ? { reason: 'QA reason' } : {};
+    const res = await moderateListing(buildMockSupabase(store), REAL_VIN, action, body, adminActor);
+    assert.equal(res.status, status);
+    assert.equal(store.vehicles[0].status, status);
+    assert.equal(store.trust_audit_events[0].event_type, event);
+  }
+});
+
+test('moderation: request evidence writes audit without changing vehicle status', async () => {
+  const store = { vehicles: [publicVehicle({ status: 'Available' })], trust_audit_events: [] };
+  const res = await moderateListing(buildMockSupabase(store), REAL_VIN, 'request_evidence', {}, adminActor);
+  assert.equal(res.status, 'Available');
+  assert.equal(store.vehicles[0].status, 'Available');
+  assert.equal(store.trust_audit_events.length, 1);
+  assert.equal(store.trust_audit_events[0].event_type, 'MARKETPLACE_EVIDENCE_REQUESTED');
+});
+
+test('moderation: failed vehicle status update does not write success audit', async () => {
+  const store = { vehicles: [publicVehicle({ status: 'Suspended' })], trust_audit_events: [] };
+  const base = buildMockSupabase(store);
+  const failingClient = {
+    from(table) {
+      const builder = base.from(table);
+      if (table !== 'vehicles') return builder;
+      return {
+        ...builder,
+        update() {
+          return {
+            eq() {
+              return Promise.resolve({ data: null, error: new Error('column updated_at does not exist') });
+            },
+          };
+        },
+      };
+    },
+  };
+
+  await assert.rejects(() => moderateListing(failingClient, REAL_VIN, 'approve', {}, adminActor), /updated_at/);
+  assert.equal(store.vehicles[0].status, 'Suspended');
+  assert.equal(store.trust_audit_events.length, 0);
 });
 
 test('moderation requires a platform reviewer role', async () => {
@@ -586,6 +639,24 @@ test('signed-in inquiry enriches buyer contact from profile so the seller has a 
   const sellerView = await listInquiriesForSeller(client, { id: 'seller-1' });
   assert.equal(sellerView.length, 1);
   assert.equal(sellerView[0].contact_email, 'tariro@example.com');
+});
+
+test('seller inquiry list excludes inquiries for listings owned by other sellers', async () => {
+  const store = {
+    vehicles: [
+      publicVehicle({ owner_id: 'seller-1' }),
+      publicVehicle({ vin: DEALER_VIN, owner_id: 'seller-2', make: 'Ford', model: 'Ranger' }),
+    ],
+    marketplace_inquiries: [
+      { id: 'inq-owned', listing_id: REAL_VIN, seller_id: 'seller-1', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'owned@example.com', created_at: NOW },
+      { id: 'inq-other', listing_id: DEALER_VIN, seller_id: 'seller-2', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'other@example.com', created_at: NOW },
+    ],
+  };
+
+  const sellerView = await listInquiriesForSeller(buildMockSupabase(store), { id: 'seller-1' });
+  assert.equal(sellerView.length, 1);
+  assert.equal(sellerView[0].id, 'inq-owned');
+  assert.equal(sellerView[0].contact_email, 'owned@example.com');
 });
 
 test('admin listing detail can read a suppressed listing (P2 — not 404), public audience 404s it', async () => {

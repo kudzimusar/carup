@@ -110,7 +110,7 @@ export async function moderateListing(client, vin, action, body = {}, actor = {}
     nextStatus = spec.targetStatus;
     const { error: updErr } = await client
       .from('vehicles')
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
+      .update({ status: nextStatus })
       .eq('vin', vin);
     if (updErr) throw updErr;
   }
