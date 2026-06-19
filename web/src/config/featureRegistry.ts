@@ -129,7 +129,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/dashboard/garage',
     domain: 'commerce',
     roles: ['owner'],
-    placements: ['dashboard_sidebar', 'user_menu'],
+    placements: ['dashboard_sidebar', 'user_menu', 'mobile_nav'],
     requiresAuth: true,
     icon: 'Car',
   },
@@ -222,7 +222,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/dashboard/ai',
     domain: 'commerce',
     roles: ['owner'],
-    placements: ['dashboard_sidebar', 'user_menu'],
+    placements: ['dashboard_sidebar', 'user_menu', 'mobile_nav'],
     requiresAuth: true,
     icon: 'MessageSquare',
     badge: 'AI',
@@ -257,7 +257,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/dealer/inventory',
     domain: 'commerce',
     roles: ['dealer'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'Car',
   },
@@ -298,7 +298,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/dealer/evidence',
     domain: 'evidence',
     roles: ['dealer'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'FileText',
   },
@@ -320,7 +320,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/mechanic/work-orders',
     domain: 'service',
     roles: ['mechanic'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'ClipboardList',
     badge: 8,
@@ -373,7 +373,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/insurance-dash/claims',
     domain: 'insurance',
     roles: ['insurance'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'FileText',
     badge: 12,
@@ -417,7 +417,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/government/registry',
     domain: 'government',
     roles: ['government'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'Search',
   },
@@ -469,7 +469,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/admin/users',
     domain: 'admin',
     roles: ['admin'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'UserCog',
   },
@@ -489,7 +489,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/admin/moderation',
     domain: 'admin',
     roles: ['admin'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'ShieldAlert',
   },
@@ -639,7 +639,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/bank/applications',
     domain: 'finance',
     roles: ['bank'],
-    placements: ['dashboard_sidebar'],
+    placements: ['dashboard_sidebar', 'mobile_nav'],
     requiresAuth: true,
     icon: 'ClipboardList',
     badge: 2,
@@ -682,7 +682,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/marketplace',
     domain: 'commerce',
     roles: [],
-    placements: ['footer'],
+    placements: ['footer', 'mobile_nav'],
     requiresAuth: false,
     icon: 'Car',
   },
@@ -712,7 +712,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/search',
     domain: 'trust',
     roles: [],
-    placements: ['footer'],
+    placements: ['footer', 'mobile_nav'],
     requiresAuth: false,
     icon: 'Shield',
   },
@@ -722,7 +722,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/dealers',
     domain: 'commerce',
     roles: [],
-    placements: ['header', 'footer'],
+    placements: ['header', 'footer', 'mobile_nav'],
     requiresAuth: false,
     icon: 'Building2',
   },
@@ -732,7 +732,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/garages',
     domain: 'commerce',
     roles: [],
-    placements: ['header', 'footer'],
+    placements: ['header', 'footer', 'mobile_nav'],
     requiresAuth: false,
     icon: 'Wrench',
   },
@@ -940,7 +940,7 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     route: '/dashboard/sell-vehicle',
     domain: 'commerce',
     roles: ['owner'],
-    placements: [],
+    placements: ['mobile_nav'],
     requiresAuth: true,
     icon: 'Car',
   },
@@ -1097,4 +1097,18 @@ export function canRoleAccessRoute(role: UserRole, route: string): boolean {
 /** Get the default dashboard route for a role */
 export function getDefaultRouteForRole(role: UserRole): string {
   return getDashboardRoute(role)
+}
+
+/** Get mobile hamburger navigation items based on authentication state and role */
+export function getMobileNavItems(role?: UserRole): FeatureRegistryItem[] {
+  return FEATURE_REGISTRY.filter(f => {
+    if (f.isHidden) return false
+    if (!f.placements.includes('mobile_nav')) return false
+    
+    if (role) {
+      return f.roles.includes(role) || !f.requiresAuth
+    } else {
+      return !f.requiresAuth
+    }
+  })
 }
