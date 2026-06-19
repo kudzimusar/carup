@@ -260,6 +260,7 @@ Trust-signal rules implemented in the summary contract:
 - `Evidence Available` is backed only by verified `vehicle_evidence` rows with `visibility_level = "public_safe"`.
 - `PartSentry Checked` requires explicit public-card eligibility plus `verification_status = "verified"`.
 - `Verified Parts` requires explicit public-card eligibility plus `part_verification_status = "verified"`.
+- PartSentry public-card signals are suppressed when `suspicion_status` is `watch` or `flagged`.
 - `Passport Verified`, `ZIMRA Verified`, `SafePay Ready`, and `Inspection Ready` require explicit backend fields.
 - Listing images remain listing media only. They are not treated as evidence.
 
