@@ -1,6 +1,6 @@
 # Database Migration Reconciliation
 
-> Generated: 2026-06-19
+> Generated: 2026-06-19 (updated 2026-06-19 after staging migration)
 > PR: #72 — phase-7c-native-verification-production-loop
 
 ---
@@ -65,52 +65,50 @@ were applied manually via the SQL editor rather than through Supabase migrations
 
 ### Migrations Recorded by Supabase
 
-Staging migration history is **more incomplete** than production.
+Staging migration history was incomplete before the Phase 7B/7C identity chain was
+applied via the connected Supabase integration. The following migrations are now
+recorded in the staging `supabase_migrations.schema_migrations` table:
 
-| Migration | Status | Notes |
-|-----------|--------|-------|
-| `20260603233640_governance_foundation_trust_audit_events.sql` | Applied | `trust_audit_events` exists with rows. |
-| Most earlier files | Unknown | Likely applied piecemeal via older migration runs. |
+| Migration | Applied At | Notes |
+|-----------|-----------|-------|
+| `20260603233640_governance_foundation_trust_audit_events.sql` | Pre-existing | `trust_audit_events` existed before this task with rows. |
+| `20260619013321_phase7b_supabase_auth_and_identity` | 2026-06-19 | First migration of the identity chain. |
+| `20260619013422_verification_admin_review_columns` | 2026-06-19 | Admin review columns on `verification_sessions`. The status-check constraint alignment was applied as a separate operation after the main migration because the Supabase integration split the DDL. |
+| `20260619013448_phase7c_ocr_provenance` | 2026-06-19 | OCR provenance audit table. |
+| `20260619013505_verification_case_management` | 2026-06-19 | Case management: assessments, decisions, workflow columns. |
+| `20260619013517_verification_evidence_trust_columns` | 2026-06-19 | Evidence/trust snapshot columns. |
 
-### Missing Staging Identity Migrations
+### Verified Post-Migration State
 
-The following migrations from the Phase 7B/7C identity chain have **NOT** been applied
-to staging:
+| Check | Result |
+|-------|--------|
+| `users` | PRESENT — 13 rows preserved |
+| `user_sessions` | PRESENT — 8 rows preserved |
+| `login_attempts` | PRESENT |
+| `ocr_documents` | PRESENT |
+| `verification_sessions` | PRESENT — accepts `retry_requested` status |
+| `trust_audit_events` | PRESENT — 6 rows preserved, structurally compatible |
+| `verification_ocr_provenance` | PRESENT |
+| `verification_assessments` | PRESENT |
+| `verification_decisions` | PRESENT |
+| `ocr-documents` bucket | PRESENT — private |
+| `pgcrypto` extension | PRESENT |
+| RLS on identity/verification tables | ENABLED |
+| `anon` direct access on new tables | DENIED |
+| `authenticated` direct access on new tables | DENIED |
+| `service_role` access on new tables | GRANTED |
 
-1. `20260613000000_phase7b_supabase_auth_and_identity.sql` — NOT applied
-   - `user_sessions` — absent
-   - `login_attempts` — absent
-   - `ocr_documents` — absent
-   - `verification_sessions` — absent
-   - `ocr-documents` storage bucket — absent
+### Staging State After Migration
 
-2. `20260613020000_verification_admin_review.sql` — NOT applied
-   - `review_decision`, `retry_reason`, `liveness_status` — absent
-
-3. `20260618030000_verification_ocr_provenance.sql` — NOT applied
-   - `verification_ocr_provenance` table — absent
-
-4. `20260618040000_verification_case_management.sql` — NOT applied
-   - `verification_assessments`, `verification_decisions` — absent
-   - `workflow_phase`, `final_disposition`, etc. — absent
-
-5. `20260618050000_verification_evidence_trust_columns.sql` — NOT applied
-   - `evidence_classification`, `ocr_execution_status`, etc. — absent
-
-### Known Manual Migrations Already Applied (Staging)
-
-- `trust_audit_events` table — present and structurally compatible with the repository migration
-- 39 public tables have RLS disabled
-
-### Current State
-
-- `verification_sessions` does NOT exist
-- `verification_ocr_provenance` does NOT exist
-- `user_sessions` does NOT exist
-- `login_attempts` does NOT exist
-- `ocr_documents` does NOT exist
-- `trust_audit_events` exists and is compatible
-- Staging is a **clean slate** for the Phase 7B/7C identity migration chain
+- All 9 required base tables exist (`users`, `user_sessions`, `login_attempts`,
+  `ocr_documents`, `verification_sessions`, `trust_audit_events`,
+  `verification_ocr_provenance`, `verification_assessments`, `verification_decisions`)
+- All 16 `verification_sessions` columns verified present with correct types
+- Foreign keys target compatible columns
+- Indexes exist on all expected columns
+- RLS enabled on all Phase 7B/7C identity and verification tables
+- `ocr-documents` bucket is private
+- 39 public tables still have RLS disabled (no existing policies were changed)
 
 ---
 
@@ -121,8 +119,9 @@ to staging:
 | `trust_audit_events` in staging has rows; replaying the CREATE TABLE would fail | Low | Use `CREATE TABLE IF NOT EXISTS` in all migrations |
 | Older numbered migrations (001–015) contain SQLite syntax incompatible with Postgres | High | Never run these against Supabase; use timestamp-prefixed Postgres-native files |
 | Manual SQL applied in production without repo migration record | Medium | Document each manual change; file additive migration if refinement needed |
-| Staging and production have diverged significantly | High | The approved 5-migration chain brings staging to parity; production needs only the final 2 |
-| `supabase_migrations.schema_migrations` tables may be out of sync | Medium | Do not insert fake historical rows; use additive migrations going forward |
+| Staging and production have diverged | Medium | Staging now includes all 5 identity migrations; production still missing the final 2 case-management migrations |
+| `supabase_migrations.schema_migrations` timestamps between migrations in staging do not match the repository file timestamps | Low | Migration content is identical; only the recording timestamp differs because the Supabase integration assigned its own timestamps during application |
+| Status-check constraint was applied as a separate operation after admin-review columns in staging | Low | The migration file `20260613020000` includes both the column addition and the constraint change in one file; the Supabase integration split them. No behavioural difference |
 
 ---
 

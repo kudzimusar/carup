@@ -267,68 +267,101 @@ Project reference:
 
 `eoyenigwevnxwwhyhaer`
 
-Last verified staging state:
+Current staging state (post-migration):
 
 - active and healthy PostgreSQL project
-- `trust_audit_events` exists
-- `verification_sessions` is missing
-- `verification_ocr_provenance` is missing
-- the Phase 7B/7C identity migration chain is not recorded
-- 39 public tables have RLS disabled
+- `trust_audit_events` exists with 6 rows
+- `users` exists with 13 rows
+- `user_sessions` exists with 8 rows
+- `verification_sessions` exists; accepts `retry_requested` status
+- `verification_ocr_provenance` exists
+- `verification_assessments` exists
+- `verification_decisions` exists
+- `login_attempts` exists
+- `ocr_documents` exists
+- `ocr-documents` bucket exists (private)
+- all 5 Phase 7B/7C identity migrations recorded in Supabase migration history
+- 39 public tables still have RLS disabled
+- RLS enabled on all Phase 7B/7C identity and verification tables
+- `service_role` granted access; `anon` and `authenticated` denied on new tables
 
-Staging is not ready for the two newest migrations in isolation.
+The status-check `verification_sessions_status_check` constraint was applied as a
+separate operation after the admin-review columns because the Supabase integration
+split the migration DDL.
 
 ---
 
 # 9. Approved staging identity migration chain
 
-Apply only after preflight passes and the owner explicitly authorizes staging DDL.
+**Status: APPLIED** (2026-06-19 via Supabase integration)
 
-Order:
+The five approved migrations were applied to `eoyenigwevnxwwhyhaer` in order:
 
-1. `database/migrations/20260613000000_phase7b_supabase_auth_and_identity.sql`
-2. `database/migrations/20260613020000_verification_admin_review.sql`
-3. `database/migrations/20260618030000_verification_ocr_provenance.sql`
-4. `database/migrations/20260618040000_verification_case_management.sql`
-5. `database/migrations/20260618050000_verification_evidence_trust_columns.sql`
+1. `20260619013321_phase7b_supabase_auth_and_identity`
+2. `20260619013422_verification_admin_review_columns`
+3. `20260619013448_phase7c_ocr_provenance`
+4. `20260619013505_verification_case_management`
+5. `20260619013517_verification_evidence_trust_columns`
 
-Do not blindly replay the old `trust_audit_events` migration because the table already exists in staging and contains rows.
+The status-check `verification_sessions_status_check` constraint was applied as a
+separate operation after migration 2 because the Supabase integration split the
+DDL into separate executions.
 
-First compare its live structure to the repository definition. Any correction must be additive and preserve existing data.
+`trust_audit_events` was left untouched (pre-existing, structurally compatible).
+
+The next phase must NOT re-apply these migrations to staging — they are already
+recorded in `supabase_migrations.schema_migrations`.
+
+### Remaining for production
+
+Production (`vhmnajoeicasaigiophh`) still requires only the final two migrations:
+
+1. `database/migrations/20260618040000_verification_case_management.sql`
+2. `database/migrations/20260618050000_verification_evidence_trust_columns.sql`
+
+All three pre-existing migrations (`trust_audit_events`, `verification_sessions`,
+`verification_ocr_provenance`) are already applied in production.
 
 ---
 
 # 10. Test and build state at handoff
 
-Reported targeted results on implementation head `0c73533`:
+## Current verified state (PR head `b6594084`)
 
-- decision-policy backend suite: green
-- document-classifier backend suite: green
-- admin-review backend suite: green
-- web Vitest: `119/119`
-- mobile truthful-state Vitest: `18/18`
-- web TypeScript: clean
-- mobile TypeScript: clean
-- Expo iOS export: successful
+| Check | Result |
+|-------|--------|
+| Backend full suite | **499 tests, 492 pass, 0 fail, 7 skip** |
+| Backend targeted 7C suites (5 suites) | **84/84** |
+| Web vitest | **119/119** |
+| Web TypeScript (`tsc -b`) | **exit 0** |
+| Web production build (`vite build`) | **success** |
+| Mobile vitest | **18/18** |
+| Mobile TypeScript (`tsc --noEmit`) | **exit 0** |
+| Mobile Expo iOS export | **success** |
 
-Reported full backend result:
+## Resolved failures
 
-- total: `474`
-- passed: `462`
-- failed: `5`
-- skipped: `7`
+All 5 previously reported failures (`audit-logger.test.js`, `auth-middleware.test.js`,
+`evidence-api.test.js`, `evidence-validation.test.js`, `trust-fact-workflow.test.js`)
+were caused by `db/supabase.js` eagerly validating env vars at module load time.
 
-Reported failing suites:
+**Fix:** Set `process.env.SUPABASE_URL` and `process.env.SUPABASE_SERVICE_ROLE_KEY`
+to dummy values before dynamic `await import()`, matching the established Phase 7C pattern.
 
-- `audit-logger.test.js`
-- `auth-middleware.test.js`
-- `evidence-api.test.js`
-- `evidence-validation.test.js`
-- `trust-fact-workflow.test.js`
+Root cause: These test files used static `import` from service modules (auditLogger,
+authMiddleware, evidenceService, trustFactWorkflowService) that all import
+`db/supabase.js` at module level. The supabase module throws on import if env vars
+are absent. The 5 service modules only need a mock client passed at call time; the
+default supabase client is never used in these tests.
 
-The next agent must reproduce, explain and fix these failures. “Pre-existing” is not a sufficient final state.
+All 31 individual tests within these 5 suites now pass deterministically.
 
-Skipped tests must be listed and explained.
+## Skipped tests (7, all pre-existing)
+
+| Suite | Tests Skipped | Reason |
+|-------|--------------|--------|
+| `diaspora-supabase-integration.test.js` | 3 | Require `RUN_DIASPORA_SUPABASE_INTEGRATION=true` + live Supabase credentials |
+| `qa-backend-blockers.test.js` | 4 | Require live Supabase env vars for integration-level QA checks |
 
 ---
 
@@ -385,20 +418,32 @@ The canonical work order is maintained in:
 
 [`docs/agent-prompts/PHASE_7C_STAGING_READINESS.md`](../agent-prompts/PHASE_7C_STAGING_READINESS.md)
 
-The active tasks are:
+## Completed tasks
 
-1. resolve the five full-suite backend failures
-2. create a read-only staging preflight
-3. validate the five-file migration chain
-4. compare existing staging `trust_audit_events`
-5. create a staging-only migration runner with production refusal
-6. create post-migration verification tooling
-7. document migration-history reconciliation
-8. document the RLS remediation plan
-9. correct the outdated PR #72 body
-10. run all backend, web, mobile and database-tooling checks
-11. push focused commits to the existing PR branch
-12. stop before staging DDL
+1. ✅ resolve the five full-suite backend failures
+2. ✅ create a read-only staging preflight (`scripts/phase7c-staging-preflight.mjs`)
+3. ✅ validate the five-file migration chain
+4. ✅ compare existing staging `trust_audit_events` (compatible, left untouched)
+5. ✅ create a staging-only migration runner with production refusal (`scripts/apply-phase7c-staging-migrations.mjs`)
+6. ✅ create post-migration verification tooling (`scripts/verify-phase7c-staging-schema.mjs`)
+7. ✅ document migration-history reconciliation (`docs/DATABASE_MIGRATION_RECONCILIATION.md`)
+8. ✅ document the RLS remediation plan (`docs/DATABASE_RLS_REMEDIATION_PLAN.md`)
+9. ✅ correct the outdated PR #72 body
+10. ✅ run all backend, web, mobile and database-tooling checks
+11. ✅ push focused commits to the existing PR branch
+12. ✅ apply the identity migration chain to staging (owner-authorized Supabase integration)
+13. ✅ verify staging schema and row preservation (users=13, user_sessions=8, trust_audit_events=6)
+
+## Remaining for production readiness
+
+1. Run cup/non-document end-to-end acceptance test against staging
+2. Run controlled synthetic-ID test against staging
+3. Test all review dispositions against staging
+4. Verify audit, idempotency and stale-version behaviour against staging
+5. Verify mobile refresh and resubmission against staging
+6. Obtain successful frontend deployment (Vercel quota blocker)
+7. Review security findings
+8. Decide whether to apply the two case-management migrations to production
 
 ---
 
@@ -441,22 +486,24 @@ A suitable first message in the new thread is:
 
 # 16. Next owner authorization point
 
-After the active agent completes the full-suite fixes, staging preflight, safe runner, verification tooling and documentation, it must stop and provide the final report required by the canonical prompt.
+The staging identity migration chain has been **applied and verified**.
 
-Only then may the owner authorize:
+The next authorization point is:
 
-`Apply the verified Phase 7C migration chain to carup-staging only.`
+`Apply the two case-management migrations (20260618040000, 20260618050000) to production (vhmnajoeicasaigiophh) only.`
 
-After staging migrations:
+Before that gate:
 
-1. verify schema and row preservation
-2. run the cup/non-document test
-3. run a controlled synthetic-ID test
-4. test all review dispositions
-5. verify audit, idempotency and stale-version behavior
-6. verify mobile refresh and resubmission
-7. obtain a successful frontend deployment
-8. review security findings
-9. decide whether production migration is authorized
+1. ✅ verify schema and row preservation — DONE (users=13, user_sessions=8, trust_audit_events=6)
+2. ⬜ run the cup/non-document end-to-end acceptance test against staging
+3. ⬜ run a controlled synthetic-ID test against staging
+4. ⬜ test all review dispositions against staging
+5. ⬜ verify audit, idempotency and stale-version behavior against staging
+6. ⬜ verify mobile refresh and resubmission against staging
+7. ⬜ obtain a successful frontend deployment (Vercel quota blocker)
+8. ⬜ review security findings
+9. ⬜ decide whether production migration is authorized
+
+PR #72 remains a no-merge PR until the production gate passes.
 
 PR #72 remains a no-merge PR until these gates pass.
