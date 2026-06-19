@@ -94,6 +94,7 @@ import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
 import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
@@ -273,6 +274,7 @@ export default function App() {
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/referrals" element={<ReferralCampaigns />} />
           <Route path="/admin/referrals/codes" element={<ReferralCodes />} />
@@ -281,6 +283,17 @@ export default function App() {
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
         </Route>
+        <Route path="*" element={
+          <div style={{ padding: '4rem 1.5rem', textAlign: 'center', fontFamily: 'system-ui, sans-serif', maxWidth: 640, margin: '0 auto' }}>
+            <h1 style={{ fontSize: 22, marginBottom: 12 }}>404 — Route not matched</h1>
+            <p style={{ color: '#475569', lineHeight: 1.5 }}>
+              This running build did not match the requested URL. If you expected
+              <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4 }}> /admin/verification</code>,
+              confirm the app is on the <strong>phase-7c-native-verification-production-loop</strong> branch and hard-reload
+              (DevTools → Application → Service Workers → Unregister, then reload) to clear a stale cached bundle.
+            </p>
+          </div>
+        } />
       </Routes>
     </AppContext.Provider>
   )
