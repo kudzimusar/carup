@@ -140,10 +140,11 @@ function isSelfApprovedPartSentry(row) {
 }
 
 /** Map raw PartSentry log state to the public-card status enum (not_applicable|suppressed|eligible|review_required|ineligible). */
-function derivePartSentryPublicStatus(allRows, { suppressed, eligibleVerifiedCount }) {
+function derivePartSentryPublicStatus(allRows, { suppressed, eligibleVerifiedCount, approvalProvenanceUnavailable }) {
   if (!allRows.length) return 'not_applicable';
   if (suppressed) return 'suppressed';
   if (eligibleVerifiedCount > 0) return 'eligible';
+  if (approvalProvenanceUnavailable) return 'review_required';
   const reviewPending = allRows.some(row =>
     ['pending', 'pending_review', 'review_required'].includes(normalizeText(row?.verification_status)) ||
     ['pending', 'pending_review', 'review_required'].includes(normalizeText(row?.part_verification_status))
@@ -156,12 +157,14 @@ export function summarizePartSentry(rows = []) {
   // Fail-closed suppression: any row whose suspicion_status is not in the non-suspicious allowlist
   // (watch/flagged or any unknown/future value) hides every PartSentry claim for the vehicle.
   const suppressed = all.some(isSuspiciousPartSentryRow);
-  // Governed public-card eligibility: opt-in flag + non-suspicious + not self-approved.
+  const approvalProvenanceUnavailable = all.some(row => row?.approval_provenance_available === false);
+  // Governed public-card eligibility: opt-in flag + non-suspicious + approver provenance + not self-approved.
   const eligibleRows = suppressed
     ? []
     : all.filter(row =>
         boolValue(row?.public_card_eligible) &&
         !isSuspiciousPartSentryRow(row) &&
+        row?.approval_provenance_available !== false &&
         !isSelfApprovedPartSentry(row)
       );
 
@@ -176,7 +179,8 @@ export function summarizePartSentry(rows = []) {
     verified_parts_count: verifiedPartRows.length,
     recent_service: recentService,
     suppressed,
-    public_status: derivePartSentryPublicStatus(all, { suppressed, eligibleVerifiedCount: verifiedRows.length }),
+    approval_provenance_available: !approvalProvenanceUnavailable,
+    public_status: derivePartSentryPublicStatus(all, { suppressed, eligibleVerifiedCount: verifiedRows.length, approvalProvenanceUnavailable }),
   };
 }
 
@@ -334,6 +338,57 @@ async function maybeFetchRows(supabaseClient, table, select, vins, order) {
   }
 }
 
+const PARTSENTRY_GOVERNED_SELECT =
+  'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible, approved_by, mechanic_id';
+const PARTSENTRY_LEGACY_SELECT =
+  'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible, mechanic_id';
+
+function isMissingApprovedByError(error) {
+  const text = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.code,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return text.includes('approved_by');
+}
+
+function withApprovalProvenance(rows, available) {
+  return (rows || []).map(row => ({
+    ...row,
+    approval_provenance_available: available,
+  }));
+}
+
+async function fetchPartSentryRows(supabaseClient, vins) {
+  if (!vins.length) return [];
+  const run = async (select) => {
+    const { data, error } = await supabaseClient
+      .from('partsentry_logs')
+      .select(select)
+      .in('vin', vins)
+      .order('timestamp', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  };
+
+  try {
+    return withApprovalProvenance(await run(PARTSENTRY_GOVERNED_SELECT), true);
+  } catch (error) {
+    if (!isMissingApprovedByError(error)) {
+      console.warn('Marketplace summary skipped partsentry_logs:', error.message);
+      return [];
+    }
+    console.warn('Marketplace summary using legacy partsentry_logs projection: approved_by unavailable.');
+    try {
+      return withApprovalProvenance(await run(PARTSENTRY_LEGACY_SELECT), false);
+    } catch (legacyError) {
+      console.warn('Marketplace summary skipped partsentry_logs legacy projection:', legacyError.message);
+      return [];
+    }
+  }
+}
+
 /**
  * Read-time fixture visibility control (Navigation Intelligence — Option A).
  * Production HIDES seed/demo/integration fixtures from the public marketplace by default. Set
@@ -396,14 +451,8 @@ export const LISTING_SELECT_COLUMNS = `
 export async function fetchListingRelatedRows(supabaseClient, vins = []) {
   const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
     maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
-    maybeFetchRows(
-      supabaseClient,
-      'partsentry_logs',
-      // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
-      'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible, approved_by, mechanic_id',
-      vins,
-      { column: 'timestamp', ascending: false }
-    ),
+    // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
+    fetchPartSentryRows(supabaseClient, vins),
     maybeFetchRows(supabaseClient, 'vehicle_ownership_history', 'vin', vins),
     maybeFetchRows(supabaseClient, 'listing_images', 'vin, image_url, is_primary, display_order', vins, { column: 'display_order', ascending: true }),
   ]);
