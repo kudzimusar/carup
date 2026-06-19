@@ -6,6 +6,7 @@
  */
 
 import { apiRequest, type AuthHeaders } from './apiClient'
+import type { EvidencePreview, DecisionAction, DecisionResponse } from '@shared/types'
 
 const BASE_PATH = '/admin/identity/verification-sessions'
 
@@ -27,7 +28,7 @@ interface SessionResponse {
 
 interface EvidencePreviewResponse {
   success: boolean
-  preview: { side: string; url: string; expiresInSeconds: number }
+  preview: EvidencePreview
 }
 
 /** List sessions in the review queue, optionally filtered by workflow phase or status. */
@@ -69,7 +70,7 @@ export async function fetchEvidencePreview(
   config: VerificationAdminClientConfig,
   sessionId: string,
   side: 'front' | 'back' | 'selfie',
-): Promise<{ side: string; url: string; expiresInSeconds: number }> {
+): Promise<EvidencePreview> {
   const res = await apiRequest<EvidencePreviewResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}/evidence/${encodeURIComponent(side)}/preview`,
@@ -93,10 +94,10 @@ export async function reviewVerificationSession(
     applicantMessage?: string | null
   },
 ): Promise<{
-  success: boolean
-  decision: any
-  session: any
-  allowed_actions: string[]
+  decision: DecisionResponse['decision']
+  session: import('@shared/types').AdminVerificationSession
+  allowed_actions: DecisionAction[]
+  success?: boolean
   idempotent_replay?: boolean
 }> {
   const res = await apiRequest<any>({

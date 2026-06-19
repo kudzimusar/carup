@@ -63,6 +63,8 @@ const bindingTone: Record<IdentityBindingStatus, string> = {
   match: 'bg-green-50 border-green-200 text-green-800',
   mismatch: 'bg-red-50 border-red-300 text-red-800',
   indeterminate: 'bg-amber-50 border-amber-200 text-amber-800',
+  not_run: 'bg-gray-50 border-gray-200 text-gray-500',
+  not_assessable: 'bg-gray-50 border-gray-200 text-gray-500',
 }
 
 /**
