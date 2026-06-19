@@ -71,6 +71,7 @@ import diasporaRouter from './routes/diasporaRoutes.js';
 import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
+import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 
@@ -194,6 +195,7 @@ app.use(financeRouter);
 app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(identityVerificationAdminRouter);
+app.use(partsentryReviewRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);

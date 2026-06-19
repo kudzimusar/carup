@@ -497,3 +497,134 @@ The audit drawer fetches `/api/verification/audit-trail/:vin` and renders event 
 - public Parts Marketplace
 - listing summary refresh workers
 - public marketplace trust badge changes
+
+## Phase 2B.1 PartSentry Public-Card Approval Backend Workflow
+
+Status: IMPLEMENTED
+
+This backend-only sprint adds governed review for PartSentry public-card trust signals. It does not add a frontend PartSentry review queue UI, public Parts Marketplace, certified garage reviewer workflow, government/CID suspicion workflow, SafePay readiness, ZIMRA/CID setters, dealer verification, listing summary refresh workers, or new public trust badge copy.
+
+### Review table
+
+Status: IMPLEMENTED
+
+Migration `database/migrations/20260605002341_partsentry_review_requests_phase2b1.sql` adds `partsentry_review_requests` for:
+
+- `public_card_eligible`
+- `verification_status`
+- `part_verification_status`
+- `suspicion_status`
+
+The table stores requested/current values, requester/reviewer role and tenant context, evidence references, linked PartSentry log IDs, reason, decision notes, lifecycle timestamps, and review status. RLS is enabled, anon/authenticated direct table access is revoked, and service-role backend writes remain the intended access path.
+
+### Routes added
+
+Status: IMPLEMENTED
+
+Routes are mounted from `backend/routes/partsentryReviewRoutes.js`:
+
+- `POST /api/verification/partsentry/:logId/requests`
+- `GET /api/verification/partsentry/review-queue`
+- `PATCH /api/verification/partsentry/:requestId/approve`
+- `PATCH /api/verification/partsentry/:requestId/reject`
+- `PATCH /api/verification/partsentry/:requestId/revoke`
+- `PATCH /api/verification/partsentry/:logId/flag-suspicion`
+- `PATCH /api/verification/partsentry/:logId/clear-suspicion`
+- `GET /api/verification/partsentry/audit-trail/:vin`
+- `GET /api/verification/partsentry/logs/:logId`
+
+### Roles and approval rule
+
+Status: IMPLEMENTED
+
+Submitter roles:
+
+- `mechanic` may submit review requests for their own PartSentry logs.
+- `owner` may submit review requests only for logs tied to owned vehicles.
+- `dealer` may submit review requests only for tenant-scoped vehicles.
+- `admin` may submit any PartSentry review request.
+
+Approver rule:
+
+- Phase 2B.1 is admin-only for review queue access and approve/reject/revoke decisions.
+- Mechanics cannot approve, reject, revoke, or verify PartSentry public-card facts.
+- Dealers cannot approve tenant PartSentry facts in Phase 2B.1.
+- Government users cannot approve routine PartSentry public-card facts in Phase 2B.1.
+- Reviewer self-approval is blocked when the actor ID matches `partsentry_logs.mechanic_id`.
+- System actors cannot create source PartSentry trust facts.
+
+### Evidence and provenance validation
+
+Status: IMPLEMENTED
+
+Approval validates that:
+
+- The PartSentry log exists.
+- The log VIN matches the review request VIN.
+- Evidence IDs exist when supplied.
+- Evidence rows match the same VIN.
+- Listing images do not count as evidence because approvals read only `vehicle_evidence`.
+
+Specific validation:
+
+- `public_card_eligible` requires a non-empty `part_name`, valid `action_type`, valid mileage when present, and `suspicion_status` of `none` or `cleared`.
+- `verification_status = verified` is blocked while suspicion is `watch` or `flagged` and requires verified supporting evidence when evidence is provided.
+- `part_verification_status = verified` requires `part_oem` or a durable part identifier plus verified invoice, receipt, serial, or work-order evidence.
+- Suspicion flagging requires decision notes and sets `public_card_eligible = false`.
+
+### Audit events
+
+Status: IMPLEMENTED
+
+Generic events:
+
+- `PARTSENTRY_REVIEW_REQUESTED`
+- `PARTSENTRY_REVIEW_APPROVED`
+- `PARTSENTRY_REVIEW_REJECTED`
+- `PARTSENTRY_REVIEW_REVOKED`
+
+Field events:
+
+- `PARTSENTRY_PUBLIC_CARD_ELIGIBILITY_APPROVED`
+- `PARTSENTRY_PUBLIC_CARD_ELIGIBILITY_REJECTED`
+- `PARTSENTRY_PUBLIC_CARD_ELIGIBILITY_REVOKED`
+- `PARTSENTRY_LOG_VERIFIED`
+- `PARTSENTRY_LOG_REJECTED`
+- `PARTSENTRY_LOG_DISPUTED`
+- `PART_VERIFICATION_APPROVED`
+- `PART_VERIFICATION_REJECTED`
+- `PART_VERIFICATION_REVOKED`
+- `PARTSENTRY_SUSPICION_FLAGGED`
+- `PARTSENTRY_SUSPICION_CLEARED`
+
+Approval, revocation, verification, and suspicion mutations call `backend/services/auditLogger.js` before mutating public-card fields. Audit failure blocks the mutation.
+
+### Marketplace summary impact
+
+Status: IMPLEMENTED_FOR_LIVE_READS
+
+`backend/services/marketplace/listingSummaryService.js` now ignores PartSentry rows with `suspicion_status = 'watch'` or `suspicion_status = 'flagged'` before deriving:
+
+- `partsentry_checked`
+- `repair_history_count`
+- `verified_parts_count`
+- `recent_service`
+- marketplace tags including `partsentry_checked`, `repair_history_available`, `verified_parts`, and `recent_service`
+
+`public_card_eligible = false` continues to suppress all public PartSentry labels. `backend/services/partsentry/partsentryService.js` also suppresses public repair-history reads for active suspicion rows.
+
+### Deferred Phase 2B.2/2B.3/2C work
+
+Status: SHOULD_DEFER
+
+Still deferred:
+
+- Frontend PartSentry review queue UI.
+- Certified garage reviewer workflow.
+- Government/CID suspicion workflow.
+- Public Parts Marketplace.
+- SafePay readiness.
+- ZIMRA/CID setters.
+- Dealer verification.
+- Materialized listing summary refresh workers.
+- New public trust badge copy.
