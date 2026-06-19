@@ -1,0 +1,52 @@
+-- ============================================================================
+-- Marketplace v1 — STAGING QA ROLE ACCOUNTS (PR #73)
+-- ----------------------------------------------------------------------------
+-- ⛔ This file no longer provisions accounts and contains NO credentials.
+--
+-- A previous version of this file committed a shared plaintext password and reusable
+-- scrypt hashes. That is a credential-in-repo defect (and staging is publicly reachable
+-- while Deployment Protection is off for QA), so that password is considered compromised
+-- and must never be activated. It was never provisioned to any account.
+--
+-- Provisioning is now ENVIRONMENT-DRIVEN and never stores credentials in the repo:
+--
+--   scripts/provision-staging-qa-accounts.mjs
+--     • reads one password per account from env (QA_BUYER_PASSWORD / QA_SELLER_PASSWORD /
+--       QA_ADMIN_PASSWORD),
+--     • hashes them at runtime via backend/utils/passwordAuth.js (same scheme as login),
+--     • refuses to run unless the target Supabase ref is exactly the staging ref
+--       (eoyenigwevnxwwhyhaer) and explicitly refuses production (vhmnajoeicasaigiophh),
+--     • never logs a plaintext password or a hash, and writes no credential to disk.
+--
+-- Run (operator, STAGING only):
+--   SUPABASE_DB_URL='<staging pooler url>' \
+--   QA_BUYER_PASSWORD='…' QA_SELLER_PASSWORD='…' QA_ADMIN_PASSWORD='…' \
+--   node scripts/provision-staging-qa-accounts.mjs
+--
+-- PRODUCT MODEL (buyer role): CarUp has no distinct "buyer"/"member" role, and the real
+-- public.users.users_role_check constraint only permits:
+--   owner, dealer, mechanic, insurance, government, bank, admin   ('member' is REJECTED)
+-- An ordinary Marketplace buyer is therefore an `owner` (buyer endpoints use authorizeRole([]) — any
+-- authenticated user — and `owner` is NOT a moderator role, so a buyer-as-owner still cannot moderate).
+-- The buyer account is distinguished from the seller by owning NO listings, not by role.
+--
+-- Accounts provisioned (idempotent upsert; on conflict updates name/email/phone/role/password_hash):
+--   qa-staging-buyer-73   role=owner   (owns NO listings — buyer flows; must NOT be able to moderate)
+--   qa-staging-seller-73  role=owner   (owns ONLY the QA listings in marketplace_v1_staging_qa_seed.sql)
+--   qa-staging-admin-73   role=admin   (platform moderation; platform-role gated)
+--
+-- CANONICAL STAGING ROLE-QA ACCOUNTS (what staging role QA currently uses):
+--   uat-owner@carup.local   role=owner   — buyer AND seller testing (one owner account covers both)
+--   uat-admin@carup.local    role=admin   — platform-admin / Marketplace moderation testing
+-- (Passwords for these live only in the operator's secret store — never in this repo or the PR.)
+--
+-- ============================================================================
+-- CLEANUP — remove QA sessions + the buyer/admin accounts (credential-free; safe to run on STAGING):
+--   delete from user_sessions where user_id in
+--     ('qa-staging-buyer-73','qa-staging-seller-73','qa-staging-admin-73');
+--   delete from users where id in ('qa-staging-buyer-73','qa-staging-admin-73');
+--
+-- The seller account (qa-staging-seller-73) and the 3 QA-owned listings are removed by the CLEANUP
+-- block in database/seeds/marketplace_v1_staging_qa_seed.sql. Only delete listing rows whose
+-- owner_id = 'qa-staging-seller-73'; never touch non-QA data.
+-- ============================================================================

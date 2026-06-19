@@ -39,29 +39,62 @@ export const fixtureListing = {
 };
 
 /**
- * Minimal in-memory mock of the Supabase query chain used by listMarketplaceListings:
- * .from(table).select(...).eq/.gte/.lte/.in/.order(...) then `await` -> { data, error }.
- * store: { vehicles: [...], vehicle_evidence?: [...], partsentry_logs?: [...], ... }
+ * Minimal in-memory mock of the Supabase query chain.
+ *
+ * Read:   .from(t).select(...).eq/.neq/.gte/.lte/.in/.order/.limit(...) then await -> { data:[], error }
+ * Single: .single()/.maybeSingle() -> { data: firstRow|null, error }
+ * Write:  .from(t).insert(row|rows)[.select()][.single()] | .update(patch).eq(...)[.select()][.single()]
+ *         .delete().eq(...) -> mutates store[t]
+ * store mutates in place so write-then-read assertions work across calls.
  */
 export function buildMockSupabase(store = {}) {
   return {
     from(table) {
-      const rows = store[table] || [];
+      if (!Array.isArray(store[table])) store[table] = store[table] ? [].concat(store[table]) : [];
+      const rows = store[table];
       const filters = [];
+      let mode = 'select';
+      let payload = null;
+      const applyFilters = () => rows.filter((r) => filters.every((f) => f(r)));
+      const resolve = () => {
+        if (mode === 'insert') {
+          const list = Array.isArray(payload) ? payload : [payload];
+          list.forEach((r) => rows.push(r));
+          return { data: Array.isArray(payload) ? list : list[0], list, error: null };
+        }
+        if (mode === 'update') {
+          const matched = applyFilters();
+          matched.forEach((r) => Object.assign(r, payload));
+          return { data: matched, list: matched, error: null };
+        }
+        if (mode === 'delete') {
+          const matched = applyFilters();
+          store[table] = rows.filter((r) => !matched.includes(r));
+          return { data: matched, list: matched, error: null };
+        }
+        const data = applyFilters();
+        return { data, list: data, error: null };
+      };
       const builder = {
         select() { return builder; },
         eq(col, val) { filters.push((r) => r[col] === val); return builder; },
+        neq(col, val) { filters.push((r) => r[col] !== val); return builder; },
         gte(col, val) { filters.push((r) => Number(r[col]) >= Number(val)); return builder; },
         lte(col, val) { filters.push((r) => Number(r[col]) <= Number(val)); return builder; },
         in(col, vals) { const set = new Set(vals); filters.push((r) => set.has(r[col])); return builder; },
         order() { return builder; },
+        limit() { return builder; },
+        insert(value) { mode = 'insert'; payload = value; return builder; },
+        update(patch) { mode = 'update'; payload = patch; return builder; },
+        delete() { mode = 'delete'; return builder; },
         single() {
-          const data = rows.filter((r) => filters.every((f) => f(r)));
-          return Promise.resolve({ data: data[0] || null, error: null });
+          const res = resolve();
+          return Promise.resolve({ data: (res.list && res.list[0]) || null, error: res.error });
         },
-        then(resolve, reject) {
-          const data = rows.filter((r) => filters.every((f) => f(r)));
-          return Promise.resolve({ data, error: null }).then(resolve, reject);
+        maybeSingle() { return builder.single(); },
+        then(onFulfilled, onRejected) {
+          const res = resolve();
+          return Promise.resolve({ data: res.data, error: res.error }).then(onFulfilled, onRejected);
         },
       };
       return builder;

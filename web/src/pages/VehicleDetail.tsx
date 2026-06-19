@@ -22,13 +22,43 @@ import {
 } from 'lucide-react'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
 import type {
   Vehicle,
   VehiclePassport,
   TimelineEvent,
   PassportVerificationSource,
+  MarketplaceListingDetail,
 } from '@/types'
+import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
+import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
+import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
+import { InquiryModal } from '@/components/marketplace/InquiryModal'
+import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
+
+/** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
+function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
+  return {
+    vin: d.vin,
+    id: d.vin,
+    make: d.make,
+    model: d.model,
+    year: d.year,
+    mileage: d.mileage,
+    price: d.price,
+    currency: d.currency,
+    fuel_type: d.fuel_type || undefined,
+    transmission: d.transmission || undefined,
+    status: d.status,
+    trust_score: d.trust_score,
+    images: (d.media || []).filter((m) => m.type === 'image').map((m) => m.url),
+    location: d.location || 'Zimbabwe',
+    sellerName: d.seller_summary?.display_label || 'Seller',
+    sellerType: d.seller_summary?.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
+    created_at: d.created_at || undefined,
+  } as Vehicle
+}
 
 // ── localStorage helpers ─────────────────────────────────────────────────────
 function getFavorites(): string[] {
@@ -156,10 +186,13 @@ function buildTrustBreakdown(passport: VehiclePassport | null): { label: string;
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport } = useCarUpApi()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings } = useCarUpApi()
+  const { isAuthenticated } = useAuth()
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
   const [passport, setPassport] = useState<VehiclePassport | null>(null)
+  const [detail, setDetail]     = useState<MarketplaceListingDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(true)
   const [loading, setLoading]   = useState(true)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
@@ -265,8 +298,66 @@ export default function VehicleDetail() {
     return () => { mounted = false }
   }, [id, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport])
 
-  const toggleFavorite = useCallback(() => {
+  // Backend-governed marketplace detail (trust/verification/pricing summaries). Best-effort: if the
+  // listing is not a public marketplace listing this stays null and the page renders the passport view.
+  useEffect(() => {
+    if (!id) return
+    let mounted = true
+    captureReferralFromUrl()
+    const attr = getStoredAttribution()
+    setDetailLoading(true)
+    fetchMarketplaceListingDetail(id, { ref: attr.referral_code, campaign: attr.campaign_code, source: attr.source })
+      .then((d) => {
+        if (!mounted) return
+        setDetail(d)
+        // Fallback: a real public marketplace listing must always open a real detail page. If the
+        // passport lookup didn't resolve a vehicle, hydrate from the marketplace detail so the page
+        // renders instead of showing "Vehicle Not Found".
+        setVehicle((prev) => prev ?? vehicleFromMarketplaceDetail(d))
+      })
+      .catch(() => { if (mounted) setDetail(null) })
+      .finally(() => { if (mounted) setDetailLoading(false) })
+    return () => { mounted = false }
+  }, [id, fetchMarketplaceListingDetail])
+
+  // Saved state is SERVER-backed + account-scoped for authenticated users (existing /marketplace/saved
+  // API), so it survives refresh and never leaks across accounts. Guests keep the browser-local list.
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    let active = true
+    fetchSavedMarketplaceListings()
+      .then(res => { if (active) setIsFav((res.listings || []).some(l => l.vin === vin)) })
+      .catch(() => { /* server unavailable — keep current */ })
+    return () => { active = false }
+  }, [isAuthenticated, vehicle?.vin, id, fetchSavedMarketplaceListings])
+
+  const toggleFavorite = useCallback(async () => {
     if (!vehicle) return
+
+    if (isAuthenticated) {
+      // Server-backed + account-scoped. Optimistic toggle, rolled back on error. No localStorage write.
+      const vin = vehicle.vin || id || ''
+      if (!vin) return
+      const previous = isFav
+      setIsFav(!previous)
+      try {
+        if (previous) {
+          await unsaveMarketplaceListing(vin)
+          toast.info('Removed from saved cars')
+        } else {
+          await saveMarketplaceListing(vin)
+          toast.success(`${vehicle.make ?? ''} ${vehicle.model ?? ''} saved!`)
+        }
+      } catch {
+        setIsFav(previous)
+        toast.error('Could not update saved cars. Please try again.')
+      }
+      return
+    }
+
+    // Guest fallback: browser-local only (unchanged behavior).
     const current = getFavorites()
     let updated: string[]
     if (current.includes(vehicle.id || '')) {
@@ -279,7 +370,7 @@ export default function VehicleDetail() {
       toast.success(`${vehicle.make ?? ''} ${vehicle.model ?? ''} saved!`)
     }
     localStorage.setItem('carup_favorites', JSON.stringify(updated))
-  }, [vehicle])
+  }, [vehicle, id, isAuthenticated, isFav, saveMarketplaceListing, unsaveMarketplaceListing])
 
   const handleShare = useCallback(async () => {
     const url = window.location.href
@@ -327,7 +418,7 @@ export default function VehicleDetail() {
   }
 
   // ── Loading / 404 states ─────────────────────────────────────────────────
-  if (loading) {
+  if (loading || (!vehicle && detailLoading)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
@@ -402,6 +493,39 @@ export default function VehicleDetail() {
         <Button variant="ghost" size="sm" className="mb-4 gap-1" onClick={() => navigate(-1)}>
           <ArrowLeft className="w-4 h-4" /> Back
         </Button>
+
+        {/* Backend-governed marketplace panels (trust, all-in price, inquiry, safety) */}
+        {detail && (
+          <div className="mb-6 grid gap-4 lg:grid-cols-3" data-testid="marketplace-detail-panels">
+            <div className="space-y-4 lg:col-span-2">
+              <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
+              <SafetyWarnings warnings={detail.safety_warnings} />
+            </div>
+            <div className="space-y-4">
+              <AllInPricePanel pricing={detail.pricing_summary} />
+              <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                <h3 className="mb-2 text-sm font-semibold text-gray-900">Contact &amp; inquire</h3>
+                <div className="flex flex-col gap-2">
+                  <InquiryModal
+                    listingId={detail.vin}
+                    inquiryTypes={['vehicle_purchase_interest', 'vehicle_inspection_request']}
+                    triggerLabel="Send inquiry"
+                    triggerClassName="w-full"
+                  />
+                  <InquiryModal
+                    listingId={detail.vin}
+                    inquiryTypes={['vehicle_inspection_request']}
+                    defaultInquiryType="vehicle_inspection_request"
+                    triggerLabel="Request inspection"
+                    triggerVariant="outline"
+                    triggerClassName="w-full"
+                  />
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500">Inquiries are safe — the CarUp team helps connect you. Never pay outside CarUp.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-6">
           {/* ── Left column ─────────────────────────────────────────────── */}
