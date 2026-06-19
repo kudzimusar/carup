@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import express from 'express';
-import {
+
+process.env.SUPABASE_URL ||= 'http://localhost:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
+
+const {
   canUploadEvidence,
   checksumForBuffer,
   evidenceStatusTrustImpact,
   evidenceToTimelineItem,
   parseBase64Payload,
   validateEvidenceUploadPayload
-} from '../services/evidence/evidenceService.js';
+} = await import('../services/evidence/evidenceService.js');
 
 function createEvidenceContractApp() {
   const app = express();

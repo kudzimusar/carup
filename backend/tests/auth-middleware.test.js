@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isUserIdFallbackAllowed, resolveEffectiveRole } from '../middleware/authMiddleware.js';
+
+process.env.SUPABASE_URL ||= 'http://localhost:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
+
+const { isUserIdFallbackAllowed, resolveEffectiveRole } = await import('../middleware/authMiddleware.js');
 
 test('rejects spoofed stakeholder role when it is not verified for the user', () => {
   assert.throws(
