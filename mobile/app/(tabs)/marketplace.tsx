@@ -3,45 +3,26 @@ import { View, Text, TextInput, Pressable, ActivityIndicator, ScrollView } from 
 import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useAuthStore } from '../../store/authStore';
+import { getMarketplaceListings, type MobileListingSummary } from '../../utils/marketplaceApi';
 
-interface Vehicle {
-  vin: string;
-  make: string;
-  model: string;
-  year: number;
-  price: number;
-  currency: string;
-  mileage: number;
-  trust_score: number;
-  status: string;
-}
+type Vehicle = MobileListingSummary;
 
 export default function MarketplaceScreen() {
   const router = useRouter();
-  const token = useAuthStore((state) => state.token);
   const [search, setSearch] = useState('');
   const [selectedMake, setSelectedMake] = useState<string | null>(null);
 
-  // Fetch marketplace available vehicles
+  // Consume the SAME canonical contract as web (GET /api/marketplace/listings via the
+  // CSRF/auth/base-url plumbing) instead of the legacy localhost /api/vehicles array.
   const { data: vehicles = [], isLoading, error, refetch } = useQuery<Vehicle[]>({
-    queryKey: ['vehicles', selectedMake],
+    queryKey: ['marketplace-listings', selectedMake],
     queryFn: async () => {
-      const makeQuery = selectedMake ? `?make=${selectedMake}` : '';
-      const response = await fetch(`http://localhost:5001/api/vehicles${makeQuery}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'x-session-token': token } : {}),
-        },
-      });
-      if (!response.ok) {
-        throw new Error('Failed to retrieve listings');
-      }
-      return response.json();
+      const res = await getMarketplaceListings(selectedMake ? { make: selectedMake } : undefined);
+      return res.listings || [];
     },
   });
 
-  const filteredVehicles = vehicles.filter((v: Vehicle) => 
+  const filteredVehicles = vehicles.filter((v: Vehicle) =>
     v.make.toLowerCase().includes(search.toLowerCase()) ||
     v.model.toLowerCase().includes(search.toLowerCase()) ||
     v.vin.toLowerCase().includes(search.toLowerCase())

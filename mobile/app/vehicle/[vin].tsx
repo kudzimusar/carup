@@ -1,8 +1,9 @@
-import React from 'react';
-import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
+import { getMarketplaceListingDetail, createMarketplaceInquiry, type MobileListingDetail } from '../../utils/marketplaceApi';
 
 interface TimelineEvent {
   title: string;
@@ -67,12 +68,29 @@ export default function VehicleDetailScreen() {
     enabled: !!vin,
   });
 
-  const handleCreateEscrow = () => {
-    // Navigate user to Phase 5 SafePay escrow checkout (or show confirmation)
-    if (data?.vehicle) {
-      router.push({
-        pathname: '/(tabs)/marketplace', // Stub redirection for tabs, can launch direct escrow modal
-      });
+  // Backend-governed marketplace detail (trust_summary) — same contract as web. Best-effort.
+  const { data: marketplaceDetail } = useQuery<MobileListingDetail | null>({
+    queryKey: ['marketplace-detail', vin],
+    queryFn: async () => {
+      try { return await getMarketplaceListingDetail(String(vin)); } catch { return null; }
+    },
+    enabled: !!vin,
+  });
+
+  const [inquiring, setInquiring] = useState(false);
+  const handleInquire = async () => {
+    if (!token) {
+      Alert.alert('Sign in to inquire', 'Please sign in so the seller can respond safely. Never pay outside CarUp.');
+      return;
+    }
+    setInquiring(true);
+    try {
+      await createMarketplaceInquiry({ listing_id: String(vin), inquiry_type: 'vehicle_purchase_interest' });
+      Alert.alert('Inquiry sent', 'The CarUp team will help connect you safely. Never pay outside CarUp.');
+    } catch (e) {
+      Alert.alert('Could not send inquiry', e instanceof Error ? e.message : 'Please try again.');
+    } finally {
+      setInquiring(false);
     }
   };
 
@@ -149,6 +167,32 @@ export default function VehicleDetailScreen() {
             <Text className="text-orange-500 text-xxs font-semibold uppercase tracking-wider mt-0.5">Score</Text>
           </View>
         </View>
+
+        {/* Backend-governed marketplace trust summary (same contract as web) */}
+        {marketplaceDetail?.trust_summary && (
+          <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
+            <Text className="text-slate-900 text-base font-bold mb-3">Trust Summary</Text>
+            {marketplaceDetail.trust_summary.risk_status !== 'clear' && (
+              <View className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+                <Text className="text-amber-700 text-xs">{marketplaceDetail.trust_summary.safe_public_copy}</Text>
+              </View>
+            )}
+            {marketplaceDetail.trust_summary.public_badge_copy.length > 0 ? (
+              <View className="flex-row flex-wrap gap-2">
+                {marketplaceDetail.trust_summary.public_badge_copy.map((copy) => (
+                  <View key={copy} className="bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-1">
+                    <Text className="text-emerald-700 text-xxs font-bold">{copy}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text className="text-slate-400 text-xs">No public trust badges for this listing yet.</Text>
+            )}
+            <Text className="text-slate-400 text-xxs mt-3">
+              PartSentry: {marketplaceDetail.trust_summary.partsentry_public_status} · Evidence: {marketplaceDetail.trust_summary.evidence_status}
+            </Text>
+          </View>
+        )}
 
         {/* Verification Checks Block */}
         <View className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm mb-6">
@@ -228,10 +272,11 @@ export default function VehicleDetailScreen() {
         </View>
 
         <Pressable
-          onPress={handleCreateEscrow}
+          onPress={handleInquire}
+          disabled={inquiring}
           className="bg-orange-500 px-8 py-3.5 rounded-xl shadow-md active:opacity-90"
         >
-          <Text className="text-white text-base font-bold">Secure Purchase</Text>
+          <Text className="text-white text-base font-bold">{inquiring ? 'Sending…' : 'Express Interest'}</Text>
         </Pressable>
       </View>
     </View>

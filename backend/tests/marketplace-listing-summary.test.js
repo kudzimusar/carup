@@ -4,6 +4,7 @@ import {
   buildMarketplaceListingSummary,
   deriveConditionCategory,
   deriveMarketplaceTags,
+  fetchListingRelatedRows,
   summarizeEvidence,
   summarizePartSentry,
   filterVisibleVehicles,
@@ -50,6 +51,110 @@ test('requires explicit public PartSentry eligibility before showing card signal
   assert.equal(summary.verified_parts_count, 0);
   assert.equal(summary.repair_history_count, 1);
   assert.equal(summary.recent_service, true);
+});
+
+test('missing PartSentry approval provenance fails closed as review_required', () => {
+  const summary = summarizePartSentry([
+    {
+      action_type: 'Replaced',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      part_verification_status: 'verified',
+      public_card_eligible: true,
+      suspicion_status: 'none',
+      approval_provenance_available: false,
+    },
+  ]);
+
+  assert.equal(summary.partsentry_checked, false);
+  assert.equal(summary.verified_parts_count, 0);
+  assert.equal(summary.repair_history_count, 0);
+  assert.equal(summary.recent_service, false);
+  assert.equal(summary.public_status, 'review_required');
+});
+
+test('suspicious PartSentry rows remain suppressed even when approval provenance is unavailable', () => {
+  const summary = summarizePartSentry([
+    {
+      action_type: 'Replaced',
+      timestamp: new Date().toISOString(),
+      verification_status: 'verified',
+      part_verification_status: 'verified',
+      public_card_eligible: true,
+      suspicion_status: 'flagged',
+      approval_provenance_available: false,
+    },
+  ]);
+
+  assert.equal(summary.suppressed, true);
+  assert.equal(summary.public_status, 'suppressed');
+  assert.equal(summary.partsentry_checked, false);
+});
+
+test('fetchListingRelatedRows retries legacy PartSentry projection when approved_by is unavailable', async () => {
+  const vin = '1HGBH41JXMN109186';
+  const calls = [];
+  const client = {
+    from(table) {
+      if (table !== 'partsentry_logs') {
+        const builder = {
+          select() {
+            return builder;
+          },
+          in() {
+            return builder;
+          },
+          order() {
+            return builder;
+          },
+          then(onFulfilled, onRejected) {
+            return Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected);
+          },
+        };
+        return builder;
+      }
+
+      return {
+        select(columns) {
+          calls.push(columns);
+          return {
+            in() {
+              return {
+                order() {
+                  if (columns.includes('approved_by')) {
+                    return Promise.resolve({ data: null, error: { message: 'column partsentry_logs.approved_by does not exist' } });
+                  }
+                  return Promise.resolve({
+                    data: [{
+                      vin,
+                      action_type: 'Replaced',
+                      timestamp: new Date().toISOString(),
+                      verification_status: 'verified',
+                      part_verification_status: 'verified',
+                      public_card_eligible: true,
+                      suspicion_status: 'none',
+                      mechanic_id: 'mech-1',
+                    }],
+                    error: null,
+                  });
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const { partSentryByVin } = await fetchListingRelatedRows(client, [vin]);
+  const rows = partSentryByVin.get(vin) || [];
+  assert.equal(calls.length, 2);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].approval_provenance_available, false);
+
+  const summary = summarizePartSentry(rows);
+  assert.equal(summary.partsentry_checked, false);
+  assert.equal(summary.public_status, 'review_required');
 });
 
 test('builds a public-safe listing summary without owner PII or fake passport claims', () => {

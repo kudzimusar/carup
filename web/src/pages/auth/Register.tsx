@@ -5,23 +5,12 @@ import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Car, Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import type { UserRole } from '@shared/types'
 
-const roles = [
-  { value: 'owner', label: 'Car Owner' },
-  { value: 'dealer', label: 'Dealer' },
-  { value: 'mechanic', label: 'Mechanic / Garage' },
-  { value: 'insurance', label: 'Insurance Provider' },
-]
+// Public registration always creates a Car Owner. Privileged roles (dealer, mechanic, insurance,
+// and platform roles) are provisioned through governed, authenticated onboarding — never selected
+// or transmitted by the public sign-up form. The server also rejects any non-owner role request.
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -34,7 +23,7 @@ export default function Register() {
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', phone: '',
-    password: '', confirmPassword: '', role: 'owner' as UserRole, location: ''
+    password: '', confirmPassword: '', location: ''
   })
   const [loading, setLoading] = useState(false)
 
@@ -72,7 +61,8 @@ export default function Register() {
           email: form.email,
           phone: form.phone,
           password: form.password,
-          role: form.role
+          // Public sign-up is always a Car Owner; never transmit a client-chosen role.
+          role: 'owner'
         }),
       })
 
@@ -142,14 +132,9 @@ export default function Register() {
                     <label className="text-sm font-medium mb-1.5 block">Phone Number</label>
                     <Input required value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+263 7XX XXX XXX" />
                   </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">I am a...</label>
-                    <Select value={form.role} onValueChange={v => setForm({ ...form, role: v as UserRole })}>
-                      <SelectTrigger><SelectValue placeholder="Select your role" /></SelectTrigger>
-                      <SelectContent>
-                        {roles.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-600">
+                    You're creating a <span className="font-semibold text-gray-900">Car Owner</span> account. Dealers, garages,
+                    and partners are onboarded separately by the CarUp team.
                   </div>
                 </>
               ) : (
