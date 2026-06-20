@@ -738,6 +738,83 @@ export interface DiasporaAiExecuteResult {
   idempotentReplay?: boolean;
 }
 
+// ── Phase 6: Container Co-Loading ───────────────────────────────────────────
+export interface DiasporaContainerCapacity {
+  totalVolume: number;
+  usedVolume: number;
+  availableVolume: number;
+  fillPercent: number;
+  readyToClose: boolean;
+  full: boolean;
+  overfilled: boolean;
+}
+
+export interface DiasporaMarketplaceContainer {
+  id: string;
+  tenant_id?: string | null;
+  origin_country?: string;
+  origin_city?: string;
+  destination_country?: string;
+  destination_city?: string;
+  departure_date?: string;
+  booking_deadline?: string;
+  container_type?: string;
+  total_capacity_volume?: number;
+  used_capacity_volume?: number;
+  available_capacity_volume?: number;
+  status: string;
+  coordinator_id?: string | null;
+  metadata?: { capacity?: Partial<DiasporaContainerCapacity>; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface DiasporaContainerCapacityResult {
+  container: DiasporaMarketplaceContainer;
+  capacity: DiasporaContainerCapacity;
+}
+
+export interface DiasporaMarketplaceReservation {
+  id: string;
+  container_id: string;
+  import_order_id?: string | null;
+  buyer_id?: string | null;
+  cargo_type?: string;
+  estimated_volume: number;
+  estimated_weight?: number | null;
+  currency?: string;
+  reservation_status: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaMarketplaceContainerPayload {
+  origin_country: string;
+  origin_city: string;
+  destination_country: string;
+  destination_city: string;
+  departure_date: string;
+  booking_deadline: string;
+  container_type?: string;
+  total_capacity_volume: number;
+  total_capacity_weight?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaReservationRequestPayload {
+  estimated_volume: number;
+  estimated_weight?: number;
+  import_order_id?: string;
+  cargo_type?: string;
+  currency?: string;
+  cargo_description?: string;
+  source?: string;
+}
+
+export interface DiasporaReservationActionResult {
+  reservation: DiasporaMarketplaceReservation;
+  capacity: DiasporaContainerCapacity;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;

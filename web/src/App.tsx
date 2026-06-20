@@ -45,6 +45,7 @@ import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOp
 import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
 import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
+import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -196,6 +197,7 @@ export default function App() {
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
+          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
