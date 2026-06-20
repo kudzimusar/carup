@@ -60,7 +60,11 @@ import type {
   DiasporaContainerCapacityResult,
   DiasporaMarketplaceReservation,
   DiasporaReservationRequestPayload,
-  DiasporaReservationActionResult
+  DiasporaReservationActionResult,
+  DiasporaDriveStatus,
+  DiasporaDriveAuthUrl,
+  DiasporaDriveFile,
+  DiasporaDriveConnection
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -717,6 +721,32 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 7: Google Drive Integration ──
+  const fetchDiasporaDriveStatus = useCallback(async (): Promise<DiasporaDriveStatus> => {
+    const response = await request<{ data: DiasporaDriveStatus }>('/diaspora/drive/status')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaDriveAuthorizeUrl = useCallback(async (): Promise<DiasporaDriveAuthUrl> => {
+    const response = await request<{ data: DiasporaDriveAuthUrl }>('/diaspora/drive/google/authorize')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaDriveFiles = useCallback(async (): Promise<DiasporaDriveFile[]> => {
+    const response = await request<{ data: DiasporaDriveFile[] }>('/diaspora/drive/files')
+    return response.data || []
+  }, [request])
+
+  const disconnectDiasporaDrive = useCallback(async (): Promise<DiasporaDriveConnection> => {
+    const response = await request<{ data: DiasporaDriveConnection }>('/diaspora/drive/disconnect', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const syncDiasporaDrive = useCallback(async (): Promise<DiasporaDriveConnection> => {
+    const response = await request<{ data: DiasporaDriveConnection }>('/diaspora/drive/sync', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1199,6 +1229,11 @@ export function useCarUpApi() {
     rejectDiasporaMarketplaceReservation,
     cancelDiasporaMarketplaceReservation,
     closeDiasporaContainerBooking,
+    fetchDiasporaDriveStatus,
+    fetchDiasporaDriveAuthorizeUrl,
+    fetchDiasporaDriveFiles,
+    disconnectDiasporaDrive,
+    syncDiasporaDrive,
     reportStolen,
     checkStolen,
     fetchDealerReputation,

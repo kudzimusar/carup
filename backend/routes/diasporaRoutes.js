@@ -6,6 +6,7 @@ import diasporaStockRouter from './diasporaStockRoutes.js';
 import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
 import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRoutes.js';
+import diasporaDriveRouter from './diasporaDriveRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -47,6 +48,9 @@ router.use(diasporaAiCommandRouter);
 
 // Phase 6: Container co-loading marketplace (authoritative server-side capacity rules).
 router.use(diasporaContainerMarketplaceRouter);
+
+// Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
+router.use(diasporaDriveRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {
