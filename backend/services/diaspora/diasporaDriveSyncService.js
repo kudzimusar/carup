@@ -17,7 +17,7 @@ import {
   driveStateSecret,
 } from '../../constants/diaspora/diasporaDriveConstants.js';
 import { requireUserContext, normalizeId } from './diasporaAuthorization.js';
-import { resolveClient, appendAudit } from './diasporaServiceUtils.js';
+import { resolveClient, appendCriticalAudit } from './diasporaServiceUtils.js';
 import { getDriveProvider, DriveProviderError } from './drive/driveProvider.js';
 
 const CONNECTIONS = 'diaspora_drive_connections';
@@ -177,7 +177,7 @@ export async function handleOAuthCallback({ code, state } = {}, userContext = {}
     saved = data;
   }
 
-  await appendAudit(client, { actorId: context.id, tenantId: saved.tenant_id, action: 'DRIVE_CONNECTED', resourceType: 'diaspora_drive_connection', resourceId: saved.id, metadata: { provider: DRIVE_PROVIDERS.GOOGLE } });
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: saved.tenant_id, action: 'DRIVE_CONNECTED', resourceType: 'diaspora_drive_connection', resourceId: saved.id, metadata: { provider: DRIVE_PROVIDERS.GOOGLE } });
   return sanitizeConnection(saved);
 }
 
@@ -197,7 +197,7 @@ export async function disconnectDrive(userContext = {}, options = {}) {
     updated_at: new Date().toISOString(),
   }).eq('id', connection.id).select().single();
   if (error) throw new ValidationError(`Failed to disconnect Drive: ${error.message}`);
-  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'DRIVE_DISCONNECTED', resourceType: 'diaspora_drive_connection', resourceId: data.id });
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'DRIVE_DISCONNECTED', resourceType: 'diaspora_drive_connection', resourceId: data.id });
   return sanitizeConnection(data);
 }
 
@@ -265,7 +265,7 @@ export async function uploadDriveFile(payload = {}, userContext = {}, options = 
   }).select().single();
   if (error) throw new ValidationError(`Failed to record Drive file: ${error.message}`);
 
-  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'DRIVE_FILE_UPLOADED', resourceType: 'diaspora_drive_file', resourceId: data.id, metadata: { linkedEntityType, linkedEntityId: data.linked_entity_id } });
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'DRIVE_FILE_UPLOADED', resourceType: 'diaspora_drive_file', resourceId: data.id, metadata: { linkedEntityType, linkedEntityId: data.linked_entity_id } });
   return { file: sanitizeFile(data), idempotentReplay: false };
 }
 

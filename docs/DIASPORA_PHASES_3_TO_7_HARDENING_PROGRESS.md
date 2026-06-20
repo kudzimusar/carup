@@ -107,8 +107,27 @@
   x-stakeholder-role cannot escalate, cross-tenant x-tenant-id rejected, unauthenticated 401.
 - **Commit SHA**: _set on commit_.
 
-### H5 — Critical audit policy
-_pending_
+### H5 — Critical audit policy (Risk E)
+- **Outcome**: audit is no longer uniformly best-effort while docs claim guaranteed audit.
+- **Policy**:
+  - The integrity-critical mutations (stock movement, quote acceptance, container approval) write
+    their audit row INSIDE the atomic RPC transaction → audit failure rolls the mutation back
+    (proven by the H1/H2/H3 rollback tests).
+  - `appendCriticalAudit` (throws / fail-loud) is used for the security-relevant JS-orchestrated
+    lifecycle mutations: AI approve/reject/execute (+ execution-blocked), cargo reservation
+    reject/cancel, and Drive connect/disconnect/upload — audit failure surfaces as an error and is
+    never silently swallowed.
+  - `appendBestEffortAudit` (returns null) is reserved for descriptive create/update/publish and
+    telemetry; `appendAudit` is an explicit alias of it.
+- **Files**: `diasporaServiceUtils.js` (helpers), `diasporaAiCommandService.js`,
+  `diasporaContainerMarketplaceService.js`, `diasporaDriveSyncService.js`.
+- **Tests**: `backend/tests/diaspora-audit-policy.test.js` (4) — critical throws on failure,
+  best-effort/ alias never throw; plus the in-RPC rollback tests from H1/H2/H3.
+- **Known limitation (documented, not hidden)**: the fail-loud JS lifecycle mutations are
+  single-statement (not multi-statement transactions); converting AI lifecycle + reservation
+  reject/cancel + Drive to full RPC transactions for true rollback is a tracked follow-up. The three
+  highest-integrity paths already have true transactional rollback.
+- **Commit SHA**: _set on commit_.
 
 ### H6 — Drive & OAuth boundaries
 _pending_
