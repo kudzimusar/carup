@@ -7,13 +7,21 @@
 
 ## What shipped
 
+> **Hardening in progress (PR #81).** The states below reflect feature breadth delivered with
+> mock-tested coverage. A hardening program is converting this to database-safe, authorization-safe,
+> integration-proven code (atomic RPCs, explicit role allowlists, critical audit, OAuth replay
+> protection, staging validation, independent CI). See
+> `docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_HARDENING_DIRECTIVE.md` and
+> `docs/DIASPORA_PHASES_3_TO_7_HARDENING_PROGRESS.md`. Do not treat these as production-safe until the
+> hardening merge gates pass.
+
 | Phase | Title | State | Commit |
 | --- | --- | --- | --- |
-| 3 | Online Stock & Supply Documents | CODE-COMPLETE | `94b6dce` |
-| 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE | `0c8f6b7` |
-| 5 | AI Command Hardening | CODE-COMPLETE | `93ca439` |
-| 6 | Container Co-Loading | CODE-COMPLETE | `4d7e79c` |
-| 7 | Google Drive Integration | CODE-COMPLETE PENDING EXTERNAL ACTIVATION | `900f02c` |
+| 3 | Online Stock & Supply Documents | IMPLEMENTED — HARDENING IN PROGRESS | `94b6dce` |
+| 4 | Buyer Orders & Reverse RFQ | IMPLEMENTED — HARDENING IN PROGRESS | `0c8f6b7` |
+| 5 | AI Command Hardening | IMPLEMENTED — HARDENING IN PROGRESS | `93ca439` |
+| 6 | Container Co-Loading | IMPLEMENTED — HARDENING IN PROGRESS | `4d7e79c` |
+| 7 | Google Drive Integration | SCAFFOLD/MOCK-COMPLETE — LIVE GOOGLE ACTIVATION NOT IMPLEMENTED | `900f02c` |
 
 Discovery baseline: `1b3395e`. Per-phase detail (files, endpoints, tests, limitations) lives in
 `docs/DIASPORA_PHASES_3_TO_7_PROGRESS.md`.
@@ -60,19 +68,30 @@ Phase 7 Drive only: `DIASPORA_DRIVE_ENABLED`, `DIASPORA_DRIVE_MOCK`, `DIASPORA_D
 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_DRIVE_REDIRECT_URI`. With none set, Drive is
 disabled and the mock provider is used in tests/dev.
 
-## Safety posture (verified by tests)
+## Safety posture
+
+Design intent (the hardening program proves these at the transaction/authorization/staging boundaries):
 
 - **Stock**: quantities change only through the immutable ledger; available never negative;
-  idempotent movements; `ADJUST_WITH_APPROVAL` gated to reviewer/admin.
-- **RFQ**: quote acceptance transactional + idempotent (rejects siblings); buyers/sellers scoped.
+  idempotent movements; `ADJUST_WITH_APPROVAL` gated to reviewer/admin. **Hardening (H1):** the
+  insert+update+audit sequence is being replaced by a single atomic `SELECT … FOR UPDATE` RPC.
+- **RFQ**: idempotent acceptance that rejects siblings; buyers/sellers scoped. **Hardening (H2):**
+  multi-call accept/reject/update being replaced by an atomic RPC (concurrency-safe).
 - **AI**: low → draft only; medium → confirm; high → reviewer approval but execution always blocked;
   execution re-validates permission/risk/gate; AI never directly mutates domain records.
-- **Container**: server-side capacity authority rejects overfill incl. concurrent approvals; closing
-  booking ≠ shipment completion.
-- **Drive**: minimal scope, signed user-bound OAuth state, tokens never persisted/returned/logged,
-  revocation handled, sanitized errors, feature-flagged, mockable.
-- Tenant/ownership isolation and sealed audit on every mutation across all phases. No automatic
-  payment/escrow/compliance/verification/shipment/reputation. No XLSX faking.
+- **Container**: server-side capacity authority rejects overfill. **Hardening (H3):** approval being
+  serialized via a row-locking atomic RPC so concurrent approvals cannot overfill. Closing booking ≠
+  shipment completion.
+- **Drive**: minimal scope; tokens never persisted/returned/logged. **Hardening (H6):** fail-closed
+  production provider selection, OAuth state expiry + one-time replay protection; classified
+  SCAFFOLD/MOCK-COMPLETE until live Google operations are implemented and staging-verified.
+- Tenant/ownership isolation on every mutation. **Hardening (H4/H5):** explicit backend role
+  allowlists and a critical-audit policy that rolls back the mutation when audit insertion fails. No
+  automatic payment/escrow/compliance/verification/shipment/reputation. No XLSX faking.
+
+Until the hardening gates pass (atomicity, authorization, audit, staging, CI, Drive/OAuth,
+regression), these are design guarantees enforced by mock-tested code, not yet by applied database
+transactions or live integration.
 
 ## Test evidence
 
