@@ -40,6 +40,7 @@ import {
   DiasporaLanding,
   NewDiasporaImportOrder,
 } from './pages/diaspora/DiasporaTrade'
+import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 
 // Auth Pages
@@ -191,6 +192,7 @@ export default function App() {
           <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
+          <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
         </Route>
 
         {/* Auth Routes */}
