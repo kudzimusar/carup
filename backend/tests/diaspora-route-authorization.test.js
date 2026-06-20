@@ -114,6 +114,7 @@ test('rfq/quote routes are seller-scoped: owner denied, dealer allowed', async (
 
 test('container create/approve are reviewer-only', async () => {
   assert.equal((await req('POST', '/api/diaspora/container-marketplace/containers', { userId: 'buyer-1', body: { total_capacity_volume: 10 } })).status, 403);
+  assert.equal((await req('POST', '/api/diaspora/container-marketplace/containers', { userId: 'seller-1', body: { total_capacity_volume: 10 } })).status, 403);
   assert.ok(notForbidden((await req('POST', '/api/diaspora/container-marketplace/containers', { userId: 'reviewer-1', body: { total_capacity_volume: 10 } })).status));
   assert.equal((await req('POST', '/api/diaspora/container-marketplace/reservations/res-1/approve', { userId: 'buyer-1' })).status, 403);
   assert.equal((await req('POST', '/api/diaspora/container-marketplace/reservations/res-1/approve', { userId: 'seller-1' })).status, 403);
