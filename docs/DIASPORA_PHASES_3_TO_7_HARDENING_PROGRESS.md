@@ -171,8 +171,12 @@
 - **Gated suite**: `backend/tests/staging/diaspora-staging-integration.test.js` — skipped by default
   (2 skipped); refuses the forbidden production project; proves RPC existence + concurrent
   over-reserve prevention against a real DB when enabled.
-- **Applied to staging**: NO — awaiting explicit authorization (STOP gate).
-  Staging `eoyenigwevnxwwhyhaer`; production `vhmnajoeicasaigiophh` forbidden.
+- **Applied to staging**: NO.
+- **BLOCKED (2026-06-21)**: staging apply authorized for `eoyenigwevnxwwhyhaer`, but the Supabase MCP
+  returns `permission denied` for it and exposes only `sfhtlzcgrnrdznhvdrbn` ("production-os") —
+  neither the authorized staging nor the named forbidden production. No migration applied; the
+  reachable "production-os" project was NOT touched (not authorized). Awaiting staging access /
+  correct ref / staging DATABASE_URL.
 - **Commit SHA**: _set on commit_.
 
 ### H8 — CI acceptance workflow (Risk G)
