@@ -815,6 +815,49 @@ export interface DiasporaReservationActionResult {
   capacity: DiasporaContainerCapacity;
 }
 
+// ── Phase 7: Google Drive Integration ───────────────────────────────────────
+export interface DiasporaDriveConnection {
+  id?: string;
+  provider?: string;
+  providerAccountEmail?: string | null;
+  rootFolderId?: string | null;
+  rootFolderUrl?: string | null;
+  scopes?: string[];
+  accessStatus?: string;
+  lastSyncAt?: string | null;
+  revokedAt?: string | null;
+  connected?: boolean;
+}
+
+export interface DiasporaDriveStatus {
+  enabled: boolean;
+  provider: string;
+  scopes: string[];
+  connection: DiasporaDriveConnection | null;
+  onedrive: { available: boolean; note?: string };
+  workbookExport: { xlsx: boolean; note?: string };
+}
+
+export interface DiasporaDriveAuthUrl {
+  url: string;
+  scopes: string[];
+  state: string;
+}
+
+export interface DiasporaDriveFile {
+  id: string;
+  provider?: string;
+  driveFileId?: string;
+  driveFileUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+  checksumSha256?: string | null;
+  linkedEntityType?: string;
+  linkedEntityId?: string;
+  syncStatus?: string;
+  lastSyncAt?: string | null;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;

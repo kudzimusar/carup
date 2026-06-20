@@ -19,7 +19,7 @@
 | 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE |
 | 5 | AI Command Hardening | CODE-COMPLETE |
 | 6 | Container Co-Loading | CODE-COMPLETE |
-| 7 | Google Drive Integration | NOT STARTED |
+| 7 | Google Drive Integration | CODE-COMPLETE PENDING EXTERNAL ACTIVATION |
 
 State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDING EXTERNAL ACTIVATION · BLOCKED · DONE.
 
@@ -189,4 +189,41 @@ State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDI
 - **Next milestone**: Phase 7 — Google Drive Integration.
 
 ## Milestone: Phase 7 — Google Drive Integration
-_pending_
+
+- **Objective**: Secure, provider-abstracted Drive integration for user-owned trade documents.
+- **State**: CODE-COMPLETE PENDING EXTERNAL ACTIVATION (mocked flows pass; live Google needs real
+  OAuth credentials + the Google API client — an explicit external step, documented, never faked).
+- **Repository findings / schema**: `diaspora_drive_connections` + `diaspora_drive_files` exist
+  (Phase 1B). No migration needed.
+- **Files changed**:
+  - `backend/constants/diaspora/diasporaDriveConstants.js`
+  - `backend/services/diaspora/drive/driveProvider.js` (interface + MockDriveProvider + factory)
+  - `backend/services/diaspora/drive/googleDriveProvider.js` (real auth-URL; ops gated on activation)
+  - `backend/services/diaspora/diasporaDriveSyncService.js`
+  - `backend/routes/diasporaDriveRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-drive.test.js`
+  - `backend/env.example` (Drive env vars, no real values)
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaDriveConnections.tsx`
+  - `web/src/App.tsx` (`/diaspora/drive`), `web/src/config/featureRegistry.ts` (`diaspora.drive-connections`)
+  - `web/e2e/diaspora-drive-connections.spec.ts`
+- **Endpoints added**: `GET /api/diaspora/drive/status`, `GET /drive/google/authorize`,
+  `GET /drive/google/callback`, `POST /drive/disconnect`, `GET /drive/files`, `POST /drive/upload`,
+  `POST /drive/export`, `POST /drive/sync`.
+- **Frontend routes added**: `/diaspora/drive` (owner/dealer/admin).
+- **Security**: minimal `drive.file` scope; signed OAuth state bound to the initiating user (tampered/
+  foreign state rejected); tokens never persisted (only an opaque `credential_reference`) and never
+  returned to the frontend or logged; revoked token → REVOKED/reconnect; provider errors sanitized;
+  disconnect revokes + drops the local reference; per-user isolation; feature-flag gate;
+  mockable provider for tests. Truthful XLSX-export limitation surfaced in UI.
+- **Env vars required** (no real values; see `backend/env.example`): `DIASPORA_DRIVE_ENABLED`,
+  `DIASPORA_DRIVE_MOCK`, `DIASPORA_DRIVE_STATE_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `GOOGLE_DRIVE_REDIRECT_URI`.
+- **Tests run / results**: backend `diaspora-drive.test.js` → 12/12 pass; e2e
+  `diaspora-drive-connections.spec.ts` → 4/4 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations / external blocker**: live Google Drive requires user-supplied OAuth
+  credentials, the Google API client dependency, and an authorized end-to-end test. No dependency was
+  added. OneDrive is interface-only. Binary XLSX→Drive parity deferred (Phase 2C is JSON-only).
+- **Blockers**: live activation requires real Google OAuth credentials (user-provided).
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Final regression + handoff docs; keep PR draft.

@@ -649,6 +649,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Gauge',
   },
   {
+    id: 'diaspora.drive-connections',
+    label: 'Drive Connections',
+    route: '/diaspora/drive',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Building2',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',
