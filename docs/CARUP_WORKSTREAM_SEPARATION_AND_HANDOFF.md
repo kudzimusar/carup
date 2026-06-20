@@ -12,6 +12,8 @@ Codex
 
 CarUp Diaspora Trade OS is complete through Phase 2B: Operator Console UX Stabilization.
 
+Phase 2C Workbook Intake and Dry-Run UI is in progress.
+
 Latest completed Diaspora UI commit:
 
 - `821106e7ee9563439fefe558ec4b729e00290bcb` - `feat: polish diaspora workbook operator console ux`
@@ -124,6 +126,22 @@ Phase 2B completed:
 
 Phase 2B does not add live import, retry execution, rollback execution, AI execution, Drive/OAuth, backend import execution, migrations, or production Supabase changes.
 
+### Phase 2C - Workbook Intake and Dry-Run UI
+
+Phase 2C is in progress.
+
+Current scope:
+
+- JSON-only workbook file intake.
+- JSON paste/edit intake.
+- Template schema selection and preview.
+- Template download unavailable state.
+- Dry-run submission to the existing JSON backend contract.
+- Validation result and persisted batch confirmation.
+- Links back to the workbook operator console.
+
+Phase 2C must not add XLSX parsing, binary template generation, backend dry-run behavior changes, live import, execute-drafts controls, retry execution, rollback execution, AI execution, Drive/OAuth, migrations, production Supabase changes, Vehicle Evidence work, Navigation Intelligence work, Mobile Identity work, or PartSentry work.
+
 ## Paused Workstreams
 
 - Navigation Intelligence - Antigravity
@@ -138,7 +156,7 @@ These workstreams must remain separate from Diaspora Trade OS unless an explicit
 
 ### Option A - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
 
-Start the next Diaspora UI phase only after an explicit Phase 2C handoff.
+In progress on branch `codex/diaspora-phase-2c-workbook-dry-run-ui`.
 
 ### Option B - Codex: Diaspora Phase 1J Backend Readiness Checklist
 

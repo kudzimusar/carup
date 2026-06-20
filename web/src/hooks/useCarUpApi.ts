@@ -36,7 +36,11 @@ import type {
   DiasporaWorkbookOperatorDashboardFilters,
   DiasporaWorkbookOperatorHold,
   DiasporaWorkbookOperatorNextActions,
-  DiasporaWorkbookOperatorNote
+  DiasporaWorkbookOperatorNote,
+  DiasporaWorkbookDryRunPayload,
+  DiasporaWorkbookDryRunResult,
+  DiasporaWorkbookTemplateDownloadStatus,
+  DiasporaWorkbookTemplateSchemaResponse
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -573,6 +577,24 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  const fetchDiasporaWorkbookTemplateSchema = useCallback(async (templateType: string): Promise<DiasporaWorkbookTemplateSchemaResponse> => {
+    const query = templateType ? `?templateType=${encodeURIComponent(templateType)}` : ''
+    return request<DiasporaWorkbookTemplateSchemaResponse>(`/diaspora/workbook/template-schema${query}`)
+  }, [request])
+
+  const fetchDiasporaWorkbookTemplateDownloadStatus = useCallback(async (templateType: string): Promise<DiasporaWorkbookTemplateDownloadStatus> => {
+    const query = templateType ? `?templateType=${encodeURIComponent(templateType)}` : ''
+    return request<DiasporaWorkbookTemplateDownloadStatus>(`/diaspora/workbook/download-template${query}`)
+  }, [request])
+
+  const runDiasporaWorkbookDryRun = useCallback(async (payload: DiasporaWorkbookDryRunPayload): Promise<DiasporaWorkbookDryRunResult> => {
+    const response = await request<{ data: DiasporaWorkbookDryRunResult }>('/diaspora/workbook/dry-run', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1037,6 +1059,9 @@ export function useCarUpApi() {
     addDiasporaWorkbookOperatorNote,
     setDiasporaWorkbookOperatorHold,
     clearDiasporaWorkbookOperatorHold,
+    fetchDiasporaWorkbookTemplateSchema,
+    fetchDiasporaWorkbookTemplateDownloadStatus,
+    runDiasporaWorkbookDryRun,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
