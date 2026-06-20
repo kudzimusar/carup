@@ -64,8 +64,19 @@
 - **Staging-gated**: real concurrent over-reservation test (pending staging authorization).
 - **Commit SHA**: _set on commit_.
 
-### H2 — Atomic quote acceptance
-_pending_
+### H2 — Atomic quote acceptance (Risk B)
+- **Outcome**: quote acceptance is one atomic DB transaction.
+- **Migration/RPC**: `database/migrations/20260621091000_diaspora_h2_quote_acceptance_rpc.sql` →
+  `diaspora_accept_quote_atomic(...)` — `SELECT … FOR UPDATE` on the order + selected quote, authority
+  check, idempotent replay / different-quote conflict, accept one + reject siblings + stamp order +
+  critical audit, all in one transaction; service-role-only execute.
+- **Service**: `diasporaBuyerOrderService.js.acceptQuote` now calls the RPC only (no multi-call
+  accept/reject/update loop) with sanitized error translation.
+- **Tests**: `diaspora-rfq.test.js` (14) incl. one-accepted-rejects-siblings, idempotent replay,
+  different-second-quote conflict, draft rejected, cross-order rejected, non-owner denied, and
+  audit-failure rollback (quote stays ISSUED, siblings untouched, order unstamped).
+- **Staging-gated**: true concurrent two-quote acceptance test (pending staging authorization).
+- **Commit SHA**: _set on commit_.
 
 ### H3 — Serialized container approval
 _pending_

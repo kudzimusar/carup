@@ -6,7 +6,7 @@
  * the accepted quote on the order; a repeat accept of the same quote is a no-op replay.
  */
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
-import { RFQ_URGENCY, QUOTE_DB_STATUSES } from '../../constants/diaspora/diasporaRfqConstants.js';
+import { RFQ_URGENCY } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { matchSupplyForOrder } from './diasporaDemandSupplyMatchingService.js';
@@ -14,6 +14,23 @@ import { matchSupplyForOrder } from './diasporaDemandSupplyMatchingService.js';
 const ORDERS = 'diaspora_import_orders';
 const QUOTES = 'diaspora_import_quotes';
 const VALID_ORDER_TYPES = ['vehicle', 'parts', 'mixed'];
+const ACCEPT_QUOTE_RPC = 'diaspora_accept_quote_atomic';
+
+/** Map a sanitized accept-quote RPC exception to a stable application error. */
+function translateAcceptQuoteError(error) {
+  const raw = String(error?.message || 'Quote acceptance failed');
+  const marker = raw.indexOf('DIASPORA_QUOTE/');
+  const code = marker >= 0 ? raw.slice(marker + 'DIASPORA_QUOTE/'.length).split(/[:\s]/)[0] : '';
+  switch (code) {
+    case 'NOT_FOUND_ORDER': return new NotFoundError('Diaspora buyer order not found');
+    case 'NOT_FOUND_QUOTE': return new NotFoundError('Quote not found');
+    case 'FORBIDDEN': return new ForbiddenError('You do not have access to this buyer order');
+    case 'ALREADY_ACCEPTED_DIFFERENT': return new ValidationError('This order already has a different accepted quote');
+    case 'QUOTE_NOT_IN_ORDER': return new ValidationError('Quote does not belong to this order');
+    case 'NOT_SUBMITTED': return new ValidationError('Only submitted quotes can be accepted');
+    default: return new ValidationError('Quote acceptance could not be applied');
+  }
+}
 
 function canRead(order, context) {
   return isPlatformAdmin(context) || isPlatformReviewer(context) || isOrderOwner(order, context) ||
@@ -155,43 +172,24 @@ export async function getOrderMatches(id, userContext = {}, options = {}) {
 }
 
 /**
- * Accept one quote. Transactional + idempotent. Rejects other submitted quotes for the order.
+ * Accept one quote through the atomic RPC: lock order, validate authority, accept exactly one
+ * submitted quote, reject siblings, stamp the order, and write a critical audit row — in one
+ * transaction. Idempotent for the same quote; conflicts on a different accepted quote. No non-atomic
+ * production fallback (directive H2 §13).
  */
 export async function acceptQuote(orderId, quoteId, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
-  const { req = null } = options;
-  const order = await loadOrder(client, orderId, context, { mutate: true });
+  if (!quoteId) throw new ValidationError('quoteId is required to accept a quote');
 
-  const alreadyAccepted = order.metadata?.rfq?.acceptedQuoteId;
-  if (alreadyAccepted) {
-    if (alreadyAccepted === quoteId) {
-      const { data: existing } = await client.from(QUOTES).select('*').eq('id', quoteId).single();
-      return { order, acceptedQuote: existing, idempotentReplay: true };
-    }
-    throw new ValidationError('This order already has a different accepted quote');
-  }
-
-  const { data: quote, error: quoteErr } = await client.from(QUOTES).select('*').eq('id', quoteId).is('deleted_at', null).single();
-  if (quoteErr || !quote) throw new NotFoundError('Quote not found');
-  if (normalizeId(quote.import_order_id) !== normalizeId(orderId)) throw new ValidationError('Quote does not belong to this order');
-  if (quote.status !== QUOTE_DB_STATUSES.SUBMITTED) throw new ValidationError(`Only submitted quotes can be accepted (status: ${quote.status})`);
-
-  // Accept the chosen quote.
-  const { data: accepted, error: acceptErr } = await client.from(QUOTES).update({ status: QUOTE_DB_STATUSES.ACCEPTED, updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', quoteId).select().single();
-  if (acceptErr) throw new ValidationError(`Failed to accept quote: ${acceptErr.message}`);
-
-  // Reject the other submitted quotes for this order.
-  const { data: siblings } = await client.from(QUOTES).select('*').eq('import_order_id', orderId).is('deleted_at', null);
-  for (const sibling of siblings || []) {
-    if (sibling.id !== quoteId && sibling.status === QUOTE_DB_STATUSES.SUBMITTED) {
-      await client.from(QUOTES).update({ status: QUOTE_DB_STATUSES.REJECTED, updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', sibling.id).select().single();
-    }
-  }
-
-  const metadata = { ...(order.metadata || {}), rfq: { ...(order.metadata?.rfq || {}), acceptedQuoteId: quoteId, acceptedAt: new Date().toISOString() } };
-  const { data: updatedOrder } = await client.from(ORDERS).update({ metadata, status: 'SELLER_ASSIGNED', updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', orderId).select().single();
-
-  await appendAudit(client, { importOrderId: orderId, actorId: context.id, tenantId: order.tenant_id, action: 'RFQ_QUOTE_ACCEPTED', resourceType: 'diaspora_import_quote', resourceId: quoteId, previousState: quote, newState: accepted, metadata: { orderId }, req });
-  return { order: updatedOrder, acceptedQuote: accepted, idempotentReplay: false };
+  const { data, error } = await client.rpc(ACCEPT_QUOTE_RPC, {
+    p_order_id: orderId,
+    p_quote_id: quoteId,
+    p_actor_id: context.id,
+    p_tenant_id: context.tenantId || null,
+    p_actor_is_privileged: isPlatformAdmin(context) || isPlatformReviewer(context),
+  });
+  if (error) throw translateAcceptQuoteError(error);
+  if (!data) throw new ValidationError('Quote acceptance returned no result');
+  return { order: data.order, acceptedQuote: data.acceptedQuote, idempotentReplay: Boolean(data.idempotentReplay) };
 }
