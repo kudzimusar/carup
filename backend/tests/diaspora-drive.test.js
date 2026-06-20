@@ -13,9 +13,9 @@ process.env.DIASPORA_DRIVE_ENABLED = 'true';
 process.env.DIASPORA_DRIVE_MOCK = 'true';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
-const { MockDriveProvider } = await import('../services/diaspora/drive/driveProvider.js');
+const { MockDriveProvider, getDriveProvider } = await import('../services/diaspora/drive/driveProvider.js');
 const drive = await import('../services/diaspora/diasporaDriveSyncService.js');
-const { DRIVE_SCOPES } = await import('../constants/diaspora/diasporaDriveConstants.js');
+const { DRIVE_SCOPES, driveStateSecret, shouldUseMockProvider } = await import('../constants/diaspora/diasporaDriveConstants.js');
 
 const userA = { id: 'a', userId: 'a', role: 'dealer', platformRole: 'dealer', tenantId: null };
 const userB = { id: 'b', userId: 'b', role: 'dealer', platformRole: 'dealer', tenantId: null };
@@ -146,4 +146,63 @@ test('feature-disabled authorize is safe', async () => {
   const status = await drive.getDriveStatus(userA, env.options());
   assert.equal(status.enabled, false);
   process.env.DIASPORA_DRIVE_ENABLED = 'true';
+});
+
+// ── H6: OAuth expiry + one-time replay protection ──
+
+test('H6: expired OAuth state is rejected', async () => {
+  const env = ctx();
+  const past = Date.now() - 60_000;
+  const state = drive.buildOAuthState({ userId: userA.id, tenantId: null, nonce: 'n-exp', iat: past - 1000, exp: past });
+  await assert.rejects(() => drive.handleOAuthCallback({ code: 'mock-code', state }, userA, env.options()), /expired/i);
+});
+
+test('H6: a replayed (already-consumed) OAuth state is rejected', async () => {
+  const env = ctx();
+  const { state } = await drive.getAuthorizationUrl(userA, env.options());
+  await drive.handleOAuthCallback({ code: 'mock-code', state }, userA, env.options()); // consumes nonce
+  await assert.rejects(() => drive.handleOAuthCallback({ code: 'mock-code', state }, userA, env.options()), /already been used|unknown/i);
+});
+
+// ── H6: fail-closed production provider selection ──
+
+test('H6: production never auto-selects the mock provider', async () => {
+  const original = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DIASPORA_DRIVE_MOCK;
+    assert.equal(shouldUseMockProvider(), false);
+    const provider = await getDriveProvider('google'); // no injected provider
+    assert.notEqual(provider.constructor.name, 'MockDriveProvider');
+    assert.equal(provider.name, 'google');
+  } finally {
+    process.env.NODE_ENV = original;
+    process.env.DIASPORA_DRIVE_MOCK = 'true';
+  }
+});
+
+test('H6: DIASPORA_DRIVE_MOCK is rejected in production', async () => {
+  const original = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.DIASPORA_DRIVE_MOCK = 'true';
+    await assert.rejects(() => getDriveProvider('google'), /must not be enabled in production/i);
+  } finally {
+    process.env.NODE_ENV = original;
+    process.env.DIASPORA_DRIVE_MOCK = 'true';
+  }
+});
+
+test('H6: missing production state secret fails closed', () => {
+  const originalEnv = process.env.NODE_ENV;
+  const originalSecret = process.env.DIASPORA_DRIVE_STATE_SECRET;
+  try {
+    process.env.NODE_ENV = 'production';
+    delete process.env.DIASPORA_DRIVE_STATE_SECRET;
+    assert.throws(() => driveStateSecret(), /required in production/i);
+  } finally {
+    process.env.NODE_ENV = originalEnv;
+    if (originalSecret === undefined) delete process.env.DIASPORA_DRIVE_STATE_SECRET;
+    else process.env.DIASPORA_DRIVE_STATE_SECRET = originalSecret;
+  }
 });

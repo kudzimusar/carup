@@ -129,8 +129,26 @@
   highest-integrity paths already have true transactional rollback.
 - **Commit SHA**: _set on commit_.
 
-### H6 — Drive & OAuth boundaries
-_pending_
+### H6 — Drive & OAuth boundaries (Risks H, I, J)
+- **Classification (Risk H)**: Phase 7 = `SCAFFOLD/MOCK-COMPLETE — LIVE GOOGLE ACTIVATION NOT
+  IMPLEMENTED` (the real Google provider implements the auth-URL only; token exchange/refresh/revoke/
+  folder/upload/metadata throw `EXTERNAL_ACTIVATION_REQUIRED`).
+- **Fail-closed provider selection (Risk I)**: `shouldUseMockProvider()` returns false in production;
+  `assertDriveProductionSafety()` rejects `DIASPORA_DRIVE_MOCK=true` in production; missing Google
+  config → real provider throws `NOT_CONFIGURED` (safe error); disabled → truthful status. No mock URL
+  is emitted in production.
+- **OAuth state hardening (Risk J)**: signed state now carries userId, tenantId, issued-at, expiry,
+  and a random nonce. A nonce row (`diaspora_oauth_states`, additive migration
+  `20260621093000_diaspora_h6_oauth_state_nonce.sql`) is issued at authorize and consumed once at
+  callback via a conditional `UPDATE … WHERE consumed_at IS NULL`, so tampered/expired/foreign/
+  replayed/consumed state is rejected. `DIASPORA_DRIVE_STATE_SECRET` is required in production (no
+  fixed fallback secret).
+- **Files**: `diasporaDriveConstants.js`, `drive/driveProvider.js`, `diasporaDriveSyncService.js`,
+  `database/migrations/20260621093000_diaspora_h6_oauth_state_nonce.sql`, `backend/env.example`.
+- **Tests**: `diaspora-drive.test.js` (17) incl. minimal scope, signed/tampered/foreign state,
+  expiry, replay rejection, production never auto-selects mock, mock rejected in production, missing
+  production state secret fails closed, tokens never returned, sanitized errors.
+- **Commit SHA**: _set on commit_.
 
 ### H7 — Migration & staging validation (prepared, not applied)
 _pending_
