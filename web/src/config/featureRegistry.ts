@@ -599,6 +599,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'ClipboardList',
   },
   {
+    id: 'diaspora.workbook-dry-run',
+    label: 'New Dry Run',
+    route: '/admin/diaspora/workbooks/new',
+    domain: 'diaspora',
+    roles: ['admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',
