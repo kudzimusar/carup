@@ -81,5 +81,24 @@ does not lose balance data. Re-apply is idempotent.
 
 ## Status
 
-- Migrations applied to staging: **NO** (awaiting authorization).
+- Migrations applied to staging: **NO**.
 - Production touched: **NO**.
+
+### BLOCKED — authorized staging project not reachable (2026-06-21)
+
+Staging apply was authorized for `eoyenigwevnxwwhyhaer`, but the connected Supabase MCP integration
+**cannot access that project**:
+
+- `get_project('eoyenigwevnxwwhyhaer')` → `permission denied`.
+- `list_projects` returns exactly one project: `sfhtlzcgrnrdznhvdrbn` (name **"production-os"**),
+  which is **neither** the authorized staging (`eoyenigwevnxwwhyhaer`) **nor** the named forbidden
+  production (`vhmnajoeicasaigiophh`).
+
+No migration was applied. The only reachable project is named "production-os" and was **not**
+authorized, so it must not be touched. To proceed, one of the following is required:
+
+1. Connect/grant the Supabase integration to the org/project containing `eoyenigwevnxwwhyhaer`, or
+2. Provide a staging `DATABASE_URL` for `eoyenigwevnxwwhyhaer` so the gated pg-based suite can run, or
+3. Confirm the correct staging project ref (if `eoyenigwevnxwwhyhaer` is wrong).
+
+Until then, H7-apply / H9 staging smoke remain blocked; all code-side gates are complete and green.

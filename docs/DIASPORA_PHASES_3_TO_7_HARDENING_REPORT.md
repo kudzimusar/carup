@@ -69,8 +69,11 @@ Drive only (no real values; see `backend/env.example`): `DIASPORA_DRIVE_ENABLED`
 
 ## Remaining external blockers / pending
 
-- **Staging authorization** to apply the migration set to `eoyenigwevnxwwhyhaer` (H7 apply).
-- **H9** authenticated staging smoke test (needs staging applied + credentials).
+- **BLOCKED — staging project unreachable.** Staging apply was authorized for `eoyenigwevnxwwhyhaer`,
+  but the connected Supabase MCP returns `permission denied` for it and lists only one project,
+  `sfhtlzcgrnrdznhvdrbn` ("production-os") — which is neither the authorized staging nor the named
+  forbidden production. No migration was applied; the "production-os" project was **not** touched.
+  Resolution options in `docs/DIASPORA_PHASES_3_TO_7_STAGING_PLAN.md`. H7-apply + H9 remain blocked.
 - **Live Google Drive** activation (real OAuth credentials + Google API client) — out of this scope.
 
 ## Adversarial review (independent verification)
