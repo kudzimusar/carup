@@ -3,6 +3,7 @@ import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
 import diasporaStockRouter from './diasporaStockRoutes.js';
+import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -35,6 +36,9 @@ router.use(diasporaWorkbookRouter);
 
 // Phase 3: Online stock, immutable stock ledger, and supply documents.
 router.use(diasporaStockRouter);
+
+// Phase 4: Buyer orders, Reverse RFQ marketplace, and quote selection.
+router.use(diasporaBuyerOrderRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {

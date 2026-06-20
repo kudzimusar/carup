@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | Discovery | Audit + ledger + draft PR | DONE (baseline) |
 | 3 | Online Stock & Supply Documents | CODE-COMPLETE |
-| 4 | Buyer Orders & Reverse RFQ | NOT STARTED |
+| 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE |
 | 5 | AI Command Hardening | NOT STARTED |
 | 6 | Container Co-Loading | NOT STARTED |
 | 7 | Google Drive Integration | NOT STARTED |
@@ -89,7 +89,39 @@ State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDI
 - **Next milestone**: Phase 4 — Buyer Orders & Reverse RFQ.
 
 ## Milestone: Phase 4 — Buyer Orders & Reverse RFQ
-_pending_
+
+- **Objective**: Buyer demand documents, deterministic matching, seller RFQ responses, transactional
+  + idempotent single-quote acceptance.
+- **Repository findings / schema**: Reuses `diaspora_import_orders` + `diaspora_import_quotes`. RFQ
+  lifecycle stored in `metadata.rfq` (additive, no migration). Quote logical SUBMITTED maps to DB
+  `ISSUED` to satisfy the existing CHECK constraint.
+- **Files changed**:
+  - `backend/constants/diaspora/diasporaRfqConstants.js`
+  - `backend/services/diaspora/diasporaDemandSupplyMatchingService.js` (explainable scoring)
+  - `backend/services/diaspora/diasporaBuyerOrderService.js`
+  - `backend/services/diaspora/diasporaRfqService.js`
+  - `backend/routes/diasporaBuyerOrderRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-rfq.test.js`
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaReverseRfq.tsx`
+  - `web/src/App.tsx` (`/diaspora/rfq`), `web/src/config/featureRegistry.ts` (`diaspora.reverse-rfq`)
+  - `web/e2e/diaspora-reverse-rfq.spec.ts`
+- **Endpoints added**: `GET/POST /api/diaspora/buyer-orders`, `GET/PATCH /buyer-orders/:id`,
+  `POST /buyer-orders/:id/publish-rfq`, `GET /buyer-orders/:id/matches`,
+  `POST /buyer-orders/:id/quotes`, `POST /buyer-orders/:id/accept-quote`, `GET /rfqs`,
+  `PATCH /quotes/:id`, `POST /quotes/:id/submit`, `POST /quotes/:id/withdraw`.
+- **Frontend routes added**: `/diaspora/rfq` (owner/dealer/admin; runtime buyer/seller split).
+- **Security/integrity**: buyers see only own orders; sellers see only published RFQs (not own);
+  matching excludes unavailable/private stock; quote submit idempotent on key; acceptance is
+  transactional (rejects siblings) + idempotent; only DRAFT quotes editable; sealed audit on
+  publish/accept/submit. No payment-release/compliance controls exposed.
+- **Tests run / results**: backend `diaspora-rfq.test.js` → 11/11 pass; e2e
+  `diaspora-reverse-rfq.spec.ts` → 4/4 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations**: matching is deterministic over published stock (no AI scoring, by design);
+  participant-table access not used here (buyer/tenant/reviewer scoping instead).
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 5 — AI Command Hardening.
 
 ## Milestone: Phase 5 — AI Command Hardening
 _pending_

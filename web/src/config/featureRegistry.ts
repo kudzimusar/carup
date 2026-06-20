@@ -619,6 +619,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Tag',
   },
   {
+    id: 'diaspora.reverse-rfq',
+    label: 'Reverse RFQ',
+    route: '/diaspora/rfq',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',
