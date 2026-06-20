@@ -85,6 +85,24 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 
 const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS']
 
+/**
+ * Extract a human-readable STRING message from a backend error body, regardless of shape, so the
+ * thrown Error never carries a non-string (which would render as "[object Object]"). Handles the
+ * standard errorMiddleware shape `{ error: { message, code } }`, the authMiddleware shape
+ * `{ error: 'string' }`, and a bare `{ message }`. Returns undefined when no message is present.
+ */
+export function extractApiErrorMessage(errorData: unknown): string | undefined {
+  if (!errorData || typeof errorData !== 'object') return undefined
+  const e = errorData as Record<string, unknown>
+  if (e.error && typeof e.error === 'object') {
+    const inner = e.error as Record<string, unknown>
+    if (typeof inner.message === 'string' && inner.message) return inner.message
+  }
+  if (typeof e.error === 'string' && e.error) return e.error
+  if (typeof e.message === 'string' && e.message) return e.message
+  return undefined
+}
+
 // Module-level cache. Keyed by identity so a token bound to one user/session is never reused for
 // another (e.g. after login/logout or a role switch).
 let cachedCsrfToken: string | null = null
@@ -190,8 +208,8 @@ export async function apiRequest<T = any>({
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({} as { error?: string }))
-    const message = (errorData as { error?: string }).error
+    const errorData = await response.json().catch(() => ({}))
+    const message = extractApiErrorMessage(errorData)
 
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a

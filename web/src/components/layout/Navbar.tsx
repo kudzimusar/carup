@@ -94,16 +94,16 @@ const partsMenu: MenuSection[] = [
   {
     title: 'Buy Parts',
     items: [
-      { label: 'Browse Car Parts', href: '/garages' },
-      { label: 'Verified Parts', href: '/garages' },
-      { label: 'Engines', href: '/garages' },
-      { label: 'Gearboxes', href: '/garages' },
-      { label: 'ECUs', href: '/garages' },
-      { label: 'Body Panels', href: '/garages' },
-      { label: 'Lights', href: '/garages' },
-      { label: 'Tyres & Wheels', href: '/garages' },
-      { label: 'Batteries', href: '/garages' },
-      { label: 'Accessories', href: '/garages' },
+      { label: 'Browse Car Parts', href: '/marketplace/parts' },
+      { label: 'Verified Parts', href: '/marketplace/parts' },
+      { label: 'Engines', href: '/marketplace/parts' },
+      { label: 'Gearboxes', href: '/marketplace/parts' },
+      { label: 'ECUs', href: '/marketplace/parts' },
+      { label: 'Body Panels', href: '/marketplace/parts' },
+      { label: 'Lights', href: '/marketplace/parts' },
+      { label: 'Tyres & Wheels', href: '/marketplace/parts' },
+      { label: 'Batteries', href: '/marketplace/parts' },
+      { label: 'Accessories', href: '/marketplace/parts' },
     ],
   },
   {
@@ -111,8 +111,8 @@ const partsMenu: MenuSection[] = [
     items: [
       { label: 'Sell a Part', href: '/register' },
       { label: 'List Accessories', href: '/register' },
-      { label: 'Garage Parts Inventory', href: '/garages' },
-      { label: 'Mechanic Parts Catalog', href: '/garages' },
+      { label: 'Garage Parts Inventory', href: '/marketplace/parts' },
+      { label: 'Mechanic Parts Catalog', href: '/marketplace/parts' },
     ],
   },
   {
@@ -460,6 +460,9 @@ export default function Navbar() {
               variant="ghost"
               size="icon"
               className="lg:hidden"
+              data-testid="mobile-menu-button"
+              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen}
               onClick={() => setMobileOpen(!mobileOpen)}
             >
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -476,9 +479,9 @@ export default function Navbar() {
               { label: 'Buy', href: '/marketplace', icon: ShoppingCart },
               { label: 'Sell', href: sellerPath, icon: Car },
               { label: 'Verify', href: '/search', icon: Shield },
-              { label: 'Parts', href: '/garages', icon: Package },
+              { label: 'Parts', href: '/marketplace/parts', icon: Package },
               { label: 'Dealers', href: '/dealers', icon: Building2 },
-              { label: 'Garages', href: '/garages', icon: Wrench },
+              { label: 'Garages & Services', href: '/marketplace/services', icon: Wrench },
             ].map((link) => (
               <Link
                 key={`${link.label}-${link.href}`}

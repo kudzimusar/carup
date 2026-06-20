@@ -78,6 +78,30 @@ export interface MarketplaceListingSummary extends SharedMarketplaceListingSumma
 
 export interface MarketplaceListingsResponse extends SharedMarketplaceListingsResponse {}
 
+// Marketplace v1 canonical contracts (trust/verification/pricing/inquiry/referral).
+export type {
+  MarketplaceListingType,
+  MarketplacePublicStatus,
+  MarketplaceRiskStatus,
+  MarketplacePartSentryPublicStatus,
+  MarketplaceEvidenceStatus,
+  MarketplaceIdentityStatus,
+  MarketplaceTrustSummary,
+  MarketplaceVerificationSummary,
+  MarketplacePricingSummary,
+  MarketplaceMedia,
+  MarketplaceSellerSummary,
+  MarketplaceListingDetail,
+  MarketplaceTransactionIntent,
+  MarketplaceInquiryType,
+  MarketplaceInquiryStatus,
+  MarketplaceSourceChannel,
+  MarketplaceInquiryInput,
+  MarketplaceInquiry,
+  MarketplaceReferralEventType,
+  MarketplaceReferralEvent,
+} from '@shared/types';
+
 export interface NavCoverageEntry { count: number; active: boolean }
 export interface NavCoverageResponse {
   threshold: number

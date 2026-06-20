@@ -9,6 +9,10 @@ import {
   resolveCoverageNavHref,
   CHIP_TO_SLUG,
   SLUG_TO_CHIP,
+  CATEGORY_CHIPS,
+  TRUST_TAG_CHIPS,
+  isCategoryChip,
+  isTrustChip,
   DEFAULT_MARKETPLACE_STATE,
   type MarketplaceUrlState,
 } from './marketplaceParams'
@@ -20,21 +24,33 @@ describe('paramsToState', () => {
     const state = paramsToState(p('q=hilux&make=Toyota&category=recently_imported&minPrice=3000&maxPrice=20000&sort=trust'))
     expect(state.searchQuery).toBe('hilux')
     expect(state.selectedMake).toBe('Toyota')
-    expect(state.selectedCategoryChip).toBe('Recently Imported')
+    expect(state.selectedCategory).toBe('Recently Imported')
+    expect(state.selectedTags).toEqual([])
     expect(state.priceRange).toEqual([3000, 20000])
     expect(state.sortBy).toBe('trust')
   })
 
-  it('parses a trust tag into the matching chip label', () => {
-    expect(paramsToState(p('tag=passport_verified')).selectedCategoryChip).toBe('Passport Verified')
-    expect(paramsToState(p('tag=partsentry_checked')).selectedCategoryChip).toBe('PartSentry Checked')
-    expect(paramsToState(p('tag=dealer_verified')).selectedCategoryChip).toBe('Dealer Verified')
+  it('parses a single trust tag into the matching chip label', () => {
+    expect(paramsToState(p('tag=passport_verified')).selectedTags).toEqual(['Passport Verified'])
+    expect(paramsToState(p('tag=partsentry_checked')).selectedTags).toEqual(['PartSentry Checked'])
+    expect(paramsToState(p('tag=dealer_verified')).selectedTags).toEqual(['Dealer Verified'])
   })
 
-  // Phase 1 contract: exactly ONE category/tag chip per URL (single value). When both are present,
-  // `tag` wins — navbar links and AI output must emit at most one category/tag per URL.
-  it('lets tag take precedence over category when both present (one chip per URL)', () => {
-    expect(paramsToState(p('category=brand_new&tag=passport_verified')).selectedCategoryChip).toBe('Passport Verified')
+  // QA Round 4: a single condition/category and MANY trust tags now COEXIST (no precedence collapse).
+  it('keeps category AND trust tags together', () => {
+    const state = paramsToState(p('category=brand_new&tag=passport_verified'))
+    expect(state.selectedCategory).toBe('Brand New')
+    expect(state.selectedTags).toEqual(['Passport Verified'])
+  })
+
+  it('parses MULTIPLE stackable trust tags from repeated tag params (AND semantics)', () => {
+    const state = paramsToState(p('tag=passport_verified&tag=duty_cleared&tag=low_mileage'))
+    expect(state.selectedTags).toEqual(['Passport Verified', 'Duty Cleared', 'Low Mileage'])
+  })
+
+  it('also accepts a CSV tag value and dedupes', () => {
+    const state = paramsToState(p('tag=passport_verified,duty_cleared&tag=passport_verified'))
+    expect(state.selectedTags).toEqual(['Passport Verified', 'Duty Cleared'])
   })
 
   it('recovers make casing case-insensitively', () => {
@@ -52,7 +68,14 @@ describe('paramsToState', () => {
   })
 
   it('ignores an unknown slug rather than activating a phantom chip', () => {
-    expect(paramsToState(p('tag=not_a_real_tag')).selectedCategoryChip).toBe('All')
+    expect(paramsToState(p('tag=not_a_real_tag')).selectedTags).toEqual([])
+    expect(paramsToState(p('category=not_a_real_category')).selectedCategory).toBe('All')
+  })
+
+  it('does not treat a trust slug in the category param as a condition', () => {
+    // category only accepts condition-kind slugs; a trust slug there is ignored (it belongs in tag=).
+    expect(paramsToState(p('category=passport_verified')).selectedCategory).toBe('All')
+    expect(paramsToState(p('category=passport_verified')).selectedTags).toEqual([])
   })
 
   describe('invalid input is handled safely', () => {
@@ -65,7 +88,6 @@ describe('paramsToState', () => {
     })
 
     it('drops an inverted price range instead of returning an empty grid', () => {
-      // min > max would match nothing; lower bound is dropped.
       expect(paramsToState(p('minPrice=50000&maxPrice=10000')).priceRange).toEqual([0, 10000])
     })
 
@@ -80,11 +102,12 @@ describe('stateToParams', () => {
     expect(stateToParams(DEFAULT_MARKETPLACE_STATE).toString()).toBe('')
   })
 
-  it('emits make, q, tag/category, price, and non-default sort', () => {
+  it('emits make, q, a single tag, price, and non-default sort', () => {
     const state: MarketplaceUrlState = {
       searchQuery: 'fit',
       selectedMake: 'Honda',
-      selectedCategoryChip: 'Passport Verified',
+      selectedCategory: 'All',
+      selectedTags: ['Passport Verified'],
       priceRange: [2000, 15000],
       sortBy: 'price-low',
     }
@@ -98,14 +121,24 @@ describe('stateToParams', () => {
     expect(params.get('sort')).toBe('price-low')
   })
 
+  it('emits a category AND repeated tag params when both are active', () => {
+    const params = stateToParams({
+      ...DEFAULT_MARKETPLACE_STATE,
+      selectedCategory: 'Brand New',
+      selectedTags: ['Passport Verified', 'Duty Cleared'],
+    })
+    expect(params.get('category')).toBe('brand_new')
+    expect(params.getAll('tag')).toEqual(['passport_verified', 'duty_cleared'])
+  })
+
   it('serializes a condition chip as category, not tag', () => {
-    const params = stateToParams({ ...DEFAULT_MARKETPLACE_STATE, selectedCategoryChip: 'Recently Imported' })
+    const params = stateToParams({ ...DEFAULT_MARKETPLACE_STATE, selectedCategory: 'Recently Imported' })
     expect(params.get('category')).toBe('recently_imported')
-    expect(params.get('tag')).toBeNull()
+    expect(params.getAll('tag')).toEqual([])
   })
 
   it('does not emit the client-only "Parts & Accessories" pseudo-filter', () => {
-    const params = stateToParams({ ...DEFAULT_MARKETPLACE_STATE, selectedCategoryChip: 'Parts & Accessories' })
+    const params = stateToParams({ ...DEFAULT_MARKETPLACE_STATE, selectedCategory: 'Parts & Accessories' })
     expect(params.toString()).toBe('')
   })
 
@@ -118,9 +151,10 @@ describe('stateToParams', () => {
 describe('round-trip params <-> state', () => {
   const cases: MarketplaceUrlState[] = [
     DEFAULT_MARKETPLACE_STATE,
-    { searchQuery: 'toyota', selectedMake: 'Toyota', selectedCategoryChip: 'Passport Verified', priceRange: [0, 10000], sortBy: 'trust' },
-    { searchQuery: '', selectedMake: 'Mazda', selectedCategoryChip: 'Brand New', priceRange: [5000, 100000], sortBy: 'newest' },
-    { searchQuery: 'cab', selectedMake: 'All', selectedCategoryChip: 'PartSentry Checked', priceRange: [0, 25000], sortBy: 'price-high' },
+    { searchQuery: 'toyota', selectedMake: 'Toyota', selectedCategory: 'All', selectedTags: ['Passport Verified'], priceRange: [0, 10000], sortBy: 'trust' },
+    { searchQuery: '', selectedMake: 'Mazda', selectedCategory: 'Brand New', selectedTags: [], priceRange: [5000, 100000], sortBy: 'newest' },
+    { searchQuery: 'cab', selectedMake: 'All', selectedCategory: 'All', selectedTags: ['PartSentry Checked'], priceRange: [0, 25000], sortBy: 'price-high' },
+    { searchQuery: '', selectedMake: 'Toyota', selectedCategory: 'Brand New', selectedTags: ['Passport Verified', 'Low Mileage'], priceRange: [0, 100000], sortBy: 'newest' },
   ]
   it.each(cases)('paramsToState(stateToParams(s)) === s', (state) => {
     expect(paramsToState(stateToParams(state))).toEqual(state)
@@ -132,11 +166,21 @@ describe('stateToApiFilters', () => {
     const filters = stateToApiFilters({
       searchQuery: 'toyota',
       selectedMake: 'Toyota',
-      selectedCategoryChip: 'Passport Verified',
+      selectedCategory: 'All',
+      selectedTags: ['Passport Verified'],
       priceRange: [0, 10000],
       sortBy: 'trust',
     })
     expect(filters).toEqual({ q: 'toyota', make: 'Toyota', tag: 'passport_verified', maxPrice: 10000, sort: 'trust' })
+  })
+
+  it('joins multiple trust tags into a CSV tag and keeps category separate', () => {
+    const filters = stateToApiFilters({
+      ...DEFAULT_MARKETPLACE_STATE,
+      selectedCategory: 'Brand New',
+      selectedTags: ['Passport Verified', 'Duty Cleared'],
+    })
+    expect(filters).toEqual({ category: 'brand_new', tag: 'passport_verified,duty_cleared' })
   })
 
   it('is empty for a pristine state', () => {
@@ -144,12 +188,22 @@ describe('stateToApiFilters', () => {
   })
 
   it('uses category key for condition chips and never sends the parts pseudo-filter', () => {
-    expect(stateToApiFilters({ ...DEFAULT_MARKETPLACE_STATE, selectedCategoryChip: 'Locally Used' })).toEqual({ category: 'locally_used' })
-    expect(stateToApiFilters({ ...DEFAULT_MARKETPLACE_STATE, selectedCategoryChip: 'Parts & Accessories' })).toEqual({})
+    expect(stateToApiFilters({ ...DEFAULT_MARKETPLACE_STATE, selectedCategory: 'Locally Used' })).toEqual({ category: 'locally_used' })
+    expect(stateToApiFilters({ ...DEFAULT_MARKETPLACE_STATE, selectedCategory: 'Parts & Accessories' })).toEqual({})
   })
 })
 
-describe('chip <-> slug maps', () => {
+describe('chip classification', () => {
+  it('classifies condition chips and trust chips correctly', () => {
+    expect(CATEGORY_CHIPS).toEqual(['Brand New', 'Recently Imported', 'Locally Used', 'Second Hand'])
+    expect(TRUST_TAG_CHIPS).toContain('Passport Verified')
+    expect(TRUST_TAG_CHIPS).toContain('Dealer Verified')
+    expect(isCategoryChip('Brand New')).toBe(true)
+    expect(isCategoryChip('Passport Verified')).toBe(false)
+    expect(isTrustChip('Dealer Verified')).toBe(true)
+    expect(isTrustChip('Brand New')).toBe(false)
+  })
+
   it.each([
     ['Passport Verified', 'passport_verified'],
     ['Recently Imported', 'recently_imported'],
@@ -164,15 +218,17 @@ describe('chip <-> slug maps', () => {
 })
 
 describe('getActiveFilterChips', () => {
-  it('produces removable chips for every active filter', () => {
+  it('produces removable chips for make, q, category, and each tag', () => {
     const chips = getActiveFilterChips({
       searchQuery: 'fit',
       selectedMake: 'Honda',
-      selectedCategoryChip: 'Passport Verified',
+      selectedCategory: 'Brand New',
+      selectedTags: ['Passport Verified', 'Duty Cleared'],
       priceRange: [0, 10000],
       sortBy: 'trust',
     })
-    expect(chips.map(c => c.key)).toEqual(['make', 'q', 'chip', 'price', 'sort'])
+    expect(chips.map(c => c.key)).toEqual(['make', 'q', 'category', 'tag', 'tag', 'price', 'sort'])
+    expect(chips.filter(c => c.key === 'tag').map(c => c.value)).toEqual(['Passport Verified', 'Duty Cleared'])
     expect(chips.find(c => c.key === 'price')?.label).toBe('Under $10,000')
   })
 
@@ -182,14 +238,24 @@ describe('getActiveFilterChips', () => {
 })
 
 describe('getResultSummary', () => {
-  it('describes the full active query', () => {
+  it('describes the full active query (category + tags + make)', () => {
     expect(getResultSummary({
       searchQuery: '',
       selectedMake: 'Toyota',
-      selectedCategoryChip: 'Passport Verified',
+      selectedCategory: 'All',
+      selectedTags: ['Passport Verified'],
       priceRange: [0, 10000],
       sortBy: 'trust',
     })).toBe('Showing Passport Verified Toyota vehicles under $10,000, sorted by trust.')
+  })
+
+  it('joins a category and multiple trust tags', () => {
+    expect(getResultSummary({
+      ...DEFAULT_MARKETPLACE_STATE,
+      selectedCategory: 'Brand New',
+      selectedTags: ['Passport Verified', 'Low Mileage'],
+      selectedMake: 'Toyota',
+    })).toBe('Showing Brand New Passport Verified Low Mileage Toyota vehicles.')
   })
 
   it('falls back to a neutral summary with no filters', () => {
