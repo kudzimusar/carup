@@ -1,0 +1,135 @@
+name: Diaspora Phases 3-7 Validation
+
+# Independent acceptance workflow for the Diaspora Trade OS Phases 3-7 hardening program.
+# Proves the reported local results in CI: backend focused tests, TypeScript, route validation,
+# Playwright (Phase 2C + 3-7), production build, migration sanity, and a secret-scan guard.
+# Staging integration runs only when secrets are configured; otherwise it reports skipped.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'web/**'
+      - 'database/migrations/**'
+      - '.github/workflows/diaspora-phases-3-7-validation.yml'
+  push:
+    branches:
+      - 'claude/diaspora-phases-3-7-program'
+  workflow_dispatch:
+
+jobs:
+  backend-and-build:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DIASPORA_DRIVE_MOCK: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (lockfile)
+        run: npm ci
+
+      - name: Secret-scan guard (OAuth / service-role material)
+        run: |
+          set -e
+          # Match secret VALUE formats (not env-var references) under the program's directories.
+          if git grep -nE 'GOCSPX-[A-Za-z0-9_-]{10,}' -- backend web database .github ; then echo 'Found a Google client secret value'; exit 1; fi
+          if git grep -nE 'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.' -- backend web database ; then echo 'Found a JWT-like secret/service-role token'; exit 1; fi
+          if git grep -nE '1//[A-Za-z0-9_-]{30,}' -- backend web database ; then echo 'Found a Google refresh token'; exit 1; fi
+          echo 'secret-scan: clean'
+
+      - name: Migration sanity (additive, reversible)
+        run: |
+          set -e
+          for f in database/migrations/20260620120000_diaspora_phase3_stock_ledger_idempotency.sql \
+                   database/migrations/20260621090000_diaspora_h1_stock_movement_rpc.sql \
+                   database/migrations/20260621091000_diaspora_h2_quote_acceptance_rpc.sql \
+                   database/migrations/20260621092000_diaspora_h3_container_approval_rpc.sql \
+                   database/migrations/20260621093000_diaspora_h6_oauth_state_nonce.sql ; do
+            grep -q -- '-- +migrate Up' "$f" || { echo "missing Up in $f"; exit 1; }
+            grep -q -- '-- +migrate Down' "$f" || { echo "missing Down in $f"; exit 1; }
+          done
+          echo 'migration sanity: ok'
+
+      - name: Backend focused Diaspora tests
+        run: node --test backend/tests/diaspora-*.test.js
+
+      - name: TypeScript check (web)
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+
+      - name: Route validation
+        run: npx vitest run web/src/config/featureRegistry.route-validation.test.ts
+
+      - name: Production web build
+        run: npm run build
+
+  playwright:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies (lockfile)
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start web dev server
+        run: |
+          npm run dev --workspace=web &
+          for i in $(seq 1 60); do
+            if curl -sSf http://localhost:5173/ >/dev/null 2>&1; then echo 'dev server up'; break; fi
+            sleep 2
+          done
+
+      - name: Playwright (Phase 2C + Phases 3-7)
+        run: |
+          npx playwright test --config web/playwright.config.ts \
+            web/e2e/diaspora-workbook-dry-run.spec.ts \
+            web/e2e/diaspora-workbook-operator-console.spec.ts \
+            web/e2e/diaspora-stock-supply.spec.ts \
+            web/e2e/diaspora-reverse-rfq.spec.ts \
+            web/e2e/diaspora-ai-command-center.spec.ts \
+            web/e2e/diaspora-container-marketplace.spec.ts \
+            web/e2e/diaspora-drive-connections.spec.ts
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
+
+  staging-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies (lockfile)
+        run: npm ci
+      - name: Staging integration (gated on secrets)
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$STAGING_DATABASE_URL" ]; then
+            echo 'skipped — secrets unavailable (DIASPORA_STAGING_DATABASE_URL not configured)'
+            exit 0
+          fi
+          RUN_DIASPORA_STAGING_INTEGRATION=true DATABASE_URL="$STAGING_DATABASE_URL" \
+            node --test backend/tests/staging/diaspora-staging-integration.test.js
