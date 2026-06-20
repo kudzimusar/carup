@@ -54,7 +54,13 @@ import type {
   DiasporaAiParseResult,
   DiasporaAiCommand,
   DiasporaAiCommandCreateResult,
-  DiasporaAiExecuteResult
+  DiasporaAiExecuteResult,
+  DiasporaMarketplaceContainer,
+  DiasporaMarketplaceContainerPayload,
+  DiasporaContainerCapacityResult,
+  DiasporaMarketplaceReservation,
+  DiasporaReservationRequestPayload,
+  DiasporaReservationActionResult
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -665,6 +671,52 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 6: Container Co-Loading Marketplace ──
+  const fetchDiasporaMarketplaceContainers = useCallback(async (): Promise<DiasporaMarketplaceContainer[]> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer[] }>('/diaspora/container-marketplace/containers')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaMarketplaceContainer = useCallback(async (payload: DiasporaMarketplaceContainerPayload): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>('/diaspora/container-marketplace/containers', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaContainerCapacity = useCallback(async (id: string): Promise<DiasporaContainerCapacityResult> => {
+    const response = await request<{ data: DiasporaContainerCapacityResult }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/capacity`)
+    return response.data
+  }, [request])
+
+  const fetchDiasporaContainerReservations = useCallback(async (id: string): Promise<DiasporaMarketplaceReservation[]> => {
+    const response = await request<{ data: DiasporaMarketplaceReservation[] }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/reservations`)
+    return response.data || []
+  }, [request])
+
+  const requestDiasporaReservation = useCallback(async (containerId: string, payload: DiasporaReservationRequestPayload): Promise<DiasporaMarketplaceReservation> => {
+    const response = await request<{ data: DiasporaMarketplaceReservation }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(containerId)}/reservations`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const approveDiasporaMarketplaceReservation = useCallback(async (id: string): Promise<DiasporaReservationActionResult> => {
+    const response = await request<{ data: DiasporaReservationActionResult }>(`/diaspora/container-marketplace/reservations/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const rejectDiasporaMarketplaceReservation = useCallback(async (id: string): Promise<DiasporaReservationActionResult> => {
+    const response = await request<{ data: DiasporaReservationActionResult }>(`/diaspora/container-marketplace/reservations/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaMarketplaceReservation = useCallback(async (id: string): Promise<DiasporaReservationActionResult> => {
+    const response = await request<{ data: DiasporaReservationActionResult }>(`/diaspora/container-marketplace/reservations/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const closeDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/close-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1138,6 +1190,15 @@ export function useCarUpApi() {
     approveDiasporaAiCommand,
     rejectDiasporaAiCommand,
     executeDiasporaAiCommand,
+    fetchDiasporaMarketplaceContainers,
+    createDiasporaMarketplaceContainer,
+    fetchDiasporaContainerCapacity,
+    fetchDiasporaContainerReservations,
+    requestDiasporaReservation,
+    approveDiasporaMarketplaceReservation,
+    rejectDiasporaMarketplaceReservation,
+    cancelDiasporaMarketplaceReservation,
+    closeDiasporaContainerBooking,
     reportStolen,
     checkStolen,
     fetchDealerReputation,

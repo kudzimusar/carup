@@ -5,6 +5,7 @@ import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
 import diasporaStockRouter from './diasporaStockRoutes.js';
 import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
+import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -43,6 +44,9 @@ router.use(diasporaBuyerOrderRouter);
 
 // Phase 5: AI command center (draft actions, risk gates; high-risk execution blocked).
 router.use(diasporaAiCommandRouter);
+
+// Phase 6: Container co-loading marketplace (authoritative server-side capacity rules).
+router.use(diasporaContainerMarketplaceRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {

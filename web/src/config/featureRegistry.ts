@@ -639,6 +639,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Brain',
   },
   {
+    id: 'diaspora.container-marketplace',
+    label: 'Container Co-Loading',
+    route: '/diaspora/containers',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Gauge',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',

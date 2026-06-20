@@ -18,7 +18,7 @@
 | 3 | Online Stock & Supply Documents | CODE-COMPLETE |
 | 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE |
 | 5 | AI Command Hardening | CODE-COMPLETE |
-| 6 | Container Co-Loading | NOT STARTED |
+| 6 | Container Co-Loading | CODE-COMPLETE |
 | 7 | Google Drive Integration | NOT STARTED |
 
 State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDING EXTERNAL ACTIVATION · BLOCKED · DONE.
@@ -156,7 +156,37 @@ State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDI
 - **Next milestone**: Phase 6 — Container Co-Loading.
 
 ## Milestone: Phase 6 — Container Co-Loading
-_pending_
+
+- **Objective**: Shared-container marketplace with authoritative server-side capacity rules.
+- **Repository findings / schema**: `diaspora_container_shipments` + `diaspora_cargo_reservations`
+  exist. No migration needed. New endpoints use a `/container-marketplace` prefix to avoid shadowing
+  the legacy `/containers` and `/reservations` routes (depended on by `diaspora-reservation-auth.test.js`).
+- **Files changed**:
+  - `backend/services/diaspora/diasporaContainerMarketplaceService.js`
+  - `backend/routes/diasporaContainerMarketplaceRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-container-marketplace.test.js`
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaContainerMarketplace.tsx`
+  - `web/src/App.tsx` (`/diaspora/containers`), `web/src/config/featureRegistry.ts` (`diaspora.container-marketplace`)
+  - `web/e2e/diaspora-container-marketplace.spec.ts`
+- **Endpoints added**: `GET/POST /api/diaspora/container-marketplace/containers`,
+  `GET /container-marketplace/containers/:id/capacity`,
+  `GET/POST /container-marketplace/containers/:id/reservations`,
+  `POST /container-marketplace/containers/:id/close-booking`,
+  `POST /container-marketplace/reservations/:id/{approve,reject,cancel}`.
+- **Frontend routes added**: `/diaspora/containers` (owner/dealer/admin/government).
+- **Capacity rules**: USED = Σ approved volume; AVAILABLE = total − used; FILL = used/total;
+  READY_TO_CLOSE ≥ 0.90; FULL ≥ 0.98. Pending reservations do not consume; approval recomputes from
+  the approved set and rejects overfill (so concurrent approvals can't overfill); cancel/reject
+  release capacity; optional weight enforcement; zero/negative total invalid; closing booking ≠
+  shipment completion. Participant-safe reservation listing. Sealed audit on every transition.
+- **Tests run / results**: backend `diaspora-container-marketplace.test.js` → 12/12 pass; e2e
+  `diaspora-container-marketplace.spec.ts` → 4/4 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations**: true serialization of concurrent approvals would need a DB transaction/
+  constraint; the recompute-then-check closes the obvious overfill gap at the service layer.
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 7 — Google Drive Integration.
 
 ## Milestone: Phase 7 — Google Drive Integration
 _pending_
