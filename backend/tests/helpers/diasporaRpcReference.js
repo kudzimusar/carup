@@ -154,6 +154,71 @@ export function appendStockMovementAtomic(params, { table, nextId, faults }) {
   return { ledgerEntry: { ...ledgerRow }, stockItem: { ...item }, idempotentReplay: false, balances: { onHand: newOn, reserved: newRes, available: newOn - newRes } };
 }
 
+/** Mirrors diaspora_accept_quote_atomic. */
+export function acceptQuoteAtomic(params, { table, nextId, faults }) {
+  const ts = new Date(2026, 5, 21).toISOString();
+  const orders = table('diaspora_import_orders');
+  const quotes = table('diaspora_import_quotes');
+  const audit = table('diaspora_import_audit_log');
+
+  if (!params.p_actor_id) fail('DIASPORA_QUOTE/UNAUTHENTICATED');
+
+  const order = orders.find((o) => o.id === params.p_order_id && !o.deleted_at);
+  if (!order) fail('DIASPORA_QUOTE/NOT_FOUND_ORDER');
+
+  const owner = params.p_actor_is_privileged || order.buyer_id === params.p_actor_id || order.created_by === params.p_actor_id;
+  if (!owner) fail('DIASPORA_QUOTE/FORBIDDEN');
+
+  const acceptedExisting = order.metadata?.rfq?.acceptedQuoteId ?? null;
+  if (acceptedExisting != null) {
+    if (acceptedExisting === params.p_quote_id) {
+      const existingQuote = quotes.find((q) => q.id === params.p_quote_id);
+      return { order: { ...order }, acceptedQuote: existingQuote ? { ...existingQuote } : null, idempotentReplay: true };
+    }
+    fail('DIASPORA_QUOTE/ALREADY_ACCEPTED_DIFFERENT');
+  }
+
+  const quote = quotes.find((q) => q.id === params.p_quote_id && !q.deleted_at);
+  if (!quote) fail('DIASPORA_QUOTE/NOT_FOUND_QUOTE');
+  if (quote.import_order_id !== params.p_order_id) fail('DIASPORA_QUOTE/QUOTE_NOT_IN_ORDER');
+  if (quote.status !== 'ISSUED') fail('DIASPORA_QUOTE/NOT_SUBMITTED');
+
+  if (faults.failOrderUpdate) fail('DIASPORA_QUOTE/ORDER_UPDATE_FAILED');
+  if (faults.failAudit) fail('DIASPORA_QUOTE/AUDIT_FAILED');
+
+  quote.status = 'ACCEPTED';
+  quote.updated_by = params.p_actor_id;
+  quote.updated_at = ts;
+  for (const sibling of quotes) {
+    if (sibling.id !== params.p_quote_id && sibling.import_order_id === params.p_order_id && sibling.status === 'ISSUED' && !sibling.deleted_at) {
+      sibling.status = 'REJECTED';
+      sibling.updated_by = params.p_actor_id;
+      sibling.updated_at = ts;
+    }
+  }
+  order.metadata = { ...(order.metadata || {}), rfq: { ...(order.metadata?.rfq || {}), acceptedQuoteId: params.p_quote_id, acceptedAt: ts } };
+  order.status = 'SELLER_ASSIGNED';
+  order.updated_by = params.p_actor_id;
+  order.updated_at = ts;
+
+  audit.push({
+    id: nextId('aud'),
+    import_order_id: params.p_order_id,
+    tenant_id: order.tenant_id,
+    actor_id: params.p_actor_id,
+    action: 'RFQ_QUOTE_ACCEPTED',
+    resource_type: 'diaspora_import_quote',
+    resource_id: String(params.p_quote_id),
+    new_state: { ...quote },
+    metadata: { orderId: String(params.p_order_id) },
+    cryptographic_seal: seal(params.p_actor_id, 'RFQ_QUOTE_ACCEPTED', 'diaspora_import_quote', params.p_quote_id, ts),
+    created_at: ts,
+  });
+
+  return { order: { ...order }, acceptedQuote: { ...quote }, idempotentReplay: false };
+}
+
 export const DIASPORA_RPCS = {
   diaspora_append_stock_movement_atomic: appendStockMovementAtomic,
+  diaspora_accept_quote_atomic: acceptQuoteAtomic,
 };

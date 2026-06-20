@@ -10,6 +10,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
+const { DIASPORA_RPCS } = await import('./helpers/diasporaRpcReference.js');
 const buyer = await import('../services/diaspora/diasporaBuyerOrderService.js');
 const rfq = await import('../services/diaspora/diasporaRfqService.js');
 const matching = await import('../services/diaspora/diasporaDemandSupplyMatchingService.js');
@@ -27,7 +28,7 @@ function freshClient(extra = {}) {
     diaspora_stock_items: [],
     diaspora_import_audit_log: [],
     ...extra,
-  });
+  }, { rpc: DIASPORA_RPCS });
 }
 
 test('buyer creates an order and only the owner can list it', async () => {
@@ -152,4 +153,39 @@ test('audit events recorded for publish and accept', async () => {
   const audits = client._rows('diaspora_import_audit_log');
   assert.ok(audits.some((a) => a.action === 'RFQ_PUBLISHED'));
   assert.ok(audits.some((a) => a.action === 'RFQ_QUOTE_ACCEPTED'));
+});
+
+// ── H2: atomic quote acceptance contract (via diaspora_accept_quote_atomic) ──
+
+test('H2: a draft quote cannot be accepted', async () => {
+  const client = freshClient();
+  const order = await buyer.createBuyerOrder({ order_type: 'parts', origin_country: 'Japan' }, buyerCtx, { supabaseClient: client });
+  await buyer.publishRfq(order.id, buyerCtx, { supabaseClient: client });
+  const draft = (await rfq.createQuote(order.id, { quote_amount: 200, submit: false }, sellerCtx, { supabaseClient: client })).quote;
+  await assert.rejects(() => buyer.acceptQuote(order.id, draft.id, buyerCtx, { supabaseClient: client }), /submitted quotes can be accepted/i);
+});
+
+test('H2: a quote from another order cannot be accepted', async () => {
+  const client = freshClient();
+  const orderA = await buyer.createBuyerOrder({ order_type: 'parts', origin_country: 'Japan' }, buyerCtx, { supabaseClient: client });
+  const orderB = await buyer.createBuyerOrder({ order_type: 'parts', origin_country: 'Japan' }, buyerCtx, { supabaseClient: client });
+  await buyer.publishRfq(orderB.id, buyerCtx, { supabaseClient: client });
+  const qB = (await rfq.createQuote(orderB.id, { quote_amount: 300, submit: true }, sellerCtx, { supabaseClient: client })).quote;
+  await assert.rejects(() => buyer.acceptQuote(orderA.id, qB.id, buyerCtx, { supabaseClient: client }), /does not belong to this order/i);
+});
+
+test('H2: simulated audit failure rolls back acceptance (quote stays ISSUED, order unstamped)', async () => {
+  const client = freshClient();
+  const order = await buyer.createBuyerOrder({ order_type: 'parts', origin_country: 'Japan' }, buyerCtx, { supabaseClient: client });
+  await buyer.publishRfq(order.id, buyerCtx, { supabaseClient: client });
+  const q1 = (await rfq.createQuote(order.id, { quote_amount: 500, submit: true }, sellerCtx, { supabaseClient: client })).quote;
+  const q2 = (await rfq.createQuote(order.id, { quote_amount: 480, submit: true }, seller2Ctx, { supabaseClient: client })).quote;
+  client.setFault('failAudit');
+  await assert.rejects(() => buyer.acceptQuote(order.id, q1.id, buyerCtx, { supabaseClient: client }), /could not be applied|audit/i);
+  client.clearFaults();
+  const quotes = client._rows('diaspora_import_quotes');
+  assert.equal(quotes.find((q) => q.id === q1.id).status, 'ISSUED'); // not accepted
+  assert.equal(quotes.find((q) => q.id === q2.id).status, 'ISSUED'); // sibling not rejected
+  const stored = client._rows('diaspora_import_orders').find((o) => o.id === order.id);
+  assert.equal(stored.metadata?.rfq?.acceptedQuoteId ?? null, null); // order unstamped
 });
