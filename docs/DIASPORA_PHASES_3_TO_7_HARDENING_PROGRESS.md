@@ -150,8 +150,16 @@
   production state secret fails closed, tokens never returned, sanitized errors.
 - **Commit SHA**: _set on commit_.
 
-### H7 — Migration & staging validation (prepared, not applied)
-_pending_
+### H7 — Migration & staging validation (PREPARED, NOT APPLIED) (Risk F)
+- **Migration set** (additive): phase3 idempotency, h1 stock RPC, h2 quote RPC, h3 container RPC,
+  h6 oauth nonce — listed with order, pre-apply inspection, advisors, and rollback in
+  `docs/DIASPORA_PHASES_3_TO_7_STAGING_PLAN.md`.
+- **Gated suite**: `backend/tests/staging/diaspora-staging-integration.test.js` — skipped by default
+  (2 skipped); refuses the forbidden production project; proves RPC existence + concurrent
+  over-reserve prevention against a real DB when enabled.
+- **Applied to staging**: NO — awaiting explicit authorization (STOP gate).
+  Staging `eoyenigwevnxwwhyhaer`; production `vhmnajoeicasaigiophh` forbidden.
+- **Commit SHA**: _set on commit_.
 
 ### H8 — CI acceptance workflow
 _pending_
