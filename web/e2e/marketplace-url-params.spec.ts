@@ -98,6 +98,9 @@ const listings = vehicles.map(vehicle => ({
 }))
 
 async function mockApi(page: Page) {
+  // Catch-all FIRST so any endpoint we don't explicitly mock returns instantly instead of hanging on
+  // the (baked-in) staging backend. Routes added later take precedence, so the specific mocks below win.
+  await page.route('**/api/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }))
   await page.route('**/api/marketplace/listings*', async route => {
     await route.fulfill({
       status: 200,
@@ -225,6 +228,81 @@ test.describe('Marketplace URL intelligence — desktop', () => {
     await page.goto('/marketplace')
     await expect(page.locator('[data-testid="marketplace-vehicle-card"]')).toHaveCount(2)
     await expect(page.locator('[data-testid="marketplace-active-filters"]')).toHaveCount(0)
+  })
+})
+
+test.describe('Marketplace trust-filter stacking (QA Round 4)', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page)
+  })
+
+  test('multiple trust filters stack with AND semantics and send a CSV tag', async ({ page }) => {
+    const requestPromise = page.waitForRequest(/\/api\/marketplace\/listings.*tag=/)
+    await page.goto('/marketplace?tag=partsentry_checked&tag=low_mileage')
+
+    // Both tags reach the API as a single CSV value.
+    expect(new URL((await requestPromise).url()).searchParams.get('tag')).toBe('partsentry_checked,low_mileage')
+
+    const active = page.locator('[data-testid="marketplace-active-filter-chip"]')
+    await expect(active.filter({ hasText: 'PartSentry Checked' })).toBeVisible()
+    await expect(active.filter({ hasText: 'Low Mileage' })).toBeVisible()
+    // Only the Toyota carries BOTH signals; the Honda has low mileage but no PartSentry check.
+    await expect(page.locator('[data-testid="marketplace-vehicle-card"]')).toHaveCount(1)
+  })
+
+  test('a category and trust filters coexist (separate, both applied)', async ({ page }) => {
+    await page.goto('/marketplace?category=brand_new&tag=low_mileage')
+
+    const active = page.locator('[data-testid="marketplace-active-filter-chip"]')
+    await expect(active.filter({ hasText: 'Brand New' })).toBeVisible()
+    await expect(active.filter({ hasText: 'Low Mileage' })).toBeVisible()
+    // The condition chips and trust chips live in visually separate groups.
+    await expect(page.locator('[data-testid="marketplace-condition-group"]')).toBeVisible()
+    await expect(page.locator('[data-testid="marketplace-trust-group"]')).toBeVisible()
+    // Honda is brand_new + low_mileage; Toyota (second_hand) is excluded by the condition.
+    await expect(page.locator('[data-testid="marketplace-vehicle-card"]')).toHaveCount(1)
+  })
+
+  test('removing ONE trust filter keeps the category and the other filters', async ({ page }) => {
+    await page.goto('/marketplace?tag=partsentry_checked&tag=low_mileage')
+    await page.locator('[data-testid="marketplace-active-filter-chip"]').filter({ hasText: 'PartSentry Checked' }).click()
+
+    // Only the removed tag is dropped; low_mileage survives.
+    await expect(page).toHaveURL(/[?&]tag=low_mileage/)
+    await expect(page).not.toHaveURL(/partsentry_checked/)
+    await expect(page.locator('[data-testid="marketplace-active-filter-chip"]').filter({ hasText: 'Low Mileage' })).toBeVisible()
+    // Both fixtures have low mileage, so the grid widens back to 2.
+    await expect(page.locator('[data-testid="marketplace-vehicle-card"]')).toHaveCount(2)
+  })
+
+  test('clear-all resets BOTH the category and every stacked trust filter', async ({ page }) => {
+    await page.goto('/marketplace?category=brand_new&tag=low_mileage&tag=partsentry_checked')
+    await expect(page.locator('[data-testid="marketplace-active-filters"]')).toBeVisible()
+    await page.locator('[data-testid="marketplace-clear-filters"]').click()
+    await expect(page).toHaveURL(/\/marketplace$/)
+    await expect(page.locator('[data-testid="marketplace-active-filters"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="marketplace-vehicle-card"]')).toHaveCount(2)
+  })
+
+  test('toggling trust chips stacks them in the URL (not replace)', async ({ page }) => {
+    await page.goto('/marketplace')
+    // The condition group is single-select; the trust group is multi-select.
+    await page.locator('[data-testid="marketplace-filter-passport-verified"]').click()
+    await expect(page).toHaveURL(/[?&]tag=passport_verified/)
+    await page.locator('[data-testid="marketplace-filter-partsentry-checked"]').click()
+    // Both trust tags now coexist in the URL (stacked, not replaced).
+    await expect(page).toHaveURL(/tag=passport_verified/)
+    await expect(page).toHaveURL(/tag=partsentry_checked/)
+  })
+
+  test('a shared/deep-linked stacked URL restores both pressed states', async ({ page }) => {
+    // Opening a shared or bookmarked copy of a stacked URL restores BOTH quick filters + active chips.
+    await page.goto('/marketplace?tag=passport_verified&tag=partsentry_checked')
+    await expect(page.locator('[data-testid="marketplace-filter-passport-verified"]')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('[data-testid="marketplace-filter-partsentry-checked"]')).toHaveAttribute('aria-pressed', 'true')
+    const active = page.locator('[data-testid="marketplace-active-filter-chip"]')
+    await expect(active.filter({ hasText: 'Passport Verified' })).toBeVisible()
+    await expect(active.filter({ hasText: 'PartSentry Checked' })).toBeVisible()
   })
 })
 

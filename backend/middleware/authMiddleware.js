@@ -132,3 +132,47 @@ export function authorizeRole(allowedRoles = []) {
     }
   };
 }
+
+/**
+ * Optional authentication. Resolves req.userContext when a valid session (or dev x-user-id fallback)
+ * is present, otherwise continues as an anonymous guest WITHOUT failing the request. Use for public
+ * endpoints that personalize when signed in (e.g. marketplace inquiry attribution, listing-view events).
+ * Never throws; never blocks; never trusts client role headers for privileged checks.
+ */
+export function optionalAuth() {
+  return async (req, _res, next) => {
+    const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+    const fallbackUserId = req.headers['x-user-id'];
+    try {
+      let activeUserId = null;
+      if (sessionToken) {
+        const { data: session } = await supabase
+          .from('user_sessions')
+          .select('user_id, is_valid, expires_at')
+          .eq('token', sessionToken)
+          .single();
+        if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
+          activeUserId = session.user_id;
+        }
+      }
+      if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) {
+        activeUserId = fallbackUserId;
+      }
+      if (activeUserId) {
+        const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
+        const platformRole = normalizeRole(user?.role) || 'member';
+        req.userContext = {
+          id: activeUserId,
+          userId: activeUserId,
+          role: platformRole,
+          platformRole,
+          tenantId: req.headers['x-tenant-id'] || null,
+          isVerified: Boolean(user?.is_verified),
+        };
+      }
+    } catch {
+      // Best-effort only — never block a public request on auth resolution.
+    }
+    next();
+  };
+}
