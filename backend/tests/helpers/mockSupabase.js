@@ -12,7 +12,7 @@
  * Rows are stored per table as plain objects. Inserts assign an id when missing. The builder is
  * thenable so `await client.from(t)...` resolves to `{ data, error }` exactly like supabase-js.
  */
-export function createMockSupabase(seed = {}) {
+export function createMockSupabase(seed = {}, options = {}) {
   const tables = {};
   for (const [name, rows] of Object.entries(seed)) {
     tables[name] = rows.map((row) => ({ ...row }));
@@ -20,6 +20,12 @@ export function createMockSupabase(seed = {}) {
 
   let idCounter = 1;
   const nextId = (prefix) => `${prefix}-${idCounter++}`;
+
+  // RPC support: `options.rpc` maps function name -> (params, helpers) => data. Mirrors the SQL
+  // functions so service-level tests exercise the same invariants. `faults` lets tests simulate a
+  // mid-transaction failure to prove all-or-nothing rollback.
+  const rpcImpls = options.rpc || {};
+  const faults = options.faults || {};
 
   function ensure(table) {
     if (!tables[table]) tables[table] = [];
@@ -122,10 +128,25 @@ export function createMockSupabase(seed = {}) {
     return chain;
   }
 
+  async function rpc(name, params) {
+    const impl = rpcImpls[name];
+    if (!impl) return { data: null, error: { message: `RPC ${name} not found` } };
+    try {
+      const data = await impl(params || {}, { table: ensure, nextId, faults });
+      return { data, error: null };
+    } catch (err) {
+      return { data: null, error: { message: err.message, code: err.code } };
+    }
+  }
+
   return {
     from: builder,
+    rpc,
     /** test-only accessors */
     _tables: tables,
     _rows: (table) => ensure(table),
+    _faults: faults,
+    setFault(key, value = true) { faults[key] = value; },
+    clearFaults() { for (const k of Object.keys(faults)) delete faults[k]; },
   };
 }

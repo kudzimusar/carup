@@ -13,14 +13,39 @@
  *  - ADJUST_WITH_APPROVAL requires approval metadata;
  *  - every movement writes a sealed audit event.
  */
-import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError, ForbiddenError, UnauthorizedError } from '../../utils/errors.js';
 import {
   STOCK_LEDGER_ACTIONS,
   STOCK_LEDGER_ACTION_LIST,
   STOCK_LEDGER_APPROVAL_REQUIRED,
 } from '../../constants/diaspora/diasporaStockConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
-import { resolveClient, appendAudit, requestCorrelationId } from './diasporaServiceUtils.js';
+import { resolveClient, requestCorrelationId } from './diasporaServiceUtils.js';
+
+const STOCK_RPC = 'diaspora_append_stock_movement_atomic';
+
+/** Map a sanitized RPC exception to a stable application error (no raw SQL/stack leakage). */
+function translateStockRpcError(error) {
+  const raw = String(error?.message || 'Stock movement failed');
+  const marker = raw.indexOf('DIASPORA_STOCK/');
+  const code = marker >= 0 ? raw.slice(marker + 'DIASPORA_STOCK/'.length).split(/[:\s]/)[0] : '';
+  switch (code) {
+    case 'NOT_FOUND': return new NotFoundError('Diaspora stock item not found');
+    case 'FORBIDDEN': return new ForbiddenError('You do not have access to this stock item');
+    case 'UNAUTHENTICATED': return new UnauthorizedError('Authentication required for stock movements');
+    case 'APPROVAL_REQUIRED': return new ValidationError('ADJUST_WITH_APPROVAL requires approval.approvedBy metadata');
+    case 'APPROVAL_ROLE_REQUIRED': return new ForbiddenError('ADJUST_WITH_APPROVAL requires a reviewer or admin actor');
+    case 'INSUFFICIENT_AVAILABLE': return new ValidationError('Movement exceeds available stock');
+    case 'RELEASE_EXCEEDS_RESERVED': return new ValidationError('Release exceeds reserved stock');
+    case 'DAMAGE_BELOW_RESERVED': return new ValidationError('Damage would drop on-hand below reserved');
+    case 'ADJUST_BELOW_ZERO': return new ValidationError('Adjustment cannot drive on-hand below zero');
+    case 'ADJUST_BELOW_RESERVED': return new ValidationError('Adjustment cannot drive on-hand below reserved');
+    case 'IDEMPOTENCY_CONFLICT': return new ValidationError('Idempotency key reused with a different movement');
+    case 'INVALID_QUANTITY': return new ValidationError('Stock movement requires a valid positive quantity');
+    case 'INVALID_ACTION': return new ValidationError('Unsupported stock ledger action');
+    default: return new ValidationError('Stock movement could not be applied');
+  }
+}
 
 const STORAGE = 'diaspora_stock_items';
 const LEDGER = 'diaspora_stock_ledger';
@@ -124,9 +149,9 @@ export async function appendStockMovement(stockItemId, movement = {}, userContex
     throw new ValidationError('Stock movement requires a numeric quantity');
   }
 
+  // Defense in depth: the atomic RPC re-checks these, but reject early with a clear message too.
   if (STOCK_LEDGER_APPROVAL_REQUIRED.includes(action)) {
-    const approvedBy = movement.approval?.approvedBy;
-    if (!approvedBy) {
+    if (!movement.approval?.approvedBy) {
       throw new ValidationError(`${action} requires approval.approvedBy metadata`);
     }
     if (!isPlatformAdmin(context) && !isPlatformReviewer(context)) {
@@ -134,92 +159,32 @@ export async function appendStockMovement(stockItemId, movement = {}, userContex
     }
   }
 
-  const item = await fetchStockItem(client, stockItemId, context);
-
-  // Idempotency: a prior movement with the same key returns the existing row unchanged.
-  const idempotencyKey = movement.idempotencyKey || null;
-  if (idempotencyKey) {
-    const { data: existing } = await client
-      .from(LEDGER)
-      .select('*')
-      .eq('stock_item_id', stockItemId)
-      .eq('idempotency_key', idempotencyKey)
-      .is('deleted_at', null)
-      .maybeSingle();
-    if (existing) {
-      return { ledgerEntry: existing, stockItem: item, idempotentReplay: true };
-    }
-  }
-
-  const onHandBefore = Number(item.quantity_on_hand || 0);
-  const { onHand, reserved } = computeBalances(action, movement.quantity, item);
-
-  const ledgerRow = {
-    tenant_id: item.tenant_id || context.tenantId || null,
-    stock_item_id: stockItemId,
-    import_order_id: movement.importOrderId || null,
-    supply_document_id: item.supply_document_id || null,
-    source_command_id: movement.sourceCommandId || null,
-    reference_document_id: movement.referenceDocumentId || null,
-    action_type: action,
-    quantity_delta: onHand - onHandBefore,
-    quantity_before: onHandBefore,
-    quantity_after: onHand,
-    unit_cost: movement.unitCost ?? item.unit_cost ?? null,
-    unit_price: movement.unitPrice ?? item.unit_price ?? null,
-    currency: movement.currency || item.currency || 'USD',
-    approval_status: STOCK_LEDGER_APPROVAL_REQUIRED.includes(action) ? 'APPROVED' : 'NOT_REQUIRED',
-    execution_status: 'EXECUTED',
-    audit_lock: true,
-    idempotency_key: idempotencyKey,
-    notes: movement.reason || null,
-    metadata: {
-      reservationRef: movement.reservationRef || null,
-      reservedBefore: Number(item.quantity_reserved || 0),
-      reservedAfter: reserved,
-      availableAfter: onHand - reserved,
-      approval: movement.approval || null,
-      correlationId: requestCorrelationId(req),
-      source: movement.source || 'ui',
-    },
-    created_by: context.id,
-    updated_by: context.id,
-  };
-
-  const { data: ledgerEntry, error: ledgerError } = await client
-    .from(LEDGER)
-    .insert(ledgerRow)
-    .select()
-    .single();
-  if (ledgerError) throw new ValidationError(`Failed to append stock movement: ${ledgerError.message}`);
-
-  const { data: stockItem, error: updateError } = await client
-    .from(STORAGE)
-    .update({
-      quantity_on_hand: onHand,
-      quantity_reserved: reserved,
-      updated_by: context.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', stockItemId)
-    .select()
-    .single();
-  if (updateError) throw new ValidationError(`Failed to update stock balances: ${updateError.message}`);
-
-  await appendAudit(client, {
-    importOrderId: movement.importOrderId || null,
-    actorId: context.id,
-    tenantId: stockItem.tenant_id,
-    action: `STOCK_${action}`,
-    resourceType: 'diaspora_stock_item',
-    resourceId: stockItemId,
-    previousState: { quantity_on_hand: onHandBefore, quantity_reserved: Number(item.quantity_reserved || 0) },
-    newState: { quantity_on_hand: onHand, quantity_reserved: reserved },
-    metadata: { ledgerEntryId: ledgerEntry.id, action, quantity: movement.quantity, source: movement.source || 'ui' },
-    req,
+  // Single atomic transaction: lock + validate + ledger insert + balance update + critical audit.
+  // No non-atomic production fallback (directive H1 §10).
+  const { data, error } = await client.rpc(STOCK_RPC, {
+    p_stock_item_id: stockItemId,
+    p_actor_id: context.id,
+    p_tenant_id: context.tenantId || null,
+    p_actor_is_privileged: isPlatformAdmin(context) || isPlatformReviewer(context),
+    p_action: action,
+    p_quantity: Number(movement.quantity),
+    p_idempotency_key: movement.idempotencyKey || null,
+    p_import_order_id: movement.importOrderId || null,
+    p_reservation_ref: movement.reservationRef || null,
+    p_source_command_id: movement.sourceCommandId || null,
+    p_reference_document_id: movement.referenceDocumentId || null,
+    p_unit_cost: movement.unitCost ?? null,
+    p_unit_price: movement.unitPrice ?? null,
+    p_currency: movement.currency || null,
+    p_reason: movement.reason || null,
+    p_approval: movement.approval || null,
+    p_correlation_id: requestCorrelationId(req),
+    p_source: movement.source || 'ui',
   });
+  if (error) throw translateStockRpcError(error);
+  if (!data) throw new ValidationError('Stock movement returned no result');
 
-  return { ledgerEntry, stockItem, idempotentReplay: false };
+  return { ledgerEntry: data.ledgerEntry, stockItem: data.stockItem, idempotentReplay: Boolean(data.idempotentReplay) };
 }
 
 /** List the immutable ledger history for a stock item (tenant/ownership scoped). */
