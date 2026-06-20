@@ -161,5 +161,15 @@
   Staging `eoyenigwevnxwwhyhaer`; production `vhmnajoeicasaigiophh` forbidden.
 - **Commit SHA**: _set on commit_.
 
-### H8 — CI acceptance workflow
-_pending_
+### H8 — CI acceptance workflow (Risk G)
+- **Workflow**: `.github/workflows/diaspora-phases-3-7-validation.yml` (PR + push + dispatch).
+- **backend-and-build job**: `npm ci`; secret-scan guard (Google/JWT/refresh-token value formats);
+  migration sanity (each hardening migration has Up+Down); `node --test backend/tests/diaspora-*.test.js`;
+  `tsc --noEmit`; route validation; `npm run build`.
+- **playwright job**: install chromium, start the web dev server, run the Phase 2C + Phase 3-7
+  specs; upload report on failure.
+- **staging-integration job**: gated on `DIASPORA_STAGING_DATABASE_URL`; prints
+  `skipped — secrets unavailable` when absent (never false success).
+- **Note**: CI runs independently once the workflow is on the PR branch; run IDs/links recorded in
+  the hardening report after the branch is pushed.
+- **Commit SHA**: _set on commit_.
