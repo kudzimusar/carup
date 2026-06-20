@@ -17,7 +17,9 @@ import {
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const auth = authorizeRole();
+// H4: Drive is per-user trade-document storage; the service scopes every call to the caller's own
+// connection/files. Restrict to authenticated trade participants.
+const auth = authorizeRole(['owner', 'dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 
 router.get('/drive/status', auth, asyncHandler(async (req, res) => {
   res.json({ data: await getDriveStatus(req.userContext, { req }) });

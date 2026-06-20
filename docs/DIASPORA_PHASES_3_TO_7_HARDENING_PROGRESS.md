@@ -93,8 +93,19 @@
 - **Staging-gated**: true simultaneous approval race (pending staging authorization).
 - **Commit SHA**: _set on commit_.
 
-### H4 — Explicit backend authorization
-_pending_
+### H4 — Explicit backend authorization (Risk D)
+- **Outcome**: every Phase 3-7 route uses an explicit role allowlist; broad `authorizeRole()` removed.
+- **Matrix**: `docs/DIASPORA_PHASES_3_TO_7_AUTHORIZATION_MATRIX.md` (sellerAuth / buyerAuth /
+  reviewerAuth / participantAuth; mechanic/insurance/bank excluded).
+- **Routes changed**: `diasporaStockRoutes.js` (sellerAuth), `diasporaBuyerOrderRoutes.js` (buyer vs
+  seller), `diasporaAiCommandRoutes.js` (participant; approve = reviewer), `diasporaContainerMarketplaceRoutes.js`
+  (participant browse/request/cancel; reviewer create/close/approve/reject), `diasporaDriveRoutes.js`
+  (participant, per-user scoped). Service-level ownership/tenant checks retained as defense in depth.
+- **Tests**: `backend/tests/diaspora-route-authorization.test.js` (8) drives the real router over
+  HTTP — owner/mechanic denied on stock, dealer denied on buyer-orders, owner denied on /rfqs,
+  buyer/seller denied on container create/approve, dealer denied on ai approve, spoofed
+  x-stakeholder-role cannot escalate, cross-tenant x-tenant-id rejected, unauthenticated 401.
+- **Commit SHA**: _set on commit_.
 
 ### H5 — Critical audit policy
 _pending_
