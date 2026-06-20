@@ -118,8 +118,9 @@ export function getSharedMockProvider() {
 }
 
 export async function getDriveProvider(providerName = DRIVE_PROVIDERS.GOOGLE, options = {}) {
-  if (options.driveProvider) return options.driveProvider;
-  const { shouldUseMockProvider } = await import('../../../constants/diaspora/diasporaDriveConstants.js');
+  if (options.driveProvider) return options.driveProvider; // test injection
+  const { shouldUseMockProvider, assertDriveProductionSafety } = await import('../../../constants/diaspora/diasporaDriveConstants.js');
+  assertDriveProductionSafety(); // reject DIASPORA_DRIVE_MOCK in production (fail closed)
   if (shouldUseMockProvider()) return getSharedMockProvider();
   const { GoogleDriveProvider } = await import('./googleDriveProvider.js');
   return new GoogleDriveProvider();

@@ -13,6 +13,7 @@ import {
   DRIVE_CONNECTION_STATUS,
   DRIVE_FILE_SYNC_STATUS,
   DRIVE_FOLDER_STRUCTURE,
+  OAUTH_STATE_TTL_MS,
   isDriveEnabled,
   driveStateSecret,
 } from '../../constants/diaspora/diasporaDriveConstants.js';
@@ -22,6 +23,7 @@ import { getDriveProvider, DriveProviderError } from './drive/driveProvider.js';
 
 const CONNECTIONS = 'diaspora_drive_connections';
 const FILES = 'diaspora_drive_files';
+const OAUTH_STATES = 'diaspora_oauth_states';
 
 const ENTITY_FOLDER = {
   buyer_order: 'Buyer Orders',
@@ -37,13 +39,18 @@ function b64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function signState({ userId, tenantId }) {
-  const payload = b64url(JSON.stringify({ userId, tenantId: tenantId || null, nonce: crypto.randomBytes(8).toString('hex') }));
+/**
+ * Build a signed OAuth state carrying user, tenant, issued-at, expiry and a one-time nonce.
+ * Exported as a test seam so expiry/foreign-state cases can be constructed deterministically.
+ */
+export function buildOAuthState({ userId, tenantId = null, nonce, iat, exp }) {
+  const payload = b64url(JSON.stringify({ userId, tenantId: tenantId || null, nonce, iat, exp }));
   const sig = crypto.createHmac('sha256', driveStateSecret()).update(payload).digest('hex');
   return `${payload}.${sig}`;
 }
 
-function verifyState(state, expectedUserId) {
+/** Verify signature, expiry and user binding (no DB). Throws on any failure. */
+function parseAndVerifyState(state, expectedUserId) {
   if (!state || typeof state !== 'string' || !state.includes('.')) throw new ValidationError('Invalid OAuth state');
   const [payload, sig] = state.split('.');
   const expected = crypto.createHmac('sha256', driveStateSecret()).update(payload).digest('hex');
@@ -59,7 +66,25 @@ function verifyState(state, expectedUserId) {
   if (normalizeId(decoded.userId) !== normalizeId(expectedUserId)) {
     throw new ForbiddenError('OAuth state does not belong to the authenticated user');
   }
+  if (!decoded.exp || Date.now() > Number(decoded.exp)) {
+    throw new ValidationError('OAuth state has expired');
+  }
+  if (!decoded.nonce) throw new ValidationError('OAuth state is missing its nonce');
   return decoded;
+}
+
+/** Consume the nonce exactly once via a conditional update (consumed_at IS NULL). */
+async function consumeNonce(client, decoded, userId) {
+  const { data } = await client
+    .from(OAUTH_STATES)
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('nonce', decoded.nonce)
+    .eq('user_id', userId)
+    .is('consumed_at', null)
+    .select()
+    .maybeSingle();
+  if (!data) throw new ValidationError('OAuth state has already been used or is unknown');
+  return data;
 }
 
 /** Strip all credential/token material before returning a connection to any caller. */
@@ -121,9 +146,25 @@ export async function getDriveStatus(userContext = {}, options = {}) {
 export async function getAuthorizationUrl(userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   if (!isDriveEnabled()) throw new ValidationError('Drive integration is disabled');
+  const client = await resolveClient(options);
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
-  const state = signState({ userId: context.id, tenantId: context.tenantId });
-  const url = provider.buildAuthorizationUrl(state, DRIVE_SCOPES);
+
+  // Issue a one-time, expiring nonce bound to the user; the signed state carries it.
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const iat = Date.now();
+  const exp = iat + OAUTH_STATE_TTL_MS;
+  const { error } = await client.from(OAUTH_STATES).insert({
+    nonce,
+    provider: DRIVE_PROVIDERS.GOOGLE,
+    user_id: context.id,
+    tenant_id: context.tenantId || null,
+    issued_at: new Date(iat).toISOString(),
+    expires_at: new Date(exp).toISOString(),
+  }).select().single();
+  if (error) throw new ValidationError(`Failed to initialize Drive authorization: ${error.message}`);
+
+  const state = buildOAuthState({ userId: context.id, tenantId: context.tenantId, nonce, iat, exp });
+  const url = provider.buildAuthorizationUrl(state, DRIVE_SCOPES); // throws NOT_CONFIGURED if Google creds absent (fail closed)
   return { url, scopes: DRIVE_SCOPES, state };
 }
 
@@ -131,10 +172,13 @@ export async function handleOAuthCallback({ code, state } = {}, userContext = {}
   const context = requireUserContext(userContext);
   if (!isDriveEnabled()) throw new ValidationError('Drive integration is disabled');
   if (!code) throw new ValidationError('Missing authorization code');
-  verifyState(state, context.id); // binds the connection to the initiating user; rejects foreign/tampered state
 
   const client = await resolveClient(options);
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
+
+  // Signature + expiry + user binding, then one-time nonce consumption (replay rejected).
+  const decoded = parseAndVerifyState(state, context.id);
+  await consumeNonce(client, decoded, context.id);
 
   let exchanged;
   try {

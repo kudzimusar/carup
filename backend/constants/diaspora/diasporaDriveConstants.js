@@ -34,18 +34,39 @@ export const DRIVE_FOLDER_STRUCTURE = Object.freeze({
   children: ['Buyer Orders', 'Seller Stock', 'Import Documents', 'Export Documents', 'Invoices', 'Bills of Lading', 'Compliance', 'Payment Proof', 'Completed Orders'],
 });
 
+// Short-lived OAuth state window (one-time, replay-protected).
+export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+export function isProduction() {
+  return process.env.NODE_ENV === 'production';
+}
+
 export function isDriveEnabled() {
   return String(process.env.DIASPORA_DRIVE_ENABLED || '').toLowerCase() === 'true';
 }
 
-// Use the mock provider in tests / when real Google credentials are absent.
+// Fail closed: production NEVER auto-selects the mock provider. The mock is only used in dev/test or
+// when DIASPORA_DRIVE_MOCK is explicitly set outside production.
 export function shouldUseMockProvider() {
+  if (isProduction()) return false;
   if (String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') return true;
   if (process.env.NODE_ENV === 'test') return true;
-  return !(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_DRIVE_REDIRECT_URI);
+  return false;
+}
+
+// Reject an attempt to force the mock provider in production.
+export function assertDriveProductionSafety() {
+  if (isProduction() && String(process.env.DIASPORA_DRIVE_MOCK || '').toLowerCase() === 'true') {
+    throw new Error('DIASPORA_DRIVE_MOCK must not be enabled in production');
+  }
 }
 
 export function driveStateSecret() {
-  // Dev fallback only; production must set DIASPORA_DRIVE_STATE_SECRET. Never a real secret in source.
-  return process.env.DIASPORA_DRIVE_STATE_SECRET || 'diaspora-drive-dev-state-secret';
+  const secret = process.env.DIASPORA_DRIVE_STATE_SECRET;
+  if (secret) return secret;
+  // No fixed production fallback secret — fail closed.
+  if (isProduction()) {
+    throw new Error('DIASPORA_DRIVE_STATE_SECRET is required in production');
+  }
+  return 'diaspora-drive-dev-state-secret';
 }
