@@ -14,20 +14,30 @@
 
 ## Status Summary
 
+> **Hardening note (2026-06-21):** The feature breadth below was delivered with mock-tested
+> coverage. A hardening program (PR #81, `docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_HARDENING_DIRECTIVE.md`)
+> is converting it to merge-ready, database-safe, authorization-safe, integration-proven code. Until
+> the hardening gates pass, treat the items below as **IMPLEMENTED — HARDENING IN PROGRESS**, not
+> production-safe. Atomicity, guaranteed audit, concurrency safety, and live Drive are NOT yet proven.
+> Live progress: `docs/DIASPORA_PHASES_3_TO_7_HARDENING_PROGRESS.md`.
+
 | Phase | Title | State | Commit |
 | --- | --- | --- | --- |
 | Discovery | Audit + ledger + draft PR | DONE | `1b3395e` |
-| 3 | Online Stock & Supply Documents | CODE-COMPLETE | `94b6dce` |
-| 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE | `0c8f6b7` |
-| 5 | AI Command Hardening | CODE-COMPLETE | `93ca439` |
-| 6 | Container Co-Loading | CODE-COMPLETE | `4d7e79c` |
-| 7 | Google Drive Integration | CODE-COMPLETE PENDING EXTERNAL ACTIVATION | `900f02c` |
+| 3 | Online Stock & Supply Documents | IMPLEMENTED — HARDENING IN PROGRESS | `94b6dce` |
+| 4 | Buyer Orders & Reverse RFQ | IMPLEMENTED — HARDENING IN PROGRESS | `0c8f6b7` |
+| 5 | AI Command Hardening | IMPLEMENTED — HARDENING IN PROGRESS | `93ca439` |
+| 6 | Container Co-Loading | IMPLEMENTED — HARDENING IN PROGRESS | `4d7e79c` |
+| 7 | Google Drive Integration | SCAFFOLD/MOCK-COMPLETE — LIVE GOOGLE ACTIVATION NOT IMPLEMENTED | `900f02c` |
 
-## Final acceptance (all green)
+## Feature-breadth acceptance (mock-tested, pre-hardening)
 
 - Backend diaspora suite: 275 pass / 0 fail / 3 skipped (live Supabase integration).
 - TypeScript clean · route-validation 7/7 · Playwright 38 pass (20 new + 18 Phase 2C regression) ·
   `npm run build` OK (pre-existing chunk-size warning only).
+- These results prove API/UI breadth with an in-memory mock client; they do NOT prove transactional
+  atomicity, concurrency safety, applied migrations, or live integration. Those are the hardening
+  gates (see hardening ledger).
 
 State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDING EXTERNAL ACTIVATION · BLOCKED · DONE.
 
