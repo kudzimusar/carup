@@ -15,7 +15,7 @@
 | Phase | Title | State |
 | --- | --- | --- |
 | Discovery | Audit + ledger + draft PR | DONE (baseline) |
-| 3 | Online Stock & Supply Documents | NOT STARTED |
+| 3 | Online Stock & Supply Documents | CODE-COMPLETE |
 | 4 | Buyer Orders & Reverse RFQ | NOT STARTED |
 | 5 | AI Command Hardening | NOT STARTED |
 | 6 | Container Co-Loading | NOT STARTED |
@@ -48,7 +48,45 @@ State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDI
 ---
 
 ## Milestone: Phase 3 — Online Stock & Supply Documents
-_pending_
+
+- **Objective**: Seller-facing, ledger-backed stock + controlled supply-document publication.
+- **Repository findings**: Tables `diaspora_stock_items`, `diaspora_stock_ledger`,
+  `diaspora_supply_documents` already exist (Phase 1B). No existing service/route layer; built here.
+- **Schema findings / migration**: additive migration
+  `database/migrations/20260620120000_diaspora_phase3_stock_ledger_idempotency.sql` adds
+  `idempotency_key` + partial unique index `(stock_item_id, idempotency_key)` and a time index.
+  **Not applied to production.**
+- **Files changed**:
+  - `backend/tests/helpers/mockSupabase.js` (shared in-memory mock client)
+  - `backend/services/diaspora/diasporaServiceUtils.js` (resolveClient + sealed appendAudit)
+  - `backend/constants/diaspora/diasporaStockConstants.js`
+  - `backend/services/diaspora/diasporaStockLedgerService.js`
+  - `backend/services/diaspora/diasporaStockService.js`
+  - `backend/services/diaspora/diasporaSupplyDocumentService.js`
+  - `backend/routes/diasporaStockRoutes.js` (+ mounted in `backend/routes/diasporaRoutes.js`)
+  - `backend/tests/diaspora-stock.test.js`
+  - `web/src/types/index.ts` (stock/supply types)
+  - `web/src/hooks/useCarUpApi.ts` (11 stock/supply methods)
+  - `web/src/lib/apiClient.ts` (normalize nested `{error:{message}}` → actionable copy)
+  - `web/src/pages/diaspora/DiasporaStockManager.tsx`
+  - `web/src/App.tsx` (`/diaspora/stock`), `web/src/config/featureRegistry.ts` (`diaspora.stock-manager`)
+  - `web/e2e/diaspora-stock-supply.spec.ts`
+- **Endpoints added**: `GET/POST /api/diaspora/stock`, `GET/PATCH /api/diaspora/stock/:id`,
+  `GET/POST /api/diaspora/stock/:id/ledger`, `POST /api/diaspora/stock/:id/reserve`,
+  `POST /api/diaspora/stock/:id/release-reservation`, `GET/POST /api/diaspora/supply-documents`,
+  `GET/PATCH /api/diaspora/supply-documents/:id`, `POST .../publish`, `POST .../unpublish`.
+- **Frontend routes added**: `/diaspora/stock` (roles dealer/admin + platform/reviewer at runtime).
+- **Security/integrity**: tenant + ownership scoping on every endpoint; quantities change only via
+  ledger; available never negative; reservations bounded by availability; idempotent movements;
+  ADJUST_WITH_APPROVAL gated to reviewer/admin + approval metadata; sealed audit on every mutation.
+- **Tests run / results**: backend `node --test backend/tests/diaspora-stock.test.js` → 12/12 pass;
+  e2e `diaspora-stock-supply.spec.ts` → 3/3 pass; tsc OK; route-validation 7/7; Phase 2C regression
+  18/18; `npm run build` OK (existing chunk-size warning only).
+- **Known limitations**: balances are transactionally maintained on the item row from ledger events
+  (not recomputed per-read); concurrency relies on Supabase row updates (acceptable for current load).
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 4 — Buyer Orders & Reverse RFQ.
 
 ## Milestone: Phase 4 — Buyer Orders & Reverse RFQ
 _pending_

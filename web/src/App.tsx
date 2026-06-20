@@ -42,6 +42,7 @@ import {
 } from './pages/diaspora/DiasporaTrade'
 import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
+import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -190,6 +191,7 @@ export default function App() {
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
           <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
           <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />

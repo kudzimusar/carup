@@ -609,6 +609,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'ClipboardList',
   },
   {
+    id: 'diaspora.stock-manager',
+    label: 'Stock Manager',
+    route: '/diaspora/stock',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Tag',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',
