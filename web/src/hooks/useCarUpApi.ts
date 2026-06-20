@@ -44,7 +44,13 @@ import type {
   DiasporaStockMovementPayload,
   DiasporaStockMovementResult,
   DiasporaSupplyDocument,
-  DiasporaSupplyDocumentPayload
+  DiasporaSupplyDocumentPayload,
+  DiasporaBuyerOrder,
+  DiasporaBuyerOrderPayload,
+  DiasporaQuote,
+  DiasporaQuotePayload,
+  DiasporaMatchCandidate,
+  DiasporaAcceptQuoteResult
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -563,6 +569,62 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 4: Buyer Orders & Reverse RFQ ──
+  const fetchDiasporaBuyerOrders = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
+    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/buyer-orders')
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaBuyerOrder = useCallback(async (id: string): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const createDiasporaBuyerOrder = useCallback(async (payload: DiasporaBuyerOrderPayload): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>('/diaspora/buyer-orders', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaBuyerOrder = useCallback(async (id: string, payload: Partial<DiasporaBuyerOrderPayload>): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const publishDiasporaRfq = useCallback(async (id: string): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}/publish-rfq`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaOrderMatches = useCallback(async (id: string): Promise<DiasporaMatchCandidate[]> => {
+    const response = await request<{ data: DiasporaMatchCandidate[] }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}/matches`)
+    return response.data || []
+  }, [request])
+
+  const acceptDiasporaQuote = useCallback(async (orderId: string, quoteId: string): Promise<DiasporaAcceptQuoteResult> => {
+    const response = await request<{ data: DiasporaAcceptQuoteResult }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/accept-quote`, { method: 'POST', body: JSON.stringify({ quoteId }) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaRfqs = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
+    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/rfqs')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaQuote = useCallback(async (orderId: string, payload: DiasporaQuotePayload): Promise<{ quote: DiasporaQuote; idempotentReplay?: boolean }> => {
+    const response = await request<{ data: { quote: DiasporaQuote; idempotentReplay?: boolean } }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/quotes`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const submitDiasporaQuote = useCallback(async (quoteId: string): Promise<DiasporaQuote> => {
+    const response = await request<{ data: DiasporaQuote }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}/submit`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const withdrawDiasporaQuote = useCallback(async (quoteId: string): Promise<{ withdrawn: boolean }> => {
+    const response = await request<{ data: { withdrawn: boolean } }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}/withdraw`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1018,6 +1080,17 @@ export function useCarUpApi() {
     updateDiasporaSupplyDocument,
     publishDiasporaSupplyDocument,
     unpublishDiasporaSupplyDocument,
+    fetchDiasporaBuyerOrders,
+    fetchDiasporaBuyerOrder,
+    createDiasporaBuyerOrder,
+    updateDiasporaBuyerOrder,
+    publishDiasporaRfq,
+    fetchDiasporaOrderMatches,
+    acceptDiasporaQuote,
+    fetchDiasporaRfqs,
+    createDiasporaQuote,
+    submitDiasporaQuote,
+    withdrawDiasporaQuote,
     reportStolen,
     checkStolen,
     fetchDealerReputation,

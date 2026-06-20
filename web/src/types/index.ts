@@ -597,6 +597,102 @@ export interface DiasporaSupplyDocumentPayload {
   metadata?: Record<string, unknown>;
 }
 
+// ── Phase 4: Buyer Orders & Reverse RFQ ─────────────────────────────────────
+export interface DiasporaRfqMeta {
+  published?: boolean;
+  publishedAt?: string;
+  acceptedQuoteId?: string;
+  acceptedAt?: string;
+}
+
+export interface DiasporaQuote {
+  id: string;
+  import_order_id: string;
+  seller_id?: string | null;
+  quote_amount: number | string;
+  quote_currency?: string;
+  valid_until?: string | null;
+  inclusions?: unknown[];
+  exclusions?: unknown[];
+  status: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaBuyerOrder {
+  id: string;
+  tenant_id?: string | null;
+  buyer_id?: string | null;
+  order_type: string;
+  origin_country: string;
+  origin_city?: string | null;
+  destination_country?: string;
+  destination_city?: string | null;
+  requested_make?: string | null;
+  requested_model?: string | null;
+  requested_year_min?: number | null;
+  requested_year_max?: number | null;
+  budget_amount?: number | string | null;
+  budget_currency?: string;
+  status: string;
+  metadata?: { urgency?: string; requested_part_number?: string | null; rfq?: DiasporaRfqMeta; [key: string]: unknown };
+  quotes?: DiasporaQuote[];
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaBuyerOrderPayload {
+  order_type: string;
+  origin_country: string;
+  origin_city?: string;
+  destination_country?: string;
+  destination_city?: string;
+  requested_make?: string;
+  requested_model?: string;
+  requested_year_min?: number;
+  requested_year_max?: number;
+  requested_part_number?: string;
+  budget_amount?: number;
+  budget_currency?: string;
+  urgency?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaMatchCandidate {
+  stockItemId: string;
+  partName: string;
+  sku?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+  available: number;
+  unitPrice?: number | string | null;
+  currency?: string;
+  sellerTradeProfileId?: string | null;
+  score: number;
+  reasons: string[];
+}
+
+export interface DiasporaQuotePayload {
+  quote_amount: number;
+  quote_currency?: string;
+  valid_until?: string;
+  inclusions?: unknown[];
+  exclusions?: unknown[];
+  submit?: boolean;
+  idempotencyKey?: string;
+  stockItemId?: string;
+  leadTimeDays?: number;
+  shippingTerms?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaAcceptQuoteResult {
+  order: DiasporaBuyerOrder;
+  acceptedQuote: DiasporaQuote;
+  idempotentReplay?: boolean;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;
