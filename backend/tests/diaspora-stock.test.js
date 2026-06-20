@@ -10,6 +10,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
+const { DIASPORA_RPCS } = await import('./helpers/diasporaRpcReference.js');
 const stock = await import('../services/diaspora/diasporaStockService.js');
 const ledger = await import('../services/diaspora/diasporaStockLedgerService.js');
 const supply = await import('../services/diaspora/diasporaSupplyDocumentService.js');
@@ -19,7 +20,10 @@ const otherSeller = { id: 'seller-2', userId: 'seller-2', role: 'dealer', platfo
 const reviewer = { id: 'rev-1', userId: 'rev-1', role: 'reviewer', platformRole: 'reviewer', tenantId: null };
 
 function freshClient() {
-  return createMockSupabase({ diaspora_stock_items: [], diaspora_stock_ledger: [], diaspora_supply_documents: [], diaspora_import_audit_log: [] });
+  return createMockSupabase(
+    { diaspora_stock_items: [], diaspora_stock_ledger: [], diaspora_supply_documents: [], diaspora_import_audit_log: [] },
+    { rpc: DIASPORA_RPCS },
+  );
 }
 
 test('seller can create draft stock and an opening balance seeds via the ledger', async () => {
@@ -144,4 +148,50 @@ test('supply document cannot transition published -> published (invalid transiti
   await assert.rejects(() => supply.publishSupplyDocument(doc.id, seller, { supabaseClient: client }), /Cannot transition/i);
   const unpub = await supply.unpublishSupplyDocument(doc.id, seller, { supabaseClient: client });
   assert.equal(unpub.status, 'UNPUBLISHED');
+});
+
+// ── H1: atomic stock movement contract (via diaspora_append_stock_movement_atomic) ──
+
+test('H1: same idempotency key with a conflicting payload is rejected', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Rotor', initial_quantity: 20 }, seller, { supabaseClient: client });
+  await ledger.appendStockMovement(item.id, { action: 'RESERVE', quantity: 4, idempotencyKey: 'dup' }, seller, { supabaseClient: client });
+  await assert.rejects(
+    () => ledger.appendStockMovement(item.id, { action: 'RESERVE', quantity: 9, idempotencyKey: 'dup' }, seller, { supabaseClient: client }),
+    /reused with a different movement/i,
+  );
+});
+
+test('H1: simulated audit failure rolls back the whole movement (no ledger row, no balance change)', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Caliper', initial_quantity: 10 }, seller, { supabaseClient: client });
+  const ledgerCountBefore = client._rows('diaspora_stock_ledger').length;
+  client.setFault('failAudit');
+  await assert.rejects(() => ledger.appendStockMovement(item.id, { action: 'RESERVE', quantity: 3 }, seller, { supabaseClient: client }), /could not be applied|audit/i);
+  client.clearFaults();
+  assert.equal(client._rows('diaspora_stock_ledger').length, ledgerCountBefore); // no partial ledger row
+  const current = await stock.getStockItem(item.id, seller, { supabaseClient: client });
+  assert.equal(current.balances.reserved, 0); // balances unchanged
+  assert.equal(current.balances.onHand, 10);
+});
+
+test('H1: simulated balance-update failure leaves no ledger row', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Pump', initial_quantity: 6 }, seller, { supabaseClient: client });
+  const before = client._rows('diaspora_stock_ledger').length;
+  client.setFault('failItemUpdate');
+  await assert.rejects(() => ledger.appendStockMovement(item.id, { action: 'ADD', quantity: 2 }, seller, { supabaseClient: client }));
+  client.clearFaults();
+  assert.equal(client._rows('diaspora_stock_ledger').length, before);
+});
+
+test('H1: cross-tenant actor without ownership is denied by the RPC', async () => {
+  const client = freshClient();
+  const tenantItem = await stock.createStockItem({ part_name: 'Tenant part' }, { ...seller, tenantId: 'tenantA' }, { supabaseClient: client });
+  // a different user in a different tenant, non-privileged
+  const intruder = { id: 'intruder', userId: 'intruder', role: 'dealer', platformRole: 'dealer', tenantId: 'tenantB' };
+  await assert.rejects(
+    () => ledger.appendStockMovement(tenantItem.id, { action: 'ADD', quantity: 1 }, intruder, { supabaseClient: client }),
+    /access to this stock item/i,
+  );
 });

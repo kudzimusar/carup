@@ -45,8 +45,24 @@
 - **Commit SHA**: _set on commit_.
 - **Next**: H1 atomic stock movement.
 
-### H1 — Atomic stock movement
-_pending_
+### H1 — Atomic stock movement (Risk A)
+- **Outcome**: stock movement is one atomic DB transaction.
+- **Migration/RPC**: `database/migrations/20260621090000_diaspora_h1_stock_movement_rpc.sql` →
+  `diaspora_append_stock_movement_atomic(...)` — `SELECT … FOR UPDATE` on the item, action allowlist,
+  ownership/tenant check, idempotency (with conflicting-payload rejection), balance constraints,
+  ledger insert, balance update, and a critical audit row, all in one transaction; `SECURITY INVOKER`,
+  fixed `search_path`, `EXECUTE` granted to `service_role` only.
+- **Service**: `diasporaStockLedgerService.js.appendStockMovement` now calls the RPC only (no
+  non-atomic fallback) with sanitized error translation; `reserveStock`/`releaseReservation`/opening
+  balance delegate through it.
+- **Test infra**: `backend/tests/helpers/mockSupabase.js` gains an `.rpc()` dispatcher + fault hooks;
+  `backend/tests/helpers/diasporaRpcReference.js` mirrors the SQL invariants for sequential contract
+  tests (true row-lock concurrency is staging-gated, H7/H9).
+- **Tests**: `diaspora-stock.test.js` (16) incl. idempotency conflict, audit-failure rollback (zero
+  writes), balance-update-failure rollback, cross-tenant denial; `diaspora-ai-command.test.js` (12)
+  RESERVE via RPC. 28 pass.
+- **Staging-gated**: real concurrent over-reservation test (pending staging authorization).
+- **Commit SHA**: _set on commit_.
 
 ### H2 — Atomic quote acceptance
 _pending_

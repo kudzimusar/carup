@@ -12,6 +12,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
+const { DIASPORA_RPCS } = await import('./helpers/diasporaRpcReference.js');
 const ai = await import('../services/diaspora/diasporaAiCommandService.js');
 
 const user = { id: 'u-1', userId: 'u-1', role: 'dealer', platformRole: 'dealer', tenantId: null };
@@ -26,7 +27,7 @@ function client(extra = {}) {
     diaspora_stock_ledger: [],
     diaspora_import_audit_log: [],
     ...extra,
-  });
+  }, { rpc: DIASPORA_RPCS });
 }
 
 test('low-risk command creates a DRAFT and executes to a draft record only', async () => {
