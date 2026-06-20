@@ -190,8 +190,17 @@ export async function apiRequest<T = any>({
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({} as { error?: string }))
-    const message = (errorData as { error?: string }).error
+    const errorData = await response.json().catch(() => ({} as Record<string, unknown>))
+    // The platform error contract is `{ error: { code, message } }`; older endpoints may return
+    // `{ error: "message" }` or `{ message }`. Normalize to a human-readable string so the UI never
+    // renders "[object Object]".
+    const rawError = (errorData as { error?: unknown }).error
+    const message =
+      typeof rawError === 'string'
+        ? rawError
+        : (rawError && typeof rawError === 'object' && typeof (rawError as { message?: unknown }).message === 'string'
+            ? (rawError as { message: string }).message
+            : (typeof (errorData as { message?: unknown }).message === 'string' ? (errorData as { message: string }).message : undefined))
 
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a

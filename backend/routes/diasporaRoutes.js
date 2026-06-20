@@ -2,6 +2,7 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
+import diasporaStockRouter from './diasporaStockRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -31,6 +32,9 @@ function pagination(req) {
 
 // Phase 1A: Diaspora Workbook Center. Mounted inside /api/diaspora by server.js.
 router.use(diasporaWorkbookRouter);
+
+// Phase 3: Online stock, immutable stock ledger, and supply documents.
+router.use(diasporaStockRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {

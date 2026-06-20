@@ -37,7 +37,14 @@ import type {
   DiasporaWorkbookDryRunPayload,
   DiasporaWorkbookDryRunResult,
   DiasporaWorkbookTemplateDownloadStatus,
-  DiasporaWorkbookTemplateSchemaResponse
+  DiasporaWorkbookTemplateSchemaResponse,
+  DiasporaStockItem,
+  DiasporaStockItemPayload,
+  DiasporaStockLedgerEntry,
+  DiasporaStockMovementPayload,
+  DiasporaStockMovementResult,
+  DiasporaSupplyDocument,
+  DiasporaSupplyDocumentPayload
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -494,6 +501,68 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 3: Stock & Supply Documents ──
+  const fetchDiasporaStockItems = useCallback(async (filters?: Record<string, string | number | undefined>): Promise<DiasporaStockItem[]> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    const response = await request<{ data: DiasporaStockItem[] }>(`/diaspora/stock${query}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaStockItem = useCallback(async (id: string): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const createDiasporaStockItem = useCallback(async (payload: DiasporaStockItemPayload): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>('/diaspora/stock', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaStockItem = useCallback(async (id: string, payload: Partial<DiasporaStockItemPayload>): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaStockLedger = useCallback(async (id: string): Promise<DiasporaStockLedgerEntry[]> => {
+    const response = await request<{ data: DiasporaStockLedgerEntry[] }>(`/diaspora/stock/${encodeURIComponent(id)}/ledger`)
+    return response.data || []
+  }, [request])
+
+  const appendDiasporaStockMovement = useCallback(async (id: string, payload: DiasporaStockMovementPayload): Promise<DiasporaStockMovementResult> => {
+    const response = await request<{ data: DiasporaStockMovementResult }>(`/diaspora/stock/${encodeURIComponent(id)}/ledger`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaSupplyDocuments = useCallback(async (filters?: Record<string, string | undefined>): Promise<DiasporaSupplyDocument[]> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    const response = await request<{ data: DiasporaSupplyDocument[] }>(`/diaspora/supply-documents${query}`)
+    return response.data || []
+  }, [request])
+
+  const createDiasporaSupplyDocument = useCallback(async (payload: DiasporaSupplyDocumentPayload): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>('/diaspora/supply-documents', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaSupplyDocument = useCallback(async (id: string, payload: Partial<DiasporaSupplyDocumentPayload>): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>(`/diaspora/supply-documents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const publishDiasporaSupplyDocument = useCallback(async (id: string): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>(`/diaspora/supply-documents/${encodeURIComponent(id)}/publish`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const unpublishDiasporaSupplyDocument = useCallback(async (id: string): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>(`/diaspora/supply-documents/${encodeURIComponent(id)}/unpublish`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -938,6 +1007,17 @@ export function useCarUpApi() {
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
     runDiasporaWorkbookDryRun,
+    fetchDiasporaStockItems,
+    fetchDiasporaStockItem,
+    createDiasporaStockItem,
+    updateDiasporaStockItem,
+    fetchDiasporaStockLedger,
+    appendDiasporaStockMovement,
+    fetchDiasporaSupplyDocuments,
+    createDiasporaSupplyDocument,
+    updateDiasporaSupplyDocument,
+    publishDiasporaSupplyDocument,
+    unpublishDiasporaSupplyDocument,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
