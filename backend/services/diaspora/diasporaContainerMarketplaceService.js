@@ -17,9 +17,26 @@ import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 
 const CONTAINERS = 'diaspora_container_shipments';
 const RESERVATIONS = 'diaspora_cargo_reservations';
+const APPROVE_RPC = 'diaspora_approve_cargo_reservation_atomic';
 
 const READY_TO_CLOSE_RATIO = 0.90;
 const FULL_RATIO = 0.98;
+
+/** Map a sanitized approval RPC exception to a stable application error. */
+function translateApprovalError(error) {
+  const raw = String(error?.message || 'Reservation approval failed');
+  const marker = raw.indexOf('DIASPORA_CONTAINER/');
+  const code = marker >= 0 ? raw.slice(marker + 'DIASPORA_CONTAINER/'.length).split(/[:\s]/)[0] : '';
+  switch (code) {
+    case 'NOT_FOUND_RESERVATION': return new NotFoundError('Reservation not found');
+    case 'NOT_FOUND_CONTAINER': return new NotFoundError('Container not found');
+    case 'FORBIDDEN': return new ForbiddenError('Only logistics reviewers/admins can approve reservations');
+    case 'NOT_REQUESTED': return new ValidationError('Only REQUESTED reservations can be approved');
+    case 'OVERFILL': return new ValidationError('Approving this reservation would overfill the container');
+    case 'WEIGHT_OVERFILL': return new ValidationError('Approving this reservation would exceed container weight capacity');
+    default: return new ValidationError('Reservation approval could not be applied');
+  }
+}
 
 function round3(n) {
   return Math.round((Number(n) + Number.EPSILON) * 1000) / 1000;
@@ -184,50 +201,25 @@ async function fetchReservation(client, id) {
   return data;
 }
 
+/**
+ * Approve a reservation through the atomic, container-serialized RPC: lock container, recompute
+ * approved capacity, reject overfill (volume + weight), update reservation + cached capacity, and
+ * write a critical audit row — in one transaction. No non-atomic production fallback (directive H3).
+ */
 export async function approveReservation(reservationId, userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
-  const { req = null } = options;
-  const reservation = await fetchReservation(client, reservationId);
-  const container = await loadContainer(client, reservation.container_id);
 
-  if (!canReview(container, context)) throw new ForbiddenError('Only logistics reviewers/admins can approve reservations');
-  if (reservation.reservation_status !== RESERVATION_STATUSES.REQUESTED) {
-    throw new ValidationError(`Only REQUESTED reservations can be approved (status: ${reservation.reservation_status})`);
-  }
-
-  // Authoritative recompute: currently-approved + this one must not exceed total. This is what makes
-  // concurrent approvals safe — every approval re-derives used from the approved set.
-  const reservations = await loadReservations(client, container.id);
-  const cap = computeCapacity(container, reservations);
-  const projectedUsed = round3(cap.usedVolume + Number(reservation.estimated_volume || 0));
-  if (projectedUsed > Number(container.total_capacity_volume)) {
-    throw new ValidationError('Approving this reservation would overfill the container', { total: container.total_capacity_volume, projectedUsed });
-  }
-
-  // Optional weight capacity enforcement when defined on the container.
-  const totalWeight = container.metadata?.total_capacity_weight;
-  if (totalWeight != null && reservation.estimated_weight != null) {
-    const usedWeight = reservations.filter((r) => r.reservation_status === RESERVATION_STATUSES.APPROVED).reduce((s, r) => s + Number(r.estimated_weight || 0), 0);
-    if (round3(usedWeight + Number(reservation.estimated_weight)) > Number(totalWeight)) {
-      throw new ValidationError('Approving this reservation would exceed container weight capacity');
-    }
-  }
-
-  const { data: approved, error } = await client.from(RESERVATIONS).update({
-    reservation_status: RESERVATION_STATUSES.APPROVED,
-    reviewed_by: context.id,
-    reviewed_at: new Date().toISOString(),
-    updated_by: context.id,
-    updated_at: new Date().toISOString(),
-  }).eq('id', reservationId).select().single();
-  if (error) throw new ValidationError(`Failed to approve reservation: ${error.message}`);
-
-  const refreshed = await loadReservations(client, container.id);
-  const newCap = await syncContainerCapacity(client, container, refreshed, context.id);
-
-  await appendAudit(client, { importOrderId: approved.import_order_id, actorId: context.id, tenantId: approved.tenant_id, action: 'CARGO_RESERVATION_APPROVED', resourceType: 'diaspora_cargo_reservation', resourceId: reservationId, previousState: reservation, newState: approved, metadata: { capacity: newCap }, req });
-  return { reservation: approved, capacity: newCap };
+  const { data, error } = await client.rpc(APPROVE_RPC, {
+    p_reservation_id: reservationId,
+    p_actor_id: context.id,
+    p_actor_is_privileged: isPlatformAdmin(context) || isPlatformReviewer(context),
+    p_actor_tenant_role: context.tenantRole || null,
+    p_actor_tenant_id: context.tenantId || null,
+  });
+  if (error) throw translateApprovalError(error);
+  if (!data) throw new ValidationError('Reservation approval returned no result');
+  return { reservation: data.reservation, capacity: data.capacity };
 }
 
 async function transitionToReleased(client, reservationId, nextStatus, userContext, options, action) {

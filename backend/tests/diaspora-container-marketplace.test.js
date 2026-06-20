@@ -11,6 +11,7 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
+const { DIASPORA_RPCS } = await import('./helpers/diasporaRpcReference.js');
 const m = await import('../services/diaspora/diasporaContainerMarketplaceService.js');
 
 const buyerA = { id: 'a', userId: 'a', role: 'owner', platformRole: 'owner', tenantId: null };
@@ -23,7 +24,7 @@ function client(seed = {}) {
     diaspora_cargo_reservations: [],
     diaspora_import_audit_log: [],
     ...seed,
-  });
+  }, { rpc: DIASPORA_RPCS });
 }
 
 function containerSeed(total = 100) {
@@ -124,6 +125,18 @@ test('closing booking does not complete shipment', async () => {
   const closed = await m.closeBooking('cont-1', reviewer, { supabaseClient: c })
   assert.equal(closed.status, 'BOOKING_CLOSED')
   assert.notEqual(closed.status, 'COMPLETED')
+})
+
+test('H3: simulated audit failure rolls back approval (reservation stays REQUESTED, capacity unchanged)', async () => {
+  const c = client({ diaspora_container_shipments: containerSeed(100) })
+  const r = await m.requestReservation('cont-1', { estimated_volume: 40 }, buyerA, { supabaseClient: c })
+  c.setFault('failAudit')
+  await assert.rejects(() => m.approveReservation(r.id, reviewer, { supabaseClient: c }), /could not be applied|audit/i)
+  c.clearFaults()
+  const stored = c._rows('diaspora_cargo_reservations').find((x) => x.id === r.id)
+  assert.equal(stored.reservation_status, 'REQUESTED')
+  const cap = (await m.getContainerCapacity('cont-1', reviewer, { supabaseClient: c })).capacity
+  assert.equal(cap.usedVolume, 0)
 })
 
 test('weight capacity is enforced when defined', async () => {
