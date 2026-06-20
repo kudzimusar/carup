@@ -64,6 +64,7 @@ import claimsRouter from './routes/claimsRoutes.js';
 import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
+import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
@@ -184,6 +185,7 @@ app.use(claimsRouter);
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
 app.use(marketplaceRouter);
+app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
@@ -1160,35 +1162,54 @@ app.get('/api/auth/me', authorizeRole(), async (req, res) => {
   }
 });
 
+// The only role an unauthenticated public registration may create. Privileged roles
+// (admin/government/bank/insurance/dealer/mechanic) are granted only through governed,
+// authenticated paths — never the public register route.
+const PUBLIC_REGISTRATION_ROLE = 'owner';
+
 // --- AUTH: Register ---
+// Public registration is UNAUTHENTICATED, so it must NEVER honor a client-supplied platform role.
+// The server always assigns the unprivileged PUBLIC_REGISTRATION_ROLE ('owner'); any request that
+// asks for a different role — privileged (admin/government/bank/insurance/dealer/mechanic) or
+// unknown — is rejected BEFORE any user or session row is created. Allowlist, not denylist, so a
+// future privileged role can never slip through. This closes the self-register-as-admin escalation.
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, phone, password, role } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+
+  // Fail closed: only an omitted/empty role or an explicit 'owner' is accepted; everything else is
+  // rejected here, before the existence read or any write — so a rejected request creates nothing.
+  const requestedRole = role === undefined || role === null ? '' : String(role).trim().toLowerCase();
+  if (requestedRole !== '' && requestedRole !== PUBLIC_REGISTRATION_ROLE) {
+    return res.status(403).json({ error: "Public registration cannot assign a role; accounts are created as 'owner'." });
+  }
+  const assignedRole = PUBLIC_REGISTRATION_ROLE; // server-controlled — never derived from the request
+
   try {
     const { data: existing } = await supabase
       .from('users')
       .select('id')
       .eq('email', email)
       .single();
-      
+
     if (existing) return res.status(409).json({ error: 'An account with this email already exists' });
 
     const password_hash = password ? await hashPassword(password) : null;
 
     const id = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
     const { error } = await supabase.from('users').insert({
-      id, name, email, phone: phone || '', role: role || 'owner', password_hash, join_date: new Date().toISOString()
+      id, name, email, phone: phone || '', role: assignedRole, password_hash, join_date: new Date().toISOString()
     });
 
     if (error) throw error;
-    
+
     // Automatically issue a session
     const token = 'sk_live_' + crypto.randomUUID().replace(/-/g, '');
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24);
-    
+
     const { error: sessionError } = await supabase.from('user_sessions').insert(
-      buildSessionRow({ userId: id, activeRole: role || 'owner', token, expiresAt: expiresAt.toISOString(), req })
+      buildSessionRow({ userId: id, activeRole: assignedRole, token, expiresAt: expiresAt.toISOString(), req })
     );
     // Fail loudly: never hand back a token we could not persist (it would 401 on the next request).
     if (sessionError) {
@@ -1196,7 +1217,7 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
     }
 
-    const newUser = { id, name, email, phone: phone || '', role: role || 'owner' };
+    const newUser = { id, name, email, phone: phone || '', role: assignedRole };
     res.json({ user: newUser, token });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });
