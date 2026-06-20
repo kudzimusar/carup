@@ -12,6 +12,20 @@
 - **Session scope**: H0–H6 fully, H7 prepared (NOT applied), H8 CI; STOP before staging apply for
   explicit authorization (H7 apply, H9 staging smoke, H10 final readiness pending).
 
+## Milestone commits
+
+`f7f60be` H0 · `f0ac39f` H1 · `f893091` H2 · `9b08d00` H3 · `ec9519a` H4 · `0805811` H5 ·
+`9e5f4b9` H6 · `0c14e4a` H7 · `91d77af` H8 · plus a verification commit (adversarial-review fixes).
+
+## Final verification
+
+- Local acceptance (all green): backend diaspora suite 300 pass / 3 skipped; tsc clean;
+  route-validation 7/7; Playwright 38 pass; `npm run build` OK.
+- Adversarial review (4 dimensions) verified atomicity/parity, audit, and OAuth/Drive clean. Findings
+  and disposition recorded in `docs/DIASPORA_PHASES_3_TO_7_HARDENING_REPORT.md` (incl. a pre-existing,
+  unrelated production-credential leak in `backend/scripts/*` requiring user rotation — surfaced, not
+  modified).
+
 ## Risk register status
 
 | Risk | Description | State |

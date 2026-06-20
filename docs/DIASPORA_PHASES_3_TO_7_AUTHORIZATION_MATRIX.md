@@ -16,6 +16,13 @@ bypass route allowlists by design but are still subject to service-level ownersh
 
 `mechanic`, `insurance`, and `bank` are excluded from all Diaspora Phase 3–7 routes.
 
+> **Scope note.** This matrix governs the **Phase 3–7** route modules (stock, buyer-order/RFQ, AI,
+> container marketplace, drive), all of which use explicit allowlists. The legacy **Phase 1/2** routes
+> in `diasporaRoutes.js` (import-orders, documents, shipments, compliance, etc.) retain their
+> pre-existing middleware (`auth` = any authenticated user, with reviewer-only guards on sensitive
+> mutations) plus service-level ownership/tenant checks. Tightening those legacy guards is a
+> recommended follow-up outside this hardening program's scope.
+
 ## Stock & Supply Documents (`diasporaStockRoutes.js`)
 
 | Route | Allowlist | Ownership (service) |
