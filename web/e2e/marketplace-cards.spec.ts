@@ -130,10 +130,13 @@ test.describe('Marketplace verified listing cards', () => {
   test('category chips render and safe chip selection does not crash', async ({ page }) => {
     await page.goto('/marketplace')
 
-    await expect(page.locator('[data-testid="marketplace-category-chip"]')).toHaveCount(15)
+    // QA Round 4 separated single-select Condition/category chips from the multi-select Trust
+    // filters. The condition group is All + 4 categories + Parts & Accessories = 6.
+    await expect(page.locator('[data-testid="marketplace-category-chip"]')).toHaveCount(6)
     await expect(page.locator('[data-testid="marketplace-category-chip"]').filter({ hasText: 'Parts & Accessories' })).toBeVisible()
 
-    await page.locator('[data-testid="marketplace-category-chip"]').filter({ hasText: 'Low Mileage' }).click()
+    // "Low Mileage" is now a stackable Trust filter, not a condition chip; both mock vehicles match.
+    await page.locator('[data-testid="marketplace-trust-chip"]').filter({ hasText: 'Low Mileage' }).click()
 
     await expect(page.getByText(/vehicles found/i)).toBeVisible()
     await expect(page.locator('[data-testid="marketplace-vehicle-card"]')).toHaveCount(2)
@@ -163,7 +166,10 @@ test.describe('Marketplace verified listing cards', () => {
   test('PartSentry and evidence labels render only when supported by data', async ({ page }) => {
     await page.goto('/marketplace')
 
-    await expect(page.locator('[data-testid="marketplace-category-chip"]').filter({ hasText: 'PartSentry Checked' })).toBeVisible()
+    // "PartSentry Checked" is a governed Trust filter (multi-select trust group, not a condition chip).
+    await expect(page.locator('[data-testid="marketplace-trust-chip"]').filter({ hasText: 'PartSentry Checked' })).toBeVisible()
+    // Governance invariant: the badge renders only for the one mock vehicle whose data carries a
+    // PartSentry signal; the no-signal vehicle shows neither the badge nor an Evidence Available label.
     await expect(page.locator('[data-testid="marketplace-partsentry-badge"]')).toHaveCount(1)
     await expect(page.locator('[data-testid="marketplace-vehicle-card"]').filter({ hasText: 'Evidence Available' })).toHaveCount(0)
   })
