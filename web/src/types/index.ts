@@ -693,6 +693,51 @@ export interface DiasporaAcceptQuoteResult {
   idempotentReplay?: boolean;
 }
 
+// ── Phase 5: AI Command Hardening ───────────────────────────────────────────
+export interface DiasporaAiParseResult {
+  intent: string | null;
+  action?: string | null;
+  risk?: string | null;
+  riskTier?: string | null;
+  confidence: number;
+  entities: Record<string, unknown>;
+  missing?: string[];
+  ambiguous: boolean;
+  reasons: string[];
+  candidates?: string[];
+  normalized?: string;
+}
+
+export interface DiasporaAiCommand {
+  id: string;
+  raw_command: string;
+  intent: string;
+  risk_level: string;
+  confidence_score: number;
+  target_entity_id?: string | null;
+  extracted_entities?: Record<string, unknown>;
+  proposed_action?: Record<string, unknown>;
+  approval_status: string;
+  execution_status: string;
+  error_message?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  executed_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface DiasporaAiCommandCreateResult {
+  command: DiasporaAiCommand;
+  parse: DiasporaAiParseResult;
+  duplicate?: boolean;
+}
+
+export interface DiasporaAiExecuteResult {
+  command: DiasporaAiCommand;
+  result?: Record<string, unknown> | null;
+  idempotentReplay?: boolean;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;

@@ -17,7 +17,7 @@
 | Discovery | Audit + ledger + draft PR | DONE (baseline) |
 | 3 | Online Stock & Supply Documents | CODE-COMPLETE |
 | 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE |
-| 5 | AI Command Hardening | NOT STARTED |
+| 5 | AI Command Hardening | CODE-COMPLETE |
 | 6 | Container Co-Loading | NOT STARTED |
 | 7 | Google Drive Integration | NOT STARTED |
 
@@ -124,7 +124,36 @@ State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDI
 - **Next milestone**: Phase 5 — AI Command Hardening.
 
 ## Milestone: Phase 5 — AI Command Hardening
-_pending_
+
+- **Objective**: Controlled AI command pipeline — text → draft action with risk gates; high-risk
+  execution blocked; AI never directly mutates domain records.
+- **Repository findings / schema**: `diaspora_ai_commands` exists (Phase 1B). No migration needed.
+- **Files changed**:
+  - `backend/constants/diaspora/diasporaAiConstants.js` (risk tiers, intent catalogue)
+  - `backend/services/diaspora/diasporaAiIntentParser.js` (deterministic parser)
+  - `backend/services/diaspora/diasporaAiCommandService.js` (pipeline + execution adapter)
+  - `backend/routes/diasporaAiCommandRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-ai-command.test.js`
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaAiCommandCenter.tsx`
+  - `web/src/App.tsx` (`/diaspora/ai-commands`), `web/src/config/featureRegistry.ts` (`diaspora.ai-command-center`)
+  - `web/e2e/diaspora-ai-command-center.spec.ts`
+- **Endpoints added**: `POST /api/diaspora/ai-commands/parse`, `POST/GET /ai-commands`,
+  `GET /ai-commands/:id`, `POST /ai-commands/:id/{confirm,approve,reject,execute}`.
+- **Frontend routes added**: `/diaspora/ai-commands` (dealer/admin/government).
+- **Security/integrity**: LOW → draft-only auto; MEDIUM → confirmation required; HIGH → reviewer
+  approval but **execution always blocked** (even when approved). Execution re-validates
+  permission/risk/gate (never parse-time auth). Low-confidence/ambiguous → NEEDS_REVIEW (cannot
+  execute). Duplicate fingerprint de-dupe. RESERVE_STOCK executes only via the ledger (no direct
+  quantity write). AI cannot release escrow / approve compliance / verify documents / complete
+  shipments / override ledger. Tenant + requester isolation. Sealed audit at every step.
+- **Tests run / results**: backend `diaspora-ai-command.test.js` → 12/12 pass; e2e
+  `diaspora-ai-command-center.spec.ts` → 5/5 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations**: deterministic keyword parser only (LLM adapter seam documented, not wired);
+  voice input is reported as unavailable (text-only this phase, per directive §21).
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 6 — Container Co-Loading.
 
 ## Milestone: Phase 6 — Container Co-Loading
 _pending_

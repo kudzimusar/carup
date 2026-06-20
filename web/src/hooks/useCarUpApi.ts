@@ -50,7 +50,11 @@ import type {
   DiasporaQuote,
   DiasporaQuotePayload,
   DiasporaMatchCandidate,
-  DiasporaAcceptQuoteResult
+  DiasporaAcceptQuoteResult,
+  DiasporaAiParseResult,
+  DiasporaAiCommand,
+  DiasporaAiCommandCreateResult,
+  DiasporaAiExecuteResult
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -625,6 +629,42 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 5: AI Command Center ──
+  const parseDiasporaAiCommand = useCallback(async (rawCommand: string): Promise<DiasporaAiParseResult> => {
+    const response = await request<{ data: DiasporaAiParseResult }>('/diaspora/ai-commands/parse', { method: 'POST', body: JSON.stringify({ rawCommand }) })
+    return response.data
+  }, [request])
+
+  const createDiasporaAiCommand = useCallback(async (rawCommand: string): Promise<DiasporaAiCommandCreateResult> => {
+    const response = await request<{ data: DiasporaAiCommandCreateResult }>('/diaspora/ai-commands', { method: 'POST', body: JSON.stringify({ rawCommand }) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaAiCommands = useCallback(async (): Promise<DiasporaAiCommand[]> => {
+    const response = await request<{ data: DiasporaAiCommand[] }>('/diaspora/ai-commands')
+    return response.data || []
+  }, [request])
+
+  const confirmDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiCommand> => {
+    const response = await request<{ data: DiasporaAiCommand }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const approveDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiCommand> => {
+    const response = await request<{ data: DiasporaAiCommand }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const rejectDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiCommand> => {
+    const response = await request<{ data: DiasporaAiCommand }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const executeDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiExecuteResult> => {
+    const response = await request<{ data: DiasporaAiExecuteResult }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/execute`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1091,6 +1131,13 @@ export function useCarUpApi() {
     createDiasporaQuote,
     submitDiasporaQuote,
     withdrawDiasporaQuote,
+    parseDiasporaAiCommand,
+    createDiasporaAiCommand,
+    fetchDiasporaAiCommands,
+    confirmDiasporaAiCommand,
+    approveDiasporaAiCommand,
+    rejectDiasporaAiCommand,
+    executeDiasporaAiCommand,
     reportStolen,
     checkStolen,
     fetchDealerReputation,

@@ -629,6 +629,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'MessageSquare',
   },
   {
+    id: 'diaspora.ai-command-center',
+    label: 'AI Command Center',
+    route: '/diaspora/ai-commands',
+    domain: 'diaspora',
+    roles: ['dealer', 'admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Brain',
+  },
+  {
     id: 'shared.settings',
     label: 'Settings',
     route: '/settings',
