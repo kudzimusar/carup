@@ -78,8 +78,20 @@
 - **Staging-gated**: true concurrent two-quote acceptance test (pending staging authorization).
 - **Commit SHA**: _set on commit_.
 
-### H3 — Serialized container approval
-_pending_
+### H3 — Serialized container approval (Risk C)
+- **Outcome**: reservation approval is serialized on the container row; concurrent approvals cannot overfill.
+- **Migration/RPC**: `database/migrations/20260621092000_diaspora_h3_container_approval_rpc.sql` →
+  `diaspora_approve_cargo_reservation_atomic(...)` — `SELECT … FOR UPDATE` on the container (the
+  contended resource) + reservation, authority check (platform reviewer/admin or tenant admin of the
+  container's tenant), in-transaction recompute of approved volume (+ weight when configured),
+  overfill rejection, reservation + cached-capacity update with 90%/98% flags, and a critical audit
+  row. Service-role-only execute.
+- **Service**: `diasporaContainerMarketplaceService.js.approveReservation` now calls the RPC only.
+- **Tests**: `diaspora-container-marketplace.test.js` (13) incl. overfill rejected, concurrent
+  recompute, exact 90%/98%, weight overfill, unauthorized denied, and audit-failure rollback
+  (reservation stays REQUESTED, capacity unchanged).
+- **Staging-gated**: true simultaneous approval race (pending staging authorization).
+- **Commit SHA**: _set on commit_.
 
 ### H4 — Explicit backend authorization
 _pending_
