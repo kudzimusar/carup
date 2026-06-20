@@ -17,7 +17,7 @@ import {
   AI_MEDIUM_RISK_EXECUTABLE,
 } from '../../constants/diaspora/diasporaAiConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
-import { resolveClient, appendAudit } from './diasporaServiceUtils.js';
+import { resolveClient, appendAudit, appendCriticalAudit } from './diasporaServiceUtils.js';
 import { parseCommand } from './diasporaAiIntentParser.js';
 import { createBuyerOrder } from './diasporaBuyerOrderService.js';
 import { createStockItem, reserveStock } from './diasporaStockService.js';
@@ -166,7 +166,7 @@ export async function approveAiCommand(id, userContext = {}, options = {}) {
     metadata: { ...(command.metadata || {}), approvalNote: 'High-risk execution remains blocked in this program.' },
   }).eq('id', id).select().single();
   if (error) throw new ValidationError(`Failed to approve command: ${error.message}`);
-  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_APPROVED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, req });
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_APPROVED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, req });
   return data;
 }
 
@@ -187,7 +187,7 @@ export async function rejectAiCommand(id, userContext = {}, options = {}) {
     updated_at: new Date().toISOString(),
   }).eq('id', id).select().single();
   if (error) throw new ValidationError(`Failed to reject command: ${error.message}`);
-  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_REJECTED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, req });
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_REJECTED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, req });
   return data;
 }
 
@@ -241,7 +241,7 @@ export async function executeAiCommand(id, userContext = {}, options = {}) {
   // High-risk execution is always blocked in this program, even when approved.
   if (command.risk_level === AI_RISK_TIERS.HIGH) {
     await client.from(TABLE).update({ execution_status: AI_EXECUTION_STATUSES.BLOCKED, updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', id).select().single();
-    await appendAudit(client, { actorId: context.id, tenantId: command.tenant_id, action: 'AI_COMMAND_EXECUTION_BLOCKED', resourceType: 'diaspora_ai_command', resourceId: id, metadata: { intent: command.intent, risk: command.risk_level }, req });
+    await appendCriticalAudit(client, { actorId: context.id, tenantId: command.tenant_id, action: 'AI_COMMAND_EXECUTION_BLOCKED', resourceType: 'diaspora_ai_command', resourceId: id, metadata: { intent: command.intent, risk: command.risk_level }, req });
     throw new ForbiddenError('High-risk AI execution is disabled in this program and remains queued for manual handling');
   }
 
@@ -275,6 +275,6 @@ export async function executeAiCommand(id, userContext = {}, options = {}) {
   }).eq('id', id).select().single();
   if (error) throw new ValidationError(`Failed to finalize execution: ${error.message}`);
 
-  await appendAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_EXECUTED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, metadata: { result }, req });
+  await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_EXECUTED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, metadata: { result }, req });
   return { command: data, result, idempotentReplay: false };
 }

@@ -13,7 +13,7 @@
 import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId } from './diasporaAuthorization.js';
-import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
+import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
 
 const CONTAINERS = 'diaspora_container_shipments';
 const RESERVATIONS = 'diaspora_cargo_reservations';
@@ -249,7 +249,8 @@ async function transitionToReleased(client, reservationId, nextStatus, userConte
   const refreshed = await loadReservations(client, container.id);
   const newCap = await syncContainerCapacity(client, container, refreshed, context.id);
 
-  await appendAudit(client, { importOrderId: data.import_order_id, actorId: context.id, tenantId: data.tenant_id, action: `CARGO_RESERVATION_${nextStatus}`, resourceType: 'diaspora_cargo_reservation', resourceId: reservationId, previousState: reservation, newState: data, metadata: { capacity: newCap }, req });
+  // Reject/cancel are security-relevant capacity mutations: fail loud if audit cannot be written.
+  await appendCriticalAudit(client, { importOrderId: data.import_order_id, actorId: context.id, tenantId: data.tenant_id, action: `CARGO_RESERVATION_${nextStatus}`, resourceType: 'diaspora_cargo_reservation', resourceId: reservationId, previousState: reservation, newState: data, metadata: { capacity: newCap }, req });
   return { reservation: data, capacity: newCap };
 }
 

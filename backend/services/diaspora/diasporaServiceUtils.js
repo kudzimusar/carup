@@ -7,6 +7,7 @@
  *   client, keeping audit calls testable and consistent with diaspora_import_audit_log.
  */
 import { buildAuditSeal } from './diasporaAuditService.js';
+import { DatabaseError } from '../../utils/errors.js';
 
 export async function resolveClient(options = {}) {
   if (options.supabaseClient) return options.supabaseClient;
@@ -15,10 +16,22 @@ export async function resolveClient(options = {}) {
 }
 
 /**
- * Append a sealed audit event. Best-effort by default so a non-critical audit failure never breaks a
- * primary mutation, but the seal + shape match diasporaAuditService.writeDiasporaAudit exactly.
+ * Audit policy (H5).
+ *
+ * The integrity-critical mutations — stock movement, quote acceptance, container approval — write
+ * their audit row INSIDE the atomic RPC transaction (see the H1/H2/H3 SQL functions), so audit
+ * failure rolls the whole mutation back. That is the strongest guarantee and is proven by the
+ * RPC rollback tests.
+ *
+ * For JS-orchestrated mutations there are two explicit helpers:
+ *  - appendCriticalAudit: throws on failure (fail-loud, never silently swallowed). Used for
+ *    security-relevant lifecycle mutations (AI approve/reject/execute, reservation reject/cancel,
+ *    Drive connect/disconnect/upload).
+ *  - appendBestEffortAudit: returns null on failure (telemetry / descriptive create/update).
+ *
+ * `appendAudit` remains as an explicit alias of the best-effort helper for existing call sites.
  */
-export async function appendAudit(client, {
+async function writeAuditRow(client, {
   importOrderId = null,
   actorId = null,
   tenantId = null,
@@ -32,15 +45,10 @@ export async function appendAudit(client, {
 }) {
   const timestamp = new Date().toISOString();
   const cryptographicSeal = buildAuditSeal({
-    actorId,
-    action,
-    resourceType,
-    resourceId,
-    timestamp,
+    actorId, action, resourceType, resourceId, timestamp,
     payload: { previousState, newState, metadata },
   });
-
-  const { data, error } = await client
+  return client
     .from('diaspora_import_audit_log')
     .insert({
       import_order_id: importOrderId,
@@ -58,16 +66,31 @@ export async function appendAudit(client, {
     })
     .select()
     .single();
+}
 
+/** Critical audit — throws if the audit row cannot be written. Use for security-relevant mutations. */
+export async function appendCriticalAudit(client, fields) {
+  const { data, error } = await writeAuditRow(client, fields);
   if (error) {
-    // Surface only in non-production; never throw on audit so the domain mutation result stands.
+    throw new DatabaseError(`Critical audit write failed for ${fields.action}: ${error.message}`);
+  }
+  return data;
+}
+
+/** Best-effort audit — never throws; used for telemetry / descriptive create/update. */
+export async function appendBestEffortAudit(client, fields) {
+  const { data, error } = await writeAuditRow(client, fields);
+  if (error) {
     if (process.env.NODE_ENV !== 'production') {
-      console.warn(`[diaspora audit] failed to write ${action}: ${error.message}`);
+      console.warn(`[diaspora audit] best-effort write failed for ${fields.action}: ${error.message}`);
     }
     return null;
   }
   return data;
 }
+
+// Backward-compatible alias (best-effort) for existing call sites.
+export const appendAudit = appendBestEffortAudit;
 
 /** Stable correlation id from the request, for audit/idempotency metadata. */
 export function requestCorrelationId(req) {
