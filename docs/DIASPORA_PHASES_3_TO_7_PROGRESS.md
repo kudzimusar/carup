@@ -5,21 +5,29 @@
 
 - **Program branch**: `claude/diaspora-phases-3-7-program`
 - **Base**: `main` @ `3ac2ff23a60f545bbafed8d4d256277209f3adf9` (Phase 2C)
-- **PR**: _draft, opened after baseline commit_
+- **PR**: #81 (draft, unmerged) — https://github.com/kudzimusar/carup/pull/81
 - **Production Supabase touched**: NO
 - **`stash@{0}` touched**: NO
 - **Unrelated workstreams touched**: NO
+- **Migrations applied anywhere**: NO (one additive Phase 3 migration file created, not applied)
+- **Dependencies added**: NONE
 
 ## Status Summary
 
-| Phase | Title | State |
-| --- | --- | --- |
-| Discovery | Audit + ledger + draft PR | DONE (baseline) |
-| 3 | Online Stock & Supply Documents | CODE-COMPLETE |
-| 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE |
-| 5 | AI Command Hardening | CODE-COMPLETE |
-| 6 | Container Co-Loading | CODE-COMPLETE |
-| 7 | Google Drive Integration | CODE-COMPLETE PENDING EXTERNAL ACTIVATION |
+| Phase | Title | State | Commit |
+| --- | --- | --- | --- |
+| Discovery | Audit + ledger + draft PR | DONE | `1b3395e` |
+| 3 | Online Stock & Supply Documents | CODE-COMPLETE | `94b6dce` |
+| 4 | Buyer Orders & Reverse RFQ | CODE-COMPLETE | `0c8f6b7` |
+| 5 | AI Command Hardening | CODE-COMPLETE | `93ca439` |
+| 6 | Container Co-Loading | CODE-COMPLETE | `4d7e79c` |
+| 7 | Google Drive Integration | CODE-COMPLETE PENDING EXTERNAL ACTIVATION | `900f02c` |
+
+## Final acceptance (all green)
+
+- Backend diaspora suite: 275 pass / 0 fail / 3 skipped (live Supabase integration).
+- TypeScript clean · route-validation 7/7 · Playwright 38 pass (20 new + 18 Phase 2C regression) ·
+  `npm run build` OK (pre-existing chunk-size warning only).
 
 State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDING EXTERNAL ACTIVATION · BLOCKED · DONE.
 
