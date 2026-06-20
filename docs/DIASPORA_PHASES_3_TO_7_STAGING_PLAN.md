@@ -102,3 +102,9 @@ authorized, so it must not be touched. To proceed, one of the following is requi
 3. Confirm the correct staging project ref (if `eoyenigwevnxwwhyhaer` is wrong).
 
 Until then, H7-apply / H9 staging smoke remain blocked; all code-side gates are complete and green.
+
+**Re-auth attempt (2026-06-21, 2nd):** After a requested re-authentication, `list_projects` still
+returns only `sfhtlzcgrnrdznhvdrbn` ("production-os", org `hrhxurdxkwhwazoundpd`). `eoyenigwevnxwwhyhaer`
+and `vhmnajoeicasaigiophh` remain invisible — the integration is still scoped to the wrong
+organization. Stopped per instruction; no `get_project`/SQL/migration run; no project touched. The
+Supabase integration must be connected to the **CarUp org** that owns `eoyenigwevnxwwhyhaer`.
