@@ -777,12 +777,73 @@ export type EvidenceType =
 
 export type EvidenceVerificationStatus = 'pending' | 'verified' | 'rejected' | 'disputed' | 'superseded';
 
+// ── Vehicle Life Evidence Taxonomy (M1) ──────────────────────────────────────
+// The eight life-stage evidence classes, mirroring the backend taxonomy
+// (backend/services/evidence/evidenceTaxonomy.js EVIDENCE_CLASSES).
+export type EvidenceClass =
+  | 'import'
+  | 'auction'
+  | 'accident'
+  | 'repair'
+  | 'inspection'
+  | 'ownership_transfer'
+  | 'dealer_listing'
+  | 'current_condition';
+
+// One subtype as returned by GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomySubtype {
+  subtype_code: string;
+  label: string;
+  is_document: boolean;
+  requires_event_date: boolean;
+  requires_mileage: boolean;
+  supports_components: boolean;
+}
+
+// One class (with its subtypes) as returned by GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomyClass {
+  evidence_class: EvidenceClass | string;
+  subtypes: EvidenceTaxonomySubtype[];
+}
+
+// Full payload of GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomyResponse {
+  version: string;
+  classes: EvidenceTaxonomyClass[];
+  legacy_type_to_class: Record<string, EvidenceClass | string>;
+}
+
+// One source as returned by GET /api/evidence/sources (public-safe).
+export interface EvidenceSource {
+  id: string;
+  code: string;
+  display_name: string;
+  source_type: string;
+  organization?: string | null;
+  country?: string | null;
+  verification_status: string;
+  trust_tier: string;
+  permitted_evidence_classes: string[];
+  active: boolean;
+}
+
+// Full payload of GET /api/evidence/sources.
+export interface EvidenceSourcesResponse {
+  sources: EvidenceSource[];
+}
+
 export interface VehicleEvidence {
   id: string;
   vehicle_id: string;
   vin: string;
   event_type: string;
   evidence_type: EvidenceType;
+  // Vehicle Life Evidence Taxonomy (M1) — optional on legacy records.
+  evidence_class?: EvidenceClass | string | null;
+  evidence_subtype?: string | null;
+  event_date?: string | null;
+  source_id?: string | null;
+  perceptual_hash?: string | null;
   file_url: string;
   uploaded_by: string;
   uploader_role: string;
@@ -1059,4 +1120,73 @@ export interface ApiMutationResponse {
   url?: string;
   path?: string;
   [key: string]: unknown;
+}
+
+// ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──────────
+// Buyer-facing, PUBLIC-SAFE shapes only. The backend projects reviewer-confirmed
+// findings/conflicts through publicSafeFinding/publicSafeConflict
+// (backend/routes/intelligenceRoutes.js); privileged callers receive more fields,
+// but the buyer UI must rely only on the public-safe shape below.
+
+// Shared review-status indicator for intelligence findings/conflicts.
+// Buyers only ever see 'confirmed' (others are filtered server-side), but the
+// type allows the full lifecycle so privileged views can reuse it later.
+export type IntelligenceReviewerState =
+  | 'pending_review'
+  | 'confirmed'
+  | 'dismissed';
+
+// Severity ladder shared by temporal findings and disclosure conflicts.
+export type IntelligenceSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+
+// The kind of component-level change a temporal comparison surfaced.
+export type TemporalFindingType =
+  | 'newly_damaged'
+  | 'repaired'
+  | 'replaced'
+  | 'removed_missing'
+  | 'repainted_colour_mismatch'
+  | 'worsened'
+  | 'improved'
+  | 'unchanged'
+  | 'unable_to_compare';
+
+// One public-safe temporal finding from
+// GET /api/vehicles/:vin/temporal-findings -> { findings: TemporalFinding[] }.
+export interface TemporalFinding {
+  finding_type: TemporalFindingType | string;
+  component: string | null;
+  earlier_date: string | null;
+  later_date: string | null;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+}
+
+// How a disclosure claim compares against available evidence.
+export type DisclosureClassification =
+  | 'supported'
+  | 'not_verifiable'
+  | 'possible_conflict'
+  | 'strong_conflict'
+  | 'outdated_claim'
+  | 'resolved_corrected';
+
+// One public-safe disclosure conflict from
+// GET /api/vehicles/:vin/disclosure-conflicts -> { conflicts: DisclosureConflict[] }.
+export interface DisclosureConflict {
+  conflict_type: string | null;
+  classification: DisclosureClassification | string;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+  seller_response: string | null;
+}
+
+// Wrapper responses (match the route handlers exactly).
+export interface TemporalFindingsResponse {
+  findings: TemporalFinding[];
+}
+export interface DisclosureConflictsResponse {
+  conflicts: DisclosureConflict[];
 }
