@@ -12,6 +12,8 @@ import {
 } from '../../constants/diaspora/diasporaStockConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
+import { withEntitlement } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const STORAGE = 'diaspora_supply_documents';
 const EDITABLE = ['document_number', 'title', 'origin_country', 'origin_city', 'valid_from', 'valid_until', 'seller_trade_profile_id', 'metadata'];
@@ -149,30 +151,43 @@ export async function publishSupplyDocument(id, userContext = {}, options = {}) 
     throw new ValidationError(`Cannot publish: missing required fields ${missing.join(', ')}`, { missing });
   }
 
-  const { data, error } = await client
-    .from(STORAGE)
-    .update({
-      status: SUPPLY_DOCUMENT_STATUSES.PUBLISHED,
-      publication_status: 'PUBLISHED',
-      updated_by: context.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new ValidationError(`Failed to publish supply document: ${error.message}`);
-
-  await appendAudit(client, {
-    actorId: context.id,
-    tenantId: data.tenant_id,
-    action: 'SUPPLY_DOCUMENT_PUBLISHED',
-    resourceType: 'diaspora_supply_document',
-    resourceId: id,
-    previousState: previous,
-    newState: data,
+  // Phase 8 (M2): gate publish on the diaspora.stock.publish feature and reserve a
+  // diaspora.stock.max_items slot. Flag-gated — a no-op (identical behavior) when enforcement is OFF;
+  // a failed DB write/audit releases the reserved slot so it is never permanently consumed.
+  return withEntitlement(client, {
+    tenantId: previous.tenant_id ?? context.tenantId ?? null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.STOCK_PUBLISH,
+    quotaFeatureKey: FEATURE_KEYS.STOCK_MAX_ITEMS,
+    amount: 1,
+    idempotencyKey: `stock-publish:${id}`,
     req,
+  }, async () => {
+    const { data, error } = await client
+      .from(STORAGE)
+      .update({
+        status: SUPPLY_DOCUMENT_STATUSES.PUBLISHED,
+        publication_status: 'PUBLISHED',
+        updated_by: context.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw new ValidationError(`Failed to publish supply document: ${error.message}`);
+
+    await appendAudit(client, {
+      actorId: context.id,
+      tenantId: data.tenant_id,
+      action: 'SUPPLY_DOCUMENT_PUBLISHED',
+      resourceType: 'diaspora_supply_document',
+      resourceId: id,
+      previousState: previous,
+      newState: data,
+      req,
+    });
+    return data;
   });
-  return data;
 }
 
 export async function unpublishSupplyDocument(id, userContext = {}, options = {}) {
