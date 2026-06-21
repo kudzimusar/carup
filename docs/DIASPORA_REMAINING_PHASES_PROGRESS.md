@@ -15,6 +15,16 @@
 | Stacked draft PR | **#90** (draft) → base `claude/diaspora-phases-3-7-program` — https://github.com/kudzimusar/carup/pull/90 |
 | Status legend | `PASSED` / `FAILED` / `SKIPPED — SECRET UNAVAILABLE` / `NOT RUN` / `PENDING` |
 
+### Independent CI evidence (PR #90, `Diaspora Phases 3-7 Validation` workflow)
+| Run ID | Covers | backend-and-build | playwright | staging-integration |
+| --- | --- | --- | --- | --- |
+| `27898630625` | through M2 (Phase 8 enforcement/API) | PASSED | PASSED | SKIPPED — SECRET UNAVAILABLE |
+| `27899597609` | through M-W1 (XLSX foundation; `npm ci` w/ new exceljs lock) | PASSED | PASSED | SKIPPED — SECRET UNAVAILABLE |
+
+Note: Vercel preview deploys report `fail` due to an **account build-rate-limit** ("retry in 24h"),
+not a code failure — GitHub Actions is the gating CI and is green. H9 staging concurrency proof
+still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported distinctly per §10.2.
+
 ## Wave/track status overview
 
 | Track | Owner role | Status |
