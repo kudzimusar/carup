@@ -14,14 +14,14 @@ import {
   getFeatureAudit,
   invalidateOverrideCache,
   setOverrideCacheTtl,
+  resolveRequestContext,
 } from '../services/featureGovernance/featureGovernanceService.js';
 
 // ── In-memory fake Supabase client (no live DB) ─────────────────────────────
 function makeFakeClient(seed = {}, opts = {}) {
-  const tables = {
-    feature_rollout_overrides: [...(seed.feature_rollout_overrides || [])],
-    trust_audit_events: [],
-  };
+  const tables = { trust_audit_events: [] };
+  for (const [k, v] of Object.entries(seed)) tables[k] = [...(v || [])];
+  if (!tables.feature_rollout_overrides) tables.feature_rollout_overrides = [];
   let idSeq = 1;
   function from(table) {
     if (!tables[table]) tables[table] = [];
@@ -251,4 +251,93 @@ test('getFeatureAudit returns only FEATURE_ROLLOUT_* events', async () => {
   const audit = await getFeatureAudit('product.insurance', { client });
   assert.equal(audit.length, 1);
   assert.equal(audit[0].event_type, 'FEATURE_ROLLOUT_UPDATED');
+});
+
+// ── P2: context-aware effective state (server-derived role + tenant) ─────────
+const futureIso = () => new Date(Date.now() + 3600_000).toISOString();
+const pastIso = () => new Date(Date.now() - 3600_000).toISOString();
+function authClient(extra = {}) {
+  return makeFakeClient({
+    user_sessions: [{ token: 'tok-owner', user_id: 'u-owner', is_valid: true, expires_at: futureIso() }],
+    users: [{ id: 'u-owner', role: 'owner' }],
+    tenant_users: [{ tenant_id: 'tenantA', user_id: 'u-owner', role: 'member' }],
+    ...extra,
+  });
+}
+const findGarage = (states) => states.find((s) => s.featureId === 'owner.garage');
+
+test('resolveRequestContext: anonymous request → null role/tenant', async () => {
+  assert.deepEqual(await resolveRequestContext({ headers: {} }, { client: makeFakeClient() }), { role: null, tenantId: null });
+});
+
+test('resolveRequestContext: valid session derives role from the users table', async () => {
+  const ctx = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner' } }, { client: authClient() });
+  assert.equal(ctx.role, 'owner');
+});
+
+test('resolveRequestContext: a spoofed x-stakeholder-role header does NOT change the derived role', async () => {
+  const ctx = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner', 'x-stakeholder-role': 'admin' } }, { client: authClient() });
+  assert.equal(ctx.role, 'owner'); // server-derived, NOT admin
+});
+
+test('resolveRequestContext: tenant honoured only with verified membership', async () => {
+  const member = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner', 'x-tenant-id': 'tenantA' } }, { client: authClient() });
+  assert.equal(member.tenantId, 'tenantA');
+  const nonMember = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner', 'x-tenant-id': 'tenantB' } }, { client: authClient() });
+  assert.equal(nonMember.tenantId, null);
+});
+
+test('resolveRequestContext: expired session → anonymous (fail closed)', async () => {
+  const expired = authClient({ user_sessions: [{ token: 'tok-owner', user_id: 'u-owner', is_valid: true, expires_at: pastIso() }] });
+  assert.deepEqual(await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner' } }, { client: expired }), { role: null, tenantId: null });
+});
+
+test('effective: allowed role gets owner.garage visible+accessible; another role does not (anonymous too)', async () => {
+  invalidateOverrideCache();
+  const client = makeFakeClient();
+  assert.equal(findGarage(await getEffectiveStates({ environment: 'staging', role: 'owner' }, { client, sanitize: false })).accessible, true);
+  invalidateOverrideCache();
+  assert.equal(findGarage(await getEffectiveStates({ environment: 'staging', role: 'dealer' }, { client, sanitize: false })).accessible, false);
+  invalidateOverrideCache();
+  assert.equal(findGarage(await getEffectiveStates({ environment: 'staging', role: null }, { client, sanitize: false })).accessible, false); // anonymous
+});
+
+test('effective: an override removing the role yields visible=false and accessible=false', async () => {
+  invalidateOverrideCache();
+  const client = makeFakeClient({ feature_rollout_overrides: [
+    { id: 'o-rm', feature_id: 'owner.garage', environment: 'staging', enabled: true, allowed_roles: [], version: 1 },
+  ] });
+  const g = findGarage(await getEffectiveStates({ environment: 'staging', role: 'owner' }, { client, sanitize: false }));
+  assert.equal(g.visible, false);
+  assert.equal(g.accessible, false);
+});
+
+test('effective: tenant allowlist grants the allowed tenant and excludes a different tenant', async () => {
+  invalidateOverrideCache();
+  const client = makeFakeClient({ feature_rollout_overrides: [
+    { id: 'o-ten', feature_id: 'owner.garage', environment: 'staging', enabled: true, allowed_tenant_ids: ['tenantA'], version: 1 },
+  ] });
+  assert.equal(findGarage(await getEffectiveStates({ environment: 'staging', role: 'owner', tenantId: 'tenantA' }, { client, sanitize: false })).accessible, true);
+  assert.equal(findGarage(await getEffectiveStates({ environment: 'staging', role: 'owner', tenantId: 'tenantB' }, { client, sanitize: false })).accessible, false);
+});
+
+test('effective: tenant denylist denies the denied tenant', async () => {
+  invalidateOverrideCache();
+  const client = makeFakeClient({ feature_rollout_overrides: [
+    { id: 'o-deny', feature_id: 'owner.garage', environment: 'staging', enabled: true, denied_tenant_ids: ['tenantBad'], version: 1 },
+  ] });
+  assert.equal(findGarage(await getEffectiveStates({ environment: 'staging', role: 'owner', tenantId: 'tenantBad' }, { client, sanitize: false })).accessible, false);
+});
+
+test('effective: sanitized payload still carries visible/accessible but no role/tenant lists or reason', async () => {
+  invalidateOverrideCache();
+  const client = makeFakeClient({ feature_rollout_overrides: [
+    { id: 'o-s', feature_id: 'owner.garage', environment: 'staging', enabled: true, allowed_tenant_ids: ['tenantA'], reason: 'secret', version: 1 },
+  ] });
+  const g = findGarage(await getEffectiveStates({ environment: 'staging', role: 'owner', tenantId: 'tenantA' }, { client, sanitize: true }));
+  assert.equal(typeof g.visible, 'boolean');
+  assert.equal(typeof g.accessible, 'boolean');
+  assert.equal(g.reasonCode, undefined);
+  assert.equal(g.allowedRoles, undefined);
+  assert.equal(g.allowed_tenant_ids, undefined);
 });

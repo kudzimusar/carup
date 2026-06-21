@@ -12,6 +12,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { EffectiveFeatureState } from '@/config/featureRegistry'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
+import { useAuth } from '@/context/AuthContext'
 
 export type EffectiveStateMap = Record<string, EffectiveFeatureState>
 
@@ -39,7 +40,14 @@ export function FeatureGovernanceProvider({
  * the request failed.
  */
 export function FeatureGovernanceLoader({ children }: { children: ReactNode }) {
-  const [states, setStates] = useState<EffectiveStateMap>({})
+  const { user, token } = useAuth()
+  // Effective states are keyed to the auth identity they were fetched for. While
+  // a fetch for a new identity is in flight we expose an EMPTY map (static
+  // defaults), so a just-logged-in user is never wrongly gated by stale
+  // anonymous state — and tenant/role-specific results only apply to the
+  // matching session.
+  const authKey = `${user?.id ?? 'anon'}|${token ?? ''}`
+  const [loaded, setLoaded] = useState<{ key: string; map: EffectiveStateMap }>({ key: '', map: {} })
 
   useEffect(() => {
     let cancelled = false
@@ -47,13 +55,19 @@ export function FeatureGovernanceLoader({ children }: { children: ReactNode }) {
       import.meta.env.VITE_API_URL,
       typeof window !== 'undefined' ? window.location.hostname : undefined,
     )
-    fetch(`${base}/features/effective`, { credentials: 'omit' })
+    // Send the trusted session so the backend derives role/tenant server-side.
+    // (Client role headers are ignored by the backend.)
+    const headers: Record<string, string> = {}
+    if (token) headers['x-session-token'] = token
+    if (user?.id) headers['x-user-id'] = user.id
+    if (user?.active_tenant_id) headers['x-tenant-id'] = user.active_tenant_id
+    fetch(`${base}/features/effective`, { headers, credentials: 'omit' })
       .then(r => (r.ok ? r.json() : null))
       .then((body: { features?: EffectiveFeatureState[] } | null) => {
         if (cancelled || !body?.features) return
         const map: EffectiveStateMap = {}
         for (const f of body.features) map[f.featureId] = f
-        setStates(map)
+        setLoaded({ key: authKey, map })
       })
       .catch(() => {
         /* keep static defaults on failure */
@@ -61,9 +75,11 @@ export function FeatureGovernanceLoader({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authKey, user?.id, user?.active_tenant_id, token])
 
-  return <FeatureGovernanceProvider value={states}>{children}</FeatureGovernanceProvider>
+  // Only expose states that belong to the current identity.
+  const value = loaded.key === authKey ? loaded.map : {}
+  return <FeatureGovernanceProvider value={value}>{children}</FeatureGovernanceProvider>
 }
 
 /** Effective feature states (empty until governance hydration lands). */

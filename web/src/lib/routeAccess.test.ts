@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateRouteAccess, loginWithReturnTo, type RouteAccessInput } from './routeAccess'
-import type { EffectiveFeatureState, FeatureLifecycleState } from '@/config/featureRegistry'
+import { resolveFeatureVisibility, getFeatureById, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
 
 const base: RouteAccessInput = {
   route: '/insurance',
@@ -72,6 +72,32 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
     // and a URL you type resolve the same way.
     const states = override('product.insurance', 'active', { enabled: false })
     expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
+  })
+
+  it('P2: backend tenant/extra denial (accessible:false) redirects a role-eligible authenticated user', () => {
+    // owner.garage requires owner; backend says not accessible for THIS user
+    // (e.g. tenant deny) even though the role is eligible → safe redirect.
+    const states = override('owner.garage', 'active', { enabled: true, visible: false, accessible: false })
+    const d = evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states })
+    expect(d.kind).toBe('redirect')
+    if (d.kind === 'redirect') expect(d.reason).toBe('role')
+  })
+
+  it('P2: backend accessible:true for a role-eligible authenticated user renders', () => {
+    const states = override('owner.garage', 'active', { enabled: true, visible: true, accessible: true })
+    expect(evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states }).kind).toBe('render')
+  })
+
+  it('P2: navigation visibility AGREES with direct access — accessible:false ⇒ nav visible:false', () => {
+    const feature = getFeatureById('owner.garage')!
+    const states = override('owner.garage', 'active', { enabled: true, visible: false, accessible: false })
+    // Direct access denied
+    const decision = evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states })
+    expect(decision.kind).toBe('redirect')
+    // Nav visibility ALSO false (a link you cannot see ⇄ a URL you cannot open)
+    const vis = resolveFeatureVisibility(feature, { isAuthenticated: true, role: 'owner', effectiveStates: states })
+    expect(vis.visible).toBe(false)
+    expect(vis.accessible).toBe(false)
   })
 
   it('deprecated route with target → redirect; same-route target does not loop', () => {
