@@ -1190,3 +1190,150 @@ export interface TemporalFindingsResponse {
 export interface DisclosureConflictsResponse {
   conflicts: DisclosureConflict[];
 }
+
+// ── Vehicle History Report (M4) ──────────────────────────────────────────────
+// Public-safe buyer report from GET /api/vehicles/:vin/report and from the
+// `report` field of GET /api/reports/shared/:token. Mirrors the backend
+// assembleReport() shape exactly (backend/services/report/reportService.js).
+
+// The kind of report alert. Buyers see itemized, evidence-linked alerts — never a
+// single opaque score.
+export type ReportAlertCategory = 'visual_change' | 'disclosure' | 'mileage' | string;
+
+export interface ReportKeyAlert {
+  category: ReportAlertCategory;
+  type: string | null;
+  component?: string | null;
+  severity: IntelligenceSeverity | string;
+  summary: string | null;
+  reviewed: boolean;
+  evidence_count: number;
+  recommended_action: string;
+}
+
+// One public-safe timeline / evidence-index row.
+export interface ReportTimelineItem {
+  evidence_id: string;
+  evidence_class: EvidenceClass | string | null;
+  evidence_subtype: string | null;
+  date: string | null;
+  source_id: string | null;
+  verification_status: EvidenceVerificationStatus | string | null;
+}
+
+export interface ReportSections {
+  auction_import: { auction: number; import: number };
+  accident_repair: { accident: number; repair: number };
+  inspection: number;
+  ownership_transfer: number;
+  current_condition: number;
+}
+
+export interface ReportMileageObservation {
+  date: string | null;
+  value: number;
+  unit: string;
+  source: string;
+  evidence_id?: string;
+  listing_id?: string;
+}
+
+export interface ReportMileageHistory {
+  observations: ReportMileageObservation[];
+  anomaly: boolean;
+}
+
+export interface ReportListingSnapshot {
+  version: number | null;
+  captured_at: string | null;
+  title: string | null;
+  price: number | null;
+  currency: string | null;
+  advertised_mileage: number | null;
+  claimed_condition: string | null;
+}
+
+// Visual comparison rows are structurally compatible with TemporalFinding so the
+// existing VehicleTemporalComparison component can render them directly.
+export interface ReportVisualComparison {
+  finding_type: TemporalFindingType | string;
+  component: string | null;
+  earlier_date: string | null;
+  later_date: string | null;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+}
+
+// Disclosure rows are structurally compatible with DisclosureConflict so the
+// existing VehicleDisclosurePanel component can render them directly.
+export interface ReportDisclosureItem {
+  conflict_type: string | null;
+  classification: DisclosureClassification | string;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+  seller_response: string | null;
+}
+
+export interface ReportCompleteness {
+  identity_coverage: number;
+  timeline_coverage: number;
+  classes_present: string[];
+  classes_missing: string[];
+  mileage_coverage: number;
+  source_diversity: number;
+  inspection_recency: string | null;
+  current_condition_coverage: number;
+  unresolved_conflict_count: number;
+}
+
+export interface VehicleHistoryReportData {
+  schema: string;
+  vin: string;
+  audience: string;
+  identity: { vin: string; make?: string | null; model?: string | null; year?: number | null };
+  key_alerts: ReportKeyAlert[];
+  timeline: ReportTimelineItem[];
+  sections: ReportSections;
+  mileage_history: ReportMileageHistory;
+  listing_history: ReportListingSnapshot[];
+  visual_comparisons: ReportVisualComparison[];
+  disclosure: ReportDisclosureItem[];
+  completeness: ReportCompleteness;
+  limitations: string[];
+  evidence_index: ReportTimelineItem[];
+  generated_at_note?: string;
+}
+
+// POST /api/vehicles/:vin/report/versions
+export interface ReportVersionResponse {
+  id: string;
+  version: number;
+  content_hash: string;
+  completeness: ReportCompleteness;
+}
+
+// POST /api/report-versions/:id/share
+export interface ReportShareLinkResponse {
+  share_token: string;
+  share_expires_at: string;
+  version: number;
+}
+
+// GET /api/reports/shared/:token (success body)
+export interface SharedReportResponse {
+  version: number;
+  generated_at: string;
+  correction_notice: string | null;
+  report: VehicleHistoryReportData;
+}
+
+// Discriminated result for the public shared-report fetch so callers can render
+// distinct "expired/revoked" (410) and "not found" (404) states without parsing
+// error strings.
+export type SharedReportResult =
+  | { status: 'ok'; data: SharedReportResponse }
+  | { status: 'gone'; reason: string }
+  | { status: 'not_found' }
+  | { status: 'error'; message: string };
