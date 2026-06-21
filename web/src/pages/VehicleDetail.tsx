@@ -2,6 +2,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
+import VehicleTemporalComparison from '@/components/VehicleTemporalComparison'
+import VehicleDisclosurePanel from '@/components/VehicleDisclosurePanel'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -33,6 +35,8 @@ import type {
   MarketplaceListingDetail,
   EvidenceTaxonomyResponse,
   EvidenceSource,
+  TemporalFinding,
+  DisclosureConflict,
 } from '@/types'
 import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
 import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
@@ -189,7 +193,7 @@ function buildTrustBreakdown(passport: VehiclePassport | null): { label: string;
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts } = useCarUpApi()
   const { isAuthenticated } = useAuth()
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
@@ -228,6 +232,24 @@ export default function VehicleDetail() {
     })
     return () => { mounted = false }
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
+
+  // Vehicle Life Intelligence (M3): reviewer-confirmed, public-safe temporal
+  // comparisons and disclosure conflicts. Buyers typically see empty/governed
+  // results — that is correct and expected; the UI handles empty gracefully.
+  const [temporalFindings, setTemporalFindings] = useState<TemporalFinding[]>([])
+  const [disclosureConflicts, setDisclosureConflicts] = useState<DisclosureConflict[]>([])
+
+  useEffect(() => {
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    let mounted = true
+    Promise.allSettled([fetchTemporalFindings(vin), fetchDisclosureConflicts(vin)]).then(([findings, conflicts]) => {
+      if (!mounted) return
+      setTemporalFindings(findings.status === 'fulfilled' ? findings.value.findings || [] : [])
+      setDisclosureConflicts(conflicts.status === 'fulfilled' ? conflicts.value.conflicts || [] : [])
+    })
+    return () => { mounted = false }
+  }, [vehicle?.vin, id, fetchTemporalFindings, fetchDisclosureConflicts])
 
   const handleLookupSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -828,6 +850,27 @@ export default function VehicleDetail() {
                       </div>
                     )}
                     <PremiumEvidenceGallery evidence={evidenceVault} />
+
+                    {/* Vehicle Life Intelligence (M3): reviewer-confirmed, public-safe
+                        before/after comparisons across the vehicle's life. Empty is the
+                        expected case for most vehicles and implies nothing is wrong. */}
+                    <div className="mt-8" data-testid="temporal-comparison-section">
+                      <h3 className="text-lg font-semibold mb-1">Component Changes Over Time</h3>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Reviewer-confirmed before/after comparisons of vehicle components across its life.
+                      </p>
+                      <VehicleTemporalComparison findings={temporalFindings} />
+                    </div>
+
+                    {/* Disclosure conflicts: neutral comparison of seller disclosures
+                        against available evidence. Empty is the expected case. */}
+                    <div className="mt-8" data-testid="disclosure-panel-section">
+                      <h3 className="text-lg font-semibold mb-1">Disclosure Review</h3>
+                      <p className="text-xs text-gray-500 mb-3">
+                        How the seller's disclosures compare against available evidence, as confirmed by a reviewer.
+                      </p>
+                      <VehicleDisclosurePanel conflicts={disclosureConflicts} />
+                    </div>
                   </TabsContent>
 
                   {/* ── Verification tab: real trust metrics ── */}
