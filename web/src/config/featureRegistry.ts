@@ -31,13 +31,114 @@ export type FeatureDomain =
   | 'referral'
   | 'info'
 
-// ── Placement — where a feature appears in the UI ──────────────────────────
+// ── Placement — where a feature appears in the UI (legacy coarse model) ────
 export type NavPlacement =
   | 'dashboard_sidebar'
   | 'header'
   | 'footer'
   | 'mobile_nav'
   | 'user_menu'
+
+// ── Feature lifecycle state ────────────────────────────────────────────────
+/**
+ * Truthful lifecycle of a feature. Supersedes the primitive `isPlanned` /
+ * `isHidden` booleans (which are still honoured for backward compatibility via
+ * {@link getStaticLifecycle}).
+ *
+ * Nav-visibility and direct-access semantics:
+ *   active     → shown in nav · directly accessible
+ *   beta       → shown in nav with beta notice · directly accessible
+ *   planned    → NOT shown as active · direct access renders a "planned" page
+ *   hidden     → absent from nav · directly accessible if role-eligible (unadvertised)
+ *   disabled   → absent from nav · direct access renders an "unavailable" page
+ *   deprecated → not promoted · direct access renders a notice or redirects to `deprecatedTo`
+ */
+export type FeatureLifecycleState =
+  | 'active'
+  | 'beta'
+  | 'planned'
+  | 'hidden'
+  | 'disabled'
+  | 'deprecated'
+
+export const FEATURE_LIFECYCLE_STATES: FeatureLifecycleState[] = [
+  'active',
+  'beta',
+  'planned',
+  'hidden',
+  'disabled',
+  'deprecated',
+]
+
+// ── Navigation surfaces (fine-grained placement model) ─────────────────────
+/**
+ * Every concrete navigation region the registry can drive. Used by the
+ * NAVIGATION manifest (see navigationManifest.ts) rather than stuffing
+ * deep-links into FEATURE_REGISTRY (which would break the "no duplicate active
+ * route" invariant, since many mega-menu links share /marketplace).
+ */
+export type NavigationSurface =
+  | 'navbar-direct'
+  | 'navbar-mega-buy'
+  | 'navbar-mega-sell'
+  | 'navbar-mega-verify'
+  | 'navbar-mega-parts'
+  | 'navbar-mega-services'
+  | 'navbar-more'
+  | 'footer-product'
+  | 'footer-company'
+  | 'footer-resources'
+  | 'footer-stakeholders'
+  | 'footer-legal'
+  | 'footer-social'
+  | 'dashboard-sidebar'
+  | 'user-menu'
+  | 'mobile-primary'
+  | 'mobile-secondary'
+  | 'mobile-account'
+
+/**
+ * Context used to resolve effective visibility/href for a navigation item or
+ * route boundary. Only carries what selectors actually need; all fields
+ * optional so server/static rendering can pass a partial context safely.
+ */
+export interface NavigationContext {
+  /** Whether a user is authenticated */
+  isAuthenticated?: boolean
+  /** Authenticated role, if any */
+  role?: UserRole | null
+  /** Tenant id, when multi-tenant scoping applies */
+  tenantId?: string | null
+  /** Deployment environment */
+  environment?: 'development' | 'staging' | 'production' | string
+  /** Effective lifecycle overrides keyed by feature id (from backend governance) */
+  effectiveStates?: Record<string, EffectiveFeatureState>
+  /** Marketplace coverage response (coverage-gated nodes consult this) */
+  coverage?: MarketplaceCoverageResponse | null
+  /** Current time (only needed when time-windowed overrides are active) */
+  now?: number
+}
+
+/** Minimal shape of the Marketplace coverage response consumed by nav. */
+export interface MarketplaceCoverageResponse {
+  categories?: Record<string, { count?: number; active?: boolean }>
+}
+
+/**
+ * Effective state for a feature after overlaying a backend rollout override on
+ * the static default. Mirror of the backend evaluator output (sanitized — no
+ * internal admin notes). See backend/services/featureGovernance.
+ */
+export interface EffectiveFeatureState {
+  featureId: string
+  state: FeatureLifecycleState
+  enabled: boolean
+  visible: boolean
+  accessible: boolean
+  beta: boolean
+  reasonCode?: string
+  deprecatedTo?: string
+}
 
 // ── Icon names — typed as lucide-react component names ─────────────────────
 export type LucideIconName =
@@ -63,6 +164,19 @@ export type LucideIconName =
   | 'MapPin'
   | 'Building2'
   | 'Settings'
+  | 'ShoppingCart'
+  | 'Package'
+  | 'Phone'
+  | 'Mail'
+  | 'DollarSign'
+  | 'Globe'
+  | 'Newspaper'
+  | 'HelpCircle'
+  | 'Info'
+  | 'Sparkles'
+  | 'Store'
+  | 'ScrollText'
+  | 'Lock'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -90,6 +204,19 @@ export interface FeatureRegistryItem {
   isPlanned?: boolean
   /** Whether the route is hidden from standard route-mirroring assertions */
   isHidden?: boolean
+  /**
+   * Truthful lifecycle state. When omitted it is derived from the legacy
+   * `isPlanned` / `isHidden` booleans via {@link getStaticLifecycle}. Setting
+   * this is preferred for new features and for beta/disabled/deprecated states
+   * that the booleans cannot express.
+   */
+  lifecycle?: FeatureLifecycleState
+  /** Immutable upper bound on roles a runtime override may grant (defaults to `roles`). */
+  immutableRoles?: UserRole[]
+  /** Owning team, for governance attribution. */
+  owner?: string
+  /** When deprecated, the route a deprecation redirect should target. */
+  deprecatedTo?: string
 }
 
 // ── Role metadata ──────────────────────────────────────────────────────────
@@ -1095,4 +1222,126 @@ export function canRoleAccessRoute(role: UserRole, route: string): boolean {
 /** Get the default dashboard route for a role */
 export function getDefaultRouteForRole(role: UserRole): string {
   return getDashboardRoute(role)
+}
+
+// ── Lifecycle & effective-state helpers ─────────────────────────────────────
+
+/**
+ * Derive the static (code-defined) lifecycle of a feature. Explicit
+ * `lifecycle` wins; otherwise legacy booleans are mapped deterministically.
+ * Precedence when both booleans are set: hidden > planned > active.
+ */
+export function getStaticLifecycle(feature: Pick<FeatureRegistryItem, 'lifecycle' | 'isHidden' | 'isPlanned'>): FeatureLifecycleState {
+  if (feature.lifecycle) return feature.lifecycle
+  if (feature.isHidden) return 'hidden'
+  if (feature.isPlanned) return 'planned'
+  return 'active'
+}
+
+/** Whether a lifecycle state should be advertised in navigation surfaces. */
+export function isLifecycleVisible(state: FeatureLifecycleState): boolean {
+  return state === 'active' || state === 'beta'
+}
+
+/** Whether a lifecycle state permits direct route rendering (not planned/disabled). */
+export function isLifecycleAccessible(state: FeatureLifecycleState): boolean {
+  return state === 'active' || state === 'beta' || state === 'hidden' || state === 'deprecated'
+}
+
+export interface ResolvedFeatureVisibility {
+  featureId: string
+  /** Effective lifecycle after applying any runtime override from context. */
+  state: FeatureLifecycleState
+  /** Whether the user/role is eligible to access this feature at all. */
+  roleEligible: boolean
+  /** Shown in navigation surfaces (lifecycle-visible AND role-eligible). */
+  visible: boolean
+  /** Direct route access permitted (lifecycle-accessible AND role-eligible). */
+  accessible: boolean
+  /** Render a beta notice. */
+  beta: boolean
+  /** Deprecation redirect target, if any. */
+  deprecatedTo?: string
+}
+
+/**
+ * Resolve the effective visibility/accessibility of a feature for a given
+ * context. Pure and side-effect free. Runtime `effectiveStates` overrides (from
+ * backend governance) take precedence over static lifecycle; role eligibility
+ * is ALWAYS enforced and can never be broadened by an override here (frontend
+ * visibility never grants access — backend authorization remains authoritative).
+ */
+export function resolveFeatureVisibility(
+  feature: FeatureRegistryItem,
+  ctx: NavigationContext = {},
+): ResolvedFeatureVisibility {
+  const override = ctx.effectiveStates?.[feature.id]
+  const state = override?.state ?? getStaticLifecycle(feature)
+
+  // Role eligibility — public features are eligible for everyone; protected
+  // features require an authenticated, listed role.
+  let roleEligible: boolean
+  if (!feature.requiresAuth) {
+    roleEligible = true
+  } else if (!ctx.isAuthenticated || !ctx.role) {
+    roleEligible = false
+  } else {
+    roleEligible = feature.roles.includes(ctx.role)
+  }
+
+  const lifecycleVisible = isLifecycleVisible(state)
+  const lifecycleAccessible = isLifecycleAccessible(state)
+  // A runtime override may DISABLE but never force-enable beyond static policy.
+  const enabledByOverride = override ? override.enabled : true
+
+  return {
+    featureId: feature.id,
+    state,
+    roleEligible,
+    visible: lifecycleVisible && roleEligible && enabledByOverride,
+    accessible: lifecycleAccessible && roleEligible && enabledByOverride,
+    beta: state === 'beta',
+    deprecatedTo: override?.deprecatedTo ?? feature.deprecatedTo,
+  }
+}
+
+// ── Framework-neutral governance manifest ───────────────────────────────────
+
+/**
+ * The governance-relevant projection of the registry. This is the contract the
+ * backend feature-governance service consumes (via the generated JSON at
+ * shared/navigation/feature-manifest.json). Keep it pure data — no React, no
+ * presentation fields — so frontend and backend cannot drift silently.
+ */
+export interface FeatureManifestEntry {
+  id: string
+  domain: FeatureDomain
+  route: string
+  defaultLifecycle: FeatureLifecycleState
+  defaultRoles: UserRole[]
+  /** Immutable upper bound on roles an override may grant. */
+  immutableRoles: UserRole[]
+  requiresAuth: boolean
+  betaCapable: boolean
+  deprecatedTo?: string
+}
+
+/** Build the deterministic, sorted governance manifest from the registry. */
+export function buildFeatureManifest(): FeatureManifestEntry[] {
+  return FEATURE_REGISTRY
+    .map((f): FeatureManifestEntry => {
+      const entry: FeatureManifestEntry = {
+        id: f.id,
+        domain: f.domain,
+        route: f.route,
+        defaultLifecycle: getStaticLifecycle(f),
+        defaultRoles: [...f.roles].sort(),
+        immutableRoles: [...(f.immutableRoles ?? f.roles)].sort(),
+        requiresAuth: f.requiresAuth,
+        betaCapable: true,
+      }
+      if (f.deprecatedTo) entry.deprecatedTo = f.deprecatedTo
+      return entry
+    })
+    .sort((a, b) => a.id.localeCompare(b.id))
 }

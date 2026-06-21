@@ -2,32 +2,12 @@ import { useState } from 'react'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Car,
-  LayoutDashboard,
-  Gauge,
-  Wrench,
-  Shield,
-  FileText,
-  Heart,
-  MessageSquare,
   Bell,
   Settings,
   LogOut,
   Menu,
   X,
-  Users,
-  BarChart3,
-  Tag,
-  ClipboardList,
-  BookOpen,
-  AlertTriangle,
-  Search,
-  CheckCircle,
-  ShieldAlert,
-  Brain,
-  UserCog,
   Store,
-  MapPin,
-  Building2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -38,40 +18,14 @@ import {
   getRoleMetadata,
   getAllRoles,
   canRoleAccessRoute,
-  type LucideIconName,
   type FeatureRegistryItem,
 } from '@/config/featureRegistry'
+import { resolveFeatureIcon } from '@/config/featureIcons'
 import type { UserRole } from '@shared/types'
 
-/** Maps LucideIconName strings from the registry to actual icon components */
-const ICON_MAP: Record<LucideIconName, React.ElementType> = {
-  LayoutDashboard,
-  Car,
-  FileText,
-  Wrench,
-  Shield,
-  Gauge,
-  ClipboardList,
-  Tag,
-  Heart,
-  MessageSquare,
-  Users,
-  BarChart3,
-  BookOpen,
-  AlertTriangle,
-  Search,
-  CheckCircle,
-  ShieldAlert,
-  Brain,
-  UserCog,
-  MapPin,
-  Building2,
-  Settings,
-}
-
-/** Resolves a FeatureRegistryItem to its icon component */
+/** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
 function resolveIcon(item: FeatureRegistryItem): React.ElementType {
-  return ICON_MAP[item.icon] || FileText
+  return resolveFeatureIcon(item.icon)
 }
 
 export default function DashboardLayout({ role }: { role: string }) {
