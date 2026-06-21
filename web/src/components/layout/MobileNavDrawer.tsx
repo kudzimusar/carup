@@ -14,6 +14,7 @@ import { useAuth } from '@/context/AuthContext'
 import { getMobileNavigation, type ResolvedNavItem } from '@/config/navigationManifest'
 import { getAllRoles, getRoleMetadata, getDashboardRoute, type NavigationContext } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
 import type { UserRole } from '@shared/types'
 
 /**
@@ -31,10 +32,12 @@ export default function MobileNavDrawer() {
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
 
+  const effectiveStates = useFeatureEffectiveStates()
   const ctx: NavigationContext = {
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
     environment: import.meta.env.MODE,
+    effectiveStates,
   }
   const nav = getMobileNavigation(ctx)
   const close = () => setOpen(false)

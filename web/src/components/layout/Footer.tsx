@@ -6,6 +6,7 @@ import {
   getFooterSocial,
   type SocialLink,
 } from '@/config/navigationManifest'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
 
 const SOCIAL_ICON = {
   facebook: Facebook,
@@ -49,13 +50,15 @@ function SocialButton({ social }: { social: SocialLink }) {
 }
 
 export default function Footer() {
+  const effectiveStates = useFeatureEffectiveStates()
+  const ctx = { environment: import.meta.env.MODE, effectiveStates }
   const columns: Array<{ title: string; items: ReturnType<typeof getFooterNavigation> }> = [
-    { title: 'Product', items: getFooterNavigation('product') },
-    { title: 'Company', items: getFooterNavigation('company') },
-    { title: 'Resources', items: getFooterNavigation('resources') },
-    { title: 'Stakeholders', items: getFooterNavigation('stakeholders') },
+    { title: 'Product', items: getFooterNavigation('product', ctx) },
+    { title: 'Company', items: getFooterNavigation('company', ctx) },
+    { title: 'Resources', items: getFooterNavigation('resources', ctx) },
+    { title: 'Stakeholders', items: getFooterNavigation('stakeholders', ctx) },
   ]
-  const legal = getFooterNavigation('legal')
+  const legal = getFooterNavigation('legal', ctx)
   const social = getFooterSocial()
 
   return (
