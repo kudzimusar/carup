@@ -45,9 +45,11 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 const auth = authorizeRole();
 const reviewerAuth = authorizeRole(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer', 'dealer']);
 
-// Master feature gate: when DIASPORA_SAFETRADE_ENABLED is off the entire SafeTrade surface is inert.
-// Returning 404 (not 403) keeps the feature undiscoverable while disabled.
-router.use((req, res, next) => {
+// Master feature gate: when DIASPORA_SAFETRADE_ENABLED is off the SafeTrade surface is inert.
+// Returning 404 (not 403) keeps the feature undiscoverable while disabled. The guard is scoped to
+// '/safetrade' so that, when this router is mounted at the diaspora root, requests for sibling
+// routes (containers, shipments, OCR, reservations, …) fall through instead of being 404'd here.
+router.use('/safetrade', (req, res, next) => {
   if (!isSafeTradeEnabled()) {
     return res.status(404).json({ error: 'SafeTrade is not enabled' });
   }
