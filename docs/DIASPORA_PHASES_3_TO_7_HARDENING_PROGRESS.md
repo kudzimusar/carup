@@ -171,13 +171,20 @@
 - **Gated suite**: `backend/tests/staging/diaspora-staging-integration.test.js` — skipped by default
   (2 skipped); refuses the forbidden production project; proves RPC existence + concurrent
   over-reserve prevention against a real DB when enabled.
-- **Applied to staging**: NO.
-- **BLOCKED (2026-06-21)**: staging apply authorized for `eoyenigwevnxwwhyhaer`, but the Supabase MCP
-  returns `permission denied` for it and exposes only `sfhtlzcgrnrdznhvdrbn` ("production-os") —
-  neither the authorized staging nor the named forbidden production. No migration applied; the
-  reachable "production-os" project was NOT touched (not authorized). Awaiting staging access /
-  correct ref / staging DATABASE_URL.
-- **Commit SHA**: _set on commit_.
+- **Applied to staging (`eoyenigwevnxwwhyhaer`)**: YES — out-of-band by the maintainer (2026-06-21),
+  including `20260621094000_diaspora_h7_rpc_execute_grants.sql` (RPC ACL → `service_role` only). Repo
+  holds the reproducible source for all six; **do not reapply**. CI migration-sanity now covers the
+  ACL file; the live integration guard now **requires** the `eoyenigwevnxwwhyhaer` ref.
+- **Production untouched**: `vhmnajoeicasaigiophh` and `sfhtlzcgrnrdznhvdrbn` never touched.
+
+### H9 — Authenticated staging concurrency tests (execution pending integration access)
+- The gated suite (`backend/tests/staging/diaspora-staging-integration.test.js`) is ready and now
+  hard-guards the authorized staging ref. It proves RPC existence + concurrent over-reserve
+  prevention; the quote-acceptance and container-overfill concurrency scenarios are documented in the
+  staging plan and run the same shape.
+- **Execution blocker**: this workspace's Supabase MCP still cannot see `eoyenigwevnxwwhyhaer` (lists
+  only `sfhtlzcgrnrdznhvdrbn`). Run H9 via the CI `staging-integration` job by setting the GitHub
+  secret `DIASPORA_STAGING_DATABASE_URL` (carup-staging). No DB URL is exposed in chat.
 
 ### H8 — CI acceptance workflow (Risk G)
 - **Workflow**: `.github/workflows/diaspora-phases-3-7-validation.yml` (PR + push + dispatch).
