@@ -1,0 +1,26 @@
+{
+  "_note": "SAMPLE Cloudflare WAF/rate-limit config for the CarUp API (master plan §12.7). Apply via Cloudflare dashboard/API or Terraform. Values are starting points — tune against real traffic. NO secrets here.",
+  "zone": "carup.example",
+  "managed_rulesets": [
+    { "id": "cloudflare-managed", "action": "managed_challenge" },
+    { "id": "cloudflare-owasp-core", "action": "block", "sensitivity": "medium" }
+  ],
+  "tls": { "min_version": "1.2", "mode": "full_strict" },
+  "request_limits": { "max_body_bytes": 12582912, "comment": "12MB — above the 10MB evidence upload cap so legit uploads pass" },
+  "rate_limiting_rules": [
+    { "name": "global-ip", "match": "http.request.uri.path matches \"^/api/\"", "characteristics": ["ip.src"], "requests_per_period": 600, "period_seconds": 60, "action": "managed_challenge" },
+    { "name": "auth-abuse", "match": "http.request.uri.path in {\"/api/auth/login\" \"/api/auth/switch-role\"}", "characteristics": ["ip.src"], "requests_per_period": 10, "period_seconds": 60, "action": "block" },
+    { "name": "upload-quota", "match": "http.request.uri.path contains \"/evidence/upload\"", "characteristics": ["ip.src"], "requests_per_period": 20, "period_seconds": 60, "action": "block" },
+    { "name": "report-generation", "match": "http.request.uri.path contains \"/report/versions\"", "characteristics": ["ip.src"], "requests_per_period": 30, "period_seconds": 300, "action": "managed_challenge" },
+    { "name": "ingestion-trigger", "match": "http.request.uri.path contains \"/api/ingestion/jobs\"", "characteristics": ["ip.src"], "requests_per_period": 10, "period_seconds": 60, "action": "block" },
+    { "name": "search-expensive", "match": "http.request.uri.path contains \"/api/marketplace\" and http.request.method eq \"GET\"", "characteristics": ["ip.src"], "requests_per_period": 120, "period_seconds": 60, "action": "managed_challenge" }
+  ],
+  "firewall_rules": [
+    { "name": "protect-admin", "expression": "starts_with(http.request.uri.path, \"/api/admin\") or starts_with(http.request.uri.path, \"/api/governance\")", "action": "managed_challenge" },
+    { "name": "block-known-bad-bots", "expression": "cf.bot_management.score lt 30 and not cf.bot_management.verified_bot", "action": "block" }
+  ],
+  "bot_management": { "enabled": true, "block_definitely_automated": true },
+  "origin_shielding": { "enabled": true, "comment": "lock origin (Fly) to Cloudflare IPs; reject direct-to-origin" },
+  "ddos": { "http_ddos_protection": "high", "comment": "Cloudflare automatic L3/4 + L7 DDoS mitigation" },
+  "logging": { "logpush": true, "fields": ["ClientIP", "EdgeResponseStatus", "WAFAction", "RateLimitAction"] }
+}
