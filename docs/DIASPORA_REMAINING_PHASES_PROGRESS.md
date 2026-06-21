@@ -33,7 +33,7 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 | Track W — XLSX workbook | C (Workbook/Drive) | **Foundation COMPLETE** (exceljs; template gen + base64 upload dry-run reusing JSON validation + export + formula-injection safety + upload security); routes mounted; live import still draft-only |
 | Track D — Google Drive | C (Workbook/Drive) | Activation-ready scaffold verified; keep prod-disabled |
 | Phase 8 — Entitlements | D | **M1 foundation + M2 backend enforcement/API/webhook COMPLETE** (enforcement flag default OFF); UI = M3 pending; staging proof needs EB-1 |
-| Phase 9 — SafeTrade | E | **Design COMPLETE** (durable: docs/DIASPORA_PHASE9_SAFETRADE_DESIGN.md) + **schema/state-machine foundation built & on PR #90**; services/routes/tests **PENDING** (build interrupted by session limit ~2026-06-21, resets 22:00 Asia/Tokyo) |
+| Phase 9 — SafeTrade | E | **Backend COMPLETE** — 7 services, atomic RPCs, 2 migrations, routes mounted, 47 tests; adversarial-reviewed (1 HIGH + 1 MED fixed, rest tracked as ST-3); sandbox-only/fail-closed. UI (M-S2) + staging proof (EB-1) pending |
 | Phase 10 — Trade Graph | F | **Design COMPLETE** (durable: docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md — schema + projection + explainable queries + AI/redaction/API + build-ready synthesis); build not started |
 | Gate P — Production readiness | A + B | Docs scaffolded; not started |
 
@@ -210,6 +210,36 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 - **Commit SHA:** _(filled on commit)_.
 - **Next milestone:** resume Phase 9 build (services/eligibility/release-policy/milestones/disputes/
   delivery/routes/tests) → integrate; then Phase 10.
+
+### M-S2 — Phase 9 SafeTrade backend complete (build + adversarial verify + fixes) — Wave 4
+- **Objective:** Complete SafeTrade backend (services/disputes/delivery/routes/tests) from the
+  committed design, adversarially verify, fix blocking findings, integrate.
+- **Assigned:** workflow `wf_68e17071-0a6` (build+verify) + fix agent; Agent A integrated/verified.
+- **Files committed (this milestone):**
+  - `backend/services/diaspora/safetrade/` (7 services: payment provider sandbox, transaction,
+    eligibility, milestone, release-policy, dispute, delivery).
+  - `backend/routes/diasporaSafeTradeRoutes.js` (NEW; mounted) — §48 endpoints, gated by
+    `isSafeTradeEnabled()`.
+  - `backend/tests/diaspora-safetrade.test.js` (NEW — 47 tests), `backend/tests/helpers/diasporaSafeTradeRpcReference.js` (NEW — JS RPC refs mirroring SQL).
+  - `database/migrations/20260621131000_diaspora_phase9_safetrade_disputes.sql` (NEW — disputes/
+    evidence/delivery tables), and FIX-2 grant tightening + RPC evaluator guard into the foundation
+    migration `20260621130000`.
+  - `backend/routes/diasporaRoutes.js` (MOD, **integration-owned** — mounted SafeTrade router).
+- **Adversarial review (4 dims):** money-safety PASS, state/audit PASS, tenant/authz PASS, reuse/gates
+  found **1 HIGH** (seller could set buyer delivery gate via `transition()`) — **FIXED** (ST-1) — and
+  a money-path **MED** (forgeable release evaluation) — **FIXED** (ST-2). Remaining lower-severity
+  items tracked as **ST-3** (close before EB-4 live payment).
+- **Security decisions:** sandbox-only payments (live → `EXTERNAL_ACTIVATION_REQUIRED` at 4 layers);
+  high-risk release needs reviewer approval + held milestone; critical transitions audit atomically
+  in-RPC; no auto reputation (delivery emits eligibility event only); behind `DIASPORA_SAFETRADE_ENABLED`
+  (OFF). RPCs SECURITY DEFINER + service_role-only EXECUTE + search_path; release-evaluations write =
+  service_role only.
+- **Tests (independently re-run by Agent A):** safetrade **47/47**; route-auth + safetrade **55/55**;
+  full `diaspora-*.test.js` suite **420 tests, 413 pass, 0 fail, 7 skipped**; `node --check` clean.
+- **Blockers:** EB-1 (staging concurrency proof of the SafeTrade RPCs). None blocking next milestones.
+- **Commit SHA:** _(filled on commit)_.
+- **Next milestone:** Phase 10 build (design ready), then Phase 8/9/10 UIs + e2e, Drive hardening,
+  Wave 6 integration + adversarial review, Wave 7 readiness/runbooks + final §87 report.
 
 ## Agent ownership (Section 7)
 

@@ -225,8 +225,13 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
     GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_safetrade_transactions TO authenticated;
     GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_safetrade_milestones TO authenticated;
-    -- Evaluations are append-only: no UPDATE for authenticated.
-    GRANT SELECT, INSERT ON TABLE public.diaspora_safetrade_release_evaluations TO authenticated;
+    -- Release evaluations are the N5 verdict the release path/RPC TRUSTS to bless a money RELEASE. They
+    -- are written ONLY by the service_role singleton client (the evaluation service), never by an end
+    -- user. Granting authenticated INSERT would let a non-reviewer forge an eligible=true row that the
+    -- RPC then trusts — so authenticated gets SELECT ONLY (read your own verdicts under RLS); no
+    -- INSERT/UPDATE/DELETE. service_role retains full write below.
+    GRANT SELECT ON TABLE public.diaspora_safetrade_release_evaluations TO authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.diaspora_safetrade_release_evaluations FROM authenticated;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     GRANT ALL ON TABLE public.diaspora_safetrade_transactions TO service_role;
@@ -386,6 +391,11 @@ BEGIN
        AND v_eval.milestone_id <> p_milestone_id THEN
       RAISE EXCEPTION 'DIASPORA_SAFETRADE/EVALUATION_REQUIRED';
     END IF;
+    -- N5 defense-in-depth: the blessing evaluation must carry an EVALUATOR (a privileged reviewer/admin
+    -- recorded by the service-role evaluation path; evaluated_by is set only when isPlatformAdmin/Reviewer
+    -- passed). A forged row with no evaluator must not bless a money RELEASE even if eligible=true. The
+    -- table now grants authenticated SELECT-only, so only the service_role can write these rows at all.
+    IF v_eval.evaluated_by IS NULL THEN RAISE EXCEPTION 'DIASPORA_SAFETRADE/EVALUATION_NOT_REVIEWED'; END IF;
     IF v_eval.eligible IS NOT TRUE THEN RAISE EXCEPTION 'DIASPORA_SAFETRADE/NOT_ELIGIBLE'; END IF;
     IF v_eval.policy_version IS DISTINCT FROM v_txn.policy_version THEN
       RAISE EXCEPTION 'DIASPORA_SAFETRADE/POLICY_VERSION_MISMATCH';
