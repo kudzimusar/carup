@@ -11,8 +11,6 @@ import {
 import { Badge } from '@/components/ui/badge'
 import {
   Car,
-  Menu,
-  X,
   ShoppingCart,
   Bell,
   LayoutDashboard,
@@ -20,12 +18,11 @@ import {
   Settings,
   ChevronDown,
   Shield,
-  Wrench,
-  Building2,
   MessageSquare,
   Package,
   MoreHorizontal
 } from 'lucide-react'
+import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
@@ -110,7 +107,6 @@ function CommerceMenu({
 }
 
 export default function Navbar() {
-  const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
@@ -306,88 +302,11 @@ export default function Navbar() {
               </div>
             )}
 
-            {/* Mobile Menu */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden"
-              data-testid="mobile-menu-button"
-              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={mobileOpen}
-              onClick={() => setMobileOpen(!mobileOpen)}
-            >
-              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </Button>
+            {/* Mobile Menu — registry-driven drawer with focus trap (Milestone 4) */}
+            <MobileNavDrawer />
           </div>
         </div>
       </div>
-
-      {/* Mobile Nav */}
-      {mobileOpen && (
-        <div className="lg:hidden border-t bg-white">
-          <div className="section-padding py-4 space-y-1">
-            {[
-              { label: 'Buy', href: '/marketplace', icon: ShoppingCart },
-              { label: 'Sell', href: sellerPath, icon: Car },
-              { label: 'Verify', href: '/search', icon: Shield },
-              { label: 'Parts', href: '/marketplace/parts', icon: Package },
-              { label: 'Dealers', href: '/dealers', icon: Building2 },
-              { label: 'Garages & Services', href: '/marketplace/services', icon: Wrench },
-            ].map((link) => (
-              <Link
-                key={`${link.label}-${link.href}`}
-                to={link.href}
-                onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
-                  location.pathname === link.href
-                    ? 'bg-orange-50 text-orange-700'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <link.icon className="w-4 h-4" />
-                {link.label}
-              </Link>
-            ))}
-            <div className="border-t pt-2">
-              <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">More</p>
-              {(moreMenu[0]?.items ?? []).filter(link => link.active).map(link => (
-                <Link
-                  key={link.id}
-                  to={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </div>
-            <div className="pt-2 border-t mt-2">
-              {user ? (
-                <>
-                  <Link to={activeDashboardPath} onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600">
-                    <LayoutDashboard className="w-4 h-4" /> Dashboard
-                  </Link>
-                  <button onClick={() => {
-                    logout()
-                    window.location.href = '/'
-                  }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-red-600 w-full" data-testid="logout-button">
-                    <LogOut className="w-4 h-4" /> Sign Out
-                  </button>
-                </>
-              ) : (
-                <div className="flex gap-2 px-3">
-                  <Button variant="outline" size="sm" className="flex-1" asChild>
-                    <Link to="/login" onClick={() => setMobileOpen(false)}>Sign In</Link>
-                  </Button>
-                  <Button size="sm" className="flex-1 bg-orange-500 hover:bg-orange-600" asChild>
-                    <Link to={sellerPath} onClick={() => setMobileOpen(false)}>Sell Your Car</Link>
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   )
 }
