@@ -72,6 +72,23 @@ test('creates and validates referral codes with attribution preserved', async ()
   assert.equal(events.some((event) => event.event_type === REFERRAL_EVENT_TYPES.CODE_VALIDATED), true);
 });
 
+test('QR and barcode scans create dedicated scan referral events alongside validation', async () => {
+  const { repository, service } = createService();
+  const campaign = await service.createCampaign({ name: 'Scan Attribution Push', status: 'ACTIVE' }, adminActor);
+  const code = await service.createReferralCode({ campaign_id: campaign.id, owner_user_id: 'seller-scan', code: 'scan-code-1', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'web' }, adminActor);
+  // A QR scan validation must emit a QR_SCANNED event.
+  await service.validateReferralCode({ code: 'scan-code-1', channel: 'qr', subject_id: 'qr-lead' }, { actor_type: 'user' });
+  // A barcode scan validation must emit a BARCODE_SCANNED event.
+  await service.validateReferralCode({ code: 'scan-code-1', channel: 'barcode', subject_id: 'barcode-lead' }, { actor_type: 'user' });
+  const events = await repository.list(REFERRAL_TABLES.events, { code_id: code.id });
+  assert.equal(events.some((e) => e.event_type === REFERRAL_EVENT_TYPES.QR_SCANNED), true);
+  assert.equal(events.some((e) => e.event_type === REFERRAL_EVENT_TYPES.BARCODE_SCANNED), true);
+  // A plain web validation must NOT emit a scan event.
+  await service.validateReferralCode({ code: 'scan-code-1', channel: 'web', subject_id: 'web-lead' }, { actor_type: 'user' });
+  const webScan = (await repository.list(REFERRAL_TABLES.events, { code_id: code.id })).filter((e) => e.event_type === REFERRAL_EVENT_TYPES.QR_SCANNED || e.event_type === REFERRAL_EVENT_TYPES.BARCODE_SCANNED);
+  assert.equal(webScan.length, 2); // still only the QR + barcode scans, web added none
+});
+
 test('invalid, expired, and exhausted codes fail safely', async () => {
   const { service } = createService();
   assert.equal((await service.validateReferralCode({ code: 'NOPE' })).error.code, 'CODE_NOT_FOUND');
