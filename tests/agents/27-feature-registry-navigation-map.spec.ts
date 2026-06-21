@@ -119,13 +119,16 @@ test.describe('Feature Registry & Navigation Map', () => {
         expect(result.roleItemCounts[role]).toBeGreaterThan(0);
       }
 
-      // Expected item counts per role
-      expect(result.roleItemCounts['owner']).toBe(11);
+      // Expected dashboard-sidebar item counts per role.
+      // Reconciled 2026-06-21 to the live registry (Navigation Blueprint M1/M2):
+      // owner/government/admin counts had drifted on main as referral + diaspora
+      // admin/government tools were added after this assertion was first written.
+      expect(result.roleItemCounts['owner']).toBe(12);
       expect(result.roleItemCounts['dealer']).toBe(6);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
-      expect(result.roleItemCounts['government']).toBe(6);
-      expect(result.roleItemCounts['admin']).toBe(7);
+      expect(result.roleItemCounts['government']).toBe(8);
+      expect(result.roleItemCounts['admin']).toBe(15);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
