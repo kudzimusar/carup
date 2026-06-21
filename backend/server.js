@@ -108,7 +108,9 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-app.use(express.json({ limit: '15mb' }));
+// Capture the raw request body so provider webhooks (e.g. Phase 8 billing,
+// SafeTrade payment) can verify HMAC signatures over the exact bytes received.
+app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 app.use(csrfMiddleware);
 

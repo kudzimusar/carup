@@ -7,6 +7,7 @@ import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
 import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRoutes.js';
 import diasporaDriveRouter from './diasporaDriveRoutes.js';
+import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -51,6 +52,10 @@ router.use(diasporaContainerMarketplaceRouter);
 
 // Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
 router.use(diasporaDriveRouter);
+
+// Phase 8: Subscription gate — plans, status, entitlements, usage, sandbox billing + idempotent webhook.
+// Enforcement on protected ops is gated by DIASPORA_SUBSCRIPTION_ENFORCEMENT (default OFF).
+router.use('/subscription', diasporaSubscriptionRoutes);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {

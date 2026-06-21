@@ -22,7 +22,7 @@
 | R0 — Phases 3–7 release readiness | B (Release Gate & Security) | Discovery done; H9 = `SKIPPED — SECRET UNAVAILABLE`; needs staging secret |
 | Track W — XLSX workbook | C (Workbook/Drive) | Discovery done; not started |
 | Track D — Google Drive | C (Workbook/Drive) | Activation-ready scaffold verified; keep prod-disabled |
-| Phase 8 — Entitlements | D | Discovery done; not started |
+| Phase 8 — Entitlements | D | **M1 foundation + M2 backend enforcement/API/webhook COMPLETE** (enforcement flag default OFF); UI = M3 pending; staging proof needs EB-1 |
 | Phase 9 — SafeTrade | E | Discovery done; not started |
 | Phase 10 — Trade Graph | F | Discovery done; not started |
 | Gate P — Production readiness | A + B | Docs scaffolded; not started |
@@ -106,6 +106,40 @@
 - **Next milestone:** M2 — wire entitlement checks into real diaspora operations (stock publish,
   RFQ create/respond, workbook bulk import, AI execute, container reserve) behind the enforcement
   flag + Phase 8 API/webhook + UI; in parallel, M-W1 = XLSX dependency decision + parser prototype.
+
+### M2 — Phase 8 enforcement + subscription API + webhook (COMPLETE, backend) — Wave 3
+- **Objective:** Enforce entitlements on real domain operations + ship the Phase 8 subscription API
+  and idempotent billing webhook. Backend only (UI = M3).
+- **Assigned:** Agent D (build), Agent A (serial integration of shared route/server files + verify).
+- **Files changed:**
+  - `backend/services/diaspora/diasporaEntitlementGuard.js` (NEW — flag-gated `requireFeature`,
+    `reserveQuotaForFeature`, `withEntitlement` reserve→run→commit/release).
+  - `backend/routes/diasporaSubscriptionRoutes.js` (NEW — plans/status/entitlements/usage +
+    sandbox checkout/portal/change-plan/cancel + idempotent signature-verified webhook).
+  - `backend/services/diaspora/diasporaSupplyDocumentService.js` (MOD — `publishSupplyDocument`
+    wrapped: feature `diaspora.stock.publish` + quota `diaspora.stock.max_items`).
+  - `backend/services/diaspora/diasporaBuyerOrderService.js` (MOD — `publishRfq` wrapped: feature
+    `diaspora.rfq.create` + quota `diaspora.rfq.max_open`, after idempotent re-publish guard).
+  - `backend/routes/diasporaRoutes.js` (MOD, **integration-owned** — mounted subscription router at
+    `/subscription`).
+  - `backend/server.js` (MOD, **integration-owned** — capture `req.rawBody` for webhook HMAC).
+  - `backend/tests/diaspora-subscription-routes.test.js` (NEW — 15), `backend/tests/diaspora-entitlement-enforcement.test.js` (NEW — 8).
+- **Routes:** `/api/diaspora/subscription/{plans,status,entitlements,usage,checkout,portal,change-plan,cancel,webhook}`.
+- **Security decisions:** enforcement gated by `DIASPORA_SUBSCRIPTION_ENFORCEMENT` (default OFF →
+  byte-identical existing behavior, proven); webhook verifies signature + idempotent on
+  `(provider,event_id)` + never trusts client status; sandbox billing only (live fail-closed).
+- **Tests (independently re-run by Agent A):** new Phase 8 tests **23/23 pass**; full
+  `diaspora-*.test.js` suite **349 tests, 342 pass, 0 fail, 7 skipped** after integration;
+  `node --check` clean on `diasporaRoutes.js` + `server.js` + `diasporaSubscriptionRoutes.js`.
+- **Staging evidence:** none yet (atomic quota concurrency proof needs EB-1).
+- **Known limitations:** UI not built (M3); webhook idempotency proven via mock select (real DB
+  unique constraint exercised in staging later); enforcement wired on 2 ops (stock publish, RFQ
+  create) — remaining ops (workbook bulk import, AI execute, container reserve, drive, API) wired in
+  a later milestone alongside their tracks.
+- **Blockers:** EB-1 (staging proof). None blocking next milestones.
+- **Commit SHA:** _(filled on commit)_.
+- **Next milestone:** M3 — Phase 8 frontend (plan comparison, status, usage dashboard, upgrade flow,
+  feature-lock explanations) + e2e; and Track W XLSX foundation (parallel).
 
 ## Agent ownership (Section 7)
 
