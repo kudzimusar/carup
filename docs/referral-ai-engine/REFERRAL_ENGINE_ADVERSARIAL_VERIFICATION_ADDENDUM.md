@@ -67,8 +67,8 @@ PARTIAL items (78) are predominantly tested-under-mock paths whose *live* round-
 ## 5. Test & CI status (commit `1cf6165`)
 
 - web `tsc` 0 · web unit **139** · mobile `tsc` 0 · referral backend `node --test` **141** · web build OK · UAT runner `node --check` OK.
-- **GitHub Actions `referral-ci`: GREEN** on PR #88 (runs the real suites; no secrets) — real CI evidence, not just local.
-- **Vercel: all checks GREEN** — `carup`, `carup-backend`, `carup-backend-staging`, `carup-staging`. (An earlier transient 24h build-rate-limit infra failure on the staging projects has since cleared; it was never a code failure.)
+- **GitHub Actions `referral-ci`: GREEN** on PR #88 (runs the real suites; no secrets) — the meaningful code-quality CI, real evidence not just local.
+- **Vercel deploys: intermittent infra build-rate-limit (paid-plan), not code.** Each push re-triggers ~4 deployments; when the rate-limit window is open they pass (all four have been observed green), and right after a push-burst some return "Deployment rate limited — retry in 24 hours." This is purely a deploy-availability/infra signal — `referral-ci` (which runs the real suites) is green. Achieving simultaneous all-green requires letting the rate-limit reset without re-triggering via further pushes.
 
 ## 6. Branch / mergeability
 
