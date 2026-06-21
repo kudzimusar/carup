@@ -121,7 +121,9 @@ export interface NavigationContext {
 
 /** Minimal shape of the Marketplace coverage response consumed by nav. */
 export interface MarketplaceCoverageResponse {
+  threshold?: number
   categories?: Record<string, { count?: number; active?: boolean }>
+  tags?: Record<string, { count?: number; active?: boolean }>
 }
 
 /**
@@ -1123,6 +1125,11 @@ export function getDashboardItems(role: UserRole): FeatureRegistryItem[] {
   return FEATURE_REGISTRY.filter(
     f => f.roles.includes(role) && f.placements.includes('dashboard_sidebar')
   )
+}
+
+/** Find a registered feature by its stable id. */
+export function getFeatureById(featureId: string): FeatureRegistryItem | undefined {
+  return FEATURE_REGISTRY.find(f => f.id === featureId)
 }
 
 /** Check if a role can access a specific feature by id */
