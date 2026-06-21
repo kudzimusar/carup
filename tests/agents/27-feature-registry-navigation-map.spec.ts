@@ -128,7 +128,8 @@ test.describe('Feature Registry & Navigation Map', () => {
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(8);
-      expect(result.roleItemCounts['admin']).toBe(15);
+      // admin gained the new 'Feature Governance' (admin.features) sidebar item (M7).
+      expect(result.roleItemCounts['admin']).toBe(16);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

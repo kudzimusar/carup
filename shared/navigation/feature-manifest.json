@@ -28,6 +28,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.features",
+    "domain": "admin",
+    "route": "/admin/features",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.moderation",
     "domain": "admin",
     "route": "/admin/moderation",

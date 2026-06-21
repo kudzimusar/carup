@@ -81,7 +81,10 @@ router.patch('/api/admin/features/:featureId/rollout', authorizeRole(['admin']),
     expectedVersion: req.body?.expectedVersion,
   });
   if (!result.ok) {
-    return res.status(result.status || 400).json({ error: 'validation_failed', errors: result.errors, current: result.current });
+    const status = result.status || 400;
+    // Distinguishable top-level error code so the client can detect conflicts.
+    const code = status === 409 ? 'version_conflict' : (result.errors?.[0] || 'validation_failed');
+    return res.status(status).json({ error: code, errors: result.errors, current: result.current });
   }
   res.json({ ok: true, override: result.override });
 }));

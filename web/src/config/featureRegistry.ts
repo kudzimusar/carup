@@ -593,6 +593,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'LayoutDashboard',
   },
   {
+    id: 'admin.features',
+    label: 'Feature Governance',
+    route: '/admin/features',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ShieldAlert',
+    description: 'Inspect the Feature Registry and manage runtime rollout overrides',
+    owner: 'platform',
+  },
+  {
     id: 'admin.users',
     label: 'Users',
     route: '/admin/users',

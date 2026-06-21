@@ -93,6 +93,7 @@ import ComplianceReports from './pages/dashboard/government/ComplianceReports'
 
 // Admin Dashboard
 import AdminDashboard from './pages/dashboard/admin/AdminDashboard'
+import FeatureGovernanceConsole from './pages/dashboard/admin/FeatureGovernanceConsole'
 import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
@@ -274,6 +275,7 @@ export default function App() {
         {/* Admin Dashboard */}
         <Route element={<DashboardLayout role="admin" />}>
           <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/features" element={<FeatureGovernanceConsole />} />
           <Route path="/admin/users" element={<UserManagement />} />
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
