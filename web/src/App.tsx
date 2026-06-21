@@ -16,6 +16,7 @@ import MarketplaceCompare from './pages/MarketplaceCompare'
 import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
 import VehicleDetail from './pages/VehicleDetail'
 import VehicleSearch from './pages/VehicleSearch'
+import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
@@ -176,6 +177,7 @@ export default function App() {
           <Route path="/marketplace/listing/:id" element={<VehicleDetail />} />
           <Route path="/marketplace/:id" element={<VehicleDetail />} />
           <Route path="/search" element={<VehicleSearch />} />
+          <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
