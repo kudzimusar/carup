@@ -68,7 +68,7 @@ PARTIAL items (78) are predominantly tested-under-mock paths whose *live* round-
 
 - web `tsc` 0 · web unit **139** · mobile `tsc` 0 · referral backend `node --test` **141** · web build OK · UAT runner `node --check` OK.
 - **GitHub Actions `referral-ci`: GREEN** on PR #88 (runs the real suites; no secrets) — real CI evidence, not just local.
-- **Vercel staging deploys: RED = infrastructure** ("Deployment rate limited — retry in 24 hours"), not code. Production-target builds pass. Distinguished from code failure per directive.
+- **Vercel: all checks GREEN** — `carup`, `carup-backend`, `carup-backend-staging`, `carup-staging`. (An earlier transient 24h build-rate-limit infra failure on the staging projects has since cleared; it was never a code failure.)
 
 ## 6. Branch / mergeability
 
@@ -76,8 +76,11 @@ PARTIAL items (78) are predominantly tested-under-mock paths whose *live* round-
 
 ## 7. GO / NO-GO
 
-**NO-GO for "ready for review" until two gates clear** (both external/owner-side):
-1. **Live wallet-attribution proof** — needs the staging `service_role` key in `backend/.env.uat.local`; the runner then proves all 10 journeys (incl. correct-owner attribution) in one command. *Code + tests are GO; only the live run is outstanding.*
-2. **Vercel staging deploys** — currently red on a 24h infra rate-limit; must go green (retry after the window).
+**NO-GO for "ready for review" until ONE gate clears** (owner-side):
+- **Live wallet-attribution proof** — needs the staging `service_role` key in `backend/.env.uat.local`; the runner then proves all 10 journeys (incl. correct-owner attribution) in one command. *Code + tests are GO; only the live run is outstanding.*
 
-Everything implementable without those externals is **GO**: critical/high defects fixed and tested, attribution model unified and proven, coverage audited, CI green, branch current. The single owner action remains: provide the staging key (and/or wait out the Vercel rate-limit), then I run the live journeys and flip the PR to ready.
+All CI and Vercel checks (incl. both staging projects) are now GREEN. Everything
+implementable is **GO**: critical/high defects fixed and tested, attribution model
+unified and proven, coverage audited, CI green, Vercel green, branch current. The
+single remaining owner action: provide the staging key, then I run the live journeys
+and flip the PR to ready.
