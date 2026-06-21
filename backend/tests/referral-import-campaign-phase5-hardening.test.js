@@ -88,3 +88,21 @@ test('zero manual import reward override is rejected before qualification or wal
   assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.REWARD_ELIGIBILITY_CREATED), false);
   assert.equal((await repository.list(REFERRAL_TABLES.walletTransactions)).length, 0);
 });
+
+test('import reward credits the lead code owner even when a different referral_code is supplied at qualification', async () => {
+  const { repository, importCampaign } = createHarness();
+  const realBundle = await importCampaign.createReferralBundle({ flow_type: 'vehicle_import', owner_user_id: 'import-real-owner', code: 'import-real-001' }, operatorActor);
+  const attackerBundle = await importCampaign.createReferralBundle({ flow_type: 'vehicle_import', owner_user_id: 'import-attacker', code: 'import-attacker-001' }, operatorActor);
+  const lead = await importCampaign.createLead({ flow_type: 'vehicle_import', referral_code: realBundle.code.code, session_id: 'import-redirect', contact: { user_id: 'import-buyer-x' } }, buyerActor);
+  // Exercise the getAttributionOwner fallback: lead keeps its referral_code but lost code_id/attribution.
+  const leadEvent = await repository.findOne(REFERRAL_TABLES.events, { id: lead.event_id });
+  const md = { ...leadEvent.metadata }; delete md.attribution;
+  await repository.updateById(REFERRAL_TABLES.events, lead.event_id, { code_id: null, metadata: { ...md, referral_code: realBundle.code.code } });
+  // Attempt to redirect the credit by passing the attacker code at qualification.
+  const result = await importCampaign.qualifyMilestone({ lead_event_id: lead.event_id, milestone: 'vehicle_purchased', referral_code: attackerBundle.code.code, referred_user_id: 'import-buyer-x' }, operatorActor);
+  assert.equal(result.reward_created, true);
+  const wallets = await repository.list(REFERRAL_TABLES.walletTransactions);
+  assert.equal(wallets.length, 1);
+  assert.equal(wallets[0].user_id, 'import-real-owner');
+  assert.notEqual(wallets[0].user_id, 'import-attacker');
+});
