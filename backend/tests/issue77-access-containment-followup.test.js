@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 // Static SQL-review tests for the Issue #77 access-control containment follow-up.
 // These run without any database connection: they assert the migration's
@@ -28,6 +29,36 @@ function stripSqlComments(sql) {
     .join('\n');
 }
 const followupCode = stripSqlComments(followupSql);
+
+// Tamper-evidence: the reviewed migrations must match their approved byte-for-byte
+// SHA-256 checksums exactly. Hashes are computed over the raw file bytes so they
+// match `shasum -a 256`.
+const REVIEWED_CHECKSUMS = {
+  '../../database/migrations/20260619201406_production_access_containment.sql':
+    '9e85e828bb3c5f4f1e7ee70bcc55a8490c0d13137b1afeda7c7f62eb15717fbe',
+  '../../database/migrations/20260620232827_issue77_access_containment_followup.sql':
+    '0cf27ad5399d793c1b2fe9878a2c36ee8dbc3bcbb9aaff2327eea438f1788b6e',
+};
+
+function sha256OfFile(relativePath) {
+  const bytes = readFileSync(new URL(relativePath, import.meta.url));
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+test('original containment migration matches the reviewed SHA-256 (tamper-evident)', () => {
+  const path = '../../database/migrations/20260619201406_production_access_containment.sql';
+  assert.equal(
+    sha256OfFile(path),
+    '9e85e828bb3c5f4f1e7ee70bcc55a8490c0d13137b1afeda7c7f62eb15717fbe',
+    'original containment migration must match its reviewed checksum exactly',
+  );
+});
+
+test('every reviewed containment migration matches its approved checksum', () => {
+  for (const [path, expected] of Object.entries(REVIEWED_CHECKSUMS)) {
+    assert.equal(sha256OfFile(path), expected, `${path} must match its reviewed checksum`);
+  }
+});
 
 test('original reconciled containment migration is left unchanged and canonical', () => {
   // Key markers of the canonical original migration must still be present.
