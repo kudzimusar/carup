@@ -121,11 +121,56 @@ export function summarizeEvidence(rows = []) {
   };
 }
 
+/**
+ * Suspicion handling is FAIL-CLOSED via an allowlist of known-safe states (ports PR #11 governance
+ * into the read path: main's summary fetched suspicion_status but ignored it). A log may contribute a
+ * public PartSentry claim ONLY when its suspicion_status is one of the known non-suspicious values
+ * (empty/absent is treated as non-suspicious for legacy rows without the column). ANY other value —
+ * including watch/flagged AND any future/unknown enum value (e.g. 'under_review') — suppresses ALL
+ * PartSentry signals for the vehicle. Allowlist, not denylist, so new states never silently publish.
+ */
+const NON_SUSPICIOUS_PARTSENTRY_STATUSES = ['none', 'cleared', ''];
+function isSuspiciousPartSentryRow(row) {
+  return !NON_SUSPICIOUS_PARTSENTRY_STATUSES.includes(normalizeText(row?.suspicion_status));
+}
+
+/** Self-approval guard: a mechanic approving their own log can never produce a public claim. */
+function isSelfApprovedPartSentry(row) {
+  return row?.approved_by != null && row?.mechanic_id != null && String(row.approved_by) === String(row.mechanic_id);
+}
+
+/** Map raw PartSentry log state to the public-card status enum (not_applicable|suppressed|eligible|review_required|ineligible). */
+function derivePartSentryPublicStatus(allRows, { suppressed, eligibleVerifiedCount, approvalProvenanceUnavailable }) {
+  if (!allRows.length) return 'not_applicable';
+  if (suppressed) return 'suppressed';
+  if (eligibleVerifiedCount > 0) return 'eligible';
+  if (approvalProvenanceUnavailable) return 'review_required';
+  const reviewPending = allRows.some(row =>
+    ['pending', 'pending_review', 'review_required'].includes(normalizeText(row?.verification_status)) ||
+    ['pending', 'pending_review', 'review_required'].includes(normalizeText(row?.part_verification_status))
+  );
+  return reviewPending ? 'review_required' : 'ineligible';
+}
+
 export function summarizePartSentry(rows = []) {
-  const publicRows = rows.filter(row => boolValue(row?.public_card_eligible));
-  const verifiedRows = publicRows.filter(row => row?.verification_status === 'verified');
-  const verifiedPartRows = publicRows.filter(row => row?.part_verification_status === 'verified');
-  const repairRows = publicRows.filter(row => ['Repaired', 'Replaced', 'Inspected', 'Diagnosed'].includes(row?.action_type));
+  const all = rows || [];
+  // Fail-closed suppression: any row whose suspicion_status is not in the non-suspicious allowlist
+  // (watch/flagged or any unknown/future value) hides every PartSentry claim for the vehicle.
+  const suppressed = all.some(isSuspiciousPartSentryRow);
+  const approvalProvenanceUnavailable = all.some(row => row?.approval_provenance_available === false);
+  // Governed public-card eligibility: opt-in flag + non-suspicious + approver provenance + not self-approved.
+  const eligibleRows = suppressed
+    ? []
+    : all.filter(row =>
+        boolValue(row?.public_card_eligible) &&
+        !isSuspiciousPartSentryRow(row) &&
+        row?.approval_provenance_available !== false &&
+        !isSelfApprovedPartSentry(row)
+      );
+
+  const verifiedRows = eligibleRows.filter(row => normalizeText(row?.verification_status) === 'verified');
+  const verifiedPartRows = eligibleRows.filter(row => normalizeText(row?.part_verification_status) === 'verified');
+  const repairRows = eligibleRows.filter(row => ['Repaired', 'Replaced', 'Inspected', 'Diagnosed'].includes(row?.action_type));
   const recentService = repairRows.some(row => daysSince(row?.timestamp || row?.created_at) <= RECENT_SERVICE_DAYS);
 
   return {
@@ -133,6 +178,9 @@ export function summarizePartSentry(rows = []) {
     repair_history_count: repairRows.length,
     verified_parts_count: verifiedPartRows.length,
     recent_service: recentService,
+    suppressed,
+    approval_provenance_available: !approvalProvenanceUnavailable,
+    public_status: derivePartSentryPublicStatus(all, { suppressed, eligibleVerifiedCount: verifiedRows.length, approvalProvenanceUnavailable }),
   };
 }
 
@@ -234,10 +282,31 @@ function summaryMatchesSearch(summary, query) {
   return haystack.includes(normalized);
 }
 
-function summaryMatchesCategory(summary, category) {
-  const normalized = normalizeTag(category);
-  if (!normalized || normalized === 'all') return true;
-  return summary.condition_category === normalized || summary.marketplace_tags.includes(normalized);
+/** Single mutually-exclusive condition/category match (NOT trust tags). */
+function summaryMatchesCondition(summary, condition) {
+  if (!condition || condition === 'all') return true;
+  return summary.condition_category === condition;
+}
+
+/** AND semantics: a listing must carry EVERY requested trust tag to qualify. */
+function summaryMatchesTags(summary, tags) {
+  if (!tags || !tags.length) return true;
+  return tags.every(tag => summary.marketplace_tags.includes(tag));
+}
+
+/**
+ * Parse a `tag` filter into a deduped list of normalized trust slugs. Accepts a repeated-param array
+ * (Express yields an array for `?tag=a&tag=b`) OR a CSV string (`?tag=a,b`). 'all'/empty are dropped.
+ */
+function parseTagList(value) {
+  if (value === undefined || value === null) return [];
+  const raw = Array.isArray(value) ? value : String(value).split(',');
+  const out = [];
+  for (const item of raw) {
+    const tag = normalizeTag(item);
+    if (tag && tag !== 'all' && !out.includes(tag)) out.push(tag);
+  }
+  return out;
 }
 
 function sortSummaries(summaries, sort) {
@@ -269,6 +338,57 @@ async function maybeFetchRows(supabaseClient, table, select, vins, order) {
   }
 }
 
+const PARTSENTRY_GOVERNED_SELECT =
+  'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible, approved_by, mechanic_id';
+const PARTSENTRY_LEGACY_SELECT =
+  'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible, mechanic_id';
+
+function isMissingApprovedByError(error) {
+  const text = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.code,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return text.includes('approved_by');
+}
+
+function withApprovalProvenance(rows, available) {
+  return (rows || []).map(row => ({
+    ...row,
+    approval_provenance_available: available,
+  }));
+}
+
+async function fetchPartSentryRows(supabaseClient, vins) {
+  if (!vins.length) return [];
+  const run = async (select) => {
+    const { data, error } = await supabaseClient
+      .from('partsentry_logs')
+      .select(select)
+      .in('vin', vins)
+      .order('timestamp', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  };
+
+  try {
+    return withApprovalProvenance(await run(PARTSENTRY_GOVERNED_SELECT), true);
+  } catch (error) {
+    if (!isMissingApprovedByError(error)) {
+      console.warn('Marketplace summary skipped partsentry_logs:', error.message);
+      return [];
+    }
+    console.warn('Marketplace summary using legacy partsentry_logs projection: approved_by unavailable.');
+    try {
+      return withApprovalProvenance(await run(PARTSENTRY_LEGACY_SELECT), false);
+    } catch (legacyError) {
+      console.warn('Marketplace summary skipped partsentry_logs legacy projection:', legacyError.message);
+      return [];
+    }
+  }
+}
+
 /**
  * Read-time fixture visibility control (Navigation Intelligence — Option A).
  * Production HIDES seed/demo/integration fixtures from the public marketplace by default. Set
@@ -288,16 +408,9 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
     .filter(vehicle => show || getFixtureExclusion(vehicle) === null);
 }
 
-export async function listMarketplaceListings(supabaseClient, params = {}) {
-  const limit = safeLimit(params.limit);
-  const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
-  const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
-  const requestedTag = normalizeTag(params.tag || params.category);
-  const requestedCondition = normalizeTag(params.condition);
-
-  let query = supabaseClient
-    .from('vehicles')
-    .select(`
+/** Columns selected for a marketplace listing. owner_id/tenant_id are fetched ONLY for fixture
+ *  filtering + seller derivation and are NEVER echoed in the public summary. */
+export const LISTING_SELECT_COLUMNS = `
       vin,
       owner_id,
       tenant_id,
@@ -329,7 +442,52 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
       safe_pay_ready,
       inspection_ready,
       tenant:tenants(name, type, status)
-    `);
+    `;
+
+/**
+ * Fetch the evidence/partsentry/ownership/image rows for a set of VINs and return them grouped by VIN.
+ * Shared by the list and detail paths so the trust pipeline reads identical inputs.
+ */
+export async function fetchListingRelatedRows(supabaseClient, vins = []) {
+  const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
+    maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
+    // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
+    fetchPartSentryRows(supabaseClient, vins),
+    maybeFetchRows(supabaseClient, 'vehicle_ownership_history', 'vin', vins),
+    maybeFetchRows(supabaseClient, 'listing_images', 'vin, image_url, is_primary, display_order', vins, { column: 'display_order', ascending: true }),
+  ]);
+  return {
+    evidenceByVin: toRecordMap(evidenceRows),
+    partSentryByVin: toRecordMap(partSentryRows),
+    ownershipByVin: toRecordMap(ownershipRows),
+    imagesByVin: toRecordMap(imageRows),
+  };
+}
+
+export async function listMarketplaceListings(supabaseClient, params = {}) {
+  const limit = safeLimit(params.limit);
+  const minPrice = params.minPrice !== undefined ? numericValue(params.minPrice) : null;
+  const maxPrice = params.maxPrice !== undefined ? numericValue(params.maxPrice) : null;
+
+  // QA Round 4: ONE mutually-exclusive condition/category + MANY stackable trust tags (AND).
+  const requestedTags = parseTagList(params.tag);
+  const categorySlug = normalizeTag(params.category);
+  // Condition comes from explicit `condition`, else from `category` when it names a real condition.
+  const requestedCondition = (() => {
+    const explicit = normalizeTag(params.condition);
+    if (explicit && CONDITION_CATEGORIES.includes(explicit)) return explicit;
+    if (categorySlug && CONDITION_CATEGORIES.includes(categorySlug)) return categorySlug;
+    return '';
+  })();
+  // Backward-compat: a legacy `category=<trust-slug>` folds into the AND tag list.
+  if (categorySlug && !CONDITION_CATEGORIES.includes(categorySlug)
+    && MARKETPLACE_TAGS.includes(categorySlug) && !requestedTags.includes(categorySlug)) {
+    requestedTags.push(categorySlug);
+  }
+
+  let query = supabaseClient
+    .from('vehicles')
+    .select(LISTING_SELECT_COLUMNS);
 
   if (params.make) query = query.eq('make', params.make);
   if (minPrice !== null) query = query.gte('price', minPrice);
@@ -343,23 +501,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
 
   const publicVehicles = filterVisibleVehicles(vehicles);
   const vins = publicVehicles.map(vehicle => vehicle.vin).filter(Boolean);
-  const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
-    maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
-    maybeFetchRows(
-      supabaseClient,
-      'partsentry_logs',
-      'vin, action_type, timestamp, created_at, verification_status, part_verification_status, suspicion_status, public_card_eligible',
-      vins,
-      { column: 'timestamp', ascending: false }
-    ),
-    maybeFetchRows(supabaseClient, 'vehicle_ownership_history', 'vin', vins),
-    maybeFetchRows(supabaseClient, 'listing_images', 'vin, image_url, is_primary, display_order', vins, { column: 'display_order', ascending: true }),
-  ]);
-
-  const evidenceByVin = toRecordMap(evidenceRows);
-  const partSentryByVin = toRecordMap(partSentryRows);
-  const ownershipByVin = toRecordMap(ownershipRows);
-  const imagesByVin = toRecordMap(imageRows);
+  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } =
+    await fetchListingRelatedRows(supabaseClient, vins);
 
   const summaries = publicVehicles.map(vehicle => buildMarketplaceListingSummary({
     vehicle,
@@ -371,9 +514,8 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
 
   const filtered = summaries
     .filter(summary => summaryMatchesSearch(summary, params.q))
-    .filter(summary => summaryMatchesCategory(summary, requestedTag))
-    .filter(summary => !requestedCondition || summary.condition_category === requestedCondition)
-    .filter(summary => !params.tag || summary.marketplace_tags.includes(normalizeTag(params.tag)));
+    .filter(summary => summaryMatchesCondition(summary, requestedCondition))
+    .filter(summary => summaryMatchesTags(summary, requestedTags));
 
   const sorted = sortSummaries(filtered, params.sort);
 

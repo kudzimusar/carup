@@ -12,6 +12,8 @@ import DashboardLayout from './components/layout/DashboardLayout'
 // Public Pages
 import Landing from './pages/Landing'
 import Marketplace from './pages/Marketplace'
+import MarketplaceCompare from './pages/MarketplaceCompare'
+import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
 import VehicleDetail from './pages/VehicleDetail'
 import VehicleSearch from './pages/VehicleSearch'
 import DealerDirectory from './pages/DealerDirectory'
@@ -40,6 +42,7 @@ import {
   DiasporaLanding,
   NewDiasporaImportOrder,
 } from './pages/diaspora/DiasporaTrade'
+import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 
 // Auth Pages
@@ -167,6 +170,10 @@ export default function App() {
         <Route element={<MainLayout />}>
           <Route path="/" element={<Landing />} />
           <Route path="/marketplace" element={<Marketplace />} />
+          <Route path="/marketplace/parts" element={<MarketplaceCategoryPage kind="part" />} />
+          <Route path="/marketplace/services" element={<MarketplaceCategoryPage kind="service" />} />
+          <Route path="/marketplace/compare" element={<MarketplaceCompare />} />
+          <Route path="/marketplace/listing/:id" element={<VehicleDetail />} />
           <Route path="/marketplace/:id" element={<VehicleDetail />} />
           <Route path="/search" element={<VehicleSearch />} />
           <Route path="/dealers" element={<DealerDirectory />} />
@@ -191,6 +198,7 @@ export default function App() {
           <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
+          <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
         </Route>
 
         {/* Auth Routes */}

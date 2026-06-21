@@ -80,6 +80,7 @@ test.describe('Phase 2/2.1 Buy-menu deep-links', () => {
     await page.locator('[data-testid="nav-parts"]').click()
     const partsMenu = page.locator('[data-testid="nav-parts-menu"]')
     await expect(partsMenu).toBeVisible()
-    await expect(partsMenu.getByRole('menuitem', { name: 'Browse Car Parts', exact: true })).toHaveAttribute('href', '/garages')
+    // Parts mega-menu now points at the canonical Parts marketplace, not the legacy /garages directory.
+    await expect(partsMenu.getByRole('menuitem', { name: 'Browse Car Parts', exact: true })).toHaveAttribute('href', '/marketplace/parts')
   })
 })
