@@ -12,7 +12,7 @@
 | Base branch | `claude/diaspora-phases-3-7-program` (PR #81), head `5996227` |
 | `origin/main` at start | `c25b094` |
 | Worktree | `/Users/shadreckmusarurwa/Project AI/carup-diaspora-8-10` (isolated) |
-| Stacked draft PR | _(to be opened at end of Wave 0 — see milestone M0)_ |
+| Stacked draft PR | **#90** (draft) → base `claude/diaspora-phases-3-7-program` — https://github.com/kudzimusar/carup/pull/90 |
 | Status legend | `PASSED` / `FAILED` / `SKIPPED — SECRET UNAVAILABLE` / `NOT RUN` / `PENDING` |
 
 ## Wave/track status overview
@@ -31,7 +31,7 @@
 
 ## Milestone log
 
-### M0 — Wave 0 baseline (IN PROGRESS)
+### M0 — Wave 0 baseline (COMPLETE)
 - **Objective:** Establish isolated program branch, durable docs, stacked draft PR, agent ownership.
 - **Assigned:** Agent A (Program Integrator).
 - **Repository findings:** PR #81 diaspora-scoped (69 files); only shared file touched is
@@ -52,8 +52,13 @@
 - **Staging evidence:** none yet (H9 needs `DIASPORA_STAGING_DATABASE_URL`).
 - **Known limitations:** implementation waves 2–7 not started.
 - **Blockers:** none for M0.
-- **Commit SHA:** _(filled on commit)_.
-- **Next milestone:** M1 — choose XLSX dependency + Phase 8 entitlement schema design (Wave 2 entry).
+- **Commit SHA:** `c1e62c8` (baseline docs); ledger PR-coordinate update follows.
+- **PR:** #90 (draft) opened targeting `claude/diaspora-phases-3-7-program`.
+- **Next milestone:** M1 — Wave 2 entry. Recommended first vertical slice: **Phase 8 entitlement
+  foundation** (plan catalog + `diasporaEntitlementService` + one enforced feature end-to-end with
+  atomic quota), because §83 sequences "Phase 8 entitlement service and schema first" and Tracks W/
+  Drive/SafeTrade all depend on entitlement checks. Parallel-safe: Track W XLSX dependency decision
+  + prototype (no shared-file edits). Blocked-on-external: R0 H9 (EB-1), live Drive (EB-2).
 
 ---
 
