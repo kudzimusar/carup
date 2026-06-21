@@ -44,6 +44,7 @@ import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
 import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
 import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
+import DisputePanel from '@/components/DisputePanel'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
@@ -1002,6 +1003,10 @@ export default function VehicleDetail() {
                         How the seller's disclosures compare against available evidence, as confirmed by a reviewer.
                       </p>
                       <VehicleDisclosurePanel conflicts={disclosureConflicts} />
+                    </div>
+                    {/* M5 governance: disputes & corrections (public-safe; owners can raise). */}
+                    <div className="mt-8" data-testid="dispute-panel-section">
+                      <DisputePanel vin={vehicle?.vin || id || ''} />
                     </div>
                   </TabsContent>
 

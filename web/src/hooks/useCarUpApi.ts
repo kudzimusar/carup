@@ -15,6 +15,13 @@ import type {
   EvidenceSourcesResponse,
   TemporalFindingsResponse,
   DisclosureConflictsResponse,
+  GovernanceTaskType,
+  GovernanceReviewQueueResponse,
+  GovernanceDecisionPayload,
+  GovernanceDecisionResponse,
+  VehicleDisputesResponse,
+  SubmitDisputePayload,
+  DisputeMutationResponse,
   TimelineEvent,
   MarketplaceListingsResponse,
   MarketplaceListingDetail,
@@ -392,6 +399,24 @@ export function useCarUpApi() {
       return { status: 'error', message: err instanceof Error ? err.message : 'Unable to load shared report.' }
     }
   }, [])
+
+  // --- Milestone 5: governance, disputes & corrections ---
+  const fetchReviewQueue = useCallback(async (taskType?: GovernanceTaskType): Promise<GovernanceReviewQueueResponse> => {
+    const query = taskType ? `?taskType=${encodeURIComponent(taskType)}` : ''
+    return request<GovernanceReviewQueueResponse>(`/governance/review-queue${query}`)
+  }, [request])
+
+  const submitGovernanceDecision = useCallback(async (payload: GovernanceDecisionPayload): Promise<GovernanceDecisionResponse> => {
+    return request<GovernanceDecisionResponse>('/governance/decisions', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchVehicleDisputes = useCallback(async (vin: string): Promise<VehicleDisputesResponse> => {
+    return request<VehicleDisputesResponse>(`/vehicles/${encodeURIComponent(vin)}/disputes`)
+  }, [request])
+
+  const submitDispute = useCallback(async (payload: SubmitDisputePayload): Promise<DisputeMutationResponse> => {
+    return request<DisputeMutationResponse>('/governance/disputes', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
     return request<{ success: boolean; evidence: VehicleEvidence }>(`/vehicles/${vin}/evidence/${evidenceId}/verify`, {
@@ -1129,6 +1154,10 @@ export function useCarUpApi() {
     generateReportVersion,
     createReportShareLink,
     fetchSharedReport,
+    fetchReviewQueue,
+    submitGovernanceDecision,
+    fetchVehicleDisputes,
+    submitDispute,
     approveEvidence,
     rejectEvidence,
     lookupVehiclePassport,
