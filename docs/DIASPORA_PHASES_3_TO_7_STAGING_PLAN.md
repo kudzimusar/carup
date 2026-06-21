@@ -81,8 +81,16 @@ does not lose balance data. Re-apply is idempotent.
 
 ## Status
 
-- Migrations applied to staging: **NO**.
-- Production touched: **NO**.
+- Migrations applied to staging (`eoyenigwevnxwwhyhaer` / carup-staging): **YES** — applied
+  out-of-band by the maintainer (2026-06-21). The repo contains the reproducible source for all six:
+  the five listed above plus `20260621094000_diaspora_h7_rpc_execute_grants.sql` (RPC ACL: revoke
+  PUBLIC/anon/authenticated, grant EXECUTE to `service_role` only). **Do not reapply.**
+- Production (`vhmnajoeicasaigiophh`) and `sfhtlzcgrnrdznhvdrbn` ("production-os"): **NOT touched.**
+- **H9 live execution:** the Supabase MCP integration in this workspace still cannot see
+  `eoyenigwevnxwwhyhaer` (lists only `sfhtlzcgrnrdznhvdrbn`), so live staging tests cannot be run from
+  here. Secure path: set the GitHub Actions secret `DIASPORA_STAGING_DATABASE_URL` (carup-staging) —
+  the CI `staging-integration` job runs the gated suite, which now **requires** the
+  `eoyenigwevnxwwhyhaer` ref and refuses any production ref. No DB URL is exposed in chat.
 
 ### BLOCKED — authorized staging project not reachable (2026-06-21)
 

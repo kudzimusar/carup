@@ -16,13 +16,17 @@ import { randomUUID } from 'node:crypto';
 
 const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
 const runLive = process.env.RUN_DIASPORA_STAGING_INTEGRATION === 'true';
-const FORBIDDEN_PRODUCTION_REF = 'vhmnajoeicasaigiophh';
+const AUTHORIZED_STAGING_REF = 'eoyenigwevnxwwhyhaer'; // carup-staging — the ONLY allowed live target
+const FORBIDDEN_REFS = ['vhmnajoeicasaigiophh', 'sfhtlzcgrnrdznhvdrbn']; // CarUp production + production-os
 
 let skipReason = false;
 if (!runLive || !databaseUrl) {
   skipReason = 'Set RUN_DIASPORA_STAGING_INTEGRATION=true and DATABASE_URL (authorized staging) to run.';
-} else if (databaseUrl.includes(FORBIDDEN_PRODUCTION_REF)) {
-  skipReason = 'Refusing to run against the forbidden production project.';
+} else if (FORBIDDEN_REFS.some((ref) => databaseUrl.includes(ref))) {
+  skipReason = 'Refusing to run against a forbidden (production) project.';
+} else if (!databaseUrl.includes(AUTHORIZED_STAGING_REF)) {
+  // Hard guard: the live suite runs ONLY against the authorized carup-staging project.
+  skipReason = `Refusing to run: DATABASE_URL must target the authorized staging project (${AUTHORIZED_STAGING_REF}).`;
 }
 
 const RUN_PREFIX = `stgtest_${Date.now()}`;

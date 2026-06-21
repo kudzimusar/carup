@@ -50,7 +50,8 @@ jobs:
                    database/migrations/20260621090000_diaspora_h1_stock_movement_rpc.sql \
                    database/migrations/20260621091000_diaspora_h2_quote_acceptance_rpc.sql \
                    database/migrations/20260621092000_diaspora_h3_container_approval_rpc.sql \
-                   database/migrations/20260621093000_diaspora_h6_oauth_state_nonce.sql ; do
+                   database/migrations/20260621093000_diaspora_h6_oauth_state_nonce.sql \
+                   database/migrations/20260621094000_diaspora_h7_rpc_execute_grants.sql ; do
             grep -q -- '-- +migrate Up' "$f" || { echo "missing Up in $f"; exit 1; }
             grep -q -- '-- +migrate Down' "$f" || { echo "missing Down in $f"; exit 1; }
           done

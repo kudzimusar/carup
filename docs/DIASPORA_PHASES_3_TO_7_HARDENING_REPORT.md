@@ -29,8 +29,13 @@
 
 ## Migrations applied / production
 
-- Applied to staging: **NO** (awaiting authorization). Staging `eoyenigwevnxwwhyhaer`.
-- Production Supabase touched: **NO**. Production `vhmnajoeicasaigiophh` forbidden, untouched.
+- Applied to staging `eoyenigwevnxwwhyhaer` (carup-staging): **YES** — all six (the five H1–H7 +
+  `20260621094000_diaspora_h7_rpc_execute_grants.sql` restricting RPC EXECUTE to `service_role`),
+  applied out-of-band by the maintainer. Repo holds reproducible sources; not reapplied here.
+- Production Supabase touched: **NO**. `vhmnajoeicasaigiophh` and `sfhtlzcgrnrdznhvdrbn` untouched.
+- **H9 live concurrency execution**: pending — run via CI `staging-integration` job once the
+  `DIASPORA_STAGING_DATABASE_URL` secret is set (this workspace's Supabase integration cannot reach
+  the staging project).
 
 ## Audit policy
 
@@ -69,11 +74,13 @@ Drive only (no real values; see `backend/env.example`): `DIASPORA_DRIVE_ENABLED`
 
 ## Remaining external blockers / pending
 
-- **BLOCKED — staging project unreachable.** Staging apply was authorized for `eoyenigwevnxwwhyhaer`,
-  but the connected Supabase MCP returns `permission denied` for it and lists only one project,
-  `sfhtlzcgrnrdznhvdrbn` ("production-os") — which is neither the authorized staging nor the named
-  forbidden production. No migration was applied; the "production-os" project was **not** touched.
-  Resolution options in `docs/DIASPORA_PHASES_3_TO_7_STAGING_PLAN.md`. H7-apply + H9 remain blocked.
+- **H7 applied to staging** (out-of-band by the maintainer). **H9 live concurrency tests not yet
+  executed from this workspace** — the Supabase MCP integration here still cannot see
+  `eoyenigwevnxwwhyhaer` (lists only `sfhtlzcgrnrdznhvdrbn`). Execute H9 via the CI
+  `staging-integration` job by setting the `DIASPORA_STAGING_DATABASE_URL` secret (carup-staging); the
+  gated suite hard-requires the `eoyenigwevnxwwhyhaer` ref and refuses production refs.
+- **Pre-existing credential leak** in `backend/scripts/*.js` (production DB password) — requires
+  rotation + history purge (unrelated to this PR; surfaced not modified).
 - **Live Google Drive** activation (real OAuth credentials + Google API client) — out of this scope.
 
 ## Adversarial review (independent verification)
