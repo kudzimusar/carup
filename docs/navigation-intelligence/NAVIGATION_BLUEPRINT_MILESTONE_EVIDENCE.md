@@ -40,3 +40,23 @@ Append-only evidence per milestone. Commands run locally; backend governance mig
 | Playwright `27` + `28` (regression) | ✅ 12/12 (after stale-count reconciliation) |
 
 M2 acceptance gate: all desktop mega-menus registry-backed ✅ · unsupported items truthfully planned/coverage-deferred ✅ · Marketplace coverage intact ✅ · no top-nav route points to fabricated functionality (dead-link gate green) ✅ · unit/tsc/build/Playwright pass ✅.
+
+## Milestone 3 — Desktop footer navigation ✅
+- `getFooterNavigation(column, ctx)` + `getFooterSocial()` + `FOOTER_SOCIAL` added to `navigationManifest.ts`.
+- `Footer.tsx` rewritten to consume governed selectors:
+  - Columns Product/Company/Resources/Stakeholders + a new **Legal** section (Privacy/Terms split out of Resources into the bottom bar).
+  - **Social fix:** the 4 `href="#"` placeholders replaced with governed, aria-labelled controls. Planned (unconfigured) → accessible disabled `<span role="link" aria-disabled aria-label="CarUp on … — coming soon">`; configured → safe `<a target="_blank" rel="noopener noreferrer">`. No `href="#"` remains.
+  - Stakeholders exclude platform admin; map to each role's dashboard root; labels preserved (Bankers, Government, …).
+  - Lifecycle/runtime visibility applied (hidden/disabled/planned features excluded via `resolveFeatureVisibility`).
+  - A11y: `<nav aria-label>` per column, social `aria-label`s, focus-visible styles, brand `aria-label`.
+
+### M3 test results (run 2026-06-21)
+| Command | Result |
+|---|---|
+| `vitest` footer/nav/route-validation (web) | ✅ footerNavigation 6 tests |
+| `npm run test:unit --workspace=web` | ✅ 15 files / 150 tests |
+| `tsc --noEmit` | ✅ clean |
+| `npm run build` | ✅ main JS 2,050.14 kB / gzip 539.87 |
+| Playwright `28` (incl. footer social-safety + Banker) | ✅ 6/6 |
+
+M3 acceptance gate: footer has no placeholder destinations (no href="#") ✅ · every item has a truthful state/source (registry-backed + lifecycle) ✅ · responsive grid retained (cols 2/3/6) ✅ · footer a11y + route tests pass ✅.

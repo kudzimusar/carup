@@ -131,6 +131,28 @@ test.describe('Feature Registry Phase 2 — Public Navigation & Access Guard', (
     await expect(footer.locator('a[href="/bank"]')).toBeVisible();
   });
 
+  test('Footer (M3): governed social links are accessible and never use href="#"', async ({ page }) => {
+    await setupMocksForRole(page, 'owner');
+    await page.goto('http://localhost:5173/marketplace');
+    await page.waitForLoadState('networkidle');
+
+    const footer = page.locator('footer');
+    // No placeholder anchors anywhere in the footer
+    await expect(footer.locator('a[href="#"]')).toHaveCount(0);
+
+    // Each social control is labelled (aria-label) and, while unconfigured, marked disabled
+    for (const platform of ['facebook', 'twitter', 'instagram', 'linkedin']) {
+      const social = footer.getByTestId(`footer-social-${platform}`);
+      await expect(social).toBeVisible();
+      await expect(social).toHaveAttribute('aria-label', /CarUp on/);
+      await expect(social).toHaveAttribute('aria-disabled', 'true');
+    }
+
+    // Legal links rendered in the bottom bar
+    await expect(footer.getByTestId('footer-link-resources.privacy')).toBeVisible();
+    await expect(footer.getByTestId('footer-link-resources.terms')).toBeVisible();
+  });
+
   // ─── 2. Access Guard Helpers Evaluation ───────────────────────────────────
 
   test('Access guard helpers return correct classifications', async ({ page }) => {
