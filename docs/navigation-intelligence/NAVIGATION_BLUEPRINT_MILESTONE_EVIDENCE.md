@@ -5,6 +5,36 @@ Append-only evidence per milestone. Commands run locally; backend governance mig
 
 ---
 
+## Post-PR Codex review remediation (P1 + P2) — 2026-06-21
+
+### P1 — clean-install dependency reproducibility ✅
+- Root cause: the new jsdom/RTL tests imported `@testing-library/react`, `@testing-library/user-event` and the `jsdom` environment, but **none was declared** in any manifest (they were present in `node_modules` ad-hoc and absent from `package-lock.json`), so a clean `npm ci` would drop them. RTL v16 also peer-requires `@testing-library/dom`.
+- Fix: added to **`web` devDependencies** — `@testing-library/dom ^10.4.1`, `@testing-library/react ^16.3.2`, `@testing-library/user-event ^14.6.1`, `jsdom ^29.1.1` (jest-dom intentionally NOT added — no test uses its matchers). `package-lock.json` updated deterministically via `npm install`.
+- **Proof from clean state:** `rm -rf node_modules web/node_modules && npm ci` (exit 0, 1422 pkgs) `&& npm run test:unit --workspace=web` → **20 files / 199 tests** (now 202 with P2). No reliance on hoisted/global packages.
+
+### P2 — context-aware effective feature state ✅
+- `GET /api/features/effective` previously evaluated with `role:null, tenantId:null`, so `allowed_roles`/tenant restrictions weren't applied for authenticated users.
+- Fix: `resolveRequestContext(req,{client})` derives role+tenant **server-side** (validates `user_sessions`→`users`; honors `x-tenant-id` only with verified `tenant_users` membership; **ignores `x-stakeholder-role`**); anonymous supported; fail-closed. Endpoint passes trusted `role`/`tenantId` to `getEffectiveStates`; returns sanitized state only.
+- Frontend: loader sends the session + re-fetches on auth change and **identity-gates** states (empty until the current identity's fetch resolves → a just-logged-in user is never gated by stale anonymous state); `resolveFeatureVisibility` + `evaluateRouteAccess` honor backend `visible`/`accessible` (tenant/time the SPA can't recompute) → **nav visibility and direct access agree**.
+- Tests: **10 backend** (anonymous; role derivation; spoofed-header ignored; tenant membership; expired→anonymous; allowed role; role removal→visible/accessible false; tenant allowlist incl. different-tenant exclusion; tenant denylist; sanitized payload) + **3 frontend** (kill-switch already; tenant denial redirect; nav⇄access agreement).
+
+### Staging migration — BLOCKED (tooling access), documented ⛔
+- Authorized staging project **`eoyenigwevnxwwhyhaer`** is **not reachable** from the connected Supabase tooling: `list_projects` exposes only `sfhtlzcgrnrdznhvdrbn` ("production-os"); a read-only probe of `eoyenigwevnxwwhyhaer` returns *"You do not have permission to perform this action."*
+- The migration was therefore **NOT applied to any project** — production (`sfhtlzcgrnrdznhvdrbn` / `vhmnajoeicasaigiophh`) must not be migrated, and staging is inaccessible. Exact apply + verification SQL recorded in `NAVIGATION_BLUEPRINT_STAGING_PLAN.md` for the release engineer with staging access. Production was not touched (not even read-only).
+
+### Regression after P1/P2 (2026-06-21)
+| Command | Result |
+|---|---|
+| clean `npm ci` | ✅ exit 0 |
+| `npm run test:unit --workspace=web` | ✅ 20 files / **202 tests** |
+| `tsc --noEmit -p web/tsconfig.app.json` | ✅ clean |
+| `npm run build --workspace=web` | ✅ main JS 2,080.39 kB / gzip 548.85 |
+| `node --test backend/tests/feature-governance.test.js backend/tests/server-export.test.js` | ✅ **29** (28 governance incl. P2 + 1 server-export) |
+| `git diff --check` | ✅ clean |
+| `node backend/tests/run-tests.js` (live integration) | ⛔ **not run** — writes to the shared/production Supabase (plan rule #9); DB-free governance tests + Playwright cover the behavior |
+
+---
+
 ## Milestone 1 — Scope correction, documentation & baseline ✅
 - Discovery matrix (`NAVIGATION_BLUEPRINT_DISCOVERY_MATRIX.md`) — every nav surface/item inventoried.
 - Scope notice added to `docs/features/NAVIGATION_INTELLIGENCE.md` (retitled "Marketplace Truth & Coverage").

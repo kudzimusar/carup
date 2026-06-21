@@ -1,5 +1,13 @@
 # Navigation Intelligence Blueprint — Product Owner UAT Checklist
 
+> **Automated-equivalent status:** the Playwright suites `tests/agents/27–32` cover
+> the desktop menus, footer, public + 7-role mobile drawer, role switching,
+> route-boundary direct-access (auth/role/lifecycle), and the admin governance
+> console (incl. PATCH/DELETE + non-admin denial) — **37/37 green**. Backend
+> role/tenant/audit/version/reset/fail-safe behavior is covered by 28 governance
+> unit tests. The manual sign-off below still requires the **deployed staging
+> environment** (deploy + migration pending — see staging plan).
+
 Run against **staging** (see `NAVIGATION_BLUEPRINT_STAGING_PLAN.md`).
 - **Base URL:** `https://<staging-web-host>` (the `carup-staging` deployment).
 - **Credentials:** use the staging QA accounts from `database/seeds/marketplace_v1_staging_qa_accounts.sql` (one per role). **Do not** use production credentials. Obtain passwords from the staging secrets store, not this document.
