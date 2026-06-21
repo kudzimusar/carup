@@ -63,6 +63,7 @@ import claimsRouter from './routes/claimsRoutes.js';
 // Centralized Routes Imports (Batch 2)
 import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
@@ -187,6 +188,7 @@ app.use(adminRouter);
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
+app.use(evidenceCatalogRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
