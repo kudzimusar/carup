@@ -13,6 +13,7 @@ import {
   deleteOverride,
   getFeatureAudit,
   invalidateOverrideCache,
+  setOverrideCacheTtl,
 } from '../services/featureGovernance/featureGovernanceService.js';
 
 // ── In-memory fake Supabase client (no live DB) ─────────────────────────────
@@ -197,16 +198,38 @@ test('getEffectiveStates applies an override and sanitizes', async () => {
   assert.equal(ins.reasonCode, undefined); // sanitized
 });
 
-test('storage failure falls back to static defaults (disabled stays disabled, nothing wrongly enabled)', async () => {
+test('storage failure on a COLD cache falls back to static defaults (statically-disabled stays disabled)', async () => {
   invalidateOverrideCache();
-  // A disabled override EXISTS, but the read fails → we must NOT silently enable it.
+  // No prior successful read (cold). Read fails → static defaults; nothing to preserve.
   const client = makeFakeClient({}, { failTable: 'feature_rollout_overrides', failOp: 'select' });
   const states = await getEffectiveStates(STAGING, { client });
-  // product.insurance has static default 'active' → renders active (no override applied)
-  const ins = states.find((s) => s.featureId === 'product.insurance');
+  const ins = states.find((s) => s.featureId === 'product.insurance'); // static default 'active'
   assert.equal(ins.state, 'active');
-  // a statically-disabled feature would remain disabled; none silently flips on.
   assert.ok(states.every((s) => typeof s.enabled === 'boolean'));
+})
+
+test('FAIL-SAFE: a runtime DISABLE (kill-switch) survives a transient read outage, never re-enabled', async () => {
+  invalidateOverrideCache();
+  setOverrideCacheTtl(0); // force every read to consult the DB (no fresh-cache short-circuit)
+  try {
+    // 1) Warm the cache with a successful read of a runtime-disable override.
+    const good = makeFakeClient({ feature_rollout_overrides: [
+      { id: 'kill1', feature_id: 'product.insurance', environment: 'staging', lifecycle_state: 'disabled', enabled: false, version: 1 },
+    ] });
+    const warm = await getEffectiveStates(STAGING, { client: good });
+    assert.equal(warm.find((s) => s.featureId === 'product.insurance').state, 'disabled');
+
+    // 2) Now the DB read FAILS. The kill-switch must persist (fail safe, not open).
+    const failing = makeFakeClient({}, { failTable: 'feature_rollout_overrides', failOp: 'select' });
+    const states = await getEffectiveStates(STAGING, { client: failing });
+    const ins = states.find((s) => s.featureId === 'product.insurance');
+    assert.equal(ins.state, 'disabled');
+    assert.equal(ins.enabled, false);
+    assert.equal(ins.visible, false);
+  } finally {
+    setOverrideCacheTtl();
+    invalidateOverrideCache();
+  }
 });
 
 test('listFeaturesForAdmin returns static + override + effective', async () => {

@@ -80,6 +80,13 @@ describe('Navigation CI gates (M8.2)', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  it('no node declares BOTH a coverageCategory and a coverageTag (mutually exclusive)', () => {
+    // buildFeatureHref applies one coverage gate; declaring both would let an
+    // inactive gate drop the other gate’s accumulated query param.
+    const both = NAVIGATION_MANIFEST.filter(n => n.coverageCategory && n.coverageTag).map(n => n.id)
+    expect(both).toEqual([])
+  })
+
   it('social links carry no placeholder href and are governed by lifecycle', () => {
     for (const s of FOOTER_SOCIAL) {
       expect(s.url === '#').toBe(false)

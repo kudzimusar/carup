@@ -143,3 +143,25 @@ M6 acceptance gate: lifecycle coherent/normalized ✅ · authorization + audit p
 | **Bug caught by adversarial E2E:** hook returned a fresh object each render → `useEffect` reload loop → fixed via `useMemo`. CSRF-token mock was missing in the spec (the mutation is correctly CSRF-protected) → added. |
 
 M7 acceptance gate: console uses real persistence + APIs ✅ · only trusted admins can mutate (server-derived + E2E non-admin denied) ✅ · changes auditable + conflict-safe ✅ · navigation responds to overrides (effective-state wiring) ✅ · a11y + E2E pass ✅.
+
+## Milestone 8 — Convergence, CI, adversarial review & remediation ✅
+- **CI gates:** `navigationCiGates.test.ts` (10) — valid surfaces/icons/lifecycle, no duplicate menu order, no auth-required feature exposed publicly, unique ids, governed social, **coverage-gate mutual exclusion**. `.github/workflows/navigation-intelligence-ci.yml` runs manifest drift `--check`, web tsc, web unit (incl. gates), build, DB-free backend governance + server-export.
+- **Adversarial whole-branch review (Workflow):** 5 dimensions × find→verify, 22 agents. **17 findings → 10 confirmed, 7 rejected/already-mitigated.** The verification stage corrected several reviewer inaccuracies (e.g. dead-code fix detail, role-switch mechanism). The **leakage/truthfulness** dimension was re-run after a mid-response failure and found **no real issues** (selectors correctly gate every non-active state; no cross-role leakage; governed-trust never heuristically activated; no fabricated routes).
+- **Confirmed findings remediated:**
+  1. *(route boundary)* `evaluateRouteAccess` ignored the `enabled` kill-switch → a runtime-disabled feature was hidden in nav but still directly reachable by URL. **Fixed:** honor `effectiveStates[id].enabled === false` → disabled (nav & direct-access now consistent). Tenant gating documented as backend-authoritative (tenant lists are intentionally not sent to the client). +unit test.
+  2. *(backend safety)* `readOverrides` failed **open** on a storage read error (a runtime-disabled feature reverted to its static-enabled default). **Fixed:** fail-safe — serve last-good cache on read error so a kill-switch survives a transient outage; static defaults only on a cold cache. +unit test (`FAIL-SAFE: runtime DISABLE survives a read outage`).
+  3. *(beta banner)* `render-beta` read the stripped `reasonCode` → message always undefined. **Fixed:** read `betaMessage`. +unit test.
+  4. *(role switch)* `switchRole` swallowed errors → on failure the drawer/navbar navigated to a role never switched into, silently. **Fixed:** `switchRole` re-throws; drawer/Navbar/DashboardLayout skip navigation and surface an accessible `toast.error`.
+  5–10. *(low)* coverage-gate mutual-exclusion CI gate added; mobile drawer `SheetDescription` (sr-only) added; console lifecycle badges now carry distinguishing icons (planned vs hidden) + misleading comment removed; policy-locked role rows get a lock icon + title; the plan-mandated `RequireAuthenticatedUser`/`RequireFrontendRole` boundaries are now exercised by a unit test (no longer dead code).
+- **Rejected (correctly, by verification):** client-supplied `environment` "trust" (server uses it only as a scoping key; authz is server-derived), pre-existing diaspora-admin routes under public layout (out of scope, backend-authoritative), frontend can't apply role-narrowing overrides (by design — backend authoritative), drift check "not in CI" (it is), deprecation 2-cycle (latent, defense-in-depth), localeCompare manifest ordering (stable for ASCII ids), spec 27 count change (genuine, already reconciled).
+
+### M8 test results (run 2026-06-21, post-remediation)
+| Command | Result |
+|---|---|
+| `npm run test:unit --workspace=web` | ✅ 20 files / **199 tests** |
+| `tsc --noEmit` + `npm run build` | ✅ clean / main JS 2,079.98 kB / gzip 548.66 |
+| `git diff --check` | ✅ clean |
+| `node --test backend/tests/feature-governance.test.js backend/tests/server-export.test.js` | ✅ **18 + 1** (incl. fail-safe) |
+| Playwright nav suites 27–32 (chromium) | ✅ green per-spec (consolidated parallel run may show cold-start flakes; CI uses `retries: 2`) |
+
+M8 acceptance gate: full local regression green ✅ · CI gates added ✅ · adversarial review run + confirmed findings fixed ✅ · performance/rollback/UAT/staging docs complete ✅ · staging deploy + migration + PO UAT **pending PO/infra (documented)** ✅ · one reviewable PR (next) — not auto-merged.

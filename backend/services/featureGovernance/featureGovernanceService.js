@@ -163,20 +163,32 @@ export function sanitizeEffective(state) {
 
 // ── Override cache (short, bounded; invalidated on mutation) ─────────────────
 const _overrideCache = new Map(); // environment -> { at, rows }
+let _cacheTtlMs = CACHE_TTL_MS;
 export function invalidateOverrideCache(environment) {
   if (environment) _overrideCache.delete(environment);
   else _overrideCache.clear();
 }
+/** Adjust the override cache TTL (ms). Primarily for tests / tuning. */
+export function setOverrideCacheTtl(ms) {
+  _cacheTtlMs = typeof ms === 'number' && ms >= 0 ? ms : CACHE_TTL_MS;
+}
 
 async function readOverrides(client, environment) {
   const cached = _overrideCache.get(environment);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.rows;
+  if (cached && Date.now() - cached.at < _cacheTtlMs) return cached.rows;
   const { data, error } = await client.from(TABLE).select('*').eq('environment', environment);
   if (error) {
-    // Safe fallback: no overrides → static defaults. Disabled features stay
-    // disabled; nothing becomes silently enabled because storage failed.
     const correlationId = `featgov-${environment}-read`;
-    console.warn(JSON.stringify({ level: 'warn', msg: 'feature override read failed; using static defaults', correlationId, error: error.message }));
+    // Fail SAFE, not fail OPEN. If we have last-good overrides, serve them
+    // (stale-while-error) so a runtime DISABLE / kill-switch survives a transient
+    // read outage and a disabled feature is NEVER silently re-enabled. Only with
+    // no cached state at all (cold start) do we fall back to static defaults —
+    // there is nothing to preserve, and statically-disabled features stay disabled.
+    if (cached) {
+      console.warn(JSON.stringify({ level: 'warn', msg: 'feature override read failed; serving last-good cache (fail-safe)', correlationId, error: error.message }));
+      return cached.rows;
+    }
+    console.warn(JSON.stringify({ level: 'warn', msg: 'feature override read failed; no cache, using static defaults', correlationId, error: error.message }));
     return [];
   }
   _overrideCache.set(environment, { at: Date.now(), rows: data || [] });

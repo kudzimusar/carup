@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Menu, LogOut, LayoutDashboard, UserCog, LogIn } from 'lucide-react'
 import {
@@ -7,6 +8,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetDescription,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -53,7 +55,10 @@ export default function MobileNavDrawer() {
       close()
       navigate(getDashboardRoute(role))
     } catch (err) {
+      // Do NOT navigate — the switch failed. Announce it accessibly (sonner
+      // renders an aria-live region) instead of failing silently.
       console.error('Failed to switch stakeholder role:', err)
+      toast.error('Could not switch portal role. Please try again.')
     }
   }
 
@@ -107,6 +112,7 @@ export default function MobileNavDrawer() {
       >
         <SheetHeader className="px-4 pt-4 pb-2 text-left">
           <SheetTitle>Menu</SheetTitle>
+          <SheetDescription className="sr-only">Site and account navigation</SheetDescription>
         </SheetHeader>
 
         <nav className="px-2 pb-6 space-y-1" aria-label="Mobile navigation">

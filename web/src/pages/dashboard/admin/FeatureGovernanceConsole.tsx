@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { Clock, FlaskConical, Ban, EyeOff, AlertTriangle, CheckCircle2, Lock, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -33,9 +34,24 @@ const STATE_BADGE: Record<FeatureLifecycleState, string> = {
   deprecated: 'bg-amber-100 text-amber-800',
 }
 
+const STATE_ICON: Record<FeatureLifecycleState, LucideIcon> = {
+  active: CheckCircle2,
+  beta: FlaskConical,
+  planned: Clock,
+  hidden: EyeOff,
+  disabled: Ban,
+  deprecated: AlertTriangle,
+}
+
 function StateBadge({ state }: { state: FeatureLifecycleState }) {
-  // status conveyed by text + icon shape, not colour alone
-  return <Badge className={`${STATE_BADGE[state]} font-medium`} aria-label={`lifecycle ${state}`}>{state}</Badge>
+  // Status conveyed by an icon + the visible text (not colour alone), so
+  // low-vision / greyscale users can distinguish e.g. planned vs hidden.
+  const Icon = STATE_ICON[state]
+  return (
+    <Badge className={`${STATE_BADGE[state]} font-medium gap-1`}>
+      <Icon className="w-3 h-3" aria-hidden="true" />{state}
+    </Badge>
+  )
 }
 
 interface EditForm {
@@ -320,10 +336,15 @@ export default function FeatureGovernanceConsole() {
                         const allowedByPolicy = immutable.includes(r)
                         const checked = form.allowed_roles.includes(r)
                         return (
-                          <label key={r} className={`flex items-center gap-1 text-xs border rounded px-2 py-1 ${allowedByPolicy ? '' : 'opacity-40'}`}>
+                          <label
+                            key={r}
+                            title={allowedByPolicy ? undefined : 'Locked by immutable policy — an override cannot grant this role'}
+                            className={`flex items-center gap-1 text-xs border rounded px-2 py-1 ${allowedByPolicy ? '' : 'opacity-50 bg-gray-50'}`}
+                          >
                             <input type="checkbox" disabled={!allowedByPolicy} checked={checked} data-testid={`fg-edit-role-${r}`}
                               onChange={e => setForm({ ...form, allowed_roles: e.target.checked ? [...form.allowed_roles, r] : form.allowed_roles.filter(x => x !== r) })} />
                             {r}
+                            {!allowedByPolicy && <Lock className="w-3 h-3 text-gray-400" aria-hidden="true" />}
                           </label>
                         )
                       })}

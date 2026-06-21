@@ -61,10 +61,17 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
     expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: override('product.insurance', 'disabled') }).kind).toBe('disabled')
   })
 
-  it('beta route → render with beta notice', () => {
-    const d = evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: override('product.insurance', 'beta', { reasonCode: 'pilot' }) })
+  it('beta route → render with beta notice carrying the sanitized betaMessage', () => {
+    const d = evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: override('product.insurance', 'beta', { betaMessage: 'Insurance pilot' }) })
     expect(d.kind).toBe('render-beta')
-    if (d.kind === 'render-beta') expect(d.message).toBe('pilot')
+    if (d.kind === 'render-beta') expect(d.message).toBe('Insurance pilot')
+  })
+
+  it('kill-switch: an override enabled:false disables DIRECT access even when state stays active', () => {
+    // Mirrors the nav selector (which removes the link) so a link you cannot see
+    // and a URL you type resolve the same way.
+    const states = override('product.insurance', 'active', { enabled: false })
+    expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
   })
 
   it('deprecated route with target → redirect; same-route target does not loop', () => {
