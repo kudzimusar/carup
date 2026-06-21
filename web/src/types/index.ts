@@ -777,12 +777,73 @@ export type EvidenceType =
 
 export type EvidenceVerificationStatus = 'pending' | 'verified' | 'rejected' | 'disputed' | 'superseded';
 
+// ── Vehicle Life Evidence Taxonomy (M1) ──────────────────────────────────────
+// The eight life-stage evidence classes, mirroring the backend taxonomy
+// (backend/services/evidence/evidenceTaxonomy.js EVIDENCE_CLASSES).
+export type EvidenceClass =
+  | 'import'
+  | 'auction'
+  | 'accident'
+  | 'repair'
+  | 'inspection'
+  | 'ownership_transfer'
+  | 'dealer_listing'
+  | 'current_condition';
+
+// One subtype as returned by GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomySubtype {
+  subtype_code: string;
+  label: string;
+  is_document: boolean;
+  requires_event_date: boolean;
+  requires_mileage: boolean;
+  supports_components: boolean;
+}
+
+// One class (with its subtypes) as returned by GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomyClass {
+  evidence_class: EvidenceClass | string;
+  subtypes: EvidenceTaxonomySubtype[];
+}
+
+// Full payload of GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomyResponse {
+  version: string;
+  classes: EvidenceTaxonomyClass[];
+  legacy_type_to_class: Record<string, EvidenceClass | string>;
+}
+
+// One source as returned by GET /api/evidence/sources (public-safe).
+export interface EvidenceSource {
+  id: string;
+  code: string;
+  display_name: string;
+  source_type: string;
+  organization?: string | null;
+  country?: string | null;
+  verification_status: string;
+  trust_tier: string;
+  permitted_evidence_classes: string[];
+  active: boolean;
+}
+
+// Full payload of GET /api/evidence/sources.
+export interface EvidenceSourcesResponse {
+  sources: EvidenceSource[];
+}
+
 export interface VehicleEvidence {
   id: string;
   vehicle_id: string;
   vin: string;
   event_type: string;
   evidence_type: EvidenceType;
+  // Vehicle Life Evidence Taxonomy (M1) — optional on legacy records.
+  evidence_class?: EvidenceClass | string | null;
+  evidence_subtype?: string | null;
+  event_date?: string | null;
+  source_id?: string | null;
+  perceptual_hash?: string | null;
   file_url: string;
   uploaded_by: string;
   uploader_role: string;

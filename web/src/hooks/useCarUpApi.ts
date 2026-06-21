@@ -11,6 +11,8 @@ import type {
   ApiMutationResponse,
   VehiclePassport,
   VehicleEvidence,
+  EvidenceTaxonomyResponse,
+  EvidenceSourcesResponse,
   TimelineEvent,
   MarketplaceListingsResponse,
   MarketplaceListingDetail,
@@ -302,6 +304,19 @@ export function useCarUpApi() {
 
   const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidence[]> => {
     return request<VehicleEvidence[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
+  }, [request])
+
+  // ── Vehicle Life Evidence Taxonomy (M1): public discovery endpoints ──
+  // GET /api/evidence/taxonomy — the eight life-stage classes, their subtypes,
+  // and the legacy evidence_type → class map, used to drive upload forms and
+  // to derive a life-stage class for legacy evidence records.
+  const fetchEvidenceTaxonomy = useCallback(async (): Promise<EvidenceTaxonomyResponse> => {
+    return request<EvidenceTaxonomyResponse>('/evidence/taxonomy')
+  }, [request])
+
+  // GET /api/evidence/sources — public-safe source registry.
+  const fetchEvidenceSources = useCallback(async (): Promise<EvidenceSourcesResponse> => {
+    return request<EvidenceSourcesResponse>('/evidence/sources')
   }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
@@ -806,6 +821,21 @@ export function useCarUpApi() {
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
+    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
+    // backend still requires the legacy evidence_type above.
+    evidence_class?: string;
+    evidence_subtype?: string;
+    event_date?: string;
+    event_date_precision?: 'day' | 'month' | 'year' | 'unknown';
+    capture_country?: string;
+    odometer_value?: number;
+    odometer_unit?: string;
+    component_tags?: string[] | string;
+    declared_condition?: string;
+    source_code?: string;
+    source_record_id?: string;
+    evidence_set_id?: string;
+    retention_class?: string;
   }): Promise<VehicleEvidence> => {
     return request<VehicleEvidence>(`/vehicles/${vin}/evidence/upload`, {
       method: 'POST',
@@ -1017,6 +1047,8 @@ export function useCarUpApi() {
     revokeTrustFactRequest,
     fetchTrustAuditTrail,
     fetchVehicleEvidence,
+    fetchEvidenceTaxonomy,
+    fetchEvidenceSources,
     approveEvidence,
     rejectEvidence,
     lookupVehiclePassport,
