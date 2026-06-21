@@ -60,3 +60,21 @@ M2 acceptance gate: all desktop mega-menus registry-backed ✅ · unsupported it
 | Playwright `28` (incl. footer social-safety + Banker) | ✅ 6/6 |
 
 M3 acceptance gate: footer has no placeholder destinations (no href="#") ✅ · every item has a truthful state/source (registry-backed + lifecycle) ✅ · responsive grid retained (cols 2/3/6) ✅ · footer a11y + route tests pass ✅.
+
+## Milestone 4 — Mobile web navigation ✅
+- PR #66 reconciliation: **superseded** (per M1 decision); concepts ported (mobile_nav placement, getMobileNavigation, public/auth filtering, role-aware entries, icon resolution, registry-driven rendering). Stale conflicting code NOT merged.
+- `getMobileNavigation(ctx)` + `MobileNavigation` + `mobile-primary` manifest nodes added. Mobile drawer uses the SAME registry/manifest as desktop — no hardcoded mobile route array remains.
+- New `MobileNavDrawer.tsx` built on the Radix Dialog-backed `Sheet`: aria-modal, **focus trap**, **Escape-to-close**, overlay-click-close, **focus return to trigger**; `aria-current` on active route; 44px touch targets; scrollable; closes after navigation; role switch refreshes items; logout clears protected items.
+- Sections: Browse (primary) · Your Dashboard (role items, authed) · More (secondary) · Account (role switch / sign-out, or sign-in / create-account).
+- `Navbar.tsx`: inline hardcoded mobile drawer + `mobileOpen` state removed; replaced with `<MobileNavDrawer />`.
+- **Native boundary (M4.6):** documented in `NATIVE_NAVIGATION_BOUNDARY.md`. Native Expo tabs intentionally unchanged; the JSON manifest is the bridge; a precise follow-up plan is recorded. Native Navigation Intelligence is NOT claimed complete.
+
+### M4 test results (run 2026-06-21)
+| Command | Result |
+|---|---|
+| `vitest` mobileNavigation (web) | ✅ 12 tests (public + 7-role matrix, no leakage, lifecycle exclusion) |
+| `npm run test:unit --workspace=web` | ✅ 16 files / 162 tests |
+| `tsc --noEmit` | ✅ clean |
+| Playwright `30-mobile-navigation-blueprint` (chromium, 390×844) | ✅ 6/6 (focus trap, Escape+focus-return, role matrix, aria-current, close-on-nav) |
+
+M4 acceptance gate: mobile drawer fully registry-driven ✅ · public + 7-role matrix passes ✅ · no hidden/cross-role leakage ✅ · accessibility (focus trap/Escape/aria-current) + responsive (phone viewport) pass ✅ · no duplicate mobile route source remains ✅.

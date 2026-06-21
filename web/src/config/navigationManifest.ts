@@ -31,6 +31,7 @@ import {
   getAllRoles,
   getRoleMetadata,
   resolveFeatureVisibility,
+  getDashboardItems,
 } from './featureRegistry'
 
 // ── Node model ──────────────────────────────────────────────────────────────
@@ -194,6 +195,14 @@ export const NAVIGATION_MANIFEST: NavigationNode[] = [
   { id: 'more.help', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 6, label: 'Help', featureId: 'resources.help', icon: 'HelpCircle' },
   { id: 'more.contact', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 7, label: 'Contact', featureId: 'company.contact', icon: 'Phone' },
   { id: 'more.blog', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 8, label: 'Blog', featureId: 'company.blog', icon: 'Newspaper' },
+
+  // ═══ MOBILE PRIMARY (public quick links) ════════════════════════════════
+  { id: 'mobile.buy', surface: 'mobile-primary', order: 1, label: 'Buy', route: '/marketplace', icon: 'ShoppingCart' },
+  { id: 'mobile.sell', surface: 'mobile-primary', order: 2, label: 'Sell', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER, icon: 'Car' },
+  { id: 'mobile.verify', surface: 'mobile-primary', order: 3, label: 'Verify', route: '/search', icon: 'Shield' },
+  { id: 'mobile.parts', surface: 'mobile-primary', order: 4, label: 'Parts', route: '/marketplace/parts', icon: 'Package' },
+  { id: 'mobile.dealers', surface: 'mobile-primary', order: 5, label: 'Dealers', featureId: 'product.dealers', icon: 'Building2' },
+  { id: 'mobile.garages', surface: 'mobile-primary', order: 6, label: 'Garages & Services', route: '/marketplace/services', icon: 'Wrench' },
 ]
 
 // ── Selectors ───────────────────────────────────────────────────────────────
@@ -437,4 +446,58 @@ export const FOOTER_SOCIAL: SocialLink[] = [
 /** Visible social links (configured/active or planned-but-shown-disabled). Hidden/disabled excluded. */
 export function getFooterSocial(): SocialLink[] {
   return FOOTER_SOCIAL.filter(s => s.state !== 'hidden' && s.state !== 'disabled')
+}
+
+// ── Mobile web navigation (Milestone 4) ─────────────────────────────────────
+
+export interface MobileNavigation {
+  /** Public primary quick links (Buy/Sell/Verify/Parts/Dealers/Garages). */
+  primary: ResolvedNavItem[]
+  /** Public secondary "More" links (Insurance/Pricing/Diaspora/Trust/Help/Contact/Blog). */
+  secondary: ResolvedNavItem[]
+  /** Authenticated role-specific dashboard items (empty for guests). */
+  roleItems: ResolvedNavItem[]
+  /** Dashboard root for the authenticated role (undefined for guests). */
+  dashboardRoot?: { label: string; href: string }
+}
+
+/** Flatten a surface to active (or optionally planned) resolved items. */
+function flattenSurface(surface: NavigationSurface, ctx: NavigationContext, includePlanned = false): ResolvedNavItem[] {
+  return getDesktopMegaMenu(surface, ctx)
+    .flatMap(s => s.items)
+    .filter(i => includePlanned ? true : i.active)
+}
+
+/**
+ * Compose the mobile drawer for a context. Uses the SAME registry/manifest as
+ * desktop — no separate hardcoded mobile route arrays. Role-specific items come
+ * from the registry dashboard sidebar for the authenticated role, so there is
+ * NO cross-role leakage and hidden/disabled/planned features never appear.
+ */
+export function getMobileNavigation(ctx: NavigationContext = {}): MobileNavigation {
+  const primary = flattenSurface('mobile-primary', ctx)
+  const secondary = flattenSurface('navbar-more', ctx)
+
+  let roleItems: ResolvedNavItem[] = []
+  let dashboardRoot: { label: string; href: string } | undefined
+
+  if (ctx.isAuthenticated && ctx.role) {
+    roleItems = getDashboardItems(ctx.role)
+      .map(f => ({ f, vis: resolveFeatureVisibility(f, ctx) }))
+      .filter(({ vis }) => vis.visible)
+      .map(({ f, vis }) => ({
+        id: f.id,
+        label: f.label,
+        href: f.route,
+        icon: f.icon,
+        external: false,
+        state: vis.state,
+        active: true,
+        beta: vis.beta,
+        governedTrust: false,
+      }))
+    dashboardRoot = { label: 'Dashboard', href: getDashboardRoute(ctx.role) }
+  }
+
+  return { primary, secondary, roleItems, dashboardRoot }
 }
