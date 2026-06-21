@@ -41,7 +41,8 @@ test.describe('Milestone 2 — desktop mega-menus', () => {
 
   test('Buy mega-menu opens and shows all four sections', async ({ page }) => {
     await page.getByTestId('nav-buy').click();
-    const menu = page.getByTestId('nav-buy-menu');
+    await expect(page.getByTestId('nav-buy-menu')).toBeVisible();
+    constmenu = page.getByTestId('nav-buy-menu');
     await expect(menu).toBeVisible();
     for (const section of ['Vehicles', 'Popular Categories', 'Buyer Tools', 'Trust Guide']) {
       await expect(menu.getByText(section, { exact: true })).toBeVisible();
@@ -50,7 +51,8 @@ test.describe('Milestone 2 — desktop mega-menus', () => {
 
   test('active Buy item navigates to its real deep-link', async ({ page }) => {
     await page.getByTestId('nav-buy').click();
-    const toyota = page.getByTestId('navitem-buy.toyota');
+    await expect(page.getByTestId('nav-buy-menu')).toBeVisible();
+    consttoyota = page.getByTestId('navitem-buy.toyota');
     await expect(toyota).toBeVisible();
     await toyota.click();
     await expect(page).toHaveURL(/\/marketplace\?make=Toyota/);
@@ -58,7 +60,8 @@ test.describe('Milestone 2 — desktop mega-menus', () => {
 
   test('planned items render as non-navigating "Soon" entries', async ({ page }) => {
     await page.getByTestId('nav-buy').click();
-    const suvs = page.getByTestId('navitem-buy.suvs');
+    await expect(page.getByTestId('nav-buy-menu')).toBeVisible();
+    constsuvs = page.getByTestId('navitem-buy.suvs');
     await expect(suvs).toBeVisible();
     await expect(suvs).toHaveAttribute('data-planned', 'true');
     await expect(suvs).toHaveAttribute('aria-disabled', 'true');
@@ -67,7 +70,8 @@ test.describe('Milestone 2 — desktop mega-menus', () => {
 
   test('governed-trust link defers (no fabricated tag) when coverage is off', async ({ page }) => {
     await page.getByTestId('nav-buy').click();
-    const passport = page.getByTestId('navitem-buy.passport-verified');
+    await expect(page.getByTestId('nav-buy-menu')).toBeVisible();
+    constpassport = page.getByTestId('navitem-buy.passport-verified');
     await expect(passport).toBeVisible();
     await passport.click();
     // Deferred to base marketplace — must NOT carry ?tag=passport_verified
