@@ -40,6 +40,20 @@ test('Phase 1 migration contains required tables, RLS, foreign keys, and indexes
   }
 });
 
+test('referral trigger function search_path is pinned (Supabase advisory) and triggers stay bound', () => {
+  const searchPathFix = readFileSync(new URL('../../database/migrations/20260621120000_referral_pin_function_search_path.sql', import.meta.url), 'utf8');
+  // The fix redefines the function with a pinned search_path.
+  assert.equal(searchPathFix.includes('CREATE OR REPLACE FUNCTION public.set_referral_updated_at()'), true);
+  assert.match(searchPathFix, /SET\s+search_path\s*=\s*''/);
+  // It must be additive + idempotent: no destructive statements.
+  assert.equal(/DROP\s+(FUNCTION|TABLE|TRIGGER)/i.test(searchPathFix), false, 'search_path fix must not drop anything');
+  // The original triggers reference the function by name, so CREATE OR REPLACE keeps them bound.
+  for (const trig of ['referral_campaigns_updated_at', 'referral_codes_updated_at', 'referral_coupons_updated_at', 'referral_wallets_updated_at', 'referral_wallet_transactions_updated_at']) {
+    assert.equal(migrationFile.includes(`${trig} BEFORE UPDATE`), true, `${trig} trigger should still exist in 016`);
+    assert.equal(migrationFile.includes('EXECUTE FUNCTION set_referral_updated_at()'), true);
+  }
+});
+
 test('Referral API is mounted and exposes Phase 1 endpoints', () => {
   assert.equal(promotionsRouteFile.includes("router.use('/api/referrals', referralRouter)"), true);
   for (const marker of ["router.post('/campaigns'", "router.post('/validate'", "router.post('/coupons/apply'", "router.patch('/wallets/transactions/:id/status'", "router.get('/admin/events'"]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
