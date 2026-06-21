@@ -17,7 +17,7 @@ createRoot(document.getElementById('root')!).render(
 
 if ('serviceWorker' in navigator && !navigator.webdriver) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch((err) => {
       console.log('Service Worker registration failed:', err);
     });
   });

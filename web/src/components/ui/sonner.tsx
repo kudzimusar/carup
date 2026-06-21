@@ -5,15 +5,27 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
-import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
+/**
+ * Global toast styling.
+ *
+ * Two fixes that made error toasts (e.g. "Invalid credentials" / "wrong password" and any backend
+ * JSON error surfaced via toast.error) render with text that clashed into the background:
+ *  1. The CSS-var overrides MUST be wrapped in hsl(): the design tokens are raw HSL triplets
+ *     (e.g. --popover: "0 0% 100%"), so "var(--popover)" alone is an INVALID color and the toast
+ *     text/background broke. They are now "hsl(var(--popover))".
+ *  2. This app is light-only (no .dark token block), so the toaster is pinned to theme="light"
+ *     instead of following the OS ("system"), which previously applied sonner's dark treatment on a
+ *     dark-mode OS against our light tokens.
+ * `richColors` additionally gives error/success/warning/info toasts a guaranteed high-contrast,
+ * color-coded treatment so the message is always clearly legible.
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
-
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme="light"
+      richColors
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,
@@ -24,9 +36,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
+          "--normal-bg": "hsl(var(--popover))",
+          "--normal-text": "hsl(var(--popover-foreground))",
+          "--normal-border": "hsl(var(--border))",
           "--border-radius": "var(--radius)",
         } as React.CSSProperties
       }

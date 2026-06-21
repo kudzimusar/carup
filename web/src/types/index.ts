@@ -78,6 +78,30 @@ export interface MarketplaceListingSummary extends SharedMarketplaceListingSumma
 
 export interface MarketplaceListingsResponse extends SharedMarketplaceListingsResponse {}
 
+// Marketplace v1 canonical contracts (trust/verification/pricing/inquiry/referral).
+export type {
+  MarketplaceListingType,
+  MarketplacePublicStatus,
+  MarketplaceRiskStatus,
+  MarketplacePartSentryPublicStatus,
+  MarketplaceEvidenceStatus,
+  MarketplaceIdentityStatus,
+  MarketplaceTrustSummary,
+  MarketplaceVerificationSummary,
+  MarketplacePricingSummary,
+  MarketplaceMedia,
+  MarketplaceSellerSummary,
+  MarketplaceListingDetail,
+  MarketplaceTransactionIntent,
+  MarketplaceInquiryType,
+  MarketplaceInquiryStatus,
+  MarketplaceSourceChannel,
+  MarketplaceInquiryInput,
+  MarketplaceInquiry,
+  MarketplaceReferralEventType,
+  MarketplaceReferralEvent,
+} from '@shared/types';
+
 export interface NavCoverageEntry { count: number; active: boolean }
 export interface NavCoverageResponse {
   threshold: number
@@ -365,6 +389,108 @@ export interface DiasporaWorkbookOperatorBatchSummary {
     warnings?: string[];
     statusTimeline?: unknown[];
   };
+}
+
+export interface DiasporaWorkbookSheetDefinition {
+  sheetName: string;
+  description?: string;
+  primaryKey?: string | null;
+  apiTable?: string | null;
+  requiredColumns?: string[];
+  optionalColumns?: string[];
+  statusColumns?: Record<string, string>;
+}
+
+export interface DiasporaWorkbookTemplateDefinition {
+  templateType: string;
+  sheets: string[];
+}
+
+export interface DiasporaWorkbookTemplateSchema {
+  version?: string;
+  templateType: string;
+  sourceOfTruth?: string;
+  safetyRules?: string[];
+  statusLists?: Record<string, string[]>;
+  sheets: DiasporaWorkbookSheetDefinition[];
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookTemplateSchemaResponse {
+  data: DiasporaWorkbookTemplateSchema;
+  supportedTemplates?: DiasporaWorkbookTemplateDefinition[];
+}
+
+export interface DiasporaWorkbookTemplateDownloadStatus {
+  data?: DiasporaWorkbookTemplateSchema;
+  downloadReady: boolean;
+  message?: string;
+}
+
+export interface DiasporaWorkbookDryRunPayload {
+  templateType: string;
+  idempotencyKey: string;
+  source: {
+    filename: string | null;
+    mimeType: string | null;
+    sizeBytes: number | null;
+  };
+  sheets: Record<string, Array<Record<string, unknown>>>;
+}
+
+export interface DiasporaWorkbookDryRunFinding {
+  sheetName?: string;
+  rowIndex?: number;
+  column?: string;
+  code?: string;
+  message?: string;
+  allowed?: unknown[];
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookDryRunSheetSummary {
+  sheetName: string;
+  apiTable?: string | null;
+  primaryKey?: string | null;
+  totalRows?: number;
+  acceptedRows?: number;
+  rejectedRows?: number;
+  warningRows?: number;
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookDryRunPersistence {
+  batchId?: string;
+  rowDiagnosticsPersisted?: number;
+  acceptedRows?: number;
+  warningRows?: number;
+  rejectedRows?: number;
+  importStatus?: string;
+  persisted?: boolean;
+  [key: string]: unknown;
+}
+
+export interface DiasporaWorkbookDryRunResult {
+  dryRunId?: string;
+  dryRunOnly?: boolean;
+  wroteToDatabase?: boolean;
+  canImport?: boolean;
+  templateType?: string;
+  userId?: string | null;
+  tenantId?: string | null;
+  totals?: {
+    totalRows?: number;
+    acceptedRows?: number;
+    errorCount?: number;
+    warningCount?: number;
+    sheetCount?: number;
+    [key: string]: unknown;
+  };
+  summaries?: DiasporaWorkbookDryRunSheetSummary[];
+  errors?: DiasporaWorkbookDryRunFinding[];
+  warnings?: DiasporaWorkbookDryRunFinding[];
+  persistence?: DiasporaWorkbookDryRunPersistence;
+  [key: string]: unknown;
 }
 
 // 3. WorkOrder

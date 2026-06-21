@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -14,27 +15,60 @@ const STATUS_BADGE: Record<string, string> = {
   sold: 'bg-gray-100 text-gray-500',
 }
 
+export function normalizeListingStatus(status?: string | null) {
+  return String(status || '').toLowerCase()
+}
+
+export function isSoldListingStatus(status?: string | null) {
+  return normalizeListingStatus(status) === 'sold'
+}
+
+export function formatListingStatus(status?: string | null) {
+  const value = String(status || 'available')
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+export function applyPersistedListingStatus(listings: Vehicle[], vin: string, status: string) {
+  return listings.map(listing => (
+    listing.vin === vin ? { ...listing, status } : listing
+  ))
+}
+
 export default function MyListings() {
   const { fetchOwnedVehicles, updateVehicleStatus } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [myListings, setMyListings] = useState<Vehicle[]>([])
+  const [ownedLoaded, setOwnedLoaded] = useState(false)
 
   useEffect(() => {
-    fetchOwnedVehicles().then(data => {
-      // Assuming all owned vehicles are potential listings
-      setMyListings(data)
-    })
+    let mounted = true
+    fetchOwnedVehicles()
+      .then(data => {
+        if (!mounted) return
+        // Assuming all owned vehicles are potential listings
+        setMyListings(data)
+      })
+      .finally(() => {
+        if (mounted) setOwnedLoaded(true)
+      })
+    return () => { mounted = false }
   }, [fetchOwnedVehicles])
 
   const handleMarkSold = async (vehicleId: string, vin: string) => {
+    if (markingId) return
     setMarkingId(vehicleId)
     try {
-      await updateVehicleStatus(vin, 'sold')
-    } catch { /* backend offline — update locally */ }
-    setListingStatuses(prev => ({ ...prev, [vehicleId]: 'sold' }))
-    setMarkingId(null)
-    toast.success('Vehicle marked as sold! It will be removed from active listings.')
+      const result = await updateVehicleStatus(vin, 'sold')
+      const persistedStatus = String(result?.status || 'Sold')
+      setListingStatuses(prev => ({ ...prev, [vehicleId]: persistedStatus }))
+      setMyListings(prev => applyPersistedListingStatus(prev, vin, persistedStatus))
+      toast.success('Vehicle marked as sold! It will be removed from active listings.')
+    } catch {
+      toast.error('Could not mark this vehicle as sold. Please try again.')
+    } finally {
+      setMarkingId(null)
+    }
   }
 
   return (
@@ -48,6 +82,8 @@ export default function MyListings() {
           <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> New Listing</Link>
         </Button>
       </div>
+
+      <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
 
       {myListings.length === 0 ? (
         <Card className="border-0 card-shadow">
@@ -64,10 +100,11 @@ export default function MyListings() {
         <div className="space-y-4">
           {myListings.map((listing) => {
             const effectiveStatus = listingStatuses[listing.vin] || listing.status || 'available'
-            const isSold = effectiveStatus === 'sold'
+            const normalizedStatus = normalizeListingStatus(effectiveStatus)
+            const isSold = isSoldListingStatus(effectiveStatus)
             return (
               <Card key={listing.vin} className={`border-0 card-shadow transition-opacity ${isSold ? 'opacity-60' : ''}`}>
-                <CardContent className="p-5">
+                <CardContent className="p-5" data-testid={`my-listing-card-${listing.vin}`}>
                   <div className="flex gap-4">
                     <img src={listing.image_url || 'https://images.unsplash.com/photo-1605810230434-7631ac76ec81?w=800&q=80'} alt="" className="w-32 h-24 rounded-lg object-cover flex-shrink-0" />
                     <div className="flex-1 min-w-0">
@@ -76,8 +113,8 @@ export default function MyListings() {
                           <h3 className="font-semibold">{listing.year} {listing.make} {listing.model}</h3>
                           <p className="text-lg font-bold text-orange-600 mt-0.5">${listing.price?.toLocaleString() || 'N/A'}</p>
                         </div>
-                        <Badge className={`text-xs font-medium ${STATUS_BADGE[effectiveStatus] || 'bg-gray-100 text-gray-600'}`}>
-                          {effectiveStatus.charAt(0).toUpperCase() + effectiveStatus.slice(1)}
+                        <Badge className={`text-xs font-medium ${STATUS_BADGE[normalizedStatus] || 'bg-gray-100 text-gray-600'}`}>
+                          {formatListingStatus(effectiveStatus)}
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
@@ -94,6 +131,7 @@ export default function MyListings() {
                             size="sm"
                             variant="outline"
                             className="text-xs gap-1"
+                            data-testid={`mark-sold-${listing.vin}`}
                             disabled={markingId === listing.vin}
                             onClick={() => handleMarkSold(listing.vin, listing.vin)}
                           >

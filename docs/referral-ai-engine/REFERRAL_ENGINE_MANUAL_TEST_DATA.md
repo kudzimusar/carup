@@ -16,23 +16,26 @@
 > *"Forbidden. Role 'admin' is not verified for this user context."* — by design.
 > So use a dedicated admin account and a dedicated owner account.
 
-1. **Seed the two UAT accounts (local/staging only).** In a shell that has your
-   local/staging `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, run:
+1. **Seed the two UAT accounts (staging only).** Passwords come ONLY from your shell env
+   (never committed/printed). In a shell that has the **staging** `SUPABASE_URL` +
+   `SUPABASE_SERVICE_ROLE_KEY`, choose two unique strong passwords and run:
    ```bash
-   UAT_SEED_CONFIRM=yes node backend/scripts/seed-uat-referral-users.mjs
+   UAT_SEED_CONFIRM=yes \
+   UAT_OWNER_PASSWORD='<strong unique>' UAT_ADMIN_PASSWORD='<strong unique>' \
+   node backend/scripts/seed-uat-referral-users.mjs
    ```
-   This upserts two accounts (idempotent; refuses to run when `NODE_ENV=production`
-   or without `UAT_SEED_CONFIRM=yes`) and prints the owner's user id:
+   This upserts two accounts (idempotent; refuses `NODE_ENV=production`, requires
+   `UAT_SEED_CONFIRM=yes`, targets only the staging Supabase ref and refuses production,
+   and rejects missing/weak/duplicate passwords before any DB write). It prints only the
+   emails, roles, and the owner's user id — **never a password**:
 
    | Role | Email | Password | Reaches |
    |---|---|---|---|
-   | **admin** | `uat-admin@carup.local` | `UatAdmin!2026` | `/admin/referrals*` |
-   | **owner** | `uat-owner@carup.local` | `UatOwner!2026` | `/dashboard/referrals` |
+   | **admin** | `uat-admin@carup.local` | *(env: `UAT_ADMIN_PASSWORD`)* | `/admin/referrals*` |
+   | **owner** | `uat-owner@carup.local` | *(env: `UAT_OWNER_PASSWORD`)* | `/dashboard/referrals` |
 
-   *(Quick alternative, no script — register each via the API; `/api/auth/register`
-   accepts a `role`: `curl -X POST $API/api/auth/register -H 'content-type: application/json'
-   -d '{"name":"UAT Admin","email":"uat-admin@carup.local","password":"UatAdmin!2026","role":"admin"}'`,
-   and again with `role":"owner"`.)*
+   > ⚠️ The previously documented UAT passwords are **compromised** and were removed. Rotate both
+   > accounts by re-running the seed with fresh env-supplied passwords before any QA.
 2. **Log in normally at `/login`** with each account (no role switching anywhere).
 3. **`<OWNER_USER_ID>`** = the owner id the seed prints. (Alternatively: log in as the
    owner, open **DevTools → Network**, trigger any `/api/...` call, and copy the
