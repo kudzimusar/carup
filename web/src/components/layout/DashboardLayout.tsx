@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Car,
@@ -46,6 +47,7 @@ export default function DashboardLayout({ role }: { role: string }) {
       navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
+      toast.error('Could not switch portal role. Please try again.')
     }
   }
 

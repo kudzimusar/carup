@@ -114,6 +114,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       if (e instanceof SessionExpiredError) clearAuth()
       else console.error('Role switch failed', e)
+      // Re-throw so callers can skip post-switch navigation and surface accessible
+      // feedback instead of silently routing into a role that was never switched.
+      throw e
     }
   }, [user, token, clearAuth])
 

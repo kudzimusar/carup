@@ -86,6 +86,12 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
   const state = effectiveState(feature.id, getStaticLifecycle(feature), effectiveStates)
 
   // 3. Lifecycle gates that apply regardless of authentication.
+  // A runtime kill-switch (override enabled:false) blocks DIRECT access too, so a
+  // link removed from navigation cannot still be reached by typing the URL. The
+  // `enabled` flag is role-independent in the sanitized effective state; tenant
+  // gating remains BACKEND-authoritative (tenant lists are intentionally not sent
+  // to the client, so the SPA cannot — and must not — re-derive them).
+  if (effectiveStates?.[feature.id]?.enabled === false) return { kind: 'disabled' }
   if (state === 'planned') return { kind: 'planned' }
   if (state === 'disabled') return { kind: 'disabled' }
 
@@ -106,9 +112,10 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     }
   }
 
-  // 7. Beta → render with a notice.
+  // 7. Beta → render with a notice. The admin-configured banner text is carried
+  // by the sanitized `betaMessage` field (`reasonCode` is internal and stripped).
   if (state === 'beta') {
-    return { kind: 'render-beta', message: effectiveStates?.[feature.id]?.reasonCode }
+    return { kind: 'render-beta', message: effectiveStates?.[feature.id]?.betaMessage }
   }
 
   // 8. Active / hidden / deprecated-without-target → render.
