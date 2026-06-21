@@ -14,6 +14,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
+import { isUserIdFallbackAllowed } from '../../middleware/authMiddleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST_PATH = path.resolve(__dirname, '../../../shared/navigation/feature-manifest.json');
@@ -21,6 +22,53 @@ const TABLE = 'feature_rollout_overrides';
 const VALID_ENVIRONMENTS = ['development', 'staging', 'production'];
 const VALID_LIFECYCLE = ['active', 'beta', 'planned', 'hidden', 'disabled', 'deprecated'];
 const CACHE_TTL_MS = 30_000;
+
+function normalizeRole(role) {
+  return role ? String(role).toLowerCase() : null;
+}
+
+/**
+ * Resolve a TRUSTED, server-derived request context for the public effective
+ * endpoint. Anonymous requests are fully supported (returns null role/tenant).
+ * The role is read from the `users` table for the session's user — client role
+ * headers (x-stakeholder-role) are NEVER trusted. A claimed tenant (x-tenant-id)
+ * is honoured only when membership is verified in `tenant_users`. Never throws;
+ * any failure degrades to anonymous (fail closed to least privilege).
+ */
+export async function resolveRequestContext(req, { client = defaultClient } = {}) {
+  const headers = (req && req.headers) || {};
+  const token = headers['x-session-token'] || (headers['authorization'] ? String(headers['authorization']).replace('Bearer ', '') : null);
+  const fallbackUserId = headers['x-user-id'];
+  const claimedTenant = headers['x-tenant-id'] || null;
+
+  try {
+    let userId = null;
+    if (token) {
+      const { data } = await client.from('user_sessions').select('user_id, is_valid, expires_at').eq('token', token);
+      const session = (data || [])[0];
+      if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
+        userId = session.user_id;
+      }
+    }
+    if (!userId && fallbackUserId && isUserIdFallbackAllowed()) {
+      userId = fallbackUserId;
+    }
+    if (!userId) return { role: null, tenantId: null }; // anonymous
+
+    const { data: users } = await client.from('users').select('role').eq('id', userId);
+    const role = normalizeRole((users || [])[0]?.role);
+
+    // Tenant is honoured ONLY if the user is a verified member of the claimed tenant.
+    let tenantId = null;
+    if (claimedTenant) {
+      const { data: tu } = await client.from('tenant_users').select('role').eq('tenant_id', claimedTenant).eq('user_id', userId);
+      if ((tu || []).length > 0) tenantId = claimedTenant;
+    }
+    return { role, tenantId };
+  } catch {
+    return { role: null, tenantId: null }; // fail closed
+  }
+}
 
 // ── Static manifest ─────────────────────────────────────────────────────────
 let _manifestCache = null;

@@ -18,6 +18,7 @@ import {
   upsertOverride,
   deleteOverride,
   getFeatureAudit,
+  resolveRequestContext,
 } from '../services/featureGovernance/featureGovernanceService.js';
 
 const router = express.Router();
@@ -42,11 +43,16 @@ function readEnvironment(req) {
   return serverEnvironment();
 }
 
-// ── Public: sanitized effective state for nav hydration ─────────────────────
+// ── Public (optional-auth): sanitized effective state for nav hydration ─────
 // Non-blocking: the SPA renders static defaults first and hydrates from this.
+// Anonymous callers get anonymous-context evaluation; an authenticated caller
+// gets role/tenant-specific visible/accessible. Role + tenant are derived
+// SERVER-SIDE from the session (client role headers are never trusted); only
+// sanitized state is returned (no role/tenant lists, reasons or audit data).
 router.get('/api/features/effective', asyncHandler(async (req, res) => {
+  const { role, tenantId } = await resolveRequestContext(req);
   const states = await getEffectiveStates(
-    { environment: serverEnvironment(), role: null, tenantId: null },
+    { environment: serverEnvironment(), role, tenantId },
     { sanitize: true },
   );
   res.json({ environment: serverEnvironment(), features: states });

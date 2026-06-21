@@ -1313,13 +1313,19 @@ export function resolveFeatureVisibility(
   const lifecycleAccessible = isLifecycleAccessible(state)
   // A runtime override may DISABLE but never force-enable beyond static policy.
   const enabledByOverride = override ? override.enabled : true
+  // Honor the backend-computed visibility/access (incorporates tenant + time
+  // windows the SPA cannot recompute). The loader identity-gates these, so they
+  // always reflect the CURRENT user; absent an entry they default to permissive
+  // and the local lifecycle/role computation governs.
+  const backendVisible = override ? override.visible !== false : true
+  const backendAccessible = override ? override.accessible !== false : true
 
   return {
     featureId: feature.id,
     state,
     roleEligible,
-    visible: lifecycleVisible && roleEligible && enabledByOverride,
-    accessible: lifecycleAccessible && roleEligible && enabledByOverride,
+    visible: lifecycleVisible && roleEligible && enabledByOverride && backendVisible,
+    accessible: lifecycleAccessible && roleEligible && enabledByOverride && backendAccessible,
     beta: state === 'beta',
     deprecatedTo: override?.deprecatedTo ?? feature.deprecatedTo,
   }

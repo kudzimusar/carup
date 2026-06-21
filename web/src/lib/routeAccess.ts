@@ -110,6 +110,13 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     if (!feature.roles.includes(role)) {
       return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
     }
+    // Role is eligible, but the backend (which knows tenant allow/deny + time
+    // windows the SPA cannot recompute) may still deny access. The loader
+    // identity-gates effective state, so `accessible` reflects THIS user.
+    const eff = effectiveStates?.[feature.id]
+    if (eff && eff.accessible === false) {
+      return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
+    }
   }
 
   // 7. Beta → render with a notice. The admin-configured banner text is carried
