@@ -79,8 +79,35 @@ PARTIAL items (78) are predominantly tested-under-mock paths whose *live* round-
 **NO-GO for "ready for review" until ONE gate clears** (owner-side):
 - **Live wallet-attribution proof** — needs the staging `service_role` key in `backend/.env.uat.local`; the runner then proves all 10 journeys (incl. correct-owner attribution) in one command. *Code + tests are GO; only the live run is outstanding.*
 
-All CI and Vercel checks (incl. both staging projects) are now GREEN. Everything
-implementable is **GO**: critical/high defects fixed and tested, attribution model
-unified and proven, coverage audited, CI green, Vercel green, branch current. The
-single remaining owner action: provide the staging key, then I run the live journeys
-and flip the PR to ready.
+Everything implementable is **GO**: critical/high defects fixed and tested,
+attribution model unified and proven, coverage audited, `referral-ci` green, DB
+security hardened (§8), branch current. The single remaining owner action: provide
+the staging key, then I run the live journeys and flip the PR to ready.
+
+## 8. Database security hardening & RLS model
+
+**Function search_path advisory — FIXED.** `public.set_referral_updated_at()` (from
+`016_referral_engine_phase1.sql`) was defined without a pinned `search_path` → the
+Supabase "Function Search Path Mutable" advisory. Resolved by an **additive,
+idempotent** migration `database/migrations/20260621120000_referral_pin_function_search_path.sql`
+that `CREATE OR REPLACE`s the function with `SET search_path = ''`. The function
+identity is unchanged, so the five `referral_*_updated_at` triggers stay bound; no
+table/column/index/policy/data is touched. A regression test asserts the pin,
+non-destructiveness, and trigger bindings.
+
+**Server-owned RLS model — VERIFIED (static).** In `016`, all 9 referral tables
+have `ENABLE ROW LEVEL SECURITY` with **zero policies** and **no anon/authenticated
+grants** → deny-by-default for direct client access; the service-role backend
+bypasses RLS. All user operations go through authenticated Express routes with
+role/tenant/owner-wallet/admin checks. The web client uses the **anon key only**
+(`web/src/lib/supabase.ts`); a scan of web/mobile source and the built `web/dist`
+bundle found **no `service_role` / `SUPABASE_SERVICE_ROLE_KEY`** leakage. We did
+**not** add permissive policies to silence the advisor.
+
+**Supabase advisors (live) — not run here (tooling limitation, not impossible).**
+The locally-authenticated Supabase CLI/MCP point at a **different account** with no
+CarUp projects, so advisors cannot be run against staging `eoyenigwevnxwwhyhaer`
+from this environment. The one known advisory (search_path) is fixed at the
+migration level; running the live advisor before/after requires the owner's Supabase
+access (or the staging service-role key). This is a local-tooling gap, not proof
+that advisors are impossible.
