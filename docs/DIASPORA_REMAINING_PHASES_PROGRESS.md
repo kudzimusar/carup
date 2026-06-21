@@ -29,6 +29,16 @@
 
 ---
 
+## Program decisions (user-confirmed 2026-06-21)
+- **PD-1 RESOLVED:** subscription granularity = **tenant plan + per-user entitlements**
+  (tenant-scoped subscription/quotas; users get role-based entitlements within the plan; per-user
+  overrides supported). Plan catalog must be config-driven.
+- **Pace:** build autonomously, milestone-by-milestone, **do not stop**; optimize for reaching
+  production. Each verified vertical slice commits to PR #90.
+- **Hard guardrails reaffirmed:** production Supabase `vhmnajoeicasaigiophh` forbidden until explicit
+  release authorization (EB-5); no merge automation; external providers stay sandbox/disabled
+  (EB-1 staging secret, CR-1 rotation, EB-2/3/4 not yet granted) — build fail-closed around them.
+
 ## Milestone log
 
 ### M0 — Wave 0 baseline (COMPLETE)
@@ -61,6 +71,41 @@
   + prototype (no shared-file edits). Blocked-on-external: R0 H9 (EB-1), live Drive (EB-2).
 
 ---
+
+### M1 — Phase 8 entitlement foundation (COMPLETE) — Wave 2
+- **Objective:** Data + service foundation for tenant-plan + per-user entitlements with atomic quotas
+  and a sandbox billing abstraction. No route/UI wiring yet (M2), enforcement flag default OFF.
+- **Assigned:** Agent D (Phase 8), integrated + independently verified by Agent A.
+- **Files changed:**
+  - `database/migrations/20260621120000_diaspora_phase8_subscription_entitlements.sql` (NEW)
+  - `backend/constants/diaspora/diasporaEntitlements.js` (NEW — FEATURE_KEYS, PLAN_CATALOG, states)
+  - `backend/constants/diaspora/diasporaBillingConstants.js` (NEW — fail-closed flags)
+  - `backend/services/diaspora/billing/billingProvider.js` (NEW — sandbox + activation-gated live)
+  - `backend/services/diaspora/diasporaEntitlementService.js` (NEW)
+  - `backend/tests/diaspora-entitlements.test.js` (NEW — 19 tests)
+  - `backend/tests/helpers/diasporaRpcReference.js` (MOD — added `diaspora_reserve_usage_atomic` JS ref)
+- **Migrations:** 1 created (`20260621120000…`). 6 tables (plans, subscriptions, user overrides,
+  usage meters, usage reservations, billing provider events) + atomic RPC
+  `diaspora_reserve_usage_atomic`. All RLS-enabled, REVOKE PUBLIC, GRANT authenticated/service_role,
+  RPC EXECUTE → service_role only, SECURITY DEFINER + `search_path='public'`, Up/Down present.
+  **NOT applied to any database** (staging apply deferred to integration agent + advisors).
+- **Routes / UI:** none this milestone (deferred to M2; route file is integration-owned).
+- **Security decisions:** server-side only; `appendCriticalAudit` for admin override + quota
+  commit/release; never trust client roles; enforcement gated behind `DIASPORA_SUBSCRIPTION_ENFORCEMENT`
+  (default OFF) so no existing flow breaks; live billing fail-closed (`EXTERNAL_ACTIVATION_REQUIRED`).
+- **Tests (independently re-run by Agent A):** `diaspora-entitlements` **19/19 pass**;
+  `diaspora-rfq` regression **14/14 pass**; full `diaspora-*.test.js` suite **326 tests, 319 pass,
+  0 fail, 7 skipped** (staging-gated).
+- **CI run IDs:** to be produced by PR #90 CI on push.
+- **Staging evidence:** none yet (atomic reserve concurrency proof needs EB-1 staging secret;
+  unit tests stub the RPC mirroring the SQL, per the H1–H3 convention).
+- **Known limitations:** RPC stubbed in unit tests (real row-lock concurrency proven later in
+  staging); no enforcement wired to live features yet.
+- **Blockers:** EB-1 (staging proof). None blocking M2 code.
+- **Commit SHA:** _(filled on commit)_.
+- **Next milestone:** M2 — wire entitlement checks into real diaspora operations (stock publish,
+  RFQ create/respond, workbook bulk import, AI execute, container reserve) behind the enforcement
+  flag + Phase 8 API/webhook + UI; in parallel, M-W1 = XLSX dependency decision + parser prototype.
 
 ## Agent ownership (Section 7)
 

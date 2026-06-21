@@ -35,7 +35,7 @@
 
 | Provider | Sandbox/Live | Disable switch | Status |
 | --- | --- | --- | --- |
-| Billing (Phase 8) | sandbox/manual default | feature flag | 🔒 EB-3 |
+| Billing (Phase 8) | sandbox/manual default (impl `billingProvider.js`, live → `EXTERNAL_ACTIVATION_REQUIRED`) | `DIASPORA_BILLING_LIVE` flag, fail-closed | 🟡 sandbox built / 🔒 EB-3 for live |
 | Payment/escrow (Phase 9) | sandbox/fake default | feature flag, fail-closed | 🔒 EB-4 |
 | Google Drive | mock/disabled | `DIASPORA_DRIVE_ENABLED`, prod-mock blocked | 🔒 EB-2 |
 | Email/SMS/WhatsApp | as used | — | ⬜ |
