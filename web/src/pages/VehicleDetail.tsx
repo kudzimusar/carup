@@ -1,6 +1,7 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
+import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -30,6 +31,8 @@ import type {
   TimelineEvent,
   PassportVerificationSource,
   MarketplaceListingDetail,
+  EvidenceTaxonomyResponse,
+  EvidenceSource,
 } from '@/types'
 import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
 import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
@@ -186,7 +189,7 @@ function buildTrustBreakdown(passport: VehiclePassport | null): { label: string;
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings } = useCarUpApi()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const { isAuthenticated } = useAuth()
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
@@ -210,6 +213,21 @@ export default function VehicleDetail() {
   const [selectedBank, setSelectedBank]         = useState('cbz')
 
   const [lookupQuery, setLookupQuery] = useState('')
+
+  // Vehicle Life Evidence Taxonomy (M1) — used to derive a life-stage class for
+  // legacy evidence and to resolve human-readable source labels in the timeline.
+  const [evidenceTaxonomy, setEvidenceTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
+  const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    Promise.allSettled([fetchEvidenceTaxonomy(), fetchEvidenceSources()]).then(([tax, src]) => {
+      if (!mounted) return
+      if (tax.status === 'fulfilled') setEvidenceTaxonomy(tax.value)
+      if (src.status === 'fulfilled') setEvidenceSources(src.value.sources || [])
+    })
+    return () => { mounted = false }
+  }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
   const handleLookupSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -798,6 +816,17 @@ export default function VehicleDetail() {
 
                   {/* ── Evidence tab: buyer-facing visual proof timeline ── */}
                   <TabsContent value="evidence" className="mt-4" data-testid="evidence-timeline-tab-content">
+                    {/* Vehicle life-stage timeline (M1): groups verified, public-safe evidence by the eight life stages. */}
+                    {publicEvidence.length > 0 && (
+                      <div className="mb-8">
+                        <h3 className="text-lg font-semibold mb-3">Vehicle Life Timeline</h3>
+                        <VehicleLifeStageTimeline
+                          evidence={publicEvidence}
+                          taxonomy={evidenceTaxonomy}
+                          sources={evidenceSources}
+                        />
+                      </div>
+                    )}
                     <PremiumEvidenceGallery evidence={evidenceVault} />
                   </TabsContent>
 
