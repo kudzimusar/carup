@@ -19,7 +19,9 @@
 -- Additive + reversible.
 -- =====================================================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- NOTE: gen_random_uuid() is in core Postgres (pgcrypto NOT required) — consistent with the
+-- other five program migrations. (Removed an unnecessary CREATE EXTENSION pgcrypto that broke
+-- portability to non-Supabase Postgres; harmless on Supabase but unneeded.)
 
 -- -------------------------------------------------------------------------------------
 -- 0) Immutability trigger function (append-only tables block UPDATE/DELETE)
