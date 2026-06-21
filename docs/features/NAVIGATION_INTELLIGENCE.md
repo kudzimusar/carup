@@ -1,4 +1,10 @@
-# Navigation Intelligence
+# Navigation Intelligence — Marketplace Truth & Coverage
+
+> **Scope notice — read first.** This document covers **only** the **Marketplace Navigation Truth & Coverage subsystem** — a single dependency of the larger CarUp Navigation Intelligence system, not the system itself. It specifies Marketplace URL truth/coverage behavior: the query-parameter contract (`q`/`make`/`category`/`tag`/`minPrice`/`maxPrice`/`sort`), fixture exclusion, real-listing eligibility, and coverage-gated navigation.
+>
+> The **full Navigation Intelligence system** — the desktop top-nav, footer, mobile web navigation, route boundaries, feature lifecycle/rollout governance, and the admin **Feature Governance Console** — is specified in the master plan at [`docs/implementation-plans/CARUP_NAVIGATION_INTELLIGENCE_BLUEPRINT_COMPLETION_PLAN.md`](../implementation-plans/CARUP_NAVIGATION_INTELLIGENCE_BLUEPRINT_COMPLETION_PLAN.md) and the architecture document at [`docs/navigation-intelligence/CARUP_NAVIGATION_INTELLIGENCE_ARCHITECTURE.md`](../navigation-intelligence/CARUP_NAVIGATION_INTELLIGENCE_ARCHITECTURE.md). Those documents are the source of truth for the system as a whole.
+>
+> Where this file says **"completed"**, that status refers **only to the Marketplace coverage substrate** documented here — not to the broader Navigation Intelligence system, which is still being implemented.
 
 Navigation Intelligence is a completed CarUp system capability that ensures marketplace navigation reflects actual eligible inventory rather than fixture, demo, seed, or unsupported data.
 
