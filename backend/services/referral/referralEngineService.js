@@ -386,6 +386,29 @@ export class ReferralEngineService {
     if (!reason && code.expires_at && new Date(code.expires_at) < now) reason = 'CODE_EXPIRED';
     if (!reason && code.max_uses !== null && code.max_uses !== undefined && Number(code.uses_count || 0) >= Number(code.max_uses)) reason = 'CODE_EXHAUSTED';
 
+    // QR/barcode scans are first-class referral events: when a code is reached
+    // through a scan surface, record the scan alongside the validation outcome
+    // (reusing the existing event table — no separate scan-tracking system).
+    const scanChannel = input.channel || code.channel || null;
+    const scanEventType =
+      scanChannel === REFERRAL_CHANNELS.QR
+        ? REFERRAL_EVENT_TYPES.QR_SCANNED
+        : scanChannel === REFERRAL_CHANNELS.BARCODE
+          ? REFERRAL_EVENT_TYPES.BARCODE_SCANNED
+          : null;
+    if (scanEventType) {
+      await this.recordReferralEvent({
+        event_type: scanEventType,
+        code_id: code.id,
+        campaign_id: code.campaign_id,
+        channel: scanChannel,
+        session_id: input.session_id || null,
+        subject_type: input.subject_type || null,
+        subject_id: input.subject_id || null,
+        metadata: { source: input.source || null },
+      }, actor);
+    }
+
     await this.recordReferralEvent({
       event_type: reason ? REFERRAL_EVENT_TYPES.CODE_FAILED : REFERRAL_EVENT_TYPES.CODE_VALIDATED,
       code_id: code.id,
