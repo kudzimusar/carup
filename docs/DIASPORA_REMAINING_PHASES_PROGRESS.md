@@ -33,8 +33,8 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 | Track W — XLSX workbook | C (Workbook/Drive) | **Foundation COMPLETE** (exceljs; template gen + base64 upload dry-run reusing JSON validation + export + formula-injection safety + upload security); routes mounted; live import still draft-only |
 | Track D — Google Drive | C (Workbook/Drive) | Activation-ready scaffold verified; keep prod-disabled |
 | Phase 8 — Entitlements | D | **M1 foundation + M2 backend enforcement/API/webhook COMPLETE** (enforcement flag default OFF); UI = M3 pending; staging proof needs EB-1 |
-| Phase 9 — SafeTrade | E | Discovery done; not started |
-| Phase 10 — Trade Graph | F | Discovery done; not started |
+| Phase 9 — SafeTrade | E | **Design COMPLETE** (durable: docs/DIASPORA_PHASE9_SAFETRADE_DESIGN.md) + **schema/state-machine foundation built & on PR #90**; services/routes/tests **PENDING** (build interrupted by session limit ~2026-06-21, resets 22:00 Asia/Tokyo) |
+| Phase 10 — Trade Graph | F | **Design PARTIAL** (durable: docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md — graph schema + projection done; queries/AI-API/synthesis PENDING); build not started |
 | Gate P — Production readiness | A + B | Docs scaffolded; not started |
 
 ---
@@ -181,6 +181,35 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 - **Blockers:** none. (Drive export-to-xlsx wiring waits on Track D live activation EB-2.)
 - **Commit SHA:** _(filled on commit)_.
 - **Next milestone:** Phase 8 M3 frontend; then Phase 9 SafeTrade foundation (Wave 4).
+
+### M-S1 — Phase 9 SafeTrade design + schema/state-machine foundation (PARTIAL) — Wave 4
+- **Objective:** SafeTrade backend via design→build→adversarial-verify workflow. **Design + build
+  stage 1 landed; stages 2–4 + verify were cut off by a platform session limit** (resets 22:00
+  Asia/Tokyo). No data loss — designs preserved durably.
+- **Assigned:** workflow `wf_e1c66e58-9b4` (Agent E ownership); Agent A integrating.
+- **Files committed:**
+  - `docs/DIASPORA_PHASE9_SAFETRADE_DESIGN.md` (NEW — full buildable spec: state machine + transition
+    table, schema/migration, eligibility + release policy, milestones + sandbox payment provider).
+  - `backend/constants/diaspora/diasporaSafeTradeStatuses.js` (NEW — SAFETRADE_STATES, transition
+    table, risk tiers, money-movement guards, escrow-held states, canDispatch/assertDispatchAllowed).
+  - `backend/constants/diaspora/diasporaSafeTradeConstants.js` (NEW — fail-closed flags
+    `isSafeTradeEnabled`/`assertSafeTradeProductionSafety`, milestone types, policy version,
+    reconciliation tolerance, provider selection; live throws `EXTERNAL_ACTIVATION_REQUIRED`).
+  - `database/migrations/20260621130000_diaspora_phase9_safetrade.sql` (NEW — 3 tables, RLS via
+    helper, REVOKE PUBLIC, service_role grants, search_path, Up/Down; **NOT applied to any DB**).
+- **Security decisions:** sandbox-only payments; high-risk release needs reviewer approval; critical
+  transitions audit atomically; everything behind `DIASPORA_SAFETRADE_ENABLED` (OFF). Router NOT yet
+  created/mounted; foundation is inert (no imports) until services land.
+- **Tests:** none yet (stage 4 cut off). Constants pass `node --check` + ESM import smoke; migration
+  passes sanity (Up/Down, RLS×3, REVOKE PUBLIC×3, 0 PUBLIC grants, search_path, service_role×6). Full
+  diaspora suite unaffected (new files imported nowhere yet) — last green 373/366.
+- **Blockers:** **platform session limit** (resets 22:00 Asia/Tokyo) halted subagents.
+- **RESUME PLAN (after reset):** re-run the Phase 9 workflow build stages 2–4 + verify (the design
+  doc is the input; build stage 1 already on disk/committed). Then mount the router, run tests + CI,
+  commit. Then complete Phase 10 design (queries/AI-API/synthesis) and build.
+- **Commit SHA:** _(filled on commit)_.
+- **Next milestone:** resume Phase 9 build (services/eligibility/release-policy/milestones/disputes/
+  delivery/routes/tests) → integrate; then Phase 10.
 
 ## Agent ownership (Section 7)
 
