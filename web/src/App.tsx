@@ -8,7 +8,7 @@ import type { AuthUser, Notification } from '@shared/types'
 // Layout
 import MainLayout from './components/layout/MainLayout'
 import DashboardLayout from './components/layout/DashboardLayout'
-import { FeatureGovernanceProvider } from './context/FeatureGovernanceContext'
+import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
 import { NotFoundPage } from './components/routing/FeatureStatePages'
 
 // Public Pages
@@ -167,7 +167,7 @@ export default function App() {
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
-      <FeatureGovernanceProvider>
+      <FeatureGovernanceLoader>
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
@@ -290,7 +290,7 @@ export default function App() {
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-      </FeatureGovernanceProvider>
+      </FeatureGovernanceLoader>
     </AppContext.Provider>
   )
 }

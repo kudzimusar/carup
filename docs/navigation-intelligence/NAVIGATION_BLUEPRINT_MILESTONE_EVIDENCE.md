@@ -101,3 +101,27 @@ M4 acceptance gate: mobile drawer fully registry-driven ✅ · public + 7-role m
 | Playwright `27`+`28`+`30` (regression) | ✅ 19/19 (no dashboard/role-switch/mobile regression) |
 
 M5 acceptance gate: repeated guard logic centralized ✅ · direct access + nav visibility use the same effective-state decision ✅ · existing active routes behave identically (regression green) ✅ · auth + return-to regressions pass ✅.
+
+## Milestone 6 — Feature lifecycle, rollout persistence & backend governance ✅
+- **Migration** `database/migrations/20260621120000_feature_rollout_overrides.sql` — idempotent (`IF NOT EXISTS`), CHECK constraints (env, lifecycle, time-window, version≥1), unique `(feature_id, environment)`, indexes, `updated_at` trigger, **RLS enabled + service_role-only grants**. **STAGING-ONLY — NOT applied** (the live shared Supabase must not be migrated without Product Owner approval; rollback documented in the runbook).
+- **Service** `backend/services/featureGovernance/featureGovernanceService.js`:
+  - Pure `evaluateEffectiveState` (override overlay on static manifest) — runtime override can DISABLE/restrict but **never broaden roles beyond `immutableRoles`** (intersection enforced); tenant allow/deny; time windows; deprecation target.
+  - Pure `validateOverridePatch` (unknown feature, invalid env/lifecycle/tenant/window, role-expansion denial).
+  - `sanitizeEffective` strips internal reason/roles/tenant data for non-admin callers.
+  - CRUD with **optimistic concurrency** (`version`), short bounded cache (`invalidateOverrideCache` on mutation), **safe fallback to static defaults on storage failure** (disabled never becomes enabled), audit via existing `logAuditEvent` → `trust_audit_events` (`FEATURE_ROLLOUT_*`).
+  - Reads the framework-neutral `shared/navigation/feature-manifest.json` (no web import).
+- **API** `backend/routes/featureGovernanceRoutes.js` mounted in `server.js`:
+  `GET /api/features/effective` (public, sanitized, non-blocking) · `GET /api/admin/features` · `GET /api/admin/features/:id` · `GET /api/admin/features/:id/audit` · `PATCH /api/admin/features/:id/rollout` · `DELETE /api/admin/features/:id/rollout`. **All mutations + admin reads guarded by `authorizeRole(['admin'])`** (server-derived from `user_sessions`→`users`; client role headers never grant access; non-admin/spoofed-role denial enforced by the existing, separately-tested middleware).
+- **Frontend hydration**: `FeatureGovernanceLoader` fetches `/api/features/effective` **without blocking first paint** (static defaults render immediately; failed fetch keeps static defaults). Navbar, Footer, MobileNavDrawer and the route boundaries all consume `useFeatureEffectiveStates()`, so a runtime override controls nav visibility AND direct access consistently.
+
+### M6 test results (run 2026-06-21)
+| Command | Result |
+|---|---|
+| `node --test backend/tests/feature-governance.test.js` | ✅ 17/17 (evaluator, validation, immutable-role denial, tenant/time gating, version conflict, **storage-failure fallback**, cache invalidation, audit emission, sanitized output) — run with an in-memory **fake client (no live DB)** |
+| `node --test backend/tests/server-export.test.js` | ✅ 1/1 (server loads with new router mounted) |
+| `tsc --noEmit` (web) | ✅ clean |
+| `npm run test:unit --workspace=web` | ✅ 17 files / 174 tests |
+| `npm run build` | ✅ main JS 2,057.59 kB / gzip 542.32 |
+| Playwright `28`+`30`+`31` (regression after effective-state wiring) | ✅ 17/17 |
+
+M6 acceptance gate: lifecycle coherent/normalized ✅ · authorization + audit proven (unit, fake-client) ✅ · effective state controls nav + direct access consistently ✅ · safe fallback tested ✅ · runtime override persistence in staging — **pending PO-approved staging migration** (M8.5).

@@ -140,6 +140,7 @@ export interface EffectiveFeatureState {
   beta: boolean
   reasonCode?: string
   deprecatedTo?: string
+  betaMessage?: string
 }
 
 // ── Icon names — typed as lucide-react component names ─────────────────────

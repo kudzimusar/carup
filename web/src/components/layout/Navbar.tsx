@@ -30,6 +30,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
@@ -126,11 +127,13 @@ export default function Navbar() {
   // Registry-driven mega-menus. Coverage gating, lifecycle visibility and
   // auth/role-aware destinations are resolved by the navigation manifest — no
   // hardcoded menu arrays remain in this component.
+  const effectiveStates = useFeatureEffectiveStates()
   const navContext: NavigationContext = {
     isAuthenticated: !!user,
     role: (user?.role as UserRole) ?? null,
     environment: import.meta.env.MODE,
     coverage: (navCoverage as MarketplaceCoverageResponse | null) ?? null,
+    effectiveStates,
   }
   const buyMenu = getDesktopMegaMenu('navbar-mega-buy', navContext)
   const sellMenu = getDesktopMegaMenu('navbar-mega-sell', navContext)
