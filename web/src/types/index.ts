@@ -1121,3 +1121,72 @@ export interface ApiMutationResponse {
   path?: string;
   [key: string]: unknown;
 }
+
+// ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──────────
+// Buyer-facing, PUBLIC-SAFE shapes only. The backend projects reviewer-confirmed
+// findings/conflicts through publicSafeFinding/publicSafeConflict
+// (backend/routes/intelligenceRoutes.js); privileged callers receive more fields,
+// but the buyer UI must rely only on the public-safe shape below.
+
+// Shared review-status indicator for intelligence findings/conflicts.
+// Buyers only ever see 'confirmed' (others are filtered server-side), but the
+// type allows the full lifecycle so privileged views can reuse it later.
+export type IntelligenceReviewerState =
+  | 'pending_review'
+  | 'confirmed'
+  | 'dismissed';
+
+// Severity ladder shared by temporal findings and disclosure conflicts.
+export type IntelligenceSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+
+// The kind of component-level change a temporal comparison surfaced.
+export type TemporalFindingType =
+  | 'newly_damaged'
+  | 'repaired'
+  | 'replaced'
+  | 'removed_missing'
+  | 'repainted_colour_mismatch'
+  | 'worsened'
+  | 'improved'
+  | 'unchanged'
+  | 'unable_to_compare';
+
+// One public-safe temporal finding from
+// GET /api/vehicles/:vin/temporal-findings -> { findings: TemporalFinding[] }.
+export interface TemporalFinding {
+  finding_type: TemporalFindingType | string;
+  component: string | null;
+  earlier_date: string | null;
+  later_date: string | null;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+}
+
+// How a disclosure claim compares against available evidence.
+export type DisclosureClassification =
+  | 'supported'
+  | 'not_verifiable'
+  | 'possible_conflict'
+  | 'strong_conflict'
+  | 'outdated_claim'
+  | 'resolved_corrected';
+
+// One public-safe disclosure conflict from
+// GET /api/vehicles/:vin/disclosure-conflicts -> { conflicts: DisclosureConflict[] }.
+export interface DisclosureConflict {
+  conflict_type: string | null;
+  classification: DisclosureClassification | string;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+  seller_response: string | null;
+}
+
+// Wrapper responses (match the route handlers exactly).
+export interface TemporalFindingsResponse {
+  findings: TemporalFinding[];
+}
+export interface DisclosureConflictsResponse {
+  conflicts: DisclosureConflict[];
+}
