@@ -125,3 +125,21 @@ M5 acceptance gate: repeated guard logic centralized ✅ · direct access + nav 
 | Playwright `28`+`30`+`31` (regression after effective-state wiring) | ✅ 17/17 |
 
 M6 acceptance gate: lifecycle coherent/normalized ✅ · authorization + audit proven (unit, fake-client) ✅ · effective state controls nav + direct access consistently ✅ · safe fallback tested ✅ · runtime override persistence in staging — **pending PO-approved staging migration** (M8.5).
+
+## Milestone 7 — Admin Feature Governance Console ✅
+- Registered `admin.features` feature (route `/admin/features`, roles `['admin']`, dashboard-sidebar, label "Feature Governance", absent from non-admin nav). Manifest regenerated (83 features); App route added under the admin `DashboardLayout` (backend independently enforces access).
+- `useFeatureGovernanceApi` hook (reuses shared `apiRequest` auth+CSRF; **memoized** return to prevent reload loops) — list/get/audit/update/reset.
+- `FeatureGovernanceConsole.tsx`: environment selector; list (id/label/route/domain/static+effective lifecycle/enabled/override status/version/updated-by); filters (search, lifecycle, domain, override status); read-only detail (static metadata, immutable role bound, nav surfaces, current override, audit history); mutation form (lifecycle, enabled, **roles bounded to immutable policy — out-of-bound roles disabled**, tenant allow/deny, time window, beta message, reason); **before/after confirmation** AlertDialog for save & reset; **version-conflict** handling; UX states (loading/empty/error/permission-denied/conflict/success/reset/audit-loading/audit-error); responsive table↔cards; a11y (labelled controls, Radix focus-managed dialogs, status text not colour-only).
+- Backend route returns distinguishable `version_conflict` error code for the client.
+
+### M7 test results (run 2026-06-21)
+| Command | Result |
+|---|---|
+| `vitest` FeatureGovernanceConsole.test.tsx (RTL, mocked hook) | ✅ 9 it() (list, loading, filters, detail open, **immutable-role checkbox disabled**, save→confirm→updateRollout, version-conflict UI, permission-denied) |
+| `npm run test:unit --workspace=web` | ✅ 19 files / 192 tests |
+| `tsc --noEmit` + `npm run build` | ✅ clean / main JS 2,079.35 kB / gzip 548.45 |
+| Playwright `32-feature-governance-console` (chromium, mocked API) | ✅ 6/6 (open, search, detail, **PATCH** create, **DELETE** reset, **non-admin redirected away**) |
+| Playwright `27` (admin sidebar now 16 with Feature Governance) | ✅ 7/7 |
+| **Bug caught by adversarial E2E:** hook returned a fresh object each render → `useEffect` reload loop → fixed via `useMemo`. CSRF-token mock was missing in the spec (the mutation is correctly CSRF-protected) → added. |
+
+M7 acceptance gate: console uses real persistence + APIs ✅ · only trusted admins can mutate (server-derived + E2E non-admin denied) ✅ · changes auditable + conflict-safe ✅ · navigation responds to overrides (effective-state wiring) ✅ · a11y + E2E pass ✅.
