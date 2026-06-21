@@ -27,6 +27,10 @@ import {
   getFeatureById,
   getStaticLifecycle,
   getDashboardRoute,
+  getFeaturesByPlacement,
+  getAllRoles,
+  getRoleMetadata,
+  resolveFeatureVisibility,
 } from './featureRegistry'
 
 // ── Node model ──────────────────────────────────────────────────────────────
@@ -341,4 +345,96 @@ export function getNavigationPlacements(featureId: string): NavigationNode[] {
 /** All distinct surfaces present in the manifest. */
 export function getManifestSurfaces(): NavigationSurface[] {
   return Array.from(new Set(NAVIGATION_MANIFEST.map(n => n.surface)))
+}
+
+// ── Footer navigation (Milestone 3) ─────────────────────────────────────────
+
+export type FooterColumn = 'product' | 'company' | 'resources' | 'legal' | 'stakeholders'
+
+/** Footer features whose intent is legal (split into their own column). */
+const LEGAL_FEATURE_IDS = new Set(['resources.privacy', 'resources.terms'])
+
+function stakeholderLabel(title: string): string {
+  switch (title) {
+    case 'Car Owner': return 'Car Owners'
+    case 'Dealer': return 'Dealers'
+    case 'Mechanic': return 'Mechanics'
+    case 'Insurance': return 'Insurance'
+    case 'Government': return 'Government'
+    case 'Banker': return 'Bankers'
+    default: return `${title}s`
+  }
+}
+
+/**
+ * Resolve a governed footer column for a context. Feature-backed columns apply
+ * lifecycle/visibility (hidden/disabled/planned excluded). Stakeholder links
+ * exclude platform admin from public promotion and route to each role's
+ * dashboard root (the route boundary safely sends unauthenticated users to
+ * login). Order is explicit (registry order for features, role order for
+ * stakeholders).
+ */
+export function getFooterNavigation(column: FooterColumn, ctx: NavigationContext = {}): ResolvedNavItem[] {
+  if (column === 'stakeholders') {
+    return getAllRoles()
+      .filter(role => role !== 'admin')
+      .map(role => ({
+        id: `stakeholder.${role}`,
+        label: stakeholderLabel(getRoleMetadata(role).title),
+        href: getDashboardRoute(role),
+        external: false,
+        state: 'active' as FeatureLifecycleState,
+        active: true,
+        beta: false,
+        governedTrust: false,
+      }))
+  }
+
+  const footerFeatures = getFeaturesByPlacement('footer')
+  return footerFeatures
+    .filter(f => {
+      const isLegal = LEGAL_FEATURE_IDS.has(f.id)
+      if (column === 'legal') return isLegal
+      if (isLegal) return false
+      return f.id.startsWith(column + '.')
+    })
+    .map(f => ({ f, vis: resolveFeatureVisibility(f, ctx) }))
+    // Only render lifecycle-visible items (active/beta); hidden/disabled/planned excluded.
+    .filter(({ vis }) => vis.visible)
+    .map(({ f, vis }) => ({
+      id: f.id,
+      label: f.label,
+      href: f.route,
+      icon: f.icon,
+      external: false,
+      state: vis.state,
+      active: true,
+      beta: vis.beta,
+      governedTrust: false,
+    }))
+}
+
+/**
+ * Governed social links. Represented as `planned` until real approved URLs are
+ * configured (set `route` + `lifecycle: 'active'`). The footer renders planned
+ * social as accessible-but-disabled (aria-labelled), never as href="#".
+ */
+export interface SocialLink {
+  id: string
+  label: string
+  platform: 'facebook' | 'twitter' | 'instagram' | 'linkedin'
+  url?: string
+  state: FeatureLifecycleState
+}
+
+export const FOOTER_SOCIAL: SocialLink[] = [
+  { id: 'social.facebook', label: 'Facebook', platform: 'facebook', state: 'planned' },
+  { id: 'social.twitter', label: 'X (Twitter)', platform: 'twitter', state: 'planned' },
+  { id: 'social.instagram', label: 'Instagram', platform: 'instagram', state: 'planned' },
+  { id: 'social.linkedin', label: 'LinkedIn', platform: 'linkedin', state: 'planned' },
+]
+
+/** Visible social links (configured/active or planned-but-shown-disabled). Hidden/disabled excluded. */
+export function getFooterSocial(): SocialLink[] {
+  return FOOTER_SOCIAL.filter(s => s.state !== 'hidden' && s.state !== 'disabled')
 }
