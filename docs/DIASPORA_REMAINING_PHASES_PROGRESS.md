@@ -34,7 +34,7 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 | Track D — Google Drive | C (Workbook/Drive) | Activation-ready scaffold verified; keep prod-disabled |
 | Phase 8 — Entitlements | D | **M1 foundation + M2 backend enforcement/API/webhook COMPLETE** (enforcement flag default OFF); UI = M3 pending; staging proof needs EB-1 |
 | Phase 9 — SafeTrade | E | **Design COMPLETE** (durable: docs/DIASPORA_PHASE9_SAFETRADE_DESIGN.md) + **schema/state-machine foundation built & on PR #90**; services/routes/tests **PENDING** (build interrupted by session limit ~2026-06-21, resets 22:00 Asia/Tokyo) |
-| Phase 10 — Trade Graph | F | **Design PARTIAL** (durable: docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md — graph schema + projection done; queries/AI-API/synthesis PENDING); build not started |
+| Phase 10 — Trade Graph | F | **Design COMPLETE** (durable: docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md — schema + projection + explainable queries + AI/redaction/API + build-ready synthesis); build not started |
 | Gate P — Production readiness | A + B | Docs scaffolded; not started |
 
 ---
