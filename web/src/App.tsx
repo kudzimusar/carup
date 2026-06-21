@@ -8,6 +8,8 @@ import type { AuthUser, Notification } from '@shared/types'
 // Layout
 import MainLayout from './components/layout/MainLayout'
 import DashboardLayout from './components/layout/DashboardLayout'
+import { FeatureGovernanceProvider } from './context/FeatureGovernanceContext'
+import { NotFoundPage } from './components/routing/FeatureStatePages'
 
 // Public Pages
 import Landing from './pages/Landing'
@@ -165,6 +167,7 @@ export default function App() {
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
+      <FeatureGovernanceProvider>
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
@@ -283,7 +286,11 @@ export default function App() {
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
         </Route>
+
+        {/* Catch-all — unknown routes render the not-found page (previously blank) */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </FeatureGovernanceProvider>
     </AppContext.Provider>
   )
 }

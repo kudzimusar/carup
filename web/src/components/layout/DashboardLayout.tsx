@@ -17,10 +17,16 @@ import {
   getDashboardRoute,
   getRoleMetadata,
   getAllRoles,
-  canRoleAccessRoute,
   type FeatureRegistryItem,
 } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { evaluateRouteAccess } from '@/lib/routeAccess'
+import {
+  AuthBootstrapLoading,
+  RegistryRouteBoundary,
+} from '@/components/routing/RegistryRouteBoundary'
+import { FeaturePlannedPage, FeatureDisabledPage } from '@/components/routing/FeatureStatePages'
 import type { UserRole } from '@shared/types'
 
 /** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
@@ -32,7 +38,7 @@ export default function DashboardLayout({ role }: { role: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, switchRole } = useAuth()
+  const { user, switchRole, loading } = useAuth()
 
   const handleRoleChange = async (newRole: string) => {
     try {
@@ -45,15 +51,22 @@ export default function DashboardLayout({ role }: { role: string }) {
 
   const registryItems = getDashboardItems(role as UserRole)
   const roleInfo = getRoleMetadata(role as UserRole)
+  const effectiveStates = useFeatureEffectiveStates()
 
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />
-  }
-
-  // Centralized route guard: verify that the user's current role matches the dashboard layout and has access to this route
-  if (user.role !== role || !canRoleAccessRoute(user.role as UserRole, location.pathname)) {
-    return <Navigate to={getDashboardRoute(user.role as UserRole)} replace />
-  }
+  // Centralized, lifecycle-aware route boundary — the SAME decision navigation
+  // uses (loading gate → auth → role → planned/disabled/deprecated). Backend
+  // authorization remains authoritative.
+  const decision = evaluateRouteAccess({
+    route: location.pathname,
+    isBootstrapping: loading,
+    isAuthenticated: !!user,
+    role: (user?.role as UserRole) ?? null,
+    effectiveStates,
+  })
+  if (decision.kind === 'loading') return <AuthBootstrapLoading />
+  if (decision.kind === 'redirect') return <Navigate to={decision.to} replace />
+  if (decision.kind === 'planned') return <FeaturePlannedPage />
+  if (decision.kind === 'disabled') return <FeatureDisabledPage />
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -212,9 +225,11 @@ export default function DashboardLayout({ role }: { role: string }) {
           </div>
         </header>
 
-        {/* Page Content */}
+        {/* Page Content — boundary shows a beta notice above beta features */}
         <main className="p-4 lg:p-6">
-          <Outlet />
+          <RegistryRouteBoundary>
+            <Outlet />
+          </RegistryRouteBoundary>
         </main>
       </div>
     </div>

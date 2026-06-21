@@ -78,3 +78,26 @@ M3 acceptance gate: footer has no placeholder destinations (no href="#") ✅ · 
 | Playwright `30-mobile-navigation-blueprint` (chromium, 390×844) | ✅ 6/6 (focus trap, Escape+focus-return, role matrix, aria-current, close-on-nav) |
 
 M4 acceptance gate: mobile drawer fully registry-driven ✅ · public + 7-role matrix passes ✅ · no hidden/cross-role leakage ✅ · accessibility (focus trap/Escape/aria-current) + responsive (phone viewport) pass ✅ · no duplicate mobile route source remains ✅.
+
+## Milestone 5 — Shared route boundaries & direct-access enforcement ✅
+- Pure evaluator `web/src/lib/routeAccess.ts` (`evaluateRouteAccess`) — the single auditable decision shared by nav visibility AND direct access. Evaluation order: bootstrap → registered → planned/disabled → deprecated(+target) → auth → role → beta → render. Redirect-loop & open-redirect safe (`loginWithReturnTo` reuses `safeReturnTo`).
+- Boundary components `RegistryRouteBoundary` / `RequireAuthenticatedUser` / `RequireFrontendRole` + `AuthBootstrapLoading` (small, separately auditable — not one opaque component).
+- State pages/notices: `FeaturePlannedPage`, `FeatureDisabledPage`, `FeatureUnavailablePage`, `NotFoundPage`, `FeatureBetaNotice`, `FeatureDeprecatedNotice`.
+- `FeatureGovernanceContext` (effective-states provider; empty in M5, hydrated by M6/M7 without blocking first paint).
+- Integration:
+  - `DashboardLayout` now uses the evaluator (adds the **auth-bootstrap loading gate** + lifecycle handling; preserves the prior auth+role redirects).
+  - `MainLayout` wraps its `<Outlet>` in a **lifecycle-only** boundary (`enforceAuth=false`) — planned/disabled/deprecated/beta enforced on public routes without changing existing public-page auth behavior.
+  - `App.tsx`: added `FeatureGovernanceProvider` + a **catch-all `*` NotFound route** (previously unknown routes rendered blank).
+- `returnTo` sanitization preserved (existing `returnTo.ts`); login redirect now carries `?returnTo=<sanitized>`.
+
+### M5 test results (run 2026-06-21)
+| Command | Result |
+|---|---|
+| `vitest` routeAccess (web) | ✅ 12 tests (all evaluation-order cases incl. no-redirect-loop, return-to sanitization) |
+| `npm run test:unit --workspace=web` | ✅ 17 files / 174 tests |
+| `tsc --noEmit` | ✅ clean |
+| `npm run build` | ✅ main JS 2,057.09 kB / gzip 542.21 |
+| Playwright `31-navigation-route-boundary` (chromium) | ✅ 5/5 (unauth redirect+return-to, wrong-role redirect, correct-role render, NotFound, public render) |
+| Playwright `27`+`28`+`30` (regression) | ✅ 19/19 (no dashboard/role-switch/mobile regression) |
+
+M5 acceptance gate: repeated guard logic centralized ✅ · direct access + nav visibility use the same effective-state decision ✅ · existing active routes behave identically (regression green) ✅ · auth + return-to regressions pass ✅.
