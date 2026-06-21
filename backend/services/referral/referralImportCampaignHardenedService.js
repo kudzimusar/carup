@@ -125,7 +125,8 @@ export class ReferralImportCampaignHardenedService extends ReferralImportCampaig
       const code = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { id: leadEvent.code_id });
       if (code?.owner_user_id) return code.owner_user_id;
     }
-    const referralCode = normalizeReferralCode(input.referral_code || metadata.referral_code || '');
+    // Lead-first so preflight guards resolve the same owner that is credited.
+    const referralCode = normalizeReferralCode(metadata.referral_code || input.referral_code || '');
     if (referralCode) {
       const code = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { code: referralCode });
       if (code?.owner_user_id) return code.owner_user_id;
