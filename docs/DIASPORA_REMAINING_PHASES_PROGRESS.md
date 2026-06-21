@@ -20,7 +20,7 @@
 | Track | Owner role | Status |
 | --- | --- | --- |
 | R0 — Phases 3–7 release readiness | B (Release Gate & Security) | Discovery done; H9 = `SKIPPED — SECRET UNAVAILABLE`; needs staging secret |
-| Track W — XLSX workbook | C (Workbook/Drive) | Discovery done; not started |
+| Track W — XLSX workbook | C (Workbook/Drive) | **Foundation COMPLETE** (exceljs; template gen + base64 upload dry-run reusing JSON validation + export + formula-injection safety + upload security); routes mounted; live import still draft-only |
 | Track D — Google Drive | C (Workbook/Drive) | Activation-ready scaffold verified; keep prod-disabled |
 | Phase 8 — Entitlements | D | **M1 foundation + M2 backend enforcement/API/webhook COMPLETE** (enforcement flag default OFF); UI = M3 pending; staging proof needs EB-1 |
 | Phase 9 — SafeTrade | E | Discovery done; not started |
@@ -140,6 +140,37 @@
 - **Commit SHA:** _(filled on commit)_.
 - **Next milestone:** M3 — Phase 8 frontend (plan comparison, status, usage dashboard, upgrade flow,
   feature-lock explanations) + e2e; and Track W XLSX foundation (parallel).
+
+### M-W1 — XLSX workbook foundation (COMPLETE) — Wave 2 (Track W)
+- **Objective:** Real .xlsx template generation, upload parsing (reusing the existing JSON dry-run
+  validation), and export with formula-injection safety + upload security.
+- **Assigned:** Agent C (build), Agent A (exceljs dependency add + serial router mount + verify).
+- **Dependency added (Agent A):** `exceljs@^4.4.0` (backend workspace) — lockfile change purely
+  additive (769 insertions, 0 deletions).
+- **Files changed:**
+  - `backend/constants/diaspora/diasporaWorkbookTemplates.js` (NEW — config-driven template catalog).
+  - `backend/services/diaspora/workbook/diasporaWorkbookXlsxService.js` (NEW — generateTemplate /
+    parseWorkbook / exportWorkbook; formula cells read as values, never evaluated).
+  - `backend/services/diaspora/workbook/diasporaWorkbookUploadSecurity.js` (NEW — MIME/ext allowlist,
+    size/sheet/row/cell bounds, filename normalization, formula neutralizer, sha256).
+  - `backend/routes/diasporaWorkbookXlsxRoutes.js` (NEW — template.xlsx download, base64 xlsx dry-run
+    reusing `runAndPersistDiasporaWorkbookDryRun`, export).
+  - `backend/routes/diasporaRoutes.js` (MOD, **integration-owned** — mounted xlsx router).
+  - `backend/tests/diaspora-workbook-xlsx.test.js` (NEW — 24 tests).
+- **Security decisions:** parser outputs the EXACT existing normalized shape `{templateType, sheets}`
+  → no fork of the validated dry-run path; **never overwrites stock / never bypasses gates** (live
+  import remains draft-only as before); formula injection neutralized on export (`= + @ - \t \r` →
+  leading `'`); `.xlsm`/`.xls` rejected; bounds maxBytes 10MB / 12 sheets / 5000 rows / 200k cells.
+- **Tests (independently re-run by Agent A):** xlsx **24/24**; workbook regression **22/22**; full
+  `diaspora-*.test.js` suite **373 tests, 366 pass, 0 fail, 7 skipped**; route-auth regression 8/8;
+  `node --check` clean on mounted routes.
+- **Known limitations:** base64-in-JSON upload (multipart/streaming for very large files = future
+  work, bounded by 10MB pre-parse check); `normalizeWorkbookTemplateType` still maps supplier/
+  container_reservation → enterprise for validation (owned by existing validator, not forked);
+  live XLSX import execution still intentionally disabled (Phase 1C draft-only).
+- **Blockers:** none. (Drive export-to-xlsx wiring waits on Track D live activation EB-2.)
+- **Commit SHA:** _(filled on commit)_.
+- **Next milestone:** Phase 8 M3 frontend; then Phase 9 SafeTrade foundation (Wave 4).
 
 ## Agent ownership (Section 7)
 

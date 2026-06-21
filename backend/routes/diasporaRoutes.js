@@ -2,6 +2,7 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
+import diasporaWorkbookXlsxRouter from './diasporaWorkbookXlsxRoutes.js';
 import diasporaStockRouter from './diasporaStockRoutes.js';
 import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
@@ -37,6 +38,9 @@ function pagination(req) {
 
 // Phase 1A: Diaspora Workbook Center. Mounted inside /api/diaspora by server.js.
 router.use(diasporaWorkbookRouter);
+
+// Track W: real .xlsx template download, base64 upload dry-run (reuses JSON validation), and export.
+router.use(diasporaWorkbookXlsxRouter);
 
 // Phase 3: Online stock, immutable stock ledger, and supply documents.
 router.use(diasporaStockRouter);

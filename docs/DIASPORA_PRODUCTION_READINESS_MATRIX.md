@@ -56,7 +56,7 @@ local/test → CI → staging DB (`eoyenigwevnxwwhyhaer`) → staging FE/BE → 
 
 | Flag | Default | Controls |
 | --- | --- | --- |
-| `DIASPORA_XLSX_ENABLED` | off | XLSX import/export |
+| `DIASPORA_XLSX_ENABLED` | off | XLSX import/export (foundation built; routes mounted; import stays draft-only) |
 | `DIASPORA_DRIVE_ENABLED` | off | live Drive (mock blocked in prod) |
 | `DIASPORA_SUBSCRIPTION_ENFORCEMENT` | off→staged | entitlement enforcement |
 | `DIASPORA_SAFETRADE_SANDBOX` | off | SafeTrade sandbox |
