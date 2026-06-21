@@ -15,6 +15,13 @@ import type {
   EvidenceSourcesResponse,
   TemporalFindingsResponse,
   DisclosureConflictsResponse,
+  GovernanceTaskType,
+  GovernanceReviewQueueResponse,
+  GovernanceDecisionPayload,
+  GovernanceDecisionResponse,
+  VehicleDisputesResponse,
+  SubmitDisputePayload,
+  DisputeMutationResponse,
   TimelineEvent,
   MarketplaceListingsResponse,
   MarketplaceListingDetail,
@@ -335,6 +342,24 @@ export function useCarUpApi() {
   // shape; empty is expected and correct for most buyer-facing vehicles.
   const fetchDisclosureConflicts = useCallback(async (vin: string): Promise<DisclosureConflictsResponse> => {
     return request<DisclosureConflictsResponse>(`/vehicles/${encodeURIComponent(vin)}/disclosure-conflicts`)
+  }, [request])
+
+  // --- Milestone 5: governance, disputes & corrections ---
+  const fetchReviewQueue = useCallback(async (taskType?: GovernanceTaskType): Promise<GovernanceReviewQueueResponse> => {
+    const query = taskType ? `?taskType=${encodeURIComponent(taskType)}` : ''
+    return request<GovernanceReviewQueueResponse>(`/governance/review-queue${query}`)
+  }, [request])
+
+  const submitGovernanceDecision = useCallback(async (payload: GovernanceDecisionPayload): Promise<GovernanceDecisionResponse> => {
+    return request<GovernanceDecisionResponse>('/governance/decisions', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchVehicleDisputes = useCallback(async (vin: string): Promise<VehicleDisputesResponse> => {
+    return request<VehicleDisputesResponse>(`/vehicles/${encodeURIComponent(vin)}/disputes`)
+  }, [request])
+
+  const submitDispute = useCallback(async (payload: SubmitDisputePayload): Promise<DisputeMutationResponse> => {
+    return request<DisputeMutationResponse>('/governance/disputes', { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
@@ -1069,6 +1094,10 @@ export function useCarUpApi() {
     fetchEvidenceSources,
     fetchTemporalFindings,
     fetchDisclosureConflicts,
+    fetchReviewQueue,
+    submitGovernanceDecision,
+    fetchVehicleDisputes,
+    submitDispute,
     approveEvidence,
     rejectEvidence,
     lookupVehiclePassport,
