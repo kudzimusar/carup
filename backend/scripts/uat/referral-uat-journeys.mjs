@@ -99,14 +99,14 @@ function assertStagingTarget(config) {
     }
   }
 
-  // 4. The API host itself must be recognisably staging (and never bare production-looking hosts).
-  const looksStaging =
-    host.includes('staging') ||
-    host.includes('stg') ||
-    host.includes('uat') ||
-    host.includes('localhost') ||
-    host.startsWith('127.0.0.1') ||
-    haystack.includes(STAGING_SUPABASE_REF);
+  // 4. The API host itself must be POSITIVELY proven to be staging. A bare
+  //    "uat"/"stg" substring on an arbitrary host is not enough (it would admit
+  //    e.g. uat-api.attacker.example); require localhost, an exact staging
+  //    Supabase ref, or a CarUp host carrying a staging marker.
+  const isLocal = host === 'localhost' || host.startsWith('localhost:') || host.startsWith('127.0.0.1');
+  const refProven = haystack.includes(STAGING_SUPABASE_REF);
+  const carupStagingHost = host.includes('carup') && (host.includes('staging') || host.includes('stg') || host.includes('uat'));
+  const looksStaging = isLocal || refProven || carupStagingHost;
   if (!looksStaging) {
     console.error('ABORT: not staging');
     console.error(
@@ -964,6 +964,28 @@ async function journey10AgentTriage() {
 // Summary table + exit code.
 // ---------------------------------------------------------------------------
 function printSummary() {
+  // --- Release gates (run before tallying so a SKIP can never mask a failure) ---
+  // 1. A SKIP on a release-critical step (reward / attribution / wallet proofs)
+  //    must never count as a pass — escalate it to a FAIL.
+  const CRITICAL_STEP = /attribution|reward|wallet|CRITICAL/i;
+  for (const r of RESULTS) {
+    if (r.status === 'SKIP' && CRITICAL_STEP.test(r.step)) {
+      r.status = 'FAIL';
+      r.message = `release-critical step skipped: ${r.message}`.trim();
+    }
+  }
+  // 2. Journey 3's correct-owner attribution proof MUST have executed and passed;
+  //    a proof that never ran (prerequisite failed) cannot leave the run green.
+  const attributionProof = RESULTS.find((r) => /CRITICAL: wallet transaction owner/i.test(r.step));
+  if (!attributionProof || attributionProof.status !== 'PASS') {
+    RESULTS.push({
+      journey: 'Journey 3 — Owner bundle -> local lead -> reward -> CORRECT wallet',
+      step: 'release gate: correct-owner wallet attribution proof executed and passed',
+      status: 'FAIL',
+      message: attributionProof ? 'proof did not pass' : 'proof did not run (prerequisite failed)',
+    });
+  }
+
   const counts = { PASS: 0, FAIL: 0, SKIP: 0 };
   for (const r of RESULTS) counts[r.status] += 1;
 
