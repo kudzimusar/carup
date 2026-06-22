@@ -67,7 +67,12 @@ import type {
   DiasporaDriveStatus,
   DiasporaDriveAuthUrl,
   DiasporaDriveFile,
-  DiasporaDriveConnection
+  DiasporaDriveConnection,
+  Plan,
+  SubscriptionStatus,
+  EffectiveEntitlements,
+  UsageResponse,
+  SandboxBillingActionResponse
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -848,6 +853,49 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 8: Subscription, entitlements & sandbox billing ──
+  // Reads are tenant-scoped to any authenticated user; management actions are server-gated (Gate S8-A
+  // returns 403 for non-managers — the backend remains authoritative).
+  const getDiasporaSubscriptionPlans = useCallback(async (): Promise<Plan[]> => {
+    const response = await request<{ data: Plan[] }>('/diaspora/subscription/plans')
+    return response.data || []
+  }, [request])
+
+  const getDiasporaSubscriptionStatus = useCallback(async (): Promise<SubscriptionStatus> => {
+    const response = await request<{ data: SubscriptionStatus }>('/diaspora/subscription/status')
+    return response.data
+  }, [request])
+
+  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlements> => {
+    const response = await request<{ data: EffectiveEntitlements }>('/diaspora/subscription/entitlements')
+    return response.data || {}
+  }, [request])
+
+  const getDiasporaUsage = useCallback(async (): Promise<UsageResponse> => {
+    const response = await request<{ data: UsageResponse }>('/diaspora/subscription/usage')
+    return response.data
+  }, [request])
+
+  const createDiasporaCheckout = useCallback(async (planKey: string): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/checkout', { method: 'POST', body: JSON.stringify({ planKey }) })
+    return response.data
+  }, [request])
+
+  const createDiasporaBillingPortal = useCallback(async (): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/portal', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const changeDiasporaPlan = useCallback(async (planKey: string): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/change-plan', { method: 'POST', body: JSON.stringify({ planKey }) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaSubscription = useCallback(async (atPeriodEnd: boolean): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/cancel', { method: 'POST', body: JSON.stringify({ atPeriodEnd }) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1358,6 +1406,14 @@ export function useCarUpApi() {
     fetchDiasporaDriveFiles,
     disconnectDiasporaDrive,
     syncDiasporaDrive,
+    getDiasporaSubscriptionPlans,
+    getDiasporaSubscriptionStatus,
+    getDiasporaEntitlements,
+    getDiasporaUsage,
+    createDiasporaCheckout,
+    createDiasporaBillingPortal,
+    changeDiasporaPlan,
+    cancelDiasporaSubscription,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
