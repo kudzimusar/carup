@@ -382,7 +382,7 @@ export class ReferralImportCampaignService {
         attribution: validation?.valid ? validation.attribution : null,
         referral_code: validation?.valid ? validation.code.code : referralCode,
         coupon: coupon ? { applied: coupon.applied, discount_amount: coupon.discount_amount || 0, reason: coupon.reason || null } : null,
-        waitlisted: [IMPORT_CAPACITY_STATUSES.FULL, IMPORT_CAPACITY_STATUSES.CLOSED].includes(effectiveCapacityStatus),
+        waitlisted: input.waitlisted === true || [IMPORT_CAPACITY_STATUSES.FULL, IMPORT_CAPACITY_STATUSES.CLOSED].includes(effectiveCapacityStatus),
         next_steps: buildImportNextSteps(intent.flow_type, effectiveCapacityStatus),
       },
     }, actor);

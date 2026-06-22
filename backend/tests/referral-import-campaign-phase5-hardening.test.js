@@ -68,6 +68,16 @@ test('import lead creation rejects requested space above latest available capaci
   assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.IMPORT_LEAD_CREATED), false);
 });
 
+test('import lead with allow_waitlist is waitlisted (not rejected) when over available capacity', async () => {
+  const { importCampaign } = createHarness();
+  await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 4 }, operatorActor);
+  await importCampaign.updateCapacity({ route_key: 'japan-zimbabwe-container-space', flow_type: 'container_space', total_cbm: 10, booked_cbm: 6 }, operatorActor);
+  // available = 4; request 5 with waitlist mode must be accepted and flagged waitlisted.
+  const lead = await importCampaign.createLead({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', requested_cbm: 5, allow_waitlist: true, session_id: 'waitlist-lead', contact: { user_id: 'wl-buyer' } }, buyerActor);
+  assert.equal(lead.success, true);
+  assert.equal(lead.lead.waitlisted, true);
+});
+
 test('latest route capacity update wins when multiple updates share fixed timestamps', async () => {
   const { importCampaign } = createHarness();
   await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 2 }, operatorActor);
