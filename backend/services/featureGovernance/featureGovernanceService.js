@@ -27,44 +27,79 @@ function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
 }
 
+/** Verify a user's membership of an organization; returns the tenant_users row or null. */
+async function verifyTenantMembership(client, userId, organizationId) {
+  if (!organizationId) return null;
+  const { data } = await client.from('tenant_users').select('role').eq('tenant_id', organizationId).eq('user_id', userId);
+  return (data || [])[0] || null;
+}
+
 /**
  * Resolve a TRUSTED, server-derived request context for the public effective
- * endpoint. Anonymous requests are fully supported (returns null role/tenant).
- * The role is read from the `users` table for the session's user — client role
- * headers (x-stakeholder-role) are NEVER trusted. A claimed tenant (x-tenant-id)
- * is honoured only when membership is verified in `tenant_users`. Never throws;
- * any failure degrades to anonymous (fail closed to least privilege).
+ * endpoint, following the SAME contract as /api/auth/switch-role + authorizeRole:
+ *
+ *  - The current role/tenant come from the SESSION (`user_sessions.active_role`,
+ *    `active_organization_id`) — these are server-issued at switch time. Client
+ *    role/tenant headers (x-stakeholder-role / x-tenant-id) are NEVER trusted as
+ *    authority.
+ *  - The switched context is RE-VERIFIED here (defends against a stale session
+ *    whose membership/role was revoked after the switch):
+ *      • no active_role            → base platform role (`users.role`), no tenant;
+ *      • active_role == base role  → base role; tenant only if active_org membership verifies;
+ *      • active_role != base role  → requires active_organization_id AND a
+ *        `tenant_users` membership whose role matches active_role (and is not
+ *        admin); otherwise fall back to LEAST PRIVILEGE (base role, no tenant).
+ *  - Anonymous requests are fully supported. Never throws; any failure degrades
+ *    to anonymous / least privilege.
  */
 export async function resolveRequestContext(req, { client = defaultClient } = {}) {
   const headers = (req && req.headers) || {};
   const token = headers['x-session-token'] || (headers['authorization'] ? String(headers['authorization']).replace('Bearer ', '') : null);
   const fallbackUserId = headers['x-user-id'];
-  const claimedTenant = headers['x-tenant-id'] || null;
 
   try {
+    let session = null;
     let userId = null;
     if (token) {
-      const { data } = await client.from('user_sessions').select('user_id, is_valid, expires_at').eq('token', token);
-      const session = (data || [])[0];
-      if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
-        userId = session.user_id;
+      const { data } = await client
+        .from('user_sessions')
+        .select('user_id, active_role, active_organization_id, is_valid, expires_at')
+        .eq('token', token);
+      const row = (data || [])[0];
+      if (row && row.is_valid && new Date(row.expires_at) >= new Date()) {
+        session = row;
+        userId = row.user_id;
       }
     }
     if (!userId && fallbackUserId && isUserIdFallbackAllowed()) {
-      userId = fallbackUserId;
+      userId = fallbackUserId; // dev/test fallback: no session row → base role only
     }
     if (!userId) return { role: null, tenantId: null }; // anonymous
 
+    // Trusted base platform role.
     const { data: users } = await client.from('users').select('role').eq('id', userId);
-    const role = normalizeRole((users || [])[0]?.role);
+    const baseRole = normalizeRole((users || [])[0]?.role);
 
-    // Tenant is honoured ONLY if the user is a verified member of the claimed tenant.
-    let tenantId = null;
-    if (claimedTenant) {
-      const { data: tu } = await client.from('tenant_users').select('role').eq('tenant_id', claimedTenant).eq('user_id', userId);
-      if ((tu || []).length > 0) tenantId = claimedTenant;
+    const activeRole = normalizeRole(session?.active_role);
+    const activeOrg = session?.active_organization_id || null;
+
+    // No switched context recorded → base role.
+    if (!activeRole) return { role: baseRole, tenantId: null };
+
+    // Acting as the base role: tenant applies only if the org membership verifies.
+    if (activeRole === baseRole) {
+      const membership = await verifyTenantMembership(client, userId, activeOrg);
+      return { role: baseRole, tenantId: membership ? activeOrg : null };
     }
-    return { role, tenantId };
+
+    // Switched (tenant) role: must be backed by a verified, matching, non-admin
+    // tenant_users membership — mirrors switch-role's canAssumeRequestedRole.
+    const membership = await verifyTenantMembership(client, userId, activeOrg);
+    if (activeOrg && membership && normalizeRole(membership.role) === activeRole && activeRole !== 'admin') {
+      return { role: activeRole, tenantId: activeOrg };
+    }
+    // Stale / unverifiable switched context → least privilege.
+    return { role: baseRole, tenantId: null };
   } catch {
     return { role: null, tenantId: null }; // fail closed
   }

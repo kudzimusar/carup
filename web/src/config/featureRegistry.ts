@@ -273,6 +273,11 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
     badge: 'Upload',
     description: 'Upload and manage vehicle evidence photos and documents',
+    // `isHidden` here means "exclude from duplicate-route validation" (it shares
+    // /dashboard/garage with owner.garage) — NOT "hide from navigation". It is a
+    // legitimately VISIBLE sidebar entry, so its lifecycle is explicitly active
+    // (explicit lifecycle wins over the legacy boolean in getStaticLifecycle).
+    lifecycle: 'active',
     isHidden: true,
   },
   {

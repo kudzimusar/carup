@@ -673,7 +673,7 @@
     "id": "owner.evidence-vault",
     "domain": "evidence",
     "route": "/dashboard/garage",
-    "defaultLifecycle": "hidden",
+    "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"
     ],
