@@ -121,7 +121,9 @@ export default function VehicleLifeStageTimeline({
   taxonomy,
   sources,
 }: VehicleLifeStageTimelineProps) {
-  const legacyMap = taxonomy?.legacy_type_to_class ?? {}
+  // Memoised so the `{}` fallback is stable across renders and does not force the
+  // downstream useMemo to recompute every render (react-hooks/exhaustive-deps).
+  const legacyMap = useMemo(() => taxonomy?.legacy_type_to_class ?? {}, [taxonomy])
 
   const sourceLabelById = useMemo(() => {
     const map: Record<string, string> = {}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -37,26 +37,26 @@ export default function GovernanceReviewQueue() {
   const { fetchReviewQueue, submitGovernanceDecision } = useCarUpApi()
   const [tab, setTab] = useState<'all' | GovernanceTaskType>('all')
   const [items, setItems] = useState<GovernanceReviewItem[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
 
   const role = String(user?.role || '').toLowerCase()
   const authorized = REVIEWER_ROLES.includes(role)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetchReviewQueue(tab === 'all' ? undefined : tab)
-      setItems(res.queue || [])
-    } catch (e) {
-      toast.error(`Failed to load review queue: ${(e as Error).message}`)
-    } finally {
-      setLoading(false)
-    }
-  }, [fetchReviewQueue, tab])
-
-  useEffect(() => { if (authorized) void load() }, [authorized, load])
+  // Fetch on mount + tab change without synchronous setState in the effect
+  // (react-hooks/set-state-in-effect): updates happen only in async continuations.
+  // The spinner is driven by `loading` (initialised true; set true again on tab change
+  // inside the Tabs onValueChange event handler, where setState is permitted).
+  useEffect(() => {
+    if (!authorized) return
+    let mounted = true
+    fetchReviewQueue(tab === 'all' ? undefined : tab)
+      .then((res) => { if (mounted) setItems(res.queue || []) })
+      .catch((e) => { if (mounted) toast.error(`Failed to load review queue: ${(e as Error).message}`) })
+      .finally(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
+  }, [authorized, tab, fetchReviewQueue])
 
   const keyOf = (it: GovernanceReviewItem) => `${it.target_type}:${it.target_id}`
 
@@ -105,7 +105,7 @@ export default function GovernanceReviewQueue() {
         never changed here.
       </p>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'all' | GovernanceTaskType)}>
+      <Tabs value={tab} onValueChange={(v) => { setTab(v as 'all' | GovernanceTaskType); setLoading(true) }}>
         <TabsList>
           {TASK_TABS.map((t) => <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>)}
         </TabsList>

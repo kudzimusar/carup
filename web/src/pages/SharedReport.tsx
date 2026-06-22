@@ -46,16 +46,13 @@ export default function SharedReport() {
   const { token } = useParams<{ token: string }>()
   const { fetchSharedReport } = useCarUpApi()
   const [result, setResult] = useState<SharedReportResult | null>(null)
-  const [loading, setLoading] = useState(true)
+  // Loading starts true only when there is a token to fetch. The "no token" case is handled
+  // in render, so the effect never needs a synchronous setState (react-hooks/set-state-in-effect).
+  const [loading, setLoading] = useState(() => Boolean(token))
 
   useEffect(() => {
-    if (!token) {
-      setResult({ status: 'not_found' })
-      setLoading(false)
-      return
-    }
+    if (!token) return
     let mounted = true
-    setLoading(true)
     fetchSharedReport(token)
       .then((res) => {
         if (mounted) setResult(res)
@@ -74,7 +71,16 @@ export default function SharedReport() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="section-padding mx-auto max-w-[1100px] py-10">
-        {loading || !result ? (
+        {!token ? (
+          <div className="py-24">
+            <CenteredState
+              icon={FileQuestion}
+              iconClass="bg-gray-100 text-gray-500"
+              title="Report not found"
+              message="We could not find a shared report for this link. Please check the URL or request a new link."
+            />
+          </div>
+        ) : loading || !result ? (
           <div className="flex flex-col items-center py-24 text-gray-400" data-testid="shared-report-loading">
             <Loader2 className="h-8 w-8 animate-spin" aria-hidden="true" />
             <p className="mt-3 text-sm">Loading shared report…</p>

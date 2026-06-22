@@ -267,14 +267,15 @@ export default function VehicleDetail() {
   const [reportBusy, setReportBusy] = useState(false)
   const [shareLink, setShareLink] = useState<string | null>(null)
 
+  // Vehicle History Report fetch. No synchronous setState in the effect body
+  // (react-hooks/set-state-in-effect): reportLoading is initialised true and all state
+  // updates happen in async continuations; error is cleared on a successful load.
   useEffect(() => {
     const vin = vehicle?.vin || id
     if (!vin) return
     let mounted = true
-    setReportLoading(true)
-    setReportError(null)
     fetchVehicleReport(vin)
-      .then((data) => { if (mounted) setReport(data) })
+      .then((data) => { if (mounted) { setReport(data); setReportError(null) } })
       .catch((err) => { if (mounted) setReportError(err instanceof Error ? err.message : 'Report unavailable') })
       .finally(() => { if (mounted) setReportLoading(false) })
     return () => { mounted = false }

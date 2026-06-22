@@ -30,6 +30,8 @@ jobs:
       ALLOW_OCR_MOCK: 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so the lint gate can lint the base branch
 
       - uses: actions/setup-node@v4
         with:
@@ -39,17 +41,30 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
+      # BLOCKING gate: fail on ANY net-new lint error/warning vs the base branch.
+      # `main` carries historical lint debt, so a plain `eslint .` zero-error gate is impossible;
+      # this compares PR vs base by stable path/rule/severity and fails only on regressions.
+      # No global rule disables, no `|| true`.
+      - name: Lint regression gate (no new errors/warnings vs base)
+        env:
+          LINT_BASE_REF: origin/${{ github.base_ref || 'main' }}
+        run: node scripts/lint-baseline-gate.mjs
+
+      # Everything below runs AFTER the regression gate.
       - name: Web typecheck
         run: npx tsc --noEmit --project web/tsconfig.app.json
 
-      - name: Lint (web)
-        run: npm run lint
+      - name: Lint inventory (advisory — full-repo debt, non-blocking)
+        run: npm run lint || true
 
       - name: Web build
         run: npm run build
 
       - name: Backend tests (node:test)
         run: node --test backend/tests/*.test.js
+
+      - name: Migration verification (isolated PGlite Postgres)
+        run: node database/test/migration_pglite_check.mjs
 
       - name: git diff --check (whitespace / conflict markers)
         run: git diff --check HEAD~1 HEAD || true
