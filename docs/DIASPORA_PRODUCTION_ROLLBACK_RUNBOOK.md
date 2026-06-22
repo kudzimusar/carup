@@ -33,6 +33,18 @@
 Never auto-release, auto-refund, or auto-capture during rollback. All payment state stays held;
 resolve via the dispute/manual-review path. Real-money actions remain disabled unless EB-4 active.
 
+## Trade Graph projection (Phase 10) rollback
+The graph is **derived and rebuildable**, so rollback is low-risk:
+1. **Disable first:** set `DIASPORA_TRADE_GRAPH` OFF — the gate is scoped to `/trade-graph`, so sibling
+   diaspora routes are unaffected (proven by the route-isolation regression). This is the primary action.
+2. If projections diverged or a bad event poisoned data, **rebuild** the tenant graph
+   (`rebuildTenantGraph`, admin-only) — it re-derives from authoritative tables/events; no domain data
+   is at risk because the graph is never a source of truth.
+3. Inspect `trade_graph_dead_letters` for un-projected events; replay via `projectPendingEvents` after
+   the fault is resolved. Per-event SAVEPOINT isolation means one bad event never blocks the batch.
+4. If the migration itself must be reversed, apply its `-- +migrate Down` (drops the 7 graph tables +
+   RPCs); no authoritative data is affected.
+
 ## Data integrity invariants to re-check after any rollback
 - Stock ledger immutability (no deletes; balances reconcile).
 - Quota reservations released, not orphaned.

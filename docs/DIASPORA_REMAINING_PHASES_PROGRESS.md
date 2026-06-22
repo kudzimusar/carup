@@ -34,7 +34,7 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 | Track D — Google Drive | C (Workbook/Drive) | Activation-ready scaffold verified; keep prod-disabled |
 | Phase 8 — Entitlements | D | **M1 foundation + M2 backend enforcement/API/webhook COMPLETE** (enforcement flag default OFF); UI = M3 pending; staging proof needs EB-1 |
 | Phase 9 — SafeTrade | E | **Backend COMPLETE** — 7 services, atomic RPCs, 2 migrations, routes mounted, 47 tests; adversarial-reviewed (1 HIGH + 1 MED fixed, rest tracked as ST-3); sandbox-only/fail-closed. UI (M-S2) + staging proof (EB-1) pending |
-| Phase 10 — Trade Graph | F | **Design COMPLETE** (durable: docs/DIASPORA_PHASE10_TRADE_GRAPH_DESIGN.md — schema + projection + explainable queries + AI/redaction/API + build-ready synthesis); build not started |
+| Phase 10 — Trade Graph | F | **Backend COMPLETE & CLOSED (Gate T10)** — build + 4 adversarial fix rounds + holistic review (CRITICAL+HIGH+MED fixed) + final re-review **PASS (HIGH=0)**. Router mounted scoped at `/trade-graph`; route-shadowing proven; full suite **590/583/0-fail/7-skip**. UI (UI-10) + staging proof (EB-1) pending |
 | Gate P — Production readiness | A + B | Docs scaffolded; not started |
 
 ---
@@ -240,6 +240,67 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 - **Commit SHA:** _(filled on commit)_.
 - **Next milestone:** Phase 10 build (design ready), then Phase 8/9/10 UIs + e2e, Drive hardening,
   Wave 6 integration + adversarial review, Wave 7 readiness/runbooks + final §87 report.
+
+### M10 — Phase 10 Trade Graph backend, Gate T10 closure (COMPLETE) — Wave 5
+- **Objective:** Tenant-safe, event-derived, AI-redacted Trade Graph (Postgres node/edge), built from
+  the committed design, hardened through adversarial review until HIGH=0, mounted, route-shadowing
+  proven, full suite green.
+- **Assigned:** workflows (build + 4 fix rounds + holistic review) under Agent F; Agent A integrated.
+
+**Files (all NEW unless noted):**
+- migration `database/migrations/20260621140000_diaspora_phase10_trade_graph.sql` — 7 tables
+  (trade_graph_nodes, _edges, _projection_checkpoints, _processed_events, _dead_letters, _rebuilds,
+  _materialized_summaries) + RPCs (record_checkpoint, request_rebuild). RLS×7, REVOKE PUBLIC×9,
+  0 PUBLIC grants, search_path, service_role-only writes. **NOT applied to any DB.**
+- `backend/constants/diaspora/diasporaTradeGraphConstants.js` (event/node/edge enums, projection
+  mapping incl. SafeTrade, redaction policy + TOKENIZED_ID fields, `isTradeGraphEnabled` flag).
+- `backend/services/diaspora/tradegraph/{diasporaTradeGraphProjectionService,diasporaTradeGraphService,
+  diasporaTradeIntelligenceService,diasporaTradeGraphRedaction}.js`.
+- `backend/routes/diasporaTradeGraphRoutes.js` (§60 API; gate scoped; NOT self-mounted).
+- `backend/routes/diasporaRoutes.js` (MOD, **integration-owned** — mounted at `/trade-graph`).
+- tests: `diaspora-trade-graph{,-constants,-projection,-queries,-redaction,-route-isolation}.test.js`
+  + helper `diasporaTradeGraphRpcReference.js`.
+
+**Adversarial review rounds (actual outputs, not "expected zero"):**
+| Round | Scope | Result |
+| --- | --- | --- |
+| 1 (build verify, 4 dims) | tenant / projection / redaction / no-write-bypass | **6 HIGH**: tenant 2 (neighbor-tenant JOIN; RLS-bypass app-layer), projection 3 (no soft-delete; dead-letter in aborted txn; event.id not delivered), redaction 1 (raw node.data/edge.metadata). no-write-bypass PASS. |
+| 2 (fix+reverify) | tenant / projection / redaction | tenant **PASS**; redaction **2 HIGH** (participant-id fields unredacted; match-explanation raw seller_id) + 1 MED (region prefix); projection re-verify died (infra). |
+| 3 (fix+reverify) | redaction / projection | redaction **1 HIGH** (participant-node entityId == raw id); projection **1 HIGH** (subscriber wrapper loses event.id). |
+| 4 (fix+reverify) | redaction / projection | redaction **PASS**; projection **1 HIGH** (catch-and-continue on Postgres-aborted txn — no SAVEPOINT). |
+| 5 (savepoint fix+reverify) | projection | projection **PASS** (SAVEPOINT isolation, load-bearing negative controls). |
+| Gate-T10 required tests | nested/array redaction, AI-payload capture, crash/replay, route-authz | **caught + fixed** a real leak: `document_id`/record-id fields unredacted → folded into TOKENIZED_ID (recursive). |
+| Holistic review | all dimensions | **FAIL**: **1 CRITICAL** (SOFT_DELETE_EDGE SQL `$6/$7` vs 6 params — revocation throws on real PG; mock masked it), **1 HIGH** (rebuild middleware admitted tenant-admin), **1 MED** (doc-id naming). |
+| Fixes + 29-query param audit | binding + auth + naming | CRITICAL fixed ($5/$6 + mock binds by real `$N`) + only-mismatch confirmed via audit; HIGH fixed (platform-only middleware + route + service checks); MED fixed (TOKENIZED_ID rename). |
+| **Final re-review** | all dimensions | **VERDICT: PASS — 0 HIGH/CRITICAL**, all prior closed, no regressions. |
+
+**Closure evidence (mandatory order):**
+- Targeted suites then together: graph suite **158/158**.
+- Full Diaspora suite **pre-mount: 578 / 571 pass / 0 fail / 7 skip**.
+- Router mounted serially by Agent A at `/trade-graph` (gate scoped to prefix — NOT a blanket
+  diaspora-root guard; the SafeTrade lesson applied).
+- Full Diaspora suite **post-mount: 590 / 583 pass / 0 fail / 7 skip** (no regression = no shadowing).
+- **Route-shadowing regression** `diaspora-trade-graph-route-isolation.test.js` **12/12**: with the
+  flag OFF, stock/RFQ/buyer-orders/AI/containers/reservations/shipments/OCR-documents/subscription/
+  workbook AND SafeTrade all reach their own handlers; `/trade-graph/*` is inert (404).
+- **Projection replay/crash evidence:** crash-between-receipt-and-completion test (fault before the
+  processed-ledger insert) proves the event stays retryable + replay converges to the clean-run graph
+  (content-addressable equality); out-of-order + duplicate delivery converge; per-event SAVEPOINT
+  isolates a poisoned event so following events still project.
+- **PII-to-AI-boundary capture:** test captures the exact `structuredContextForAi` payload, deep-
+  serializes it, asserts NO raw participant id / email / phone / address / document id present (only
+  `PARTICIPANT:<token>` / `[REDACTED]` / `[REGION]`). Nested-object/array adversarial redaction proven.
+- `node --check` clean on all changed backend files; `git diff --check` clean; migration sanity pass.
+- **Feature flag:** `DIASPORA_TRADE_GRAPH` default **OFF** (fails closed, scoped to `/trade-graph`).
+- **External boundaries inactive:** migration not applied to any DB; real-Postgres validation of SQL
+  binding + SAVEPOINT semantics is an **EB-1 staging gate** (in-memory mock models them behaviorally).
+- **Residual (risk register TG-1):** real-Postgres confirmation of SQL parameter binding / SAVEPOINT
+  rollback / FOR UPDATE SKIP LOCKED is a staging-verification item; durable dead-letter pool + the
+  optional eventWorker subscriber wiring are integrator steps (the supported driver is the self-
+  contained `projectPendingEvents`, which owns event.id).
+- **Commit SHA:** _(filled on commit)_.
+- **Next milestone:** master-plan reconciliation matrix → UI-8 (subscription) → UI-9 (SafeTrade) →
+  UI-10 (Trade Graph dashboard).
 
 ## Agent ownership (Section 7)
 
