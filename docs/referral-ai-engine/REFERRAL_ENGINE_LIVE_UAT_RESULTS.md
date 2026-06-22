@@ -88,15 +88,11 @@ mints exactly one audit event. Recursive bloat is eliminated.
 - Two real backend defects were caught by the live run and fixed with regression
   tests; both re-verified live.
 
-## Outstanding (owner-side)
+## Status (2026-06-23)
 
-- **search_path migration application + Supabase advisors**: the
-  `20260621120000_referral_pin_function_search_path.sql` migration is authored,
-  file-verified, and unit-tested, but **could not be applied to staging** — the
-  `.env.uat.local` provides no DB connection string (`SUPABASE_DB_URL`) and the
-  service-role REST key does not grant DDL; the local Supabase CLI/MCP are a
-  different account. Apply via the staging DB connection or dashboard, then run the
-  advisors before/after.
-- **Audit-export scalability** follow-up (above).
-- **Rotate the service-role key** that was pasted into chat (it is now exposed in
-  the conversation transcript).
+- **search_path migration (`20260621120000_referral_pin_function_search_path.sql`)**: applied to staging. ✅
+- **Audit-export scalability**: fixed in `f6b3097`, live-proven by 5× repeated exports.  ✅
+- **Browser Playwright UAT** (`web/e2e/referral-staging.spec.ts`): **4 / 4, 0 skipped**. ✅
+- **P1 UAT guard defect** (Codex review thread): fixed in `edd6fe5`, 19 regression tests, thread resolved. ✅
+- **Mobile owner UAT**: post-web-release check (Expo device required). Not falsely represented as passed.
+- **Rotate the staging service-role key** (exposed in a prior chat session): owner-side action required.
