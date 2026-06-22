@@ -22,11 +22,12 @@
  */
 
 // ---------------------------------------------------------------------------
-// Known Supabase project refs (mirror scripts/provision-staging-qa-accounts.mjs).
-// These are NOT secrets — they are public project identifiers used only to fail closed.
+// Staging guard — imported from the dedicated module so the logic is unit-testable.
+// Known project refs are NOT secrets — they are public identifiers used only to
+// fail closed.  The runner calls assertStagingTarget (process.exit on failure);
+// tests import checkStagingTarget (returns a result object, never exits).
 // ---------------------------------------------------------------------------
-const STAGING_SUPABASE_REF = 'eoyenigwevnxwwhyhaer';
-const PRODUCTION_SUPABASE_REF = 'vhmnajoeicasaigiophh';
+import { assertStagingTarget, extractSupabaseRef, STAGING_SUPABASE_REF, PRODUCTION_SUPABASE_REF } from './referral-uat-guard.mjs';
 
 // ---------------------------------------------------------------------------
 // Config loading — fail loudly, naming the missing var, before any network call.
@@ -57,65 +58,8 @@ function loadConfig(env = process.env) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// HARD SAFETY GUARD — staging only. Refuse the production ref or any non-staging host.
-// ---------------------------------------------------------------------------
-function extractSupabaseRef(source) {
-  if (!source || typeof source !== 'string') return null;
-  const host = source.match(/(?:db\.)?([a-z0-9]{20})\.supabase\.(?:co|com)/i);
-  if (host) return host[1].toLowerCase();
-  const pooler = source.match(/postgres\.([a-z0-9]{20})/i);
-  if (pooler) return pooler[1].toLowerCase();
-  return null;
-}
-
-function assertStagingTarget(config) {
-  const haystack = `${config.baseUrl} ${config.stagingSupabaseUrl}`.toLowerCase();
-
-  // 1. Never touch production. Refuse if the production ref shows up anywhere we look.
-  if (haystack.includes(PRODUCTION_SUPABASE_REF)) {
-    console.error('ABORT: not staging');
-    console.error(`Refusing: target references the PRODUCTION Supabase project (${PRODUCTION_SUPABASE_REF}).`);
-    process.exit(1);
-  }
-
-  // 2. Parse the API host and require it to look like staging.
-  let host;
-  try {
-    host = new URL(config.baseUrl).host.toLowerCase();
-  } catch {
-    console.error('ABORT: not staging');
-    console.error(`STAGING_API_BASE_URL is not a valid URL: ${config.baseUrl}`);
-    process.exit(1);
-  }
-
-  // 3. If a Supabase URL was provided, it must resolve to exactly the staging ref.
-  if (config.stagingSupabaseUrl) {
-    const ref = extractSupabaseRef(config.stagingSupabaseUrl);
-    if (ref !== STAGING_SUPABASE_REF) {
-      console.error('ABORT: not staging');
-      console.error(`Provided Supabase URL ref "${ref}" is not the approved staging ref (${STAGING_SUPABASE_REF}).`);
-      process.exit(1);
-    }
-  }
-
-  // 4. The API host itself must be POSITIVELY proven to be staging. A bare
-  //    "uat"/"stg" substring on an arbitrary host is not enough (it would admit
-  //    e.g. uat-api.attacker.example); require localhost, an exact staging
-  //    Supabase ref, or a CarUp host carrying a staging marker.
-  const isLocal = host === 'localhost' || host.startsWith('localhost:') || host.startsWith('127.0.0.1');
-  const refProven = haystack.includes(STAGING_SUPABASE_REF);
-  const carupStagingHost = host.includes('carup') && (host.includes('staging') || host.includes('stg') || host.includes('uat'));
-  const looksStaging = isLocal || refProven || carupStagingHost;
-  if (!looksStaging) {
-    console.error('ABORT: not staging');
-    console.error(
-      `Refusing: API host "${host}" is not recognisable as the staging environment. ` +
-        'Point STAGING_API_BASE_URL at staging, or set STAGING_SUPABASE_URL to the staging project to prove the target.',
-    );
-    process.exit(1);
-  }
-}
+// assertStagingTarget, extractSupabaseRef, STAGING_SUPABASE_REF and
+// PRODUCTION_SUPABASE_REF are imported from referral-uat-guard.mjs above.
 
 // ---------------------------------------------------------------------------
 // Result recording — PASS / FAIL / SKIPPED. Never throws raw secrets.
