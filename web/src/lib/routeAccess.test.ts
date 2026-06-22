@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateRouteAccess, loginWithReturnTo, type RouteAccessInput } from './routeAccess'
-import { resolveFeatureVisibility, getFeatureById, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
+import { resolveFeatureVisibility, getFeatureById, isLifecycleVisible, isLifecycleAccessible, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
 
 const base: RouteAccessInput = {
   route: '/insurance',
@@ -10,7 +10,9 @@ const base: RouteAccessInput = {
 }
 
 function override(featureId: string, state: FeatureLifecycleState, extra: Partial<EffectiveFeatureState> = {}): Record<string, EffectiveFeatureState> {
-  return { [featureId]: { featureId, state, enabled: state !== 'disabled', visible: false, accessible: false, beta: state === 'beta', ...extra } }
+  // Realistic defaults mirroring the backend evaluator (visible/accessible derive
+  // from the lifecycle state); individual tests override fields explicitly.
+  return { [featureId]: { featureId, state, enabled: state !== 'disabled', visible: isLifecycleVisible(state), accessible: isLifecycleAccessible(state), beta: state === 'beta', ...extra } }
 }
 
 describe('evaluateRouteAccess (Milestone 5)', () => {
@@ -74,30 +76,48 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
     expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
   })
 
-  it('P2: backend tenant/extra denial (accessible:false) redirects a role-eligible authenticated user', () => {
+  it('P2: protected tenant/extra denial (accessible:false, role-eligible) → unavailable (disabled)', () => {
     // owner.garage requires owner; backend says not accessible for THIS user
-    // (e.g. tenant deny) even though the role is eligible → safe redirect.
+    // (e.g. tenant deny) even though the role is eligible → unavailable.
     const states = override('owner.garage', 'active', { enabled: true, visible: false, accessible: false })
-    const d = evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states })
-    expect(d.kind).toBe('redirect')
-    if (d.kind === 'redirect') expect(d.reason).toBe('role')
+    expect(evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states }).kind).toBe('disabled')
   })
 
-  it('P2: backend accessible:true for a role-eligible authenticated user renders', () => {
+  it('P2: protected accessible:true for a role-eligible authenticated user renders', () => {
     const states = override('owner.garage', 'active', { enabled: true, visible: true, accessible: true })
     expect(evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states }).kind).toBe('render')
   })
 
-  it('P2: navigation visibility AGREES with direct access — accessible:false ⇒ nav visible:false', () => {
-    const feature = getFeatureById('owner.garage')!
-    const states = override('owner.garage', 'active', { enabled: true, visible: false, accessible: false })
-    // Direct access denied
-    const decision = evaluateRouteAccess({ route: '/dashboard/garage', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: states })
-    expect(decision.kind).toBe('redirect')
-    // Nav visibility ALSO false (a link you cannot see ⇄ a URL you cannot open)
-    const vis = resolveFeatureVisibility(feature, { isAuthenticated: true, role: 'owner', effectiveStates: states })
+  // ── TASK 2: effective accessibility applies to PUBLIC routes too ──────────
+  it('TASK 2: PUBLIC active route with accessible:false is blocked (no longer skipped)', () => {
+    // product.insurance is public (requiresAuth false); a tenant/env restriction
+    // makes it not accessible → unavailable for direct access.
+    const states = override('product.insurance', 'active', { enabled: true, visible: false, accessible: false })
+    expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
+    // …even under the lifecycle-only (public) boundary.
+    expect(evaluateRouteAccess({ ...base, route: '/insurance', enforceAuth: false, effectiveStates: states }).kind).toBe('disabled')
+  })
+
+  it('TASK 2: PUBLIC active route with enabled:false is blocked', () => {
+    const states = override('product.insurance', 'active', { enabled: false })
+    expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
+  })
+
+  it('TASK 2: PUBLIC active route with accessible:true renders without login', () => {
+    const states = override('product.insurance', 'active', { enabled: true, visible: true, accessible: true })
+    expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('render')
+  })
+
+  it('TASK 2: PUBLIC route static fallback (no effective state) renders', () => {
+    expect(evaluateRouteAccess({ ...base, route: '/insurance' }).kind).toBe('render')
+  })
+
+  it('TASK 2: navigation visibility AGREES with direct access for a PUBLIC tenant-denied route', () => {
+    const feature = getFeatureById('product.insurance')!
+    const states = override('product.insurance', 'active', { enabled: true, visible: false, accessible: false })
+    expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
+    const vis = resolveFeatureVisibility(feature, { isAuthenticated: false, role: null, effectiveStates: states })
     expect(vis.visible).toBe(false)
-    expect(vis.accessible).toBe(false)
   })
 
   it('deprecated route with target → redirect; same-route target does not loop', () => {

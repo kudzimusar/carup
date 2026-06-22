@@ -272,6 +272,21 @@ function resolveNodeState(node: NavigationNode, ctx: NavigationContext): Feature
   return node.lifecycle ?? 'active'
 }
 
+/**
+ * A feature-linked node must NOT render when the sanitized backend effective
+ * state for it is not enabled or not visible (a kill-switch, or a tenant/role
+ * restriction that the lifecycle state alone does not express). Standalone
+ * (non-feature) deep-links carry no backend effective state, so they fall
+ * through to lifecycle handling. This is the single shared rule consumed by all
+ * manifest surfaces.
+ */
+export function isNodeBackendBlocked(node: NavigationNode, ctx: NavigationContext): boolean {
+  if (!node.featureId) return false
+  const eff = ctx.effectiveStates?.[node.featureId]
+  if (!eff) return false
+  return eff.enabled === false || eff.visible === false
+}
+
 /** Whether a node is eligible to be shown for the given context (role/auth aware). */
 function isNodeEligible(node: NavigationNode, ctx: NavigationContext): boolean {
   if (node.requiresAuth && !ctx.isAuthenticated) return false
@@ -316,6 +331,11 @@ export function getDesktopMegaMenu(surface: NavigationSurface, ctx: NavigationCo
   for (const node of nodes) {
     const state = resolveNodeState(node, ctx)
     if (state === 'hidden' || state === 'disabled' || state === 'deprecated') continue
+    // Honor the backend effective state (enabled/visible) for feature-linked
+    // nodes — covers Buy/Sell/Verify/Parts/More + (via flattenSurface) the mobile
+    // primary/secondary surfaces. Footer + mobile role items already resolve
+    // through resolveFeatureVisibility, which applies the same rule.
+    if (isNodeBackendBlocked(node, ctx)) continue
     const title = node.section ?? 'More'
     if (!sections.has(title)) {
       sections.set(title, { title, order: node.sectionOrder ?? 999, items: [] })

@@ -7,6 +7,8 @@ import {
   getNavigationSections,
   buildFeatureHref,
   getNavigationPlacements,
+  getMobileNavigation,
+  getFooterNavigation,
   type NavigationNode,
 } from './navigationManifest'
 import { matchRoutePattern, getFeatureById, type NavigationContext } from './featureRegistry'
@@ -124,6 +126,52 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
     const ids = (ctx: NavigationContext) => getDesktopMegaMenu('navbar-more', ctx).flatMap(s => s.items).map(i => i.id)
     expect(ids({})).toContain('more.insurance')
     expect(ids(hide('product.insurance'))).not.toContain('more.insurance')
+  })
+
+  // ── TASK 1: feature-linked nodes honor the sanitized backend effective state ─
+  describe('TASK 1 — backend effective state (enabled/visible) is honored on every manifest surface', () => {
+    const moreIds = (ctx: NavigationContext) => getDesktopMegaMenu('navbar-more', ctx).flatMap(s => s.items).map(i => i.id)
+    const mobileIds = (ctx: NavigationContext) => getMobileNavigation(ctx).secondary.map(i => i.id)
+    const footerIds = (ctx: NavigationContext) => getFooterNavigation('product', ctx).map(i => i.id)
+    const eff = (extra: object): NavigationContext => ({
+      effectiveStates: { 'product.insurance': { featureId: 'product.insurance', state: 'active', enabled: true, visible: true, accessible: true, beta: false, ...extra } },
+    })
+
+    it('lifecycle active + enabled:false → absent', () => {
+      expect(moreIds(eff({ enabled: false }))).not.toContain('more.insurance')
+    })
+    it('lifecycle active + visible:false → absent', () => {
+      expect(moreIds(eff({ visible: false }))).not.toContain('more.insurance')
+    })
+    it('tenant/role-denied effective state (visible:false, accessible:false) → absent', () => {
+      expect(moreIds(eff({ visible: false, accessible: false }))).not.toContain('more.insurance')
+    })
+    it('active + visible → present', () => {
+      expect(moreIds(eff({}))).toContain('more.insurance')
+    })
+    it('beta + visible → present and flagged beta', () => {
+      const ctx = eff({ state: 'beta', beta: true })
+      const item = getDesktopMegaMenu('navbar-more', ctx).flatMap(s => s.items).find(i => i.id === 'more.insurance')!
+      expect(item.beta).toBe(true)
+    })
+    it('reset to static default (no effective state) → present', () => {
+      expect(moreIds({})).toContain('more.insurance')
+    })
+    it('the SAME state hides it from the More menu AND the mobile secondary AND the footer', () => {
+      const ctx = eff({ enabled: false })
+      expect(moreIds(ctx)).not.toContain('more.insurance')   // desktop More
+      expect(mobileIds(ctx)).not.toContain('more.insurance') // mobile secondary
+      expect(footerIds(ctx)).not.toContain('product.insurance') // footer
+    })
+    it('no regression: coverage-gated Marketplace items still defer/activate correctly', () => {
+      const brandNew = NAVIGATION_MANIFEST.find(n => n.id === 'buy.brand-new')!
+      // standalone deep-link (no featureId) — unaffected by backend effective state
+      expect(buildFeatureHref(brandNew, {})).toBe('/marketplace')
+      expect(buildFeatureHref(brandNew, { coverage: { categories: { brand_new: { active: true } } } })).toBe('/marketplace?category=brand_new')
+      // and it still renders (not a feature-linked node, so isNodeBackendBlocked is false)
+      const buyIds = getDesktopMegaMenu('navbar-mega-buy', eff({ enabled: false })).flatMap(s => s.items).map(i => i.id)
+      expect(buyIds).toContain('buy.brand-new')
+    })
   })
 
   it('manifest has unique node ids (no duplicate placements)', () => {

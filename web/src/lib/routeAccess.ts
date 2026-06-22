@@ -102,7 +102,7 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     // deprecated without a target renders normally (a notice can be shown by the UI).
   }
 
-  // 5/6. Authentication + role (frontend gate mirroring — backend remains authoritative).
+  // 5. Authentication + role for PROTECTED features (when enforcing).
   if (enforceAuth && feature.requiresAuth) {
     if (!isAuthenticated || !role) {
       return { kind: 'redirect', to: loginWithReturnTo(route), reason: 'auth' }
@@ -110,13 +110,20 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
     if (!feature.roles.includes(role)) {
       return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
     }
-    // Role is eligible, but the backend (which knows tenant allow/deny + time
-    // windows the SPA cannot recompute) may still deny access. The loader
-    // identity-gates effective state, so `accessible` reflects THIS user.
-    const eff = effectiveStates?.[feature.id]
-    if (eff && eff.accessible === false) {
-      return { kind: 'redirect', to: getDashboardRoute(role), reason: 'role' }
-    }
+  }
+
+  // 6. Effective accessibility — applies to EVERY registered feature, PUBLIC or
+  // protected (this is the fix: the check is no longer skipped for public
+  // routes). For a protected feature the auth/role gate above has already run, so
+  // reaching here means eligible and a remaining `accessible:false` is a tenant /
+  // env / time denial → unavailable. For a PUBLIC feature there is no auth gate,
+  // so this is the sole place its effective accessibility is enforced — keeping
+  // direct route access in agreement with navigation visibility. A protected
+  // feature under a lifecycle-only boundary (enforceAuth=false) is left to
+  // backend authority (its auth/role was intentionally not gated here).
+  const eff = effectiveStates?.[feature.id]
+  if (eff && eff.accessible === false && (!feature.requiresAuth || enforceAuth)) {
+    return { kind: 'disabled' }
   }
 
   // 7. Beta → render with a notice. The admin-configured banner text is carried
