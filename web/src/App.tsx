@@ -50,6 +50,8 @@ import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
+import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
+import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -208,6 +210,8 @@ export default function App() {
           <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
+          <Route path="/diaspora/safetrade" element={<DiasporaSafeTrade />} />
+          <Route path="/diaspora/safetrade/:id" element={<DiasporaSafeTradeDetail />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />

@@ -72,7 +72,22 @@ import type {
   SubscriptionStatus,
   EffectiveEntitlements,
   UsageResponse,
-  SandboxBillingActionResponse
+  SandboxBillingActionResponse,
+  SafeTradeTransaction,
+  SafeTradeTimelineEvent,
+  SafeTradeEligibilityVerdict,
+  SafeTradeMilestone,
+  SafeTradeDispute,
+  SafeTradeDisputeEvidence,
+  SafeTradeAvailableAction,
+  SafeTradeActionResponse,
+  SafeTradeCommitPayload,
+  SafeTradeCommitEvent,
+  SafeTradeCreateResponse,
+  SafeTradeListResponse,
+  SafeTradeEvaluateReleaseResponse,
+  SafeTradeDisputeOpenResponse,
+  SafeTradeDisputeResolveResponse
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -896,6 +911,138 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 9: SafeTrade (escrow/assurance overlay) — sandbox payment-state simulation only ──
+  // The UI renders action controls ONLY from getSafeTradeAvailableActions; the backend stays
+  // authoritative on every submit. Money never moves through a live provider (sandbox + fail-closed).
+  // An idempotency key is forwarded as the x-idempotency-key header on every consequential mutation
+  // so a duplicate submit is a safe no-op replay backend-side (defense-in-depth with the UI guard).
+  const idemHeaders = (idempotencyKey?: string): Record<string, string> =>
+    idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}
+
+  const getSafeTradeCases = useCallback(async (filters?: { status?: string; importOrderId?: string; limit?: number; offset?: number }): Promise<SafeTradeListResponse> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<SafeTradeListResponse>(`/diaspora/safetrade${query}`)
+  }, [request])
+
+  const getSafeTradeCase = useCallback(async (id: string): Promise<SafeTradeTransaction> => {
+    return request<SafeTradeTransaction>(`/diaspora/safetrade/${encodeURIComponent(id)}`)
+  }, [request])
+
+  const getSafeTradeTimeline = useCallback(async (id: string): Promise<SafeTradeTimelineEvent[]> => {
+    const response = await request<{ data: SafeTradeTimelineEvent[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/timeline`)
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeEligibility = useCallback(async (id: string): Promise<SafeTradeEligibilityVerdict> => {
+    return request<SafeTradeEligibilityVerdict>(`/diaspora/safetrade/${encodeURIComponent(id)}/eligibility`)
+  }, [request])
+
+  const getSafeTradeMilestones = useCallback(async (id: string): Promise<SafeTradeMilestone[]> => {
+    const response = await request<{ data: SafeTradeMilestone[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/milestones`)
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeDisputes = useCallback(async (id: string): Promise<SafeTradeDispute[]> => {
+    const response = await request<{ data: SafeTradeDispute[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/disputes`)
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeAvailableActions = useCallback(async (id: string): Promise<SafeTradeAvailableAction[]> => {
+    const response = await request<{ data: SafeTradeAvailableAction[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/available-actions`)
+    return response.data || []
+  }, [request])
+
+  const createSafeTrade = useCallback(async (payload: { importOrderId: string; sellerId?: string | null; currency?: string; totalAmount: number; idempotencyKey?: string }): Promise<SafeTradeCreateResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeCreateResponse>('/diaspora/safetrade', {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  // commit accepts ONLY an allowlisted SafeTradeCommitEvent (no untyped commit(event:string)).
+  const commitSafeTrade = useCallback(async (id: string, payload: SafeTradeCommitPayload): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/commit`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const defineSafeTradeMilestones = useCallback(async (id: string, milestones: Array<Record<string, unknown>>, idempotencyKey?: string): Promise<unknown> => {
+    return request(`/diaspora/safetrade/${encodeURIComponent(id)}/milestones`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify({ milestones }),
+    })
+  }, [request])
+
+  const evaluateSafeTradeRelease = useCallback(async (id: string, payload?: { milestoneId?: string }): Promise<SafeTradeEvaluateReleaseResponse> => {
+    return request<SafeTradeEvaluateReleaseResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/evaluate-release`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    })
+  }, [request])
+
+  const requestSafeTradeRelease = useCallback(async (id: string, payload?: { milestoneId?: string; operation?: string; evaluationId?: string; event?: SafeTradeCommitEvent; reason?: string; idempotencyKey?: string }): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload || {}
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/request-release`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  // approve-release requires a prior evaluation reference (evaluationId) for the bare RELEASE_ESCROW path.
+  const approveSafeTradeRelease = useCallback(async (id: string, payload: { evaluationId?: string; milestoneId?: string; operation?: string; reason?: string; idempotencyKey?: string }): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/approve-release`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const cancelSafeTrade = useCallback(async (id: string, payload?: { reason?: string; idempotencyKey?: string }): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload || {}
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const openSafeTradeDispute = useCallback(async (id: string, payload: { category: string; reason: string; milestoneId?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeOpenResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeDisputeOpenResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/disputes`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const addSafeTradeDisputeEvidence = useCallback(async (disputeId: string, payload: { evidenceType?: string; statement?: string; documentRef?: string; visibility?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeEvidence> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeDisputeEvidence>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/evidence`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const resolveSafeTradeDispute = useCallback(async (disputeId: string, payload: { resolution: string; milestoneId?: string; evaluationId?: string; notes?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeResolveResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeDisputeResolveResponse>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1414,6 +1561,24 @@ export function useCarUpApi() {
     createDiasporaBillingPortal,
     changeDiasporaPlan,
     cancelDiasporaSubscription,
+    // ── Phase 9: SafeTrade ──
+    getSafeTradeCases,
+    getSafeTradeCase,
+    getSafeTradeTimeline,
+    getSafeTradeEligibility,
+    getSafeTradeMilestones,
+    getSafeTradeDisputes,
+    getSafeTradeAvailableActions,
+    createSafeTrade,
+    commitSafeTrade,
+    defineSafeTradeMilestones,
+    evaluateSafeTradeRelease,
+    requestSafeTradeRelease,
+    approveSafeTradeRelease,
+    cancelSafeTrade,
+    openSafeTradeDispute,
+    addSafeTradeDisputeEvidence,
+    resolveSafeTradeDispute,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
