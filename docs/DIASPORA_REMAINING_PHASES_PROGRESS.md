@@ -347,7 +347,18 @@ Full diaspora suite **607/600/0-fail/7-skipped**.
 only for managers; **backend remains authoritative even when buttons hidden**. Sandbox wording mandatory;
 no "payment succeeded/charged/live" claims.
 
-### UI-9 — Phase 9 SafeTrade experience (IN PROGRESS) — Wave 6 (frontend)
+### UI-9 — Phase 9 SafeTrade experience (COMPLETE) — Wave 6 (frontend)
+**Evidence:** Gate S9-A committed `9f7224d` (authz ALL-CORRECT, `dealer` tightened, typed-403, 41
+tests). Frontend: tsc clean; route-validation 7/7; unit **11/11**; build EXIT 0; **e2e 10/10** (9 +
+1 flaky-recovered, flag-on dev server); full backend suite **648/641/0-fail/7-skip**; forbidden
+custodial-phrase scan clean; non-custodial wording + dispute-evidence privacy + available-actions-only
+rendering + sandbox confirmation + 403 state all e2e-verified (adversarial verification via e2e +
+forbidden-phrase scan given agent rate-limits). CI workflow updated (SafeTrade flag + spec). Two
+debugging fixes during integration: the interrupted agent's broken types (`*/` inside a JSDoc comment)
+and an infinite re-render loop (effect depended on the fresh-each-render `useCarUpApi()` object →
+depend on stable primitives). Integration-owned edits by the Integrator; components/pages/flag/tests
+non-integration. Commits: `9f7224d` (Gate S9-A), feat + docs (this milestone).
+
 Truth audit (Step 0). Backend exists; this milestone adds Gate S9-A (action-authz verification +
 route tightening), a server-derived available-actions projection, and the frontend. The frontend
 must NOT duplicate the 16-state transition table — it renders server-derived available actions only.
