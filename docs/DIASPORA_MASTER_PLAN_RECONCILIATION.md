@@ -66,8 +66,8 @@ Legend for "Migration": *created* = SQL authored, NOT applied to any database (s
 | Delivery confirmation | COMPLETE | `safetrade/diasporaSafeTradeDeliveryService.js` | same | — | created | **buyer-only** confirm (ST-1 fix); emits reputation-**eligibility** event only (no reputation write) | — | done |
 | Payment-provider boundary | COMPLETE (sandbox) | `safetrade/safeTradePaymentProvider.js` | same | `DIASPORA_SAFETRADE_LIVE_PAYMENT` (off) | — | sandbox only; live throws `EXTERNAL_ACTIVATION_REQUIRED` at 4 layers | legal+provider+creds (EB-4) | done (sandbox) |
 | Routes | COMPLETE | `routes/diasporaSafeTradeRoutes.js` (mounted, gate scoped `/safetrade`) | same | — | — | §48 endpoints; route-shadowing fixed (deb0b3c) | — | done |
-| Frontend | DEFERRED | — | — | — | — | none | case overview / milestones+gates / timeline / dispute / **sandbox non-custodial language** / no auto release | **UI-9** |
-| E2E | DEFERRED | — | — | — | — | none | SafeTrade flow + dispute e2e | **UI-9** |
+| Frontend | **COMPLETE** | `web/src/pages/diaspora/DiasporaSafeTrade{,Detail}.tsx` + `components/diaspora/safetrade/{SafeTradeAssuranceNotice,StatusBanner,Timeline,EligibilityPanel,Milestones,Actions,Disputes}.tsx` + helpers + `config/safeTradeFlag.ts`; integration: 16 types/17 hooks (allowlisted `SafeTradeCommitEvent`)/App routes/registry | unit **11** | `VITE_DIASPORA_SAFETRADE_UI_ENABLED` (off, fail-closed) | n/a | case list+detail; canonical timeline; eligibility blockers; sandbox milestones; **actions rendered only from server-derived available-actions**; reviewer/participant separation + high-risk; dispute privacy (visibleEvidence); **non-custodial wording**; full a11y; forbidden-phrase scan clean | UI-9 done |
+| E2E | **COMPLETE** | `web/e2e/diaspora-safetrade.spec.ts` (mocked) + CI workflow (flag-on dev server + spec) | **10/10** (9 + 1 flaky-recovered) | as above | n/a | list/detail render, timeline, non-custodial wording, buyer vs reviewer action visibility, NEEDS_REVIEWER/NEEDS_EVALUATION disabled reasons, sandbox confirmation, dispute private-evidence hidden, 403 access state, keyboard/focus, siblings unaffected | UI-9 done |
 | Residual hardening | TRACKED | — | — | — | — | risk **ST-3** (auxiliary audit-after-commit; single-actor approval; webhook in-memory dedup) | close before EB-4 live payment | Wave 6 / pre-EB-4 |
 
 ---
@@ -95,7 +95,7 @@ Legend for "Migration": *created* = SQL authored, NOT applied to any database (s
 | --- | --- | --- | --- | --- |
 | Migrations | PARTIAL | 4 created (120000/130000/131000/140000), all additive + Up/Down; **none applied** | apply to staging in order; advisors | EB-1 / Wave 7 |
 | Security | PARTIAL | per-phase adversarial reviews done (Phase 9 ST-1/ST-2 fixed; Phase 10 CRITICAL+HIGH fixed, holistic PASS); **CR-1 credential leak OPEN** | Wave 6 cross-phase adversarial review; CR-1 rotation+history purge | Wave 6 / CR-1 |
-| Accessibility | PARTIAL | **UI-8 subscription a11y done + adversarial-reviewed** (headings, labels, keyboard, focus return, aria-live, no color-only, accessible quota text, reduced-motion) | a11y for UI-9/UI-10 | UI waves |
+| Accessibility | PARTIAL | **UI-8 + UI-9 a11y done** (headings, labels, keyboard, focus return, aria-live action status, no color-only, accessible timeline/quota/milestone text, reduced-motion) | a11y for UI-10 | UI waves |
 | Observability | PARTIAL | correlation IDs + critical audit present; projection lag / dead-letter / webhook-failure / quota-anomaly alerts designed in runbooks | implement metrics + alerts + dashboards | Wave 7 |
 | Performance | DEFERRED | graph perf budgets in design; bounded-depth CTEs + materialized summaries | large-tenant graph + workbook + quota load tests | Wave 7 |
 | Staging proof | BLOCKED | harness exists; H9 + atomic-quota + graph projection need a DB | set `DIASPORA_STAGING_DATABASE_URL`, run, label `SKIPPED — SECRET UNAVAILABLE` until then | EB-1 |
