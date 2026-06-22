@@ -65,10 +65,30 @@ overall staging DB slowed (logins went from instant to ~7s). The audit **checksu
 count functionality passed cleanly** in an earlier run on a smaller dataset
 (Journey 8 was 5/0).
 
-**Real follow-up finding (scalability, Medium):** the trust audit export/trail
-should paginate or time-bound the event scan (and the event table would benefit from
-supporting indexes) so audit operations remain fast at production data volumes. Not
-launch-blocking for correctness, but recommended before high-volume production use.
+**Root cause (found 2026-06-22) and FIX:** each `AUDIT_EXPORT_CREATED` event stored
+the *entire* event list (including prior exports) in its metadata, so exports grew
+exponentially and inserting the giant row hit the statement timeout. Fixed in
+`f6b3097`: the recorded export event now stores only a bounded summary (count,
+checksum, filters, limit) — never the event list; per-event records carry a
+metadata *checksum* rather than raw metadata; the page size is validated and capped
+(1..1000). Unit tests prove no-recursion across repeated exports, compact records,
+and a stable empty-result checksum (146 referral tests pass). **Live re-verification
+to 67/67 is pending the credential-rotation blocker below.**
+
+## Status update (2026-06-22): credential rotation blocks live re-verification
+
+`backend/.env.uat.local` still contains the **exposed** service-role key (its `iat`
+matches the key pasted earlier). Per the rotation directive, no further live
+operations were run with it (and staging was not bloated further). Therefore the
+following remain **blocked on the owner rotating the key** (place a newly created
+staging service-role key in `backend/.env.uat.local`):
+- live re-run to confirm **67/67** (the audit fix is unit-proven; live confirmation
+  pending);
+- browser Playwright staging journeys (`web/e2e/referral-staging.spec.ts` authored —
+  public login/alert journey runs anywhere; authenticated admin/owner journeys are
+  credential-gated and run once `E2E_UAT_*` + a staging base URL are provided);
+- mobile owner journey (Expo runtime/device — also device-availability dependent);
+- Supabase Security/Performance advisors (the local CLI/MCP are a different account).
 
 ## What this proves
 
