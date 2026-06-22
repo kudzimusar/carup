@@ -302,6 +302,42 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 - **Next milestone:** master-plan reconciliation matrix → UI-8 (subscription) → UI-9 (SafeTrade) →
   UI-10 (Trade Graph dashboard).
 
+### UI-8 — Phase 8 subscription experience (IN PROGRESS) — Wave 6 (frontend)
+Truth audit done (Step 0). Backend API exists; this milestone adds the mutation-authorization gate
+(S8-A) + the frontend. Recorded before implementation per directive.
+
+**Gate S8-A — subscription mutation authorization matrix (server-derived roles only):**
+| Endpoint | Access | Permitted | Denied |
+| --- | --- | --- | --- |
+| GET plans/status/entitlements/usage | read | any authenticated **member of the verified tenant** (middleware 403s non-member x-tenant-id) | unauthenticated; non-member tenant |
+| POST checkout/portal/change-plan/cancel | manage | **platform admin/super_admin** (PLATFORM_ADMIN_ROLES) OR **same-tenant tenant admin** (TENANT_ADMIN_ROLES: admin/administrator/tenant_admin) | ordinary members (manager/dealer/mechanic/buyer/seller/bank/government); **platform/government reviewers**; spoofed x-stakeholder-role; cross-tenant; missing tenant |
+| POST webhook | provider-signed | valid HMAC signature only (no user-role gate) | bad/missing signature (400) |
+
+Helper `assertCanManageSubscription(userContext, tenantId)` in `diasporaAuthorization.js` (+ predicate
+`canManageSubscription`). Cross-tenant denied (target must equal caller's verified tenant unless platform
+admin). Structured 403 (`code: SUBSCRIPTION_MANAGEMENT_FORBIDDEN`); no internal ids/stack/secrets leaked.
+**Tests:** `diaspora-subscription-authz.test.js` **17/17** (read access; tenant-admin + platform-admin
+manage; each management action denied for ordinary member; reviewer denied; spoofed role denied;
+cross-tenant denied; missing-tenant denied; webhook valid/bad signature; predicate unit matrix).
+Full diaspora suite **607/600/0-fail/7-skipped**.
+
+**UI-8 implementation matrix (frontend, to build):**
+| Capability | API | Read roles | Mutation roles | Route | Flag | Component | Test | A11y |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Plan comparison | GET /plans | member | — | /diaspora/subscription | `VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED` (off) | PlanComparison | unit+e2e | headings, no color-only |
+| Current subscription | GET /status | member | — | same | same | SubscriptionStatusCard | unit+e2e | status text not color-only |
+| Usage dashboard | GET /usage | member | — | same | same | UsageDashboard | unit+e2e | accessible quota text + progress |
+| Effective entitlements | GET /entitlements | member | — | same | same | (within status/usage) | unit | labelled |
+| Explainable denial | (all 4xx) | member | — | same | same | EntitlementDenialPanel | unit+e2e | aria-live, safe fields only |
+| Checkout (sandbox) | POST /checkout | — | manager | same | same | SubscriptionActions | unit+e2e | focus, confirm, dup-prevent |
+| Portal (sandbox) | POST /portal | — | manager | same | same | SubscriptionActions | unit+e2e | as above |
+| Change plan | POST /change-plan | — | manager | same | same | SubscriptionActions | unit+e2e | confirm intent |
+| Cancel (at period end) | POST /cancel | — | manager | same | same | SubscriptionActions | unit+e2e | confirm + at-period-end note |
+
+(manager = subscription manager: platform admin or same-tenant tenant admin.) Management controls render
+only for managers; **backend remains authoritative even when buttons hidden**. Sandbox wording mandatory;
+no "payment succeeded/charged/live" claims.
+
 ## Agent ownership (Section 7)
 
 | Agent | Owns | Branch/worktree |
