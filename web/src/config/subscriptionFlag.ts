@@ -12,7 +12,8 @@
  * Read at call time (not module-eval time) so tests can stub import.meta.env per case.
  */
 export function subscriptionUiEnabled(): boolean {
-  return import.meta.env.VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED === 'true'
+  // Optional-chain so a Node context where import.meta.env is undefined fails closed (false), not throws.
+  return import.meta.env?.VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED === 'true'
 }
 
 /** Visible-text contract for sandbox mode (asserted by tests; never claim a real charge). */

@@ -20,7 +20,10 @@ import type { UserRole } from '@shared/types'
 // (isHidden) AND the page renders an explicit unavailable state; the App.tsx route always exists so
 // the feature works the moment the flag is turned ON. Distinct from the backend enforcement flag
 // (DIASPORA_SUBSCRIPTION_ENFORCEMENT) and from any billing-live switch.
-const SUBSCRIPTION_UI_ENABLED = import.meta.env.VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED === 'true'
+// Optional-chain `import.meta.env`: in the browser/Vite + Vitest it is defined; in the Playwright
+// Node test runner (which imports this registry transitively) `import.meta.env` is undefined, so we
+// must default to OFF (fail closed) instead of throwing at module-eval.
+const SUBSCRIPTION_UI_ENABLED = import.meta.env?.VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED === 'true'
 
 // ── Domain taxonomy ────────────────────────────────────────────────────────
 export type FeatureDomain =
