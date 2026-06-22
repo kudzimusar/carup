@@ -37,13 +37,17 @@ import {
   resolveDispute,
 } from '../services/diaspora/safetrade/diasporaSafeTradeDisputeService.js';
 import { getSharedSandboxPaymentProvider } from '../services/diaspora/safetrade/safeTradePaymentProvider.js';
+import { computeAvailableActions } from '../services/diaspora/safetrade/diasporaSafeTradeAvailableActions.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// Same role tokens diasporaRoutes.js uses for privileged (reviewer/admin) operations. Server-derived.
+// Server-derived role gate for SafeTrade REVIEWER routes (evaluate/approve release, resolve dispute).
+// Gate S9-A: aligned exactly to the service boundary `isPrivileged` (isPlatformAdmin || isPlatformReviewer):
+// `dealer` is REMOVED — it is NOT a platform reviewer/admin, the service already rejects it, and billing/
+// release is not a dealer capability. government/government_reviewer/reviewer remain canonical reviewers.
 const auth = authorizeRole();
-const reviewerAuth = authorizeRole(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer', 'dealer']);
+const reviewerAuth = authorizeRole(['admin', 'platform_admin', 'super_admin', 'government', 'government_reviewer', 'reviewer']);
 
 // Master feature gate: when DIASPORA_SAFETRADE_ENABLED is off the SafeTrade surface is inert.
 // Returning 404 (not 403) keeps the feature undiscoverable while disabled. The guard is scoped to
@@ -119,6 +123,18 @@ router.get('/safetrade/:id/eligibility', auth, asyncHandler(async (req, res) => 
 // GET /safetrade/:id/milestones — list the transaction's escrow milestones.
 router.get('/safetrade/:id/milestones', auth, asyncHandler(async (req, res) => {
   res.json({ data: await listMilestones(undefined, { transactionId: req.params.id, userContext: req.userContext }) });
+}));
+
+// GET /safetrade/:id/available-actions — server-derived, role/state/tenant-safe action projection.
+// The UI renders action controls from THIS (it must not duplicate the 16-state transition table).
+// getTransaction enforces participant/privileged read access (403s outsiders) before the pure projection.
+router.get('/safetrade/:id/available-actions', auth, asyncHandler(async (req, res) => {
+  const txn = await getTransaction(undefined, { transactionId: req.params.id, userContext: req.userContext });
+  const [milestones, disputes] = await Promise.all([
+    listMilestones(undefined, { transactionId: req.params.id, userContext: req.userContext }),
+    listDisputes(undefined, { transactionId: req.params.id, userContext: req.userContext }),
+  ]);
+  res.json({ data: computeAvailableActions(txn, req.userContext, { milestones, dispute: disputes }) });
 }));
 
 // POST /safetrade/:id/milestones — define/seed the milestone set (atomic reconciliation RPC).

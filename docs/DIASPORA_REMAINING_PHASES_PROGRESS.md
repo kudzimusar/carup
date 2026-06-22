@@ -347,6 +347,52 @@ Full diaspora suite **607/600/0-fail/7-skipped**.
 only for managers; **backend remains authoritative even when buttons hidden**. Sandbox wording mandatory;
 no "payment succeeded/charged/live" claims.
 
+### UI-9 — Phase 9 SafeTrade experience (IN PROGRESS) — Wave 6 (frontend)
+Truth audit (Step 0). Backend exists; this milestone adds Gate S9-A (action-authz verification +
+route tightening), a server-derived available-actions projection, and the frontend. The frontend
+must NOT duplicate the 16-state transition table — it renders server-derived available actions only.
+**Non-custodial:** UI must never claim CarUp holds/receives/auto-releases real funds; sandbox only.
+
+**SafeTrade route × authorization matrix (server-derived; service is the authoritative boundary):**
+| Endpoint | Purpose | Route mw | Service authority | Scope | Money-sim | Confirm |
+| --- | --- | --- | --- | --- | --- | --- |
+| GET /safetrade | list cases | auth | participant or privileged | tenant+participant | — | — |
+| GET /:id | case detail | auth | assertCanAccess (participant/privileged) | same | — | — |
+| GET /:id/timeline | audit timeline | auth | access-scoped | same | — | — |
+| GET /:id/eligibility | eligibility verdict | auth | access-scoped (role-safe blockers) | same | — | — |
+| GET /:id/milestones | milestone list | auth | access-scoped | same | — | — |
+| GET /:id/disputes | dispute list | auth | access-scoped; evidence visibility-scoped | same | — | — |
+| POST /safetrade | create txn | auth | buyer/authorized + entitlement `diaspora.safetrade.create`; idempotent | order owner+tenant | — | yes |
+| POST /:id/commit | canonical transition | auth | **transition table actorRoles** (BUYER/SELLER/REVIEWER/ADMIN/SYSTEM) enforced; source-state + conditions + dispute + live gate | participant/privileged per action | sandbox via milestone ops | yes |
+| POST /:id/milestones | define/record milestone | auth | access-scoped; money ops sandbox-only, reviewer-gated for release | participant/privileged | sandbox hold/capture/release/refund | yes |
+| POST /:id/evaluate-release | record release policy eval | **reviewerAuth (incl. dealer ← tighten)** | isPlatformReviewer/admin only (service) | privileged | no money move | yes |
+| POST /:id/request-release | request release | auth | participant/privileged; needs held milestone | participant | no (request only) | yes |
+| POST /:id/approve-release | approve sandbox release | **reviewerAuth (incl. dealer ← tighten)** | privileged + prior passing eval (evaluated_by reviewer) + high-risk approval | privileged | sandbox release | yes (high-risk warn) |
+| POST /:id/cancel | cancel txn | auth | participant authority; blocked past held-funds boundary | participant/privileged | — | yes |
+| POST /:id/disputes | open dispute | auth | participant of an eligible txn | participant | hold | yes |
+| POST /disputes/:id/evidence | add evidence | auth | authorized participant/reviewer; visibility-scoped | participant/reviewer | — | yes |
+| POST /disputes/:id/resolve | resolve dispute | **reviewerAuth (incl. dealer ← tighten)** | isPlatformReviewer/admin only (service) | privileged | sandbox refund/release/cancel | yes |
+| POST /payment-webhook | provider sync | none (signature) | signature-authorized; idempotent | — | sandbox | EXCLUDED from UI |
+
+**Gate S9-A targets:** (a) tighten `reviewerAuth` on SafeTrade reviewer routes to drop `dealer`
+(service already excludes it — defense-in-depth + route tests); (b) add server-derived
+`available-actions` projection (no UI duplication of the transition table); (c) Gate S9-A authz test
+suite (~19 cases). UI frontend then renders from available-actions + the role-safe reads only.
+Frontend flag `VITE_DIASPORA_SAFETRADE_UI_ENABLED` (default OFF, fail-closed; distinct from backend
+`DIASPORA_SAFETRADE_ENABLED` and live-payment).
+
+**Gate S9-A — RESULT (PASSED):** independent audit found the service authority **ALL-CORRECT** (no
+genuine gap). Corrections applied: (1) route `reviewerAuth` tightened to drop `dealer` (aligns route
+exactly to the service `isPrivileged` boundary; release/resolve = platform reviewer/admin only); (2)
+`assertSafeTradeProductionSafety()` now throws a typed **403 `EXTERNAL_ACTIVATION_REQUIRED`** (was a
+plain 500) so a live-payment refusal surfaces as the truthful "external-activation-unavailable" denial
+— money still never moves. New server-derived **available-actions** projection
+`diasporaSafeTradeAvailableActions.js` (`computeAvailableActions`, route `GET /safetrade/:id/available-actions`)
+returns only safe metadata (actionKey/labelKey/permitted/disabledReasonCode/confirmationRequired/
+reviewerRequired/sandboxOnly/requiredEvidenceCategories) — no raw ids/secrets/risk-scores/SQL; the UI
+renders from this (no transition-table duplication). **Tests:** available-actions **19**, authz Gate
+S9-A **22**, existing safetrade **47**; full diaspora suite **648/641/0-fail/7-skip**.
+
 ## Agent ownership (Section 7)
 
 | Agent | Owns | Branch/worktree |

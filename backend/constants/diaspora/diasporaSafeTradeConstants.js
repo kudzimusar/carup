@@ -14,6 +14,7 @@
  *    is explicitly wired AND this flag is set. The live path is an external activation step (EB-4);
  *    there is no real network/provider here.
  */
+import { CarUpError } from '../../utils/errors.js';
 
 // Providers recognised by the SafeTrade escrow abstraction. SANDBOX/FAKE are always safe (no real
 // money). Real providers are added only at EB-4 external activation; the approved list is empty so
@@ -98,10 +99,13 @@ export function assertSafeTradeProductionSafety() {
   if (!isSafeTradeLivePaymentEnabled()) return; // sandbox path is always safe
   const provider = configuredSafeTradeProvider();
   if (!provider || !SAFETRADE_APPROVED_LIVE_PROVIDERS.includes(provider)) {
-    throw new Error(
-      `DIASPORA_SAFETRADE_LIVE_PAYMENT is enabled but no approved live escrow provider is configured `
-      + `(DIASPORA_SAFETRADE_PROVIDER). Live escrow requires external activation; refusing to proceed `
+    // Typed 403 so it surfaces to the UI as the "external-activation-unavailable" denial category
+    // (not a generic 500). Money still NEVER moves — this is the fail-closed refusal (directive N1/N7).
+    throw new CarUpError(
+      `Live escrow requires a separately approved, regulated provider that is not active. Refusing to proceed `
       + `(${SAFETRADE_EXTERNAL_ACTIVATION_ERROR}).`,
+      403,
+      'EXTERNAL_ACTIVATION_REQUIRED',
     );
   }
 }
