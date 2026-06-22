@@ -1,0 +1,164 @@
+name: CI
+
+# PR-gating Continuous Integration for the CarUp monorepo.
+#
+# Scope and intent
+# ----------------
+# This workflow is the REQUIRED status check for merging into `main`. It runs on
+# every pull request and on direct pushes to `main`. It performs build/type/lint
+# gates, the backend test suite, a secret scan, and an advisory dependency audit.
+#
+# It deliberately performs NO production deployment. Deploys are handled out of
+# band (Vercel project deploys triggered after merge / by an operator), so a
+# green CI run is a precondition for release but never itself ships code.
+#
+# Branch protection expectations (configure in repo Settings -> Branches):
+#   - Protect `main`.
+#   - Require pull request reviews before merging (>= 1 approval).
+#   - Require status checks to pass before merging, and select:
+#       * gates        (build / type / lint / web build)
+#       * backend-tests
+#       * secret-scan
+#     (`dependency-audit` is advisory and SHOULD NOT be a required check.)
+#   - Require branches to be up to date before merging.
+#   - Do not allow bypassing the above settings (including for admins) once the
+#     platform reaches public launch.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    name: Build / Type / Lint gates
+    runs-on: ubuntu-latest
+    env:
+      # Dummy, non-secret values. The web build and tsc do not connect to
+      # Supabase; these only satisfy import-time presence checks.
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-role-key
+      VITE_SUPABASE_URL: http://localhost:54321
+      VITE_SUPABASE_ANON_KEY: ci-dummy-anon-key
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check (web)
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+
+      - name: Lint (web)
+        run: npm run lint --workspace=web
+
+      - name: Build (web)
+        run: npm run build --workspace=web
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    env:
+      # node:test backend suites monkeypatch supabase.from with an in-memory
+      # builder and exercise routers over http with the real authorizeRole
+      # middleware. NODE_ENV=test enables x-user-id / x-stakeholder-role header
+      # auth, so no live database or real secret is required.
+      NODE_ENV: test
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-role-key
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backend test suite (node:test)
+        run: node --test backend/tests/*.test.js
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the scanner can inspect the pushed commit range.
+          fetch-depth: 0
+
+      - name: Gitleaks scan
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Grep-based fallback secret scan
+        if: steps.gitleaks.outcome != 'success'
+        shell: bash
+        run: |
+          echo "Gitleaks unavailable or failed to run; using grep-based fallback."
+          set -uo pipefail
+          # High-signal credential patterns. Tracked files only; .env* are
+          # gitignored and never committed.
+          PATTERNS='(eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,})|(sb_secret_[A-Za-z0-9]{20,})|(service_role.{0,40}eyJ)|(-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----)|(sk-[A-Za-z0-9]{32,})|(AKIA[0-9A-Z]{16})|(AIza[0-9A-Za-z_-]{35})'
+          # Exclude lockfiles, build output, and docs that legitimately discuss
+          # token *shapes* without containing live values.
+          MATCHES=$(git grep -nIE "$PATTERNS" -- \
+            ':!package-lock.json' \
+            ':!**/package-lock.json' \
+            ':!dist/**' \
+            ':!**/dist/**' \
+            ':!docs/vehicle-life-intelligence/**' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "::error::Potential secret detected in tracked files:"
+            echo "$MATCHES"
+            exit 1
+          fi
+          echo "No high-signal secret patterns found in tracked files."
+
+  dependency-audit:
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    # Advisory only: never blocks a merge. Surfaces known vulnerabilities for
+    # triage. Do NOT add this job as a required status check.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (high and above, advisory)
+        run: npm audit --audit-level=high || true

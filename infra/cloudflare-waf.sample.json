@@ -1,0 +1,135 @@
+{
+  "_comment": "SAMPLE Cloudflare WAF / firewall configuration for CarUp Vehicle Life Intelligence. This is a non-secret, declarative reference applied via Terraform or the Cloudflare API. Replace ${ZONE_ID} and contains NO secret values. See docs/vehicle-life-intelligence/WAF_DDOS_CONFIG.md.",
+  "zone": {
+    "id": "${ZONE_ID}",
+    "name": "carup.example",
+    "plan": "pro_or_above_required_for_managed_rulesets"
+  },
+  "tls": {
+    "min_version": "1.2",
+    "opportunistic_encryption": true,
+    "automatic_https_rewrites": true,
+    "always_use_https": true,
+    "hsts": {
+      "enabled": true,
+      "max_age": 31536000,
+      "include_subdomains": true,
+      "preload": true
+    }
+  },
+  "ddos": {
+    "l7_ddos_managed": "enabled",
+    "sensitivity": "high",
+    "attack_mode_under_active_incident": "managed_challenge_all"
+  },
+  "bot_management": {
+    "mode": "managed",
+    "block_definitely_automated": true,
+    "challenge_likely_automated": true,
+    "allow_verified_bots": true
+  },
+  "managed_rulesets": [
+    {
+      "id": "cloudflare_managed",
+      "description": "Cloudflare Managed Ruleset (OWASP-aligned core protections).",
+      "action": "managed_challenge",
+      "enabled": true
+    },
+    {
+      "id": "cloudflare_owasp_core",
+      "description": "OWASP Core Ruleset.",
+      "action": "block",
+      "paranoia_level": "PL2",
+      "anomaly_threshold": 40,
+      "enabled": true
+    }
+  ],
+  "request_limits": {
+    "max_upload_size_mb": 25,
+    "_comment_upload": "Evidence images/PDFs go through signed-URL upload; cap multipart body to limit abuse.",
+    "max_request_body_kb_api": 512,
+    "_comment_api_body": "JSON API bodies are small; oversized bodies on /api/* are suspicious."
+  },
+  "rate_based_rules": [
+    {
+      "name": "global-baseline",
+      "description": "Coarse per-IP ceiling across the whole site.",
+      "expression": "(http.request.uri.path matches \"^/.*\")",
+      "characteristics": ["ip.src"],
+      "period_seconds": 60,
+      "requests_per_period": 600,
+      "mitigation_timeout_seconds": 60,
+      "action": "managed_challenge"
+    },
+    {
+      "name": "api-rate",
+      "description": "Tighter ceiling on the API surface.",
+      "expression": "(http.request.uri.path matches \"^/api/.*\")",
+      "characteristics": ["ip.src"],
+      "period_seconds": 60,
+      "requests_per_period": 120,
+      "mitigation_timeout_seconds": 120,
+      "action": "block"
+    },
+    {
+      "name": "auth-credential-stuffing",
+      "description": "Aggressive limit on login/register/reset to defeat credential stuffing and brute force.",
+      "expression": "(http.request.uri.path in {\"/api/auth/login\" \"/api/auth/register\" \"/api/auth/reset-password\"})",
+      "characteristics": ["ip.src", "http.request.uri.path"],
+      "period_seconds": 60,
+      "requests_per_period": 10,
+      "mitigation_timeout_seconds": 600,
+      "action": "block"
+    },
+    {
+      "name": "ocr-evidence-ingest",
+      "description": "Throttle expensive evidence/OCR ingestion endpoints to protect AI cost budget.",
+      "expression": "(http.request.uri.path matches \"^/api/(evidence|ocr|media)/.*\" and http.request.method in {\"POST\" \"PUT\"})",
+      "characteristics": ["ip.src"],
+      "period_seconds": 60,
+      "requests_per_period": 30,
+      "mitigation_timeout_seconds": 300,
+      "action": "managed_challenge"
+    }
+  ],
+  "custom_rules": [
+    {
+      "name": "protect-admin-routes",
+      "description": "Admin and governance surfaces: allow only known operator IPs, challenge everyone else.",
+      "expression": "(http.request.uri.path matches \"^/api/(admin|governance|feature-governance)/.*\") and not (ip.src in $operator_allowlist)",
+      "action": "managed_challenge"
+    },
+    {
+      "name": "block-known-bad-methods",
+      "description": "Reject methods the API never uses.",
+      "expression": "(http.request.method in {\"TRACE\" \"TRACK\" \"CONNECT\"})",
+      "action": "block"
+    },
+    {
+      "name": "block-dotfile-and-env-probes",
+      "description": "Block scanners probing for secrets / config files.",
+      "expression": "(http.request.uri.path matches \"(?i)/\\\\.(env|git|aws|ssh)\" or http.request.uri.path matches \"(?i)\\\\.(env|pem|key)$\")",
+      "action": "block"
+    },
+    {
+      "name": "challenge-missing-ua-on-api",
+      "description": "API traffic with no/empty User-Agent is almost always automated.",
+      "expression": "(http.request.uri.path matches \"^/api/.*\") and (http.user_agent eq \"\")",
+      "action": "managed_challenge"
+    }
+  ],
+  "ip_lists": {
+    "operator_allowlist": {
+      "description": "Operator/office egress IPs permitted to reach admin routes. Populate out of band; do NOT commit real IPs to source control.",
+      "kind": "ip",
+      "items": []
+    }
+  },
+  "logging": {
+    "logpush_enabled": true,
+    "datasets": ["http_requests", "firewall_events"],
+    "destination": "${LOGPUSH_DESTINATION}",
+    "sampling_rate": 1.0,
+    "_comment": "Stream firewall_events to the observability sink; alert on spikes per OBSERVABILITY_AND_ALERTS.md (rate-limit/WAF events)."
+  }
+}
