@@ -15,6 +15,13 @@
 
 import type { UserRole } from '@shared/types'
 
+// ── Phase 8 feature flag ────────────────────────────────────────────────────
+// Diaspora Subscription UI is OFF by default (fail closed). When OFF the nav entry is hidden
+// (isHidden) AND the page renders an explicit unavailable state; the App.tsx route always exists so
+// the feature works the moment the flag is turned ON. Distinct from the backend enforcement flag
+// (DIASPORA_SUBSCRIPTION_ENFORCEMENT) and from any billing-live switch.
+const SUBSCRIPTION_UI_ENABLED = import.meta.env.VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED === 'true'
+
 // ── Domain taxonomy ────────────────────────────────────────────────────────
 export type FeatureDomain =
   | 'commerce'
@@ -63,6 +70,7 @@ export type LucideIconName =
   | 'MapPin'
   | 'Building2'
   | 'Settings'
+  | 'CreditCard'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -657,6 +665,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Building2',
+  },
+  {
+    id: 'diaspora.subscription',
+    label: 'Subscription',
+    route: '/diaspora/subscription',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    description: 'Diaspora plan, entitlements, usage and sandbox billing',
+    // Flag OFF (default) hides the nav entry AND keeps route-validation green (activeFeatures filters
+    // out isHidden). The /diaspora/subscription route in App.tsx always exists, so flipping the flag ON
+    // (isHidden:false) surfaces the entry without adding a duplicate route.
+    isHidden: !SUBSCRIPTION_UI_ENABLED,
   },
   {
     id: 'shared.settings',

@@ -882,6 +882,100 @@ export interface DiasporaDriveFile {
   lastSyncAt?: string | null;
 }
 
+// ── Phase 8: Subscription & Entitlements (tenant plan + per-user overrides) ──
+// Plan/feature catalog is config-driven on the backend (constants/diaspora/diasporaEntitlements.js);
+// the UI NEVER hardcodes the catalog and always renders from the API responses below.
+export type PlanEntitlements = Record<string, boolean | number>;
+
+export interface Plan {
+  planKey: string;
+  name: string;
+  tier: string;
+  sortOrder: number;
+  description: string;
+  entitlements: PlanEntitlements;
+}
+
+export interface SubscriptionStatus {
+  tenantId: string;
+  planKey: string;
+  status: string;
+  synthetic: boolean;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  active: boolean;
+}
+
+export type EffectiveEntitlements = Record<string, boolean | number>;
+
+export interface UsageEntry {
+  featureKey: string;
+  planKey?: string;
+  limit: number | null;
+  used: number;
+  reserved?: number;
+  remaining: number | null;
+  metered?: boolean;
+  unlimited?: boolean;
+  available?: boolean;
+  periodStart?: string;
+}
+
+export interface UsageResponse {
+  tenantId: string;
+  periodStart: string;
+  usage: UsageEntry[];
+}
+
+// A normalized, SAFE-to-render denial. Parsed from a backend 4xx (whose body is
+// { success:false, error:{ code, message, ... } }) or a network/transport failure. NEVER carries
+// db details, stack traces, internal tenant ids, raw provider errors, or secrets.
+export type EntitlementDenialCategory =
+  | 'feature-unavailable-on-plan'
+  | 'quota-exhausted'
+  | 'inactive-subscription'
+  | 'tenant-context-missing'
+  | 'external-activation-unavailable'
+  | 'ordinary-authorization-failure'
+  | 'network-or-server-failure';
+
+export interface StructuredEntitlementDenial {
+  category: EntitlementDenialCategory;
+  /** Human-readable, already-safe summary line. */
+  message: string;
+  /** The operation the user attempted (e.g. "manage subscription"), when known. */
+  requestedOperation?: string;
+  /** Canonical feature key the operation required, when known. */
+  requiredFeature?: string;
+  /** The caller's current plan key, when known. */
+  currentPlan?: string;
+  /** The lowest plan that grants the required feature, when known (upgrade target). */
+  requiredPlan?: string | null;
+  /** Remaining quota for the feature, when the backend provided it. */
+  remaining?: number | null;
+  /** Whether upgrading to a higher plan can unblock the operation. */
+  upgradeEligible?: boolean;
+  /** Whether retrying may succeed (transient network/server failure). */
+  retryable?: boolean;
+}
+
+export interface SandboxBillingActionResponse {
+  /** Opaque sandbox session/snapshot identifier (no secrets, no provider tokens). */
+  id?: string;
+  provider?: string;
+  sandbox?: boolean;
+  planKey?: string;
+  plan_key?: string;
+  status?: string;
+  url?: string;
+  cancel_at_period_end?: boolean;
+  cancelAtPeriodEnd?: boolean;
+  current_period_end?: string | null;
+  currentPeriodEnd?: string | null;
+  [key: string]: unknown;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;

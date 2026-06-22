@@ -49,6 +49,7 @@ import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
 import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
+import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -206,6 +207,7 @@ export default function App() {
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
           <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
           <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
+          <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
