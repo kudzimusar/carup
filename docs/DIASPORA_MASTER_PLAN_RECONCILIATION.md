@@ -49,8 +49,8 @@ Legend for "Migration": *created* = SQL authored, NOT applied to any database (s
 | Operation enforcement | PARTIAL | `diasporaEntitlementGuard.js`; wired in `diasporaSupplyDocumentService` (stock.publish), `diasporaBuyerOrderService` (rfq.create), `diasporaSafeTradeTransactionService` (safetrade.create) | enforcement tests | `DIASPORA_SUBSCRIPTION_ENFORCEMENT` (off) | — | enforced on 3 ops, byte-identical when flag off | wire remaining ops (workbook bulk import, AI execute, container reserve, drive, API) | Wave 6 |
 | Subscription API | COMPLETE | `routes/diasporaSubscriptionRoutes.js` (mounted) | `diaspora-subscription-routes.test.js` (15) | — | — | plans/status/entitlements/usage + checkout/portal/change/cancel (sandbox) | — | done |
 | Webhook | COMPLETE | same + `server.js` rawBody | same | `DIASPORA_BILLING_LIVE` (off) | — | signature-verified, idempotent on (provider,event_id), syncs subscription; never trusts client status | live provider (EB-3) | done (sandbox) |
-| Frontend | DEFERRED | — | — | — | — | no subscription UI exists | plans / status / usage / explainable denials / sandbox actions / a11y | **UI-8** |
-| E2E | DEFERRED | — | — | — | — | none | subscription + quota e2e | **UI-8** |
+| Frontend | **COMPLETE** | `web/src/pages/diaspora/DiasporaSubscription.tsx` + `components/diaspora/subscription/{PlanComparison,SubscriptionStatusCard,UsageDashboard,EntitlementDenialPanel,SubscriptionActions}.tsx` + helpers + `config/subscriptionFlag.ts`; integration: types(8)/hooks(8)/App route/featureRegistry | unit **55** | `VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED` (off, fail-closed) | n/a | plan comparison (API-driven), status, usage, 7-category explainable denials, sandbox-only actions, full a11y; adversarial UI review PASS | wire entitlement enforcement to more ops (separate) | UI-8 done |
+| E2E | **COMPLETE** | `web/e2e/diaspora-subscription.spec.ts` (mocked API) + CI workflow (flag-on dev server + spec added) | **18/18** | as above | n/a | 22 scenarios incl. synthetic Free, sandbox state, usage/unlimited, quota/feature denials, read-only member, manager controls, direct-403, confirmations, dup-prevent, failure/missing-tenant states, sandbox wording, keyboard, aria-live, flag-off, siblings unaffected | — | UI-8 done |
 | Staging / concurrency proof | BLOCKED | `tests/staging/…` harness | — | — | — | needs `DIASPORA_STAGING_DATABASE_URL` | run atomic-quota concurrency on staging | EB-1 |
 
 ---
@@ -95,7 +95,7 @@ Legend for "Migration": *created* = SQL authored, NOT applied to any database (s
 | --- | --- | --- | --- | --- |
 | Migrations | PARTIAL | 4 created (120000/130000/131000/140000), all additive + Up/Down; **none applied** | apply to staging in order; advisors | EB-1 / Wave 7 |
 | Security | PARTIAL | per-phase adversarial reviews done (Phase 9 ST-1/ST-2 fixed; Phase 10 CRITICAL+HIGH fixed, holistic PASS); **CR-1 credential leak OPEN** | Wave 6 cross-phase adversarial review; CR-1 rotation+history purge | Wave 6 / CR-1 |
-| Accessibility | DEFERRED | new backend has no UI yet | a11y for UI-8/9/10 (keyboard, labels, focus, status, no color-only) | UI waves |
+| Accessibility | PARTIAL | **UI-8 subscription a11y done + adversarial-reviewed** (headings, labels, keyboard, focus return, aria-live, no color-only, accessible quota text, reduced-motion) | a11y for UI-9/UI-10 | UI waves |
 | Observability | PARTIAL | correlation IDs + critical audit present; projection lag / dead-letter / webhook-failure / quota-anomaly alerts designed in runbooks | implement metrics + alerts + dashboards | Wave 7 |
 | Performance | DEFERRED | graph perf budgets in design; bounded-depth CTEs + materialized summaries | large-tenant graph + workbook + quota load tests | Wave 7 |
 | Staging proof | BLOCKED | harness exists; H9 + atomic-quota + graph projection need a DB | set `DIASPORA_STAGING_DATABASE_URL`, run, label `SKIPPED — SECRET UNAVAILABLE` until then | EB-1 |
