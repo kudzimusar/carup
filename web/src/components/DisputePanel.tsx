@@ -44,7 +44,17 @@ export default function DisputePanel({ vin }: { vin: string }) {
     }
   }, [fetchVehicleDisputes, vin])
 
-  useEffect(() => { void load() }, [load])
+  // Load on mount/vin-change without setting state synchronously inside the effect
+  // (react-hooks/set-state-in-effect): state updates happen only in async continuations.
+  // `loading` is initialised true so the spinner shows until the first fetch resolves.
+  useEffect(() => {
+    let mounted = true
+    fetchVehicleDisputes(vin)
+      .then((res) => { if (mounted) setDisputes(res.disputes || []) })
+      .catch(() => { if (mounted) setDisputes([]) })
+      .finally(() => { if (mounted) setLoading(false) })
+    return () => { mounted = false }
+  }, [fetchVehicleDisputes, vin])
 
   const raise = async () => {
     if (!subjectId.trim()) { toast.error('Enter the finding/subject id you are disputing.'); return }
