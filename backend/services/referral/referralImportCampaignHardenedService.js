@@ -94,6 +94,11 @@ export class ReferralImportCampaignHardenedService extends ReferralImportCampaig
     if (availableRaw === undefined || availableRaw === null) return { requested, checked: false, route_key: intent.route_key };
     const available = nonNegativeNumber(availableRaw, 'available_capacity_units');
     if (requested > available) {
+      // With waitlist mode the over-capacity request is accepted but flagged
+      // waitlisted; without it, the lead is rejected.
+      if (input.allow_waitlist === true) {
+        return { requested, available, checked: true, waitlisted: true, route_key: intent.route_key };
+      }
       throw new ValidationError('requested capacity exceeds available route capacity.', {
         route_key: intent.route_key,
         requested,
@@ -105,8 +110,9 @@ export class ReferralImportCampaignHardenedService extends ReferralImportCampaig
   }
 
   async createLead(input = {}, actor = {}) {
-    await this.preflightRequestedCapacity(input, actor);
-    return super.createLead(input, actor);
+    const capacity = await this.preflightRequestedCapacity(input, actor);
+    // Propagate a request-vs-available waitlisting decision to the base lead record.
+    return super.createLead(capacity?.waitlisted ? { ...input, waitlisted: true } : input, actor);
   }
 
   async getLeadEventForQualification(leadEventId) {
