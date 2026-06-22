@@ -1,6 +1,6 @@
 # Referral Engine — Adversarial Verification & Coverage Addendum
 
-Branch: `feat/referral-final-uat-release` · PR: #88 · Date: 2026-06-21
+Branch: `feat/referral-final-uat-release` · PR: #88 · Updated: 2026-06-23
 
 This addendum records the deep adversarial verification, the full TRD 00–12
 coverage audit, the defects they surfaced, and the remediation — work done after
@@ -14,6 +14,7 @@ the initial "all green" picture, which that deeper audit proved incomplete.
 | V2 | **CRITICAL** | The same redirect class existed in the **import** campaign service (`getAttributionOwner` fallback) and its hardened wrapper — affecting vehicle/parts/container flows on leads without a persisted `code_id`. | `a818ae2` |
 | V3 | **HIGH** | `POST /api/referrals/wallets/transactions` was guarded by `OPERATOR_ROLES` (dealer/seller/agent), letting a non-admin create a wallet credit for an arbitrary `user_id`. | `a818ae2` |
 | V4 | **HIGH** | The executable UAT runner counted PASS+SKIP as PASS, so Journey 3 could go green while the critical correct-owner attribution proof was skipped. | `01e204c` |
+| **V5** | **P1 (review)** | UAT staging-target guard (`assertStagingTarget`) searched a concatenated haystack of `baseUrl + stagingSupabaseUrl`. A staging Supabase URL in the haystack made `refProven=true` for any API URL. The exact unsafe config `STAGING_API_BASE_URL=https://api.carup.app + STAGING_SUPABASE_URL=https://eoyenigwevnxwwhyhaer.supabase.co` passed the guard — the runner would have sent mutating UAT requests to the production API. | `edd6fe5` |
 
 **Resolution:** all reward attribution now follows **one authoritative model** —
 the credited owner is derived from the lead's persisted attribution
@@ -135,30 +136,36 @@ journeys were run against this branch's code on the staging DB. Full results:
 
 All 10 journeys pass with 0 failures and 0 skips.
 
-### Final regression (2026-06-22)
+### Final regression (2026-06-23, SHA `edd6fe5`)
 
 | Suite | Result |
 |-------|--------|
 | web tsc | 0 errors |
 | mobile tsc | 0 errors |
-| web vitest | 139/139 pass |
+| web vitest | 139 / 139 |
 | web production build | OK |
-| backend node:test (CI-env) | 138/138 pass |
-| live UAT (all 10 journeys) | 67/67 pass |
-| 5× audit-export live proof | bounded count, no timeout |
+| backend node:test (CI-env) | **157 / 157** (138 + 19 guard tests) |
+| guard regression tests (incl. P1 defect case) | 19 / 19 |
+| live UAT — all 10 journeys, refactored runner | **67 / 67** |
+| 5× audit-export live proof | bounded, no timeout |
+| Playwright browser UAT | **4 / 4, 0 skipped** |
+| tracked-source + build-artifact secret scan | clean |
 
-### Updated GO / NO-GO
+### Final GO / NO-GO — website release
 
-**Engineering: GO.** All launch-critical journeys proven live, defects fixed +
-retested, audit-export scalability fixed and live-verified, full regression green,
-`referral-ci` GitHub Actions green (CI uses dummy env; all real suites pass).
+**Engineering: GO for website merge review.**
 
-Remaining items are **owner-side / operational** (PR is READY FOR REVIEW):
-1. Apply `20260621120000_referral_pin_function_search_path.sql` to staging (needs a
-   DB connection string / dashboard) and run Supabase advisors before/after.
-2. Browser Playwright UAT — `web/e2e/referral-staging.spec.ts` is authored; public
-   login/alert test runs anywhere; authenticated journeys require `E2E_UAT_*` env +
-   a staging base URL supplied by the owner.
-3. Mobile owner journey (Expo runtime/device — device-availability dependent).
-4. Let Vercel build-rate-limit reset; all four checks have been observed green.
-5. **Rotate the staging service-role key** (it was pasted into chat).
+All gates passed:
+- P1 UAT guard defect fixed and 19-case regression suite proves it (`edd6fe5`)
+- Codex review thread replied to with test evidence and resolved
+- Live UAT 67/67 confirmed on refactored runner
+- Playwright browser UAT 4/4, 0 skipped
+- Full regression 157/157 backend + 139/139 web
+- `referral-ci` GitHub Actions green
+- All four Vercel checks green
+- Tracked-source and build-artifact secret scans clean
+- `20260621120000_referral_pin_function_search_path.sql` applied to staging
+
+**Outstanding (post-web-release):**
+- Mobile owner UAT (Expo device — this is a post-web-release check; not falsely represented as passed)
+- Rotate the staging service-role key (it was pasted into a prior chat session)
