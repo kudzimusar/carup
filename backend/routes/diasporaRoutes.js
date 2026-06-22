@@ -10,6 +10,7 @@ import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRo
 import diasporaDriveRouter from './diasporaDriveRoutes.js';
 import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
 import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
+import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -65,6 +66,12 @@ router.use('/subscription', diasporaSubscriptionRoutes);
 // Phase 9: SafeTrade trade-assurance overlay (state machine, eligibility, milestones, release
 // policy, disputes, delivery). Sandbox-only payments; gated behind DIASPORA_SAFETRADE_ENABLED (off).
 router.use(diasporaSafeTradeRouter);
+
+// Phase 10: Trade Graph intelligence (tenant-safe, event-derived, AI-redacted reads + admin rebuild).
+// Mounted UNDER the '/trade-graph' prefix so the router's internal feature-gate (DIASPORA_TRADE_GRAPH,
+// default off → 404) is scoped to this prefix and cannot shadow sibling diaspora routes (the SafeTrade
+// route-shadowing lesson: a blanket gate at the diaspora root 404s everything).
+router.use('/trade-graph', diasporaTradeGraphRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {

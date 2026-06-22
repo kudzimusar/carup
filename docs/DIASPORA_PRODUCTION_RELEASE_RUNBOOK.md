@@ -40,6 +40,23 @@
    live billing OFF until their own EB approvals.
 8. **Close-out.** Record release evidence in the progress ledger; update readiness matrix.
 
+## Trade Graph projection activation (Phase 10) — operational steps
+The Trade Graph is a **derived, rebuildable** projection; relational tables remain authoritative.
+Activation order (all gated by `DIASPORA_TRADE_GRAPH`, default OFF):
+1. Apply migration `20260621140000_diaspora_phase10_trade_graph.sql` to staging first; run advisors;
+   confirm RLS/grants and that SQL parameter binding + SAVEPOINT semantics behave on **real Postgres**
+   (closes risk **TG-1** — the in-memory mock only models these behaviorally).
+2. Provision a service-role `pg.Pool` **dead-letter sink** (separate connection) so a poisoned event's
+   dead-letter survives a batch rollback (risk **TG-2**). Choose the projection driver: the supported,
+   self-contained `projectPendingEvents` (owns `event.id`); if using the eventWorker subscriber, the
+   integrator must forward the `domain_events` record (else it fails loud).
+3. Backfill: run an admin-only, rate-limited `rebuildTenantGraph` per tenant to populate from
+   authoritative tables/events; verify node/edge counts and a few `entities/:id/path` answers.
+4. Flip `DIASPORA_TRADE_GRAPH` on for staging; monitor projection lag, dead-letter count, and rebuild
+   status. Only then consider production (under EB-5).
+AI-ready reads expose **redacted** context only (PII tokenized/redacted, participant ids pseudonymized);
+do not enable AI graph insights (`DIASPORA_AI_GRAPH_INSIGHTS`) until redaction is re-verified on prod data.
+
 ## Promotion order (§80)
 local/test → CI → staging DB → staging FE/BE → closed pilot → production migration → production
 deploy → smoke → monitored rollout → rollback if any gate fails (see rollback runbook).

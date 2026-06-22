@@ -61,7 +61,7 @@ local/test → CI → staging DB (`eoyenigwevnxwwhyhaer`) → staging FE/BE → 
 | `DIASPORA_SUBSCRIPTION_ENFORCEMENT` | off→staged | entitlement enforcement |
 | `DIASPORA_SAFETRADE_SANDBOX` | off | SafeTrade sandbox |
 | `DIASPORA_SAFETRADE_LIVE_PAYMENT` | off (🔒) | real-money payment |
-| `DIASPORA_TRADE_GRAPH` | off | graph dashboards |
+| `DIASPORA_TRADE_GRAPH` | off | graph reads/rebuild API (backend complete; gate scoped to `/trade-graph`; fails closed; UI = UI-10) |
 | `DIASPORA_AI_GRAPH_INSIGHTS` | off | AI graph insights |
 
 (Flag names provisional; implement as env-driven constants per `diasporaDriveConstants.js` pattern.)
