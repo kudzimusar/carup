@@ -1,23 +1,25 @@
 # Navigation Intelligence Blueprint — Staging Deployment & Smoke Plan
 
-> **Status: main governance migration APPLIED + VERIFIED in staging (`eoyenigwevnxwwhyhaer`). Search-path follow-up authored (pending apply). Vercel deploy + PO smoke pending.**
-> The main migration `20260621120000_feature_rollout_overrides.sql` has been
-> applied to the dedicated **staging** Supabase project `eoyenigwevnxwwhyhaer`
-> (production `vhmnajoeicasaigiophh` was NOT migrated). The verified staging state
-> is recorded under "Migration verification (confirmed in staging)" below.
+> **Status: BOTH governance migrations APPLIED + VERIFIED in staging (`eoyenigwevnxwwhyhaer`). Vercel previews green. PO smoke/UAT pending.**
+> Both migrations are applied to the dedicated **staging** Supabase project
+> `eoyenigwevnxwwhyhaer` and verified (production `vhmnajoeicasaigiophh` was NOT
+> migrated):
+> - `20260621120000_feature_rollout_overrides.sql` — applied + verified;
+> - `20260622120000_feature_rollout_search_path.sql` — applied + verified; the
+>   trigger function `feature_rollout_overrides_touch_updated_at()` `proconfig`
+>   now contains `search_path=public, pg_temp` (the security-advisor
+>   function-search-path-mutable notice is cleared).
 >
-> Attribution / honesty note: the apply + verification were performed by the
-> release engineer who holds staging access — the **agent's own connected Supabase
-> tooling still cannot reach `eoyenigwevnxwwhyhaer`** (`list_projects` shows only
-> `sfhtlzcgrnrdznhvdrbn` "production-os"; a read-only probe of the staging ref
-> returns *permission denied*), so the agent cannot independently re-run those
-> checks and is recording the confirmed result. The follow-up migration
-> `20260622120000_feature_rollout_search_path.sql` (security-advisor hardening) is
-> authored and **pending application to staging** by the release engineer.
+> The verified state is recorded under "Migration verification" below. Vercel
+> previews (`carup`, `carup-backend`, `carup-staging`, `carup-backend-staging`)
+> are green on the current branch head. Application/verification of staging was
+> performed by the release engineer (the project is administered outside this
+> agent's Supabase tooling); the agent records the confirmed result and **does
+> not re-apply** either migration. Production was not touched.
 
 ## Environment refs (no credentials)
-- **Staging Supabase project ref:** `eoyenigwevnxwwhyhaer` (governance-migration target; main migration applied/verified; not reachable from the agent's tooling).
-- **Production/shared Supabase project ref:** `vhmnajoeicasaigiophh` (`.env` target — must NOT receive this migration).
+- **Staging Supabase project ref:** `eoyenigwevnxwwhyhaer` (both governance migrations applied + verified).
+- **Production/shared Supabase project ref:** `vhmnajoeicasaigiophh` (`.env` target — NOT migrated).
 - **Tooling-visible project:** `sfhtlzcgrnrdznhvdrbn` ("production-os") — production; intentionally NOT migrated.
 - Staging Vercel projects: `carup-staging` (web) and `carup-backend-staging` (backend) with `VITE_API_URL`/`APP_ENV=staging` and the staging project's `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (held in the staging secrets store, not in this repo).
 
@@ -34,14 +36,12 @@ The following were confirmed present/correct in `eoyenigwevnxwwhyhaer`:
 - ✅ `anon` has NO direct privileges; `authenticated` has NO direct privileges; `service_role` has the intended privileges.
 - ✅ Primary key; unique `(feature_id, environment)` index; supporting indexes; CHECK constraints; `updated_at` trigger.
 
-### Follow-up: harden the trigger function search_path
-> The security advisor flagged `feature_rollout_overrides_touch_updated_at()` with a mutable `search_path`. Migration `20260622120000_feature_rollout_search_path.sql` pins it (idempotent, guarded). **Pending application to staging** by the release engineer (the agent cannot reach the staging project):
-```bash
-psql "$STAGING_DATABASE_URL" -f database/migrations/20260622120000_feature_rollout_search_path.sql
--- verify
+### Follow-up: harden the trigger function search_path — APPLIED + VERIFIED
+> The security advisor flagged `feature_rollout_overrides_touch_updated_at()` with a mutable `search_path`. Migration `20260622120000_feature_rollout_search_path.sql` (idempotent, guarded) is **applied + verified in staging**: the function's `proconfig` now contains `search_path=public, pg_temp`, and the advisor notice is cleared. Re-verification query (for the record):
+```sql
 select proname, proconfig from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.proname='feature_rollout_overrides_touch_updated_at';
--- expect proconfig to contain 'search_path=public, pg_temp'; then re-run the security advisor.
+-- proconfig contains 'search_path=public, pg_temp' ✅
 ```
 
 ### Re-verification SQL (re-runnable against staging; expected results in parentheses)

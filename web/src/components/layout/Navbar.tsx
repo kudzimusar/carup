@@ -28,7 +28,7 @@ import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems } from '@/config/featureRegistry'
+import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
 import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
@@ -172,7 +172,7 @@ export default function Navbar() {
             <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" />
             <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" />
             <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" />
-            {getPublicNavigationItems().map((link) => {
+            {getVisiblePublicNavigationItems(navContext).map((link) => {
               const testId = `nav-${link.label.toLowerCase()}`
               return (
                 <Link

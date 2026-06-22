@@ -1180,6 +1180,16 @@ export function getPublicNavigationItems(): FeatureRegistryItem[] {
   )
 }
 
+/**
+ * Direct (registry-driven) public header nav items, filtered by effective
+ * visibility — so a disabled / tenant-denied / hidden override removes the
+ * direct link too. Uses the shared resolveFeatureVisibility (no per-component
+ * logic). Static defaults render when no effective state exists.
+ */
+export function getVisiblePublicNavigationItems(ctx: NavigationContext = {}): FeatureRegistryItem[] {
+  return getPublicNavigationItems().filter(f => resolveFeatureVisibility(f, ctx).visible)
+}
+
 /** Get public footer items classified by category section prefix */
 export function getPublicFooterItems(section: 'Product' | 'Company' | 'Resources'): FeatureRegistryItem[] {
   const prefix = section.toLowerCase() + '.'

@@ -3,12 +3,12 @@
 > **Automated-equivalent status:** the Playwright suites `tests/agents/27–32` cover
 > the desktop menus, footer, public + 7-role mobile drawer, role switching,
 > route-boundary direct-access (auth/role/lifecycle), and the admin governance
-> console (incl. PATCH/DELETE + non-admin denial) — **37/37 green**. Backend
-> role/tenant/audit/version/reset/fail-safe/active-role/sidebar behavior is
-> covered by 35 governance + sidebar unit tests. The governance migration is
-> **applied + verified in staging** (`eoyenigwevnxwwhyhaer`); the manual sign-off
-> below still requires the **deployed staging frontend/backend** (Vercel deploy
-> pending — see staging plan).
+> console (incl. PATCH/DELETE + non-admin denial) — **38/38 green**. Backend
+> role/tenant/audit/version/reset/fail-safe/active-role/sidebar/visibility
+> behavior is covered by 35 governance + sidebar/manifest unit tests. Both
+> governance migrations are **applied + verified in staging** (`eoyenigwevnxwwhyhaer`)
+> and Vercel previews are green; the manual sign-off below runs against the
+> deployed staging environment (see staging plan).
 
 Run against **staging** (see `NAVIGATION_BLUEPRINT_STAGING_PLAN.md`).
 - **Base URL:** `https://<staging-web-host>` (the `carup-staging` deployment).
