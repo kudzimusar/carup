@@ -28,7 +28,8 @@ import {
   Store,
   MapPin,
   Building2,
-  CreditCard
+  CreditCard,
+  ShieldCheck
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -69,6 +70,7 @@ const ICON_MAP: Record<LucideIconName, React.ElementType> = {
   Building2,
   Settings,
   CreditCard,
+  ShieldCheck,
 }
 
 /** Resolves a FeatureRegistryItem to its icon component */
