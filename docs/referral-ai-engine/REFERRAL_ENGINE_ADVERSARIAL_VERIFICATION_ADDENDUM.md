@@ -111,3 +111,37 @@ from this environment. The one known advisory (search_path) is fixed at the
 migration level; running the live advisor before/after requires the owner's Supabase
 access (or the staging service-role key). This is a local-tooling gap, not proof
 that advisors are impossible.
+
+## 9. Live staging UAT EXECUTED (2026-06-22) — supersedes the earlier "blocked" status
+
+The owner provided staging credentials in `backend/.env.uat.local`. The UAT users
+were seeded via the official script (owner id `u_uat_ref_owner_2026`) and the 10
+journeys were run against this branch's code on the staging DB. Full results:
+`REFERRAL_ENGINE_LIVE_UAT_RESULTS.md`.
+
+- **Correct-owner wallet attribution: PROVEN LIVE** (Journey 3) — the defining gate.
+- All launch-critical journeys pass live: auth/tenant boundaries, capacity+waitlist,
+  marketing workflow (incl. rejection-requires-reason), fraud hold/override, dispute
+  lifecycle, channel inbound attribution, AI triage. Final run **65/67**.
+- **Two backend defects found by the live run and fixed + unit-tested** (`87e0c74`):
+  import `allow_waitlist` not honored; marketing rejection didn't require a reason.
+  Both re-verified live (Journey 5 → 8/0, Journey 6 → 13/0).
+- The only 2 remaining live failures are the trust **audit endpoints returning 500**
+  due to a Postgres statement timeout — a **staging-DB-degradation artifact** of ~6
+  repeated UAT runs bloating `referral_events` (the audit checksum passed on cleaner
+  data). Recommended follow-up: paginate/index the audit event scan.
+
+### Updated GO / NO-GO
+
+The live correct-owner attribution gate is **MET**. The engineering is **GO**
+(launch-critical journeys proven live, two defects fixed + retested, local
+regression green). Remaining items are **owner-side / operational**, so the PR stays
+**draft**:
+1. Apply `20260621120000_referral_pin_function_search_path.sql` to staging (needs a
+   DB connection string / dashboard — not available to this environment) and run the
+   Supabase advisors before/after.
+2. Address the audit-export scalability follow-up (or accept it as a known
+   post-launch item).
+3. Let the Vercel build-rate-limit cool down and confirm all four checks green.
+4. **Rotate the staging service-role key** (it was pasted into chat and is now in
+   the transcript).
