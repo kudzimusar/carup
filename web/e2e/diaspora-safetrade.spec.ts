@@ -52,7 +52,7 @@ const DISPUTES = [{ id: 'd1', transaction_id: TXN.id, milestone_id: null, catego
     { id: 'secret', dispute_id: 'd1', evidence_type: 'NOTE', visibility: 'REVIEWERS_ONLY', author_id: 'reviewer-1', statement: 'SECRET-REVIEWER-ONLY' },
   ] }]
 
-async function mockDetail(page: Page, actions: unknown, opts: { caseStatus?: number; eligibility?: unknown } = {}) {
+async function mockDetail(page: Page, actions: unknown, opts: { caseStatus?: number; eligibility?: unknown; caseBody?: unknown } = {}) {
   await page.route('**/api/diaspora/safetrade', (r) => fulfillJson(r, { data: [TXN], pagination: { limit: 50, offset: 0 } }))
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/available-actions', (r) => fulfillJson(r, { data: actions }))
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/timeline', (r) => fulfillJson(r, { data: TIMELINE }))
@@ -60,7 +60,8 @@ async function mockDetail(page: Page, actions: unknown, opts: { caseStatus?: num
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/milestones', (r) => fulfillJson(r, { data: MILESTONES }))
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/disputes', (r) => fulfillJson(r, { data: DISPUTES }))
   // GET /:id returns the transaction DIRECTLY (not wrapped) — match the backend + the hook.
-  await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111', (r) => fulfillJson(r, opts.caseStatus ? { success: false, error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have access to this SafeTrade case' } } : TXN, opts.caseStatus || 200))
+  const errBody = opts.caseBody ?? { success: false, error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have access to this SafeTrade case' } }
+  await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111', (r) => fulfillJson(r, opts.caseStatus ? errBody : TXN, opts.caseStatus || 200))
 }
 
 // If the feature flag is OFF the page renders the unavailable state; these tests require it ON.
@@ -137,6 +138,18 @@ test('missing transaction (403) renders a safe access state', async ({ page }) =
   await page.goto('/diaspora/safetrade/st-aaaaaaaa-1111')
   if (await page.getByTestId('safetrade-detail-unavailable').count()) test.skip(true, 'flag OFF')
   await expect(page.getByTestId('safetrade-detail-forbidden')).toBeVisible()
+})
+
+test('expired session (401) shows a sign-in prompt, not a dead retry', async ({ page }) => {
+  await loginAs(page, buyer)
+  // A 401 whose message starts with "Unauthorized" is a session failure (apiClient -> SessionExpiredError).
+  await mockDetail(page, BUYER_ACTIONS, { caseStatus: 401, caseBody: { success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized. Session is invalid or expired.' } } })
+  await page.goto('/diaspora/safetrade/st-aaaaaaaa-1111')
+  if (await page.getByTestId('safetrade-detail-unavailable').count()) test.skip(true, 'flag OFF')
+  await expect(page.getByTestId('safetrade-detail-session')).toBeVisible()
+  await expect(page.getByTestId('safetrade-detail-signin')).toBeVisible()
+  // The misleading retry affordance must NOT be offered for an expired session.
+  await expect(page.getByTestId('safetrade-detail-retry')).toHaveCount(0)
 })
 
 test('detail has an accessible h1 and keyboard-reachable refresh', async ({ page }) => {

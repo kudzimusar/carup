@@ -6,7 +6,7 @@
  * table). Resilient to partial data, 403/404, missing tenant and stale-state conflicts (manual +
  * post-action refresh). SafeTrade is non-custodial, sandbox-only; the assurance notice is always shown.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Loader2, Lock, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -21,7 +21,7 @@ import { SafeTradeEligibilityPanel } from '@/components/diaspora/safetrade/SafeT
 import { SafeTradeMilestones } from '@/components/diaspora/safetrade/SafeTradeMilestones'
 import { SafeTradeActions } from '@/components/diaspora/safetrade/SafeTradeActions'
 import { SafeTradeDisputes } from '@/components/diaspora/safetrade/SafeTradeDisputes'
-import { designStateOf } from '@/components/diaspora/safetrade/safeTradeHelpers'
+import { classifyActionError, designStateOf } from '@/components/diaspora/safetrade/safeTradeHelpers'
 import type {
   SafeTradeTransaction, SafeTradeTimelineEvent, SafeTradeEligibilityVerdict,
   SafeTradeMilestone, SafeTradeDispute, SafeTradeAvailableAction,
@@ -44,12 +44,18 @@ export default function DiasporaSafeTradeDetail() {
   const [disputes, setDisputes] = useState<SafeTradeDispute[]>([])
   const [actions, setActions] = useState<SafeTradeAvailableAction[]>([])
   const [loading, setLoading] = useState(false)
-  const [fatal, setFatal] = useState<{ kind: 'notfound' | 'forbidden' | 'tenant' | 'error'; message: string } | null>(null)
+  // Distinguishes the INITIAL load (full-page spinner) from later refreshes (in-place; the case stays
+  // on screen). A ref guards against overlapping loads so the always-focusable Refresh button cannot
+  // fire concurrent fetches.
+  const [hasLoaded, setHasLoaded] = useState(false)
+  const loadingRef = useRef(false)
+  const [fatal, setFatal] = useState<{ kind: 'notfound' | 'forbidden' | 'tenant' | 'session' | 'error'; message: string } | null>(null)
 
   const canView = flagEnabled && isAuthenticated
 
   const load = useCallback(async () => {
-    if (!canView || !id) return
+    if (!canView || !id || loadingRef.current) return
+    loadingRef.current = true
     setLoading(true); setFatal(null)
     try {
       const t = await api.getSafeTradeCase(id) // backbone; its failure is fatal
@@ -61,13 +67,16 @@ export default function DiasporaSafeTradeDetail() {
       try { setDisputes(await api.getSafeTradeDisputes(id)) } catch { setDisputes([]) }
       try { setActions(await api.getSafeTradeAvailableActions(id)) } catch { setActions([]) }
     } catch (err) {
-      // apiRequest throws a plain Error carrying only the server's message; categorize from it.
-      const msg = String((err as { message?: string })?.message || '').toLowerCase()
-      if (/not found|no safetrade|does not exist|404/.test(msg)) setFatal({ kind: 'notfound', message: 'This SafeTrade case was not found.' })
-      else if (/not authorized|do not have access|forbidden|insufficient|permission/.test(msg)) setFatal({ kind: 'forbidden', message: 'You do not have access to this SafeTrade case.' })
-      else if (/tenant context|x-tenant-id|tenant is required/.test(msg)) setFatal({ kind: 'tenant', message: 'A tenant context is required to view this case.' })
+      // apiRequest throws a plain Error carrying only the server's MESSAGE (no structured code);
+      // classify from message content. A 401 session failure is shown as a sign-in prompt, NOT a
+      // dead Retry (auth is already cleared, so Retry would no-op).
+      const { kind } = classifyActionError(err)
+      if (kind === 'session') setFatal({ kind: 'session', message: 'Your session has expired. Please sign in again to view this case.' })
+      else if (kind === 'notfound') setFatal({ kind: 'notfound', message: 'This SafeTrade case was not found.' })
+      else if (kind === 'forbidden') setFatal({ kind: 'forbidden', message: 'You do not have access to this SafeTrade case.' })
+      else if (kind === 'tenant') setFatal({ kind: 'tenant', message: 'A tenant context is required to view this case.' })
       else setFatal({ kind: 'error', message: 'Could not load this SafeTrade case. Please retry.' })
-    } finally { setLoading(false) }
+    } finally { setLoading(false); setHasLoaded(true); loadingRef.current = false }
   }, [api, canView, id])
 
   // Depend on stable primitives (not `load`): useCarUpApi() returns a fresh object each render, so a
@@ -86,7 +95,10 @@ export default function DiasporaSafeTradeDetail() {
       </div>
     )
   }
-  if (authLoading || loading) {
+  // Full-page spinner only on the INITIAL load (before the first load resolves). A manual/post-action
+  // refresh keeps the case on screen (see the inline Refresh indicator) so context and focus are
+  // preserved, and the Refresh control stays keyboard-focusable throughout.
+  if (authLoading || (loading && !hasLoaded)) {
     return <div className="flex min-h-[40vh] items-center justify-center text-orange-600" data-testid="safetrade-detail-loading"><Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /></div>
   }
   if (fatal) {
@@ -99,6 +111,7 @@ export default function DiasporaSafeTradeDetail() {
             {fatal.message}
             <span className="ml-2 inline-flex gap-2">
               {fatal.kind === 'error' && <Button size="sm" variant="outline" onClick={() => void load()} data-testid="safetrade-detail-retry">Retry</Button>}
+              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to="/login" data-testid="safetrade-detail-signin">Sign in</Link></Button>}
               <Button asChild size="sm" variant="ghost"><Link to="/diaspora/safetrade">Back to cases</Link></Button>
             </span>
           </AlertDescription>
@@ -109,10 +122,15 @@ export default function DiasporaSafeTradeDetail() {
   if (!txn) return null
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8" data-testid="safetrade-detail-page">
+    <main className="mx-auto max-w-4xl px-4 py-8" data-testid="safetrade-detail-page" aria-busy={loading}>
       <div className="mb-3 flex items-center justify-between">
         <Button asChild variant="ghost" size="sm"><Link to="/diaspora/safetrade"><ArrowLeft className="mr-1 h-4 w-4" aria-hidden="true" /> All cases</Link></Button>
-        <Button variant="outline" size="sm" onClick={() => void load()} data-testid="safetrade-detail-refresh"><RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" /> Refresh</Button>
+        <Button variant="outline" size="sm" onClick={() => void load()} aria-busy={loading} data-testid="safetrade-detail-refresh">
+          {loading
+            ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden="true" />
+            : <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" />}
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </Button>
       </div>
 
       <div className="space-y-4">
