@@ -9,9 +9,13 @@ import {
   getNavigationPlacements,
   getMobileNavigation,
   getFooterNavigation,
+  isNodeBackendBlocked,
+  resolveNodeOwnerFeatureId,
+  findUnownedInternalNodes,
   type NavigationNode,
 } from './navigationManifest'
-import { matchRoutePattern, getFeatureById, type NavigationContext } from './featureRegistry'
+import { matchRoutePattern, getFeatureById, getFeatureByRoute, type NavigationContext } from './featureRegistry'
+import { evaluateRouteAccess } from '../lib/routeAccess'
 
 const GUEST: NavigationContext = { isAuthenticated: false, role: null }
 const OWNER: NavigationContext = { isAuthenticated: true, role: 'owner' }
@@ -165,10 +169,11 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
     })
     it('no regression: coverage-gated Marketplace items still defer/activate correctly', () => {
       const brandNew = NAVIGATION_MANIFEST.find(n => n.id === 'buy.brand-new')!
-      // standalone deep-link (no featureId) — unaffected by backend effective state
+      // coverage gating is unaffected by backend effective state (href is pure)
       expect(buildFeatureHref(brandNew, {})).toBe('/marketplace')
       expect(buildFeatureHref(brandNew, { coverage: { categories: { brand_new: { active: true } } } })).toBe('/marketplace?category=brand_new')
-      // and it still renders (not a feature-linked node, so isNodeBackendBlocked is false)
+      // owned by product.marketplace (not product.insurance), so disabling
+      // product.insurance does NOT remove it from the Buy menu
       const buyIds = getDesktopMegaMenu('navbar-mega-buy', eff({ enabled: false })).flatMap(s => s.items).map(i => i.id)
       expect(buyIds).toContain('buy.brand-new')
     })
@@ -181,6 +186,185 @@ describe('Navigation manifest — desktop mega-menus (Milestone 2)', () => {
 
   it('getNavigationPlacements returns feature-linked nodes', () => {
     expect(getNavigationPlacements('product.insurance').map(n => n.id)).toContain('more.insurance')
+  })
+})
+
+// ── TASK 4: structural ownership gate (governance-bypass cannot return) ───────
+describe('Navigation manifest — structural ownership gate (Milestone 8)', () => {
+  it('every internal registered-route node carries an explicit owning featureId (no bypass)', () => {
+    // The authoritative assertion: the SHIPPING manifest has zero un-owned
+    // internal nodes. If this ever fails, the message names exactly what to fix.
+    const violations = findUnownedInternalNodes()
+    expect(violations, JSON.stringify(violations, null, 2)).toEqual([])
+  })
+
+  it('the gate DETECTS a live internal link into a registered feature with no owner', () => {
+    const offender: NavigationNode = {
+      id: 'buy.bogus', surface: 'navbar-mega-buy', order: 99,
+      label: 'Bogus', route: '/marketplace', // enters product.marketplace, no featureId
+    }
+    const violations = findUnownedInternalNodes([offender])
+    expect(violations).toHaveLength(1)
+    // failure output must include id, route, surface, expected governing feature
+    expect(violations[0]).toEqual({
+      id: 'buy.bogus',
+      surface: 'navbar-mega-buy',
+      route: '/marketplace',
+      expectedFeatureId: 'product.marketplace',
+    })
+  })
+
+  it('the gate detects an un-owned auth-aware node by its AUTH destination', () => {
+    const offender: NavigationNode = {
+      id: 'sell.bogus', surface: 'navbar-mega-sell', order: 99, label: 'Bogus',
+      authDestination: '/dashboard/sell-vehicle', guestDestination: '/register',
+    }
+    const [v] = findUnownedInternalNodes([offender])
+    expect(v.expectedFeatureId).toBe('owner.sell-vehicle')
+    expect(v.route).toBe('/dashboard/sell-vehicle')
+  })
+
+  it('the gate EXEMPTS planned placeholders and external links', () => {
+    const planned: NavigationNode = {
+      id: 'x.planned', surface: 'navbar-mega-buy', order: 99, label: 'Soon',
+      route: '/marketplace', lifecycle: 'planned',
+    }
+    const external: NavigationNode = {
+      id: 'x.external', surface: 'navbar-more', order: 99, label: 'Docs',
+      route: '/marketplace', external: true,
+    }
+    expect(findUnownedInternalNodes([planned, external])).toEqual([])
+  })
+
+  it('resolveNodeOwnerFeatureId: explicit featureId is authoritative; route is the fallback; external → none', () => {
+    const explicit = NAVIGATION_MANIFEST.find(n => n.id === 'buy.shop-all')!
+    expect(resolveNodeOwnerFeatureId(explicit)).toBe('product.marketplace')
+    // un-annotated node resolves deterministically by route
+    const fallback: NavigationNode = { id: 't', surface: 'navbar-mega-parts', order: 1, label: 't', route: '/marketplace/parts' }
+    expect(resolveNodeOwnerFeatureId(fallback)).toBe('product.marketplace-parts')
+    // external never resolves to a governed owner
+    const ext: NavigationNode = { id: 't', surface: 'navbar-more', order: 1, label: 't', route: '/marketplace', external: true }
+    expect(resolveNodeOwnerFeatureId(ext)).toBeUndefined()
+  })
+
+  it('the route the gate expects is the route the feature actually registers', () => {
+    // sanity: the deterministic resolver agrees with the registry both ways
+    for (const node of NAVIGATION_MANIFEST) {
+      if (!node.featureId) continue
+      const f = getFeatureById(node.featureId)
+      if (!f) continue
+      // a node whose own static route matches a registered feature must agree with its owner
+      if (node.route && !node.coverageCategory && !node.coverageTag && !node.query) {
+        const byRoute = getFeatureByRoute(node.route)
+        if (byRoute) expect(node.featureId).toBe(byRoute.id)
+      }
+    }
+  })
+})
+
+// ── TASK 5: governance regression — owned variants obey their owner ──────────
+describe('Navigation manifest — owned-variant governance regression', () => {
+  const ACTIVE = { state: 'active' as const, enabled: true, visible: true, accessible: true, beta: false }
+  const eff = (id: string, over: object): NavigationContext => ({
+    effectiveStates: { [id]: { featureId: id, ...ACTIVE, ...over } },
+  })
+  const menuIds = (surface: Parameters<typeof getDesktopMegaMenu>[0], ctx: NavigationContext) =>
+    getDesktopMegaMenu(surface, ctx).flatMap(s => s.items).map(i => i.id)
+  const mobilePrimary = (ctx: NavigationContext) => getMobileNavigation(ctx).primary.map(i => i.id)
+  const footerProduct = (ctx: NavigationContext) => getFooterNavigation('product', ctx).map(i => i.id)
+
+  const MARKETPLACE_OWNED = ['buy.shop-all', 'buy.toyota', 'buy.under-5k', 'buy.highest-trust', 'buy.brand-new', 'buy.passport-verified']
+
+  it('1) disabling product.marketplace hides shop-all, make/price/trust-sort links, mobile Buy and the footer link', () => {
+    const ctx = eff('product.marketplace', { state: 'disabled', enabled: false, visible: false, accessible: false })
+    const buy = menuIds('navbar-mega-buy', ctx)
+    for (const id of MARKETPLACE_OWNED) expect(buy, id).not.toContain(id)
+    expect(mobilePrimary(ctx)).not.toContain('mobile.buy')
+    expect(footerProduct(ctx)).not.toContain('product.marketplace')
+    // a sibling owned by a different feature is unaffected
+    expect(buy).toContain('buy.verify-before') // product.verify
+  })
+
+  it('2) product.marketplace visible:false (enabled stays true) hides the same entries', () => {
+    const ctx = eff('product.marketplace', { visible: false })
+    const buy = menuIds('navbar-mega-buy', ctx)
+    for (const id of MARKETPLACE_OWNED) expect(buy, id).not.toContain(id)
+    expect(mobilePrimary(ctx)).not.toContain('mobile.buy')
+  })
+
+  it('3) disabling product.marketplace-parts hides parts.browse, mobile Parts and the parts category entries', () => {
+    const ctx = eff('product.marketplace-parts', { state: 'disabled', enabled: false, visible: false, accessible: false })
+    const parts = menuIds('navbar-mega-parts', ctx)
+    expect(parts).not.toContain('parts.browse')
+    expect(parts).not.toContain('parts.mechanic-catalog')
+    expect(parts).not.toContain('parts.engines') // planned, but owned → governed out
+    expect(mobilePrimary(ctx)).not.toContain('mobile.parts')
+    // PartSentry parts links are owned by product.verify → still present
+    expect(parts).toContain('parts.ps-origin')
+  })
+
+  it('4) tenant denial (enabled:true, visible:false, accessible:false) hides ALL owned marketplace variants', () => {
+    const ctx = eff('product.marketplace', { visible: false, accessible: false })
+    const buy = menuIds('navbar-mega-buy', ctx)
+    for (const id of MARKETPLACE_OWNED) expect(buy, id).not.toContain(id)
+    expect(mobilePrimary(ctx)).not.toContain('mobile.buy')
+    expect(footerProduct(ctx)).not.toContain('product.marketplace')
+  })
+
+  it('5) active/visible state restores every owned entry', () => {
+    const ctx = eff('product.marketplace', {}) // explicit active+visible
+    const buy = menuIds('navbar-mega-buy', ctx)
+    for (const id of MARKETPLACE_OWNED) expect(buy, id).toContain(id)
+    expect(mobilePrimary(ctx)).toContain('mobile.buy')
+    expect(footerProduct(ctx)).toContain('product.marketplace')
+    // and the no-override default is identical for these entries
+    const def = menuIds('navbar-mega-buy', {})
+    for (const id of MARKETPLACE_OWNED) expect(def, id).toContain(id)
+  })
+
+  it('6) planned links stay planned and are never activated by an owner override', () => {
+    // even an explicit ACTIVE override on the owner must NOT activate a planned node
+    const ctx = eff('product.marketplace', {})
+    const suvs = getDesktopMegaMenu('navbar-mega-buy', ctx).flatMap(s => s.items).find(i => i.id === 'buy.suvs')!
+    expect(suvs.state).toBe('planned')
+    expect(suvs.active).toBe(false)
+  })
+
+  it('7) coverage-gated links still obey their coverage thresholds (href unchanged by ownership)', () => {
+    const brandNew = NAVIGATION_MANIFEST.find(n => n.id === 'buy.brand-new')!
+    expect(buildFeatureHref(brandNew, {})).toBe('/marketplace') // no coverage → defer
+    expect(buildFeatureHref(brandNew, { coverage: { categories: { brand_new: { active: true } } } }))
+      .toBe('/marketplace?category=brand_new')
+  })
+
+  it('8) governed-trust tags remain fail-closed even when the owner is active', () => {
+    const passport = NAVIGATION_MANIFEST.find(n => n.id === 'buy.passport-verified')!
+    expect(passport.governedTrust).toBe(true)
+    const ownerActive = eff('product.marketplace', {})
+    // owner active does NOT fabricate the trust tag — only real coverage does
+    expect(buildFeatureHref(passport, ownerActive)).toBe('/marketplace')
+  })
+
+  it('9) external links are never removed by a same-route owner disable', () => {
+    const external: NavigationNode = {
+      id: 'x.ext', surface: 'navbar-more', order: 1, label: 'External',
+      route: '/marketplace', external: true,
+    }
+    const ctx = eff('product.marketplace', { enabled: false, visible: false })
+    expect(isNodeBackendBlocked(external, ctx)).toBe(false)
+  })
+
+  it('10) direct-route access and the owned navigation entries AGREE under a disable', () => {
+    const ctx = eff('product.marketplace', { state: 'disabled', enabled: false, visible: false, accessible: false })
+    // nav: every owned marketplace entry is gone
+    const buy = menuIds('navbar-mega-buy', ctx)
+    for (const id of MARKETPLACE_OWNED) expect(buy, id).not.toContain(id)
+    // direct route: typing /marketplace resolves to the SAME unavailable outcome
+    const decision = evaluateRouteAccess({
+      route: '/marketplace', isBootstrapping: false, isAuthenticated: false, role: null,
+      effectiveStates: ctx.effectiveStates, enforceAuth: false,
+    })
+    expect(decision.kind).toBe('disabled')
   })
 })
 

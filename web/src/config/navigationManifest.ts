@@ -25,6 +25,7 @@ import {
   type FeatureLifecycleState,
   type LucideIconName,
   getFeatureById,
+  getFeatureByRoute,
   getStaticLifecycle,
   getDashboardRoute,
   getFeaturesByPlacement,
@@ -102,107 +103,114 @@ const REGISTER = '/register'
 
 export const NAVIGATION_MANIFEST: NavigationNode[] = [
   // ═══ BUY ════════════════════════════════════════════════════════════════
-  // Vehicles
-  { id: 'buy.shop-all', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 1, label: 'Shop All Cars', route: '/marketplace', icon: 'ShoppingCart', description: 'Browse every eligible listing' },
-  { id: 'buy.brand-new', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 2, label: 'Brand New Cars', route: '/marketplace', coverageCategory: 'brand_new', governedTrust: true, description: 'Coverage-gated: shown only when real brand-new inventory exists' },
-  { id: 'buy.recently-imported', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 3, label: 'Recently Imported', route: '/marketplace', coverageCategory: 'recently_imported', description: 'Coverage-gated import inventory' },
-  { id: 'buy.locally-used', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 4, label: 'Locally Used', route: '/marketplace', coverageCategory: 'locally_used', description: 'Coverage-gated locally-used inventory' },
-  { id: 'buy.second-hand', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 5, label: 'Second Hand Cars', route: '/marketplace', coverageCategory: 'second_hand', governedTrust: true, description: 'Coverage-gated second-hand inventory' },
-  { id: 'buy.dealer-verified', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 6, label: 'Dealer Verified Cars', route: '/marketplace', coverageTag: 'dealer_verified', governedTrust: true, description: 'Filtered by real dealer-verification signal' },
-  { id: 'buy.passport-verified', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 7, label: 'Passport Verified Cars', route: '/marketplace', coverageTag: 'passport_verified', governedTrust: true, description: 'Filtered by real Vehicle Passport evidence' },
-  // Popular Categories
-  { id: 'buy.suvs', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 1, label: 'SUVs', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported by the marketplace taxonomy' },
-  { id: 'buy.pickups', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 2, label: 'Pickups', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported' },
-  { id: 'buy.hatchbacks', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 3, label: 'Hatchbacks', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported' },
-  { id: 'buy.sedans', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 4, label: 'Sedans', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported' },
-  { id: 'buy.toyota', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 5, label: 'Toyota', route: '/marketplace', query: { make: 'Toyota' }, description: 'Real make deep-link' },
-  { id: 'buy.honda', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 6, label: 'Honda', route: '/marketplace', query: { make: 'Honda' } },
-  { id: 'buy.mazda', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 7, label: 'Mazda', route: '/marketplace', query: { make: 'Mazda' } },
-  { id: 'buy.under-5k', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 8, label: 'Under $5,000', route: '/marketplace', query: { maxPrice: '5000' } },
-  { id: 'buy.under-10k', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 9, label: 'Under $10,000', route: '/marketplace', query: { maxPrice: '10000' } },
+  // Vehicles — every node enters the Marketplace (`product.marketplace`); the
+  // explicit featureId makes that ownership authoritative so a kill-switch /
+  // tenant-denial on the Marketplace removes ALL of these placements.
+  { id: 'buy.shop-all', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 1, label: 'Shop All Cars', featureId: 'product.marketplace', route: '/marketplace', icon: 'ShoppingCart', description: 'Browse every eligible listing' },
+  { id: 'buy.brand-new', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 2, label: 'Brand New Cars', featureId: 'product.marketplace', route: '/marketplace', coverageCategory: 'brand_new', governedTrust: true, description: 'Coverage-gated: shown only when real brand-new inventory exists' },
+  { id: 'buy.recently-imported', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 3, label: 'Recently Imported', featureId: 'product.marketplace', route: '/marketplace', coverageCategory: 'recently_imported', description: 'Coverage-gated import inventory' },
+  { id: 'buy.locally-used', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 4, label: 'Locally Used', featureId: 'product.marketplace', route: '/marketplace', coverageCategory: 'locally_used', description: 'Coverage-gated locally-used inventory' },
+  { id: 'buy.second-hand', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 5, label: 'Second Hand Cars', featureId: 'product.marketplace', route: '/marketplace', coverageCategory: 'second_hand', governedTrust: true, description: 'Coverage-gated second-hand inventory' },
+  { id: 'buy.dealer-verified', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 6, label: 'Dealer Verified Cars', featureId: 'product.marketplace', route: '/marketplace', coverageTag: 'dealer_verified', governedTrust: true, description: 'Filtered by real dealer-verification signal' },
+  { id: 'buy.passport-verified', surface: 'navbar-mega-buy', section: 'Vehicles', sectionOrder: 1, order: 7, label: 'Passport Verified Cars', featureId: 'product.marketplace', route: '/marketplace', coverageTag: 'passport_verified', governedTrust: true, description: 'Filtered by real Vehicle Passport evidence' },
+  // Popular Categories — body-type links are `planned` (no taxonomy yet); the
+  // node lifecycle keeps them "Soon" while the featureId still governs them.
+  { id: 'buy.suvs', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 1, label: 'SUVs', featureId: 'product.marketplace', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported by the marketplace taxonomy' },
+  { id: 'buy.pickups', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 2, label: 'Pickups', featureId: 'product.marketplace', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported' },
+  { id: 'buy.hatchbacks', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 3, label: 'Hatchbacks', featureId: 'product.marketplace', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported' },
+  { id: 'buy.sedans', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 4, label: 'Sedans', featureId: 'product.marketplace', route: '/marketplace', lifecycle: 'planned', description: 'Body-type filter not yet supported' },
+  { id: 'buy.toyota', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 5, label: 'Toyota', featureId: 'product.marketplace', route: '/marketplace', query: { make: 'Toyota' }, description: 'Real make deep-link' },
+  { id: 'buy.honda', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 6, label: 'Honda', featureId: 'product.marketplace', route: '/marketplace', query: { make: 'Honda' } },
+  { id: 'buy.mazda', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 7, label: 'Mazda', featureId: 'product.marketplace', route: '/marketplace', query: { make: 'Mazda' } },
+  { id: 'buy.under-5k', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 8, label: 'Under $5,000', featureId: 'product.marketplace', route: '/marketplace', query: { maxPrice: '5000' } },
+  { id: 'buy.under-10k', surface: 'navbar-mega-buy', section: 'Popular Categories', sectionOrder: 2, order: 9, label: 'Under $10,000', featureId: 'product.marketplace', route: '/marketplace', query: { maxPrice: '10000' } },
   // Buyer Tools
-  { id: 'buy.verify-before', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 1, label: 'Verify Before You Buy', route: '/search', icon: 'Shield' },
-  { id: 'buy.view-passport', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 2, label: 'View Vehicle Passport', route: '/search', icon: 'FileText' },
-  { id: 'buy.highest-trust', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 3, label: 'Highest Trust Listings', route: '/marketplace', query: { sort: 'trust' } },
-  { id: 'buy.partsentry-checked', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 4, label: 'PartSentry Checked Vehicles', route: '/marketplace', coverageTag: 'partsentry_checked', governedTrust: true, description: 'Filtered by real PartSentry checks' },
+  { id: 'buy.verify-before', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 1, label: 'Verify Before You Buy', featureId: 'product.verify', route: '/search', icon: 'Shield' },
+  { id: 'buy.view-passport', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 2, label: 'View Vehicle Passport', featureId: 'product.verify', route: '/search', icon: 'FileText' },
+  { id: 'buy.highest-trust', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 3, label: 'Highest Trust Listings', featureId: 'product.marketplace', route: '/marketplace', query: { sort: 'trust' } },
+  { id: 'buy.partsentry-checked', surface: 'navbar-mega-buy', section: 'Buyer Tools', sectionOrder: 3, order: 4, label: 'PartSentry Checked Vehicles', featureId: 'product.marketplace', route: '/marketplace', coverageTag: 'partsentry_checked', governedTrust: true, description: 'Filtered by real PartSentry checks' },
   // Trust Guide
-  { id: 'buy.guide-conditions', surface: 'navbar-mega-buy', section: 'Trust Guide', sectionOrder: 4, order: 1, label: 'Brand New vs Imported vs Locally Used', route: '/marketplace', description: 'Buyer education' },
-  { id: 'buy.guide-passport', surface: 'navbar-mega-buy', section: 'Trust Guide', sectionOrder: 4, order: 2, label: 'How to check a vehicle Passport before paying', route: '/search', description: 'Buyer education' },
+  { id: 'buy.guide-conditions', surface: 'navbar-mega-buy', section: 'Trust Guide', sectionOrder: 4, order: 1, label: 'Brand New vs Imported vs Locally Used', featureId: 'product.marketplace', route: '/marketplace', description: 'Buyer education' },
+  { id: 'buy.guide-passport', surface: 'navbar-mega-buy', section: 'Trust Guide', sectionOrder: 4, order: 2, label: 'How to check a vehicle Passport before paying', featureId: 'product.verify', route: '/search', description: 'Buyer education' },
 
   // ═══ SELL ═══════════════════════════════════════════════════════════════
-  // Sell Vehicles
-  { id: 'sell.your-car', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 1, label: 'Sell Your Car', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER, icon: 'Car' },
-  { id: 'sell.create-passport', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 2, label: 'Create Vehicle Passport', authDestination: '/dashboard/garage', guestDestination: REGISTER },
-  { id: 'sell.dealer-listing', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 3, label: 'Dealer Listing', authDestination: '/dealer/inventory', guestDestination: REGISTER, roles: ['dealer'], description: 'Dealer inventory (dealers only when signed in)' },
-  { id: 'sell.private-owner', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 4, label: 'Sell as Private Owner', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER },
+  // Sell Vehicles — auth-aware nodes are owned by the AUTHENTICATED destination's
+  // feature; guests still reach `/register` (no backend override in their map),
+  // but a governance disable / tenant-denial on the owner feature removes them.
+  { id: 'sell.your-car', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 1, label: 'Sell Your Car', featureId: 'owner.sell-vehicle', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER, icon: 'Car' },
+  { id: 'sell.create-passport', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 2, label: 'Create Vehicle Passport', featureId: 'owner.garage', authDestination: '/dashboard/garage', guestDestination: REGISTER },
+  { id: 'sell.dealer-listing', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 3, label: 'Dealer Listing', featureId: 'dealer.inventory', authDestination: '/dealer/inventory', guestDestination: REGISTER, roles: ['dealer'], description: 'Dealer inventory (dealers only when signed in)' },
+  { id: 'sell.private-owner', surface: 'navbar-mega-sell', section: 'Sell Vehicles', sectionOrder: 1, order: 4, label: 'Sell as Private Owner', featureId: 'owner.sell-vehicle', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER },
   // Seller Tools
-  { id: 'sell.start-plate-vin', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 1, label: 'Start with Plate / VIN', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER },
-  { id: 'sell.upload-evidence', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 2, label: 'Upload Vehicle Evidence', authDestination: '/dashboard/garage', guestDestination: REGISTER },
-  { id: 'sell.service-history', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 3, label: 'Add Service History', authDestination: '/dashboard/service-history', guestDestination: REGISTER },
-  { id: 'sell.safepay-ready', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 4, label: 'SafePay / Reservation Ready', authDestination: '/dashboard/listings', guestDestination: REGISTER },
-  // Sell Parts & Accessories
+  { id: 'sell.start-plate-vin', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 1, label: 'Start with Plate / VIN', featureId: 'owner.sell-vehicle', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER },
+  { id: 'sell.upload-evidence', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 2, label: 'Upload Vehicle Evidence', featureId: 'owner.garage', authDestination: '/dashboard/garage', guestDestination: REGISTER },
+  { id: 'sell.service-history', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 3, label: 'Add Service History', featureId: 'owner.service-history', authDestination: '/dashboard/service-history', guestDestination: REGISTER },
+  { id: 'sell.safepay-ready', surface: 'navbar-mega-sell', section: 'Seller Tools', sectionOrder: 2, order: 4, label: 'SafePay / Reservation Ready', featureId: 'owner.listings', authDestination: '/dashboard/listings', guestDestination: REGISTER },
+  // Sell Parts & Accessories — planned roadmap entries route to /register as a
+  // generic CTA; they are NOT a variant of the registration feature, so they
+  // carry no owning featureId (planned placeholders are exempt from the gate).
   { id: 'sell.car-parts', surface: 'navbar-mega-sell', section: 'Sell Parts & Accessories', sectionOrder: 3, order: 1, label: 'Sell Car Parts', route: REGISTER, lifecycle: 'planned', description: 'Dedicated parts-selling flow not yet available' },
   { id: 'sell.accessories', surface: 'navbar-mega-sell', section: 'Sell Parts & Accessories', sectionOrder: 3, order: 2, label: 'Sell Accessories', route: REGISTER, lifecycle: 'planned', description: 'Dedicated accessory-selling flow not yet available' },
-  { id: 'sell.garage-parts', surface: 'navbar-mega-sell', section: 'Sell Parts & Accessories', sectionOrder: 3, order: 3, label: 'Mechanic / Garage Parts Listing', route: '/garages', description: 'Garage & mechanic directory' },
+  { id: 'sell.garage-parts', surface: 'navbar-mega-sell', section: 'Sell Parts & Accessories', sectionOrder: 3, order: 3, label: 'Mechanic / Garage Parts Listing', featureId: 'product.garages', route: '/garages', description: 'Garage & mechanic directory' },
   // Seller Guide
-  { id: 'sell.guide-passport', surface: 'navbar-mega-sell', section: 'Seller Guide', sectionOrder: 4, order: 1, label: 'How to sell with a verified Passport', authDestination: '/dashboard/garage', guestDestination: REGISTER, description: 'Seller education' },
-  { id: 'sell.guide-partsentry', surface: 'navbar-mega-sell', section: 'Seller Guide', sectionOrder: 4, order: 2, label: 'How PartSentry protects honest sellers', route: '/search', description: 'Seller education' },
+  { id: 'sell.guide-passport', surface: 'navbar-mega-sell', section: 'Seller Guide', sectionOrder: 4, order: 1, label: 'How to sell with a verified Passport', featureId: 'owner.garage', authDestination: '/dashboard/garage', guestDestination: REGISTER, description: 'Seller education' },
+  { id: 'sell.guide-partsentry', surface: 'navbar-mega-sell', section: 'Seller Guide', sectionOrder: 4, order: 2, label: 'How PartSentry protects honest sellers', featureId: 'product.verify', route: '/search', description: 'Seller education' },
 
   // ═══ VERIFY ═════════════════════════════════════════════════════════════
-  { id: 'verify.plate', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 1, label: 'Verify by Plate', route: '/search', icon: 'Search', description: 'Opens the unified vehicle search' },
-  { id: 'verify.vin', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 2, label: 'Verify by VIN', route: '/search', icon: 'Search', description: 'Opens the unified vehicle search' },
-  { id: 'verify.chassis', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 3, label: 'Verify by Chassis', route: '/search', icon: 'Search', description: 'Opens the unified vehicle search' },
-  { id: 'verify.passport', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 4, label: 'Open Vehicle Passport', route: '/search', icon: 'FileText' },
-  { id: 'verify.ownership-privacy', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 1, label: 'Ownership Privacy Summary', route: '/search' },
-  { id: 'verify.evidence-timeline', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 2, label: 'Evidence Timeline', authDestination: '/dashboard/garage', guestDestination: '/search' },
-  { id: 'verify.duty', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 3, label: 'ZIMRA / Duty Signals', route: '/search', description: 'Surfaced inside vehicle search results' },
-  { id: 'verify.theft', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 4, label: 'CID / Theft Signals', route: '/search', description: 'Surfaced inside vehicle search results' },
-  { id: 'verify.odometer', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 5, label: 'Odometer / Mileage Signals', route: '/search', description: 'Surfaced inside vehicle search results' },
-  { id: 'verify.ps-history', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 1, label: 'Check Part History', route: '/search' },
-  { id: 'verify.ps-repair', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 2, label: 'Check Repair Logs', route: '/search' },
-  { id: 'verify.ps-swapped', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 3, label: 'Check Swapped Parts', route: '/search' },
-  { id: 'verify.ps-stolen', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 4, label: 'Check Stolen/Suspicious Parts', route: '/search' },
+  { id: 'verify.plate', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 1, label: 'Verify by Plate', featureId: 'product.verify', route: '/search', icon: 'Search', description: 'Opens the unified vehicle search' },
+  { id: 'verify.vin', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 2, label: 'Verify by VIN', featureId: 'product.verify', route: '/search', icon: 'Search', description: 'Opens the unified vehicle search' },
+  { id: 'verify.chassis', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 3, label: 'Verify by Chassis', featureId: 'product.verify', route: '/search', icon: 'Search', description: 'Opens the unified vehicle search' },
+  { id: 'verify.passport', surface: 'navbar-mega-verify', section: 'Vehicle Verification', sectionOrder: 1, order: 4, label: 'Open Vehicle Passport', featureId: 'product.verify', route: '/search', icon: 'FileText' },
+  { id: 'verify.ownership-privacy', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 1, label: 'Ownership Privacy Summary', featureId: 'product.verify', route: '/search' },
+  { id: 'verify.evidence-timeline', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 2, label: 'Evidence Timeline', featureId: 'owner.garage', authDestination: '/dashboard/garage', guestDestination: '/search' },
+  { id: 'verify.duty', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 3, label: 'ZIMRA / Duty Signals', featureId: 'product.verify', route: '/search', description: 'Surfaced inside vehicle search results' },
+  { id: 'verify.theft', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 4, label: 'CID / Theft Signals', featureId: 'product.verify', route: '/search', description: 'Surfaced inside vehicle search results' },
+  { id: 'verify.odometer', surface: 'navbar-mega-verify', section: 'Trust Checks', sectionOrder: 2, order: 5, label: 'Odometer / Mileage Signals', featureId: 'product.verify', route: '/search', description: 'Surfaced inside vehicle search results' },
+  { id: 'verify.ps-history', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 1, label: 'Check Part History', featureId: 'product.verify', route: '/search' },
+  { id: 'verify.ps-repair', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 2, label: 'Check Repair Logs', featureId: 'product.verify', route: '/search' },
+  { id: 'verify.ps-swapped', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 3, label: 'Check Swapped Parts', featureId: 'product.verify', route: '/search' },
+  { id: 'verify.ps-stolen', surface: 'navbar-mega-verify', section: 'PartSentry Verification', sectionOrder: 3, order: 4, label: 'Check Stolen/Suspicious Parts', featureId: 'product.verify', route: '/search' },
 
   // ═══ PARTS ══════════════════════════════════════════════════════════════
-  { id: 'parts.browse', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 1, label: 'Browse Car Parts', route: '/marketplace/parts', icon: 'Package' },
-  { id: 'parts.verified', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 2, label: 'Verified Parts', route: '/marketplace/parts', description: 'Verified-parts filter pending parts data contract', lifecycle: 'planned' },
-  { id: 'parts.engines', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 3, label: 'Engines', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.gearboxes', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 4, label: 'Gearboxes', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.ecus', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 5, label: 'ECUs', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.body-panels', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 6, label: 'Body Panels', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.lights', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 7, label: 'Lights', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.tyres', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 8, label: 'Tyres & Wheels', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.batteries', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 9, label: 'Batteries', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
-  { id: 'parts.accessories', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 10, label: 'Accessories', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.browse', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 1, label: 'Browse Car Parts', featureId: 'product.marketplace-parts', route: '/marketplace/parts', icon: 'Package' },
+  { id: 'parts.verified', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 2, label: 'Verified Parts', featureId: 'product.marketplace-parts', route: '/marketplace/parts', description: 'Verified-parts filter pending parts data contract', lifecycle: 'planned' },
+  { id: 'parts.engines', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 3, label: 'Engines', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.gearboxes', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 4, label: 'Gearboxes', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.ecus', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 5, label: 'ECUs', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.body-panels', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 6, label: 'Body Panels', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.lights', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 7, label: 'Lights', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.tyres', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 8, label: 'Tyres & Wheels', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.batteries', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 9, label: 'Batteries', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
+  { id: 'parts.accessories', surface: 'navbar-mega-parts', section: 'Buy Parts', sectionOrder: 1, order: 10, label: 'Accessories', featureId: 'product.marketplace-parts', route: '/marketplace/parts', lifecycle: 'planned', description: 'Parts-category filter not yet supported' },
   { id: 'parts.sell-part', surface: 'navbar-mega-parts', section: 'Sell Parts', sectionOrder: 2, order: 1, label: 'Sell a Part', route: REGISTER, lifecycle: 'planned', description: 'Dedicated parts-selling flow not yet available' },
   { id: 'parts.list-accessories', surface: 'navbar-mega-parts', section: 'Sell Parts', sectionOrder: 2, order: 2, label: 'List Accessories', route: REGISTER, lifecycle: 'planned', description: 'Dedicated accessory-selling flow not yet available' },
-  { id: 'parts.garage-inventory', surface: 'navbar-mega-parts', section: 'Sell Parts', sectionOrder: 2, order: 3, label: 'Garage Parts Inventory', route: '/garages', description: 'Garage directory' },
-  { id: 'parts.mechanic-catalog', surface: 'navbar-mega-parts', section: 'Sell Parts', sectionOrder: 2, order: 4, label: 'Mechanic Parts Catalog', route: '/marketplace/parts' },
-  { id: 'parts.ps-origin', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 1, label: 'Verify Part Origin', route: '/search' },
-  { id: 'parts.ps-repair', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 2, label: 'Check Repair History', route: '/search' },
-  { id: 'parts.ps-report-stolen', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 3, label: 'Report Stolen Part', route: '/search' },
-  { id: 'parts.ps-link-passport', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 4, label: 'Link Part to Vehicle Passport', route: '/search' },
-  { id: 'parts.mechanic-work-orders', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 5, label: 'Mechanic Work Orders', authDestination: '/mechanic/work-orders', guestDestination: REGISTER, roles: ['mechanic'] },
-  { id: 'parts.guide-buyers', surface: 'navbar-mega-parts', section: 'Parts Trust Guide', sectionOrder: 4, order: 1, label: 'How PartSentry protects parts buyers', route: '/search', description: 'Parts education' },
-  { id: 'parts.guide-verified', surface: 'navbar-mega-parts', section: 'Parts Trust Guide', sectionOrder: 4, order: 2, label: 'Why verified parts matter for used cars', route: '/marketplace', description: 'Parts education' },
+  { id: 'parts.garage-inventory', surface: 'navbar-mega-parts', section: 'Sell Parts', sectionOrder: 2, order: 3, label: 'Garage Parts Inventory', featureId: 'product.garages', route: '/garages', description: 'Garage directory' },
+  { id: 'parts.mechanic-catalog', surface: 'navbar-mega-parts', section: 'Sell Parts', sectionOrder: 2, order: 4, label: 'Mechanic Parts Catalog', featureId: 'product.marketplace-parts', route: '/marketplace/parts' },
+  { id: 'parts.ps-origin', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 1, label: 'Verify Part Origin', featureId: 'product.verify', route: '/search' },
+  { id: 'parts.ps-repair', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 2, label: 'Check Repair History', featureId: 'product.verify', route: '/search' },
+  { id: 'parts.ps-report-stolen', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 3, label: 'Report Stolen Part', featureId: 'product.verify', route: '/search' },
+  { id: 'parts.ps-link-passport', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 4, label: 'Link Part to Vehicle Passport', featureId: 'product.verify', route: '/search' },
+  { id: 'parts.mechanic-work-orders', surface: 'navbar-mega-parts', section: 'PartSentry', sectionOrder: 3, order: 5, label: 'Mechanic Work Orders', featureId: 'mechanic.work-orders', authDestination: '/mechanic/work-orders', guestDestination: REGISTER, roles: ['mechanic'] },
+  { id: 'parts.guide-buyers', surface: 'navbar-mega-parts', section: 'Parts Trust Guide', sectionOrder: 4, order: 1, label: 'How PartSentry protects parts buyers', featureId: 'product.verify', route: '/search', description: 'Parts education' },
+  { id: 'parts.guide-verified', surface: 'navbar-mega-parts', section: 'Parts Trust Guide', sectionOrder: 4, order: 2, label: 'Why verified parts matter for used cars', featureId: 'product.marketplace', route: '/marketplace', description: 'Parts education' },
 
   // ═══ MORE / SERVICES ════════════════════════════════════════════════════
   { id: 'more.insurance', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 1, label: 'Insurance', featureId: 'product.insurance', icon: 'Shield' },
   { id: 'more.pricing', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 2, label: 'Pricing', featureId: 'product.pricing', icon: 'DollarSign' },
   { id: 'more.diaspora', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 3, label: 'Diaspora Trade', featureId: 'product.diaspora', icon: 'Globe' },
-  { id: 'more.how-it-works', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 4, label: 'How It Works', route: '/', icon: 'Info' },
+  { id: 'more.how-it-works', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 4, label: 'How It Works', featureId: 'public.home', route: '/', icon: 'Info' },
   { id: 'more.trust', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 5, label: 'Trust & Safety', featureId: 'resources.trust', icon: 'Shield' },
   { id: 'more.help', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 6, label: 'Help', featureId: 'resources.help', icon: 'HelpCircle' },
   { id: 'more.contact', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 7, label: 'Contact', featureId: 'company.contact', icon: 'Phone' },
   { id: 'more.blog', surface: 'navbar-more', section: 'More', sectionOrder: 1, order: 8, label: 'Blog', featureId: 'company.blog', icon: 'Newspaper' },
 
   // ═══ MOBILE PRIMARY (public quick links) ════════════════════════════════
-  { id: 'mobile.buy', surface: 'mobile-primary', order: 1, label: 'Buy', route: '/marketplace', icon: 'ShoppingCart' },
-  { id: 'mobile.sell', surface: 'mobile-primary', order: 2, label: 'Sell', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER, icon: 'Car' },
-  { id: 'mobile.verify', surface: 'mobile-primary', order: 3, label: 'Verify', route: '/search', icon: 'Shield' },
-  { id: 'mobile.parts', surface: 'mobile-primary', order: 4, label: 'Parts', route: '/marketplace/parts', icon: 'Package' },
+  { id: 'mobile.buy', surface: 'mobile-primary', order: 1, label: 'Buy', featureId: 'product.marketplace', route: '/marketplace', icon: 'ShoppingCart' },
+  { id: 'mobile.sell', surface: 'mobile-primary', order: 2, label: 'Sell', featureId: 'owner.sell-vehicle', authDestination: '/dashboard/sell-vehicle', guestDestination: REGISTER, icon: 'Car' },
+  { id: 'mobile.verify', surface: 'mobile-primary', order: 3, label: 'Verify', featureId: 'product.verify', route: '/search', icon: 'Shield' },
+  { id: 'mobile.parts', surface: 'mobile-primary', order: 4, label: 'Parts', featureId: 'product.marketplace-parts', route: '/marketplace/parts', icon: 'Package' },
   { id: 'mobile.dealers', surface: 'mobile-primary', order: 5, label: 'Dealers', featureId: 'product.dealers', icon: 'Building2' },
-  { id: 'mobile.garages', surface: 'mobile-primary', order: 6, label: 'Garages & Services', route: '/marketplace/services', icon: 'Wrench' },
+  { id: 'mobile.garages', surface: 'mobile-primary', order: 6, label: 'Garages & Services', featureId: 'product.marketplace-services', route: '/marketplace/services', icon: 'Wrench' },
 ]
 
 // ── Selectors ───────────────────────────────────────────────────────────────
@@ -260,31 +268,111 @@ export function buildFeatureHref(node: NavigationNode, ctx: NavigationContext = 
   return qs ? `${base}?${qs}` : base
 }
 
-/** Effective lifecycle for a node, overlaying runtime override on the linked feature. */
+/**
+ * Effective lifecycle for a node.
+ *
+ * A node's OWN declared `lifecycle` wins first: a `planned` placement (e.g. the
+ * "SUVs — Soon" body-type links) must stay planned and must NEVER be silently
+ * activated just because its owning feature carries an `active` override. Only
+ * when the node declares no lifecycle of its own does it inherit the owning
+ * feature's effective state (runtime override → static default). Backend
+ * enabled/visible gating is applied separately by `isNodeBackendBlocked`.
+ */
 function resolveNodeState(node: NavigationNode, ctx: NavigationContext): FeatureLifecycleState {
+  if (node.lifecycle) return node.lifecycle
   if (node.featureId) {
     const override = ctx.effectiveStates?.[node.featureId]
     if (override) return override.state
     const feature = getFeatureById(node.featureId)
-    if (node.lifecycle) return node.lifecycle
     if (feature) return getStaticLifecycle(feature)
   }
-  return node.lifecycle ?? 'active'
+  return 'active'
 }
 
 /**
- * A feature-linked node must NOT render when the sanitized backend effective
- * state for it is not enabled or not visible (a kill-switch, or a tenant/role
- * restriction that the lifecycle state alone does not express). Standalone
- * (non-feature) deep-links carry no backend effective state, so they fall
- * through to lifecycle handling. This is the single shared rule consumed by all
- * manifest surfaces.
+ * The auth-agnostic base route used to resolve ownership. Auth-aware nodes are
+ * owned by their AUTHENTICATED destination's feature (the guest destination is a
+ * fallback CTA, not the governing feature). Never includes query strings.
+ */
+function staticOwnershipRoute(node: NavigationNode): string | undefined {
+  if (node.authDestination) return node.authDestination
+  if (node.route) return node.route
+  if (node.featureId) return getFeatureById(node.featureId)?.route
+  if (node.guestDestination) return node.guestDestination
+  return undefined
+}
+
+/**
+ * Resolve the governing feature id for a node. Explicit `node.featureId` is
+ * AUTHORITATIVE. As a defensive fallback (so an un-annotated node can never
+ * silently bypass governance) the node's static route is resolved to its owning
+ * registered feature via deterministic route matching — never ambiguous
+ * guessing. Returns undefined only for genuinely un-owned destinations
+ * (external links / non-registered anchors).
+ */
+export function resolveNodeOwnerFeatureId(node: NavigationNode): string | undefined {
+  if (node.featureId) return node.featureId
+  if (node.external) return undefined
+  const route = staticOwnershipRoute(node)
+  if (!route) return undefined
+  return getFeatureByRoute(route)?.id
+}
+
+/**
+ * A navigation node must NOT render when the sanitized backend effective state
+ * for its GOVERNING feature is not enabled or not visible — a kill-switch, or a
+ * tenant/role restriction that the lifecycle state alone does not express. The
+ * owner is `node.featureId` when present, else the deterministically
+ * route-resolved feature (so standalone internal links into a registered
+ * feature are governed too — they can no longer bypass a disable/tenant-denial).
+ * Truly un-owned nodes (external / non-registered) carry no effective state and
+ * fall through to lifecycle handling. This is the single shared rule consumed by
+ * every manifest surface.
  */
 export function isNodeBackendBlocked(node: NavigationNode, ctx: NavigationContext): boolean {
-  if (!node.featureId) return false
-  const eff = ctx.effectiveStates?.[node.featureId]
+  const owner = resolveNodeOwnerFeatureId(node)
+  if (!owner) return false
+  const eff = ctx.effectiveStates?.[owner]
   if (!eff) return false
   return eff.enabled === false || eff.visible === false
+}
+
+// ── Structural ownership gate (Milestone 8 — governance integrity) ───────────
+
+export interface ManifestOwnershipViolation {
+  id: string
+  surface: NavigationSurface
+  route: string
+  /** The registered feature the route resolves to (the expected explicit owner). */
+  expectedFeatureId: string
+}
+
+/**
+ * Structural integrity check: every LIVE (active-capable) navigation node whose
+ * static route enters a registered feature MUST carry an explicit governing
+ * `featureId`. This prevents the governance-bypass defect from returning when
+ * new links are added — a standalone link into `/marketplace` (etc.) without an
+ * explicit owner would otherwise silently escape a feature disable/tenant-denial.
+ *
+ * Exempt: `external` links (leave the app) and `planned` placeholders (rendered
+ * as non-navigable "Soon", never a live link). Returns the set of violations;
+ * the CI gate fails when it is non-empty, reporting id/route/surface/expected.
+ */
+export function findUnownedInternalNodes(
+  nodes: NavigationNode[] = NAVIGATION_MANIFEST,
+): ManifestOwnershipViolation[] {
+  const violations: ManifestOwnershipViolation[] = []
+  for (const node of nodes) {
+    if (node.external) continue
+    if (node.lifecycle === 'planned') continue
+    if (node.featureId) continue
+    const route = staticOwnershipRoute(node)
+    if (!route) continue
+    const owner = getFeatureByRoute(route)
+    if (!owner) continue
+    violations.push({ id: node.id, surface: node.surface, route, expectedFeatureId: owner.id })
+  }
+  return violations
 }
 
 /** Whether a node is eligible to be shown for the given context (role/auth aware). */
