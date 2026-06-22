@@ -285,4 +285,29 @@ test.describe('Feature Registry & Navigation Map', () => {
       expect(optionTexts).toContain('Banker');
     });
   });
+
+  test.describe('TASK 2 — dashboard sidebar honors effective visibility', () => {
+    test('a disabled override removes the item from the sidebar (sidebar ⇄ direct access agree)', async ({ page }) => {
+      await setupMocksForRole(page, 'owner');
+      // Disable owner.garage via the effective-state hydration endpoint.
+      await page.route('**/api/features/effective**', async (route: any) => {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          headers: corsHeaders,
+          body: JSON.stringify({
+            environment: 'staging',
+            features: [{ featureId: 'owner.garage', state: 'disabled', enabled: false, visible: false, accessible: false, beta: false }],
+          }),
+        });
+      });
+      await page.goto('http://localhost:5173/dashboard', { timeout: 90_000, waitUntil: 'domcontentloaded' });
+      // Overview remains; the disabled My Garage link is removed after hydration.
+      await expect(page.getByTestId('nav-dashboard')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('nav-garage')).toHaveCount(0);
+      // Direct access to the disabled route shows the unavailable state (agreement).
+      await page.goto('http://localhost:5173/dashboard/garage', { timeout: 90_000, waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('feature-disabled-page')).toBeVisible({ timeout: 30_000 });
+    });
+  });
 });

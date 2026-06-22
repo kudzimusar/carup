@@ -256,40 +256,72 @@ test('getFeatureAudit returns only FEATURE_ROLLOUT_* events', async () => {
 // ── P2: context-aware effective state (server-derived role + tenant) ─────────
 const futureIso = () => new Date(Date.now() + 3600_000).toISOString();
 const pastIso = () => new Date(Date.now() - 3600_000).toISOString();
-function authClient(extra = {}) {
+
+// Mirror the switch-role contract: a session row carries server-issued
+// active_role / active_organization_id; resolveRequestContext re-verifies them.
+function sessionClient({ activeRole = null, activeOrg = null, baseRole = 'owner', valid = true, expires = futureIso(), membership = null } = {}) {
   return makeFakeClient({
-    user_sessions: [{ token: 'tok-owner', user_id: 'u-owner', is_valid: true, expires_at: futureIso() }],
-    users: [{ id: 'u-owner', role: 'owner' }],
-    tenant_users: [{ tenant_id: 'tenantA', user_id: 'u-owner', role: 'member' }],
-    ...extra,
+    user_sessions: [{ token: 'tok', user_id: 'u1', active_role: activeRole, active_organization_id: activeOrg, is_valid: valid, expires_at: expires }],
+    users: [{ id: 'u1', role: baseRole }],
+    tenant_users: membership ? [{ tenant_id: membership.org, user_id: 'u1', role: membership.role }] : [],
   });
 }
+const ctxFor = (client, headers = {}) => resolveRequestContext({ headers: { 'x-session-token': 'tok', ...headers } }, { client });
 const findGarage = (states) => states.find((s) => s.featureId === 'owner.garage');
 
 test('resolveRequestContext: anonymous request → null role/tenant', async () => {
   assert.deepEqual(await resolveRequestContext({ headers: {} }, { client: makeFakeClient() }), { role: null, tenantId: null });
 });
 
-test('resolveRequestContext: valid session derives role from the users table', async () => {
-  const ctx = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner' } }, { client: authClient() });
-  assert.equal(ctx.role, 'owner');
+test('resolveRequestContext: ordinary base-role session (no active_role) → base role, no tenant', async () => {
+  assert.deepEqual(await ctxFor(sessionClient({ activeRole: null, baseRole: 'owner' })), { role: 'owner', tenantId: null });
 });
 
-test('resolveRequestContext: a spoofed x-stakeholder-role header does NOT change the derived role', async () => {
-  const ctx = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner', 'x-stakeholder-role': 'admin' } }, { client: authClient() });
-  assert.equal(ctx.role, 'owner'); // server-derived, NOT admin
+test('resolveRequestContext: active_role equal to base role → base role', async () => {
+  assert.deepEqual(await ctxFor(sessionClient({ activeRole: 'owner', baseRole: 'owner' })), { role: 'owner', tenantId: null });
 });
 
-test('resolveRequestContext: tenant honoured only with verified membership', async () => {
-  const member = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner', 'x-tenant-id': 'tenantA' } }, { client: authClient() });
-  assert.equal(member.tenantId, 'tenantA');
-  const nonMember = await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner', 'x-tenant-id': 'tenantB' } }, { client: authClient() });
-  assert.equal(nonMember.tenantId, null);
+test('resolveRequestContext: valid switched-role session with verified membership → active role + tenant', async () => {
+  const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'dealer' } });
+  assert.deepEqual(await ctxFor(client), { role: 'dealer', tenantId: 'orgX' });
+});
+
+test('resolveRequestContext: switched role with MISSING membership → least privilege (base role)', async () => {
+  const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: null });
+  assert.deepEqual(await ctxFor(client), { role: 'owner', tenantId: null });
+});
+
+test('resolveRequestContext: switched role with MISMATCHED tenant role → least privilege', async () => {
+  const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'mechanic' } });
+  assert.deepEqual(await ctxFor(client), { role: 'owner', tenantId: null });
+});
+
+test('resolveRequestContext: STALE switched context (active_role but no active_organization_id) → least privilege', async () => {
+  assert.deepEqual(await ctxFor(sessionClient({ activeRole: 'dealer', activeOrg: null, baseRole: 'owner' })), { role: 'owner', tenantId: null });
+});
+
+test('resolveRequestContext: switching INTO admin via a tenant role is refused → least privilege', async () => {
+  const client = sessionClient({ activeRole: 'admin', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'admin' } });
+  assert.deepEqual(await ctxFor(client), { role: 'owner', tenantId: null });
+});
+
+test('resolveRequestContext: a spoofed x-stakeholder-role header does NOT change the result', async () => {
+  const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'dealer' } });
+  assert.deepEqual(await ctxFor(client, { 'x-stakeholder-role': 'admin', 'x-tenant-id': 'evil' }), { role: 'dealer', tenantId: 'orgX' });
 });
 
 test('resolveRequestContext: expired session → anonymous (fail closed)', async () => {
-  const expired = authClient({ user_sessions: [{ token: 'tok-owner', user_id: 'u-owner', is_valid: true, expires_at: pastIso() }] });
-  assert.deepEqual(await resolveRequestContext({ headers: { 'x-session-token': 'tok-owner' } }, { client: expired }), { role: null, tenantId: null });
+  const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', valid: true, expires: pastIso(), membership: { org: 'orgX', role: 'dealer' } });
+  assert.deepEqual(await ctxFor(client), { role: null, tenantId: null });
+});
+
+test('resolveRequestContext: effective navigation reflects the ACTIVE role after switching', async () => {
+  invalidateOverrideCache();
+  const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'dealer' } });
+  const ctx = await ctxFor(client); // { role: 'dealer', tenantId: 'orgX' }
+  const states = await getEffectiveStates({ environment: 'staging', role: ctx.role, tenantId: ctx.tenantId }, { client, sanitize: false });
+  assert.equal(states.find((s) => s.featureId === 'dealer.inventory').visible, true); // dealer feature visible while acting as dealer
+  assert.equal(findGarage(states).visible, false); // owner-only feature hidden
 });
 
 test('effective: allowed role gets owner.garage visible+accessible; another role does not (anonymous too)', async () => {

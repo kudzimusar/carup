@@ -18,7 +18,9 @@ import {
   getDashboardRoute,
   getRoleMetadata,
   getAllRoles,
+  resolveFeatureVisibility,
   type FeatureRegistryItem,
+  type NavigationContext,
 } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
 import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
@@ -54,6 +56,19 @@ export default function DashboardLayout({ role }: { role: string }) {
   const registryItems = getDashboardItems(role as UserRole)
   const roleInfo = getRoleMetadata(role as UserRole)
   const effectiveStates = useFeatureEffectiveStates()
+
+  // Filter the sidebar through the SAME shared effective-visibility logic the
+  // route boundary uses, so disabled / hidden / tenant-denied / role-denied
+  // items never render in the primary nav (sidebar visibility ⇄ direct access).
+  const sidebarContext: NavigationContext = {
+    isAuthenticated: !!user,
+    role: (user?.role as UserRole) ?? null,
+    environment: import.meta.env.MODE,
+    effectiveStates,
+  }
+  const visibleItems = registryItems
+    .map((item) => ({ item, vis: resolveFeatureVisibility(item, sidebarContext) }))
+    .filter(({ vis }) => vis.visible)
 
   // Centralized, lifecycle-aware route boundary — the SAME decision navigation
   // uses (loading gate → auth → role → planned/disabled/deprecated). Backend
@@ -134,7 +149,7 @@ export default function DashboardLayout({ role }: { role: string }) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {registryItems.map((item) => {
+          {visibleItems.map(({ item, vis }) => {
             const isActive = location.pathname === item.route
             const navIdMap: Record<string, string> = {
               'Overview': 'nav-dashboard',
@@ -163,6 +178,9 @@ export default function DashboardLayout({ role }: { role: string }) {
               >
                 <IconComponent className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
                 <span className="flex-1">{item.label}</span>
+                {vis.beta && (
+                  <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
+                )}
                 {item.badge && (
                   <Badge variant={isActive ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
                     {item.badge}
