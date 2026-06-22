@@ -1,20 +1,22 @@
 # Navigation Intelligence Blueprint — Staging Deployment & Smoke Plan
 
-> **Status: migration NOT YET applied — blocked by tooling access. Deployment + PO smoke pending.**
-> A dedicated staging Supabase project exists — ref **`eoyenigwevnxwwhyhaer`** —
-> and is the authorized migration target (production must NOT receive it). However,
-> the staging project is **not reachable from the agent's connected Supabase tooling**:
-> `list_projects` exposes only one project, `sfhtlzcgrnrdznhvdrbn` ("production-os"),
-> and a read-only probe of `eoyenigwevnxwwhyhaer` returns *"You do not have
-> permission to perform this action."* The agent therefore **did not apply the
-> migration to any project** — it must not migrate `sfhtlzcgrnrdznhvdrbn`
-> (production), and it cannot access `eoyenigwevnxwwhyhaer` (staging). The exact
-> apply + verification SQL is provided below for the release engineer who holds
-> staging access. (Local `.env` targets the shared/production project
-> `vhmnajoeicasaigiophh`, which is likewise not a valid migration target.)
+> **Status: main governance migration APPLIED + VERIFIED in staging (`eoyenigwevnxwwhyhaer`). Search-path follow-up authored (pending apply). Vercel deploy + PO smoke pending.**
+> The main migration `20260621120000_feature_rollout_overrides.sql` has been
+> applied to the dedicated **staging** Supabase project `eoyenigwevnxwwhyhaer`
+> (production `vhmnajoeicasaigiophh` was NOT migrated). The verified staging state
+> is recorded under "Migration verification (confirmed in staging)" below.
+>
+> Attribution / honesty note: the apply + verification were performed by the
+> release engineer who holds staging access — the **agent's own connected Supabase
+> tooling still cannot reach `eoyenigwevnxwwhyhaer`** (`list_projects` shows only
+> `sfhtlzcgrnrdznhvdrbn` "production-os"; a read-only probe of the staging ref
+> returns *permission denied*), so the agent cannot independently re-run those
+> checks and is recording the confirmed result. The follow-up migration
+> `20260622120000_feature_rollout_search_path.sql` (security-advisor hardening) is
+> authored and **pending application to staging** by the release engineer.
 
 ## Environment refs (no credentials)
-- **Staging Supabase project ref:** `eoyenigwevnxwwhyhaer` (authorized governance-migration target; not reachable from this environment's tooling).
+- **Staging Supabase project ref:** `eoyenigwevnxwwhyhaer` (governance-migration target; main migration applied/verified; not reachable from the agent's tooling).
 - **Production/shared Supabase project ref:** `vhmnajoeicasaigiophh` (`.env` target — must NOT receive this migration).
 - **Tooling-visible project:** `sfhtlzcgrnrdznhvdrbn` ("production-os") — production; intentionally NOT migrated.
 - Staging Vercel projects: `carup-staging` (web) and `carup-backend-staging` (backend) with `VITE_API_URL`/`APP_ENV=staging` and the staging project's `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (held in the staging secrets store, not in this repo).
@@ -22,14 +24,27 @@
 ## 1. Deploy the same SHA to staging
 Deploy web + backend from the integration branch head (record the SHA). They must point at the **staging** backend/Supabase.
 
-## 2. Apply the governance migration to STAGING only (`eoyenigwevnxwwhyhaer`)
-> **Not yet applied** — see the status note above (staging project not reachable from the agent's tooling). Run this as the release engineer with staging access, e.g. via the Supabase SQL editor / MCP `apply_migration(project_id="eoyenigwevnxwwhyhaer", …)` or psql:
-```bash
-psql "$STAGING_DATABASE_URL" -f database/migrations/20260621120000_feature_rollout_overrides.sql
-```
-The migration is idempotent and creates only the one server-owned table (RLS on, service_role-only). **No production writes.**
+## 2. Governance migration on STAGING only (`eoyenigwevnxwwhyhaer`)
+> **APPLIED.** `20260621120000_feature_rollout_overrides.sql` is applied to staging (idempotent, one server-owned table, RLS on, service_role-only). **No production writes.**
 
-### Migration verification (run against staging; expected results in parentheses)
+### Migration verification — CONFIRMED in staging (by the release engineer)
+The following were confirmed present/correct in `eoyenigwevnxwwhyhaer`:
+- ✅ `feature_rollout_overrides` table exists; migration recorded in staging history.
+- ✅ RLS enabled.
+- ✅ `anon` has NO direct privileges; `authenticated` has NO direct privileges; `service_role` has the intended privileges.
+- ✅ Primary key; unique `(feature_id, environment)` index; supporting indexes; CHECK constraints; `updated_at` trigger.
+
+### Follow-up: harden the trigger function search_path
+> The security advisor flagged `feature_rollout_overrides_touch_updated_at()` with a mutable `search_path`. Migration `20260622120000_feature_rollout_search_path.sql` pins it (idempotent, guarded). **Pending application to staging** by the release engineer (the agent cannot reach the staging project):
+```bash
+psql "$STAGING_DATABASE_URL" -f database/migrations/20260622120000_feature_rollout_search_path.sql
+-- verify
+select proname, proconfig from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='feature_rollout_overrides_touch_updated_at';
+-- expect proconfig to contain 'search_path=public, pg_temp'; then re-run the security advisor.
+```
+
+### Re-verification SQL (re-runnable against staging; expected results in parentheses)
 ```sql
 -- table exists (1 row)
 select to_regclass('public.feature_rollout_overrides') is not null as table_exists;
