@@ -1121,3 +1121,222 @@ export interface ApiMutationResponse {
   path?: string;
   [key: string]: unknown;
 }
+
+// ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──────────
+// Buyer-facing, PUBLIC-SAFE shapes only. The backend projects reviewer-confirmed
+// findings/conflicts through publicSafeFinding/publicSafeConflict
+// (backend/routes/intelligenceRoutes.js); privileged callers receive more fields,
+// but the buyer UI must rely only on the public-safe shape below.
+
+// Shared review-status indicator for intelligence findings/conflicts.
+// Buyers only ever see 'confirmed' (others are filtered server-side), but the
+// type allows the full lifecycle so privileged views can reuse it later.
+export type IntelligenceReviewerState =
+  | 'pending_review'
+  | 'confirmed'
+  | 'dismissed';
+
+// Severity ladder shared by temporal findings and disclosure conflicts.
+export type IntelligenceSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+
+// The kind of component-level change a temporal comparison surfaced.
+export type TemporalFindingType =
+  | 'newly_damaged'
+  | 'repaired'
+  | 'replaced'
+  | 'removed_missing'
+  | 'repainted_colour_mismatch'
+  | 'worsened'
+  | 'improved'
+  | 'unchanged'
+  | 'unable_to_compare';
+
+// One public-safe temporal finding from
+// GET /api/vehicles/:vin/temporal-findings -> { findings: TemporalFinding[] }.
+export interface TemporalFinding {
+  finding_type: TemporalFindingType | string;
+  component: string | null;
+  earlier_date: string | null;
+  later_date: string | null;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+}
+
+// How a disclosure claim compares against available evidence.
+export type DisclosureClassification =
+  | 'supported'
+  | 'not_verifiable'
+  | 'possible_conflict'
+  | 'strong_conflict'
+  | 'outdated_claim'
+  | 'resolved_corrected';
+
+// One public-safe disclosure conflict from
+// GET /api/vehicles/:vin/disclosure-conflicts -> { conflicts: DisclosureConflict[] }.
+export interface DisclosureConflict {
+  conflict_type: string | null;
+  classification: DisclosureClassification | string;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+  seller_response: string | null;
+}
+
+// Wrapper responses (match the route handlers exactly).
+export interface TemporalFindingsResponse {
+  findings: TemporalFinding[];
+}
+export interface DisclosureConflictsResponse {
+  conflicts: DisclosureConflict[];
+}
+
+// ── Governance, disputes & corrections (M5, master plan §11) ──
+// Mirrors backend/services/governance/governanceService.js + disputeService.js and
+// backend/routes/governanceRoutes.js exactly.
+
+// Master-plan task types surfaced by GET /api/governance/review-queue.
+export type GovernanceTaskType =
+  | 'temporal_finding'
+  | 'disclosure_conflict'
+  | 'vehicle_identity'
+  | 'evidence_verification';
+
+// The review-target tables a governed decision may act on (decisions.targetType).
+export type GovernanceTargetType =
+  | 'temporal_findings'
+  | 'disclosure_conflicts'
+  | 'vehicle_evidence'
+  | 'vehicle_identity_candidates';
+
+// Decisions a reviewer may take against a finding/evidence target. The UI verbs
+// map onto these wire values (request-more -> request_more, etc.).
+export type GovernanceDecision =
+  | 'confirm'
+  | 'reject'
+  | 'amend'
+  | 'request_more'
+  | 'inconclusive'
+  | 'publish'
+  | 'unpublish'
+  | 'supersede'
+  | 'escalate';
+
+// One aggregated pending item from the unified reviewer queue.
+export interface GovernanceReviewItem {
+  task_type: GovernanceTaskType;
+  target_type: GovernanceTargetType;
+  target_id: string;
+  vin: string | null;
+  state: string;
+  confidence: number | null;
+  severity: IntelligenceSeverity | string | null;
+  created_at: string | null;
+  summary: string | null;
+}
+
+export interface GovernanceReviewQueueResponse {
+  queue: GovernanceReviewItem[];
+  total: number;
+}
+
+// Payload for POST /api/governance/decisions.
+export interface GovernanceDecisionPayload {
+  targetType: GovernanceTargetType;
+  targetId: string;
+  vin?: string | null;
+  decision: GovernanceDecision;
+  notes?: string | null;
+  policyVersion?: string | null;
+  reviewTaskId?: string | null;
+}
+
+// Append-only review_decisions row returned by the decisions endpoint.
+export interface GovernanceDecisionRecord {
+  id: string;
+  review_task_id: string | null;
+  target_type: string;
+  target_id: string;
+  vin: string | null;
+  reviewer_id: string;
+  reviewer_role: string;
+  decision: GovernanceDecision;
+  notes: string | null;
+  policy_version: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  correlation_id: string | null;
+  conflict_of_interest: boolean;
+  created_at?: string | null;
+}
+
+export interface GovernanceDecisionResponse {
+  success: boolean;
+  decision: GovernanceDecisionRecord;
+}
+
+// Dispute lifecycle: open -> responded -> independent_review -> resolved (-> appealed).
+export type DisputeStatus =
+  | 'open'
+  | 'responded'
+  | 'independent_review'
+  | 'resolved'
+  | 'appealed';
+
+// Privileged view of a dispute row (admin/government/reviewer).
+export interface Dispute {
+  id: string;
+  vin: string | null;
+  subject_type: string;
+  subject_id: string;
+  raised_by: string;
+  raised_by_role: string;
+  status: DisputeStatus | string;
+  resolution?: string | null;
+  assigned_reviewer?: string | null;
+  response_deadline?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// Public-safe projection returned to non-privileged callers from
+// GET /api/vehicles/:vin/disputes.
+export interface PublicSafeDispute {
+  subject_type: string;
+  status: DisputeStatus | string;
+  created_at: string | null;
+  target_id: string | null;
+  vin: string | null;
+  public_state: 'confirmed_public' | 'not_public';
+  disputed: boolean;
+  public_summary: string | null;
+}
+
+export interface VehicleDisputesResponse {
+  vin: string;
+  // Privileged callers receive full Dispute rows; non-privileged callers receive the
+  // public-safe projection. The union covers both shapes the route can return.
+  disputes: Array<Dispute | PublicSafeDispute>;
+  total: number;
+}
+
+// Payloads for the dispute lifecycle endpoints.
+export interface SubmitDisputePayload {
+  vin?: string | null;
+  subjectType: string;
+  subjectId: string;
+  reason?: string | null;
+}
+
+export interface ResolveDisputePayload {
+  resolution: string;
+  outcome?: 'upheld' | 'rejected' | string;
+  targetType?: GovernanceTargetType;
+  targetId?: string;
+  policyVersion?: string | null;
+}
+
+export interface DisputeMutationResponse {
+  success: boolean;
+  dispute: Dispute;
+}

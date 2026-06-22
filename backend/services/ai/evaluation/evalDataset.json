@@ -1,0 +1,18 @@
+{
+  "_note": "Synthetic AI evaluation set (master plan §7.6). Labeled cases per task with expected outputs. Used to measure precision/recall/calibration/abstention/latency. Replace/extend with consented real samples before any live quality claim.",
+  "version": "eval.v1",
+  "cases": [
+    { "task": "image_quality", "metadata": {}, "expect": { "usable": true } },
+    { "task": "image_quality", "metadata": { "mock_ai_scenario": "blurry" }, "expect": { "usable": false } },
+    { "task": "plate_ocr", "metadata": { "plate_number": "ABC1234" }, "expect": { "plate": "ABC1234" } },
+    { "task": "plate_ocr", "metadata": {}, "expect": { "plate": null } },
+    { "task": "vin_ocr", "metadata": { "vin": "JTDBR32E120111111" }, "expect": { "vin": "JTDBR32E120111111" } },
+    { "task": "odometer_ocr", "metadata": { "odometer_reading": 62000 }, "expect": { "odometer": 62000 } },
+    { "task": "damage_detection", "metadata": { "mock_ai_scenario": "damaged", "component": "front_bumper" }, "expect": { "has_damage": true } },
+    { "task": "damage_detection", "metadata": {}, "expect": { "has_damage": false } },
+    { "task": "manipulation", "metadata": { "mock_ai_scenario": "manipulated" }, "expect": { "manipulated": true } },
+    { "task": "manipulation", "metadata": {}, "expect": { "manipulated": false } },
+    { "task": "repair_paint_inconsistency", "metadata": { "mock_ai_scenario": "repainted", "component": "bonnet" }, "expect": { "repainted": true } },
+    { "task": "repair_paint_inconsistency", "metadata": {}, "expect": { "repainted": false } }
+  ]
+}
