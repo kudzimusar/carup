@@ -16,6 +16,7 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import { resolveClient } from '../services/diaspora/diasporaServiceUtils.js';
+import { assertCanManageSubscription } from '../services/diaspora/diasporaAuthorization.js';
 import { selectBillingProvider } from '../services/diaspora/billing/billingProvider.js';
 import {
   resolveSubscription,
@@ -129,6 +130,7 @@ router.get('/usage', auth, asyncHandler(async (req, res) => {
 // POST /checkout — create a checkout session for a target plan.
 router.post('/checkout', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const planKey = req.body?.planKey;
   if (!planKey || !PLAN_KEYS.includes(planKey)) throw new ValidationError('A valid planKey is required for checkout');
   const { billing } = await deps(req);
@@ -144,6 +146,7 @@ router.post('/checkout', auth, asyncHandler(async (req, res) => {
 // POST /portal — create a billing portal session.
 router.post('/portal', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const { billing } = await deps(req);
   const session = await billing.createPortalSession({ tenantId, returnUrl: req.body?.returnUrl || null });
   res.status(201).json({ data: session });
@@ -152,6 +155,7 @@ router.post('/portal', auth, asyncHandler(async (req, res) => {
 // POST /change-plan — request a plan change through the provider (state still flows back via webhook/sync).
 router.post('/change-plan', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const planKey = req.body?.planKey;
   if (!planKey || !PLAN_KEYS.includes(planKey)) throw new ValidationError('A valid planKey is required to change plan');
   const { supabase, billing } = await deps(req);
@@ -164,6 +168,7 @@ router.post('/change-plan', auth, asyncHandler(async (req, res) => {
 // POST /cancel — cancel (at period end by default) through the provider.
 router.post('/cancel', auth, asyncHandler(async (req, res) => {
   const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const atPeriodEnd = req.body?.atPeriodEnd !== false;
   const { supabase, billing } = await deps(req);
   const snapshot = await billing.cancelSubscription({ tenantId, atPeriodEnd });
