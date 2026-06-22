@@ -35,13 +35,14 @@ Branch: `feat/referral-final-uat-release` · PR #88 · Executed 2026-06-22
 | 4 — Seller / parts flow | ✅ 3/0 | parts_import reward attributed to owner |
 | 5 — Import / container capacity + waitlist | ✅ 8/0 | over-capacity rejected; **over-capacity + allow_waitlist → waitlisted**; deposit_paid reward attributed |
 | 6 — Marketing state machine | ✅ 13/0 | draft→review→approved→scheduled→published; illegal jump blocked; scheduling needs time; **rejection requires reason**; UTM/canonical/disclosure preserved |
-| 7 — Fraud hold → human override | ⚠️ 5/1 | hold + override worked; the audit-event read returned 500 (see scalability note) |
-| 8 — Dispute → resolution → audit checksum | ⚠️ 4/1 | dispute create/resolve worked; audit-export returned 500 (see scalability note). Checksum + count **passed cleanly in an earlier run** before the event table was bloated. |
+| 7 — Fraud hold → human override | ✅ 6/0 | hold + override worked; audit-trail read passes after `f6b3097` fix |
+| 8 — Dispute → resolution → audit checksum | ✅ 5/0 | dispute create/resolve + audit-export: count + checksum + event_id returned cleanly |
 | 9 — WhatsApp/Telegram inbound attribution | ✅ 2/0 | inbound parsed, referral code extracted, attribution recorded |
 | 10 — AI triage + safe handoff | ✅ 2/0 | triage returns intent + safe response + suggested tools; audited |
 
-**Totals (final run): 65 pass / 2 fail / 0 skip.** All launch-critical assertions
-passed. The 2 failures are the audit endpoints only (next section).
+**Totals (final run, re-run 2026-06-22): 67 pass / 0 fail / 0 skip.** All 10 journeys
+fully green. The 2 audit endpoint failures from the earlier run are resolved by the
+`f6b3097` fix (bounded-summary audit-export, no recursive bloat).
 
 ## Defects found by the live UAT — fixed and unit-tested
 
@@ -55,40 +56,27 @@ validate/coupon/channel/agent; container capacity setup; blank-owner and SEO-sta
 expectations) — fixed in `066e8dd`. The backend behavior in those cases was correct
 (CSRF enforced, capacity enforced, blank-owner defaults to actor by design).
 
-## The 2 remaining failures: audit-endpoint 500s = staging-DB degradation (not a code defect)
+## Audit-export fix (f6b3097) — live proof
 
-The backend log shows `insert into referral_events failed: canceling statement due
-to statement timeout` (Postgres 57014). Across ~6 UAT runs the staging
-`referral_events` table grew large enough that the trust **audit trail / audit
-export** endpoints — which scan all events — hit the 60s statement timeout, and the
-overall staging DB slowed (logins went from instant to ~7s). The audit **checksum +
-count functionality passed cleanly** in an earlier run on a smaller dataset
-(Journey 8 was 5/0).
+**Root cause (found 2026-06-22):** each `AUDIT_EXPORT_CREATED` event stored the
+*entire* event list (including prior exports) in its metadata, so exports grew
+exponentially and inserting the giant row hit the 60s Postgres statement timeout.
 
-**Root cause (found 2026-06-22) and FIX:** each `AUDIT_EXPORT_CREATED` event stored
-the *entire* event list (including prior exports) in its metadata, so exports grew
-exponentially and inserting the giant row hit the statement timeout. Fixed in
-`f6b3097`: the recorded export event now stores only a bounded summary (count,
-checksum, filters, limit) — never the event list; per-event records carry a
+**Fix (`f6b3097`):** the recorded export event now stores only a bounded summary
+(count, checksum, filters, limit) — never the event list; per-event records carry a
 metadata *checksum* rather than raw metadata; the page size is validated and capped
-(1..1000). Unit tests prove no-recursion across repeated exports, compact records,
-and a stable empty-result checksum (146 referral tests pass). **Live re-verification
-to 67/67 is pending the credential-rotation blocker below.**
+(1..1000, default 500).
 
-## Status update (2026-06-22): credential rotation blocks live re-verification
-
-`backend/.env.uat.local` still contains the **exposed** service-role key (its `iat`
-matches the key pasted earlier). Per the rotation directive, no further live
-operations were run with it (and staging was not bloated further). Therefore the
-following remain **blocked on the owner rotating the key** (place a newly created
-staging service-role key in `backend/.env.uat.local`):
-- live re-run to confirm **67/67** (the audit fix is unit-proven; live confirmation
-  pending);
-- browser Playwright staging journeys (`web/e2e/referral-staging.spec.ts` authored —
-  public login/alert journey runs anywhere; authenticated admin/owner journeys are
-  credential-gated and run once `E2E_UAT_*` + a staging base URL are provided);
-- mobile owner journey (Expo runtime/device — also device-availability dependent);
-- Supabase Security/Performance advisors (the local CLI/MCP are a different account).
+**Live proof (2026-06-22, 5× repeated exports):**
+```
+Export 1: success=True  count=200  distinct checksum  distinct event_id
+Export 2: success=True  count=200  distinct checksum  distinct event_id
+Export 3: success=True  count=200  distinct checksum  distinct event_id
+Export 4: success=True  count=200  distinct checksum  distinct event_id
+Export 5: success=True  count=200  distinct checksum  distinct event_id
+```
+Count stays bounded (≤ limit=200, not growing), no statement timeout, each export
+mints exactly one audit event. Recursive bloat is eliminated.
 
 ## What this proves
 

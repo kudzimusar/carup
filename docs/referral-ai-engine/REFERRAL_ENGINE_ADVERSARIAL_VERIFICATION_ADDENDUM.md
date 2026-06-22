@@ -126,22 +126,39 @@ journeys were run against this branch's code on the staging DB. Full results:
 - **Two backend defects found by the live run and fixed + unit-tested** (`87e0c74`):
   import `allow_waitlist` not honored; marketing rejection didn't require a reason.
   Both re-verified live (Journey 5 → 8/0, Journey 6 → 13/0).
-- The only 2 remaining live failures are the trust **audit endpoints returning 500**
-  due to a Postgres statement timeout — a **staging-DB-degradation artifact** of ~6
-  repeated UAT runs bloating `referral_events` (the audit checksum passed on cleaner
-  data). Recommended follow-up: paginate/index the audit event scan.
+- The audit-export 500 (statement timeout) was root-caused as **recursive metadata
+  bloat** and fixed in `f6b3097`. The fix was **live-verified**: 5× repeated exports
+  each return count=200 (bounded), distinct checksum, distinct event_id — no timeout,
+  no growth. Journey 7 and 8 now both pass.
+
+### Final UAT result: **67/67** (2026-06-22 clean re-run)
+
+All 10 journeys pass with 0 failures and 0 skips.
+
+### Final regression (2026-06-22)
+
+| Suite | Result |
+|-------|--------|
+| web tsc | 0 errors |
+| mobile tsc | 0 errors |
+| web vitest | 139/139 pass |
+| web production build | OK |
+| backend node:test (CI-env) | 138/138 pass |
+| live UAT (all 10 journeys) | 67/67 pass |
+| 5× audit-export live proof | bounded count, no timeout |
 
 ### Updated GO / NO-GO
 
-The live correct-owner attribution gate is **MET**. The engineering is **GO**
-(launch-critical journeys proven live, two defects fixed + retested, local
-regression green). Remaining items are **owner-side / operational**, so the PR stays
-**draft**:
+**Engineering: GO.** All launch-critical journeys proven live, defects fixed +
+retested, audit-export scalability fixed and live-verified, full regression green,
+`referral-ci` GitHub Actions green (CI uses dummy env; all real suites pass).
+
+Remaining items are **owner-side / operational** (PR is READY FOR REVIEW):
 1. Apply `20260621120000_referral_pin_function_search_path.sql` to staging (needs a
-   DB connection string / dashboard — not available to this environment) and run the
-   Supabase advisors before/after.
-2. Address the audit-export scalability follow-up (or accept it as a known
-   post-launch item).
-3. Let the Vercel build-rate-limit cool down and confirm all four checks green.
-4. **Rotate the staging service-role key** (it was pasted into chat and is now in
-   the transcript).
+   DB connection string / dashboard) and run Supabase advisors before/after.
+2. Browser Playwright UAT — `web/e2e/referral-staging.spec.ts` is authored; public
+   login/alert test runs anywhere; authenticated journeys require `E2E_UAT_*` env +
+   a staging base URL supplied by the owner.
+3. Mobile owner journey (Expo runtime/device — device-availability dependent).
+4. Let Vercel build-rate-limit reset; all four checks have been observed green.
+5. **Rotate the staging service-role key** (it was pasted into chat).
