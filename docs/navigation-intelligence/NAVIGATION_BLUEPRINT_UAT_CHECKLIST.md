@@ -4,9 +4,11 @@
 > the desktop menus, footer, public + 7-role mobile drawer, role switching,
 > route-boundary direct-access (auth/role/lifecycle), and the admin governance
 > console (incl. PATCH/DELETE + non-admin denial) — **37/37 green**. Backend
-> role/tenant/audit/version/reset/fail-safe behavior is covered by 28 governance
-> unit tests. The manual sign-off below still requires the **deployed staging
-> environment** (deploy + migration pending — see staging plan).
+> role/tenant/audit/version/reset/fail-safe/active-role/sidebar behavior is
+> covered by 35 governance + sidebar unit tests. The governance migration is
+> **applied + verified in staging** (`eoyenigwevnxwwhyhaer`); the manual sign-off
+> below still requires the **deployed staging frontend/backend** (Vercel deploy
+> pending — see staging plan).
 
 Run against **staging** (see `NAVIGATION_BLUEPRINT_STAGING_PLAN.md`).
 - **Base URL:** `https://<staging-web-host>` (the `carup-staging` deployment).
