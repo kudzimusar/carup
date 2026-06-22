@@ -357,7 +357,26 @@ forbidden-phrase scan given agent rate-limits). CI workflow updated (SafeTrade f
 debugging fixes during integration: the interrupted agent's broken types (`*/` inside a JSDoc comment)
 and an infinite re-render loop (effect depended on the fresh-each-render `useCarUpApi()` object →
 depend on stable primitives). Integration-owned edits by the Integrator; components/pages/flag/tests
-non-integration. Commits: `9f7224d` (Gate S9-A), feat + docs (this milestone).
+non-integration. Commits: `9f7224d` (Gate S9-A), feat `20e6eab` + docs `e7d8d98` (this milestone).
+
+**Adversarial UI-9 review (Wave 6) — VERDICT PASS (HIGH/CRITICAL = 0).** After CI went green at
+`e7d8d98` (backend-and-build ✓, playwright 66 incl. SafeTrade e2e ✓, staging skipped/secret-gated),
+a 6-lens multi-agent adversarial review (non-custodial assurance, action-authorization, projection
+safety, tenant/evidence privacy, fail-closed flag, resilience/a11y) with skeptic verification ran:
+**0 confirmed HIGH/CRITICAL** (both raised HIGHs refuted — the "no h1" claim is contradicted by the
+passing `accessible h1` e2e; the dead-`.code` claim only reached 1/2 votes as HIGH). It surfaced real
+MED quality defects in the new code, fixed in a follow-up `fix(safetrade)` commit: (1) the three UI
+error handlers branched on a non-existent `err.code` (apiClient throws message-only Errors) — replaced
+with a centralized message-content `classifyActionError` helper, restoring the non-custodial
+"sandbox only; no real funds moved" + role-appropriate copy; (2) `visibleEvidence` now fails CLOSED on
+unknown/future visibility values; (3) a 401 expired session renders a **Sign in** prompt instead of a
+dead Retry; (4) the detail page refreshes **in place** (case stays on screen; Refresh stays
+keyboard-focusable via a ref guard, no native-disabled focus trap); (5) `approve-release` now wires the
+evaluation id from the `evaluate-release` response so the reviewer's evaluate→approve flow completes.
+Re-verified: tsc clean; **unit 200/200** (incl. 6 new error-classify/fail-closed cases); **e2e 11/11**
+(added an expired-session test); build EXIT 0; forbidden-phrase scan clean. Two fail-safe completeness
+items deferred to EB-4 and tracked as **ST-4** (request-release projection vs route; live dispute-evidence
+read endpoint) — neither is a bypass (backend authoritative; both fail-closed).
 
 Truth audit (Step 0). Backend exists; this milestone adds Gate S9-A (action-authz verification +
 route tightening), a server-derived available-actions projection, and the frontend. The frontend
