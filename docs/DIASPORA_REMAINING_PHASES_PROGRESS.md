@@ -302,9 +302,18 @@ still requires `DIASPORA_STAGING_DATABASE_URL` (EB-1); the skip is reported dist
 - **Next milestone:** master-plan reconciliation matrix → UI-8 (subscription) → UI-9 (SafeTrade) →
   UI-10 (Trade Graph dashboard).
 
-### UI-8 — Phase 8 subscription experience (IN PROGRESS) — Wave 6 (frontend)
-Truth audit done (Step 0). Backend API exists; this milestone adds the mutation-authorization gate
-(S8-A) + the frontend. Recorded before implementation per directive.
+### UI-8 — Phase 8 subscription experience (COMPLETE) — Wave 6 (frontend)
+Truth audit done (Step 0). Gate S8-A (mutation authorization) committed `cf8498f`. Frontend built +
+verified. **Evidence:** tsc (web) clean; route-validation **7/7**; subscription unit tests **55/55**
+(run from web/, the `@`-alias config); production build EXIT 0; **e2e 18/18** (flag-on dev server);
+existing CI diaspora specs + new spec **37/37** (flag-on, no regression); full backend suite
+**607/600/0-fail/7-skip**; adversarial UI review **VERDICT PASS** (sandbox truthfulness, no PII/internal
+leakage, 7 denial categories, backend-authoritative manager visibility, truthful plan/usage, flag
+fail-closed, full a11y, duplicate-submit prevention). CI workflow updated (flag-on dev server + spec
+added). Integration-owned edits (by Integrator): types/index.ts (8 contracts), useCarUpApi.ts (8
+hooks), App.tsx (route), featureRegistry.ts (flag-gated entry), .github/workflows (dev-server flag +
+spec). Non-integration: page + 5 components + helpers + subscriptionFlag.ts + e2e + unit tests +
+DashboardLayout icon. Commits: `cf8498f` (S8-A), feat + docs (this milestone).
 
 **Gate S8-A — subscription mutation authorization matrix (server-derived roles only):**
 | Endpoint | Access | Permitted | Denied |
