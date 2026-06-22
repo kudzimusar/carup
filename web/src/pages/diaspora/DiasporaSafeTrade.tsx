@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { safeTradeUiEnabled } from '@/config/safeTradeFlag'
 import { SafeTradeAssuranceNotice } from '@/components/diaspora/safetrade/SafeTradeAssuranceNotice'
-import { designStateOf, formatMoney, isEscapeHatchState, stateLabel } from '@/components/diaspora/safetrade/safeTradeHelpers'
+import { classifyActionError, designStateOf, formatMoney, isEscapeHatchState, stateLabel } from '@/components/diaspora/safetrade/safeTradeHelpers'
 import type { SafeTradeTransaction } from '@/types'
 
 function relationshipOf(txn: SafeTradeTransaction, viewerId: string | null): 'buyer' | 'seller' | 'other' {
@@ -50,8 +50,9 @@ export default function DiasporaSafeTrade() {
       const res = await api.getSafeTradeCases(statusFilter ? { status: statusFilter } : undefined)
       setCases(res?.data || [])
     } catch (err) {
-      const code = (err as { code?: string })?.code
-      setError(code === 'VALIDATION_FAILED' ? 'A tenant context is required to view SafeTrade cases.' : 'Could not load SafeTrade cases. Please retry.')
+      // apiClient throws message-only Errors; classify by message content (no `.code` exists).
+      const { kind } = classifyActionError(err)
+      setError(kind === 'tenant' ? 'A tenant context is required to view SafeTrade cases.' : 'Could not load SafeTrade cases. Please retry.')
     } finally { setLoading(false) }
   }, [api, canView, statusFilter])
 

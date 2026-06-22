@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { disputeCategoryLabel, disputeStatusLabel, visibleEvidence } from './safeTradeHelpers'
+import { classifyActionError, disputeCategoryLabel, disputeStatusLabel, visibleEvidence } from './safeTradeHelpers'
 import type { SafeTradeAvailableAction, SafeTradeDispute, SafeTradeDisputeEvidence } from '@/types'
 
 export interface SafeTradeDisputesProps {
@@ -53,8 +53,8 @@ export function SafeTradeDisputes({ transactionId, disputes, actions, viewerId =
     setBusy(true); setMsg(null)
     try { await fn(); setMsg(success); await onDone() }
     catch (e) {
-      const code = (e as { code?: string })?.code
-      setMsg(code === 'INSUFFICIENT_PERMISSIONS' ? 'You are not authorized to perform this action.' : 'The action could not be completed. Please try again.')
+      // apiClient throws message-only Errors — classify by message content, not a non-existent `.code`.
+      setMsg(classifyActionError(e).message)
     } finally { setBusy(false); if (liveRef.current) liveRef.current.focus() }
   }
 

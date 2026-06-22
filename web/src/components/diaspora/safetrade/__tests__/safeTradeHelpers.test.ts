@@ -9,6 +9,7 @@ import {
   designStateOf, stateLabel, isTerminalState, isEscapeHatchState, partitionActions, permittedActions,
   isReviewerAction, disabledReasonLabel, actionLabel, formatMoney, milestoneStatusLabel,
   milestoneHeldTotal, hasActiveDispute, isActiveDispute, visibleEvidence, deriveTimeline,
+  classifyActionError, isExternalActivationError,
 } from '../safeTradeHelpers'
 import { safeTradeUiEnabled } from '@/config/safeTradeFlag'
 import type { SafeTradeAvailableAction, SafeTradeDisputeEvidence, SafeTradeMilestone } from '@/types'
@@ -71,6 +72,44 @@ describe('dispute evidence visibility (privacy)', () => {
     expect(seen).toContain('mine')
     expect(seen).not.toContain('rev')     // REVIEWERS_ONLY hidden
     expect(seen).not.toContain('theirs')  // another author's AUTHOR_ONLY hidden
+  })
+  it('fails CLOSED: an unknown/future visibility value is hidden from a participant', () => {
+    const weird = [
+      ev({ id: 'ok', visibility: 'PARTICIPANTS', author_id: 'seller-1' }),
+      ev({ id: 'typo', visibility: 'REVIEWER_ONLY' as never, author_id: 'reviewer-1' }), // not the canonical token
+      ev({ id: 'future', visibility: 'INTERNAL' as never, author_id: 'x' }),
+      ev({ id: 'blank', visibility: '' as never, author_id: 'y' }), // '' -> PARTICIPANTS default (safe)
+    ]
+    const seen = visibleEvidence(weird, { id: 'buyer-1', isReviewer: false }).map((e) => e.id)
+    expect(seen).toEqual(['ok', 'blank'])     // unknown 'REVIEWER_ONLY'/'INTERNAL' hidden, not defaulted-visible
+    // a reviewer still sees everything (server already redacts; this is defense-in-depth)
+    expect(visibleEvidence(weird, { id: 'r', isReviewer: true }).map((e) => e.id)).toEqual(['ok', 'typo', 'future', 'blank'])
+  })
+})
+
+describe('action error classification (apiClient throws message-only Errors)', () => {
+  it('classifies an external-activation (live escrow off) failure with the non-custodial reassurance', () => {
+    const r = classifyActionError(new Error('Live escrow requires a separately approved, regulated provider that is not active'))
+    expect(r.kind).toBe('external-activation')
+    expect(r.message).toMatch(/sandbox mode only; no real funds moved/i)
+    expect(isExternalActivationError(new Error('EXTERNAL_ACTIVATION_REQUIRED'))).toBe(true)
+  })
+  it('classifies a 401 session-expired failure as session (not forbidden) so the UI prompts sign-in', () => {
+    expect(classifyActionError(new Error('Unauthorized. Session is invalid or expired.')).kind).toBe('session')
+  })
+  it('classifies a 403 permission failure as forbidden', () => {
+    expect(classifyActionError(new Error('You do not have access to this SafeTrade case')).kind).toBe('forbidden')
+    expect(classifyActionError(new Error('HTTP error! status: 403')).kind).toBe('forbidden')
+  })
+  it('classifies tenant + notfound + stale-conflict failures distinctly', () => {
+    expect(classifyActionError(new Error('A tenant context is required')).kind).toBe('tenant')
+    expect(classifyActionError(new Error('SafeTrade transaction not found')).kind).toBe('notfound')
+    expect(classifyActionError(new Error('INVALID_TRANSITION from PAYMENT_HELD')).kind).toBe('conflict')
+  })
+  it('falls back to generic for an unrecognized error (fail-safe, never leaks raw detail)', () => {
+    const r = classifyActionError(new Error('ECONNRESET socket hang up at db pool 10.0.0.4'))
+    expect(r.kind).toBe('generic')
+    expect(r.message).not.toMatch(/ECONNRESET|10\.0\.0\.4|db pool/)
   })
 })
 

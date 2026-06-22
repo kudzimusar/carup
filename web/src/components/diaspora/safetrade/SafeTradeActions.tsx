@@ -18,7 +18,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { actionLabel, disabledReasonLabel, partitionActions } from './safeTradeHelpers'
+import { actionLabel, classifyActionError, disabledReasonLabel, partitionActions } from './safeTradeHelpers'
 import { SAFETRADE_SANDBOX_LABEL } from '@/config/safeTradeFlag'
 import type { SafeTradeAvailableAction, SafeTradeCommitEvent } from '@/types'
 
@@ -55,6 +55,11 @@ export function SafeTradeActions({ transactionId, actions, latestEvaluationId = 
   const [confirm, setConfirm] = useState<SafeTradeAvailableAction | null>(null)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The passing evaluation needed to approve a sandbox release. Provided by the parent if known, and
+  // captured here from evaluate-release's own response so the reviewer's evaluate -> approve flow can
+  // complete in one session without depending on a separate fetch path.
+  const [capturedEvaluationId, setCapturedEvaluationId] = useState<string | null>(null)
+  const evaluationId = capturedEvaluationId || latestEvaluationId
   const liveRef = useRef<HTMLParagraphElement>(null)
 
   // Only render lifecycle actions we can submit; disputes render in SafeTradeDisputes.
@@ -71,26 +76,24 @@ export function SafeTradeActions({ transactionId, actions, latestEvaluationId = 
     const idempotencyKey = newIdempotencyKey()
     try {
       switch (action.actionKey) {
-        case 'evaluate-release': await api.evaluateSafeTradeRelease(transactionId, {}); break
+        case 'evaluate-release': {
+          const resp = await api.evaluateSafeTradeRelease(transactionId, {})
+          // Capture the recorded evaluation so the subsequent approve-release can reference it.
+          if (resp?.evaluation?.id) setCapturedEvaluationId(resp.evaluation.id)
+          break
+        }
         case 'request-release': await api.requestSafeTradeRelease(transactionId, { idempotencyKey }); break
         case 'approve-release':
-          await api.approveSafeTradeRelease(transactionId, { evaluationId: latestEvaluationId || undefined, idempotencyKey }); break
+          await api.approveSafeTradeRelease(transactionId, { evaluationId: evaluationId || undefined, idempotencyKey }); break
         case 'cancel': await api.cancelSafeTrade(transactionId, { idempotencyKey }); break
         default: await api.commitSafeTrade(transactionId, { event: eventForKey(action.actionKey), idempotencyKey })
       }
       setResult(`${actionLabel(action)} submitted${action.sandboxOnly ? ' — sandbox simulation only; no real funds moved.' : '.'}`)
       await onDone()
     } catch (err) {
-      const e = err as { message?: string; code?: string }
-      // Never surface raw provider/db detail — show a safe, role-appropriate message.
-      const code = e?.code
-      setError(
-        code === 'EXTERNAL_ACTIVATION_REQUIRED'
-          ? 'Live escrow is not active. SafeTrade runs in sandbox mode only; no real funds moved.'
-          : code === 'INSUFFICIENT_PERMISSIONS'
-            ? 'You are not authorized to perform this action. The server rejected it.'
-            : 'The action could not be completed. Please refresh and try again.',
-      )
+      // apiClient throws message-only Errors; classify by message content (never by a non-existent
+      // `.code`) so the user sees the right reason (external-activation / permission / conflict).
+      setError(classifyActionError(err).message)
     } finally {
       setPending(null)
       setConfirm(null)
@@ -170,7 +173,7 @@ export function SafeTradeActions({ transactionId, actions, latestEvaluationId = 
                 {confirm && SANDBOX_MONEY_KEYS.has(confirm.actionKey)
                   ? `${SAFETRADE_SANDBOX_LABEL} This records an assurance/payment-state simulation. CarUp does not hold or release real funds.`
                   : 'This submits the action to the SafeTrade workflow. The backend remains authoritative.'}
-                {confirm?.actionKey === 'approve-release' && !latestEvaluationId
+                {confirm?.actionKey === 'approve-release' && !evaluationId
                   ? ' A passing release evaluation is required first.' : ''}
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -178,7 +181,7 @@ export function SafeTradeActions({ transactionId, actions, latestEvaluationId = 
               <AlertDialogCancel data-testid={`${testId}-confirm-cancel`}>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 data-testid={`${testId}-confirm-submit`}
-                disabled={Boolean(pending) || (confirm?.actionKey === 'approve-release' && !latestEvaluationId)}
+                disabled={Boolean(pending) || (confirm?.actionKey === 'approve-release' && !evaluationId)}
                 onClick={() => confirm && void submit(confirm)}
               >
                 Confirm

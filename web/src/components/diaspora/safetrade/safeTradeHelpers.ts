@@ -379,9 +379,11 @@ export function visibleEvidence(
   const viewerId = normalizeId(viewer.id)
   return evidence.filter((e) => {
     const vis = String(e.visibility || 'PARTICIPANTS').toUpperCase()
-    if (vis === 'REVIEWERS_ONLY') return false
+    if (vis === 'PARTICIPANTS') return true
     if (vis === 'AUTHOR_ONLY') return normalizeId(e.author_id) === viewerId && viewerId != null
-    return true // PARTICIPANTS
+    // Fail CLOSED: REVIEWERS_ONLY and any unrecognized/future visibility value are hidden from a
+    // non-reviewer. A privacy filter must never default-open on an unknown visibility.
+    return false
   })
 }
 
@@ -404,9 +406,61 @@ export function isStaleStateError(input: unknown): boolean {
   )
 }
 
-/** True when the error indicates the live-escrow external activation is unavailable (fail-closed). */
+/**
+ * True when the error indicates the live-escrow external activation is unavailable (fail-closed).
+ * The web apiClient surfaces the backend's human MESSAGE (not the structured code), so this matches
+ * BOTH the raw code (if ever present) and the human phrasing of assertSafeTradeProductionSafety().
+ */
 export function isExternalActivationError(input: unknown): boolean {
-  return extractMessage(input).toUpperCase().includes('EXTERNAL_ACTIVATION_REQUIRED')
+  const msg = extractMessage(input).toUpperCase()
+  return (
+    msg.includes('EXTERNAL_ACTIVATION_REQUIRED') ||
+    msg.includes('LIVE ESCROW') ||
+    msg.includes('REGULATED PROVIDER') ||
+    msg.includes('EXTERNAL ACTIVATION')
+  )
+}
+
+/**
+ * Categorize a thrown API error into a SafeTrade-safe class + default user message.
+ *
+ * IMPORTANT: the web apiClient (lib/apiClient.ts) throws plain Errors carrying only the backend's
+ * human MESSAGE — it discards the structured `{ error: { code } }`. So UI code must classify by
+ * message CONTENT, never by a `.code` property (which is always undefined). Matchers are deliberately
+ * broad and fail-safe: an unrecognized error always falls through to `generic`. No raw provider/db
+ * detail is ever surfaced — only the safe default copy below is shown to the user.
+ */
+export type SafeTradeErrorKind =
+  | 'session'
+  | 'external-activation'
+  | 'conflict'
+  | 'notfound'
+  | 'tenant'
+  | 'forbidden'
+  | 'generic'
+
+const ERROR_DEFAULT_MESSAGES: Record<SafeTradeErrorKind, string> = {
+  session: 'Your session has expired. Please sign in again.',
+  'external-activation': 'Live escrow is not active. SafeTrade runs in sandbox mode only; no real funds moved.',
+  conflict: 'This case changed since you loaded it. Refresh and try again.',
+  notfound: 'This SafeTrade case was not found.',
+  tenant: 'A tenant context is required for SafeTrade.',
+  forbidden: 'You are not authorized to perform this action. The server rejected it.',
+  generic: 'The action could not be completed. Please refresh and try again.',
+}
+
+export function classifyActionError(input: unknown): { kind: SafeTradeErrorKind; message: string } {
+  const msg = extractMessage(input).toLowerCase()
+  let kind: SafeTradeErrorKind = 'generic'
+  // Order matters: session/external-activation/conflict are checked before the broad forbidden matcher
+  // (which would otherwise swallow a 401 "Unauthorized. Session is invalid…").
+  if (/session is invalid|session is expired|session has expired|session expired/.test(msg)) kind = 'session'
+  else if (isExternalActivationError(input)) kind = 'external-activation'
+  else if (isStaleStateError(input)) kind = 'conflict'
+  else if (/not found|no safetrade|does not exist|\b404\b/.test(msg)) kind = 'notfound'
+  else if (/tenant context|x-tenant-id|tenant is required|tenant membership/.test(msg)) kind = 'tenant'
+  else if (/not authorized|do not have access|forbidden|insufficient|permission|not permitted|actor role|reviewer (is )?required|\b403\b/.test(msg)) kind = 'forbidden'
+  return { kind, message: ERROR_DEFAULT_MESSAGES[kind] }
 }
 
 function extractMessage(input: unknown): string {
