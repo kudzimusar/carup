@@ -6,11 +6,12 @@
  * authorization is unaffected — these only decide what the SPA renders or where
  * it safely redirects.
  */
-import { type ReactNode } from 'react'
+import { type ReactNode, useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
 import { evaluateRouteAccess, loginWithReturnTo } from '@/lib/routeAccess'
+import { trackNav } from '@/lib/navigationAnalytics'
 import { Spinner } from '@/components/ui/spinner'
 import {
   FeaturePlannedPage,
@@ -59,6 +60,20 @@ export function RegistryRouteBoundary({
     effectiveStates,
     enforceAuth,
   })
+
+  // Fire-and-forget navigation telemetry for destination outcomes. The pure
+  // route decision is unchanged; analytics never blocks or alters navigation.
+  useEffect(() => {
+    if (decision.kind === 'loading') return
+    if (decision.kind === 'disabled' || decision.kind === 'planned') {
+      trackNav({ event_type: 'navigation_destination_blocked', surface: 'route_guard', source_route_pattern: location.pathname, lifecycle_or_reason_code: decision.kind })
+    } else if (decision.kind === 'redirect') {
+      trackNav({ event_type: 'navigation_destination_blocked', surface: 'route_guard', source_route_pattern: location.pathname, destination_route_pattern: decision.to, lifecycle_or_reason_code: `redirect_${decision.reason}` })
+    } else {
+      trackNav({ event_type: 'navigation_destination_rendered', surface: 'route_guard', destination_route_pattern: location.pathname })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, decision.kind])
 
   switch (decision.kind) {
     case 'loading':

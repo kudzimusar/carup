@@ -32,6 +32,7 @@ import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNaviga
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
 import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { trackNav } from '@/lib/navigationAnalytics'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
@@ -55,7 +56,7 @@ function CommerceMenu({
   menuTestId: string
 }) {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => { if (open) trackNav({ event_type: 'navigation_surface_opened', surface: 'mega_menu', node_id: menuTestId }) }}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -80,6 +81,7 @@ function CommerceMenu({
                       to={item.href}
                       data-testid={`navitem-${item.id}`}
                       title={item.description}
+                      onClick={() => trackNav({ event_type: 'navigation_item_selected', surface: 'mega_menu', feature_id: item.id, node_id: item.id, destination_route_pattern: item.href })}
                       className="flex items-center justify-between cursor-pointer rounded-md px-2 py-1.5 text-sm"
                     >
                       <span>{item.label}</span>

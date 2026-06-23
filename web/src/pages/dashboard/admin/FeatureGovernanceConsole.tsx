@@ -21,6 +21,7 @@ import { getNavigationPlacements } from '@/config/navigationManifest'
 import {
   useFeatureGovernanceApi, type AdminFeatureRow, type RolloutPatch,
 } from '@/hooks/useFeatureGovernanceApi'
+import NavigationAnalyticsPanel from '@/components/admin/NavigationAnalyticsPanel'
 import type { UserRole } from '@shared/types'
 
 const ENVIRONMENTS = ['development', 'staging', 'production'] as const
@@ -112,6 +113,7 @@ export default function FeatureGovernanceConsole() {
   const [conflict, setConflict] = useState(false)
   const [confirm, setConfirm] = useState<null | { kind: 'save' | 'reset' }>(null)
   const [audit, setAudit] = useState<{ loading: boolean; error: boolean; items: any[] }>({ loading: false, error: false, items: [] })
+  const [tab, setTab] = useState<'governance' | 'analytics'>('governance')
 
   const load = useCallback(async () => {
     setLoading(true); setError(null); setPermissionDenied(false)
@@ -225,6 +227,30 @@ export default function FeatureGovernanceConsole() {
         </div>
       </div>
 
+      {/* Section tabs */}
+      <div className="flex gap-1 border-b" role="tablist" aria-label="Feature governance sections" data-testid="fg-tabs">
+        <button
+          role="tab" type="button" data-testid="fg-tab-governance"
+          aria-selected={tab === 'governance'}
+          onClick={() => setTab('governance')}
+          className={`px-3 py-2 text-sm font-medium -mb-px border-b-2 ${tab === 'governance' ? 'border-orange-500 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >Rollout governance</button>
+        <button
+          role="tab" type="button" data-testid="fg-tab-analytics"
+          aria-selected={tab === 'analytics'}
+          onClick={() => setTab('analytics')}
+          className={`px-3 py-2 text-sm font-medium -mb-px border-b-2 ${tab === 'analytics' ? 'border-orange-500 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >Navigation analytics</button>
+      </div>
+
+      {tab === 'analytics' && (
+        <div role="tabpanel" aria-label="Navigation analytics" data-testid="fg-analytics-panel">
+          <NavigationAnalyticsPanel />
+        </div>
+      )}
+
+      {tab === 'governance' && (
+      <>
       {/* Filters */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
         <Input placeholder="Search id, label or route…" value={search} onChange={e => setSearch(e.target.value)} data-testid="fg-search" aria-label="Search features" />
@@ -289,6 +315,8 @@ export default function FeatureGovernanceConsole() {
             ))}
           </div>
         </>
+      )}
+      </>
       )}
 
       {/* Detail + edit dialog */}
