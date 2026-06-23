@@ -777,11 +777,30 @@ test('internal communication processor requires worker secret and processes boun
     body: { limit: 1 },
     query: {},
   });
+  await notificationService.queueNotification({
+    recipientUserId: 'worker-user',
+    thread,
+    notificationType: 'message_acknowledgement',
+    channel: 'in_app',
+    templateKey: 'message_acknowledgement_v1',
+    variables: { topic: 'worker route get' },
+    dedupeParts: ['worker-route-get'],
+  });
+  const acceptedGet = await invokeRouter(router, {
+    method: 'GET',
+    url: '/api/internal/communications/process',
+    originalUrl: '/api/internal/communications/process?limit=1',
+    headers: { authorization: 'Bearer worker-secret' },
+    body: {},
+    query: { limit: '1' },
+  });
   delete process.env.COMMUNICATION_WORKER_SECRET;
   assert.equal(rejected.statusCode, 401);
   assert.equal(accepted.statusCode, 200);
   assert.equal(accepted.body.processed, 1);
-  assert.equal((await repository.list('notification_queue'))[0].status, 'delivered');
+  assert.equal(acceptedGet.statusCode, 200);
+  assert.equal(acceptedGet.body.processed, 1);
+  assert.equal((await repository.list('notification_queue')).every((row) => row.status === 'delivered'), true);
 });
 
 test('identity service rejects unsafe merges based on weak evidence', async () => {
