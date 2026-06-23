@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
 import { Redirect, useRouter } from 'expo-router';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import { getFeatureById } from '../../navigation/featureManifest';
+import { resolveDashboardGate } from '../../navigation/dashboardGate';
 
 function DashboardScreenInner() {
   const router = useRouter();
@@ -147,15 +148,36 @@ function DashboardScreenInner() {
  * rendering. (Once signed in, role resolves and the overview boundary governs.)
  */
 export default function DashboardScreen() {
+  // Read the auth bootstrap flag FIRST: the store starts loading:true while
+  // initialize() restores a saved SecureStore session, so user/role are briefly
+  // null on a cold launch / direct deep link. Deciding before bootstrap finishes
+  // would eject an already-signed-in user. Ordering is enforced by the gate:
+  // 1. loading → safe loading state; 2. confirmed anon → /login; 3. role boundary.
+  const isBootstrapping = useAuthStore((s) => s.loading);
   const role = useAuthStore((s) => s.user?.role ?? null);
+  const gate = resolveDashboardGate({ loading: isBootstrapping, role });
 
-  if (!role) {
+  // 1. Auth bootstrap — wait, never redirect mid-restore.
+  if (gate.kind === 'loading') {
+    return (
+      <View
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' }}
+        accessibilityRole="progressbar"
+        accessibilityLabel="Restoring your session"
+      >
+        <ActivityIndicator size="large" color="#f97316" />
+      </View>
+    );
+  }
+
+  // 2. Confirmed anonymous (init finished, still no role) → login.
+  if (gate.kind === 'redirect') {
     return <Redirect href="/login" />;
   }
 
+  // 3. Role-owned governed boundary (role is known here — never a fabricated owner).
   const featureId = `${role}.overview`;
   const route = getFeatureById(featureId)?.route ?? '/dashboard';
-
   return (
     <NativeFeatureBoundary route={route} featureId={featureId} hasNativeScreen>
       <DashboardScreenInner />
