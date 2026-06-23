@@ -35,6 +35,8 @@ const ICON_MAP: Record<string, IoniconName> = {
   // A couple of common dashboard/aliases used by the manifest.
   LayoutDashboard: 'home-outline',
   Storefront: 'storefront-outline',
+  // Native navigation hub ("More" tab) drawer affordance.
+  Menu: 'menu-outline',
 };
 
 /** Resolve an abstract icon name to a concrete Ionicons glyph name. */

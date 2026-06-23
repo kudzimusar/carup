@@ -5,6 +5,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useRouter } from 'expo-router';
 import { captureOdometerPhoto, formatFileSize } from '../../utils/camera';
 import { apiUrl } from '../../utils/apiBase';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 
 interface Vehicle {
   vin: string;
@@ -34,7 +35,7 @@ interface ServiceLog {
   parts_replaced?: string;
 }
 
-export default function GarageScreen() {
+function GarageScreenInner() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
@@ -342,5 +343,19 @@ export default function GarageScreen() {
         />
       )}
     </View>
+  );
+}
+
+/**
+ * Owner-protected route boundary (Milestone C). A deep link / direct nav to the
+ * Garage screen is gated by the SAME governed decision that hides the tab for
+ * non-owners (owner.garage: owner-only, requiresAuth). Anonymous → sign-in,
+ * wrong-role → own dashboard, disabled/planned/hidden → safe state screen.
+ */
+export default function GarageScreen() {
+  return (
+    <NativeFeatureBoundary route="/dashboard/garage" featureId="owner.garage">
+      <GarageScreenInner />
+    </NativeFeatureBoundary>
   );
 }
