@@ -1,5 +1,6 @@
 import { supabase } from '../../db/supabase.js';
 import { addEvent } from '../blockchain/blockchainService.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 
 export function calculateMonthlyPayment(amount, apr, termMonths, downPayment = 0) {
   const principal = amount - downPayment;
@@ -42,6 +43,16 @@ export async function submitFinancingApplication(vin, userId, bankId, requestedA
   await supabase.from('finance_applications').insert({ id, vin, user_id: userId, bank_id: bankId, requested_amount: requestedAmount, status, monthly_payment: affordability.estimatedMonthlyPayment, apr: affordability.estimatedApr, created_at: timestamp });
   
   await addEvent(vin, 'Financing Application', { applicationId: id, bankId, requestedAmount, status, apr: affordability.estimatedApr, monthlyPayment: affordability.estimatedMonthlyPayment });
+
+  emitDomainEvent(null, 'finance.application.status_changed', {
+    applicationId: id,
+    userId,
+    recipientUserId: userId,
+    bankId,
+    vin,
+    requestedAmount,
+    status,
+  }, bankId).catch(() => {});
 
   return { id, vin, userId, bankId, requestedAmount, status, monthlyPayment: affordability.estimatedMonthlyPayment, apr: affordability.estimatedApr, rejectionReason: affordability.rejectionReason };
 }

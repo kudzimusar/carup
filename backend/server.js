@@ -65,6 +65,8 @@ import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
+import communicationRouter from './routes/communicationRoutes.js';
+import adminCommunicationRouter from './routes/adminCommunicationRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
@@ -74,6 +76,7 @@ import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 
 dotenv.config();
 
@@ -186,6 +189,8 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
+app.use(communicationRouter());
+app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
@@ -213,6 +218,7 @@ if (connectionError) {
   
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
+  registerCommunicationListeners(eventWorker);
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 
