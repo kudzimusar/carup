@@ -12,11 +12,12 @@
 | PR mergeable | **MERGEABLE** (open, not draft, not merged) |
 | GitHub CI: `navigation-gates` / `navigation-e2e` / `navigation-accessibility` | **green** on head |
 | Vercel: `carup`, `carup-backend`, `carup-staging`, `carup-backend-staging` | **green** |
-| Codex review threads | all resolved; final re-review requested |
-| Staging migrations (F/G) applied + verified | **PENDING release engineer** (see `STAGING_MIGRATION_HANDOFF.md`) |
+| Codex review threads | 4 round-5 findings fixed; replied + resolved; final re-review requested |
+| Staging migrations (F/G) applied + verified | ✅ **DONE** in staging `eoyenigwevnxwwhyhaer` (see `STAGING_MIGRATION_HANDOFF.md`) |
 | Staging UAT | **PENDING PO** (see `NAVIGATION_BLUEPRINT_UAT_CHECKLIST.md` §H) |
 
-The last two rows are the only items not satisfiable from CI; they gate the PO's authorization.
+Staging migrations are now applied + verified; **Product Owner staging UAT** is the only
+remaining non-CI item gating the PO's merge authorization.
 
 ## Production migration order (apply AFTER merge, on PO authorization)
 

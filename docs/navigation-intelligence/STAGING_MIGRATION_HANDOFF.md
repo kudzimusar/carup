@@ -1,10 +1,20 @@
 # Staging Migration Handoff — Full-Completion (F/G) migrations
 
-> **STATUS: NOT YET APPLIED / NOT YET VERIFIED.** This document is the exact apply +
-> verification runbook for the **release engineer**. The agent cannot reach the staging
-> Supabase project (`eoyenigwevnxwwhyhaer` is administered outside its tooling) and has
-> **not** applied these migrations to any database. Do not mark them applied until the
-> verification queries below return the expected results against staging.
+> **STATUS: ✅ APPLIED + VERIFIED IN STAGING (`eoyenigwevnxwwhyhaer`) by the release engineer.**
+> Both Full-Completion migrations are applied and verified in staging; production remains
+> untouched. The agent did not (and cannot) reach the staging Supabase project — application
+> and verification were performed out-of-band by the release engineer, who confirmed:
+> - `rollout_percentage` is `SMALLINT NOT NULL DEFAULT 100`; percentage CHECK is `0–100`;
+>   `rollout_seed` length constraint exists; existing override rows carry a safe percentage;
+> - `navigation_analytics_events` exists; RLS enabled; `anon`/`authenticated` have **no** direct
+>   table privileges; `service_role` has the intended access; analytics indexes + enum/length
+>   constraints exist; the table has **no direct PII columns**;
+> - both migrations are recorded in staging migration history;
+> - security advisor shows only the expected RLS-no-client-policy *informational* notice;
+> - no Navigation-specific blocking performance advisory exists.
+>
+> The original apply/verify runbook is retained below for the production apply (PO-authorized,
+> post-merge — see `PRODUCTION_INTEGRATION.md`).
 
 ## Migrations to apply (in this order) — STAGING `eoyenigwevnxwwhyhaer` ONLY
 

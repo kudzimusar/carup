@@ -231,3 +231,20 @@ web + mobile **tsc 0** · web **build 0** · console chunk-split asserted.
 all four Vercel deployments ✅.
 **Migrations:** two new staging-first (percentage + analytics) — apply pending release engineer on
 `eoyenigwevnxwwhyhaer`; **production never migrated**.
+
+---
+
+## Round-5 final correctness pass (4 Codex findings) + staging applied
+
+Fixed in the isolated `nav-release-gate-fixes` worktree:
+
+| # | Finding | Sev | Fix |
+|---|---|---|---|
+| 1 | analytics batches lacked CSRF/session | **P1** | client reuses canonical `apiClient` (`fetchCsrfToken`/`resolveApiBaseUrl`); sends `x-csrf-token` + session; keepalive fetch replaces `sendBeacon` (carries the header); bounded retry + 403 refresh + safe drop; never blocks nav; no token logged. +13 tests |
+| 2 | `node_id` persisted un-allowlisted (PII vector) | **P2** | new generated `shared/navigation/navigation-nodes.json` (83 ids) + `--check` drift gate; backend `allowlistedNodeId` → known id or **null** (email/VIN/phone never stored). +8 tests |
+| 3 | blank percentage → silent 0% | **P2** | pure `parseRolloutPercentage`: blank→100, `'0'`→0, invalid→accessible error gating the confirm dialog; tri-state roles preserved. +15 tests |
+| 4 | legacy `/marketplace/:vin` ungoverned | **P2** | `routeAccess` binds `/marketplace/:id` + `/marketplace/listing/:id` (and the `public.vehicle-detail` placeholder) to `product.marketplace` via deterministic legacy-owner resolution (no duplicate feature). +9 tests |
+
+**Gates (worktree, clean):** web unit **304** (24 files) · web tsc 0 · backend **83** · mobile tsc 0 · mobile lint 0 errors · manifest+nav-node drift gate in sync.
+
+**Staging:** both Full-Completion migrations (`feature_rollout_percentage`, `navigation_analytics_events`) are **applied + verified** in staging `eoyenigwevnxwwhyhaer` by the release engineer (percentage SMALLINT NOT NULL DEFAULT 100 / CHECK 0–100; analytics RLS + service-role-only + no PII; recorded in history; advisors clean). **Production untouched.**

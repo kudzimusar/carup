@@ -17,21 +17,19 @@
 > agent's Supabase tooling); the agent records the confirmed result and **does
 > not re-apply** either migration. Production was not touched.
 >
-> **Full-completion (Milestones F/G) — two NEW staging-first migrations, apply PENDING:**
-> - `20260623120000_feature_rollout_percentage.sql` — additive: `ALTER TABLE
->   feature_rollout_overrides ADD COLUMN rollout_percentage SMALLINT DEFAULT 100 (CHECK
->   0–100)` + `rollout_seed TEXT (CHECK len ≤64)`; existing rows default to 100 % (no
->   behavior change); idempotent (`ADD COLUMN IF NOT EXISTS` + guarded CHECKs); reversible.
-> - `20260623130000_navigation_analytics_events.sql` — new `navigation_analytics_events`
->   table (RLS on, REVOKE anon/authenticated, GRANT service_role only; enum CHECKs +
->   bounded lengths; indexes on occurred_at/feature_id/event_type/surface/platform;
->   30-day raw retention then aggregate/purge). Stores NO personal data by construction.
+> **Full-completion (Milestones F/G) — two NEW staging migrations: ✅ APPLIED + VERIFIED.**
+> - `20260623120000_feature_rollout_percentage.sql` — applied + verified: `rollout_percentage`
+>   is `SMALLINT NOT NULL DEFAULT 100`, CHECK `0–100`; `rollout_seed` length constraint present;
+>   existing override rows carry a safe percentage; RLS/grants unchanged.
+> - `20260623130000_navigation_analytics_events.sql` — applied + verified: table exists; RLS
+>   enabled; `anon`/`authenticated` have NO direct table privileges; `service_role` has the
+>   intended access; analytics indexes + enum/length constraints present; **no direct PII columns**.
 >
-> Both are **staging-first for `eoyenigwevnxwwhyhaer`** and are to be applied + verified by
-> the release engineer (same out-of-band tooling path as the governance migrations). The
-> agent has **not** applied them to any database and will **never** apply them to
-> production. Verification SQL is in §5 (Milestone F/G verification). DoD item "new
-> migrations verified in staging" is satisfied once the release engineer confirms §5.
+> Both are recorded in the staging migration history for `eoyenigwevnxwwhyhaer`. Security advisor
+> shows only the expected RLS-no-client-policy *informational* notice; no Navigation-specific
+> blocking performance advisory. Applied + verified out-of-band by the release engineer (the
+> project is administered outside this agent's tooling); the agent records the confirmed result
+> and **does not re-apply**. **Production was not touched.** Re-runnable verification SQL is in §5.
 
 ## Environment refs (no credentials)
 - **Staging Supabase project ref:** `eoyenigwevnxwwhyhaer` (both governance migrations applied + verified).
