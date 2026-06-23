@@ -117,12 +117,21 @@ app.use(express.json({
   limit: '15mb',
   verify: (req, _res, buf) => {
     const url = req.originalUrl || req.url || '';
-    if (/^\/api\/communications\/webhooks\/meta\/(whatsapp|facebook|instagram)(?:$|[/?#])/.test(url)) {
+    if (/^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(url)) {
       req.rawBody = Buffer.from(buf).toString('utf8');
     }
   },
 }));
-app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.use(express.urlencoded({
+  limit: '15mb',
+  extended: true,
+  verify: (req, _res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (/^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(url)) {
+      req.rawBody = Buffer.from(buf).toString('utf8');
+    }
+  },
+}));
 app.use(csrfMiddleware);
 
 // Signed CSRF token route

@@ -16,14 +16,30 @@ const COMMUNICATION_EVENT_TYPES = [
 ];
 
 let registered = false;
+let migrationWarningLogged = false;
+
+function isCommunicationSchemaMissing(error = {}) {
+  return /message_threads|notification_queue|messages|webhook_logs/i.test(String(error.message || ''))
+    && /schema cache|could not find the table|does not exist/i.test(String(error.message || ''));
+}
 
 export function registerCommunicationListeners(eventWorker, services = createCommunicationServices()) {
   if (registered || !eventWorker?.subscribe) return;
   registered = true;
   for (const eventType of COMMUNICATION_EVENT_TYPES) {
     eventWorker.subscribe(eventType, async (payload, pgClient, tenantId) => {
-      await services.orchestrator.handleDomainEvent({ event_type: eventType, payload }, pgClient, tenantId);
+      try {
+        await services.orchestrator.handleDomainEvent({ event_type: eventType, payload }, pgClient, tenantId);
+      } catch (error) {
+        if (isCommunicationSchemaMissing(error) && process.env.COMMUNICATION_ENGINE_ENABLED !== 'true') {
+          if (!migrationWarningLogged) {
+            migrationWarningLogged = true;
+            console.warn('[Communication] Agent 8 schema is not applied; skipping communication event listeners until COMMUNICATION_ENGINE_ENABLED=true after migration.');
+          }
+          return;
+        }
+        throw error;
+      }
     });
   }
 }
-

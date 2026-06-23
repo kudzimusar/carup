@@ -154,6 +154,7 @@ export function csrfMiddleware(req, res, next) {
   const isWebhook = url.startsWith('/api/payments/webhook') ||
                     url.startsWith('/api/safepay/webhook') ||
                     /^\/api\/communications\/webhooks\/[a-z0-9_-]+\/[a-z0-9_-]+(?:$|[/?#])/.test(url) ||
+                    /^\/api\/internal\/communications\/process(?:$|[/?#])/.test(url) ||
                     /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url);
   if (isWebhook) {
     return next();

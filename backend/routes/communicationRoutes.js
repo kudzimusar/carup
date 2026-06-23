@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
@@ -18,11 +19,43 @@ function actorFromReq(req) {
   };
 }
 
+function safeEqual(a = '', b = '') {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function requireWorkerSecret(req, res) {
+  const expected = process.env.COMMUNICATION_WORKER_SECRET || process.env.CRON_SECRET;
+  const supplied = req.headers['x-communication-worker-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+  if (!expected || !supplied || !safeEqual(supplied, expected)) {
+    res.status(401).json({ error: 'Unauthorized communication worker request.' });
+    return false;
+  }
+  return true;
+}
+
 export function createCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
 
   router.get('/api/communications/health', asyncHandler(async (_req, res) => {
     res.json({ success: true, adapters: services.adapterRegistry.health() });
+  }));
+
+  router.post('/api/internal/communications/process', asyncHandler(async (req, res) => {
+    if (!requireWorkerSecret(req, res)) return;
+    const limit = Math.min(Number(req.body?.limit || req.query.limit || process.env.COMMUNICATION_WORKER_BATCH_SIZE || 10), 100);
+    const results = await services.deliveryWorker.processDueNotifications({ limit });
+    res.json({
+      success: true,
+      processed: results.length,
+      results: results.map((result) => ({
+        notificationId: result.notificationId,
+        status: result.status,
+        nextRetryAt: result.nextRetryAt || null,
+        event: result.event || null,
+      })),
+    });
   }));
 
   router.get('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
