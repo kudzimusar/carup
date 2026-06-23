@@ -50,5 +50,11 @@ jobs:
       - name: Web build
         run: npm run build --workspace=web
 
+      - name: Assert Feature Governance Console is a separate chunk (Milestone D)
+        # Fails the build if the lazy-loaded admin console regresses back into
+        # the main entry bundle. Reuses the dist produced by the build above and
+        # asserts via a stable marker string (no hashed filename hardcoding).
+        run: node web/scripts/assert-console-chunk.mjs
+
       - name: Backend governance + server-export tests (DB-free)
         run: node --test backend/tests/feature-governance.test.js backend/tests/server-export.test.js
