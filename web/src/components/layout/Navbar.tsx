@@ -61,20 +61,20 @@ function CommerceMenu({
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1 px-3 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+          className="gap-1 px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 data-[state=open]:bg-orange-50 data-[state=open]:text-orange-700"
           data-testid={testId}
         >
           <Icon className="h-4 w-4" aria-hidden="true" />
           {label}
-          <ChevronDown className="h-3 w-3" aria-hidden="true" />
+          <ChevronDown className="h-3 w-3 transition-transform duration-200" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[760px] max-w-[calc(100vw-2rem)] p-5" data-testid={menuTestId}>
-        <div className="grid gap-5 md:grid-cols-4">
+      <DropdownMenuContent align="start" sideOffset={8} className="w-[760px] max-w-[calc(100vw-2rem)] p-5" data-testid={menuTestId}>
+        <div className="grid gap-x-6 gap-y-5 md:grid-cols-4">
           {sections.map(section => (
-            <div key={section.title}>
-              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">{section.title}</p>
-              <div className="space-y-1">
+            <div key={section.title} className="min-w-0">
+              <p className="mb-2 pb-1.5 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-400">{section.title}</p>
+              <div className="space-y-0.5">
                 {section.items.map(item => item.active ? (
                   <DropdownMenuItem key={item.id} asChild>
                     <Link
@@ -82,10 +82,10 @@ function CommerceMenu({
                       data-testid={`navitem-${item.id}`}
                       title={item.description}
                       onClick={() => trackNav({ event_type: 'navigation_item_selected', surface: 'mega_menu', feature_id: item.id, node_id: item.id, destination_route_pattern: item.href })}
-                      className="flex items-center justify-between cursor-pointer rounded-md px-2 py-1.5 text-sm"
+                      className="flex min-h-[34px] items-center justify-between gap-2 cursor-pointer rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors hover:bg-orange-50 hover:text-orange-700 focus-visible:bg-orange-50 focus-visible:text-orange-700"
                     >
-                      <span>{item.label}</span>
-                      {item.beta && <Badge className="ml-2 bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
+                      <span className="truncate">{item.label}</span>
+                      {item.beta && <Badge className="shrink-0 bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
                     </Link>
                   </DropdownMenuItem>
                 ) : (
@@ -95,10 +95,10 @@ function CommerceMenu({
                     data-planned="true"
                     aria-disabled="true"
                     title={item.description ?? 'Coming soon'}
-                    className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-gray-400 cursor-not-allowed select-none"
+                    className="flex min-h-[34px] items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-400 cursor-not-allowed select-none"
                   >
-                    <span>{item.label}</span>
-                    <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gray-300">Soon</span>
+                    <span className="truncate">{item.label}</span>
+                    <Badge variant="outline" className="shrink-0 border-gray-200 bg-transparent text-[10px] font-semibold uppercase tracking-wide text-gray-400">Soon</Badge>
                   </div>
                 ))}
               </div>

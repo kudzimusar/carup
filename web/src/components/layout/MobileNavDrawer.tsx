@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Menu, LogOut, LayoutDashboard, UserCog, LogIn } from 'lucide-react'
+import { Menu, LogOut, LayoutDashboard, UserCog, LogIn, Car } from 'lucide-react'
 import {
   Sheet,
   SheetTrigger,
@@ -77,11 +77,13 @@ export default function MobileNavDrawer() {
         onClick={close}
         data-testid={testid ?? `mobile-navitem-${item.id}`}
         aria-current={active ? 'page' : undefined}
-        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] ${
-          active ? 'bg-orange-50 text-orange-700' : 'text-gray-700 hover:bg-gray-50'
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] transition-colors ${
+          active
+            ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100'
+            : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
         }`}
       >
-        {Icon && <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />}
+        {Icon && <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />}
         <span className="flex-1">{item.label}</span>
         {item.beta && <Badge className="bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
       </Link>
@@ -110,8 +112,22 @@ export default function MobileNavDrawer() {
         className="w-[310px] max-w-[85vw] overflow-y-auto p-0"
         data-testid="mobile-nav-drawer"
       >
-        <SheetHeader className="px-4 pt-4 pb-2 text-left">
-          <SheetTitle>Menu</SheetTitle>
+        <SheetHeader className="px-4 pt-4 pb-3 text-left border-b">
+          <SheetTitle className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+              <Car className="w-4 h-4 text-white" aria-hidden="true" />
+            </span>
+            <span className="text-lg font-bold tracking-tight">
+              Car<span className="text-orange-500">Up</span>
+            </span>
+          </SheetTitle>
+          {user ? (
+            <p className="text-xs text-gray-500">
+              {user.name.split(' ')[0]} · {getRoleMetadata(user.role as UserRole).title}
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500">Browse, verify and buy with clearer trust signals.</p>
+          )}
           <SheetDescription className="sr-only">Site and account navigation</SheetDescription>
         </SheetHeader>
 
@@ -131,11 +147,13 @@ export default function MobileNavDrawer() {
                 onClick={close}
                 data-testid="mobile-dashboard-root"
                 aria-current={isActive(nav.dashboardRoot.href) ? 'page' : undefined}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] ${
-                  isActive(nav.dashboardRoot.href) ? 'bg-orange-50 text-orange-700' : 'text-gray-700 hover:bg-gray-50'
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium min-h-[44px] transition-colors ${
+                  isActive(nav.dashboardRoot.href)
+                    ? 'bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-100'
+                    : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
                 }`}
               >
-                <LayoutDashboard className="w-4 h-4 shrink-0" aria-hidden="true" />
+                <LayoutDashboard className={`w-4 h-4 shrink-0 ${isActive(nav.dashboardRoot.href) ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
                 <span className="flex-1">{nav.dashboardRoot.label}</span>
               </Link>
               {nav.roleItems.map(item => <DrawerLink key={item.id} item={item} />)}

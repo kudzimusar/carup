@@ -27,7 +27,7 @@ function SocialButton({ social }: { social: SocialLink }) {
         target="_blank"
         rel="noopener noreferrer"
         aria-label={`CarUp on ${social.label}`}
-        className={`${base} bg-gray-800 hover:bg-orange-500`}
+        className={`${base} bg-gray-800 hover:bg-orange-500 text-gray-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)]`}
         data-testid={`footer-social-${social.platform}`}
       >
         <Icon className="w-4 h-4" />
@@ -106,7 +106,7 @@ export default function Footer() {
                       <Link
                         to={item.href}
                         data-testid={`footer-link-${item.id}`}
-                        className="text-sm text-gray-400 hover:text-orange-400 focus-visible:text-orange-400 transition-colors inline-flex items-center gap-1.5"
+                        className="text-sm text-gray-400 hover:text-orange-400 transition-colors inline-flex items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)] focus-visible:text-orange-400"
                       >
                         {Icon && <Icon className="w-3.5 h-3.5" />}
                         {item.label}
@@ -130,7 +130,7 @@ export default function Footer() {
                     <Link
                       to={item.href}
                       data-testid={`footer-link-${item.id}`}
-                      className="hover:text-orange-400 focus-visible:text-orange-400 transition-colors"
+                      className="rounded-sm hover:text-orange-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)] focus-visible:text-orange-400"
                     >
                       {item.label}
                     </Link>

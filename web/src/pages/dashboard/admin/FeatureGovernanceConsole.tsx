@@ -280,27 +280,27 @@ export default function FeatureGovernanceConsole() {
       {/* Table (desktop) / cards (mobile) */}
       {!loading && !error && !permissionDenied && filtered.length > 0 && (
         <>
-          <p className="text-xs text-gray-400">{filtered.length} of {rows.length} features</p>
+          <p className="text-xs text-gray-500">Showing <span className="font-medium text-gray-700">{filtered.length}</span> of {rows.length} features</p>
           <div className="hidden md:block overflow-x-auto border rounded-lg">
             <table className="w-full text-sm" data-testid="fg-table">
-              <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
+              <thead className="bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
                 <tr>
-                  <th className="px-3 py-2">Feature</th><th className="px-3 py-2">Route</th><th className="px-3 py-2">Domain</th>
-                  <th className="px-3 py-2">Static</th><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Enabled</th>
-                  <th className="px-3 py-2">Override</th><th className="px-3 py-2"></th>
+                  <th className="px-3 py-2.5 font-semibold">Feature</th><th className="px-3 py-2.5 font-semibold">Route</th><th className="px-3 py-2.5 font-semibold">Domain</th>
+                  <th className="px-3 py-2.5 font-semibold">Static</th><th className="px-3 py-2.5 font-semibold">Effective</th><th className="px-3 py-2.5 font-semibold">Enabled</th>
+                  <th className="px-3 py-2.5 font-semibold">Override</th><th className="px-3 py-2.5"></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(r => (
-                  <tr key={r.id} data-testid={`fg-row-${r.id}`} className="border-t hover:bg-gray-50">
-                    <td className="px-3 py-2"><div className="font-medium">{r.label || r.id}</div><div className="text-xs text-gray-400">{r.id}</div></td>
-                    <td className="px-3 py-2 text-gray-500">{r.route}</td>
-                    <td className="px-3 py-2">{r.domain}</td>
-                    <td className="px-3 py-2"><StateBadge state={r.defaultLifecycle} /></td>
-                    <td className="px-3 py-2"><StateBadge state={r.effective.state} /></td>
-                    <td className="px-3 py-2">{r.effective.enabled ? 'Yes' : 'No'}</td>
-                    <td className="px-3 py-2">{r.override ? <div className="flex flex-col gap-0.5"><Badge className="bg-purple-100 text-purple-800">overridden v{r.override.version}</Badge>{r.override.rollout_percentage < 100 && <span data-testid={`fg-pct-${r.id}`} className="text-[11px] text-amber-700">{r.override.rollout_percentage}% rollout</span>}</div> : <span className="text-gray-400 text-xs">default</span>}</td>
-                    <td className="px-3 py-2"><Button size="sm" variant="outline" data-testid={`fg-open-${r.id}`} onClick={() => openDetail(r)}>Manage</Button></td>
+                  <tr key={r.id} data-testid={`fg-row-${r.id}`} className="border-t hover:bg-orange-50/40 transition-colors">
+                    <td className="px-3 py-2.5"><div className="font-medium text-gray-900">{r.label || r.id}</div><div className="text-xs text-gray-400 font-mono">{r.id}</div></td>
+                    <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{r.route}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{r.domain}</td>
+                    <td className="px-3 py-2.5"><StateBadge state={r.defaultLifecycle} /></td>
+                    <td className="px-3 py-2.5"><StateBadge state={r.effective.state} /></td>
+                    <td className="px-3 py-2.5">{r.effective.enabled ? <span className="text-green-700">Yes</span> : <span className="text-gray-400">No</span>}</td>
+                    <td className="px-3 py-2.5">{r.override ? <div className="flex flex-col items-start gap-0.5"><Badge className="bg-purple-100 text-purple-800 font-medium">overridden v{r.override.version}</Badge>{r.override.rollout_percentage < 100 && <span data-testid={`fg-pct-${r.id}`} className="text-[11px] font-medium text-amber-700">{r.override.rollout_percentage}% rollout</span>}</div> : <span className="text-gray-400 text-xs">default</span>}</td>
+                    <td className="px-3 py-2.5 text-right"><Button size="sm" variant="outline" data-testid={`fg-open-${r.id}`} onClick={() => openDetail(r)}>Manage</Button></td>
                   </tr>
                 ))}
               </tbody>
@@ -308,9 +308,15 @@ export default function FeatureGovernanceConsole() {
           </div>
           <div className="md:hidden space-y-2">
             {filtered.map(r => (
-              <button key={r.id} data-testid={`fg-card-${r.id}`} onClick={() => openDetail(r)} className="w-full text-left border rounded-lg p-3 hover:bg-gray-50">
-                <div className="flex items-center justify-between"><span className="font-medium">{r.label || r.id}</span><StateBadge state={r.effective.state} /></div>
-                <div className="text-xs text-gray-400">{r.id} · {r.route}</div>
+              <button key={r.id} data-testid={`fg-card-${r.id}`} onClick={() => openDetail(r)} className="w-full text-left border rounded-lg p-3 hover:bg-orange-50/40 transition-colors">
+                <div className="flex items-center justify-between gap-2"><span className="font-medium text-gray-900 truncate">{r.label || r.id}</span><StateBadge state={r.effective.state} /></div>
+                <div className="text-xs text-gray-400 font-mono mt-0.5 truncate">{r.id} · {r.route}</div>
+                {r.override && (
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <Badge className="bg-purple-100 text-purple-800 text-[10px]">overridden v{r.override.version}</Badge>
+                    {r.override.rollout_percentage < 100 && <span className="text-[11px] font-medium text-amber-700">{r.override.rollout_percentage}% rollout</span>}
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -507,13 +513,38 @@ export default function FeatureGovernanceConsole() {
         <AlertDialogContent data-testid="fg-confirm-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>{confirm?.kind === 'reset' ? 'Reset override?' : 'Apply override change?'}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {selected && form && confirm?.kind === 'save' && (
-                <>Environment <b>{environment}</b>. Effective lifecycle <b>{selected.effective.state}</b> → <b>{form.lifecycle_state || selected.defaultLifecycle}</b>; enabled <b>{String(selected.effective.enabled)}</b> → <b>{String(form.enabled)}</b>; rollout <b>{selected.override?.rollout_percentage ?? 100}%</b> → <b>{parsePercentage(form.rollout_percentage)}%</b>{form.rollout_seed.trim() !== (selected.override?.rollout_seed ?? '') ? <> (seed rotated — cohorts reshuffle)</> : null}. This is audited.</>
-              )}
-              {selected && confirm?.kind === 'reset' && (
-                <>This removes the {environment} override for <b>{selected.id}</b> and reverts it to the static default <b>{selected.defaultLifecycle}</b>. This is audited.</>
-              )}
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                {selected && form && confirm?.kind === 'save' && (
+                  <>
+                    <p>Applying to environment <b className="text-gray-900">{environment}</b>:</p>
+                    <ul className="space-y-1 text-sm rounded-md bg-gray-50 border border-gray-100 p-2.5">
+                      <li className="flex items-center justify-between gap-2">
+                        <span className="text-gray-500">Lifecycle</span>
+                        <span><b>{selected.effective.state}</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{form.lifecycle_state || selected.defaultLifecycle}</b></span>
+                      </li>
+                      <li className="flex items-center justify-between gap-2">
+                        <span className="text-gray-500">Enabled</span>
+                        <span><b>{String(selected.effective.enabled)}</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{String(form.enabled)}</b></span>
+                      </li>
+                      <li className="flex items-center justify-between gap-2">
+                        <span className="text-gray-500">Rollout</span>
+                        <span><b>{selected.override?.rollout_percentage ?? 100}%</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{parsePercentage(form.rollout_percentage)}%</b></span>
+                      </li>
+                    </ul>
+                    {form.rollout_seed.trim() !== (selected.override?.rollout_seed ?? '') && (
+                      <p className="text-amber-700">Seed rotated — cohorts will reshuffle.</p>
+                    )}
+                    <p className="text-xs text-gray-400">This change is audited.</p>
+                  </>
+                )}
+                {selected && confirm?.kind === 'reset' && (
+                  <>
+                    <p>This removes the <b className="text-gray-900">{environment}</b> override for <b className="text-gray-900">{selected.id}</b> and reverts it to the static default <b className="text-gray-900">{selected.defaultLifecycle}</b>.</p>
+                    <p className="text-xs text-gray-400">This change is audited.</p>
+                  </>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
