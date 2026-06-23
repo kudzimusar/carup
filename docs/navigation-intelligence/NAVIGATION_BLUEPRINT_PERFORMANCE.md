@@ -25,3 +25,38 @@ Measured with `npm run build --workspace=web` (Vite production build) on the sam
 ## Notes
 - Bundle figures are deterministic per build input; hashes in filenames vary per build and are not significant.
 - Staging Lighthouse / Web Vitals are part of the staging smoke (M8.5) and are **pending the PO-approved staging deploy**.
+
+---
+
+## Milestone D — Lazy-load the Admin Feature Governance Console
+
+Delivers the mitigation flagged above: the admin-only Feature Governance Console is now route-level **`React.lazy`** code-split, so it ships as its own on-demand chunk instead of bloating the public main bundle. Authorization is unchanged — the `<DashboardLayout role="admin">` guard still runs and only renders `<Outlet/>` (the lazy element) after the auth/role gate passes (guard → `LazyRouteBoundary` → `Suspense` → lazy console).
+
+### Bundle size (BEFORE = this branch pre-split, AFTER = lazy-split)
+
+Measured with `npm run build --workspace=web` (Vite 7 production build) on the same machine.
+
+| Artifact | BEFORE (eager) | AFTER (lazy) | Δ |
+|---|---|---|---|
+| Main entry JS (`dist/assets/index-*.js`) | 2,083.29 kB (gzip 549.13) | 2,065.14 kB (gzip 544.35) | **−18.15 kB raw / −4.78 kB gzip** |
+| Console chunk (`dist/assets/FeatureGovernanceConsole-*.js`) | — (inside entry) | 21.78 kB (gzip 6.38) | new separate chunk |
+| Total JS chunks | 1 | 2 | console now on-demand |
+
+The console marker (`data-testid="feature-governance-console"`) is verified present **only** in the console chunk and **absent** from the entry chunk. Non-admins never fetch the console chunk.
+
+### Build warnings
+- The pre-existing Vite "chunk > 500 kB" warning still appears for the main entry chunk (unchanged in character; the entry is still large because the rest of the app is not split — out of scope for Milestone D). The console chunk itself is well under the limit. Build exit code: **0**.
+
+### Admin preload
+- On idle (`requestIdleCallback`, falling back to a 2 s `setTimeout`), the console chunk is preloaded **only when the current user is an authenticated `admin`** (reuses `AuthContext`). It is a strict no-op for every other role/anonymous visitor, and the dynamic import is memoized so it fetches at most once. Preload only warms the cache — it does not bypass the route guard, which re-evaluates auth/role on actual navigation.
+
+### Chunk-error retry
+- `web/src/components/routing/LazyRouteBoundary.tsx` is a class `ErrorBoundary` that catches chunk-load failures (`ChunkLoadError` / "Failed to fetch dynamically imported module") and renders an accessible `role="alert"` retry shell ("Couldn’t load this section" + **Retry** button). Retry bumps a reset key to remount the `Suspense` child, re-attempting the dynamic import.
+
+### CI gate
+- `web/scripts/assert-console-chunk.mjs` (wired into `.github/workflows/navigation-intelligence-ci.yml` after the web build) reads `dist/index.html` to find the entry chunk (no hashed filename hardcoding), scans `dist/assets/*.js` for the stable console marker, and **fails non-zero** if the console is missing its own chunk or has regressed into the entry chunk.
+
+### Verification
+- `npm run build --workspace=web` → exit 0, console split present.
+- `cd web && npx vitest run` → 239 passed (21 files).
+- `node web/scripts/assert-console-chunk.mjs` → exit 0 ("split present"); negative test (marker injected into entry) → exit 1 as expected.
