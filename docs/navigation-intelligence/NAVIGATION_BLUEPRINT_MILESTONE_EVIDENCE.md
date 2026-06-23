@@ -208,3 +208,26 @@ M7 acceptance gate: console uses real persistence + APIs ✅ · only trusted adm
 | Playwright nav suites 27–32 (chromium) | ✅ green per-spec (consolidated parallel run may show cold-start flakes; CI uses `retries: 2`) |
 
 M8 acceptance gate: full local regression green ✅ · CI gates added ✅ · adversarial review run + confirmed findings fixed ✅ · performance/rollback/UAT/staging docs complete ✅ · staging deploy + migration + PO UAT **pending PO/infra (documented)** ✅ · one reviewable PR (next) — not auto-merged.
+
+---
+
+## Full-Completion Fast-Track (Milestones A–I) — head `bca8d12`
+
+| M | Title | Commit | Evidence |
+|---|---|---|---|
+| A | Native feature-manifest foundation + localhost fix | `0dfcacc` | mobile tsc 0; native-navigation 18; verification-api 6; zero hardcoded localhost in mobile |
+| B | Native governed role-aware bottom tabs | `3d925cd` | native-tabs 18; ≤5 cap; role matrices (no fabricated screens) |
+| C | Native governed drawer + route boundaries | `fc12e3a` | native-drawer 27; controlled drawer (no new deps); NATIVE_NAVIGATION_IMPLEMENTATION.md |
+| D | Lazy Admin Governance Console | `87e3182` | console own chunk ~21.8 kB; entry −18.2 kB raw; assert-console-chunk.mjs; authz unchanged |
+| E | Visual/interaction polish | `229e92f` | lifecycle safe next-action; web vitest 245 unchanged; no testid/logic change |
+| F | Privacy-minimized navigation analytics | `e98553a` | backend +19 (no-PII asserted); web +6; staging-first migration; nav never blocks |
+| G | Deterministic percentage rollout | `86750d4` | backend rollout suite incl. ±5% distribution @10/25/50/75; only-narrows; staging-first migration |
+| H | Accessibility completion + axe | `89f764f` | blockers fixed (web+native); reduced-motion; @axe-core/playwright spec 33 |
+| I | CI/staging/closeout | `bca8d12` | CI gates mobile tsc + native + rollout/analytics + e2e(27–32) + axe(33); analytics/rollout docs |
+
+**Aggregate local gates:** web unit **245** (22 files) · backend **76** · native **63** (18+18+27) ·
+web + mobile **tsc 0** · web **build 0** · console chunk-split asserted.
+**CI (head `bca8d12`):** navigation-gates ✅, navigation-accessibility ✅, navigation-e2e (27–32) running,
+all four Vercel deployments ✅.
+**Migrations:** two new staging-first (percentage + analytics) — apply pending release engineer on
+`eoyenigwevnxwwhyhaer`; **production never migrated**.
