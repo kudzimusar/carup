@@ -113,7 +113,15 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({
+  limit: '15mb',
+  verify: (req, _res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (/^\/api\/communications\/webhooks\/meta\/(whatsapp|facebook|instagram)(?:$|[/?#])/.test(url)) {
+      req.rawBody = Buffer.from(buf).toString('utf8');
+    }
+  },
+}));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 app.use(csrfMiddleware);
 

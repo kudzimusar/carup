@@ -36,21 +36,26 @@ export class CommunicationDeliveryWorker {
     });
 
     const startedAt = nowIso();
-    const result = await adapter.send({
-      notificationId: String(notification.id),
-      messageId: String(notification.message_id),
-      recipient: {
-        userId: notification.recipient_user_id || notification.recipient_id,
-        identityId: notification.recipient_identity_id,
-      },
-      content: {
-        subject: notification.title,
-        body: notification.message || notification.message_content || '',
-        data: notification.payload || {},
-      },
-      idempotencyKey: notification.dedupe_key,
-      correlationId: notification.event_id || notification.id,
-    });
+    let result;
+    try {
+      result = await adapter.send({
+        notificationId: String(notification.id),
+        messageId: String(notification.message_id),
+        recipient: {
+          userId: notification.recipient_user_id || notification.recipient_id,
+          identityId: notification.recipient_identity_id,
+        },
+        content: {
+          subject: notification.title,
+          body: notification.message || notification.message_content || '',
+          data: notification.payload || {},
+        },
+        idempotencyKey: notification.dedupe_key,
+        correlationId: notification.event_id || notification.id,
+      });
+    } catch (error) {
+      result = this.resultFromThrownError(error);
+    }
 
     await this.repository.insert('message_delivery_attempts', {
       notification_id: String(notification.id),
@@ -107,6 +112,18 @@ export class CommunicationDeliveryWorker {
     return this.markDeadLetter(notification, result);
   }
 
+  resultFromThrownError(error = {}) {
+    const code = error.code || error.name || 'provider_exception';
+    const retryable = error.retryable !== false;
+    return {
+      accepted: false,
+      retryable,
+      errorCode: String(code).toLowerCase(),
+      errorMessage: error.message || 'Provider adapter threw during delivery',
+      thrown: true,
+    };
+  }
+
   async markDeadLetter(notification, result = {}) {
     await this.repository.updateById('notification_queue', notification.id, {
       status: 'dead_letter',
@@ -145,4 +162,3 @@ export class CommunicationDeliveryWorker {
     });
   }
 }
-

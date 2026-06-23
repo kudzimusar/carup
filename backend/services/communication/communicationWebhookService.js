@@ -9,6 +9,25 @@ export class CommunicationWebhookService {
     this.env = env;
   }
 
+  verifyMetaCallback(channel, query = {}) {
+    const normalized = normalizeChannel(channel);
+    if (!['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
+      const err = new Error('Unsupported Meta webhook channel.');
+      err.statusCode = 400;
+      throw err;
+    }
+    const expected = this.env.CARUP_META_WEBHOOK_VERIFY_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
+    const mode = query['hub.mode'];
+    const token = query['hub.verify_token'];
+    const challenge = query['hub.challenge'];
+    if (mode === 'subscribe' && expected && token === expected && challenge !== undefined) {
+      return String(challenge);
+    }
+    const err = new Error('Meta webhook verification failed.');
+    err.statusCode = 403;
+    throw err;
+  }
+
   verify(provider, channel, { headers = {}, query = {}, rawBody = '', body = {} } = {}) {
     const normalized = normalizeChannel(channel) || channel;
     if (provider === 'telegram' || normalized === 'telegram') {
@@ -22,9 +41,12 @@ export class CommunicationWebhookService {
       }
       const appSecret = this.env.CARUP_META_APP_SECRET;
       const signature = headers['x-hub-signature-256'];
-      if (appSecret && signature && rawBody) {
+      if (appSecret) {
+        if (!signature || !rawBody) return false;
         const expected = `sha256=${crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex')}`;
-        return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+        const signatureBuffer = Buffer.from(String(signature));
+        const expectedBuffer = Buffer.from(expected);
+        return signatureBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
       }
       const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
       return Boolean(shared && (headers['x-channel-webhook-secret'] === shared || headers['x-carup-channel-secret'] === shared));
@@ -123,4 +145,3 @@ export class CommunicationWebhookService {
     }
   }
 }
-

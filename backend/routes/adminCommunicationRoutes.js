@@ -5,6 +5,36 @@ import { createCommunicationServices } from '../services/communication/communica
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+export async function recordAdminThreadReply({ services, thread, actor, body = {} }) {
+  const internal = Boolean(body?.internal);
+  const message = await services.threadService.recordMessage(thread, {
+    direction: internal ? 'internal' : 'outbound',
+    sender_user_id: actor.id,
+    channel: body?.channel || thread.primary_channel || 'in_app',
+    content_text: body?.message || body?.text || '',
+    content_json: { admin_reply: true, internal },
+    human_approved: true,
+    status: internal ? 'delivered' : 'queued',
+    thread_status: 'awaiting_user',
+  });
+  let notification = null;
+  if (!internal && thread.primary_user_id) {
+    notification = (await services.notificationService.queueExistingMessage({
+      recipientUserId: thread.primary_user_id,
+      thread,
+      message,
+      channel: body?.channel || thread.primary_channel || 'in_app',
+      notificationType: 'admin_reply',
+      templateKey: 'admin_reply_v1',
+      priority: thread.priority || 'normal',
+      humanApproved: true,
+      dedupeParts: ['admin_reply', thread.id, message.id, thread.primary_user_id],
+      payload: { thread_id: thread.id, admin_reply: true },
+    })).notification;
+  }
+  return { message, notification };
+}
+
 export function createAdminCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
 
@@ -31,17 +61,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   router.post('/api/admin/communications/threads/:id/reply', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await services.repository.findOne('message_threads', { id: req.params.id });
     if (!thread) return res.status(404).json({ error: 'Thread not found.' });
-    const message = await services.threadService.recordMessage(thread, {
-      direction: req.body?.internal ? 'internal' : 'outbound',
-      sender_user_id: req.userContext.id,
-      channel: req.body?.channel || thread.primary_channel || 'in_app',
-      content_text: req.body?.message || req.body?.text || '',
-      content_json: { admin_reply: true, internal: Boolean(req.body?.internal) },
-      human_approved: true,
-      status: req.body?.internal ? 'delivered' : 'queued',
-      thread_status: 'awaiting_user',
-    });
-    res.status(201).json({ message });
+    const { message, notification } = await recordAdminThreadReply({ services, thread, actor: req.userContext, body: req.body });
+    res.status(201).json({ message, notification });
   }));
 
   router.patch('/api/admin/communications/threads/:id/assignment', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
@@ -95,4 +116,3 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
 }
 
 export default createAdminCommunicationRouter;
-
