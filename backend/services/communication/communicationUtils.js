@@ -82,8 +82,18 @@ export function normalizeChannel(channel) {
 }
 
 export function stableHash(value) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value, Object.keys(value || {}).sort());
+  const text = typeof value === 'string' ? value : stableStringify(value);
   return crypto.createHash('sha256').update(text || '').digest('hex');
+}
+
+function stableStringify(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .join(',')}}`;
 }
 
 export function buildDedupeKey(parts) {
@@ -175,4 +185,3 @@ export function publicThreadProjection(thread) {
     },
   };
 }
-
