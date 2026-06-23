@@ -173,7 +173,7 @@ export default function RegisterScreen() {
               through governed, authenticated flows — no privileged role is selectable or transmitted. */}
           <View className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <Text className="text-xs text-slate-600">
-              You're creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account. Dealers, garages, and
+              You&apos;re creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account. Dealers, garages, and
               partners are onboarded separately by the CarUp team.
             </Text>
           </View>
