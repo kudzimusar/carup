@@ -58,7 +58,7 @@ Implemented after connector discovery:
 - Real Telegram Bot API adapter using `sendMessage` with bot token validation.
 - Real Expo Push adapter using ticket IDs and receipt processing.
 - Durable delivery runtime now claims due/stale notifications through `claim_due_communication_notifications(...)` using `FOR UPDATE SKIP LOCKED`, preventing duplicate concurrent sends and recovering stale processing locks.
-- Added authenticated scheduler endpoint `POST /api/internal/communications/process`, protected by `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET`, and backend `vercel.json` cron declaration for five-minute processing.
+- Added authenticated scheduler endpoint `GET|POST /api/internal/communications/process`, protected by `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET`, and backend `vercel.json` cron declaration. The Vercel project is currently on a Hobby plan, so the bundled Vercel cron uses the daily-compatible `0 0 * * *` schedule; production-frequency processing should use Vercel Pro cron or an external/Supabase scheduler calling the same endpoint.
 - Production registry no longer treats missing provider credentials as fake delivery. Production uses real adapters that fail closed with `provider_not_configured`; fake adapters remain deterministic for development/test.
 - Domain event listeners now fail safely when Agent 8 communication tables have not yet been migrated: they log one migration warning and skip communication fanout unless `COMMUNICATION_ENGINE_ENABLED=true` is explicitly set after migration.
 
@@ -76,7 +76,7 @@ Resolved in commit `b44eee7`:
 
 Passing:
 
-- `node --test backend/tests/communication-engine.test.js` - 32 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, and thrown adapter retry/dead-letter handling.
+- `node --test backend/tests/communication-engine.test.js` - 32 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, and thrown adapter retry/dead-letter handling.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 46 passed.
 - `node backend/tests/run-tests.js` - passed with network escalation for live Supabase access. Initial sandboxed run failed at Supabase fetch; rerun passed all 35 governance/integration/trust/security checks. The live database used by the suite does not yet have Agent 8 tables, so communication fanout logs a single migration warning and skips until `COMMUNICATION_ENGINE_ENABLED=true` after migration.
 - `node --test backend/tests/server-export.test.js` - 1 passed. Supabase live connection warning is expected without live credentials.
@@ -104,6 +104,7 @@ Non-blocking existing lint debt:
 - Environment: local deterministic fake/test provider and real-client unit harness with fake fetch/signature inputs.
 - Result: real provider clients and webhook verification paths are implemented and tested without live sends. Provider endpoint reachability was checked safely: SendGrid `401`, Twilio `401`, Meta `400`, Telegram redirect, Expo `405` on safe unauthenticated probes.
 - Limitations: no live provider delivery was claimed or attempted. Authenticated sandbox/live UAT is blocked until provider credentials, sender resources, callback URLs, and staging secrets are configured.
+- Vercel scheduler limitation: current Vercel account rejected `*/5 * * * *` because Hobby cron is limited to daily jobs. The code now ships a daily-compatible Vercel cron plus a protected endpoint that can be called at production frequency by Vercel Pro Cron, Supabase scheduling, or another authenticated scheduler.
 
 ## Configuration Still Required
 
@@ -131,7 +132,7 @@ Non-blocking existing lint debt:
 3. Deploy backend services, routes, adapters, event listeners, and environment variable contract.
 4. Configure provider secrets and `COMMUNICATION_WORKER_SECRET`/`CRON_SECRET` in the target environment.
 5. Deploy web and mobile application updates.
-6. Enable the backend cron/scheduler for `/api/internal/communications/process`.
+6. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Vercel Pro Cron or an external/Supabase scheduler for production-frequency processing.
 7. Run smoke tests with the deterministic fake provider.
 8. Register provider webhooks and run live provider sandbox verification only after credentials are available.
 

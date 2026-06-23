@@ -35,6 +35,22 @@ function requireWorkerSecret(req, res) {
   return true;
 }
 
+async function processWorkerBatch(req, res, services) {
+  if (!requireWorkerSecret(req, res)) return;
+  const limit = Math.min(Number(req.body?.limit || req.query.limit || process.env.COMMUNICATION_WORKER_BATCH_SIZE || 10), 100);
+  const results = await services.deliveryWorker.processDueNotifications({ limit });
+  res.json({
+    success: true,
+    processed: results.length,
+    results: results.map((result) => ({
+      notificationId: result.notificationId,
+      status: result.status,
+      nextRetryAt: result.nextRetryAt || null,
+      event: result.event || null,
+    })),
+  });
+}
+
 export function createCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
 
@@ -42,21 +58,8 @@ export function createCommunicationRouter({ services = createCommunicationServic
     res.json({ success: true, adapters: services.adapterRegistry.health() });
   }));
 
-  router.post('/api/internal/communications/process', asyncHandler(async (req, res) => {
-    if (!requireWorkerSecret(req, res)) return;
-    const limit = Math.min(Number(req.body?.limit || req.query.limit || process.env.COMMUNICATION_WORKER_BATCH_SIZE || 10), 100);
-    const results = await services.deliveryWorker.processDueNotifications({ limit });
-    res.json({
-      success: true,
-      processed: results.length,
-      results: results.map((result) => ({
-        notificationId: result.notificationId,
-        status: result.status,
-        nextRetryAt: result.nextRetryAt || null,
-        event: result.event || null,
-      })),
-    });
-  }));
+  router.get('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
+  router.post('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
 
   router.get('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
     res.json({ threads: await services.threadService.listThreadsForUser(req.userContext.id) });
