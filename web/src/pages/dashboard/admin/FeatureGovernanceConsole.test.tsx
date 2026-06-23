@@ -225,6 +225,9 @@ describe('FeatureGovernanceConsole', () => {
 
     const dialog = await openDetail(user, 'owner.garage')
 
+    // The role checkboxes live under the tri-state "Specific roles" mode.
+    await user.selectOptions(within(dialog).getByTestId('fg-edit-roles-mode'), 'custom')
+
     // owner.garage immutableRoles === ['owner']: owner grantable, all others locked.
     const ownerBox = within(dialog).getByTestId('fg-edit-role-owner') as HTMLInputElement
     const adminBox = within(dialog).getByTestId('fg-edit-role-admin') as HTMLInputElement
