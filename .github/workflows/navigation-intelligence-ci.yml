@@ -15,6 +15,8 @@ on:
       - 'backend/routes/featureGovernanceRoutes.js'
       - 'database/migrations/**feature_rollout_overrides**'
       - 'scripts/generate-feature-manifest.mjs'
+      - 'tests/agents/**'
+      - 'playwright.config.ts'
       - '.github/workflows/navigation-intelligence-ci.yml'
   workflow_dispatch: {}
 
@@ -58,3 +60,29 @@ jobs:
 
       - name: Backend governance + server-export tests (DB-free)
         run: node --test backend/tests/feature-governance.test.js backend/tests/server-export.test.js
+
+  # Navigation accessibility gate (Milestone H). Runs the @axe-core/playwright
+  # spec against the nine nav surfaces. The Playwright config boots `npm run dev`
+  # (Vite on :5173) itself via `webServer`, and the spec mocks all `/api/**`
+  # traffic, so this job is backend/DB-free. It fails only on serious/critical
+  # axe violations.
+  navigation-accessibility:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Axe navigation accessibility spec (chromium)
+        run: npx playwright test tests/agents/33-navigation-accessibility.spec.ts --project=chromium

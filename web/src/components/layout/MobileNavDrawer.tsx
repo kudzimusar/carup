@@ -81,7 +81,7 @@ export default function MobileNavDrawer() {
           active ? 'bg-orange-50 text-orange-700' : 'text-gray-700 hover:bg-gray-50'
         }`}
       >
-        {Icon && <Icon className="w-4 h-4 shrink-0" />}
+        {Icon && <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />}
         <span className="flex-1">{item.label}</span>
         {item.beta && <Badge className="bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
       </Link>
@@ -89,7 +89,7 @@ export default function MobileNavDrawer() {
   }
 
   const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-    <p className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">{children}</p>
+    <p className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">{children}</p>
   )
 
   return (
@@ -135,7 +135,7 @@ export default function MobileNavDrawer() {
                   isActive(nav.dashboardRoot.href) ? 'bg-orange-50 text-orange-700' : 'text-gray-700 hover:bg-gray-50'
                 }`}
               >
-                <LayoutDashboard className="w-4 h-4 shrink-0" />
+                <LayoutDashboard className="w-4 h-4 shrink-0" aria-hidden="true" />
                 <span className="flex-1">{nav.dashboardRoot.label}</span>
               </Link>
               {nav.roleItems.map(item => <DrawerLink key={item.id} item={item} />)}
@@ -163,7 +163,7 @@ export default function MobileNavDrawer() {
                     data-testid={`mobile-roleswitch-${r}`}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]"
                   >
-                    <UserCog className="w-4 h-4 shrink-0" />
+                    <UserCog className="w-4 h-4 shrink-0" aria-hidden="true" />
                     <span className="flex-1 text-left">Change to {getRoleMetadata(r).title}</span>
                   </button>
                 ))}
@@ -173,7 +173,7 @@ export default function MobileNavDrawer() {
                   data-testid="mobile-signout"
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-red-600 hover:bg-red-50 min-h-[44px]"
                 >
-                  <LogOut className="w-4 h-4 shrink-0" />
+                  <LogOut className="w-4 h-4 shrink-0" aria-hidden="true" />
                   <span className="flex-1 text-left">Sign Out</span>
                 </button>
               </>

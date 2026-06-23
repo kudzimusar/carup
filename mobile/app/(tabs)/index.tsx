@@ -54,10 +54,17 @@ export default function DashboardScreen() {
                 key={portal.role}
                 onPress={() => handleRoleSwitch(portal.role)}
                 testID={`switch-role-${portal.role}`}
+                accessible
+                accessibilityRole="button"
+                accessibilityLabel={`Switch to ${portal.title}`}
+                accessibilityHint={portal.subtitle}
+                accessibilityState={{ selected: active }}
                 style={({ pressed }) => ({
                   padding: 16,
                   borderRadius: 12,
                   borderWidth: 1,
+                  // Min 44px touch target for accessibility.
+                  minHeight: 44,
                   marginTop: idx === 0 ? 0 : 12,
                   backgroundColor: active ? '#FFF7ED' : '#F8FAFC',
                   borderColor: active ? '#F97316' : '#E2E8F0',
@@ -75,6 +82,9 @@ export default function DashboardScreen() {
       {/* Identity verification entry point */}
       <Pressable
         onPress={() => router.push('/(auth)/verification/intro')}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel="Start verification flow"
         style={({ pressed }) => ({
           width: '100%',
           backgroundColor: '#F97316',
@@ -96,6 +106,9 @@ export default function DashboardScreen() {
       {/* Account actions */}
       <Pressable
         onPress={handleLogout}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={isAuthenticated ? 'Sign out session' : 'Sign in to CarUp'}
         style={({ pressed }) => ({
           width: '100%',
           backgroundColor: '#FEF2F2',

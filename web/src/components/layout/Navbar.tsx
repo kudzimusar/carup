@@ -64,9 +64,9 @@ function CommerceMenu({
           className="gap-1 px-3 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900"
           data-testid={testId}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="h-4 w-4" aria-hidden="true" />
           {label}
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-3 w-3" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[760px] max-w-[calc(100vw-2rem)] p-5" data-testid={menuTestId}>
@@ -199,8 +199,8 @@ export default function Navbar() {
             {/* Currency Selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="hidden md:flex gap-1 text-xs">
-                  {currency} <ChevronDown className="w-3 h-3" />
+                <Button variant="ghost" size="sm" className="hidden md:flex gap-1 text-xs" aria-label={`Currency: ${currency}. Change currency`}>
+                  {currency} <ChevronDown className="w-3 h-3" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -215,10 +215,15 @@ export default function Navbar() {
             {/* Notifications */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
-                  <Bell className="w-5 h-5" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative"
+                  aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+                >
+                  <Bell className="w-5 h-5" aria-hidden="true" />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-500 text-[10px]">
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-500 text-[10px]" aria-hidden="true">
                       {unreadCount}
                     </Badge>
                   )}
@@ -248,10 +253,10 @@ export default function Navbar() {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2">
+                  <Button variant="ghost" size="sm" className="gap-2" aria-label={`Account menu for ${user.name}`}>
                     <img src={user.avatar} alt="" className="w-7 h-7 rounded-full object-cover" />
                     <span className="hidden md:inline text-sm">{user.name.split(' ')[0]}</span>
-                    <ChevronDown className="w-3 h-3" />
+                    <ChevronDown className="w-3 h-3" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
