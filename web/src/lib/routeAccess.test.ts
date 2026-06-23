@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evaluateRouteAccess, loginWithReturnTo, type RouteAccessInput } from './routeAccess'
-import { resolveFeatureVisibility, getFeatureById, isLifecycleVisible, isLifecycleAccessible, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
+import { resolveFeatureVisibility, getFeatureById, getFeatureByRoute, isLifecycleVisible, isLifecycleAccessible, type EffectiveFeatureState, type FeatureLifecycleState } from '@/config/featureRegistry'
 
 const base: RouteAccessInput = {
   route: '/insurance',
@@ -118,6 +118,88 @@ describe('evaluateRouteAccess (Milestone 5)', () => {
     expect(evaluateRouteAccess({ ...base, route: '/insurance', effectiveStates: states }).kind).toBe('disabled')
     const vis = resolveFeatureVisibility(feature, { isAuthenticated: false, role: null, effectiveStates: states })
     expect(vis.visible).toBe(false)
+  })
+
+  // ── P2: legacy /marketplace/* vehicle-detail sub-routes are governed by ──
+  // product.marketplace (no duplicate competing active feature is introduced).
+  describe('P2: legacy vehicle-detail sub-routes bind to product.marketplace', () => {
+    const VIN = '/marketplace/0x1234VIN'
+    const LISTING = '/marketplace/listing/abc'
+
+    it('active Marketplace (no override / static fallback) → renders vehicle detail', () => {
+      // No effectiveStates at all (pre-hydration): falls back to the owning
+      // feature's STATIC lifecycle (product.marketplace is active) → render.
+      expect(evaluateRouteAccess({ ...base, route: VIN }).kind).toBe('render')
+      expect(evaluateRouteAccess({ ...base, route: LISTING }).kind).toBe('render')
+      // …and with an explicit active override too.
+      const active = override('product.marketplace', 'active', { enabled: true, visible: true, accessible: true })
+      expect(evaluateRouteAccess({ ...base, route: VIN, effectiveStates: active }).kind).toBe('render')
+      expect(evaluateRouteAccess({ ...base, route: LISTING, effectiveStates: active }).kind).toBe('render')
+    })
+
+    it('Marketplace override enabled:false → unavailable (disabled) for the legacy sub-route', () => {
+      const states = override('product.marketplace', 'active', { enabled: false })
+      expect(evaluateRouteAccess({ ...base, route: VIN, effectiveStates: states }).kind).toBe('disabled')
+      expect(evaluateRouteAccess({ ...base, route: LISTING, effectiveStates: states }).kind).toBe('disabled')
+    })
+
+    it('Marketplace override accessible:false (tenant/env denial) → disabled', () => {
+      const states = override('product.marketplace', 'active', { enabled: true, visible: false, accessible: false })
+      expect(evaluateRouteAccess({ ...base, route: VIN, effectiveStates: states }).kind).toBe('disabled')
+      expect(evaluateRouteAccess({ ...base, route: LISTING, effectiveStates: states }).kind).toBe('disabled')
+    })
+
+    it('Marketplace lifecycle planned/disabled propagates to the legacy sub-route', () => {
+      expect(evaluateRouteAccess({ ...base, route: VIN, effectiveStates: override('product.marketplace', 'planned') }).kind).toBe('planned')
+      expect(evaluateRouteAccess({ ...base, route: VIN, effectiveStates: override('product.marketplace', 'disabled') }).kind).toBe('disabled')
+    })
+
+    it('static fallback when effectiveStates is undefined → render (Marketplace is active)', () => {
+      expect(evaluateRouteAccess({ ...base, route: VIN, effectiveStates: undefined }).kind).toBe('render')
+    })
+
+    it('direct-refresh shape (same evaluateRouteAccess call, lifecycle-only boundary) → render', () => {
+      // A direct URL refresh hits the very same evaluator; under the public
+      // (enforceAuth:false) boundary an active Marketplace still renders.
+      expect(evaluateRouteAccess({ ...base, route: VIN, enforceAuth: false }).kind).toBe('render')
+      // …and a disabled Marketplace still blocks on direct refresh.
+      const states = override('product.marketplace', 'active', { enabled: false })
+      expect(evaluateRouteAccess({ ...base, route: VIN, enforceAuth: false, effectiveStates: states }).kind).toBe('disabled')
+    })
+
+    it('VIN/param value is preserved deterministically (different ids, same Marketplace gate)', () => {
+      const states = override('product.marketplace', 'active', { enabled: false })
+      for (const r of ['/marketplace/JH4KA8260MC000000', '/marketplace/42', '/marketplace/listing/xyz-789']) {
+        expect(evaluateRouteAccess({ ...base, route: r, effectiveStates: states }).kind).toBe('disabled')
+      }
+    })
+
+    it('an unrelated dynamic route (/dashboard/garage/:id) is NOT bound to product.marketplace', () => {
+      // It keeps its OWN registered protected behavior: no user → login (auth),
+      // and a Marketplace disable override does NOT affect it.
+      const mkDisabled = override('product.marketplace', 'disabled')
+      const d = evaluateRouteAccess({ ...base, route: '/dashboard/garage/42', effectiveStates: mkDisabled })
+      expect(d.kind).toBe('redirect')
+      if (d.kind === 'redirect') expect(d.reason).toBe('auth')
+      // correct role + a denial on its OWN feature → disabled (its own governance).
+      const ownGarageDenied = override('owner.garage-detail', 'active', { enabled: true, visible: false, accessible: false })
+      expect(evaluateRouteAccess({ route: '/dashboard/garage/42', isBootstrapping: false, isAuthenticated: true, role: 'owner', effectiveStates: ownGarageDenied }).kind).toBe('disabled')
+    })
+
+    it('STRUCTURAL: registered marketplace siblings still resolve to their OWN features (not the legacy fallback)', () => {
+      // /marketplace/parts and /marketplace/services are first-class registered
+      // features; getFeatureByRoute resolves them directly, so they never fall
+      // through to the legacy product.marketplace binding.
+      expect(getFeatureByRoute('/marketplace/parts')?.id).toBe('product.marketplace-parts')
+      expect(getFeatureByRoute('/marketplace/services')?.id).toBe('product.marketplace-services')
+      // A Marketplace disable override must NOT cascade onto the sibling features
+      // (they have independent effective states).
+      const mkDisabled = override('product.marketplace', 'disabled')
+      expect(evaluateRouteAccess({ ...base, route: '/marketplace/parts', effectiveStates: mkDisabled }).kind).toBe('render')
+      expect(evaluateRouteAccess({ ...base, route: '/marketplace/services', effectiveStates: mkDisabled }).kind).toBe('render')
+      // …whereas disabling the parts feature itself does block it.
+      expect(evaluateRouteAccess({ ...base, route: '/marketplace/parts', effectiveStates: override('product.marketplace-parts', 'disabled') }).kind).toBe('disabled')
+    })
   })
 
   it('deprecated route with target → redirect; same-route target does not loop', () => {

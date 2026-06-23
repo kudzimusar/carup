@@ -120,8 +120,45 @@ export function formFromRow(row: AdminFeatureRow): EditForm {
   }
 }
 
-/** Clamp a percentage form string to an int 0–100 (default 100 when empty/invalid). */
+/** Discriminated result of parsing a rollout-percentage form string. */
+export type ParsedPercentage =
+  | { ok: true; value: number }
+  | { ok: false; error: string }
+
+/**
+ * Pure parser for the rollout-percentage input.
+ *
+ * Semantics (blank must NEVER silently become 0% / fully-gated):
+ *   - blank or whitespace-only → { ok:true, value:100 } (default to full rollout);
+ *   - an integer string '0'..'100' → { ok:true, value:n } (explicit '0' is a valid 0%);
+ *   - non-numeric / NaN / negative / > 100 / non-integer (decimal) → { ok:false, error }.
+ *
+ * NOTE: this deliberately does NOT use Number('') (=== 0) — an empty string is a
+ * distinct "no value entered" signal, not zero.
+ */
+export function parseRolloutPercentage(raw: string): ParsedPercentage {
+  const trimmed = raw.trim()
+  if (trimmed === '') return { ok: true, value: 100 }
+  // Only a bare run of digits is a valid integer percentage. This rejects
+  // decimals ('12.5'), signs ('-1', '+5'), exponents ('1e2') and stray text.
+  if (!/^\d+$/.test(trimmed)) {
+    return { ok: false, error: 'Enter a whole number between 0 and 100.' }
+  }
+  const value = Number(trimmed)
+  if (!Number.isInteger(value) || value < 0 || value > 100) {
+    return { ok: false, error: 'Enter a whole number between 0 and 100.' }
+  }
+  return { ok: true, value }
+}
+
+/**
+ * Build the rollout patch from the form. The percentage is taken from the
+ * already-validated parse result (the caller MUST gate the confirm dialog on a
+ * successful parse); when the raw value is unparseable we fall back to the
+ * safe full-rollout default rather than silently storing 0%.
+ */
 export function buildRolloutPatch(environment: string, row: AdminFeatureRow, f: EditForm): RolloutPatch {
+  const parsed = parseRolloutPercentage(f.rollout_percentage)
   return {
     environment,
     lifecycle_state: f.lifecycle_state || null,
@@ -135,16 +172,10 @@ export function buildRolloutPatch(environment: string, row: AdminFeatureRow, f: 
     ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null,
     allowed_tenant_ids: f.allowed_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
     denied_tenant_ids: f.denied_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
-    rollout_percentage: parsePercentage(f.rollout_percentage),
+    rollout_percentage: parsed.ok ? parsed.value : 100,
     rollout_seed: f.rollout_seed.trim() ? f.rollout_seed.trim().slice(0, 64) : null,
     expectedVersion: row.override?.version,
   }
-}
-
-function parsePercentage(raw: string): number {
-  const n = Math.trunc(Number(raw))
-  if (!Number.isFinite(n)) return 100
-  return Math.max(0, Math.min(100, n))
 }
 
 export default function FeatureGovernanceConsole() {
@@ -165,6 +196,7 @@ export default function FeatureGovernanceConsole() {
   const [saving, setSaving] = useState(false)
   const [conflict, setConflict] = useState(false)
   const [confirm, setConfirm] = useState<null | { kind: 'save' | 'reset' }>(null)
+  const [percentageError, setPercentageError] = useState<string | null>(null)
   const [audit, setAudit] = useState<{ loading: boolean; error: boolean; items: any[] }>({ loading: false, error: false, items: [] })
   const [tab, setTab] = useState<'governance' | 'analytics'>('governance')
 
@@ -201,7 +233,7 @@ export default function FeatureGovernanceConsole() {
   }), [rows, search, filterLifecycle, filterDomain, filterOverride])
 
   const openDetail = (row: AdminFeatureRow) => {
-    setSelected(row); setForm(formFromRow(row)); setConflict(false)
+    setSelected(row); setForm(formFromRow(row)); setConflict(false); setPercentageError(null)
     setAudit({ loading: true, error: false, items: [] })
     api.getAudit(row.id)
       .then(res => setAudit({ loading: false, error: false, items: res.audit || [] }))
@@ -230,6 +262,22 @@ export default function FeatureGovernanceConsole() {
     } finally {
       setSaving(false)
     }
+  }
+
+  // Validate the percentage BEFORE opening the confirmation dialog. A blank/invalid
+  // value must not silently become 0% — on a bad value we surface an accessible
+  // inline error on the field and refuse to open the confirm gate.
+  const requestSave = () => {
+    if (!form) return
+    const parsed = parseRolloutPercentage(form.rollout_percentage)
+    if (!parsed.ok) {
+      setPercentageError(parsed.error)
+      // Move focus to the offending field so keyboard + screen-reader users land on it.
+      document.getElementById('fg-edit-percentage')?.focus()
+      return
+    }
+    setPercentageError(null)
+    setConfirm({ kind: 'save' })
   }
 
   const doReset = async () => {
@@ -467,7 +515,10 @@ export default function FeatureGovernanceConsole() {
 
                   {/* Percentage rollout — deterministic, never broadens role/tenant */}
                   {(() => {
-                    const pct = parsePercentage(form.rollout_percentage)
+                    const parsedPct = parseRolloutPercentage(form.rollout_percentage)
+                    // For display-only widgets (slider thumb, warnings) fall back to the
+                    // safe full-rollout default when the raw value is unparseable.
+                    const pct = parsedPct.ok ? parsedPct.value : 100
                     const originalSeed = selected.override?.rollout_seed ?? ''
                     const seedChanged = form.rollout_seed.trim() !== originalSeed
                     return (
@@ -479,7 +530,12 @@ export default function FeatureGovernanceConsole() {
                               id="fg-edit-percentage" data-testid="fg-edit-percentage"
                               type="number" min={0} max={100} step={1}
                               value={form.rollout_percentage}
-                              onChange={e => setForm({ ...form, rollout_percentage: e.target.value })}
+                              aria-invalid={percentageError ? true : undefined}
+                              aria-describedby={percentageError ? 'fg-edit-percentage-error' : undefined}
+                              onChange={e => {
+                                if (percentageError) setPercentageError(null)
+                                setForm({ ...form, rollout_percentage: e.target.value })
+                              }}
                             />
                           </div>
                           <div>
@@ -487,11 +543,23 @@ export default function FeatureGovernanceConsole() {
                             <input
                               id="fg-edit-percentage-slider" data-testid="fg-edit-percentage-slider"
                               type="range" min={0} max={100} step={1} value={pct}
-                              onChange={e => setForm({ ...form, rollout_percentage: e.target.value })}
+                              onChange={e => {
+                                if (percentageError) setPercentageError(null)
+                                setForm({ ...form, rollout_percentage: e.target.value })
+                              }}
                               className="w-full" aria-label="Rollout percentage slider"
                             />
                           </div>
                         </div>
+                        {percentageError && (
+                          <p
+                            id="fg-edit-percentage-error" data-testid="fg-edit-percentage-error"
+                            role="alert"
+                            className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1"
+                          >
+                            {percentageError}
+                          </p>
+                        )}
                         <div>
                           <Label htmlFor="fg-edit-seed">Rotation seed (optional, ≤64 chars)</Label>
                           <Input
@@ -565,7 +633,7 @@ export default function FeatureGovernanceConsole() {
 
                 <DialogFooter className="gap-2">
                   <Button variant="outline" onClick={() => setConfirm({ kind: 'reset' })} data-testid="fg-edit-reset" disabled={!selected.override}>Reset to default</Button>
-                  <Button onClick={() => setConfirm({ kind: 'save' })} data-testid="fg-edit-save" disabled={saving}>Save override</Button>
+                  <Button onClick={requestSave} data-testid="fg-edit-save" disabled={saving}>Save override</Button>
                 </DialogFooter>
               </>
             )
@@ -594,7 +662,7 @@ export default function FeatureGovernanceConsole() {
                       </li>
                       <li className="flex items-center justify-between gap-2">
                         <span className="text-gray-500">Rollout</span>
-                        <span><b>{selected.override?.rollout_percentage ?? 100}%</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{parsePercentage(form.rollout_percentage)}%</b></span>
+                        <span><b>{selected.override?.rollout_percentage ?? 100}%</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{buildRolloutPatch(environment, selected, form).rollout_percentage}%</b></span>
                       </li>
                       <li className="flex items-center justify-between gap-2" data-testid="fg-confirm-roles">
                         <span className="text-gray-500">Roles</span>

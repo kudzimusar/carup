@@ -47,7 +47,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Feature manifest drift gate (frontend ↔ backend)
+      - name: Feature manifest + nav-node allowlist drift gate (frontend ↔ backend)
+        # One --check validates BOTH generated artifacts:
+        #   shared/navigation/feature-manifest.json   (governance manifest)
+        #   shared/navigation/navigation-nodes.json   (node_id privacy allowlist)
+        # A newly added nav node id that wasn't regenerated fails CI here, so the
+        # backend node_id allowlist can never silently drift from the manifest.
         run: node scripts/generate-feature-manifest.mjs --check
 
       - name: TypeScript (web)

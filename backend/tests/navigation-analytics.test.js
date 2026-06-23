@@ -1,6 +1,9 @@
 process.env.NODE_ENV = 'test';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import {
   ingestBatch,
@@ -10,6 +13,7 @@ import {
   getNavigationAggregates,
   MAX_EVENTS_PER_BATCH,
   _resetDedupe,
+  _resetAllowlist,
 } from '../services/navigationAnalytics/navigationAnalyticsService.js';
 import navigationAnalyticsRouter from '../routes/navigationAnalyticsRoutes.js';
 
@@ -70,6 +74,13 @@ const PII_COLUMNS = ['name', 'email', 'phone', 'vin', 'token', 'tokens', 'url', 
 
 const sessionReq = (token) => ({ headers: token ? { 'x-session-token': token } : {} });
 
+// The same generated allowlist the service consumes — used to assert the
+// privacy invariant (stored node_id values ⊆ allowlist ∪ {null}).
+const navNodesPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../shared/navigation/navigation-nodes.json',
+);
+
 // ── projection / privacy ─────────────────────────────────────────────────────
 test('valid event projects to ONLY the allowed columns (no PII keys)', () => {
   const row = projectEvent({
@@ -103,6 +114,50 @@ test('missing/invalid platform → dropped; invalid surface → unknown', () => 
 test('non-allowlisted feature_id is nulled (never stored raw)', () => {
   const r = projectEvent({ event_type: 'navigation_item_impression', surface: 'sidebar', platform: 'web', feature_id: 'not.a.real.feature' });
   assert.equal(r.feature_id, null);
+});
+
+// ── node_id allowlist (P2 privacy: only a real nav node id is persisted) ──────
+const proj = (node_id) => projectEvent({
+  event_type: 'navigation_item_selected', surface: 'mega_menu', platform: 'web', node_id,
+});
+
+test('KNOWN navigation node id is preserved (allowlisted from NAVIGATION_MANIFEST)', () => {
+  _resetAllowlist();
+  assert.equal(proj('buy.shop-all').node_id, 'buy.shop-all');
+  assert.equal(proj('sell.your-car').node_id, 'sell.your-car');
+});
+
+test('UNKNOWN node id is nulled (not a registered nav node)', () => {
+  _resetAllowlist();
+  assert.equal(proj('totally.made.up.node').node_id, null);
+  // A FEATURE id is NOT a nav node id — it must not pass the node_id allowlist.
+  assert.equal(proj('product.marketplace').node_id, null);
+});
+
+test('PII-looking node_id values are nulled, never persisted', () => {
+  _resetAllowlist();
+  assert.equal(proj('a@b.com').node_id, null, 'email leaked');
+  assert.equal(proj('1HGCM82633A004352').node_id, null, 'VIN leaked');       // 17 alphanum VIN
+  assert.equal(proj('+263771234567').node_id, null, 'phone leaked');
+  assert.equal(proj('John Doe, 12 Main St').node_id, null, 'free text leaked');
+});
+
+test('oversized / malformed node_id is nulled', () => {
+  _resetAllowlist();
+  assert.equal(proj('x'.repeat(5000)).node_id, null);            // oversized
+  assert.equal(proj('   ').node_id, null);                       // whitespace only
+  assert.equal(proj(12345).node_id, null);                       // non-string
+  assert.equal(proj({ id: 'buy.shop-all' }).node_id, null);      // object
+  // An oversized string that merely STARTS with a real id must still be nulled
+  // (bounded BEFORE allowlist lookup; the trailing PII can never sneak through).
+  assert.equal(proj('buy.shop-all' + 'x'.repeat(5000)).node_id, null);
+});
+
+test('valid route-level event with NO node_id persists with node_id null', () => {
+  _resetAllowlist();
+  const r = projectEvent({ event_type: 'navigation_destination_rendered', surface: 'route_guard', platform: 'web' });
+  assert.ok(r, 'event should still be accepted');
+  assert.equal(r.node_id, null);
 });
 
 // ── route sanitization ───────────────────────────────────────────────────────
@@ -144,6 +199,47 @@ test('valid batch ingested: only allowed columns stored, no PII columns', async 
     }
     for (const p of PII_COLUMNS) assert.equal(row[p], undefined, `PII ${p} stored`);
     assert.equal(row.role_category, 'anonymous'); // no session → anonymous
+  }
+});
+
+test('MIXED batch: valid node ids persisted, bad/PII node ids nulled; node_id ⊆ allowlist ∪ {null}', async () => {
+  _resetDedupe();
+  _resetAllowlist();
+  const client = makeFakeClient();
+  const summary = await ingestBatch({
+    schemaVersion: 1,
+    events: [
+      { event_type: 'navigation_item_selected', surface: 'mega_menu', platform: 'web', node_id: 'buy.shop-all' },     // known → kept
+      { event_type: 'navigation_item_selected', surface: 'mega_menu', platform: 'web', node_id: 'sell.your-car' },     // known → kept
+      { event_type: 'navigation_item_impression', surface: 'mega_menu', platform: 'web', node_id: 'a@b.com' },         // email → null
+      { event_type: 'navigation_item_impression', surface: 'mega_menu', platform: 'web', node_id: '1HGCM82633A004352' }, // VIN → null
+      { event_type: 'navigation_item_impression', surface: 'mega_menu', platform: 'web', node_id: '+263771234567' },   // phone → null
+      { event_type: 'navigation_item_impression', surface: 'mega_menu', platform: 'web', node_id: 'not.a.node' },      // unknown → null
+      { event_type: 'navigation_destination_rendered', surface: 'route_guard', platform: 'web' },                      // no node_id → null
+    ],
+  }, { client, req: sessionReq(null) });
+
+  assert.equal(summary.accepted, 7);  // every event persists (only node_id is sanitized, not the row)
+  assert.equal(summary.stored, true);
+
+  const stored = client._tables.navigation_analytics_events;
+  assert.equal(stored.length, 7);
+
+  // Exactly the two known ids survive as node_id; everything else is null.
+  const keptNodeIds = stored.map((r) => r.node_id).filter(Boolean).sort();
+  assert.deepEqual(keptNodeIds, ['buy.shop-all', 'sell.your-car']);
+
+  // Invariant: every stored node_id is a member of the allowlist OR null —
+  // never an arbitrary/PII caller value.
+  const allowlist = new Set(JSON.parse(fs.readFileSync(navNodesPath, 'utf8')));
+  for (const row of stored) {
+    assert.ok(row.node_id === null || allowlist.has(row.node_id), `node_id escaped allowlist: ${row.node_id}`);
+  }
+
+  // And no smuggled PII value appears ANYWHERE in the stored rows.
+  const blob = JSON.stringify(stored);
+  for (const pii of ['a@b.com', '1HGCM82633A004352', '+263771234567', 'not.a.node']) {
+    assert.ok(!blob.includes(pii), `PII value ${pii} leaked into stored rows`);
   }
 });
 
