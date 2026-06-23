@@ -102,3 +102,36 @@ For owner, dealer, mechanic, insurance, government, admin, bank:
 | H7 | 🖥 Console: set a feature to 25% rollout | Same subject sees a stable result across reloads; role/tenant denial still wins; reset → 100% | | | |
 | H8 | 🖥 Navigate around, then open admin Analytics | Funnel metrics (impressions/selections/blocked) populate; charts have text fallbacks; no PII | | | |
 | H9 | 🖥/📱 Accessibility | Keyboard opens/closes menus + Escape; visible focus; reduced-motion honored; native VoiceOver/TalkBack labels present | | | |
+
+## I. Round-5 / release-gate execution status (head `0fa2e8f`)
+
+Recorded honestly — automated checks were executed; credential/device-gated items were not.
+**No passing result is fabricated.**
+
+### Automated (executed — PASS)
+| Area | Result | Evidence |
+|---|---|---|
+| Public desktop mega-menus, footer, mobile web drawer | **PASS** | CI `navigation-e2e` (suites 27–32) green on `0fa2e8f` |
+| Anonymous Sell / Create-Passport / Dealer CTAs visible after governance hydration → `/register` | **PASS** | `navigationManifest.test.ts` guest-CTA suite (+ governance hydration) green |
+| Legacy vehicle-detail route governed by Marketplace | **PASS** | `routeAccess.test.ts` `/marketplace/:vin` suite green |
+| Lifecycle state pages + safe next action | **PASS** | suite 31 + FeatureStatePages tests green |
+| Lazy Admin Console route does not leak to unauthenticated; non-admin redirected | **PASS** | suite 32 (non-admin redirect) + lazy-chunk gate green |
+| Accessibility basics (keyboard/Escape/focus/reduced-motion/axe) | **PASS** | CI `navigation-accessibility` (axe 33) green |
+| `null` / `[]` / role-subset override + blank/0/25/100% parsing + tri-state | **PASS** | console roles + `parseRolloutPercentage` unit suites green |
+| Analytics ingestion bounds + node_id allowlist (no PII) + non-admin aggregate denial | **PASS** | `navigation-analytics.test.js` (83 backend) green |
+| Native tab/drawer governance + no localhost | **PASS** | native route-ownership tests + zero hardcoded localhost in mobile |
+
+> These automated suites validate **client + service behavior** (E2E mocks `/api`, backend tests use the in-memory client). They are strong coverage but **not** a substitute for live-staging integration against the deployed `carup-staging` + staging Supabase.
+
+### Live-staging, credential/device-gated (NOT EXECUTED — missing credential/device)
+| Item | Result |
+|---|---|
+| All supported roles signed in against live staging; role switch / logout | **NOT EXECUTED — missing staging QA credentials** |
+| Admin Feature Governance Console against live staging (override CRUD, audit) | **NOT EXECUTED — missing staging QA credentials** |
+| 0% / 25% / 100% rollout + stable cohort + tenant/role denial precedence (live) | **NOT EXECUTED — missing staging QA credentials** |
+| Live analytics ingestion → admin aggregates against staging DB | **NOT EXECUTED — missing staging QA credentials** |
+| Native tabs/drawer on a physical device against the staging API | **NOT EXECUTED — missing device** |
+
+The release engineer/Product Owner completes the NOT-EXECUTED rows against the deployed staging
+environment with the staging QA accounts (`database/seeds/marketplace_v1_staging_qa_accounts.sql`)
+and records PASS / PASS-WITH-NOTES / FAIL before authorizing the merge.
