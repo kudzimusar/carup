@@ -273,8 +273,10 @@ test.describe('Feature Governance Console — admin governance surface', () => {
     await expect(dialog.getByText('product.insurance', { exact: false })).toBeVisible();
 
     // Roles outside the immutable bound render disabled checkboxes (an override
-    // can never broaden access). product.insurance has no immutable roles, so a
+    // can never broaden access). The checkboxes live under the tri-state
+    // "Specific roles" mode; product.insurance has no immutable roles, so a
     // stakeholder role like 'dealer' must be disabled.
+    await dialog.getByTestId('fg-edit-roles-mode').selectOption('custom');
     await expect(dialog.getByTestId('fg-edit-role-dealer')).toBeDisabled();
   });
 

@@ -334,7 +334,21 @@ export function isNodeBackendBlocked(node: NavigationNode, ctx: NavigationContex
   if (!owner) return false
   const eff = ctx.effectiveStates?.[owner]
   if (!eff) return false
-  return eff.enabled === false || eff.visible === false
+  // A runtime kill-switch (and a tenant/role denial expressed as enabled:false)
+  // hides the node for EVERYONE — guest or authenticated.
+  if (eff.enabled === false) return true
+  // Guest CTA exception: an ANONYMOUS visitor on a node that carries a
+  // guestDestination (e.g. Sell / Create Passport / Dealer-listing → /register)
+  // keeps the CTA. For an auth-required owner feature the backend returns
+  // visible:false to anonymous purely because no authenticated role is eligible
+  // — that role-derived value must NOT suppress a public registration link, and
+  // resolveBaseRoute already routes the guest to guestDestination (never the
+  // protected route). Kill-switch (above) and lifecycle hidden/disabled/
+  // deprecated (handled by the surface's state filter) still remove it.
+  if (!ctx.isAuthenticated && node.guestDestination) return false
+  // Authenticated (or no guest destination): honor visible:false, which carries
+  // role denial AND authenticated tenant denial.
+  return eff.visible === false
 }
 
 // ── Structural ownership gate (Milestone 8 — governance integrity) ───────────

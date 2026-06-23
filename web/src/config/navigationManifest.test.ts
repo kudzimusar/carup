@@ -368,6 +368,81 @@ describe('Navigation manifest — owned-variant governance regression', () => {
   })
 })
 
+// ── Guest CTA visibility through governance hydration ────────────────────────
+describe('Navigation manifest — guest registration CTAs survive governance hydration', () => {
+  // owner.sell-vehicle effective state as the backend returns it to an ANONYMOUS
+  // session: lifecycle active, but visible:false because no authenticated role is
+  // eligible. enabled stays true (not a kill-switch).
+  const ownerSell = (over: object = {}) => ({
+    featureId: 'owner.sell-vehicle', state: 'active' as const,
+    enabled: true, visible: false, accessible: false, beta: false, ...over,
+  })
+  const anon = (over: object = {}): NavigationContext => ({
+    isAuthenticated: false, role: null,
+    effectiveStates: { 'owner.sell-vehicle': ownerSell(over) },
+  })
+  const sellMenuIds = (ctx: NavigationContext) =>
+    getDesktopMegaMenu('navbar-mega-sell', ctx).flatMap(s => s.items).map(i => i.id)
+  const mobilePrimaryIds = (ctx: NavigationContext) => getMobileNavigation(ctx).primary.map(i => i.id)
+  const node = (id: string) => NAVIGATION_MANIFEST.find(n => n.id === id)!
+
+  it('anonymous Sell CTA is visible BEFORE governance hydration (no effective state)', () => {
+    expect(sellMenuIds({ isAuthenticated: false, role: null })).toContain('sell.your-car')
+  })
+
+  it('anonymous Sell CTA stays visible AFTER hydration (role-derived visible:false ignored for guests)', () => {
+    expect(sellMenuIds(anon())).toContain('sell.your-car')
+    expect(isNodeBackendBlocked(node('sell.your-car'), anon())).toBe(false)
+  })
+
+  it('anonymous Mobile Sell CTA stays visible after hydration', () => {
+    expect(mobilePrimaryIds(anon())).toContain('mobile.sell')
+  })
+
+  it('the guest CTA routes to /register (never the protected destination)', () => {
+    expect(buildFeatureHref(node('sell.your-car'), { isAuthenticated: false, role: null })).toBe('/register')
+    expect(buildFeatureHref(node('mobile.sell'), { isAuthenticated: false, role: null })).toBe('/register')
+  })
+
+  it('a globally disabled (enabled:false) owner feature hides its guest CTA for everyone', () => {
+    expect(isNodeBackendBlocked(node('sell.your-car'), anon({ enabled: false }))).toBe(true)
+    expect(sellMenuIds(anon({ enabled: false }))).not.toContain('sell.your-car')
+  })
+
+  it('an authenticated wrong-role user does NOT receive the protected destination (CTA hidden)', () => {
+    const mechanic: NavigationContext = {
+      isAuthenticated: true, role: 'mechanic',
+      effectiveStates: { 'owner.sell-vehicle': ownerSell() }, // visible:false (role denied)
+    }
+    expect(isNodeBackendBlocked(node('sell.your-car'), mechanic)).toBe(true)
+    expect(sellMenuIds(mechanic)).not.toContain('sell.your-car')
+  })
+
+  it('login as the owner shows the CTA (now resolving to the authenticated destination)', () => {
+    const owner: NavigationContext = {
+      isAuthenticated: true, role: 'owner',
+      effectiveStates: { 'owner.sell-vehicle': ownerSell({ visible: true, accessible: true }) },
+    }
+    expect(sellMenuIds(owner)).toContain('sell.your-car')
+    expect(buildFeatureHref(node('sell.your-car'), owner)).toBe('/dashboard/sell-vehicle')
+  })
+
+  it('a planned guest CTA remains planned (not activated) after hydration', () => {
+    const sellParts = getDesktopMegaMenu('navbar-mega-sell', anon())
+      .flatMap(s => s.items).find(i => i.id === 'sell.car-parts')!
+    expect(sellParts.state).toBe('planned')
+    expect(sellParts.active).toBe(false)
+  })
+
+  it('tenant denial expressed as enabled:false still hides for an authenticated tenant context', () => {
+    const deniedTenant: NavigationContext = {
+      isAuthenticated: true, role: 'owner',
+      effectiveStates: { 'owner.sell-vehicle': ownerSell({ enabled: false }) },
+    }
+    expect(isNodeBackendBlocked(node('sell.your-car'), deniedTenant)).toBe(true)
+  })
+})
+
 describe('Navigation manifest — dead-link gate (no fabricated routes)', () => {
   const appContent = fs.readFileSync(path.resolve(__dirname, '../App.tsx'), 'utf-8')
   const declaredRoutes: string[] = []

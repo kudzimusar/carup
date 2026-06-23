@@ -55,9 +55,40 @@ function StateBadge({ state }: { state: FeatureLifecycleState }) {
   )
 }
 
+/**
+ * Tri-state role override:
+ *   'default' → no role override (null) — inherit the feature's static roles;
+ *   'none'    → explicit deny-all ([]) — the feature is allowed to NO role;
+ *   'custom'  → an explicit role subset (['owner', …]).
+ * `[]` and `null` are DISTINCT values that must round-trip unchanged.
+ */
+export type RolesMode = 'default' | 'none' | 'custom'
+
+export function rolesModeOf(allowed: string[] | null | undefined): RolesMode {
+  if (allowed == null) return 'default'
+  return allowed.length === 0 ? 'none' : 'custom'
+}
+
+/** The wire value for a tri-state role selection (null | [] | [...]). */
+export function allowedRolesValue(form: Pick<EditForm, 'rolesMode' | 'allowed_roles'>): string[] | null {
+  if (form.rolesMode === 'default') return null
+  if (form.rolesMode === 'none') return []
+  return form.allowed_roles
+}
+
+/** Human label distinguishing Default roles vs No roles vs a subset (confirmation UI). */
+export function roleSummary(allowed: string[] | null | undefined, staticRoles: string[]): string {
+  if (allowed == null) return `Default roles (${staticRoles.join(', ') || '—'})`
+  if (allowed.length === 0) return 'No roles (deny all)'
+  return allowed.join(', ')
+}
+
 interface EditForm {
   lifecycle_state: FeatureLifecycleState | ''
   enabled: boolean
+  /** Tri-state selector; the wire value is derived via allowedRolesValue(). */
+  rolesMode: RolesMode
+  /** The role subset for 'custom' mode (ignored when mode is default/none). */
   allowed_roles: string[]
   beta_message: string
   reason: string
@@ -70,12 +101,14 @@ interface EditForm {
   rollout_seed: string
 }
 
-function formFromRow(row: AdminFeatureRow): EditForm {
+export function formFromRow(row: AdminFeatureRow): EditForm {
   const o = row.override
+  const allowed = o?.allowed_roles ?? null // preserve null vs [] vs [...]
   return {
     lifecycle_state: (o?.lifecycle_state ?? '') as FeatureLifecycleState | '',
     enabled: o?.enabled ?? true,
-    allowed_roles: o?.allowed_roles ?? [],
+    rolesMode: rolesModeOf(allowed),
+    allowed_roles: allowed ?? [],
     beta_message: o?.beta_message ?? '',
     reason: o?.reason ?? '',
     starts_at: o?.starts_at ? o.starts_at.slice(0, 16) : '',
@@ -88,6 +121,26 @@ function formFromRow(row: AdminFeatureRow): EditForm {
 }
 
 /** Clamp a percentage form string to an int 0–100 (default 100 when empty/invalid). */
+export function buildRolloutPatch(environment: string, row: AdminFeatureRow, f: EditForm): RolloutPatch {
+  return {
+    environment,
+    lifecycle_state: f.lifecycle_state || null,
+    enabled: f.enabled,
+    // Tri-state: 'default' → null (inherit static); 'none' → [] (deny all);
+    // 'custom' → the subset. null and [] are sent distinctly.
+    allowed_roles: allowedRolesValue(f),
+    beta_message: f.beta_message || null,
+    reason: f.reason || null,
+    starts_at: f.starts_at ? new Date(f.starts_at).toISOString() : null,
+    ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null,
+    allowed_tenant_ids: f.allowed_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
+    denied_tenant_ids: f.denied_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
+    rollout_percentage: parsePercentage(f.rollout_percentage),
+    rollout_seed: f.rollout_seed.trim() ? f.rollout_seed.trim().slice(0, 64) : null,
+    expectedVersion: row.override?.version,
+  }
+}
+
 function parsePercentage(raw: string): number {
   const n = Math.trunc(Number(raw))
   if (!Number.isFinite(n)) return 100
@@ -155,21 +208,8 @@ export default function FeatureGovernanceConsole() {
       .catch(() => setAudit({ loading: false, error: true, items: [] }))
   }
 
-  const buildPatch = (row: AdminFeatureRow, f: EditForm): RolloutPatch => ({
-    environment,
-    lifecycle_state: f.lifecycle_state || null,
-    enabled: f.enabled,
-    allowed_roles: f.allowed_roles.length ? f.allowed_roles : null,
-    beta_message: f.beta_message || null,
-    reason: f.reason || null,
-    starts_at: f.starts_at ? new Date(f.starts_at).toISOString() : null,
-    ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null,
-    allowed_tenant_ids: f.allowed_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
-    denied_tenant_ids: f.denied_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
-    rollout_percentage: parsePercentage(f.rollout_percentage),
-    rollout_seed: f.rollout_seed.trim() ? f.rollout_seed.trim().slice(0, 64) : null,
-    expectedVersion: row.override?.version,
-  })
+  const buildPatch = (row: AdminFeatureRow, f: EditForm): RolloutPatch =>
+    buildRolloutPatch(environment, row, f)
 
   const doSave = async () => {
     if (!selected || !form) return
@@ -378,26 +418,51 @@ export default function FeatureGovernanceConsole() {
                   </label>
 
                   <div>
-                    <Label>Allowed roles (within immutable bound)</Label>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {allRoles.map(r => {
-                        const allowedByPolicy = immutable.includes(r)
-                        const checked = form.allowed_roles.includes(r)
-                        return (
-                          <label
-                            key={r}
-                            title={allowedByPolicy ? undefined : 'Locked by immutable policy — an override cannot grant this role'}
-                            className={`flex items-center gap-1 text-xs border rounded px-2 py-1 ${allowedByPolicy ? '' : 'opacity-50 bg-gray-50'}`}
-                          >
-                            <input type="checkbox" disabled={!allowedByPolicy} checked={checked} data-testid={`fg-edit-role-${r}`}
-                              onChange={e => setForm({ ...form, allowed_roles: e.target.checked ? [...form.allowed_roles, r] : form.allowed_roles.filter(x => x !== r) })} />
-                            {r}
-                            {!allowedByPolicy && <Lock className="w-3 h-3 text-gray-400" aria-hidden="true" />}
-                          </label>
-                        )
-                      })}
-                    </div>
-                    <p className="text-[11px] text-gray-400 mt-1">Roles outside the immutable bound are disabled — an override can never broaden access.</p>
+                    <Label htmlFor="fg-edit-roles-mode">Allowed roles (within immutable bound)</Label>
+                    {/* Tri-state: Default (null, inherit static) · No roles ([], deny all) · Specific (subset). */}
+                    <select
+                      id="fg-edit-roles-mode" data-testid="fg-edit-roles-mode"
+                      className="mt-1 block w-full border rounded px-2 py-1 text-sm"
+                      value={form.rolesMode}
+                      onChange={e => {
+                        const mode = e.target.value as RolesMode
+                        setForm({
+                          ...form,
+                          rolesMode: mode,
+                          // Entering 'custom' from default/none seeds with the
+                          // existing subset (empty), so the checkboxes are usable;
+                          // default/none ignore allowed_roles via allowedRolesValue.
+                          allowed_roles: mode === 'custom' ? form.allowed_roles : form.allowed_roles,
+                        })
+                      }}
+                    >
+                      <option value="default">Default roles (inherit static: {selected.defaultRoles.join(', ') || '—'})</option>
+                      <option value="none">No roles (deny all)</option>
+                      <option value="custom">Specific roles…</option>
+                    </select>
+                    {form.rolesMode === 'custom' && (
+                      <div className="flex flex-wrap gap-2 mt-2" data-testid="fg-edit-roles-custom">
+                        {allRoles.map(r => {
+                          const allowedByPolicy = immutable.includes(r)
+                          const checked = form.allowed_roles.includes(r)
+                          return (
+                            <label
+                              key={r}
+                              title={allowedByPolicy ? undefined : 'Locked by immutable policy — an override cannot grant this role'}
+                              className={`flex items-center gap-1 text-xs border rounded px-2 py-1 ${allowedByPolicy ? '' : 'opacity-50 bg-gray-50'}`}
+                            >
+                              <input type="checkbox" disabled={!allowedByPolicy} checked={checked} data-testid={`fg-edit-role-${r}`}
+                                onChange={e => setForm({ ...form, allowed_roles: e.target.checked ? [...form.allowed_roles, r] : form.allowed_roles.filter(x => x !== r) })} />
+                              {r}
+                              {!allowedByPolicy && <Lock className="w-3 h-3 text-gray-400" aria-hidden="true" />}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      <b>Default</b> inherits the feature's static roles; <b>No roles</b> denies all (an explicit empty override); <b>Specific</b> restricts to a subset. Roles outside the immutable bound stay disabled — an override can never broaden access.
+                    </p>
                   </div>
 
                   {/* Percentage rollout — deterministic, never broadens role/tenant */}
@@ -530,6 +595,10 @@ export default function FeatureGovernanceConsole() {
                       <li className="flex items-center justify-between gap-2">
                         <span className="text-gray-500">Rollout</span>
                         <span><b>{selected.override?.rollout_percentage ?? 100}%</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{parsePercentage(form.rollout_percentage)}%</b></span>
+                      </li>
+                      <li className="flex items-center justify-between gap-2" data-testid="fg-confirm-roles">
+                        <span className="text-gray-500">Roles</span>
+                        <span><b>{roleSummary(selected.override?.allowed_roles, selected.defaultRoles)}</b> <span className="text-gray-400">→</span> <b className="text-gray-900">{roleSummary(allowedRolesValue(form), selected.defaultRoles)}</b></span>
                       </li>
                     </ul>
                     {form.rollout_seed.trim() !== (selected.override?.rollout_seed ?? '') && (
