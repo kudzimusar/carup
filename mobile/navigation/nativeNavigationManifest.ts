@@ -9,7 +9,7 @@
  *
  * Native screen reality (only these exist; see milestone brief):
  *   (tabs)/index, (tabs)/garage, (tabs)/escrow, (tabs)/marketplace,
- *   (tabs)/referral, vehicle/[vin], (auth)/*.
+ *   (tabs)/referral, (tabs)/communications, vehicle/[vin], (auth)/*.
  * There are NO native dealer/mechanic/insurance/government/bank work areas and
  * NO native /search screen — so none are declared here.
  */
@@ -67,6 +67,15 @@ export const NATIVE_NAV: NativeNavEntry[] = [
     iconName: 'Gift',
     placement: 'tab',
     order: 40,
+  },
+  {
+    id: 'native.communications',
+    expoRoute: '/(tabs)/communications',
+    featureId: 'owner.communications',
+    label: 'Messages',
+    iconName: 'MessageSquare',
+    placement: 'tab',
+    order: 45,
   },
   {
     // SafePay area. There is no dedicated registered "escrow" feature, so it is
@@ -187,6 +196,7 @@ const TAB_SCREEN_ENTRY_IDS: { name: string; entryId: string }[] = [
   { name: 'escrow', entryId: 'native.escrow' },
   { name: 'marketplace', entryId: 'native.marketplace' },
   { name: 'referral', entryId: 'native.referral' },
+  { name: 'communications', entryId: 'native.communications' },
 ];
 
 /** One row of the resolved tab-bar plan — pure, RN-runtime-free. */
