@@ -8,6 +8,8 @@ Main SHA recorded before implementation: `c25b094`
 
 Current base commit for this branch before Agent 8 commits: `e7a2f60afc35a90ffad3b17352e459742fb6d10b`
 
+Latest Codex review-fix commit: `b44eee7` (`fix(communication): address codex review delivery defects`)
+
 ## Acceptance Ledger
 
 | Area | Status | Evidence |
@@ -21,11 +23,22 @@ Current base commit for this branch before Agent 8 commits: `e7a2f60afc35a90ffad
 | Safety | PASS | AI service forces handoff for finance/escrow/payment decisions, never mutates business truth, and uses backend state/templates for authoritative updates. RLS policies, admin middleware, CSRF webhook exceptions, and secret redaction are in place. |
 | Verification | PASS with notes | Focused backend, web, mobile, Playwright, security, migration, marketplace, audit, referral regression, type-check, and build commands pass. Full web/mobile lint still reports pre-existing issues outside Agent 8; targeted Agent 8 web lint passes. |
 
+## Codex Review Corrections
+
+Resolved in commit `b44eee7`:
+
+- Admin user-visible replies now create the canonical outbound `messages` row and attach a `notification_queue` row that the existing delivery worker can send. Internal admin notes remain `internal` messages and do not create external queue rows.
+- Communication webhooks now support Meta GET callback verification for WhatsApp, Facebook, and Instagram. Valid `hub.mode=subscribe` requests return `hub.challenge` as plain text; invalid tokens are rejected.
+- Meta POST webhook HMAC verification now uses the exact raw request body captured by the Express JSON parser for `/api/communications/webhooks/meta/*` and passed into `CommunicationWebhookService`.
+- Notification enqueue no longer forces UUID IDs into `notification_queue`; the database default is used unless an explicit ID is supplied. The test harness now emulates legacy BIGSERIAL queue IDs.
+- Provider adapter exceptions are normalized into delivery failure results, recorded in `message_delivery_attempts`, and routed through retry/backoff or dead-letter handling with locks cleared.
+
 ## Tests Run And Results
 
 Passing:
 
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 25 passed.
+- `node --test backend/tests/communication-engine.test.js` - 19 passed, including Codex review regressions for admin reply queueing, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, and thrown adapter retry/dead-letter handling.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 34 passed.
 - `node --test backend/tests/server-export.test.js` - 1 passed. Supabase live connection warning is expected without live credentials.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with localhost binding escalation.
 - `node --test backend/tests/audit-logger.test.js backend/tests/referral-engine-e2e-stack.test.js` - 8 passed.
