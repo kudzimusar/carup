@@ -135,3 +135,38 @@ Recorded honestly — automated checks were executed; credential/device-gated it
 The release engineer/Product Owner completes the NOT-EXECUTED rows against the deployed staging
 environment with the staging QA accounts (`database/seeds/marketplace_v1_staging_qa_accounts.sql`)
 and records PASS / PASS-WITH-NOTES / FAIL before authorizing the merge.
+
+## J. Live anonymous staging UAT — executed against deployed `41fcedc` (2026-06-24)
+
+Deployed staging previews (publicly reachable, no Vercel auth gate):
+- frontend `https://carup-staging-7rp9r06d5-pay-pass-project.vercel.app`
+- backend  `https://carup-backend-staging-84x8xcvgt-pay-pass-project.vercel.app`
+
+### Executed (anonymous / credential-free)
+| Item | Result | Evidence |
+|---|---|---|
+| Public SPA routes served (`/`, `/marketplace`, `/register`, `/search`, `/marketplace/:vin`, `/admin/features`) | **PASS** | all GET → 200 (SPA). Visual/JS-rendered nav is covered by CI E2E (27–32). |
+| Anonymous effective-state gating + no PII | **PASS** | `GET /api/features/effective` → `product.marketplace` visible/accessible:true; `owner.sell-vehicle` visible/accessible:**false**; payload keys contain **no PII** (only the sanitized enum/flags). |
+| Legacy vehicle-detail route reachable | **PASS** | `GET /marketplace/JT123VIN456` → 200. Governed-disable behavior needs an admin toggle (below). |
+| Lazy Admin Console not exposed to anonymous | **PASS-WITH-NOTES** | `/admin/features` serves the SPA (200); the route guard redirects client-side (verified by CI suite 32). curl cannot observe the client redirect. |
+| Analytics ingestion accepts a bounded batch | **PASS** | `POST /api/analytics/navigation` (with guest CSRF token) → 202. |
+| Analytics oversized batch handled (not whole-batch reject) | **PASS** | 60-event batch → 202 (server truncates to the ≤50 cap by design). |
+| Non-admin analytics aggregate denied | **PASS** | `GET /api/admin/analytics/navigation` (no admin session) → **401**. |
+| Analytics client CSRF/session contract (round-5/6 P1) | **PASS-WITH-NOTES** | The client now sends `x-csrf-token` + session (code + unit tests). This staging backend reports `environment:"development"` and does **not enforce** CSRF on the endpoint (`POST` without a token also → 202), so the *enforced* path is proven by the fix + tests, not by this deployment. |
+
+> **Config note for the release engineer (not a PR code defect):** the `carup-backend-staging` preview reports `environment: "development"` from `GET /api/features/effective`, and CSRF is not enforced on it. For a faithful staging integration run, the staging backend should set `APP_ENV=staging` (so environment-keyed overrides resolve) and run with CSRF enforced (non-`test` `NODE_ENV`).
+
+### NOT EXECUTED — missing staging QA credentials / device
+The repo carries **no usable QA passwords** (the seed reads them from the staging secrets store; "writes no credential to disk"), so authenticated sessions cannot be created from here; no physical device/emulator is available.
+| Item | Result |
+|---|---|
+| owner / dealer / mechanic / insurance / government / admin / bank sign-in | **NOT EXECUTED — missing staging QA credentials** |
+| role switch + logout (live session) | **NOT EXECUTED — missing staging QA credentials** |
+| Admin governance override CRUD + reset + audit (live) | **NOT EXECUTED — missing staging QA credentials** |
+| 0% / 25% / 100% rollout + stable cohort (live, needs admin override) | **NOT EXECUTED — missing staging QA credentials** |
+| tenant + role denial precedence (live authed) | **NOT EXECUTED — missing staging QA credentials** |
+| live analytics aggregates as admin (DB-backed) | **NOT EXECUTED — missing staging QA credentials** |
+| node_id PII-null verified in the staging DB | **NOT EXECUTED — no staging DB access** (verified by backend unit tests) |
+| native vehicle deep link on a physical device/emulator | **NOT EXECUTED — missing device** |
+
+These rows require the PO/QA with staging QA accounts (and a device) and are recorded honestly; **no passing result is fabricated.**
