@@ -9,8 +9,47 @@
  * manifest defaults".
  */
 import { create } from 'zustand';
+import * as SecureStore from 'expo-secure-store';
 import type { NativeEffectiveStateMap } from '../navigation/types';
 import { fetchEffectiveStates } from '../utils/featureGovernanceApi';
+
+const NAV_COHORT_KEY = 'carup_nav_cohort';
+
+/** In-process cache so we don't hit SecureStore on every fetch. */
+let _cohortCache: string | null = null;
+
+/** Generate a random 128-bit-ish hex id (stability matters, not crypto strength). */
+function generateCohortId(): string {
+  let id = '';
+  for (let i = 0; i < 32; i++) id += Math.floor(Math.random() * 16).toString(16);
+  return `${Date.now().toString(16)}${id}`.slice(0, 64);
+}
+
+/**
+ * Return a STABLE, opaque per-INSTALLATION cohort id (generated once, persisted
+ * in SecureStore). It is NOT authentication and carries no PII — it exists ONLY
+ * so the backend can deterministically bucket this install into a percentage
+ * rollout (the same install stays consistently in or out). An authenticated
+ * identity always takes priority server-side. Returns '' if SecureStore is
+ * unavailable → that install is simply treated as having no cohort (out of
+ * partial rollouts; conservative).
+ */
+export async function getNavCohortId(): Promise<string> {
+  if (_cohortCache) return _cohortCache;
+  try {
+    const existing = await SecureStore.getItemAsync(NAV_COHORT_KEY);
+    if (existing) {
+      _cohortCache = existing;
+      return existing;
+    }
+    const id = generateCohortId();
+    await SecureStore.setItemAsync(NAV_COHORT_KEY, id);
+    _cohortCache = id;
+    return id;
+  } catch {
+    return '';
+  }
+}
 
 interface FeatureGovernanceState {
   effectiveStates: NativeEffectiveStateMap;

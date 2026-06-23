@@ -28,6 +28,8 @@ export interface FeatureOverrideRow {
   ends_at: string | null
   beta_message: string | null
   reason: string | null
+  rollout_percentage: number
+  rollout_seed: string | null
   created_by: string | null
   updated_by: string | null
   created_at: string
@@ -57,6 +59,8 @@ export interface AdminFeatureRow {
     betaMessage?: string
     overridden?: boolean
     allowedRoles?: string[]
+    rolloutPercentage?: number
+    inRollout?: boolean
   }
 }
 
@@ -71,6 +75,10 @@ export interface RolloutPatch {
   ends_at?: string | null
   beta_message?: string | null
   reason?: string | null
+  /** Deterministic percentage rollout (int 0–100). 100 = full rollout. */
+  rollout_percentage?: number
+  /** Optional rotation seed (≤64 chars). Rotating reshuffles cohorts. */
+  rollout_seed?: string | null
   expectedVersion?: number
 }
 

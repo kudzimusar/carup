@@ -50,9 +50,12 @@ function readEnvironment(req) {
 // SERVER-SIDE from the session (client role headers are never trusted); only
 // sanitized state is returned (no role/tenant lists, reasons or audit data).
 router.get('/api/features/effective', asyncHandler(async (req, res) => {
-  const { role, tenantId } = await resolveRequestContext(req);
+  // role + tenantId are trusted/server-derived; userId + cohortId only feed the
+  // deterministic percentage bucket (cohortId is opaque, NON-AUTH). The response
+  // stays subject-free (sanitized) — no bucket or subject is ever leaked.
+  const { role, tenantId, userId, cohortId } = await resolveRequestContext(req);
   const states = await getEffectiveStates(
-    { environment: serverEnvironment(), role, tenantId },
+    { environment: serverEnvironment(), role, tenantId, userId, cohortId },
     { sanitize: true },
   );
   res.json({ environment: serverEnvironment(), features: states });
