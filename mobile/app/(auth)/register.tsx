@@ -5,6 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { RegisterSchema } from '@shared/schemas';
 import { useAuthStore } from '../../store/authStore';
+import { apiUrl } from '../../utils/apiBase';
 import { z } from 'zod';
 
 type RegisterFormValues = z.infer<typeof RegisterSchema>;
@@ -28,7 +29,7 @@ export default function RegisterScreen() {
   const onSubmit = async (data: RegisterFormValues) => {
     setServerError(null);
     try {
-      const response = await fetch('http://localhost:5001/api/auth/register', {
+      const response = await fetch(apiUrl('/api/auth/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
