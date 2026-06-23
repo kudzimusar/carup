@@ -2,9 +2,14 @@
  * Feature governance API client (Milestone A).
  *
  * Fetches backend-derived effective feature states so native navigation
- * consumes the SAME governed truth as web. Fail-safe by design: ANY error
- * (config, network, non-OK, bad shape) returns an EMPTY map, which the
- * selectors/evaluator treat as "use static manifest defaults" — a disabled
+ * consumes the SAME governed truth as web. The result is DISCRIMINATED so the
+ * store can distinguish a genuine "no governed features" success from a fetch
+ * FAILURE (config, network, non-OK, bad shape): success-empty must not look the
+ * same as a failure, otherwise a failed identity-B load would be mistaken for a
+ * loaded-empty state and protected routes would un-gate. Callers decide the
+ * fail-CLOSED policy (see the store); this client never throws.
+ *
+ * Either way the `map` is conservative (empty on failure), so a disabled
  * feature never becomes enabled because a fetch failed.
  *
  * The backend derives role/tenant SERVER-SIDE from the trusted session; client
@@ -63,39 +68,52 @@ async function governanceHeaders(): Promise<Record<string, string>> {
 }
 
 /**
- * Fetch the effective feature states for the current session. Returns `{}` on
- * any failure (fail-safe → static defaults).
+ * Discriminated fetch result: `ok:true` carries a (possibly empty) success map;
+ * `ok:false` signals a transport/config/parse failure. The empty `map` on
+ * failure stays conservative for any caller that ignores `ok`, but the store
+ * uses `ok` to fail CLOSED on an identity-change failure (never treat a failed
+ * load as "loaded").
  */
-export async function fetchEffectiveStates(): Promise<NativeEffectiveStateMap> {
+export type FetchEffectiveStatesResult =
+  | { ok: true; map: NativeEffectiveStateMap }
+  | { ok: false; map: NativeEffectiveStateMap };
+
+/**
+ * Fetch the effective feature states for the current session. NEVER throws.
+ * Returns `{ ok:false }` on ANY failure (misconfig, network, non-OK, bad shape)
+ * and `{ ok:true, map }` on a successful response (the map may be empty when the
+ * backend reports no governed features).
+ */
+export async function fetchEffectiveStates(): Promise<FetchEffectiveStatesResult> {
   let url: string;
   try {
     url = apiUrl('/api/features/effective');
   } catch {
     // Misconfigured base (e.g. EXPO_PUBLIC_API_URL unset / localhost on device).
-    return {};
+    return { ok: false, map: {} };
   }
 
   try {
     const headers = await governanceHeaders();
     const response = await fetch(url, { headers });
-    if (!response.ok) return {};
+    if (!response.ok) return { ok: false, map: {} };
 
     let body: unknown;
     try {
       body = await response.json();
     } catch {
-      return {};
+      return { ok: false, map: {} };
     }
 
     const features = (body as { features?: unknown })?.features;
-    if (!Array.isArray(features)) return {};
+    if (!Array.isArray(features)) return { ok: false, map: {} };
 
     const map: NativeEffectiveStateMap = {};
     for (const f of features) {
       if (isEffectiveState(f)) map[f.featureId] = f;
     }
-    return map;
+    return { ok: true, map };
   } catch {
-    return {};
+    return { ok: false, map: {} };
   }
 }

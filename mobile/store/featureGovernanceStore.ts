@@ -12,9 +12,13 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { NativeEffectiveStateMap } from '../navigation/types';
 import { fetchEffectiveStates } from '../utils/featureGovernanceApi';
-import { currentIdentityKey, computeRefreshStart } from './featureGovernanceRefresh';
+import {
+  currentIdentityKey,
+  computeRefreshStart,
+  isGovernanceReadyForIdentity,
+} from './featureGovernanceRefresh';
 
-export { currentIdentityKey, computeRefreshStart };
+export { currentIdentityKey, computeRefreshStart, isGovernanceReadyForIdentity };
 
 const NAV_COHORT_KEY = 'carup_nav_cohort';
 
@@ -57,6 +61,12 @@ export async function getNavCohortId(): Promise<string> {
 interface FeatureGovernanceState {
   effectiveStates: NativeEffectiveStateMap;
   loading: boolean;
+  /**
+   * The last fetch FAILED for the requested identity. Used to fail CLOSED: a
+   * governed route stays blocked (retryable) instead of being treated as
+   * "loaded" when `loadedForKey` was never set for the new identity.
+   */
+  error: boolean;
   /** The auth identity key the current `effectiveStates` were fetched for. */
   loadedForKey: string | null;
   refresh: () => Promise<void>;
@@ -65,6 +75,7 @@ interface FeatureGovernanceState {
 export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) => ({
   effectiveStates: {},
   loading: false,
+  error: false,
   loadedForKey: null,
 
   refresh: async () => {
@@ -76,10 +87,11 @@ export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) =>
     // Clear a stale map immediately on an identity change so consumers never
     // read the previous identity's gating during/after the fetch (see
     // computeRefreshStart). A same-identity refresh keeps the map (no flicker).
+    // Either way clear `error` while a fresh attempt is in flight.
     const { loadedForKey } = useFeatureGovernanceStore.getState();
-    set(computeRefreshStart(loadedForKey, requestedKey));
+    set({ ...computeRefreshStart(loadedForKey, requestedKey), error: false });
 
-    const map = await fetchEffectiveStates();
+    const result = await fetchEffectiveStates();
 
     // Identity guard: only apply if the identity hasn't changed mid-flight.
     const after = useAuthStore.getState();
@@ -90,7 +102,24 @@ export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) =>
       return;
     }
 
-    set({ effectiveStates: map, loadedForKey: requestedKey, loading: false });
+    if (!result.ok) {
+      // FAIL CLOSED. Do NOT set `loadedForKey`: an identity-change failure
+      // (loadedForKey was cleared to null by computeRefreshStart) must never be
+      // treated as "loaded" — the boundary keeps the route blocked + retryable.
+      // A SAME-identity transient failure retains the prior last-good map (it
+      // is still loaded for this identity); we only flag `error:true` so a
+      // retry is offered. The dangerous case — an identity CHANGE failure —
+      // stays blocked because loadedForKey is null.
+      set({ loading: false, error: true });
+      return;
+    }
+
+    set({
+      effectiveStates: result.map,
+      loadedForKey: requestedKey,
+      loading: false,
+      error: false,
+    });
   },
 }));
 
