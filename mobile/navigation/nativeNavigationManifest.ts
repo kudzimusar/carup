@@ -175,6 +175,65 @@ export function getNativeDrawer(ctx: NativeNavContext): ResolvedNativeEntry[] {
     .map((e) => resolved(e, ctx.role));
 }
 
+/**
+ * The 5 real Expo Router screen names that the native `(tabs)/_layout` declares,
+ * mapped to the manifest entry that owns each. `escrow` IS declared (the screen
+ * exists) but is a DRAWER entry — it is never a tab, so it is always hidden in
+ * the tab bar (`href: null` in the layout). Milestone C surfaces it via a drawer.
+ */
+const TAB_SCREEN_ENTRY_IDS: { name: string; entryId: string }[] = [
+  { name: 'index', entryId: 'native.dashboard' },
+  { name: 'garage', entryId: 'native.garage' },
+  { name: 'escrow', entryId: 'native.escrow' },
+  { name: 'marketplace', entryId: 'native.marketplace' },
+  { name: 'referral', entryId: 'native.referral' },
+];
+
+/** One row of the resolved tab-bar plan — pure, RN-runtime-free. */
+export interface TabBarItem {
+  /** Expo Router screen name under `(tabs)/`. */
+  name: string;
+  /** Visible as a TAB? (false ⇒ layout sets `href: null`). */
+  visible: boolean;
+  /** Owner feature is in beta ⇒ show a small beta indicator. */
+  beta: boolean;
+  /** Abstract icon name (fed to `getNativeIcon`). */
+  iconName: string;
+  /** Tab label. */
+  title: string;
+}
+
+/** Is the owner of an entry in a beta effective state for this context? */
+function isEntryBeta(entry: NativeNavEntry, ctx: NativeNavContext): boolean {
+  const featureId = resolveEntryOwner(entry, ctx.role);
+  const eff = ctx.effectiveStates[featureId];
+  if (eff?.beta === true) return true;
+  return effectiveLifecycle(featureId, ctx.effectiveStates) === 'beta';
+}
+
+/**
+ * Pure governance → tab-bar plan for the 5 real native tab screens. The layout
+ * consumes this so the rendered tabs == the unit-tested decision: a screen is
+ * `visible` only when its owning entry survives `getNativeTabs` (eligibility +
+ * lifecycle + backend visibility + ≤5 cap); `escrow` is drawer-only so it is
+ * always hidden in the tab bar.
+ */
+export function resolveTabBar(ctx: NativeNavContext): TabBarItem[] {
+  const visibleTabIds = new Set(getNativeTabs(ctx).map((e) => e.id));
+  const entryById = new Map(NATIVE_NAV.map((e) => [e.id, e]));
+  return TAB_SCREEN_ENTRY_IDS.map(({ name, entryId }) => {
+    const entry = entryById.get(entryId)!;
+    return {
+      name,
+      // Drawer-only entries (escrow) are never tabs even though the screen ships.
+      visible: entry.placement === 'tab' && visibleTabIds.has(entryId),
+      beta: isEntryBeta(entry, ctx),
+      iconName: entry.iconName,
+      title: entry.label,
+    };
+  });
+}
+
 /** A structural-validation violation. */
 export interface NativeNavViolation {
   entryId: string;
