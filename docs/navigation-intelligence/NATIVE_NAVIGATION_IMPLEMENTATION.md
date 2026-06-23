@@ -227,3 +227,56 @@ popping the screen. The listener is removed when the drawer hides. The `Modal`'s
 - `npx tsx tests/native-drawer.test.ts` → **27 passed, 0 failed**.
 - `npx tsx tests/native-tabs.test.ts` (Milestone B) → **18 passed, 0 failed**.
 - `npx tsx tests/native-navigation.test.ts` (Milestone A) → **18 passed, 0 failed**.
+
+---
+
+## 11. Native governance boundary audit (route-level enforcement)
+
+Codex P2 follow-up: the tab bar hides a governed tab, but a deep link / typed
+route / the INITIAL navigation could still reach a screen that lacked a
+route-level boundary. `index` (Dashboard) and `marketplace` were the two
+unguarded governed tab screens; both are now wrapped. The structural test
+`mobile/tests/native-boundary-audit.test.ts` reads each governed `NATIVE_NAV`
+tab/drawer screen from disk and asserts it imports + uses `NativeFeatureBoundary`
+with the governing owner (so this can never silently regress).
+
+| Route (screen file) | Owning feature | Tab rule | Drawer rule | Route-level boundary? | Deep-link / direct-nav behavior |
+| --- | --- | --- | --- | --- | --- |
+| `app/(tabs)/index.tsx` | `${role}.overview` (role-resolved: owner/dealer/mechanic/bank/insurance/government/admin) | Always present (the home tab); `resolveTabBar` may hide if the role overview is non-visible | n/a | **Yes** — `featureId={`${role}.overview`}`, route from manifest (default `/dashboard`); anon (no role) short-circuits to `<Redirect href="/login" />` | Anon → redirect to sign-in; authed wrong-state (disabled/planned/hidden/deprecated) → safe state screen; active → render |
+| `app/(tabs)/marketplace.tsx` | `product.marketplace` | Visible when `product.marketplace` is eligible + visible (`getNativeTabs`) | n/a | **Yes** — `featureId="product.marketplace"` | disabled/`accessible:false`/planned/hidden/deprecated → safe/redirect state; active → render (public — no auth gate) |
+| `app/(tabs)/garage.tsx` | `owner.garage` | Owner-only tab; hidden for non-owners / non-visible | n/a | **Yes** (pre-existing) — `featureId="owner.garage"` | anon → sign-in; wrong-role → own dashboard; disabled/planned/… → safe state; active → render |
+| `app/(tabs)/referral.tsx` | `owner.referrals` | Owner-only tab | n/a | **Yes** (pre-existing) — `featureId="owner.referrals"` | anon → sign-in; wrong-role → own dashboard; lifecycle-gated → safe state; active → render |
+| `app/(tabs)/escrow.tsx` | `owner.listings` | Always hidden in the tab bar (drawer-only entry) | Drawer "SafePay" section; visible when `owner.listings` eligible + visible | **Yes** (pre-existing) — `featureId="owner.listings"` | anon → sign-in; wrong-role → own dashboard; lifecycle-gated → safe state; active → render |
+| `app/vehicle/[vin].tsx` | `product.marketplace` | n/a (`placement: 'none'`) | n/a | Deep-link boundary only (exempt from the tab/drawer audit) | governed identically to marketplace via the route boundary if wrapped |
+| `app/(tabs)/more.tsx` | — (no owning feature) | Custom button: opens drawer (authed) / sign-in (anon); never navigates | n/a | Exempt (redirect stub, no governed feature) | direct deep link → redirects to `/` |
+
+**Identity-transition readiness (fail-closed).** The boundary now also consumes
+`isGovernanceReadyForIdentity(currentKey, loadedForKey, loading, error)` before
+evaluating a governed route:
+
+- **A→B transition** — `computeRefreshStart` clears A's map (`loadedForKey→null`,
+  `loading→true`), so the boundary shows a spinner and blocks until B's states
+  load. B is **never** evaluated against A's `accessible:true` map.
+- **Failed B load** — `fetchEffectiveStates()` now returns a discriminated
+  `{ ok:false }` (distinct from a success-empty `{ ok:true, map:{} }`); the store
+  sets `error:true` and does **not** set `loadedForKey`. The boundary renders a
+  retryable **"Temporarily unavailable"** screen (Retry → `refresh()`), staying
+  blocked rather than un-gating.
+- **Cold-start (never loaded)** — `loadedForKey === null && !loading && !error`
+  proceeds with the documented static-manifest fallback (public boot routes
+  aren't blocked) and kicks a one-shot `refresh()` via a guarded effect; protected
+  routes still gate via auth inside `evaluateNativeRouteAccess`.
+- **Same-identity transient failure** — keeps the last-good map (still loaded for
+  this identity) and flags `error:true` so a Retry is offered; the dangerous case
+  (an identity CHANGE failure) stays blocked because `loadedForKey` is null.
+
+## 12. Verification (governance boundary follow-up)
+
+- `cd mobile && npx tsc --noEmit` → **0 errors**.
+- `npx tsx tests/native-boundary-audit.test.ts` → **18 passed, 0 failed**.
+- `npx tsx tests/native-governance-refresh.test.ts` → readiness-contract cases
+  added (A→B blocks; B ready only after load; denied-B never sees A; failed-B
+  safe+retryable; same-identity keeps map; stale in-flight A discarded; logout
+  clears protected; tenant + role switch both block; cold-start fallback).
+- `npx tsx tests/native-tabs.test.ts` / `native-navigation.test.ts` /
+  `native-drawer.test.ts` → unchanged, still pass.

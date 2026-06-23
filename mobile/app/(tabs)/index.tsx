@@ -1,9 +1,11 @@
 import React from 'react';
 import { View, Text, Pressable, ScrollView } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import { getFeatureById } from '../../navigation/featureManifest';
 
-export default function DashboardScreen() {
+function DashboardScreenInner() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -129,5 +131,34 @@ export default function DashboardScreen() {
         </Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+/**
+ * Governed route boundary (Milestone C). The dashboard tab is role-resolved: it
+ * is owned by the active role's `${role}.overview` feature (owner.overview,
+ * dealer.overview, …), so a direct / deep-link / initial navigation is gated by
+ * the SAME governed decision per role. The route is resolved from the manifest
+ * (never fabricated), defaulting to `/dashboard`.
+ *
+ * Anonymous (no role): every `*.overview` feature is `requiresAuth`, so there is
+ * no role-owned feature to gate against. We short-circuit to the sign-in route
+ * so an unauthenticated deep link to the dashboard redirects to auth instead of
+ * rendering. (Once signed in, role resolves and the overview boundary governs.)
+ */
+export default function DashboardScreen() {
+  const role = useAuthStore((s) => s.user?.role ?? null);
+
+  if (!role) {
+    return <Redirect href="/login" />;
+  }
+
+  const featureId = `${role}.overview`;
+  const route = getFeatureById(featureId)?.route ?? '/dashboard';
+
+  return (
+    <NativeFeatureBoundary route={route} featureId={featureId} hasNativeScreen>
+      <DashboardScreenInner />
+    </NativeFeatureBoundary>
   );
 }
