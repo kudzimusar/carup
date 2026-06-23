@@ -257,6 +257,60 @@ describe('FeatureGovernanceConsole', () => {
     await waitFor(() => expect(listFeatures).toHaveBeenCalledTimes(2))
   })
 
+  it('an invalid percentage + Save shows the accessible error and does NOT open the confirm dialog', async () => {
+    const user = userEvent.setup()
+    await renderLoaded()
+
+    const dialog = await openDetail(user, 'product.insurance')
+    const pctInput = within(dialog).getByTestId('fg-edit-percentage') as HTMLInputElement
+    await user.clear(pctInput)
+    await user.type(pctInput, '101') // out of range — number input accepts the digits
+    await user.click(within(dialog).getByTestId('fg-edit-save'))
+
+    // Accessible inline error appears, wired via aria-describedby + role=alert.
+    const err = await within(dialog).findByTestId('fg-edit-percentage-error')
+    expect(err).toBeTruthy()
+    expect(err.getAttribute('role')).toBe('alert')
+    expect(pctInput.getAttribute('aria-invalid')).toBe('true')
+    expect(pctInput.getAttribute('aria-describedby')).toBe('fg-edit-percentage-error')
+
+    // The confirmation gate must NOT open on an invalid value.
+    expect(screen.queryByTestId('fg-confirm-dialog')).toBeNull()
+    expect(updateRollout).not.toHaveBeenCalled()
+  })
+
+  it('blank percentage + Save is valid (defaults to 100%) — never silently 0%', async () => {
+    const user = userEvent.setup()
+    await renderLoaded()
+
+    const dialog = await openDetail(user, 'product.insurance')
+    const pctInput = within(dialog).getByTestId('fg-edit-percentage') as HTMLInputElement
+    await user.clear(pctInput)
+    await user.click(within(dialog).getByTestId('fg-edit-save'))
+
+    // Blank is valid: no error, confirm opens and shows the 100% default (NOT 0%).
+    // (before is also 100% for this fixture, so there are two matches — assert >=1.)
+    const confirm = await screen.findByTestId('fg-confirm-dialog')
+    expect(within(confirm).getAllByText('100%').length).toBeGreaterThan(0)
+    expect(within(confirm).queryByText('0%')).toBeNull()
+    expect(within(dialog).queryByTestId('fg-edit-percentage-error')).toBeNull()
+  })
+
+  it('a valid percentage opens the confirm dialog showing the normalized number', async () => {
+    const user = userEvent.setup()
+    await renderLoaded()
+
+    const dialog = await openDetail(user, 'product.insurance')
+    const pctInput = within(dialog).getByTestId('fg-edit-percentage') as HTMLInputElement
+    await user.clear(pctInput)
+    await user.type(pctInput, '25')
+    await user.click(within(dialog).getByTestId('fg-edit-save'))
+
+    const confirm = await screen.findByTestId('fg-confirm-dialog')
+    // Confirmation reflects the normalized value (25%), not a raw / 0 fallback.
+    expect(within(confirm).getByText('25%')).toBeTruthy()
+  })
+
   it('surfaces fg-conflict when updateRollout rejects with a version_conflict error', async () => {
     const user = userEvent.setup()
     updateRollout.mockRejectedValue(new Error('version_conflict'))

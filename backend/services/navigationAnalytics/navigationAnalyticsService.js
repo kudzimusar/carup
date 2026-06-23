@@ -20,6 +20,10 @@ import { resolveRequestContext } from '../featureGovernance/featureGovernanceSer
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MANIFEST_PATH = path.resolve(__dirname, '../../../shared/navigation/feature-manifest.json');
+// Backend-authoritative allowlist of navigation NODE ids (e.g. 'buy.shop-all').
+// Generated from web/src/config/navigationManifest.ts by
+// scripts/generate-feature-manifest.mjs and kept in sync by the CI drift gate.
+const NAV_NODES_PATH = path.resolve(__dirname, '../../../shared/navigation/navigation-nodes.json');
 const TABLE = 'navigation_analytics_events';
 
 // ── Bounds ───────────────────────────────────────────────────────────────────
@@ -71,17 +75,29 @@ function buildAllowlist() {
   } catch {
     manifest = [];
   }
+  // The navigation NODE ids (e.g. 'buy.shop-all') are a SEPARATE allowlist from
+  // the FEATURE ids — they live in NAVIGATION_MANIFEST, not the feature manifest.
+  let navNodes = [];
+  try {
+    navNodes = JSON.parse(fs.readFileSync(NAV_NODES_PATH, 'utf8'));
+  } catch {
+    navNodes = [];
+  }
   const routes = new Set();
-  const nodeIds = new Set();
+  const featureRouteNodeIds = new Set();
   const featureIds = new Set();
   for (const entry of Array.isArray(manifest) ? manifest : []) {
     if (entry?.route) routes.add(entry.route);
     if (entry?.id) {
-      nodeIds.add(entry.id);
+      featureRouteNodeIds.add(entry.id);
       featureIds.add(entry.id);
     }
   }
-  _allowlist = { routes, nodeIds, featureIds };
+  const navNodeIds = new Set(Array.isArray(navNodes) ? navNodes : []);
+  // `nodeIds` keeps its existing role inside route sanitization (a feature id can
+  // legitimately appear as a route pattern); `navNodeIds` is the strict
+  // allowlist for the persisted `node_id` column.
+  _allowlist = { routes, nodeIds: featureRouteNodeIds, featureIds, navNodeIds };
   return _allowlist;
 }
 /** Test/maintenance hook to force a manifest re-read. */
@@ -112,6 +128,27 @@ function allowlistedFeatureId(raw) {
   if (!value) return null;
   const { featureIds } = buildAllowlist();
   return featureIds.has(value) ? value : null;
+}
+
+/**
+ * Allowlist a navigation NODE id against the backend-authoritative set generated
+ * from NAVIGATION_MANIFEST (shared/navigation/navigation-nodes.json).
+ *
+ * Policy: trim and bound the length, then return the value IFF it is a REGISTERED
+ * navigation node id (e.g. 'buy.shop-all'). Anything else — an unknown id, a
+ * malformed/oversized string, or a PII-looking value a caller tried to smuggle in
+ * (email / VIN / phone / free text) — is replaced with **null**. The event still
+ * persists for route-level signal; only the node_id is dropped. A genuinely
+ * absent node_id is also null and acceptable. This guarantees the stored node_id
+ * is always a member of the allowlist or null — never arbitrary caller input.
+ */
+function allowlistedNodeId(raw) {
+  if (raw == null || typeof raw !== 'string') return null;
+  // Bound length BEFORE allowlist lookup so an oversized value can never match.
+  const value = raw.trim().slice(0, LIMITS.node_id);
+  if (!value) return null;
+  const { navNodeIds } = buildAllowlist();
+  return navNodeIds.has(value) ? value : null;
 }
 
 function boundedString(raw, max) {
@@ -149,7 +186,7 @@ export function projectEvent(raw, { roleCategory = 'anonymous', schemaVersion = 
     schema_version: schemaVersion,
     event_type: eventType,
     feature_id: allowlistedFeatureId(raw.feature_id),
-    node_id: boundedString(raw.node_id, LIMITS.node_id),
+    node_id: allowlistedNodeId(raw.node_id),
     surface,
     source_route_pattern: sanitizeRoutePattern(raw.source_route_pattern),
     destination_route_pattern: sanitizeRoutePattern(raw.destination_route_pattern),

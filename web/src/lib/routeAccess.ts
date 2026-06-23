@@ -19,13 +19,67 @@
 import type { UserRole } from '@shared/types'
 import {
   getFeatureByRoute,
+  getFeatureById,
   isPublicRoute,
+  matchRoutePattern,
   getStaticLifecycle,
   getDashboardRoute,
+  type FeatureRegistryItem,
   type EffectiveFeatureState,
   type FeatureLifecycleState,
 } from '@/config/featureRegistry'
 import { safeReturnTo } from '@/lib/returnTo'
+
+/**
+ * Legacy `/marketplace/*` sub-routes that App.tsx wires directly to the
+ * VehicleDetail page but that the Feature Registry does NOT model as their own
+ * first-class, governed feature. They must inherit the Marketplace product's
+ * effective lifecycle/enabled/accessibility so a disabled or tenant-denied
+ * Marketplace cannot still render vehicle detail by typing (or refreshing) the
+ * URL — keeping direct route access in agreement with navigation visibility.
+ *
+ * This is a deterministic, ORDERED resolution table (most specific first):
+ *   - `/marketplace/listing/:id` is genuinely unregistered, so it resolves
+ *     before `/marketplace/:id`.
+ *   - `/marketplace/:id` happens to also match the placeholder
+ *     `public.vehicle-detail` registry entry, which has no independent
+ *     governance intent of its own; binding it here makes the Marketplace
+ *     product its single authoritative owner (no duplicate competing active
+ *     feature is introduced).
+ *
+ * Crucially this is consulted only AFTER `getFeatureByRoute`, and only for
+ * routes that are either unregistered or the un-governed vehicle-detail
+ * placeholder. Genuinely-registered siblings — `/marketplace/parts`
+ * (product.marketplace-parts) and `/marketplace/services`
+ * (product.marketplace-services) — resolve to their OWN features and never fall
+ * through here. Unrelated dynamic routes (e.g. `/dashboard/garage/:id`) are not
+ * listed and therefore never bound to Marketplace.
+ */
+const LEGACY_ROUTE_OWNERS: ReadonlyArray<{ pattern: string; featureId: string }> = [
+  { pattern: '/marketplace/listing/:id', featureId: 'product.marketplace' },
+  { pattern: '/marketplace/:id', featureId: 'product.marketplace' },
+]
+
+/**
+ * Feature ids that, although present in the registry, are un-governed legacy
+ * placeholders deferring to a legacy owner (see {@link LEGACY_ROUTE_OWNERS}).
+ * When `getFeatureByRoute` resolves to one of these, the legacy table — not the
+ * placeholder — decides governance.
+ */
+const LEGACY_PLACEHOLDER_FEATURE_IDS: ReadonlySet<string> = new Set(['public.vehicle-detail'])
+
+/**
+ * Resolve the legacy owning feature for a route, or undefined when none applies.
+ * Deterministic and ordered (most specific pattern first). Returns the OWNING
+ * registry feature so the SAME gate logic that runs for a registered feature can
+ * be reused against the owner's id (static lifecycle + `effectiveStates[ownerId]`).
+ */
+function resolveLegacyOwner(route: string): FeatureRegistryItem | undefined {
+  for (const { pattern, featureId } of LEGACY_ROUTE_OWNERS) {
+    if (matchRoutePattern(pattern, route)) return getFeatureById(featureId)
+  }
+  return undefined
+}
 
 export type RouteDecision =
   | { kind: 'loading' }
@@ -74,9 +128,21 @@ export function evaluateRouteAccess(input: RouteAccessInput): RouteDecision {
   // (lifecycle-only) evaluation does not wait — public content renders at once.
   if (isBootstrapping && enforceAuth) return { kind: 'loading' }
 
-  const feature = getFeatureByRoute(route)
+  const direct = getFeatureByRoute(route)
 
-  // 2. Unregistered route: public renders (router owns it); protected → login.
+  // 2a. Legacy `/marketplace/*` vehicle-detail sub-routes (see LEGACY_ROUTE_OWNERS)
+  // are NOT modeled as their own governed feature, so bind them to their owning
+  // product (product.marketplace) and evaluate them with the EXACT same gates as
+  // a registered feature. This is consulted only when the direct match is either
+  // unregistered (e.g. `/marketplace/listing/:id`) or the un-governed
+  // vehicle-detail placeholder (`/marketplace/:id`) — registered siblings like
+  // `/marketplace/parts` and `/marketplace/services` keep their own behavior.
+  const feature =
+    !direct || LEGACY_PLACEHOLDER_FEATURE_IDS.has(direct.id)
+      ? resolveLegacyOwner(route) ?? direct
+      : direct
+
+  // 2b. Still-unregistered route: public renders (router owns it); protected → login.
   if (!feature) {
     return isPublicRoute(route)
       ? { kind: 'render' }

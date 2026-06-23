@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { UserRole, AuthUser } from '@shared/types'
-import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, setUnauthorizedHandler, SessionExpiredError, type AuthHeaders } from '@/lib/apiClient'
 import { readStoredAuth, storeAuth, clearStoredAuth, validateStoredSession } from '@/lib/authSession'
+import { setNavAnalyticsAuthProvider } from '@/lib/navigationAnalytics'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
@@ -54,6 +55,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(clearAuth)
     return () => setUnauthorizedHandler(null)
   }, [clearAuth])
+
+  // Let the navigation analytics client read the CURRENT identity headers so its CSRF token (and
+  // the analytics POST) is bound to the signed-in user/session — matching how apiRequest binds the
+  // token. Mirrors the setUnauthorizedHandler wiring above. Undefined values are filtered so a
+  // guest sends no identity headers (and gets a guest-bound token).
+  useEffect(() => {
+    setNavAnalyticsAuthProvider(() => {
+      const headers: AuthHeaders = {
+        'x-session-token': token ?? undefined,
+        'x-user-id': user?.id,
+        'x-stakeholder-role': user?.role,
+        'x-tenant-id': user?.active_tenant_id ?? undefined,
+      }
+      return Object.fromEntries(
+        Object.entries(headers).filter(([, v]) => v !== undefined),
+      ) as AuthHeaders
+    })
+    return () => setNavAnalyticsAuthProvider(null)
+  }, [token, user?.id, user?.role, user?.active_tenant_id])
 
   // On boot, restore the stored session optimistically, then VALIDATE the token against the
   // backend. Only an explicit "session invalid/expired" (401) clears auth; transient/ambiguous
