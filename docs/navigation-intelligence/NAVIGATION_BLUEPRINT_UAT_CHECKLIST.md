@@ -89,3 +89,16 @@ For owner, dealer, mechanic, insurance, government, admin, bank:
 
 ---
 **Sign-off:** Product Owner ______________________  Date __________  Result: PASS / PASS-WITH-NOTES / FAIL
+
+## H. Full-Completion (Milestones A–I) — additional UAT (run on staging)
+| # | Step | Expected | Actual | Shot | P/F |
+|---|---|---|---|---|---|
+| H1 | 📱 Native: sign in as owner | Tabs = Dashboard, Marketplace, Garage, Referrals, More; More opens the governed drawer (SafePay) | | | |
+| H2 | 📱 Native: sign in as dealer/mechanic/etc. | Only Dashboard + Marketplace tabs (no fabricated work screens); More drawer has no owner-only items | | | |
+| H3 | 📱 Native: anonymous | Marketplace tab only; More → Sign in; no protected routes reachable | | | |
+| H4 | 📱 Native: logout / role switch | Tabs + drawer refresh to the new identity; protected items cleared on logout | | | |
+| H5 | 📱 Native: physical device | App reaches the staging API (no localhost) for auth/nav/marketplace | | | |
+| H6 | 🖥 `/admin/features` direct refresh | Loading state → console renders (lazy chunk); non-admin is redirected | | | |
+| H7 | 🖥 Console: set a feature to 25% rollout | Same subject sees a stable result across reloads; role/tenant denial still wins; reset → 100% | | | |
+| H8 | 🖥 Navigate around, then open admin Analytics | Funnel metrics (impressions/selections/blocked) populate; charts have text fallbacks; no PII | | | |
+| H9 | 🖥/📱 Accessibility | Keyboard opens/closes menus + Escape; visible focus; reduced-motion honored; native VoiceOver/TalkBack labels present | | | |
