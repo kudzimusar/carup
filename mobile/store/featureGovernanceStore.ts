@@ -12,6 +12,9 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import type { NativeEffectiveStateMap } from '../navigation/types';
 import { fetchEffectiveStates } from '../utils/featureGovernanceApi';
+import { currentIdentityKey, computeRefreshStart } from './featureGovernanceRefresh';
+
+export { currentIdentityKey, computeRefreshStart };
 
 const NAV_COHORT_KEY = 'carup_nav_cohort';
 
@@ -59,14 +62,6 @@ interface FeatureGovernanceState {
   refresh: () => Promise<void>;
 }
 
-/** Identity key from the auth store: distinct user+token ⇒ distinct gating. */
-function currentIdentityKey(
-  user: { id?: string | null } | null,
-  token: string | null,
-): string {
-  return `${user?.id ?? 'anon'}|${token ?? ''}`;
-}
-
 export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) => ({
   effectiveStates: {},
   loading: false,
@@ -78,7 +73,12 @@ export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) =>
     const { user, token } = useAuthStore.getState();
     const requestedKey = currentIdentityKey(user, token);
 
-    set({ loading: true });
+    // Clear a stale map immediately on an identity change so consumers never
+    // read the previous identity's gating during/after the fetch (see
+    // computeRefreshStart). A same-identity refresh keeps the map (no flicker).
+    const { loadedForKey } = useFeatureGovernanceStore.getState();
+    set(computeRefreshStart(loadedForKey, requestedKey));
+
     const map = await fetchEffectiveStates();
 
     // Identity guard: only apply if the identity hasn't changed mid-flight.

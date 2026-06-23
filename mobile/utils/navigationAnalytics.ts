@@ -55,6 +55,57 @@ interface NativeBits {
   platformOS: 'ios' | 'android';
   buildVersion: string;
   fetchImpl: typeof fetch;
+  /**
+   * Build the headers for the analytics POST. MUST include a session-bound CSRF
+   * token because `/api/analytics/navigation` is behind the global
+   * csrfMiddleware — without it every batch is 403'd and dropped. The default
+   * impl reuses the mobile verification CSRF helpers. `forceCsrfRefresh` bypasses
+   * the in-process token cache (used once on a 403). Injectable so node unit
+   * tests can supply a fake without a native/react runtime.
+   */
+  getHeaders: (forceCsrfRefresh: boolean) => Promise<Record<string, string>>;
+}
+
+// The backend's csrfMiddleware binds the x-csrf-token to the x-session-token it
+// was issued with, so cache one token per session (mirrors referralApi.ts).
+const CSRF_TOKEN_TTL_MS = 90 * 60 * 1000;
+let csrfCache: { sessionKey: string; token: string; fetchedAt: number } | null = null;
+
+/**
+ * Default, dependency-light header provider. Dynamically imports the auth store
+ * + verification API (so node unit tests that inject `getHeaders` never load
+ * react-native) and returns a session-bound, CSRF-stamped header set. A small
+ * TTL/sessionKey cache keeps the 5s flush loop from refetching every tick;
+ * `forceCsrfRefresh` bypasses it. Never logs/persists the token.
+ */
+async function defaultGetHeaders(forceCsrfRefresh: boolean): Promise<Record<string, string>> {
+  const { getVerificationApiBaseUrl, fetchCsrfToken } = await import('./verificationApi');
+  const { useAuthStore } = await import('../store/authStore');
+  const { token, user } = useAuthStore.getState();
+  const baseUrl = getVerificationApiBaseUrl();
+  const sessionKey = token || 'none';
+
+  let csrfToken: string;
+  if (
+    !forceCsrfRefresh &&
+    csrfCache &&
+    csrfCache.sessionKey === sessionKey &&
+    Date.now() - csrfCache.fetchedAt < CSRF_TOKEN_TTL_MS
+  ) {
+    csrfToken = csrfCache.token;
+  } else {
+    csrfToken = await fetchCsrfToken(baseUrl, token);
+    csrfCache = { sessionKey, token: csrfToken, fetchedAt: Date.now() };
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
+    'x-csrf-token': csrfToken,
+  };
+  if (token) headers['x-session-token'] = token;
+  if (user?.role) headers['x-stakeholder-role'] = user.role;
+  return headers;
 }
 
 // Lazy, dependency-light native bindings so this module is unit-testable in node
@@ -74,6 +125,7 @@ function defaultBits(): NativeBits {
     platformOS,
     buildVersion,
     fetchImpl: typeof fetch !== 'undefined' ? fetch.bind(globalThis) : (async () => ({ ok: false, status: 0 }) as Response),
+    getHeaders: defaultGetHeaders,
   };
 }
 
@@ -131,9 +183,13 @@ export class NativeNavigationAnalytics {
   }
 
   /**
-   * Best-effort flush with network-aware capped retry. A rejected/failed fetch is
-   * treated as offline → retried up to MAX_RETRIES, then the batch is DROPPED
-   * (never persisted, never requeued unboundedly). NEVER throws.
+   * Best-effort flush with network-aware capped retry. The POST carries a
+   * session-bound CSRF token (the route is behind csrfMiddleware); a fresh CSRF
+   * stamp is required or the batch is 403'd and dropped. On a 403 we refresh the
+   * CSRF token ONCE and retry. A rejected/failed fetch is treated as offline →
+   * retried up to MAX_RETRIES, then the batch is DROPPED (never persisted, never
+   * requeued unboundedly). NEVER throws and never blocks navigation. The token is
+   * never logged or persisted.
    */
   async flush(): Promise<void> {
     if (this.queue.length === 0) return;
@@ -145,14 +201,38 @@ export class NativeNavigationAnalytics {
       return; // misconfigured base → drop silently, never block nav
     }
     const body = JSON.stringify({ schemaVersion: SCHEMA_VERSION, events: batch });
+
+    // Acquire CSRF-stamped headers up front. If header acquisition throws (e.g.
+    // the CSRF endpoint is unreachable), drop the batch safely — never throw.
+    let headers: Record<string, string>;
+    try {
+      headers = await this.bits.getHeaders(false);
+    } catch {
+      return; // drop safely
+    }
+
+    let didCsrfRefresh = false;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         const res = await this.bits.fetchImpl(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body,
         });
         if (res && (res.ok || res.status === 202 || res.status === 400)) return;
+        // A 403 usually means the cached CSRF token went stale or the session
+        // changed — force-refresh the token ONCE and retry with it.
+        if (res && res.status === 403 && !didCsrfRefresh) {
+          didCsrfRefresh = true;
+          try {
+            headers = await this.bits.getHeaders(true);
+          } catch {
+            return; // refresh failed → drop safely
+          }
+          continue;
+        }
+        // Any other non-retryable status (incl. a second 403) → drop.
+        if (res && res.status === 403) return;
       } catch {
         /* offline / transient → retry */
       }
