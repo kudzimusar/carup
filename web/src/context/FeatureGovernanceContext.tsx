@@ -18,6 +18,36 @@ export type EffectiveStateMap = Record<string, EffectiveFeatureState>
 
 const FeatureGovernanceContext = createContext<EffectiveStateMap>({})
 
+const NAV_COHORT_KEY = 'carup_nav_cohort'
+
+/**
+ * Return a STABLE, opaque anonymous cohort id (generated once, persisted in
+ * localStorage). It is NOT authentication and carries no PII — it exists ONLY so
+ * the backend can deterministically bucket an anonymous visitor into a
+ * percentage rollout (so the same browser stays consistently in or out). An
+ * authenticated identity always takes priority server-side. Returns '' when no
+ * storage/crypto is available (SSR / privacy mode) → that visitor is simply
+ * treated as having no cohort (conservative: out of partial rollouts).
+ */
+function getNavCohortId(): string {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return ''
+    const existing = window.localStorage.getItem(NAV_COHORT_KEY)
+    if (existing) return existing
+    const bytes = new Uint8Array(16)
+    if (window.crypto?.getRandomValues) {
+      window.crypto.getRandomValues(bytes)
+    } else {
+      for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+    }
+    const id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+    window.localStorage.setItem(NAV_COHORT_KEY, id)
+    return id
+  } catch {
+    return ''
+  }
+}
+
 export function FeatureGovernanceProvider({
   value = {},
   children,
@@ -61,6 +91,10 @@ export function FeatureGovernanceLoader({ children }: { children: ReactNode }) {
     if (token) headers['x-session-token'] = token
     if (user?.id) headers['x-user-id'] = user.id
     if (user?.active_tenant_id) headers['x-tenant-id'] = user.active_tenant_id
+    // Opaque, non-PII anonymous cohort id — buckets anonymous visitors into a
+    // deterministic percentage rollout. Authenticated identity still wins.
+    const cohortId = getNavCohortId()
+    if (cohortId) headers['x-nav-cohort'] = cohortId
     fetch(`${base}/features/effective`, { headers, credentials: 'omit' })
       .then(r => (r.ok ? r.json() : null))
       .then((body: { features?: EffectiveFeatureState[] } | null) => {

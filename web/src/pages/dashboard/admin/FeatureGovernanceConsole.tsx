@@ -64,6 +64,9 @@ interface EditForm {
   ends_at: string
   allowed_tenant_ids: string
   denied_tenant_ids: string
+  /** 0–100 as a string (number input). Empty → treated as 100. */
+  rollout_percentage: string
+  rollout_seed: string
 }
 
 function formFromRow(row: AdminFeatureRow): EditForm {
@@ -78,7 +81,16 @@ function formFromRow(row: AdminFeatureRow): EditForm {
     ends_at: o?.ends_at ? o.ends_at.slice(0, 16) : '',
     allowed_tenant_ids: (o?.allowed_tenant_ids ?? []).join(', '),
     denied_tenant_ids: (o?.denied_tenant_ids ?? []).join(', '),
+    rollout_percentage: String(o?.rollout_percentage ?? 100),
+    rollout_seed: o?.rollout_seed ?? '',
   }
+}
+
+/** Clamp a percentage form string to an int 0–100 (default 100 when empty/invalid). */
+function parsePercentage(raw: string): number {
+  const n = Math.trunc(Number(raw))
+  if (!Number.isFinite(n)) return 100
+  return Math.max(0, Math.min(100, n))
 }
 
 export default function FeatureGovernanceConsole() {
@@ -152,6 +164,8 @@ export default function FeatureGovernanceConsole() {
     ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null,
     allowed_tenant_ids: f.allowed_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
     denied_tenant_ids: f.denied_tenant_ids.split(',').map(s => s.trim()).filter(Boolean),
+    rollout_percentage: parsePercentage(f.rollout_percentage),
+    rollout_seed: f.rollout_seed.trim() ? f.rollout_seed.trim().slice(0, 64) : null,
     expectedVersion: row.override?.version,
   })
 
@@ -259,7 +273,7 @@ export default function FeatureGovernanceConsole() {
                     <td className="px-3 py-2"><StateBadge state={r.defaultLifecycle} /></td>
                     <td className="px-3 py-2"><StateBadge state={r.effective.state} /></td>
                     <td className="px-3 py-2">{r.effective.enabled ? 'Yes' : 'No'}</td>
-                    <td className="px-3 py-2">{r.override ? <Badge className="bg-purple-100 text-purple-800">overridden v{r.override.version}</Badge> : <span className="text-gray-400 text-xs">default</span>}</td>
+                    <td className="px-3 py-2">{r.override ? <div className="flex flex-col gap-0.5"><Badge className="bg-purple-100 text-purple-800">overridden v{r.override.version}</Badge>{r.override.rollout_percentage < 100 && <span data-testid={`fg-pct-${r.id}`} className="text-[11px] text-amber-700">{r.override.rollout_percentage}% rollout</span>}</div> : <span className="text-gray-400 text-xs">default</span>}</td>
                     <td className="px-3 py-2"><Button size="sm" variant="outline" data-testid={`fg-open-${r.id}`} onClick={() => openDetail(r)}>Manage</Button></td>
                   </tr>
                 ))}
@@ -352,6 +366,75 @@ export default function FeatureGovernanceConsole() {
                     <p className="text-[11px] text-gray-400 mt-1">Roles outside the immutable bound are disabled — an override can never broaden access.</p>
                   </div>
 
+                  {/* Percentage rollout — deterministic, never broadens role/tenant */}
+                  {(() => {
+                    const pct = parsePercentage(form.rollout_percentage)
+                    const originalSeed = selected.override?.rollout_seed ?? ''
+                    const seedChanged = form.rollout_seed.trim() !== originalSeed
+                    return (
+                      <div className="rounded-md border border-gray-200 p-3 space-y-2">
+                        <div className="grid grid-cols-2 gap-2 items-end">
+                          <div>
+                            <Label htmlFor="fg-edit-percentage">Rollout percentage (0–100)</Label>
+                            <Input
+                              id="fg-edit-percentage" data-testid="fg-edit-percentage"
+                              type="number" min={0} max={100} step={1}
+                              value={form.rollout_percentage}
+                              onChange={e => setForm({ ...form, rollout_percentage: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="fg-edit-percentage-slider">Adjust</Label>
+                            <input
+                              id="fg-edit-percentage-slider" data-testid="fg-edit-percentage-slider"
+                              type="range" min={0} max={100} step={1} value={pct}
+                              onChange={e => setForm({ ...form, rollout_percentage: e.target.value })}
+                              className="w-full" aria-label="Rollout percentage slider"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor="fg-edit-seed">Rotation seed (optional, ≤64 chars)</Label>
+                          <Input
+                            id="fg-edit-seed" data-testid="fg-edit-seed" maxLength={64}
+                            value={form.rollout_seed}
+                            onChange={e => setForm({ ...form, rollout_seed: e.target.value })}
+                            placeholder="Rotating this reshuffles which subjects are in the rollout"
+                          />
+                        </div>
+                        <p className="text-[11px] text-gray-500">
+                          Exposure is deterministic: each subject (logged-in user, or an opaque
+                          anonymous cohort id) is hashed into a stable 0–99 bucket. A subject is in
+                          the rollout when its bucket is below the percentage — so the same subject
+                          stays consistently in or out. The percentage only NARROWS exposure; it
+                          never grants a role or tenant that policy denies. Anonymous callers without
+                          a cohort id are treated as NOT in a partial rollout (the feature stays
+                          gated for them).
+                        </p>
+                        {pct === 0 && (
+                          <p data-testid="fg-warn-zero" role="alert" className="text-[11px] text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1">
+                            0% — the feature is fully gated for every subject (no one is in the rollout). Use a lifecycle/disabled override if you intend a hard kill-switch.
+                          </p>
+                        )}
+                        {pct > 0 && pct < 100 && (
+                          <p data-testid="fg-warn-partial" className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+                            Partial rollout — only ~{pct}% of deterministically-bucketed subjects will see this feature.
+                          </p>
+                        )}
+                        {seedChanged && (
+                          <p data-testid="fg-warn-seed" role="alert" className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                            Changing the rotation seed RESHUFFLES cohorts — subjects currently in the rollout may move out and vice-versa.
+                          </p>
+                        )}
+                        {environment === 'production' && pct < 100 && (
+                          <p data-testid="fg-warn-prod" role="alert" className="text-[11px] text-red-800 bg-red-50 border border-red-200 rounded px-2 py-1">
+                            Production environment — a partial percentage gates real users. Double-check before applying.
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
+
                   <div className="grid grid-cols-2 gap-2">
                     <div><Label htmlFor="fg-edit-starts">Starts at</Label><Input id="fg-edit-starts" type="datetime-local" value={form.starts_at} onChange={e => setForm({ ...form, starts_at: e.target.value })} /></div>
                     <div><Label htmlFor="fg-edit-ends">Ends at</Label><Input id="fg-edit-ends" type="datetime-local" value={form.ends_at} onChange={e => setForm({ ...form, ends_at: e.target.value })} /></div>
@@ -398,7 +481,7 @@ export default function FeatureGovernanceConsole() {
             <AlertDialogTitle>{confirm?.kind === 'reset' ? 'Reset override?' : 'Apply override change?'}</AlertDialogTitle>
             <AlertDialogDescription>
               {selected && form && confirm?.kind === 'save' && (
-                <>Environment <b>{environment}</b>. Effective lifecycle <b>{selected.effective.state}</b> → <b>{form.lifecycle_state || selected.defaultLifecycle}</b>; enabled <b>{String(selected.effective.enabled)}</b> → <b>{String(form.enabled)}</b>. This is audited.</>
+                <>Environment <b>{environment}</b>. Effective lifecycle <b>{selected.effective.state}</b> → <b>{form.lifecycle_state || selected.defaultLifecycle}</b>; enabled <b>{String(selected.effective.enabled)}</b> → <b>{String(form.enabled)}</b>; rollout <b>{selected.override?.rollout_percentage ?? 100}%</b> → <b>{parsePercentage(form.rollout_percentage)}%</b>{form.rollout_seed.trim() !== (selected.override?.rollout_seed ?? '') ? <> (seed rotated — cohorts reshuffle)</> : null}. This is audited.</>
               )}
               {selected && confirm?.kind === 'reset' && (
                 <>This removes the {environment} override for <b>{selected.id}</b> and reverts it to the static default <b>{selected.defaultLifecycle}</b>. This is audited.</>

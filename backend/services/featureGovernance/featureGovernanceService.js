@@ -11,6 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { supabase as defaultClient } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
@@ -22,6 +23,7 @@ const TABLE = 'feature_rollout_overrides';
 const VALID_ENVIRONMENTS = ['development', 'staging', 'production'];
 const VALID_LIFECYCLE = ['active', 'beta', 'planned', 'hidden', 'disabled', 'deprecated'];
 const CACHE_TTL_MS = 30_000;
+const MAX_SEED_LENGTH = 64; // mirrors the DB CHECK (rollout_seed length bound)
 
 function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
@@ -56,6 +58,10 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
   const headers = (req && req.headers) || {};
   const token = headers['x-session-token'] || (headers['authorization'] ? String(headers['authorization']).replace('Bearer ', '') : null);
   const fallbackUserId = headers['x-user-id'];
+  // Opaque, NON-AUTH cohort id (web localStorage / native install id). Used ONLY
+  // to bucket anonymous (or otherwise identity-less) subjects into a percentage
+  // rollout — it confers no role or tenant. Bounded so it can't bloat the hash.
+  const cohortId = sanitizeCohortId(headers['x-nav-cohort']);
 
   try {
     let session = null;
@@ -74,7 +80,7 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
     if (!userId && fallbackUserId && isUserIdFallbackAllowed()) {
       userId = fallbackUserId; // dev/test fallback: no session row → base role only
     }
-    if (!userId) return { role: null, tenantId: null }; // anonymous
+    if (!userId) return { role: null, tenantId: null, userId: null, cohortId }; // anonymous
 
     // Trusted base platform role.
     const { data: users } = await client.from('users').select('role').eq('id', userId);
@@ -84,25 +90,34 @@ export async function resolveRequestContext(req, { client = defaultClient } = {}
     const activeOrg = session?.active_organization_id || null;
 
     // No switched context recorded → base role.
-    if (!activeRole) return { role: baseRole, tenantId: null };
+    if (!activeRole) return { role: baseRole, tenantId: null, userId, cohortId };
 
     // Acting as the base role: tenant applies only if the org membership verifies.
     if (activeRole === baseRole) {
       const membership = await verifyTenantMembership(client, userId, activeOrg);
-      return { role: baseRole, tenantId: membership ? activeOrg : null };
+      return { role: baseRole, tenantId: membership ? activeOrg : null, userId, cohortId };
     }
 
     // Switched (tenant) role: must be backed by a verified, matching, non-admin
     // tenant_users membership — mirrors switch-role's canAssumeRequestedRole.
     const membership = await verifyTenantMembership(client, userId, activeOrg);
     if (activeOrg && membership && normalizeRole(membership.role) === activeRole && activeRole !== 'admin') {
-      return { role: activeRole, tenantId: activeOrg };
+      return { role: activeRole, tenantId: activeOrg, userId, cohortId };
     }
     // Stale / unverifiable switched context → least privilege.
-    return { role: baseRole, tenantId: null };
+    return { role: baseRole, tenantId: null, userId, cohortId };
   } catch {
-    return { role: null, tenantId: null }; // fail closed
+    return { role: null, tenantId: null, userId: null, cohortId: null }; // fail closed
   }
+}
+
+/** Normalize an inbound x-nav-cohort header → trimmed string ≤128 chars, or null. */
+function sanitizeCohortId(raw) {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof v !== 'string') return null;
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 128);
 }
 
 // ── Static manifest ─────────────────────────────────────────────────────────
@@ -154,6 +169,17 @@ export function validateOverridePatch(entry, patch, environment) {
     }
   }
   if (patch.enabled != null && typeof patch.enabled !== 'boolean') errors.push('invalid_enabled');
+  if (patch.rollout_percentage != null) {
+    const p = patch.rollout_percentage;
+    if (typeof p !== 'number' || !Number.isInteger(p) || Number.isNaN(p) || p < 0 || p > 100) {
+      errors.push('invalid_rollout_percentage');
+    }
+  }
+  if (patch.rollout_seed != null) {
+    if (typeof patch.rollout_seed !== 'string' || patch.rollout_seed.length > MAX_SEED_LENGTH) {
+      errors.push('invalid_rollout_seed');
+    }
+  }
   if (patch.starts_at && Number.isNaN(Date.parse(patch.starts_at))) errors.push('invalid_starts_at');
   if (patch.ends_at && Number.isNaN(Date.parse(patch.ends_at))) errors.push('invalid_ends_at');
   if (patch.starts_at && patch.ends_at && Date.parse(patch.ends_at) < Date.parse(patch.starts_at)) {
@@ -179,6 +205,64 @@ function tenantAllowed(override, tenantId) {
     return tenantId ? override.allowed_tenant_ids.includes(tenantId) : false;
   }
   return true;
+}
+
+// ── Deterministic percentage rollout ────────────────────────────────────────
+/**
+ * Resolve the STABLE subject id used for percentage bucketing from a trusted
+ * context, in priority order. The cohort id is NOT auth — it only buckets an
+ * identity-less subject. Returns `null` when no stable subject is available.
+ *
+ *   1. authenticated user_id
+ *   2. user_id + ':' + tenantId  (verified tenant context — keeps the same user
+ *      in a consistent bucket per tenant)
+ *   3. anonymous cohort id (web localStorage / native install id, x-nav-cohort)
+ */
+export function resolveSubject(ctx = {}) {
+  if (ctx.userId && ctx.tenantId) return `${ctx.userId}:${ctx.tenantId}`;
+  if (ctx.userId) return String(ctx.userId);
+  if (ctx.cohortId) return `cohort:${ctx.cohortId}`;
+  return null;
+}
+
+/**
+ * Deterministic bucket 0–99 for (feature, environment, seed, subject). ONE
+ * stable server-side hash (SHA-256 over a pipe-joined key, first 4 bytes → mod
+ * 100) so the SAME inputs map to the SAME bucket across every instance, process
+ * and restart. No per-request randomness. Pure.
+ */
+export function rolloutBucket(featureId, environment, seed, subject) {
+  const key = `${featureId}|${environment}|${seed || ''}|${subject}`;
+  const digest = crypto.createHash('sha256').update(key).digest();
+  // First 4 bytes as an unsigned 32-bit int, then mod 100.
+  const n = digest.readUInt32BE(0);
+  return n % 100;
+}
+
+/**
+ * Whether a subject is INSIDE the percentage rollout for an override.
+ *  - percentage >= 100 → always in (full rollout; the default for every row).
+ *  - percentage <= 0   → never in.
+ *  - 0 < percentage < 100 with a stable subject → bucket < percentage.
+ *  - 0 < percentage < 100 with NO stable subject (anonymous, no cohort) → NOT
+ *    in (conservative — a partially-rolled feature stays gated for callers we
+ *    cannot deterministically bucket; it is never broadened by chance).
+ */
+export function passesPercentage(override, ctx = {}) {
+  const pct = normalizePercentage(override?.rollout_percentage);
+  if (pct >= 100) return true;
+  if (pct <= 0) return false;
+  const subject = resolveSubject(ctx);
+  if (!subject) return false; // conservative: no stable subject → gated out
+  return rolloutBucket(override.feature_id, ctx.environment, override.rollout_seed, subject) < pct;
+}
+
+/** Coerce a stored percentage to an integer 0–100 (default 100 when absent/invalid). */
+function normalizePercentage(value) {
+  if (value === null || value === undefined) return 100;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 100;
+  return Math.max(0, Math.min(100, Math.trunc(n)));
 }
 
 /**
@@ -211,8 +295,16 @@ export function evaluateEffectiveState(entry, override, ctx = {}) {
   const roleEligible = !requiresAuth ? true : (ctx.role ? allowedRoles.includes(ctx.role) : false);
   const tenantOk = applies ? tenantAllowed(override, ctx.tenantId) : true;
 
-  const visible = isLifecycleVisible(state) && roleEligible && enabled && tenantOk;
-  const accessible = isLifecycleAccessible(state) && roleEligible && enabled && tenantOk;
+  // Percentage gate — inserted AFTER role + tenant allow/deny, BEFORE the final
+  // visible/accessible computation. It may ONLY NARROW: a subject bucketed out
+  // gets visible=false/accessible=false, but role/tenant denial already wins
+  // (roleEligible/tenantOk are false → visible/accessible false regardless of
+  // percentage). Percentage NEVER broadens role/tenant. `state`/`enabled` stay
+  // truthful (lifecycle is unchanged); only exposure flips off when bucketed out.
+  const inRollout = applies ? passesPercentage(override, ctx) : true;
+
+  const visible = isLifecycleVisible(state) && roleEligible && enabled && tenantOk && inRollout;
+  const accessible = isLifecycleAccessible(state) && roleEligible && enabled && tenantOk && inRollout;
 
   return {
     featureId: entry.id,
@@ -227,6 +319,8 @@ export function evaluateEffectiveState(entry, override, ctx = {}) {
     reasonCode,
     overridden: applies,
     allowedRoles,
+    rolloutPercentage: applies ? normalizePercentage(override.rollout_percentage) : 100,
+    inRollout,
   };
 }
 
@@ -345,6 +439,8 @@ export async function upsertOverride(featureId, patch, actor, { client = default
     ends_at: patch.ends_at ?? null,
     beta_message: patch.beta_message ?? null,
     reason: patch.reason ?? null,
+    rollout_percentage: patch.rollout_percentage ?? 100,
+    rollout_seed: patch.rollout_seed ?? null,
     updated_by: actor?.id ?? actor?.userId ?? null,
     version: existing ? existing.version + 1 : 1,
   };
@@ -425,6 +521,9 @@ function overrideSummary(entry, row) {
     denied_tenant_ids: row.denied_tenant_ids ?? [],
     starts_at: row.starts_at ?? null,
     ends_at: row.ends_at ?? null,
+    // Rollout config knobs (NOT subjects/buckets — safe to audit).
+    rollout_percentage: normalizePercentage(row.rollout_percentage),
+    rollout_seed: row.rollout_seed ?? null,
     version: row.version,
   };
 }

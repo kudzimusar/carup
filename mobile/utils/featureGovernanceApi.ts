@@ -49,6 +49,16 @@ async function governanceHeaders(): Promise<Record<string, string>> {
   if (token) headers['x-session-token'] = token;
   if (user?.id) headers['x-user-id'] = user.id;
   if (user?.active_tenant_id) headers['x-tenant-id'] = user.active_tenant_id;
+  // Opaque, non-PII installation cohort id — buckets this install into a
+  // deterministic percentage rollout. Authenticated identity still wins
+  // server-side. Lazy import avoids a static store↔api cycle.
+  try {
+    const { getNavCohortId } = await import('../store/featureGovernanceStore');
+    const cohortId = await getNavCohortId();
+    if (cohortId) headers['x-nav-cohort'] = cohortId;
+  } catch {
+    /* no cohort → treated as out of partial rollouts (conservative) */
+  }
   return headers;
 }
 

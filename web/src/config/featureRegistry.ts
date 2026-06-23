@@ -141,6 +141,12 @@ export interface EffectiveFeatureState {
   reasonCode?: string
   deprecatedTo?: string
   betaMessage?: string
+  /**
+   * Current percentage rollout for this feature (admin/unsanitized view only —
+   * the public sanitized payload stays subject-free; a bucketed-out subject is
+   * already reflected via visible/accessible=false). Optional & additive.
+   */
+  rolloutPercentage?: number
 }
 
 // ── Icon names — typed as lucide-react component names ─────────────────────

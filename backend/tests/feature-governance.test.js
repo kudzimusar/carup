@@ -268,51 +268,68 @@ function sessionClient({ activeRole = null, activeOrg = null, baseRole = 'owner'
 }
 const ctxFor = (client, headers = {}) => resolveRequestContext({ headers: { 'x-session-token': 'tok', ...headers } }, { client });
 const findGarage = (states) => states.find((s) => s.featureId === 'owner.garage');
+// Project to the role/tenant authorization contract these tests assert. The
+// resolver ALSO threads additive subject fields (userId, cohortId) used only by
+// the percentage rollout — those are covered in feature-governance-rollout.test.js
+// and are intentionally ignored here so this contract stays focused.
+const rt = (ctx) => ({ role: ctx.role, tenantId: ctx.tenantId });
 
 test('resolveRequestContext: anonymous request → null role/tenant', async () => {
-  assert.deepEqual(await resolveRequestContext({ headers: {} }, { client: makeFakeClient() }), { role: null, tenantId: null });
+  assert.deepEqual(rt(await resolveRequestContext({ headers: {} }, { client: makeFakeClient() })), { role: null, tenantId: null });
 });
 
 test('resolveRequestContext: ordinary base-role session (no active_role) → base role, no tenant', async () => {
-  assert.deepEqual(await ctxFor(sessionClient({ activeRole: null, baseRole: 'owner' })), { role: 'owner', tenantId: null });
+  assert.deepEqual(rt(await ctxFor(sessionClient({ activeRole: null, baseRole: 'owner' }))), { role: 'owner', tenantId: null });
 });
 
 test('resolveRequestContext: active_role equal to base role → base role', async () => {
-  assert.deepEqual(await ctxFor(sessionClient({ activeRole: 'owner', baseRole: 'owner' })), { role: 'owner', tenantId: null });
+  assert.deepEqual(rt(await ctxFor(sessionClient({ activeRole: 'owner', baseRole: 'owner' }))), { role: 'owner', tenantId: null });
 });
 
 test('resolveRequestContext: valid switched-role session with verified membership → active role + tenant', async () => {
   const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'dealer' } });
-  assert.deepEqual(await ctxFor(client), { role: 'dealer', tenantId: 'orgX' });
+  assert.deepEqual(rt(await ctxFor(client)), { role: 'dealer', tenantId: 'orgX' });
 });
 
 test('resolveRequestContext: switched role with MISSING membership → least privilege (base role)', async () => {
   const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: null });
-  assert.deepEqual(await ctxFor(client), { role: 'owner', tenantId: null });
+  assert.deepEqual(rt(await ctxFor(client)), { role: 'owner', tenantId: null });
 });
 
 test('resolveRequestContext: switched role with MISMATCHED tenant role → least privilege', async () => {
   const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'mechanic' } });
-  assert.deepEqual(await ctxFor(client), { role: 'owner', tenantId: null });
+  assert.deepEqual(rt(await ctxFor(client)), { role: 'owner', tenantId: null });
 });
 
 test('resolveRequestContext: STALE switched context (active_role but no active_organization_id) → least privilege', async () => {
-  assert.deepEqual(await ctxFor(sessionClient({ activeRole: 'dealer', activeOrg: null, baseRole: 'owner' })), { role: 'owner', tenantId: null });
+  assert.deepEqual(rt(await ctxFor(sessionClient({ activeRole: 'dealer', activeOrg: null, baseRole: 'owner' }))), { role: 'owner', tenantId: null });
 });
 
 test('resolveRequestContext: switching INTO admin via a tenant role is refused → least privilege', async () => {
   const client = sessionClient({ activeRole: 'admin', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'admin' } });
-  assert.deepEqual(await ctxFor(client), { role: 'owner', tenantId: null });
+  assert.deepEqual(rt(await ctxFor(client)), { role: 'owner', tenantId: null });
 });
 
 test('resolveRequestContext: a spoofed x-stakeholder-role header does NOT change the result', async () => {
   const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', baseRole: 'owner', membership: { org: 'orgX', role: 'dealer' } });
-  assert.deepEqual(await ctxFor(client, { 'x-stakeholder-role': 'admin', 'x-tenant-id': 'evil' }), { role: 'dealer', tenantId: 'orgX' });
+  assert.deepEqual(rt(await ctxFor(client, { 'x-stakeholder-role': 'admin', 'x-tenant-id': 'evil' })), { role: 'dealer', tenantId: 'orgX' });
 });
 
 test('resolveRequestContext: expired session → anonymous (fail closed)', async () => {
   const client = sessionClient({ activeRole: 'dealer', activeOrg: 'orgX', valid: true, expires: pastIso(), membership: { org: 'orgX', role: 'dealer' } });
-  assert.deepEqual(await ctxFor(client), { role: null, tenantId: null });
+  assert.deepEqual(rt(await ctxFor(client)), { role: null, tenantId: null });
+});
+
+test('resolveRequestContext: threads userId + opaque cohortId for percentage bucketing (additive)', async () => {
+  // Authenticated → userId present; cohort header carried through but not auth.
+  const authed = await ctxFor(sessionClient({ activeRole: 'owner', baseRole: 'owner' }), { 'x-nav-cohort': 'cohort-xyz' });
+  assert.equal(authed.userId, 'u1');
+  assert.equal(authed.cohortId, 'cohort-xyz');
+  // Anonymous → no userId, but cohort still threaded for bucketing.
+  const anon = await resolveRequestContext({ headers: { 'x-nav-cohort': 'anon-c1' } }, { client: makeFakeClient() });
+  assert.equal(anon.userId, null);
+  assert.equal(anon.cohortId, 'anon-c1');
+  assert.equal(anon.role, null); // cohort is NOT auth — confers no role
 });
 
 test('resolveRequestContext: effective navigation reflects the ACTIVE role after switching', async () => {
