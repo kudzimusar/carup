@@ -42,7 +42,7 @@ function SocialButton({ social }: { social: SocialLink }) {
       title="Coming soon"
       data-testid={`footer-social-${social.platform}`}
       data-planned="true"
-      className={`${base} bg-gray-800/60 text-gray-500 cursor-not-allowed`}
+      className={`${base} bg-gray-800/60 text-gray-400 cursor-not-allowed`}
     >
       <Icon className="w-4 h-4" />
     </span>
@@ -121,7 +121,7 @@ export default function Footer() {
 
         {/* Bottom bar: copyright · legal · social */}
         <div className="mt-12 pt-8 border-t border-gray-700 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex flex-col sm:flex-row items-center gap-3 text-sm text-gray-500">
+          <div className="flex flex-col sm:flex-row items-center gap-3 text-sm text-gray-400">
             <p>© 2026 CarUp Zimbabwe. All rights reserved.</p>
             {legal.length > 0 && (
               <ul className="flex items-center gap-3" aria-label="Footer Legal">

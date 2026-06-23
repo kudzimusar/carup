@@ -116,8 +116,9 @@ export default function DashboardLayout({ role }: { role: string }) {
             size="icon"
             className="lg:hidden"
             onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar menu"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </Button>
         </div>
 
@@ -169,6 +170,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 key={item.id}
                 to={item.route}
                 onClick={() => setSidebarOpen(false)}
+                aria-current={isActive ? 'page' : undefined}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-orange-50 text-orange-700'
@@ -176,7 +178,7 @@ export default function DashboardLayout({ role }: { role: string }) {
                 }`}
                 data-testid={navIdMap[item.label]}
               >
-                <IconComponent className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
+                <IconComponent className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
                 <span className="flex-1">{item.label}</span>
                 {vis.beta && (
                   <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
@@ -224,8 +226,10 @@ export default function DashboardLayout({ role }: { role: string }) {
             size="icon"
             className="lg:hidden mr-2"
             onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar menu"
+            aria-expanded={sidebarOpen}
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5" aria-hidden="true" />
           </Button>
 
           <div className="flex-1" />
