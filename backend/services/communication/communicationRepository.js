@@ -69,6 +69,16 @@ export class CommunicationRepository {
     if (error) throw new Error(`${table} update failed: ${error.message}`);
     return data || [];
   }
+
+  async claimDueNotifications({ workerId, limit = 10, staleAfterSeconds = 900 } = {}) {
+    const { data, error } = await this.client.rpc('claim_due_communication_notifications', {
+      p_worker_id: workerId,
+      p_batch_limit: limit,
+      p_stale_after_seconds: staleAfterSeconds,
+    });
+    if (error) throw new Error(`notification_queue claim failed: ${error.message}`);
+    return data || [];
+  }
 }
 
 export class MemoryCommunicationRepository {
@@ -186,5 +196,30 @@ export class MemoryCommunicationRepository {
       }
     }
     return updated;
+  }
+
+  async claimDueNotifications({ workerId = 'memory-worker', limit = 10, staleAfterSeconds = 900 } = {}) {
+    const now = new Date();
+    const staleMs = Number(staleAfterSeconds || 900) * 1000;
+    const eligible = this.rows('notification_queue')
+      .filter((row) => {
+        const status = String(row.status || '').toLowerCase();
+        const dueAt = row.next_attempt_at || row.scheduled_at || row.created_at;
+        const due = !dueAt || new Date(dueAt) <= now;
+        const staleProcessing = status === 'processing' && row.locked_at && (now.getTime() - new Date(row.locked_at).getTime()) > staleMs;
+        return ((['queued', 'retry_scheduled'].includes(status) && due) || staleProcessing) && !row.dead_lettered_at;
+      })
+      .sort((a, b) => String(a.next_attempt_at || a.scheduled_at || a.created_at || '').localeCompare(String(b.next_attempt_at || b.scheduled_at || b.created_at || '')))
+      .slice(0, Number(limit || 10));
+    const claimed = [];
+    for (const row of eligible) {
+      claimed.push(await this.updateById('notification_queue', row.id, {
+        status: 'processing',
+        locked_at: now.toISOString(),
+        locked_by: workerId,
+        attempt_count: Number(row.attempt_count || 0) + 1,
+      }));
+    }
+    return claimed;
   }
 }
