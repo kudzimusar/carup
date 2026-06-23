@@ -30,11 +30,31 @@ export class CommunicationWebhookService {
 
   verify(provider, channel, { headers = {}, query = {}, rawBody = '', body = {} } = {}) {
     const normalized = normalizeChannel(channel) || channel;
+    const normalizedProvider = String(provider || '').toLowerCase();
     if (provider === 'telegram' || normalized === 'telegram') {
       const expected = this.env.CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
       return Boolean(expected && headers['x-telegram-bot-api-secret-token'] === expected);
     }
-    if (provider === 'meta' || ['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
+    if (normalizedProvider === 'sendgrid') {
+      if (this.env.SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY) {
+        return this.verifySendGridSignature(headers, rawBody);
+      }
+      const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
+      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    }
+    if (normalizedProvider === 'twilio') {
+      if (this.env.TWILIO_AUTH_TOKEN) {
+        return this.verifyTwilioSignature(headers, body);
+      }
+      const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
+      return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    }
+    if (normalizedProvider === 'expo') {
+      const expected = this.env.EXPO_ACCESS_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
+      const supplied = headers.authorization?.replace(/^Bearer\s+/i, '') || headers['x-channel-webhook-secret'];
+      return Boolean(expected && supplied === expected) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    }
+    if (normalizedProvider === 'meta' || ['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
       if (query['hub.mode'] === 'subscribe') {
         const expected = this.env.CARUP_META_WEBHOOK_VERIFY_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
         return Boolean(expected && query['hub.verify_token'] === expected);
@@ -55,6 +75,35 @@ export class CommunicationWebhookService {
     return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
   }
 
+  verifySendGridSignature(headers = {}, rawBody = '') {
+    const signature = headers['x-twilio-email-event-webhook-signature'];
+    const timestamp = headers['x-twilio-email-event-webhook-timestamp'];
+    if (!signature || !timestamp || !rawBody) return false;
+    try {
+      let key = String(this.env.SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY || '').trim();
+      if (!key.includes('BEGIN PUBLIC KEY')) {
+        key = `-----BEGIN PUBLIC KEY-----\n${key.match(/.{1,64}/g)?.join('\n') || key}\n-----END PUBLIC KEY-----`;
+      }
+      return crypto.verify('sha256', Buffer.from(`${timestamp}${rawBody}`), crypto.createPublicKey(key), Buffer.from(String(signature), 'base64'));
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  verifyTwilioSignature(headers = {}, body = {}) {
+    const signature = headers['x-twilio-signature'];
+    const url = this.env.TWILIO_STATUS_CALLBACK_URL || this.env.CARUP_PUBLIC_API_URL;
+    if (!signature || !url) return false;
+    const params = Object.keys(body || {})
+      .sort()
+      .map((key) => `${key}${body[key]}`)
+      .join('');
+    const expected = crypto.createHmac('sha1', this.env.TWILIO_AUTH_TOKEN).update(`${url}${params}`).digest('base64');
+    const left = Buffer.from(String(signature));
+    const right = Buffer.from(expected);
+    return left.length === right.length && crypto.timingSafeEqual(left, right);
+  }
+
   dedupeKey(provider, channel, body = {}) {
     const normalized = normalizeChannel(channel) || channel;
     if (normalized === 'telegram' && body.update_id) return buildDedupeKey([provider, normalized, body.update_id]);
@@ -66,6 +115,102 @@ export class CommunicationWebhookService {
     return buildDedupeKey([provider, normalized, stableHash(body).slice(0, 32)]);
   }
 
+  extractDeliveryReceipts(provider, channel, body = {}) {
+    const normalizedProvider = String(provider || '').toLowerCase();
+    const normalized = normalizeChannel(channel) || channel;
+    if (normalizedProvider === 'sendgrid') {
+      const events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [];
+      return events.map((event) => ({
+        provider: 'sendgrid',
+        channel: 'email',
+        providerMessageId: event.sg_message_id || event.smtp_id || event.message_id || null,
+        notificationId: event.notification_id || event.custom_args?.notification_id || null,
+        messageId: event.message_id || event.custom_args?.message_id || null,
+        status: ['delivered', 'open', 'click'].includes(event.event) ? 'delivered' : ['bounce', 'dropped', 'deferred'].includes(event.event) ? 'failed' : 'sent',
+        rawStatus: event.event,
+      })).filter((receipt) => receipt.providerMessageId || receipt.notificationId || receipt.messageId);
+    }
+    if (normalizedProvider === 'twilio') {
+      const providerMessageId = body.MessageSid || body.SmsSid || body.SmsMessageSid;
+      if (!providerMessageId || !body.MessageStatus) return [];
+      const delivered = ['delivered', 'read'].includes(String(body.MessageStatus).toLowerCase());
+      const failed = ['failed', 'undelivered', 'canceled'].includes(String(body.MessageStatus).toLowerCase());
+      return [{
+        provider: 'twilio',
+        channel: normalized,
+        providerMessageId,
+        status: delivered ? 'delivered' : failed ? 'failed' : 'sent',
+        rawStatus: body.MessageStatus,
+      }];
+    }
+    if (normalizedProvider === 'meta' || ['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
+      const receipts = [];
+      for (const entry of body.entry || []) {
+        for (const change of entry.changes || []) {
+          for (const status of change.value?.statuses || []) {
+            receipts.push({
+              provider: normalized === 'whatsapp' ? 'meta_whatsapp_cloud_api' : 'meta',
+              channel: normalized,
+              providerMessageId: status.id,
+              status: ['delivered', 'read'].includes(status.status) ? 'delivered' : status.status === 'failed' ? 'failed' : 'sent',
+              rawStatus: status.status,
+            });
+          }
+        }
+      }
+      return receipts;
+    }
+    if (normalizedProvider === 'expo') {
+      const data = body.data || body.receipts || {};
+      return Object.entries(data).map(([ticketId, receipt]) => ({
+        provider: 'expo_push',
+        channel: 'push',
+        providerMessageId: ticketId,
+        status: receipt?.status === 'ok' ? 'delivered' : 'failed',
+        rawStatus: receipt?.status,
+        errorCode: receipt?.details?.error || null,
+        errorMessage: receipt?.message || null,
+      }));
+    }
+    return [];
+  }
+
+  async applyDeliveryReceipt(receipt = {}) {
+    const attempts = receipt.providerMessageId
+      ? await this.repository.list('message_delivery_attempts', { provider_message_id: receipt.providerMessageId })
+      : [];
+    const attempt = attempts.find((row) => !receipt.provider || row.provider === receipt.provider) || attempts[0] || null;
+    const notificationId = receipt.notificationId || attempt?.notification_id || null;
+    const messageId = receipt.messageId || attempt?.message_id || null;
+    if (attempt?.id) {
+      await this.repository.updateById('message_delivery_attempts', attempt.id, {
+        status: receipt.status === 'failed' ? 'failed' : receipt.status,
+        response_metadata: { ...(attempt.response_metadata || {}), provider_receipt_status: receipt.rawStatus || receipt.status },
+        error_code: receipt.errorCode || null,
+        error_message: receipt.errorMessage || null,
+        completed_at: nowIso(),
+      });
+    }
+    if (notificationId) {
+      await this.repository.updateById('notification_queue', notificationId, {
+        status: receipt.status,
+        delivered_at: receipt.status === 'delivered' ? nowIso() : null,
+        last_error_code: receipt.status === 'failed' ? receipt.errorCode || 'provider_receipt_failed' : null,
+        last_error_message: receipt.status === 'failed' ? receipt.errorMessage || `Provider receipt status: ${receipt.rawStatus || 'failed'}` : null,
+        locked_at: null,
+        locked_by: null,
+      });
+    }
+    if (messageId) {
+      await this.repository.updateById('messages', messageId, {
+        status: receipt.status === 'failed' ? 'failed' : receipt.status,
+        delivered_at: receipt.status === 'delivered' ? nowIso() : null,
+        failed_at: receipt.status === 'failed' ? nowIso() : null,
+      });
+    }
+    return { notificationId, messageId, providerMessageId: receipt.providerMessageId, status: receipt.status };
+  }
+
   async handleWebhook(provider, channel, body = {}, { headers = {}, query = {}, actor = {}, rawBody = '' } = {}) {
     const normalized = normalizeChannel(channel);
     if (!normalized) throw new Error('Unsupported webhook channel.');
@@ -75,6 +220,18 @@ export class CommunicationWebhookService {
 
     const existing = await this.repository.findOne('webhook_logs', { dedupe_key: dedupeKey });
     if (existing) {
+      if (!signatureValid) {
+        await this.repository.updateById('webhook_logs', existing.id, {
+          processing_status: 'duplicate',
+          attempt_count: Number(existing.attempt_count || 0) + 1,
+          error_code: 'invalid_signature_duplicate',
+          error_message: 'Duplicate webhook delivery failed signature validation.',
+          processed_at: nowIso(),
+        });
+        const err = new Error('Webhook verification failed.');
+        err.statusCode = 403;
+        throw err;
+      }
       await this.repository.updateById('webhook_logs', existing.id, {
         processing_status: 'duplicate',
         attempt_count: Number(existing.attempt_count || 0) + 1,
@@ -112,6 +269,19 @@ export class CommunicationWebhookService {
     }
 
     try {
+      const receipts = this.extractDeliveryReceipts(provider, normalized, body);
+      const receiptResults = [];
+      for (const receipt of receipts) {
+        receiptResults.push(await this.applyDeliveryReceipt(receipt));
+      }
+      if (receiptResults.length > 0 && ['sendgrid', 'twilio', 'expo'].includes(String(provider || '').toLowerCase())) {
+        await this.repository.updateById('webhook_logs', log.id, {
+          processing_status: 'processed',
+          message_count: 0,
+          processed_at: nowIso(),
+        });
+        return { success: true, duplicate: false, webhook_log_id: log.id, count: 0, receipt_count: receiptResults.length, results: [], receipts: receiptResults };
+      }
       const parsed = parseChannelPayload(normalized, body);
       const results = [];
       for (const message of parsed) {
@@ -133,7 +303,7 @@ export class CommunicationWebhookService {
         message_count: results.length,
         processed_at: nowIso(),
       });
-      return { success: true, duplicate: false, webhook_log_id: log.id, count: results.length, results };
+      return { success: true, duplicate: false, webhook_log_id: log.id, count: results.length, receipt_count: receiptResults.length, results, receipts: receiptResults };
     } catch (error) {
       await this.repository.updateById('webhook_logs', log.id, {
         processing_status: 'failed',
