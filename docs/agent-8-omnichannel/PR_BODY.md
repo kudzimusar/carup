@@ -4,6 +4,8 @@
 
 Implements the production-testable CarUp Omnichannel Communication Engine across database, backend services, API routes, provider-neutral adapters, notification delivery, web/mobile user surfaces, admin command center, AI handoff safety, referral/marketplace/escrow/finance integration, tests, and evidence documentation.
 
+Review correction commit `b44eee7` addresses all five Codex review threads: admin reply queueing, Meta GET verification, raw-body Meta HMAC verification, legacy BIGSERIAL notification queue compatibility, and exception-safe provider delivery retries/dead letters.
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -54,13 +56,14 @@ Implements the production-testable CarUp Omnichannel Communication Engine across
 ## Webhooks, Security, and Deduplication
 
 - Adds `/api/communications/webhooks/:provider/:channel`.
-- Verifies Telegram secret tokens, Meta signatures/verify tokens, and shared-secret gateway headers.
+- Verifies Telegram secret tokens, Meta GET callback challenges, Meta raw-body `x-hub-signature-256` HMAC signatures, and shared-secret gateway headers when Meta app secret is not configured.
 - Logs webhooks with dedupe keys and returns safe success for duplicates without duplicate messages.
 - Adds CSRF machine-webhook exemption only for communication webhook paths; route-level webhook auth remains required.
 
 ## Retry, Fallback, and Dead Letter
 
 - Delivery worker records attempts, retryable failures, exponential backoff, max-attempt dead letters, admin retry, and admin cancel.
+- Provider SDK/network exceptions are caught, recorded as delivery attempts, locks are cleared, and rows move to retry/backoff or dead letter.
 - Notification policy respects preferences/consent and suppresses marketing sends when opted out.
 
 ## AI Automation and Human Handoff
@@ -94,6 +97,7 @@ Implements the production-testable CarUp Omnichannel Communication Engine across
 ## Admin Command Center
 
 - Adds admin communication APIs for thread list/detail, reply, assignment, priority, escalation, resolve, reopen, metrics, and dead-letter retry/cancel.
+- User-visible admin replies create one outbound message plus one `notification_queue` row for delivery; internal admin notes remain internal and are never queued externally.
 - Adds `web/src/pages/dashboard/admin/Communications.tsx` and navigation entries.
 
 ## User Web and Mobile Surfaces
@@ -132,7 +136,8 @@ Implements the production-testable CarUp Omnichannel Communication Engine across
 
 ## Tests Run and Results
 
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 25 passed.
+- `node --test backend/tests/communication-engine.test.js` - 19 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, legacy BIGSERIAL queue IDs, and thrown adapter retry/dead-letter handling.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 34 passed.
 - `node --test backend/tests/server-export.test.js` - 1 passed.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with local server binding.
 - `node --test backend/tests/audit-logger.test.js backend/tests/referral-engine-e2e-stack.test.js` - 8 passed.
