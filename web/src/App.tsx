@@ -67,6 +67,7 @@ import SavedCars from './pages/dashboard/owner/SavedCars'
 import SellVehicle from './pages/dashboard/owner/SellVehicle'
 import AIDashboard from './pages/dashboard/owner/AIDashboard'
 import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
+import Communications from './pages/dashboard/owner/Communications'
 
 // Dealer Dashboard
 import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
@@ -126,6 +127,7 @@ import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
 import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
 import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
 import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
+import AdminCommunications from './pages/dashboard/admin/Communications'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -267,6 +269,7 @@ export default function App() {
           <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />
           <Route path="/dashboard/referrals" element={<ReferralWallet />} />
+          <Route path="/dashboard/communications" element={<Communications />} />
         </Route>
 
         {/* Dealer Dashboard */}
@@ -343,6 +346,8 @@ export default function App() {
           <Route path="/admin/referrals/import-routes" element={<ReferralImportRoutes />} />
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
+          <Route path="/admin/communications" element={<AdminCommunications />} />
+          <Route path="/dashboard/admin/communications" element={<AdminCommunications />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

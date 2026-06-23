@@ -110,6 +110,41 @@ function referralQuery(filters?: object): string {
   return pairs.length ? `?${new URLSearchParams(pairs).toString()}` : ''
 }
 
+type CommunicationThreadSummary = {
+  id: string
+  thread_key?: string
+  thread_type?: string
+  status?: string
+  priority?: string
+  primary_channel?: string
+  ai_mode?: string
+  assigned_team?: string
+  marketplace_listing_id?: string
+  escrow_id?: string
+  financing_application_id?: string
+}
+
+type CommunicationMessageSummary = {
+  id: string
+  direction?: string
+  channel?: string
+  status?: string
+  content_text?: string
+}
+
+type CommunicationNotificationSummary = {
+  id: string
+  read?: boolean
+  title?: string
+  message?: string
+  notification_type?: string
+  last_error_code?: string
+}
+
+type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
+type CommunicationMutationResponse = { success?: boolean; [key: string]: unknown }
+type CommunicationMetricsResponse = Record<string, number | string | null | undefined>
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -766,6 +801,92 @@ export function useCarUpApi() {
     return request<any[]>('/notifications/me', { method: 'GET' })
   }, [request])
 
+  // ── Agent 8 Omnichannel Communication Engine ──
+  const fetchCommunicationThreads = useCallback(async (): Promise<{ threads: CommunicationThreadSummary[] }> => {
+    return request('/communications/threads', { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationThread = useCallback(async (id: string): Promise<{ thread: CommunicationThreadSummary; messages: CommunicationMessageSummary[] }> => {
+    return request(`/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
+  }, [request])
+
+  const createCommunicationThread = useCallback(async (payload: Record<string, unknown>): Promise<{ thread: CommunicationThreadSummary }> => {
+    return request('/communications/threads', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const sendCommunicationMessage = useCallback(async (threadId: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/communications/threads/${encodeURIComponent(threadId)}/messages`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const sendCommunicationFeedback = useCallback(async (threadId: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/communications/threads/${encodeURIComponent(threadId)}/feedback`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchCommunicationNotifications = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
+    return request('/communications/notifications', { method: 'GET' })
+  }, [request])
+
+  const markCommunicationNotificationRead = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
+    return request(`/communications/notifications/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
+  const fetchCommunicationPreferences = useCallback(async (): Promise<{ preferences: CommunicationPreferences | null }> => {
+    return request('/communications/preferences', { method: 'GET' })
+  }, [request])
+
+  const updateCommunicationPreferences = useCallback(async (payload: Record<string, unknown>): Promise<{ preferences: CommunicationPreferences }> => {
+    return request('/communications/preferences', { method: 'PATCH', body: JSON.stringify(payload) })
+  }, [request])
+
+  const createCommunicationShare = useCallback(async (payload: Record<string, unknown>): Promise<{ share_url?: string; listing_url?: string }> => {
+    return request('/communications/share', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchAdminCommunicationThreads = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ threads: CommunicationThreadSummary[] }> => {
+    const query = filters ? referralQuery(filters) : ''
+    return request(`/admin/communications/threads${query}`, { method: 'GET' })
+  }, [request])
+
+  const fetchAdminCommunicationThread = useCallback(async (id: string): Promise<{ thread: CommunicationThreadSummary; messages: CommunicationMessageSummary[]; participants: unknown[]; escalations: unknown[] }> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
+  }, [request])
+
+  const adminReplyCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/reply`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const assignCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/assignment`, { method: 'PATCH', body: JSON.stringify(payload) })
+  }, [request])
+
+  const escalateCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/escalate`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const resolveCommunicationThread = useCallback(async (id: string, summary: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify({ summary }) })
+  }, [request])
+
+  const reopenCommunicationThread = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const fetchCommunicationDeadLetters = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
+    return request('/admin/communications/dead-letter', { method: 'GET' })
+  }, [request])
+
+  const retryCommunicationDeadLetter = useCallback(async (id: string, payload: Record<string, unknown> = {}): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/retry`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const cancelCommunicationDeadLetter = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const fetchAdminCommunicationMetrics = useCallback(async (): Promise<CommunicationMetricsResponse> => {
+    return request('/admin/communications/metrics', { method: 'GET' })
+  }, [request])
+
   const fetchAdminUsers = useCallback(async (): Promise<User[]> => {
     return request<User[]>('/users/management', { method: 'GET' })
   }, [request])
@@ -974,6 +1095,27 @@ export function useCarUpApi() {
     saveVehicle,
     fetchServiceHistory,
     fetchNotifications,
+    fetchCommunicationThreads,
+    fetchCommunicationThread,
+    createCommunicationThread,
+    sendCommunicationMessage,
+    sendCommunicationFeedback,
+    fetchCommunicationNotifications,
+    markCommunicationNotificationRead,
+    fetchCommunicationPreferences,
+    updateCommunicationPreferences,
+    createCommunicationShare,
+    fetchAdminCommunicationThreads,
+    fetchAdminCommunicationThread,
+    adminReplyCommunicationThread,
+    assignCommunicationThread,
+    escalateCommunicationThread,
+    resolveCommunicationThread,
+    reopenCommunicationThread,
+    fetchCommunicationDeadLetters,
+    retryCommunicationDeadLetter,
+    cancelCommunicationDeadLetter,
+    fetchAdminCommunicationMetrics,
     fetchAdminUsers,
     fetchAdminTelemetry,
   
