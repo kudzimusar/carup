@@ -60,3 +60,29 @@ The backend then degrades safely: `/api/features/effective` and the admin list f
 - A protected route still redirects unauthenticated users to `/login?returnTo=…`.
 - `/admin/features` is reachable by admins (if retained) or returns the unavailable/redirect behavior (if disabled).
 - Run the structural gates: `npm run test:unit --workspace=web` and `node --test backend/tests/feature-governance.test.js`.
+
+## Full-completion (Milestones A–I) rollback additions
+
+Layered, lowest-blast-radius first. Production was never migrated, so no production DB step is needed.
+
+1. **Percentage rollout (G):** set any feature's `rollout_percentage` back to `100` via the
+   Admin Console (or `PATCH …/rollout`), or reset the override (DELETE) → static default.
+   This is data-only and instant; no deploy needed.
+2. **Navigation analytics (F):** analytics is fire-and-forget and never blocks navigation —
+   to stop ingestion, disable the `POST /api/analytics/navigation` route (feature-flag or
+   remove `app.use(navigationAnalyticsRouter)`), or drop the client flush. No nav impact.
+3. **Lazy console (D):** revert the `App.tsx` route to the eager import if a chunk-load
+   regression appears; the `LazyRouteBoundary` already degrades to a retry. No data impact.
+4. **Native tabs/drawer (B/C):** the governed layout falls back to static defaults when the
+   governance API is unavailable; to fully revert, restore the previous static
+   `(tabs)/_layout.tsx`. No backend change.
+5. **Staging migrations (drop, staging only — never production):**
+   ```sql
+   -- G (additive, reversible): drop the percentage columns
+   ALTER TABLE feature_rollout_overrides DROP COLUMN IF EXISTS rollout_percentage;
+   ALTER TABLE feature_rollout_overrides DROP COLUMN IF EXISTS rollout_seed;
+   -- F: drop the analytics table
+   DROP TABLE IF EXISTS navigation_analytics_events;
+   ```
+   Existing override rows are unaffected by the G drop (other columns intact). Run only
+   against staging `eoyenigwevnxwwhyhaer`. **Do not run against production** (it was not migrated).

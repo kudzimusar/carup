@@ -16,6 +16,22 @@
 > performed by the release engineer (the project is administered outside this
 > agent's Supabase tooling); the agent records the confirmed result and **does
 > not re-apply** either migration. Production was not touched.
+>
+> **Full-completion (Milestones F/G) — two NEW staging-first migrations, apply PENDING:**
+> - `20260623120000_feature_rollout_percentage.sql` — additive: `ALTER TABLE
+>   feature_rollout_overrides ADD COLUMN rollout_percentage SMALLINT DEFAULT 100 (CHECK
+>   0–100)` + `rollout_seed TEXT (CHECK len ≤64)`; existing rows default to 100 % (no
+>   behavior change); idempotent (`ADD COLUMN IF NOT EXISTS` + guarded CHECKs); reversible.
+> - `20260623130000_navigation_analytics_events.sql` — new `navigation_analytics_events`
+>   table (RLS on, REVOKE anon/authenticated, GRANT service_role only; enum CHECKs +
+>   bounded lengths; indexes on occurred_at/feature_id/event_type/surface/platform;
+>   30-day raw retention then aggregate/purge). Stores NO personal data by construction.
+>
+> Both are **staging-first for `eoyenigwevnxwwhyhaer`** and are to be applied + verified by
+> the release engineer (same out-of-band tooling path as the governance migrations). The
+> agent has **not** applied them to any database and will **never** apply them to
+> production. Verification SQL is in §5 (Milestone F/G verification). DoD item "new
+> migrations verified in staging" is satisfied once the release engineer confirms §5.
 
 ## Environment refs (no credentials)
 - **Staging Supabase project ref:** `eoyenigwevnxwwhyhaer` (both governance migrations applied + verified).
@@ -89,3 +105,38 @@ After applying, also run the Supabase **security advisors** and confirm no "RLS 
 
 ## Automated pre-staging signal already green (this branch, local)
 - Web unit 192, tsc clean, build OK; DB-free backend governance 17 + server-export 1; Playwright nav suites 27–32. See `NAVIGATION_BLUEPRINT_MILESTONE_EVIDENCE.md`.
+
+## 5. Milestone F/G migration verification (re-runnable against staging)
+Run after the release engineer applies the two new migrations to `eoyenigwevnxwwhyhaer`
+(expected results in parentheses). Production is NOT migrated.
+
+```sql
+-- G: percentage columns present with correct defaults/constraints
+select column_name, data_type, column_default, is_nullable
+  from information_schema.columns
+  where table_name='feature_rollout_overrides'
+    and column_name in ('rollout_percentage','rollout_seed');           -- (2 rows; pct default 100, NOT NULL)
+select conname from pg_constraint
+  where conrelid='public.feature_rollout_overrides'::regclass and contype='c'
+    and conname like '%rollout_percentage%';                            -- (>=1: 0..100 check)
+select count(*) from feature_rollout_overrides where rollout_percentage is null; -- (0 — existing rows defaulted to 100)
+
+-- F: analytics table exists, RLS on, service_role-only, indexed, no PII columns
+select to_regclass('public.navigation_analytics_events') is not null;   -- (t)
+select relrowsecurity from pg_class
+  where oid='public.navigation_analytics_events'::regclass;             -- (t)
+select grantee, privilege_type from information_schema.role_table_grants
+  where table_name='navigation_analytics_events' order by grantee;      -- (service_role only; no anon/authenticated)
+select indexname from pg_indexes where tablename='navigation_analytics_events'; -- (occurred_at/feature_id/event_type/surface/platform)
+select column_name from information_schema.columns
+  where table_name='navigation_analytics_events';                       -- (allowlist only; NO email/name/phone/vin/token/ip/device/tenant/url)
+```
+After applying, run the Supabase **security advisors** and confirm no "RLS disabled" /
+"exposed table" / "function search_path mutable" notice for the new objects. Record results (no secrets).
+
+## 6. Milestone F/G staging smoke (record pass/fail)
+- [ ] Native app (staging build) loads governed tabs/drawer per role; logout/role-switch refreshes; no fabricated screens; no hardcoded localhost (physical device reaches staging API).
+- [ ] `/admin/features` lazy console loads on direct refresh (loading → console); chunk split present in the deployed assets.
+- [ ] Set a feature `rollout_percentage` (e.g. 25%) in staging → exposure is stable per subject across reloads; role/tenant denial still wins; reset → 100%.
+- [ ] `POST /api/analytics/navigation` ingests a bounded batch (202), rejects oversized/over-rate, stores no PII; admin aggregate endpoint returns funnel metrics for an admin and 403 for a non-admin.
+- [ ] Axe/keyboard smoke on desktop nav, mobile drawer, console, lifecycle page.
