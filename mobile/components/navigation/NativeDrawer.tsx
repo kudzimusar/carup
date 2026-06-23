@@ -312,8 +312,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderRadius: 10,
+    // Transparent left accent reserved so selected items don't shift layout.
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
   },
-  itemSelected: { backgroundColor: '#1e293b' },
+  itemSelected: { backgroundColor: '#1e293b', borderLeftColor: '#f97316' },
   itemPressed: { backgroundColor: '#162032' },
   itemIcon: { width: 28, alignItems: 'center', marginRight: 10 },
   itemLabel: { color: '#e2e8f0', fontSize: 15, fontWeight: '500' },

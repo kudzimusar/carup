@@ -18,7 +18,7 @@
  * governed feature truth so the tabs reflect the active identity.
  */
 import { useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
@@ -117,12 +117,16 @@ export default function TabLayout() {
           },
           tabBarStyle: {
             backgroundColor: '#0f172a',
-            borderTopWidth: 0,
+            // Subtle navy hairline divider instead of a hard 0/1px platform line.
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: '#1e293b',
             // Safe-area aware: pad the bar bottom for the Android nav bar /
             // iPhone home indicator instead of a hardcoded inset.
             height: 60 + insets.bottom,
+            paddingTop: 6,
             paddingBottom: Math.max(insets.bottom, 8),
           },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
           tabBarActiveTintColor: '#f97316', // Orange active token
           tabBarInactiveTintColor: '#94a3b8',
         }}

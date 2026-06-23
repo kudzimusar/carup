@@ -132,12 +132,14 @@ export default function DashboardLayout({ role }: { role: string }) {
             />
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm truncate">{user?.name || 'User'}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">Active portal</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`w-2 h-2 rounded-full ${roleInfo.color}`} />
+                <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
                 <select
                   value={role}
                   onChange={(e) => handleRoleChange(e.target.value)}
-                  className="text-xs text-gray-500 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
+                  aria-label="Switch active portal role"
+                  className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
                 >
                   {getAllRoles().map((r) => (
                     <option key={r} value={r}>{getRoleMetadata(r).title}</option>
@@ -171,14 +173,14 @@ export default function DashboardLayout({ role }: { role: string }) {
                 to={item.route}
                 onClick={() => setSidebarOpen(false)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-orange-50 text-orange-700'
+                    ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`}
                 data-testid={navIdMap[item.label]}
               >
-                <IconComponent className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
+                <IconComponent className={`w-5 h-5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
                 <span className="flex-1">{item.label}</span>
                 {vis.beta && (
                   <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
@@ -199,7 +201,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             to="/settings"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
           >
-            <Settings className="w-4.5 h-4.5 text-gray-400" />
+            <Settings className="w-5 h-5 text-gray-400" />
             Settings
           </Link>
           <Link
@@ -211,7 +213,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
             data-testid="logout-button"
           >
-            <LogOut className="w-4.5 h-4.5" />
+            <LogOut className="w-5 h-5" />
             Sign Out
           </Link>
         </div>
