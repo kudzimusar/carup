@@ -72,8 +72,10 @@ export class CommunicationRepository {
 }
 
 export class MemoryCommunicationRepository {
-  constructor(seed = {}) {
+  constructor(seed = {}, options = {}) {
     this.tables = new Map();
+    this.options = options;
+    this.numericCounters = new Map();
     for (const table of [
       'message_threads',
       'message_participants',
@@ -87,6 +89,10 @@ export class MemoryCommunicationRepository {
       'domain_events',
     ]) {
       this.tables.set(table, [...(seed[table] || [])]);
+      const numericIds = (seed[table] || [])
+        .map((row) => Number(row.id))
+        .filter((id) => Number.isInteger(id) && id > 0);
+      this.numericCounters.set(table, numericIds.length ? Math.max(...numericIds) : 0);
     }
   }
 
@@ -104,11 +110,18 @@ export class MemoryCommunicationRepository {
   }
 
   async insert(table, row) {
+    if (table === 'notification_queue' && this.options.legacyNotificationQueueIds && row.id !== undefined && !Number.isInteger(Number(row.id))) {
+      throw new Error('invalid input syntax for type bigint');
+    }
+    const id = row.id || (table === 'notification_queue' && this.options.legacyNotificationQueueIds
+      ? this.nextNumericId(table)
+      : randomUUID());
     const record = {
-      id: row.id || randomUUID(),
+      id,
       created_at: row.created_at || new Date().toISOString(),
       updated_at: row.updated_at || new Date().toISOString(),
       ...row,
+      id,
     };
     if (table === 'notification_queue' && !record.dedupe_key) record.dedupe_key = record.id;
     if (table === 'notification_queue' && record.dedupe_key && this.rows(table).some((r) => r.dedupe_key === record.dedupe_key)) {
@@ -123,6 +136,12 @@ export class MemoryCommunicationRepository {
     }
     this.rows(table).push(record);
     return record;
+  }
+
+  nextNumericId(table) {
+    const next = Number(this.numericCounters.get(table) || 0) + 1;
+    this.numericCounters.set(table, next);
+    return next;
   }
 
   async upsert(table, row) {

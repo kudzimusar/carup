@@ -1,7 +1,6 @@
 import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
-import { createReferralRouter } from './referralRoutes.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -21,7 +20,6 @@ function actorFromReq(req) {
 
 export function createCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
-  const referralRouterFactory = { createReferralRouter };
 
   router.get('/api/communications/health', asyncHandler(async (_req, res) => {
     res.json({ success: true, adapters: services.adapterRegistry.health() });
@@ -143,11 +141,18 @@ export function createCommunicationRouter({ services = createCommunicationServic
     });
   }));
 
+  router.get('/api/communications/webhooks/:provider/:channel', asyncHandler(async (req, res) => {
+    if (req.params.provider !== 'meta') return res.status(404).json({ error: 'Webhook verification endpoint not found.' });
+    const challenge = services.webhookService.verifyMetaCallback(req.params.channel, req.query || {});
+    res.status(200).type('text/plain').send(challenge);
+  }));
+
   router.post('/api/communications/webhooks/:provider/:channel', asyncHandler(async (req, res) => {
     const result = await services.webhookService.handleWebhook(req.params.provider, req.params.channel, req.body || {}, {
       headers: req.headers,
       query: req.query,
       actor: actorFromReq(req),
+      rawBody: req.rawBody || '',
     });
     res.status(200).json(result);
   }));
@@ -156,4 +161,3 @@ export function createCommunicationRouter({ services = createCommunicationServic
 }
 
 export default createCommunicationRouter;
-

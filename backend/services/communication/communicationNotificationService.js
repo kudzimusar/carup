@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
@@ -146,8 +145,7 @@ export class CommunicationNotificationService {
       thread_status: thread.status,
     });
     const dedupeKey = buildDedupeKey(input.dedupeParts || [thread.id, input.notificationType, input.recipientUserId, channel, input.templateKey]);
-    const notification = await this.repository.insert('notification_queue', {
-      id: input.id || randomUUID(),
+    const notificationRow = {
       tenant_id: thread.tenant_id || null,
       recipient_id: input.recipientUserId,
       recipient_user_id: input.recipientUserId,
@@ -175,7 +173,50 @@ export class CommunicationNotificationService {
       created_at: nowIso(),
       updated_at: nowIso(),
       metadata: { transactional: input.transactional !== false },
-    });
+    };
+    if (input.id) notificationRow.id = input.id;
+    const notification = await this.repository.insert('notification_queue', notificationRow);
+    return { notification, message, thread };
+  }
+
+  async queueExistingMessage(input = {}) {
+    const message = input.message;
+    const thread = input.thread;
+    if (!message?.id || !thread?.id) throw new Error('Existing message and thread are required to queue delivery.');
+    if (!input.recipientUserId) throw new Error('A recipient user is required to queue delivery.');
+    const channel = normalizeChannel(input.channel || message.channel || thread.primary_channel) || 'in_app';
+    const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, input.recipientUserId, channel]);
+    const notificationRow = {
+      tenant_id: thread.tenant_id || null,
+      recipient_id: input.recipientUserId,
+      recipient_user_id: input.recipientUserId,
+      recipient_identity_id: input.recipientIdentityId || null,
+      thread_id: thread.id,
+      message_id: message.id,
+      event_id: input.eventId || null,
+      type: input.notificationType || 'admin_reply',
+      notification_type: input.notificationType || 'admin_reply',
+      title: input.title || 'CarUp message',
+      message: message.content_text || input.message || '',
+      message_content: message.content_text || input.message || '',
+      channel,
+      provider: input.provider || message.provider || null,
+      template_key: input.templateKey || 'admin_reply_v1',
+      payload: input.payload || {},
+      priority: input.priority || thread.priority || 'normal',
+      status: 'queued',
+      dedupe_key: dedupeKey,
+      scheduled_at: input.scheduledAt || nowIso(),
+      next_attempt_at: input.nextAttemptAt || null,
+      attempt_count: 0,
+      max_attempts: input.maxAttempts || Number(process.env.COMMUNICATION_MAX_ATTEMPTS || 5),
+      read: false,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+      metadata: { transactional: input.transactional !== false, source: 'existing_message' },
+    };
+    if (input.id) notificationRow.id = input.id;
+    const notification = await this.repository.insert('notification_queue', notificationRow);
     return { notification, message, thread };
   }
 
@@ -183,4 +224,3 @@ export class CommunicationNotificationService {
     return this.repository.list('notification_queue', { recipient_user_id: userId }, { order: { column: 'created_at' }, limit: 100 });
   }
 }
-
