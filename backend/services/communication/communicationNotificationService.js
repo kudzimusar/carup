@@ -189,7 +189,7 @@ export class CommunicationNotificationService {
     const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, recipientKey, channel]);
     const notificationRow = {
       tenant_id: thread.tenant_id || null,
-      recipient_id: input.recipientUserId || input.recipientIdentityId,
+      recipient_id: input.recipientUserId || null,
       recipient_user_id: input.recipientUserId || null,
       recipient_identity_id: input.recipientIdentityId || null,
       thread_id: thread.id,

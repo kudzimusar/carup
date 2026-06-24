@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { parseChannelPayload } from '../referral/referralChannelPayloadParsers.js';
 import { buildDedupeKey, normalizeChannel, redactPayload, stableHash, nowIso } from './communicationUtils.js';
+import { ForbiddenError, ValidationError } from '../../utils/errors.js';
 
 export class CommunicationWebhookService {
   constructor({ repository, inboundService, env = process.env } = {}) {
@@ -12,9 +13,7 @@ export class CommunicationWebhookService {
   verifyMetaCallback(channel, query = {}) {
     const normalized = normalizeChannel(channel);
     if (!['whatsapp', 'facebook', 'instagram'].includes(normalized)) {
-      const err = new Error('Unsupported Meta webhook channel.');
-      err.statusCode = 400;
-      throw err;
+      throw new ValidationError('Unsupported Meta webhook channel.');
     }
     const expected = this.env.CARUP_META_WEBHOOK_VERIFY_TOKEN || this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
     const mode = query['hub.mode'];
@@ -23,9 +22,7 @@ export class CommunicationWebhookService {
     if (mode === 'subscribe' && expected && token === expected && challenge !== undefined) {
       return String(challenge);
     }
-    const err = new Error('Meta webhook verification failed.');
-    err.statusCode = 403;
-    throw err;
+    throw new ForbiddenError('Meta webhook verification failed.');
   }
 
   verify(provider, channel, { headers = {}, query = {}, rawBody = '', body = {} } = {}) {
@@ -228,9 +225,7 @@ export class CommunicationWebhookService {
           error_message: 'Duplicate webhook delivery failed signature validation.',
           processed_at: nowIso(),
         });
-        const err = new Error('Webhook verification failed.');
-        err.statusCode = 403;
-        throw err;
+        throw new ForbiddenError('Webhook verification failed.');
       }
       await this.repository.updateById('webhook_logs', existing.id, {
         processing_status: 'duplicate',
@@ -263,9 +258,7 @@ export class CommunicationWebhookService {
         error_message: 'Webhook signature or shared secret validation failed.',
         processed_at: nowIso(),
       });
-      const err = new Error('Webhook verification failed.');
-      err.statusCode = 403;
-      throw err;
+      throw new ForbiddenError('Webhook verification failed.');
     }
 
     try {

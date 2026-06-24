@@ -11,10 +11,15 @@ CREATE POLICY "notification_queue_user_read" ON notification_queue
   FOR SELECT TO authenticated
   USING (recipient_user_id = (select auth.uid())::text);
 
-REVOKE ALL ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM anon;
-REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM authenticated;
-GRANT EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) TO service_role;
+DO $$
+BEGIN
+  IF to_regprocedure('claim_due_communication_notifications(text, integer, integer)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM PUBLIC;
+    REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM anon;
+    REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM authenticated;
+    GRANT EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) TO service_role;
+  END IF;
+END $$;
 
 DROP POLICY IF EXISTS "message_delivery_attempts_admin_read" ON message_delivery_attempts;
 CREATE POLICY "message_delivery_attempts_admin_read" ON message_delivery_attempts
