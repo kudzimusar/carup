@@ -2,11 +2,13 @@
 
 Branch: `feature/agent-8-omnichannel-communication-engine`
 
-Base strategy: stacked on `origin/feat/referral-final-uat-release` because PR #88 is open and clean.
+Base strategy: PR #88 was verified, merged to `main`, and PR #100 was rebased/retargeted to `main`.
 
 Main SHA recorded before implementation: `c25b094`
 
-Current base commit for this branch before Agent 8 commits: `e7a2f60afc35a90ffad3b17352e459742fb6d10b`
+PR #88 merge commit: `37cc485c94e85d793c5887c391e155a96a9264fc`
+
+Current rebased PR #100 head before staging activation hardening: `bb731e93556bcc9d77ab7a2cdf165bd6d392d1aa`
 
 Latest Codex review-fix commit: `b44eee7` (`fix(communication): address codex review delivery defects`)
 
@@ -24,15 +26,33 @@ All checks below were read-only or unauthenticated reachability checks. No provi
 
 | Resource | Availability | Auth validity | Sender/webhook resource | Live-test capability | Remaining action |
 | --- | --- | --- | --- | --- | --- |
-| GitHub | Available through `gh` CLI | Authenticated as `kudzimusar`; token scopes include `repo` and `workflow` | PR #100 is open, base `feat/referral-final-uat-release`, head `feature/agent-8-omnichannel-communication-engine`, auto-merge disabled | Can push branch, update PR, and request review | None for PR maintenance |
-| Supabase staging | Visible through Supabase MCP as `carup-staging` (`eoyenigwevnxwwhyhaer`) | Project list succeeded; subsequent migration inspection required app reauthentication | Staging database exists and is healthy; migration apply is blocked until connector reauth or a correctly linked CLI is available | Cannot safely apply staging migrations in this session after reauth requirement | Reauthenticate Supabase MCP or link CLI to CarUp staging before applying migrations |
-| Supabase local CLI | CLI installed (`2.98.2`) | Authenticated, but project list does not include CarUp/CarUp staging | No CarUp project ref linked in checkout | Not suitable for CarUp staging mutations | Reauth/link CLI to `eoyenigwevnxwwhyhaer` if MCP remains blocked |
+| GitHub | Available through `gh` CLI | Authenticated as `kudzimusar`; token scopes include `repo` and `workflow` | PR #88 was merged; PR #100 is open on `main`, head `feature/agent-8-omnichannel-communication-engine`, auto-merge disabled | Can push branch, update PR, and request review | None for PR maintenance |
+| Supabase staging | Visible through Supabase MCP as `carup-staging` (`eoyenigwevnxwwhyhaer`) | Project list, migrations, SQL checks, and advisors succeeded | Staging database exists and is healthy; Agent 8 migrations were applied to staging only | Database-layer staging verification completed | Configure staging app env/scheduler before provider UAT |
+| Supabase local CLI | CLI installed (`2.98.2`) | Authenticated, but project list does not include CarUp/CarUp staging | No CarUp project ref linked in checkout | DB work was performed through Supabase MCP | Keep MCP as the migration path unless CLI is explicitly linked |
 | Vercel | CLI installed (`54.7.1`) and `vercel whoami` succeeds as `kudzimusar` | Authenticated locally, but checkout is not linked and project listing did not expose PR projects | GitHub PR status shows Vercel projects `carup`, `carup-backend`, `carup-staging`, and `carup-backend-staging`; local env listing is blocked by missing Vercel link | Cannot configure env or deploy staging from this checkout without a safe project link | Link the checkout to the intended Vercel project/team or provide Vercel project IDs for staging |
 | SendGrid | API endpoint reachable; unauthenticated `/v3/scopes` returned `401` | No local `SENDGRID_API_KEY` detected and no connector tool exposed | `SENDGRID_FROM_EMAIL` and webhook verification key are not present in local env files yet | Authenticated account health/send/webhook UAT blocked | Add provider secrets in staging and verify sender identity/webhook signing key |
 | Twilio | API endpoint reachable; unauthenticated Accounts API returned `401` | No local `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` detected and no Twilio CLI installed | No local messaging service SID/from number found | Authenticated SMS/WhatsApp sandbox UAT blocked | Add Twilio credentials and sender or messaging service in staging |
 | Meta Graph / WhatsApp / Facebook / Instagram | Graph API reachable; unauthenticated root returned `400` | No local `CARUP_META_ACCESS_TOKEN` detected | Env examples include Meta access token, app secret, webhook verify token, and phone number ID placeholders | Authenticated account/page/phone/webhook UAT blocked | Add Meta token, app secret, phone number ID, page ID, and configure webhook URL |
 | Telegram | API host reachable; unauthenticated root returned redirect | No local `CARUP_TELEGRAM_BOT_TOKEN` detected | Env examples include bot token and webhook secret token placeholders | Bot `getMe`, webhook registration, and message UAT blocked | Add bot token and webhook secret in staging |
 | Expo Push | Push endpoint reachable; POST-only endpoint returned `405` to safe GET | No local `EXPO_ACCESS_TOKEN` detected | Env examples include Expo access token placeholder | Push ticket/receipt UAT blocked without Expo token and device push token | Add Expo access token and test device token in staging |
+
+## Activation Addendum
+
+Staging activation was completed for the database layer on 2026-06-24 against Supabase project `carup-staging` (`eoyenigwevnxwwhyhaer`) only. Production Supabase project `CarUp` (`vhmnajoeicasaigiophh`) was observed but not modified.
+
+Applied staging migrations:
+
+- `agent_8_omnichannel_communication_engine`
+- `agent_8_communication_provider_runtime`
+- `agent8_communication_runtime_security_hardening`
+- `agent8_communication_admin_audit_policies`
+- `agent8_communication_fk_indexes`
+
+Activation hardening added committed migration coverage for RLS on the existing canonical `notification_queue`, service-role-only execution of `claim_due_communication_notifications(...)`, admin audit read policies for delivery attempts and webhook logs, and covering indexes for Agent 8 foreign keys including legacy `notification_queue.recipient_id`.
+
+Staging verification confirmed all Agent 8 tables exist, RLS is enabled on all target tables, the claim RPC uses `FOR UPDATE SKIP LOCKED`, legacy `BIGSERIAL` queue IDs are preserved, a disposable queue row could be claimed exactly once, and all Agent 8 communication foreign keys have covering indexes.
+
+See `docs/agent-8-omnichannel/ACTIVATION_EVIDENCE.md` for the full activation ledger and channel-by-channel status matrix.
 
 ## Acceptance Ledger
 
@@ -84,8 +104,9 @@ Resolved fresh Codex follow-up review in commit `a286f9c`:
 
 Passing:
 
-- `node --test backend/tests/communication-engine.test.js` - 34 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, and thrown adapter retry/dead-letter handling.
+- `node --test backend/tests/communication-engine.test.js` - 34 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, and migration hardening assertions for queue RLS, admin audit policies, FK indexes, and claim RPC grants.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 49 passed.
+- `node --test backend/tests/referral-channel-gateway-phase3.test.js` - 15 passed immediately before PR #88 merge.
 - `node backend/tests/run-tests.js` - passed with network escalation for live Supabase access. Initial sandboxed run failed at Supabase fetch; rerun passed all 35 governance/integration/trust/security checks. The live database used by the suite does not yet have Agent 8 tables, so communication fanout logs a single migration warning and skips until `COMMUNICATION_ENGINE_ENABLED=true` after migration.
 - `node --test backend/tests/server-export.test.js` - 1 passed. Supabase live connection warning is expected without live credentials.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with localhost binding escalation.
@@ -97,6 +118,8 @@ Passing:
 - `npm run build --workspace=web` - passed. Existing Vite chunk-size warning remains: main JS chunk about 2,051 kB before gzip.
 - `npx tsc --noEmit --project mobile/tsconfig.json` - passed.
 - `cd mobile && npx tsx tests/communication-api.test.ts` - passed with normal IPC escalation for `tsx`.
+- `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after reconciling the Agent 8 Messages tab with the merged native navigation manifest.
+- `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating owner/navigation artifacts.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome with local Vite server binding.
 - `git diff --check` - passed.
 - Secret-pattern scan over changed communication/env/evidence files found no committed provider credentials. It matched only pre-existing generated fake `sk_live_` test-token strings in `backend/server.js`.
@@ -116,6 +139,7 @@ Non-blocking existing lint debt:
 
 ## Configuration Still Required
 
+- Staging Vercel project link or project IDs for `carup-backend-staging` / `carup-staging`
 - `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET`
 - `SENDGRID_API_KEY`
 - `SENDGRID_FROM_EMAIL`
@@ -137,12 +161,13 @@ Non-blocking existing lint debt:
 
 1. Deploy the migration `20260623143000_omnichannel_communication_engine.sql`.
 2. Deploy the migration `20260624120000_communication_provider_runtime.sql`.
-3. Deploy backend services, routes, adapters, event listeners, and environment variable contract.
-4. Configure provider secrets and `COMMUNICATION_WORKER_SECRET`/`CRON_SECRET` in the target environment.
-5. Deploy web and mobile application updates.
-6. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Vercel Pro Cron or an external/Supabase scheduler for production-frequency processing.
-7. Run smoke tests with the deterministic fake provider.
-8. Register provider webhooks and run live provider sandbox verification only after credentials are available.
+3. Deploy or confirm the staging hardening migrations `20260624044812_agent8_communication_runtime_security_hardening.sql` and `20260624045600_agent8_communication_fk_indexes.sql` where the first two migrations were already applied without the new source hardening.
+4. Deploy backend services, routes, adapters, event listeners, and environment variable contract.
+5. Configure provider secrets and `COMMUNICATION_WORKER_SECRET`/`CRON_SECRET` in the target environment.
+6. Deploy web and mobile application updates.
+7. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Vercel Pro Cron or an external/Supabase scheduler for production-frequency processing.
+8. Run smoke tests with the deterministic fake provider.
+9. Register provider webhooks and run live provider sandbox verification only after credentials are available.
 
 ## Rollback Plan
 

@@ -124,6 +124,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_tenant_client
   ON messages (COALESCE(tenant_id, 'platform'), client_message_id) WHERE client_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_messages_thread_created ON messages (thread_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_sender_user ON messages (sender_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_sender_participant ON messages (sender_participant_id);
+CREATE INDEX IF NOT EXISTS idx_messages_in_reply_to ON messages (in_reply_to_message_id);
 
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS tenant_id TEXT;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS recipient_user_id TEXT;
@@ -181,7 +183,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_queue_dedupe ON notification_
 CREATE INDEX IF NOT EXISTS idx_notification_queue_status_due
   ON notification_queue (status, COALESCE(next_attempt_at, scheduled_at::timestamptz, created_at::timestamptz));
 CREATE INDEX IF NOT EXISTS idx_notification_queue_recipient_created ON notification_queue (recipient_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_recipient_id ON notification_queue (recipient_id);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_recipient_identity ON notification_queue (recipient_identity_id);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_thread ON notification_queue (thread_id);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_message ON notification_queue (message_id);
 
 CREATE TABLE IF NOT EXISTS message_delivery_attempts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -298,6 +303,7 @@ ALTER TABLE message_delivery_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE webhook_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE communication_preferences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE communication_escalations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_queue ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "message_threads_user_read" ON message_threads;
 CREATE POLICY "message_threads_user_read" ON message_threads
@@ -330,8 +336,23 @@ CREATE POLICY "communication_preferences_user_all" ON communication_preferences
   USING (user_id = (select auth.uid())::text)
   WITH CHECK (user_id = (select auth.uid())::text);
 
+DROP POLICY IF EXISTS "notification_queue_user_read" ON notification_queue;
+CREATE POLICY "notification_queue_user_read" ON notification_queue
+  FOR SELECT TO authenticated
+  USING (recipient_user_id = (select auth.uid())::text);
+
 DROP POLICY IF EXISTS "communication_escalations_admin_read" ON communication_escalations;
 CREATE POLICY "communication_escalations_admin_read" ON communication_escalations
+  FOR SELECT TO authenticated
+  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','platform_admin','super_admin','support','finance','trust_manager','compliance_manager'));
+
+DROP POLICY IF EXISTS "message_delivery_attempts_admin_read" ON message_delivery_attempts;
+CREATE POLICY "message_delivery_attempts_admin_read" ON message_delivery_attempts
+  FOR SELECT TO authenticated
+  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','platform_admin','super_admin','support','finance','trust_manager','compliance_manager'));
+
+DROP POLICY IF EXISTS "webhook_logs_admin_read" ON webhook_logs;
+CREATE POLICY "webhook_logs_admin_read" ON webhook_logs
   FOR SELECT TO authenticated
   USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','platform_admin','super_admin','support','finance','trust_manager','compliance_manager'));
 
@@ -339,8 +360,11 @@ CREATE POLICY "communication_escalations_admin_read" ON communication_escalation
 -- tables are intentionally accessed through Express APIs.
 
 -- +migrate Down
+DROP POLICY IF EXISTS "webhook_logs_admin_read" ON webhook_logs;
+DROP POLICY IF EXISTS "message_delivery_attempts_admin_read" ON message_delivery_attempts;
 DROP POLICY IF EXISTS "communication_escalations_admin_read" ON communication_escalations;
 DROP POLICY IF EXISTS "communication_preferences_user_all" ON communication_preferences;
+DROP POLICY IF EXISTS "notification_queue_user_read" ON notification_queue;
 DROP POLICY IF EXISTS "channel_identities_user_read" ON channel_identities;
 DROP POLICY IF EXISTS "message_participants_user_read" ON message_participants;
 DROP POLICY IF EXISTS "messages_user_read" ON messages;

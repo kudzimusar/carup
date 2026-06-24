@@ -6,11 +6,15 @@ Implements the production-testable CarUp Omnichannel Communication Engine across
 
 Review correction commit `b44eee7` addresses all five Codex review threads: admin reply queueing, Meta GET verification, raw-body Meta HMAC verification, legacy BIGSERIAL notification queue compatibility, and exception-safe provider delivery retries/dead letters.
 
+Activation update: PR #88 has been merged, PR #100 has been rebased/retargeted to `main`, and the Agent 8 database layer has been applied and verified on Supabase staging project `carup-staging` (`eoyenigwevnxwwhyhaer`) only. Production Supabase was not modified.
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
-- Referral PR #88 status: open, clean, branch `feat/referral-final-uat-release`.
-- Branch strategy used: `feature/agent-8-omnichannel-communication-engine` stacked on `origin/feat/referral-final-uat-release`.
+- Referral PR #88 status: merged into `main`.
+- PR #88 merge commit: `37cc485c94e85d793c5887c391e155a96a9264fc`.
+- PR #100 strategy now used: `feature/agent-8-omnichannel-communication-engine` rebased and retargeted to `main`.
+- PR #100 rebased head before staging hardening commits: `bb731e93556bcc9d77ab7a2cdf165bd6d392d1aa`.
 
 ## Current State Before This PR
 
@@ -27,10 +31,33 @@ Review correction commit `b44eee7` addresses all five Codex review threads: admi
 ## Database and Migrations
 
 - Adds migration `database/migrations/20260623143000_omnichannel_communication_engine.sql`.
+- Adds staging hardening follow-up migrations `database/migrations/20260624044812_agent8_communication_runtime_security_hardening.sql` and `database/migrations/20260624045600_agent8_communication_fk_indexes.sql`.
 - Creates `message_threads`, `channel_identities`, `message_participants`, `messages`, `message_delivery_attempts`, `webhook_logs`, `communication_preferences`, and `communication_escalations`.
 - Extends `notification_queue` with canonical Agent 8 delivery fields and legacy-compatible status/channel checks.
 - Extends `domain_events` with outbox metadata needed by the communication listener path.
-- Enables RLS and policies for user/admin read boundaries and preference ownership.
+- Enables RLS and policies for user/admin read boundaries, canonical notification queue visibility, audit rows, and preference ownership.
+
+## Staging Activation
+
+Applied to Supabase staging `carup-staging` (`eoyenigwevnxwwhyhaer`) only:
+
+- `agent_8_omnichannel_communication_engine`
+- `agent_8_communication_provider_runtime`
+- `agent8_communication_runtime_security_hardening`
+- `agent8_communication_admin_audit_policies`
+- `agent8_communication_fk_indexes`
+
+Verified on staging:
+
+- All Agent 8 communication tables exist.
+- RLS is enabled on all target tables, including legacy `notification_queue`.
+- User-visible and admin-audit policies exist.
+- `claim_due_communication_notifications(...)` is `SECURITY DEFINER`, uses `FOR UPDATE SKIP LOCKED`, casts legacy `scheduled_at`, and is executable only by owner/postgres and `service_role`.
+- Existing `notification_queue.id` remains `BIGSERIAL`/`bigint` with its sequence default.
+- A disposable Agent 8 queue row was claimed exactly once and then removed.
+- All Agent 8 communication foreign keys have covering indexes.
+
+Full activation evidence and the channel status matrix are in `docs/agent-8-omnichannel/ACTIVATION_EVIDENCE.md`.
 
 ## Canonical Threads, Messages, and Identities
 
@@ -136,8 +163,9 @@ Review correction commit `b44eee7` addresses all five Codex review threads: admi
 
 ## Tests Run and Results
 
-- `node --test backend/tests/communication-engine.test.js` - 19 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, legacy BIGSERIAL queue IDs, and thrown adapter retry/dead-letter handling.
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 34 passed.
+- `node --test backend/tests/communication-engine.test.js` - 34 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, and migration hardening assertions.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 49 passed.
+- `node --test backend/tests/referral-channel-gateway-phase3.test.js` - 15 passed before PR #88 merge.
 - `node --test backend/tests/server-export.test.js` - 1 passed.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with local server binding.
 - `node --test backend/tests/audit-logger.test.js backend/tests/referral-engine-e2e-stack.test.js` - 8 passed.
@@ -148,6 +176,8 @@ Review correction commit `b44eee7` addresses all five Codex review threads: admi
 - `npm run build --workspace=web` - passed with existing large chunk warning.
 - `npx tsc --noEmit --project mobile/tsconfig.json` - passed.
 - `cd mobile && npx tsx tests/communication-api.test.ts` - passed.
+- `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after native navigation reconciliation.
+- `node scripts/generate-feature-manifest.mjs --check` - passed.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome.
 - `git diff --check` - passed.
 
@@ -163,16 +193,21 @@ Review correction commit `b44eee7` addresses all five Codex review threads: admi
 - Full web lint still reports pre-existing app-wide lint debt outside Agent 8; Agent 8 targeted web lint passes.
 - Full mobile lint still reports a pre-existing auth registration lint error and warnings outside Agent 8; mobile type-check and Agent 8 contract tests pass.
 - Provider adapters are configuration-gated and ready for credentials, but live provider send/webhook verification was not performed.
+- Vercel checkout is authenticated but not linked to the staging projects visible from PR checks, so staging env mutation and scheduler secret configuration remain blocked from this session.
+- No SendGrid, Twilio, Meta, Telegram, or Expo credentials/account resources were available; live provider UAT was not claimed.
+- No physical device was available for push notification validation.
 
 ## Migration / Deployment Order
 
 1. Deploy `20260623143000_omnichannel_communication_engine.sql`.
-2. Deploy backend routes/services/listeners and environment variable contract.
-3. Configure provider credentials and webhook secrets.
-4. Deploy web and mobile updates.
-5. Enable or schedule communication delivery worker processing.
-6. Run deterministic fake-provider smoke tests.
-7. Run sandbox/live provider verification after credentials are configured.
+2. Deploy `20260624120000_communication_provider_runtime.sql`.
+3. Deploy or confirm `20260624044812_agent8_communication_runtime_security_hardening.sql` and `20260624045600_agent8_communication_fk_indexes.sql` on environments where the first two migrations were already applied without the new source hardening.
+4. Deploy backend routes/services/listeners and environment variable contract.
+5. Configure provider credentials and webhook secrets.
+6. Deploy web and mobile updates.
+7. Enable or schedule communication delivery worker processing.
+8. Run deterministic fake-provider smoke tests.
+9. Run sandbox/live provider verification after credentials are configured.
 
 ## Rollback Plan
 

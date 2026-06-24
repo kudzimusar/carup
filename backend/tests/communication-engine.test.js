@@ -159,6 +159,19 @@ test('migration is additive and creates canonical communication tables without d
   assert.equal(/DROP TABLE IF EXISTS notification_queue/i.test(migrationSql), false);
   assert.equal(/DROP TABLE IF EXISTS outbox_events/i.test(migrationSql), false);
   assert.match(migrationSql, /ENABLE ROW LEVEL SECURITY/);
+  assert.match(migrationSql, /ALTER TABLE notification_queue ENABLE ROW LEVEL SECURITY/);
+  assert.match(migrationSql, /CREATE POLICY "notification_queue_user_read"/);
+  assert.match(migrationSql, /CREATE POLICY "message_delivery_attempts_admin_read"/);
+  assert.match(migrationSql, /CREATE POLICY "webhook_logs_admin_read"/);
+  for (const indexName of [
+    'idx_messages_sender_participant',
+    'idx_messages_in_reply_to',
+    'idx_notification_queue_recipient_id',
+    'idx_notification_queue_recipient_identity',
+    'idx_notification_queue_message',
+  ]) {
+    assert.match(migrationSql, new RegExp(`CREATE INDEX IF NOT EXISTS ${indexName}`));
+  }
 });
 
 test('provider runtime migration adds SKIP LOCKED claim function without changing queue primary key', () => {
@@ -167,6 +180,8 @@ test('provider runtime migration adds SKIP LOCKED claim function without changin
   assert.match(providerRuntimeMigrationSql, /RETURNS SETOF notification_queue/);
   assert.match(providerRuntimeMigrationSql, /scheduled_at::timestamptz/);
   assert.match(providerRuntimeMigrationSql, /ALTER TABLE notification_queue ALTER COLUMN id SET DEFAULT gen_random_uuid\(\)::text/);
+  assert.match(providerRuntimeMigrationSql, /REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) FROM anon/);
+  assert.match(providerRuntimeMigrationSql, /REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) FROM authenticated/);
   assert.match(providerRuntimeMigrationSql, /GRANT EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) TO service_role/);
   assert.equal(/DROP TABLE IF EXISTS notification_queue/i.test(providerRuntimeMigrationSql), false);
 });

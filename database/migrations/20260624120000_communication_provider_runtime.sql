@@ -76,4 +76,6 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM anon;
+REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM authenticated;
 GRANT EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) TO service_role;
