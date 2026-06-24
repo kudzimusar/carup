@@ -35,7 +35,7 @@ All checks below were read-only or unauthenticated reachability checks. No provi
 | GitHub | Available through `gh` CLI | Authenticated as `kudzimusar`; token scopes include `repo` and `workflow` | PR #88 was merged; PR #100 is open on `main`, head `feature/agent-8-omnichannel-communication-engine`, auto-merge disabled | Can push branch, update PR, and request review | None for PR maintenance |
 | Supabase staging | Visible through Supabase MCP as `carup-staging` (`eoyenigwevnxwwhyhaer`) | Project list, migrations, SQL checks, and advisors succeeded | Staging database exists and is healthy; Agent 8 migrations were applied to staging only | Database-layer staging verification completed | Configure staging app env/scheduler before provider UAT |
 | Supabase local CLI | CLI installed (`2.98.2`) | Authenticated, but project list does not include CarUp/CarUp staging | No CarUp project ref linked in checkout | DB work was performed through Supabase MCP | Keep MCP as the migration path unless CLI is explicitly linked |
-| Vercel | CLI installed (`54.7.1`) and `vercel whoami` succeeds as `kudzimusar` | Authenticated locally, but checkout is not linked and project listing did not expose PR projects | GitHub PR status shows Vercel projects `carup`, `carup-backend`, `carup-staging`, and `carup-backend-staging`; local env listing is blocked by missing Vercel link | Cannot configure env or deploy staging from this checkout without a safe project link | Link the checkout to the intended Vercel project/team or provide Vercel project IDs for staging |
+| Vercel | CLI installed (`54.7.1`) and `vercel whoami` succeeds as `kudzimusar` | Backend checkout linked to `pay-pass-project/carup-backend-staging` | Branch-scoped Preview envs added for `COMMUNICATION_ENGINE_ENABLED`, `COMMUNICATION_WORKER_ENABLED`, `COMMUNICATION_WORKER_SECRET`, and `CRON_SECRET` on `feature/agent-8-omnichannel-communication-engine` | Preview checks pass through GitHub; new preview deployments can pick up branch envs | Production envs were not changed; 1-5 minute scheduler still needs shared secret storage or Vercel Pro/external scheduler |
 | SendGrid | API endpoint reachable; unauthenticated `/v3/scopes` returned `401` | No local `SENDGRID_API_KEY` detected and no connector tool exposed | `SENDGRID_FROM_EMAIL` and webhook verification key are not present in local env files yet | Authenticated account health/send/webhook UAT blocked | Add provider secrets in staging and verify sender identity/webhook signing key |
 | Twilio | API endpoint reachable; unauthenticated Accounts API returned `401` | No local `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` detected and no Twilio CLI installed | No local messaging service SID/from number found | Authenticated SMS/WhatsApp sandbox UAT blocked | Add Twilio credentials and sender or messaging service in staging |
 | Meta Graph / WhatsApp / Facebook / Instagram | Graph API reachable; unauthenticated root returned `400` | No local `CARUP_META_ACCESS_TOKEN` detected | Env examples include Meta access token, app secret, webhook verify token, and phone number ID placeholders | Authenticated account/page/phone/webhook UAT blocked | Add Meta token, app secret, phone number ID, page ID, and configure webhook URL |
@@ -57,6 +57,8 @@ Applied staging migrations:
 Activation hardening added committed migration coverage for RLS on the existing canonical `notification_queue`, service-role-only execution of `claim_due_communication_notifications(...)`, admin audit read policies for delivery attempts and webhook logs, and covering indexes for Agent 8 foreign keys including legacy `notification_queue.recipient_id`.
 
 Staging verification confirmed all Agent 8 tables exist, RLS is enabled on all target tables, the claim RPC uses `FOR UPDATE SKIP LOCKED`, legacy `BIGSERIAL` queue IDs are preserved, a disposable queue row could be claimed exactly once, and all Agent 8 communication foreign keys have covering indexes.
+
+Vercel staging preview activation was partially completed by linking `backend/` to `pay-pass-project/carup-backend-staging` and adding branch-scoped Preview envs for `COMMUNICATION_ENGINE_ENABLED=true`, `COMMUNICATION_WORKER_ENABLED=true`, `COMMUNICATION_WORKER_SECRET`, and `CRON_SECRET` on `feature/agent-8-omnichannel-communication-engine`. The generated secret values were stored by Vercel without being printed or committed. Production Vercel envs were not changed.
 
 See `docs/agent-8-omnichannel/ACTIVATION_EVIDENCE.md` for the full activation ledger and channel-by-channel status matrix.
 
@@ -149,7 +151,7 @@ Non-blocking existing lint debt:
 ## Configuration Still Required
 
 - Staging Vercel project link or project IDs for `carup-backend-staging` / `carup-staging`
-- `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET`
+- `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET` for non-preview staging/production targets and any external scheduler secret store
 - `SENDGRID_API_KEY`
 - `SENDGRID_FROM_EMAIL`
 - `SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY`
