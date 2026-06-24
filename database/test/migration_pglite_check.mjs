@@ -7,7 +7,7 @@
  *      an auth.uid() stub, and the PRE-MERGE prerequisite schema the six new migrations build on
  *      (vehicles, users, domain_events, vehicle_ownership_history, and vehicle_evidence via
  *      the real 014 + 015 migrations).
- *   2. Apply the SIX M1–M6 migrations + Phase 2 security hardening migration Up in order.
+ *   2. Apply the SIX M1–M6 migrations + Phase 2/3/4 migrations Up in order.
  *   3. Apply their Down sections in REVERSE order — verify each.
  *   4. Re-apply all Up sections — verify each (idempotent-after-rollback).
  *   5. Inspect catalog: tables, triggers, views, RLS policies, FK constraints.
@@ -32,6 +32,8 @@ const NEW_MIGRATIONS = [
   '20260624120000_vehicle_trust_security_hardening.sql',
   // Phase 3 — OCR field-level extraction contract
   '20260624130000_vehicle_document_extractions.sql',
+  // Phase 4 — Listing publication lifecycle (publication_status + temp_plate_id on vehicles)
+  '20260624140000_listing_publication_lifecycle.sql',
 ];
 
 function splitMigration(file) {
@@ -205,6 +207,24 @@ try {
     results.catalog.extraction_content_guard_enforced = 'no_evidence_row';
   }
 } catch (e) { results.catalog.extraction_guard_error = e.message; }
+
+// 3d. Phase 4 catalog checks: publication_status and temp_plate_id columns on vehicles
+results.catalog.publication_status_col = (await q(`
+  SELECT data_type FROM information_schema.columns
+  WHERE table_schema='public' AND table_name='vehicles' AND column_name='publication_status'`))[0]?.data_type || null;
+results.catalog.temp_plate_id_col = (await q(`
+  SELECT data_type FROM information_schema.columns
+  WHERE table_schema='public' AND table_name='vehicles' AND column_name='temp_plate_id'`))[0]?.data_type || null;
+// Verify publication_status CHECK constraint rejects values outside the lifecycle set
+try {
+  await db.exec(`INSERT INTO vehicles(vin) VALUES ('PUB4TEST')`);
+  await db.exec(`UPDATE vehicles SET publication_status='draft' WHERE vin='PUB4TEST'`);
+  let badStatusBlocked = false;
+  try {
+    await db.exec(`UPDATE vehicles SET publication_status='live' WHERE vin='PUB4TEST'`);
+  } catch { badStatusBlocked = true; }
+  results.catalog.publication_status_check_enforced = badStatusBlocked;
+} catch (e) { results.catalog.publication_status_check_error = e.message; }
 
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
