@@ -1,6 +1,22 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { AuthUser, UserRole } from '@shared/types';
+import { apiUrl } from '../utils/apiBase';
+
+/**
+ * Refresh governed feature states after an identity change (login/logout/role
+ * switch). Lazy-imported to avoid a static import cycle between the auth store
+ * and the governance store. Best-effort: failures are swallowed (the governance
+ * store itself fails safe to static defaults).
+ */
+async function refreshFeatureGovernance(): Promise<void> {
+  try {
+    const { useFeatureGovernanceStore } = await import('./featureGovernanceStore');
+    await useFeatureGovernanceStore.getState().refresh();
+  } catch {
+    /* fail-safe: static manifest defaults govern */
+  }
+}
 
 interface AuthState {
   user: AuthUser | null;
@@ -54,6 +70,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         token,
         isAuthenticated: true,
       });
+      // Hydrate governed feature truth for the new identity.
+      await refreshFeatureGovernance();
     } catch (error) {
       console.error('Failed to save secure login credentials:', error);
       throw error;
@@ -69,6 +87,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         token: null,
         isAuthenticated: false,
       });
+      // Drop any identity-specific governed state back to anonymous defaults.
+      await refreshFeatureGovernance();
     } catch (error) {
       console.error('Failed to clear secure session credentials:', error);
     }
@@ -79,8 +99,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!current.user || !current.token) return;
 
     try {
-      // Simulate/Trigger backend call (matching web switch-role endpoint)
-      const res = await fetch('http://localhost:5001/api/auth/switch-role', {
+      // Trigger backend call (matching web switch-role endpoint). Routed through
+      // the canonical resolver so it can never reach a hardcoded localhost.
+      const res = await fetch(apiUrl('/api/auth/switch-role'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -108,6 +129,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           set({ token: data.token });
         }
         set({ user: updatedUser });
+        // Re-fetch governed feature truth for the newly active role/tenant.
+        await refreshFeatureGovernance();
       } else {
         console.error('Failed backend role switch status:', res.status);
       }

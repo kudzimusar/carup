@@ -119,13 +119,17 @@ test.describe('Feature Registry & Navigation Map', () => {
         expect(result.roleItemCounts[role]).toBeGreaterThan(0);
       }
 
-      // Expected item counts per role
-      expect(result.roleItemCounts['owner']).toBe(11);
+      // Expected dashboard-sidebar item counts per role.
+      // Reconciled 2026-06-21 to the live registry (Navigation Blueprint M1/M2):
+      // owner/government/admin counts had drifted on main as referral + diaspora
+      // admin/government tools were added after this assertion was first written.
+      expect(result.roleItemCounts['owner']).toBe(12);
       expect(result.roleItemCounts['dealer']).toBe(6);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
-      expect(result.roleItemCounts['government']).toBe(6);
-      expect(result.roleItemCounts['admin']).toBe(7);
+      expect(result.roleItemCounts['government']).toBe(8);
+      // admin gained the new 'Feature Governance' (admin.features) sidebar item (M7).
+      expect(result.roleItemCounts['admin']).toBe(16);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
@@ -279,6 +283,31 @@ test.describe('Feature Registry & Navigation Map', () => {
       expect(optionTexts).toContain('Government');
       expect(optionTexts).toContain('Administrator');
       expect(optionTexts).toContain('Banker');
+    });
+  });
+
+  test.describe('TASK 2 — dashboard sidebar honors effective visibility', () => {
+    test('a disabled override removes the item from the sidebar (sidebar ⇄ direct access agree)', async ({ page }) => {
+      await setupMocksForRole(page, 'owner');
+      // Disable owner.garage via the effective-state hydration endpoint.
+      await page.route('**/api/features/effective**', async (route: any) => {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          headers: corsHeaders,
+          body: JSON.stringify({
+            environment: 'staging',
+            features: [{ featureId: 'owner.garage', state: 'disabled', enabled: false, visible: false, accessible: false, beta: false }],
+          }),
+        });
+      });
+      await page.goto('http://localhost:5173/dashboard', { timeout: 90_000, waitUntil: 'domcontentloaded' });
+      // Overview remains; the disabled My Garage link is removed after hydration.
+      await expect(page.getByTestId('nav-dashboard')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('nav-garage')).toHaveCount(0);
+      // Direct access to the disabled route shows the unavailable state (agreement).
+      await page.goto('http://localhost:5173/dashboard/garage', { timeout: 90_000, waitUntil: 'domcontentloaded' });
+      await expect(page.getByTestId('feature-disabled-page')).toBeVisible({ timeout: 30_000 });
     });
   });
 });

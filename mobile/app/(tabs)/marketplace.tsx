@@ -4,10 +4,11 @@ import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { getMarketplaceListings, type MobileListingSummary } from '../../utils/marketplaceApi';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 
 type Vehicle = MobileListingSummary;
 
-export default function MarketplaceScreen() {
+function MarketplaceScreenInner() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [selectedMake, setSelectedMake] = useState<string | null>(null);
@@ -130,5 +131,21 @@ export default function MarketplaceScreen() {
         </View>
       )}
     </View>
+  );
+}
+
+/**
+ * Governed route boundary (Milestone C). The Marketplace screen is owned by
+ * `product.marketplace`, so a direct / deep-link / initial navigation is gated
+ * by the SAME governed decision that drives the tab bar: a disabled kill-switch,
+ * `accessible:false`, or a planned/hidden/deprecated lifecycle blocks access at
+ * the route level, not just hides the tab. `hasNativeScreen` since this screen
+ * actually ships. Data loading + UI are unchanged.
+ */
+export default function MarketplaceScreen() {
+  return (
+    <NativeFeatureBoundary route="/marketplace" featureId="product.marketplace" hasNativeScreen>
+      <MarketplaceScreenInner />
+    </NativeFeatureBoundary>
   );
 }

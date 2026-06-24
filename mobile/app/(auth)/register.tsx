@@ -5,6 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { RegisterSchema } from '@shared/schemas';
 import { useAuthStore } from '../../store/authStore';
+import { apiUrl } from '../../utils/apiBase';
 import { z } from 'zod';
 
 type RegisterFormValues = z.infer<typeof RegisterSchema>;
@@ -28,7 +29,7 @@ export default function RegisterScreen() {
   const onSubmit = async (data: RegisterFormValues) => {
     setServerError(null);
     try {
-      const response = await fetch('http://localhost:5001/api/auth/register', {
+      const response = await fetch(apiUrl('/api/auth/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -172,7 +173,7 @@ export default function RegisterScreen() {
               through governed, authenticated flows — no privileged role is selectable or transmitted. */}
           <View className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <Text className="text-xs text-slate-600">
-              You're creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account. Dealers, garages, and
+              You&apos;re creating a <Text className="font-semibold text-slate-900">Car Owner</Text> account. Dealers, garages, and
               partners are onboarded separately by the CarUp team.
             </Text>
           </View>
