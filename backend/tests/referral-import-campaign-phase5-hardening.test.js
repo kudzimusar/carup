@@ -68,6 +68,16 @@ test('import lead creation rejects requested space above latest available capaci
   assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.IMPORT_LEAD_CREATED), false);
 });
 
+test('import lead with allow_waitlist is waitlisted (not rejected) when over available capacity', async () => {
+  const { importCampaign } = createHarness();
+  await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 4 }, operatorActor);
+  await importCampaign.updateCapacity({ route_key: 'japan-zimbabwe-container-space', flow_type: 'container_space', total_cbm: 10, booked_cbm: 6 }, operatorActor);
+  // available = 4; request 5 with waitlist mode must be accepted and flagged waitlisted.
+  const lead = await importCampaign.createLead({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', requested_cbm: 5, allow_waitlist: true, session_id: 'waitlist-lead', contact: { user_id: 'wl-buyer' } }, buyerActor);
+  assert.equal(lead.success, true);
+  assert.equal(lead.lead.waitlisted, true);
+});
+
 test('latest route capacity update wins when multiple updates share fixed timestamps', async () => {
   const { importCampaign } = createHarness();
   await importCampaign.createRoutePage({ flow_type: 'container_space', route_origin: 'Japan', route_destination: 'Zimbabwe', total_cbm: 10, booked_cbm: 2 }, operatorActor);
@@ -87,4 +97,22 @@ test('zero manual import reward override is rejected before qualification or wal
   assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.MILESTONE_QUALIFIED), false);
   assert.equal(events.some((event) => event.event_type === IMPORT_CAMPAIGN_EVENT_TYPES.REWARD_ELIGIBILITY_CREATED), false);
   assert.equal((await repository.list(REFERRAL_TABLES.walletTransactions)).length, 0);
+});
+
+test('import reward credits the lead code owner even when a different referral_code is supplied at qualification', async () => {
+  const { repository, importCampaign } = createHarness();
+  const realBundle = await importCampaign.createReferralBundle({ flow_type: 'vehicle_import', owner_user_id: 'import-real-owner', code: 'import-real-001' }, operatorActor);
+  const attackerBundle = await importCampaign.createReferralBundle({ flow_type: 'vehicle_import', owner_user_id: 'import-attacker', code: 'import-attacker-001' }, operatorActor);
+  const lead = await importCampaign.createLead({ flow_type: 'vehicle_import', referral_code: realBundle.code.code, session_id: 'import-redirect', contact: { user_id: 'import-buyer-x' } }, buyerActor);
+  // Exercise the getAttributionOwner fallback: lead keeps its referral_code but lost code_id/attribution.
+  const leadEvent = await repository.findOne(REFERRAL_TABLES.events, { id: lead.event_id });
+  const md = { ...leadEvent.metadata }; delete md.attribution;
+  await repository.updateById(REFERRAL_TABLES.events, lead.event_id, { code_id: null, metadata: { ...md, referral_code: realBundle.code.code } });
+  // Attempt to redirect the credit by passing the attacker code at qualification.
+  const result = await importCampaign.qualifyMilestone({ lead_event_id: lead.event_id, milestone: 'vehicle_purchased', referral_code: attackerBundle.code.code, referred_user_id: 'import-buyer-x' }, operatorActor);
+  assert.equal(result.reward_created, true);
+  const wallets = await repository.list(REFERRAL_TABLES.walletTransactions);
+  assert.equal(wallets.length, 1);
+  assert.equal(wallets[0].user_id, 'import-real-owner');
+  assert.notEqual(wallets[0].user_id, 'import-attacker');
 });

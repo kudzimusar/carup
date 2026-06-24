@@ -435,6 +435,7 @@ export class ReferralMarketingSeoService {
     const currentStatus = normalizeStatus(metadata.status || MARKETING_ASSET_STATUSES.DRAFT);
     if (!transitionAllowed(currentStatus, nextStatus, actor)) throw new ForbiddenError('Marketing asset status transition is not allowed.', { current_status: currentStatus, next_status: nextStatus });
     if (nextStatus === MARKETING_ASSET_STATUSES.SCHEDULED && !input.scheduled_at) throw new ValidationError('scheduled_at is required when scheduling marketing assets.');
+    if (nextStatus === MARKETING_ASSET_STATUSES.REJECTED && !String(input.reason || '').trim()) throw new ValidationError('reason is required when rejecting a marketing asset.');
     if (nextStatus === MARKETING_ASSET_STATUSES.PUBLISHED && !metadata.seo?.tracked_url && !input.public_url) throw new ValidationError('Published assets must preserve attribution through a tracked URL.');
     const updatedMetadata = {
       ...metadata,
