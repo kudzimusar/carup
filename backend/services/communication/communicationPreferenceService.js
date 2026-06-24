@@ -26,14 +26,18 @@ export class CommunicationPreferenceService {
 
   async updatePreferences(userId, patch = {}, tenantId = null) {
     const existing = await this.repository.findOne('communication_preferences', { user_id: userId, tenant_id: tenantId });
+    const allowedPatch = {};
+    for (const key of Object.keys(DEFAULT_PREFS)) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) allowedPatch[key] = patch[key];
+    }
     const normalizedFallback = Array.isArray(patch.fallback_channels)
       ? patch.fallback_channels.map(normalizeChannel).filter(Boolean)
       : undefined;
     const row = {
       ...(existing || {}),
+      ...allowedPatch,
       user_id: userId,
       tenant_id: tenantId,
-      ...patch,
       fallback_channels: normalizedFallback || existing?.fallback_channels || DEFAULT_PREFS.fallback_channels,
       preferred_channel: normalizeChannel(patch.preferred_channel) || patch.preferred_channel || existing?.preferred_channel || DEFAULT_PREFS.preferred_channel,
       updated_at: nowIso(),
@@ -66,4 +70,3 @@ export class CommunicationPreferenceService {
     }));
   }
 }
-

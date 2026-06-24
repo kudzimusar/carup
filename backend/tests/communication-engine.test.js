@@ -31,6 +31,7 @@ import { recordAdminThreadReply } from '../routes/adminCommunicationRoutes.js';
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
+const runtimeHardeningMigrationSql = readFileSync(new URL('../../database/migrations/20260624044812_agent8_communication_runtime_security_hardening.sql', import.meta.url), 'utf8');
 const securityFile = readFileSync(new URL('../middleware/securityMiddleware.js', import.meta.url), 'utf8');
 const communicationRouteFile = readFileSync(new URL('../routes/communicationRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
@@ -184,6 +185,11 @@ test('provider runtime migration adds SKIP LOCKED claim function without changin
   assert.match(providerRuntimeMigrationSql, /REVOKE EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) FROM authenticated/);
   assert.match(providerRuntimeMigrationSql, /GRANT EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) TO service_role/);
   assert.equal(/DROP TABLE IF EXISTS notification_queue/i.test(providerRuntimeMigrationSql), false);
+});
+
+test('runtime hardening migration guards claim RPC grants for fresh databases', () => {
+  assert.match(runtimeHardeningMigrationSql, /to_regprocedure\('claim_due_communication_notifications\(text, integer, integer\)'\)/);
+  assert.match(runtimeHardeningMigrationSql, /GRANT EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) TO service_role/);
 });
 
 test('communication domain listener skips missing Agent 8 schema until engine is explicitly enabled', async () => {
@@ -447,6 +453,7 @@ test('external admin reply to requester identity queues canonical notification a
 
   assert.equal(result.message.direction, 'outbound');
   assert.equal(result.notification.message_id, result.message.id);
+  assert.equal(result.notification.recipient_id, null);
   assert.equal(result.notification.recipient_user_id, null);
   assert.equal(result.notification.recipient_identity_id, identity.id);
   assert.equal(result.notification.payload.telegram_chat_id, 'tg-chat-99');
@@ -492,7 +499,7 @@ test('valid Meta GET verification returns challenge and invalid token is rejecte
     'hub.mode': 'subscribe',
     'hub.verify_token': 'wrong-token',
     'hub.challenge': '123456789',
-  }), /Meta webhook verification failed/);
+  }), (error) => error.statusCode === 403 && /Meta webhook verification failed/.test(error.message));
 });
 
 test('communication Meta GET route returns the challenge as plain text', async () => {
@@ -558,7 +565,7 @@ test('Meta raw-body signature accepts exact payload and rejects modified payload
     rawBody: JSON.stringify(modifiedPayload),
     headers: { 'x-hub-signature-256': signature },
     actor: { actor_tenant_id: 'platform' },
-  }), /Webhook verification failed/);
+  }), (error) => error.statusCode === 403 && /Webhook verification failed/.test(error.message));
 });
 
 test('notification enqueue uses database default id and works with legacy BIGSERIAL queue shape', async () => {
@@ -797,7 +804,7 @@ test('valid SendGrid signed event webhook is accepted and tampered payload is re
       'x-twilio-email-event-webhook-timestamp': timestamp,
       'x-twilio-email-event-webhook-signature': signature,
     },
-  }), /Webhook verification failed/);
+  }), (error) => error.statusCode === 403 && /Webhook verification failed/.test(error.message));
 });
 
 test('valid Twilio status callback signature updates receipt and invalid signature is rejected', async () => {
@@ -836,7 +843,7 @@ test('valid Twilio status callback signature updates receipt and invalid signatu
   assert.equal((await repository.findOne('notification_queue', { id: 'twilio-notification-1' })).status, 'delivered');
   await assert.rejects(() => webhookService.handleWebhook('twilio', 'sms', { MessageSid: 'SM999', MessageStatus: 'failed' }, {
     headers: { 'x-twilio-signature': signature },
-  }), /Webhook verification failed/);
+  }), (error) => error.statusCode === 403 && /Webhook verification failed/.test(error.message));
 });
 
 test('internal communication processor requires worker secret and processes bounded batch', async () => {
@@ -927,8 +934,17 @@ test('AI policy forces human handoff for finance and escrow decision requests', 
 
 test('marketing opt-out suppresses non-transactional channel selection while transactional in-app remains available', async () => {
   const { preferenceService } = createHarness();
-  await preferenceService.updatePreferences('user-1', { marketing_enabled: false, whatsapp_enabled: true, in_app_enabled: true });
-  const prefs = await preferenceService.getPreferences('user-1');
+  await preferenceService.updatePreferences('user-1', {
+    user_id: 'attacker-user',
+    tenant_id: 'attacker-tenant',
+    marketing_enabled: false,
+    whatsapp_enabled: true,
+    in_app_enabled: true,
+  }, 'tenant-1');
+  const prefs = await preferenceService.getPreferences('user-1', 'tenant-1');
+  assert.equal(prefs.user_id, 'user-1');
+  assert.equal(prefs.tenant_id, 'tenant-1');
+  assert.equal(await preferenceService.repository.findOne('communication_preferences', { user_id: 'attacker-user', tenant_id: 'attacker-tenant' }), null);
   assert.deepEqual(preferenceService.selectChannels(prefs, { channels: ['whatsapp', 'in_app'], transactional: false }), []);
   assert.ok(preferenceService.selectChannels(prefs, { channels: ['in_app'], transactional: true }).includes('in_app'));
 });
