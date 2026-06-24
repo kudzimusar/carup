@@ -34,6 +34,8 @@ const NEW_MIGRATIONS = [
   '20260624130000_vehicle_document_extractions.sql',
   // Phase 4 — Listing publication lifecycle (publication_status + temp_plate_id on vehicles)
   '20260624140000_listing_publication_lifecycle.sql',
+  // Phase 6 — trust_change_log append-only enforcement
+  '20260624150000_trust_change_log_immutability.sql',
 ];
 
 function splitMigration(file) {
@@ -225,6 +227,55 @@ try {
   } catch { badStatusBlocked = true; }
   results.catalog.publication_status_check_enforced = badStatusBlocked;
 } catch (e) { results.catalog.publication_status_check_error = e.message; }
+
+// 3e. Phase 6 — Append-only immutability functional checks
+// Each table must block both UPDATE and DELETE; failure to block is a constraint violation.
+async function checkImmutable(tableName, insertSql, updateSql, deleteSql) {
+  const res = { update_blocked: false, delete_blocked: false, error: null };
+  try {
+    await db.exec(insertSql);
+    try { await db.exec(updateSql); } catch { res.update_blocked = true; }
+    try { await db.exec(deleteSql); } catch { res.delete_blocked = true; }
+  } catch (e) { res.error = e.message; }
+  return res;
+}
+
+// review_decisions — uses decision column, reviewer_id (not decided_by)
+results.catalog.review_decisions_immutable = await checkImmutable(
+  'review_decisions',
+  `INSERT INTO review_decisions(vin,decision,reviewer_id,reviewer_role)
+   VALUES ('V1','confirm','u1','reviewer')`,
+  `UPDATE review_decisions SET decision='reject' WHERE vin='V1' AND decision='confirm'`,
+  `DELETE FROM review_decisions WHERE vin='V1' AND decision='confirm'`
+);
+
+// dispute_events — disputes table: raised_by, raised_by_role, no evidence_id
+results.catalog.dispute_events_immutable = await checkImmutable(
+  'dispute_events',
+  `INSERT INTO disputes(vin,raised_by,raised_by_role,status)
+   VALUES ('V1','u1','owner','open');
+   INSERT INTO dispute_events(dispute_id,event_type,actor_id,actor_role)
+   SELECT id,'opened','u1','owner' FROM disputes WHERE vin='V1' ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE dispute_events SET event_type='tampered' WHERE actor_id='u1' AND event_type='opened'`,
+  `DELETE FROM dispute_events WHERE actor_id='u1' AND event_type='opened'`
+);
+
+// listing_snapshots — content_hash not snapshot_hash; vin must exist
+results.catalog.listing_snapshots_immutable = await checkImmutable(
+  'listing_snapshots',
+  `INSERT INTO listing_snapshots(vin,content_hash) VALUES ('V1','hash-imm1')`,
+  `UPDATE listing_snapshots SET content_hash='tampered' WHERE content_hash='hash-imm1'`,
+  `DELETE FROM listing_snapshots WHERE content_hash='hash-imm1'`
+);
+
+// trust_change_log (Phase 6 triggers) — uses approved_by_role
+results.catalog.trust_change_log_immutable = await checkImmutable(
+  'trust_change_log',
+  `INSERT INTO trust_change_log(vin,rule,previous_value,new_value,approved_by_role)
+   VALUES ('V1','test_rule','{}','{}','reviewer')`,
+  `UPDATE trust_change_log SET rule='tampered' WHERE vin='V1' AND rule='test_rule'`,
+  `DELETE FROM trust_change_log WHERE vin='V1' AND rule='test_rule'`
+);
 
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
