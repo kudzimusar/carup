@@ -65,6 +65,23 @@ Verified on staging:
 
 Full activation evidence and the channel status matrix are in `docs/agent-8-omnichannel/ACTIVATION_EVIDENCE.md`.
 
+## Vercel Staging Preview Activation
+
+The local backend checkout was linked to `pay-pass-project/carup-backend-staging`.
+Branch-scoped Preview envs were added for
+`feature/agent-8-omnichannel-communication-engine`:
+
+- `COMMUNICATION_ENGINE_ENABLED=true`
+- `COMMUNICATION_WORKER_ENABLED=true`
+- `COMMUNICATION_WORKER_SECRET`
+- `CRON_SECRET`
+
+The generated secret values were stored by Vercel without being printed or
+committed. Production Vercel envs were not changed. The 1-5 minute scheduler
+still needs a shared secret provisioned into both the scheduler and backend, or
+Vercel Pro/external scheduling; the bundled Vercel cron remains daily-compatible
+for Hobby limits.
+
 ## Canonical Threads, Messages, and Identities
 
 - Backend services resolve or create durable threads, participants, identities, messages, assignments, escalations, read markers, feedback reopening, and safe projections.
@@ -202,7 +219,7 @@ Full activation evidence and the channel status matrix are in `docs/agent-8-omni
 - Full web lint still reports pre-existing app-wide lint debt outside Agent 8; Agent 8 targeted web lint passes.
 - Full mobile lint still reports a pre-existing auth registration lint error and warnings outside Agent 8; mobile type-check and Agent 8 contract tests pass.
 - Provider adapters are configuration-gated and ready for credentials, but live provider send/webhook verification was not performed.
-- Vercel checkout is authenticated but not linked to the staging projects visible from PR checks, so staging env mutation and scheduler secret configuration remain blocked from this session.
+- Vercel backend checkout is now linked to `carup-backend-staging`, and branch-scoped Preview worker envs were configured. Non-preview staging/production envs were not changed.
 - No SendGrid, Twilio, Meta, Telegram, or Expo credentials/account resources were available; live provider UAT was not claimed.
 - No physical device was available for push notification validation.
 

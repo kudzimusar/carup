@@ -101,7 +101,7 @@ Security and performance advisors were run after migration.
 | GitHub CLI/App | Yes | `kudzimusar/carup` | N/A | N/A | Used for PR merge, rebase, checks |
 | Supabase MCP | Yes | `carup-staging` `eoyenigwevnxwwhyhaer` | SQL/migrations/advisors available | DB verification available | Used for staging migrations |
 | Supabase CLI | Yes | CLI v2.98.2 | Not linked to staging by checkout | DB work done via MCP | Available but MCP preferred |
-| Vercel CLI | Yes | User `kudzimusar`; no local project link, `vercel project ls` returned no projects under default scope | Not available from checkout yet | Preview checks available via GitHub | Blocked for env mutation/linking |
+| Vercel CLI | Yes | Linked backend checkout to `pay-pass-project/carup-backend-staging` | Branch-scoped Preview env mutation available | Preview checks available via GitHub | Used for PR-branch staging preview worker env |
 | SendGrid | No provider account connector exposed | Env contract present only | No | No | Blocked by provider credentials/account access |
 | Twilio | No provider account connector exposed | Env contract present only | No | No | Blocked by provider credentials/account access |
 | Meta / WhatsApp / Facebook / Instagram | No provider account connector exposed | Env contract present only | No | No | Blocked by provider credentials/app/account access |
@@ -139,17 +139,22 @@ Security and performance advisors were run after migration.
 
 ## Current Blockers
 
-- Vercel checkout is not linked to the staging backend project, and `vercel project ls`
-  did not list the GitHub-integrated projects visible in PR checks. Staging env
-  mutation and worker-secret configuration are therefore not yet available from
-  this CLI session.
+- Vercel backend checkout is now linked to `pay-pass-project/carup-backend-staging`.
+  Branch-scoped Preview envs were added for
+  `COMMUNICATION_ENGINE_ENABLED=true`, `COMMUNICATION_WORKER_ENABLED=true`,
+  `COMMUNICATION_WORKER_SECRET`, and `CRON_SECRET` on
+  `feature/agent-8-omnichannel-communication-engine`. Secret values were generated
+  and stored by Vercel without being printed. They apply to new preview deployments
+  for this branch; production Vercel envs were not changed.
 - No SendGrid, Twilio, Meta, Telegram, or Expo provider credentials/account
   connectors are available in this session. Live provider UAT cannot be claimed.
 - No physical device is available through the tool environment, so physical-device
   push evidence cannot be produced here.
-- The 1-5 minute scheduler is not yet configured. Supabase DB is available for
-  possible `pg_cron`/`pg_net` scheduling, but the staging backend URL and worker
-  secret must be available in protected secret storage first.
+- The 1-5 minute scheduler is not yet configured. The generated preview worker
+  secret is intentionally not retrievable from Vercel, so Supabase `pg_cron`/`pg_net`
+  scheduling still needs a shared secret provisioned into both Vercel and Supabase
+  secret storage by an operator, or a Vercel Pro/external scheduler using an operator
+  managed secret. The bundled Vercel cron remains daily-compatible for Hobby limits.
 
 ## Production Safety
 
