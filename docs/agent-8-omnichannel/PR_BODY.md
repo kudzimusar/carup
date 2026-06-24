@@ -8,6 +8,8 @@ Review correction commit `b44eee7` addresses all five Codex review threads: admi
 
 Activation update: PR #88 has been merged, PR #100 has been rebased/retargeted to `main`, and the Agent 8 database layer has been applied and verified on Supabase staging project `carup-staging` (`eoyenigwevnxwwhyhaer`) only. Production Supabase was not modified.
 
+Latest staging activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
