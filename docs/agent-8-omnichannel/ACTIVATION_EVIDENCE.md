@@ -19,7 +19,8 @@ Production was not migrated or deployed during this run.
   - Base after rebase/retarget: `main`
   - Rebased head before staging hardening commits: `bb731e93556bcc9d77ab7a2cdf165bd6d392d1aa`
   - Activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`)
-  - Final PR head: updated on GitHub after the evidence-stamp commit is pushed.
+  - Navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`)
+  - Final PR head: updated on GitHub after this evidence update is pushed.
   - GitHub checks observed after retarget: `referral-ci`, Vercel web/backend/staging previews all passed.
 
 ## Supabase Staging Project
@@ -113,6 +114,8 @@ Security and performance advisors were run after migration.
 - `npx tsc --noEmit --project mobile/tsconfig.json` - passed before PR #88 merge and after PR #100 rebase.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 49 passed after PR #100 rebase.
 - `mobile: npx tsx tests/native-tabs.test.ts` - 18 passed after native navigation reconciliation.
+- `mobile: npx tsx tests/native-navigation.test.ts` - 19 passed after preserving the native More-tab budget.
+- `mobile: npx tsx tests/native-drawer.test.ts` - 28 passed after moving Referrals into the governed drawer and keeping Messages visible.
 - `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating shared navigation artifacts.
 - `node --test backend/tests/communication-engine.test.js` - 34 passed after migration hardening assertions.
 - `git diff --check` - passed after staging-hardening migration additions.

@@ -10,6 +10,8 @@ Activation update: PR #88 has been merged, PR #100 has been rebased/retargeted t
 
 Latest staging activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`).
 
+Latest native navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -178,7 +180,9 @@ Full activation evidence and the channel status matrix are in `docs/agent-8-omni
 - `npm run build --workspace=web` - passed with existing large chunk warning.
 - `npx tsc --noEmit --project mobile/tsconfig.json` - passed.
 - `cd mobile && npx tsx tests/communication-api.test.ts` - passed.
-- `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after native navigation reconciliation.
+- `cd mobile && npx tsx tests/native-navigation.test.ts` - 19 passed after preserving the native More-tab budget.
+- `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after keeping Messages visible and Referrals drawer-placed.
+- `cd mobile && npx tsx tests/native-drawer.test.ts` - 28 passed after moving Referrals into the governed drawer.
 - `node scripts/generate-feature-manifest.mjs --check` - passed.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome.
 - `git diff --check` - passed.
