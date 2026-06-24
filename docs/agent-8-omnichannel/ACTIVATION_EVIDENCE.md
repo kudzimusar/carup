@@ -18,7 +18,8 @@ Production was not migrated or deployed during this run.
   - URL: https://github.com/kudzimusar/carup/pull/100
   - Base after rebase/retarget: `main`
   - Rebased head before staging hardening commits: `bb731e93556bcc9d77ab7a2cdf165bd6d392d1aa`
-  - Final activation-hardening head: updated on GitHub after the evidence commit is pushed.
+  - Activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`)
+  - Final PR head: updated on GitHub after the evidence-stamp commit is pushed.
   - GitHub checks observed after retarget: `referral-ci`, Vercel web/backend/staging previews all passed.
 
 ## Supabase Staging Project

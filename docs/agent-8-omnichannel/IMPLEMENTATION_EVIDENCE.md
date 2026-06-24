@@ -12,6 +12,8 @@ Current rebased PR #100 head before staging activation hardening: `bb731e93556bc
 
 Latest Codex review-fix commit: `b44eee7` (`fix(communication): address codex review delivery defects`)
 
+Latest staging activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
