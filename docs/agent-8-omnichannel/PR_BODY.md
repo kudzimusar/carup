@@ -12,6 +12,8 @@ Latest staging activation hardening commit: `3a848ef` (`fix(communication): hard
 
 Latest native navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`).
 
+Latest navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -184,6 +186,7 @@ Full activation evidence and the channel status matrix are in `docs/agent-8-omni
 - `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after keeping Messages visible and Referrals drawer-placed.
 - `cd mobile && npx tsx tests/native-drawer.test.ts` - 28 passed after moving Referrals into the governed drawer.
 - `node scripts/generate-feature-manifest.mjs --check` - passed.
+- GitHub `navigation-e2e` - passed after updating owner/admin dashboard item counts for Agent 8 Communications entries.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome.
 - `git diff --check` - passed.
 

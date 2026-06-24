@@ -20,6 +20,7 @@ Production was not migrated or deployed during this run.
   - Rebased head before staging hardening commits: `bb731e93556bcc9d77ab7a2cdf165bd6d392d1aa`
   - Activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`)
   - Navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`)
+  - Navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`)
   - Final PR head: updated on GitHub after this evidence update is pushed.
   - GitHub checks observed after retarget: `referral-ci`, Vercel web/backend/staging previews all passed.
 
@@ -116,6 +117,7 @@ Security and performance advisors were run after migration.
 - `mobile: npx tsx tests/native-tabs.test.ts` - 18 passed after native navigation reconciliation.
 - `mobile: npx tsx tests/native-navigation.test.ts` - 19 passed after preserving the native More-tab budget.
 - `mobile: npx tsx tests/native-drawer.test.ts` - 28 passed after moving Referrals into the governed drawer and keeping Messages visible.
+- `npm run test:qa -- tests/agents/27-feature-registry-navigation-map.spec.ts` - local rerun hit sidebar rendering timeouts in this environment, but exposed and fixed deterministic owner/admin count drift from Agent 8 Communications entries; GitHub `navigation-e2e` passed afterward.
 - `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating shared navigation artifacts.
 - `node --test backend/tests/communication-engine.test.js` - 34 passed after migration hardening assertions.
 - `git diff --check` - passed after staging-hardening migration additions.

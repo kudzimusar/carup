@@ -16,6 +16,8 @@ Latest staging activation hardening commit: `3a848ef` (`fix(communication): hard
 
 Latest native navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`)
 
+Latest navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -125,6 +127,7 @@ Passing:
 - `cd mobile && npx tsx tests/native-navigation.test.ts` - 19 passed after preserving the native More-tab budget.
 - `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after keeping Messages visible and Referrals drawer-placed.
 - `cd mobile && npx tsx tests/native-drawer.test.ts` - 28 passed after moving Referrals into the governed drawer.
+- `npm run test:qa -- tests/agents/27-feature-registry-navigation-map.spec.ts` - local rerun hit sidebar rendering timeouts in this environment, but exposed and fixed deterministic owner/admin count drift from Agent 8 Communications entries; GitHub `navigation-e2e` passed afterward.
 - `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating owner/navigation artifacts.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome with local Vite server binding.
 - `git diff --check` - passed.
