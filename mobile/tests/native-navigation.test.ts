@@ -101,14 +101,15 @@ test('getFeatureByRoute matches a :param route', () => {
 });
 
 // ── Tab selection per role (no fabricated screens) ───────────────────────────
-test('owner tabs: Dashboard + Marketplace + Garage + Referrals, ≤5', () => {
+test('owner tabs: Dashboard + Marketplace + Garage + Messages, ≤4 before More', () => {
   const tabs = getNativeTabs(ctx('owner'));
   const l = labels(tabs);
-  assert.ok(tabs.length <= 5);
+  assert.ok(tabs.length <= 4);
   assert.ok(l.includes('Dashboard'));
   assert.ok(l.includes('Marketplace'));
   assert.ok(l.includes('Garage'));
-  assert.ok(l.includes('Referrals'));
+  assert.ok(l.includes('Messages'));
+  assert.ok(!l.includes('Referrals'), 'Referrals lives in the drawer to preserve the More-tab budget');
   // Owner dashboard resolves to owner.overview (no fabricated owner).
   const dash = tabs.find((t) => t.label === 'Dashboard');
   assert.equal(dash?.resolvedFeatureId, 'owner.overview');
@@ -150,6 +151,13 @@ test('owner drawer surfaces SafePay (owner.listings)', () => {
   const safepay = drawer.find((d) => d.label === 'SafePay');
   assert.ok(safepay, 'expected SafePay drawer entry for owner');
   assert.equal(safepay?.resolvedFeatureId, 'owner.listings');
+});
+
+test('owner drawer surfaces Referrals (owner.referrals)', () => {
+  const drawer = getNativeDrawer(ctx('owner'));
+  const referrals = drawer.find((d) => d.label === 'Referrals');
+  assert.ok(referrals, 'expected Referrals drawer entry for owner');
+  assert.equal(referrals?.resolvedFeatureId, 'owner.referrals');
 });
 
 // ── Route access decisions ───────────────────────────────────────────────────

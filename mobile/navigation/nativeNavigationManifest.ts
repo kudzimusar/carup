@@ -65,7 +65,7 @@ export const NATIVE_NAV: NativeNavEntry[] = [
     featureId: 'owner.referrals',
     label: 'Referrals',
     iconName: 'Gift',
-    placement: 'tab',
+    placement: 'drawer',
     order: 40,
   },
   {
@@ -185,10 +185,12 @@ export function getNativeDrawer(ctx: NativeNavContext): ResolvedNativeEntry[] {
 }
 
 /**
- * The 5 real Expo Router screen names that the native `(tabs)/_layout` declares,
+ * The 6 real Expo Router screen names that the native `(tabs)/_layout` declares,
  * mapped to the manifest entry that owns each. `escrow` IS declared (the screen
  * exists) but is a DRAWER entry — it is never a tab, so it is always hidden in
- * the tab bar (`href: null` in the layout). Milestone C surfaces it via a drawer.
+ * the tab bar (`href: null` in the layout). `referral` is also drawer-placed so
+ * owner can keep Messages visible while preserving the native 5-slot cap with
+ * the More tab. Milestone C surfaces both through the governed drawer.
  */
 const TAB_SCREEN_ENTRY_IDS: { name: string; entryId: string }[] = [
   { name: 'index', entryId: 'native.dashboard' },
