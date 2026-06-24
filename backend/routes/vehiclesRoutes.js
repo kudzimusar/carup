@@ -20,8 +20,11 @@ import {
   reviewRoles,
   verificationStatuses,
   validateEvidenceUploadPayload,
+  buildEvidenceProvenanceColumns,
+  recordEvidenceUploadProvenance,
   runAiAnalysis
 } from '../services/evidence/evidenceService.js';
+import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import {
   isVehicleQuarantinedStatus,
   isVehicleRestoredToMarketplaceStatus,
@@ -219,6 +222,24 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     vehicle
   });
 
+  // Milestone 1: resolve the source registry entry (best-effort) and compute the
+  // taxonomy + provenance columns (perceptual hash, event date, odometer, etc.).
+  let resolvedSourceId = normalized.sourceId || null;
+  if (!resolvedSourceId && normalized.sourceCode) {
+    try {
+      const source = await getSourceByCode(supabase, normalized.sourceCode);
+      if (source) resolvedSourceId = source.id;
+    } catch (err) {
+      console.warn('[Source Registry] lookup failed:', err.message);
+    }
+  }
+  const provenanceColumns = buildEvidenceProvenanceColumns(normalized, {
+    fileBuffer,
+    mimeType,
+    checksum,
+    resolvedSourceId,
+  });
+
   const insertData = {
     vehicle_id: vin,
     vin,
@@ -248,6 +269,7 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     verification_notes: req.body.verification_notes || req.body.verificationNotes || null,
     trust_score_impact: 0,
     trust_impact: 0,
+    ...provenanceColumns,
     metadata
   };
 
@@ -260,6 +282,9 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   if (insertError) {
     throw new DatabaseError(insertError.message);
   }
+
+  // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).
+  await recordEvidenceUploadProvenance(supabase, { evidence: inserted, req, eventType: 'uploaded' });
 
   // Trigger AI analysis asynchronously (non-blocking)
   runAiAnalysis(inserted.id, fileBuffer, mimeType, normalized.evidenceType, normalized.metadata).catch(err => {
