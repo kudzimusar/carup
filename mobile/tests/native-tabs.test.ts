@@ -103,15 +103,15 @@ test('never more than 5 visible tabs for any role', () => {
 });
 
 // ── Owner ────────────────────────────────────────────────────────────────────
-test('owner: index + marketplace + garage + referral + communications visible, escrow hidden, ≤5', () => {
+test('owner: index + marketplace + garage + communications visible, referral/escrow hidden, ≤4 before More', () => {
   const names = visibleNames(ctx('owner'));
   assert.ok(names.includes('index'));
   assert.ok(names.includes('marketplace'));
   assert.ok(names.includes('garage'));
-  assert.ok(names.includes('referral'));
   assert.ok(names.includes('communications'));
+  assert.ok(!names.includes('referral'), 'referral is drawer-placed to preserve the More-tab budget');
   assert.ok(!names.includes('escrow'), 'escrow is drawer-only');
-  assert.ok(names.length <= 5);
+  assert.ok(names.length <= 4);
 });
 
 // ── Non-owner authenticated roles ────────────────────────────────────────────
@@ -152,16 +152,16 @@ test('hidden owner.garage hides the garage tab', () => {
 
 // ── Beta indicator ───────────────────────────────────────────────────────────
 test('beta owner (state:beta) marks the tab beta=true while still visible', () => {
-  const states = { 'owner.referrals': eff('owner.referrals', { state: 'beta', beta: true }) };
-  const referral = resolveTabBar(ctx('owner', states)).find((t) => t.name === 'referral');
-  assert.ok(referral);
-  assert.equal(referral!.beta, true);
-  assert.equal(referral!.visible, true, 'beta is still visible');
+  const states = { 'owner.communications': eff('owner.communications', { state: 'beta', beta: true }) };
+  const communications = resolveTabBar(ctx('owner', states)).find((t) => t.name === 'communications');
+  assert.ok(communications);
+  assert.equal(communications!.beta, true);
+  assert.equal(communications!.visible, true, 'beta is still visible');
 });
 
 test('non-beta owner marks beta=false', () => {
-  const referral = resolveTabBar(ctx('owner')).find((t) => t.name === 'referral');
-  assert.equal(referral!.beta, false);
+  const communications = resolveTabBar(ctx('owner')).find((t) => t.name === 'communications');
+  assert.equal(communications!.beta, false);
 });
 
 // ── Icon / title wiring ──────────────────────────────────────────────────────
