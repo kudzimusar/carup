@@ -30,6 +30,8 @@ const NEW_MIGRATIONS = [
   '20260621170000_outbox_dead_letter.sql',
   // Phase 2 — security hardening applied after all M1–M6 tables exist
   '20260624120000_vehicle_trust_security_hardening.sql',
+  // Phase 3 — OCR field-level extraction contract
+  '20260624130000_vehicle_document_extractions.sql',
 ];
 
 function splitMigration(file) {
@@ -178,6 +180,32 @@ results.catalog.vehicle_plate_history_rls = (await q(`
   SELECT relrowsecurity FROM pg_class WHERE relname = 'vehicle_plate_history' AND relnamespace = 'public'::regnamespace
 `))[0]?.relrowsecurity || false;
 
+// 3c. Phase 3 catalog checks: vehicle_document_extractions + content-guard trigger
+results.catalog.extractions_table = (await q(`
+  SELECT table_name FROM information_schema.tables
+  WHERE table_schema='public' AND table_name='vehicle_document_extractions'`))[0]?.table_name || null;
+results.catalog.extractions_rls = (await q(`
+  SELECT relrowsecurity FROM pg_class
+  WHERE relname='vehicle_document_extractions' AND relnamespace='public'::regnamespace`))[0]?.relrowsecurity || false;
+// Verify content-guard trigger blocks mutation of immutable fields
+try {
+  const v2 = 'V2PHASE3';
+  await db.exec(`INSERT INTO vehicles(vin) VALUES ('${v2}')`);
+  const ev2 = (await q(`SELECT id FROM vehicle_evidence LIMIT 1`))[0]?.id;
+  if (ev2) {
+    await db.exec(`INSERT INTO vehicle_document_extractions
+      (evidence_id,vin,document_type,field_name,raw_value,match_status)
+      VALUES ('${ev2}','${v2}','registration_document','vin_field','RAWVAL','inconclusive')`);
+    let guardBlocked = false;
+    try {
+      await db.exec(`UPDATE vehicle_document_extractions SET vin='OTHER' WHERE vin='${v2}'`);
+    } catch { guardBlocked = true; }
+    results.catalog.extraction_content_guard_enforced = guardBlocked;
+  } else {
+    results.catalog.extraction_content_guard_enforced = 'no_evidence_row';
+  }
+} catch (e) { results.catalog.extraction_guard_error = e.message; }
+
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
   await step(db, f + ' (Down)', splitMigration(f).down, results.down);
@@ -186,7 +214,8 @@ results.catalog.tables_after_down = n0(await q(`
   SELECT count(*)::int n FROM information_schema.tables WHERE table_schema='public' AND table_name IN
   ('evidence_class_taxonomy','evidence_sources','evidence_sets','evidence_provenance_events',
    'ingestion_jobs','source_records','vehicle_identity_candidates','listing_snapshots',
-   'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log')`));
+   'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log',
+   'vehicle_document_extractions')`));
 
 // 5. re-apply Up
 for (const f of NEW_MIGRATIONS) {

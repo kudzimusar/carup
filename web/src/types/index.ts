@@ -777,6 +777,54 @@ export type EvidenceType =
 
 export type EvidenceVerificationStatus = 'pending' | 'verified' | 'rejected' | 'disputed' | 'superseded';
 
+// ── Phase 3 — Vehicle Document Extractions (OCR field-level contract) ────────
+
+export type ExtractionMatchStatus = 'match' | 'mismatch' | 'missing_reference' | 'inconclusive';
+export type ExtractionReviewStatus = 'pending' | 'confirmed' | 'rejected' | 'amended' | 'waived';
+
+export interface VehicleDocumentExtraction {
+  id: string;
+  evidence_id: string;
+  vin: string;
+  document_type: string;
+  field_name: string;
+  raw_value: string | null;
+  normalized_value: string | null;
+  confidence: number | null;
+  compared_vehicle_field: string | null;
+  expected_value: string | null;
+  match_status: ExtractionMatchStatus;
+  mismatch_reason: string | null;
+  review_status: ExtractionReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  source_model: string | null;
+  ai_job_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VehicleDocumentExtractionsResponse {
+  extractions: VehicleDocumentExtraction[];
+  mismatch_count: number;
+  pending_review_count: number;
+}
+
+export interface ExtractionReviewDecisionPayload {
+  review_status: Exclude<ExtractionReviewStatus, 'pending'>;
+  mismatch_reason?: string | null;
+}
+
+// ── Phase 3 — VehicleEvidenceMetadata (replaces Record<string, any>) ─────────
+
+export interface VehicleEvidenceMetadata {
+  ai_analysis?: EvidenceAiAnalysis | null;
+  ai_public_summary?: string | null;
+  perceptual_similarity_score?: number | null;
+  duplicate_check_status?: 'clean' | 'flagged' | 'pending' | null;
+  [key: string]: unknown;
+}
+
 // ── Vehicle Life Evidence Taxonomy (M1) ──────────────────────────────────────
 // The eight life-stage evidence classes, mirroring the backend taxonomy
 // (backend/services/evidence/evidenceTaxonomy.js EVIDENCE_CLASSES).
@@ -855,7 +903,7 @@ export interface VehicleEvidence {
   timeline_event_id?: string | null;
   trust_score_impact: number;
   trust_impact?: number;
-  metadata: Record<string, any> & { ai_analysis?: EvidenceAiAnalysis; ai_public_summary?: string };
+  metadata: VehicleEvidenceMetadata;
   image_hash?: string | null;
   checksum?: string | null;
   storage_bucket?: string;
