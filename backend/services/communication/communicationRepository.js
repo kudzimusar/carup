@@ -19,6 +19,12 @@ export class CommunicationRepository {
 
   async insert(table, row) {
     const { data, error } = await this.client.from(table).insert(row).select().single();
+    if (error && table === 'notification_queue' && row.id === undefined && /null value.*id|violates not-null constraint/i.test(error.message || '')) {
+      const retryRow = { id: randomUUID(), ...row };
+      const retry = await this.client.from(table).insert(retryRow).select().single();
+      if (retry.error) throw new Error(`${table} insert failed: ${retry.error.message}`);
+      return retry.data || retryRow;
+    }
     if (error) throw new Error(`${table} insert failed: ${error.message}`);
     return data || row;
   }
@@ -122,6 +128,9 @@ export class MemoryCommunicationRepository {
   async insert(table, row) {
     if (table === 'notification_queue' && this.options.legacyNotificationQueueIds && row.id !== undefined && !Number.isInteger(Number(row.id))) {
       throw new Error('invalid input syntax for type bigint');
+    }
+    if (table === 'notification_queue' && this.options.legacyTextNotificationQueueRequiresExplicitId && row.id === undefined) {
+      row = { id: randomUUID(), ...row };
     }
     const id = row.id || (table === 'notification_queue' && this.options.legacyNotificationQueueIds
       ? this.nextNumericId(table)

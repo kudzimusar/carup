@@ -183,13 +183,14 @@ export class CommunicationNotificationService {
     const message = input.message;
     const thread = input.thread;
     if (!message?.id || !thread?.id) throw new Error('Existing message and thread are required to queue delivery.');
-    if (!input.recipientUserId) throw new Error('A recipient user is required to queue delivery.');
+    if (!input.recipientUserId && !input.recipientIdentityId) throw new Error('A recipient user or channel identity is required to queue delivery.');
     const channel = normalizeChannel(input.channel || message.channel || thread.primary_channel) || 'in_app';
-    const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, input.recipientUserId, channel]);
+    const recipientKey = input.recipientUserId || input.recipientIdentityId;
+    const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, recipientKey, channel]);
     const notificationRow = {
       tenant_id: thread.tenant_id || null,
-      recipient_id: input.recipientUserId,
-      recipient_user_id: input.recipientUserId,
+      recipient_id: input.recipientUserId || input.recipientIdentityId,
+      recipient_user_id: input.recipientUserId || null,
       recipient_identity_id: input.recipientIdentityId || null,
       thread_id: thread.id,
       message_id: message.id,

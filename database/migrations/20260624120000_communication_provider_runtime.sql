@@ -12,6 +12,25 @@ CREATE INDEX IF NOT EXISTS idx_notification_queue_processing_lock
   ON notification_queue (status, locked_at)
   WHERE status = 'processing';
 
+DO $$
+DECLARE
+  id_type TEXT;
+  id_default TEXT;
+BEGIN
+  SELECT data_type, column_default
+  INTO id_type, id_default
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'notification_queue'
+    AND column_name = 'id';
+
+  IF id_type = 'text' AND id_default IS NULL THEN
+    ALTER TABLE notification_queue ALTER COLUMN id SET DEFAULT gen_random_uuid()::text;
+  ELSIF id_type = 'uuid' AND id_default IS NULL THEN
+    ALTER TABLE notification_queue ALTER COLUMN id SET DEFAULT gen_random_uuid();
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION claim_due_communication_notifications(
   p_worker_id TEXT,
   p_batch_limit INTEGER DEFAULT 10,
@@ -30,7 +49,7 @@ BEGIN
     WHERE (
       (
         lower(status) IN ('queued', 'retry_scheduled')
-        AND COALESCE(next_attempt_at, scheduled_at, created_at::timestamptz, now()) <= now()
+        AND COALESCE(next_attempt_at, scheduled_at::timestamptz, created_at::timestamptz, now()) <= now()
       )
       OR (
         lower(status) = 'processing'
@@ -39,7 +58,7 @@ BEGIN
       )
     )
     AND dead_lettered_at IS NULL
-    ORDER BY COALESCE(next_attempt_at, scheduled_at, created_at::timestamptz, now()) ASC
+    ORDER BY COALESCE(next_attempt_at, scheduled_at::timestamptz, created_at::timestamptz, now()) ASC
     FOR UPDATE SKIP LOCKED
     LIMIT GREATEST(p_batch_limit, 1)
   )
@@ -57,3 +76,4 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION claim_due_communication_notifications(TEXT, INTEGER, INTEGER) TO service_role;
