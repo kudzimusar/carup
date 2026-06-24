@@ -9,6 +9,8 @@ import { Car, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
+import { LoginErrorAlert } from './LoginErrorAlert'
+import { classifyLoginStatus, loginError, type LoginErrorState } from './loginError'
 
 const DEMO_USERS = {
   owner: { id: 'u1', name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', role: 'owner' as const },
@@ -30,6 +32,7 @@ export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [formError, setFormError] = useState<LoginErrorState | null>(null)
 
   const validate = () => {
     const e: Record<string, string> = {}
@@ -43,11 +46,13 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate()) return
+    // Cleared state on retry: drop any previous failure before the new attempt.
+    setFormError(null)
     setLoading(true)
 
     try {
       // Fetch CSRF token to pass the security middleware
-      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, {
         method: 'GET',
         credentials: 'include'
       })
@@ -56,7 +61,7 @@ export default function Login() {
 
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'x-csrf-token': csrfToken
         },
@@ -68,16 +73,17 @@ export default function Login() {
         const data = await res.json()
         const userData = data.user
         const token = data.token
-        
+
         login(userData, token)
         toast.success(`Welcome back, ${userData.name}!`)
         navigate(resolvePostLoginRoute(returnTo, userData.role))
       } else {
-        const errorData = await res.json()
-        toast.error(errorData.error || 'Invalid credentials')
+        // Distinct, safe message for invalid credentials vs. server/session failure.
+        setFormError(loginError(classifyLoginStatus(res.status)))
       }
     } catch {
-      toast.error('Network error. Backend is offline.')
+      // Request never reached the backend (offline / server unreachable).
+      setFormError(loginError('backend_unavailable'))
     } finally {
       setLoading(false)
     }
@@ -85,6 +91,7 @@ export default function Login() {
 
   const handleDemoLogin = async (userKey: keyof typeof DEMO_USERS) => {
     const demoUser = DEMO_USERS[userKey]
+    setFormError(null)
     setLoading(true)
     try {
       const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
@@ -109,10 +116,10 @@ export default function Login() {
         toast.success(`Logged in as ${data.user.name}`)
         navigate(resolvePostLoginRoute(returnTo, data.user.role))
       } else {
-        toast.error('Demo login failed. Make sure DB is seeded.')
+        setFormError(loginError(classifyLoginStatus(res.status)))
       }
     } catch {
-      toast.error('Network error.')
+      setFormError(loginError('backend_unavailable'))
     } finally {
       setLoading(false)
     }
@@ -137,6 +144,7 @@ export default function Login() {
         <Card className="border-0 card-shadow">
           <CardContent className="p-6">
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+              <LoginErrorAlert error={formError} />
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Email or Phone</label>
                 <Input

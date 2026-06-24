@@ -115,6 +115,16 @@ test('SEO page draft can be generated from referral code context and preserves a
   assert.equal(response.asset.review.requires_human_review, true);
 });
 
+test('rejecting a marketing asset requires a reason', async () => {
+  const { referralService, marketingSeo } = createHarness();
+  const { code } = await seedCampaign(referralService);
+  const draft = await marketingSeo.draftSeoPage({ referral_code: code.code, asset_type: 'container_campaign_page', base_url: 'https://carup.test' }, operatorActor);
+  const assetId = draft.asset.id;
+  await assert.rejects(() => marketingSeo.transitionAssetStatus(assetId, { status: 'rejected' }, operatorActor), ValidationError);
+  const rejected = await marketingSeo.transitionAssetStatus(assetId, { status: 'rejected', reason: 'off-brand copy' }, operatorActor);
+  assert.equal(rejected.asset.metadata.status, 'rejected');
+});
+
 test('channel message drafts include WhatsApp, Telegram, Facebook, Instagram variants and disclosure', async () => {
   const { referralService, marketingSeo } = createHarness();
   const { campaign } = await seedCampaign(referralService);
