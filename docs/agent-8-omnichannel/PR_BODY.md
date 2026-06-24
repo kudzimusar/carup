@@ -14,6 +14,8 @@ Latest native navigation gate fix commit: `4da5c15` (`fix(mobile): preserve nati
 
 Latest navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`).
 
+Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): address follow-up review defects`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -64,6 +66,15 @@ Verified on staging:
 - All Agent 8 communication foreign keys have covering indexes.
 
 Full activation evidence and the channel status matrix are in `docs/agent-8-omnichannel/ACTIVATION_EVIDENCE.md`.
+
+## Follow-Up Codex Review Corrections
+
+Commit `7c30980` resolves the latest four Codex review threads:
+
+- Guarded the early staging-hardening migration's claim RPC grants with `to_regprocedure(...)` so fresh databases do not fail before the provider runtime migration creates the function.
+- Preserved trusted authenticated ownership on preference updates by whitelisting preference fields and keeping route-provided `user_id` / `tenant_id`.
+- Kept legacy `notification_queue.recipient_id` user-only for external identity deliveries and relied on `recipient_identity_id` for contacts without CarUp users.
+- Replaced plain invalid-webhook errors with `ForbiddenError` so rejected provider signatures return 403 instead of 500.
 
 ## Vercel Staging Preview Activation
 
@@ -186,8 +197,8 @@ for Hobby limits.
 
 ## Tests Run and Results
 
-- `node --test backend/tests/communication-engine.test.js` - 34 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, and migration hardening assertions.
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 49 passed.
+- `node --test backend/tests/communication-engine.test.js` - 35 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, migration hardening assertions, guarded runtime-hardening RPC grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 50 passed.
 - `node --test backend/tests/referral-channel-gateway-phase3.test.js` - 15 passed before PR #88 merge.
 - `node --test backend/tests/server-export.test.js` - 1 passed.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with local server binding.

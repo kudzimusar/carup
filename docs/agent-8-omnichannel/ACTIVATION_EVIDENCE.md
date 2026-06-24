@@ -21,6 +21,7 @@ Production was not migrated or deployed during this run.
   - Activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`)
   - Navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`)
   - Navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`)
+  - Follow-up Codex review fix commit: `7c30980` (`fix(communication): address follow-up review defects`)
   - Final PR head: updated on GitHub after this evidence update is pushed.
   - GitHub checks observed after retarget: `referral-ci`, Vercel web/backend/staging previews all passed.
 
@@ -120,6 +121,8 @@ Security and performance advisors were run after migration.
 - `npm run test:qa -- tests/agents/27-feature-registry-navigation-map.spec.ts` - local rerun hit sidebar rendering timeouts in this environment, but exposed and fixed deterministic owner/admin count drift from Agent 8 Communications entries; GitHub `navigation-e2e` passed afterward.
 - `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating shared navigation artifacts.
 - `node --test backend/tests/communication-engine.test.js` - 34 passed after migration hardening assertions.
+- `node --test backend/tests/communication-engine.test.js` - 35 passed after follow-up Codex fixes for guarded RPC grants, preference ownership, external identity queue FK safety, and webhook 403 errors.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 50 passed after follow-up Codex fixes.
 - `git diff --check` - passed after staging-hardening migration additions.
 
 ## Channel Operational Matrix

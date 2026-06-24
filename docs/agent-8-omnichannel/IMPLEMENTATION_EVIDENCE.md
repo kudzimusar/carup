@@ -18,6 +18,8 @@ Latest native navigation gate fix commit: `4da5c15` (`fix(mobile): preserve nati
 
 Latest navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`)
 
+Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): address follow-up review defects`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -108,12 +110,19 @@ Resolved fresh Codex follow-up review in commit `a286f9c`:
 - Admin replies to guest/external requester identities now create canonical queue rows with `recipient_identity_id` and provider delivery payloads, so WhatsApp, Telegram, Facebook, Instagram, SMS, email, and push identity threads can be delivered by the existing worker even when `primary_user_id` is null.
 - Added regressions for external-identity admin reply delivery, legacy TEXT queue retry, migration grant/casts/defaults, and retained the existing admin-user reply, internal-note, Meta verification/signature, BIGSERIAL, retry, and dead-letter coverage.
 
+Resolved second fresh Codex follow-up review in commit `7c30980`:
+
+- Guarded the early staging-hardening migration's claim RPC grants with `to_regprocedure(...)` so fresh databases do not fail before the provider runtime migration creates the function.
+- Preserved trusted authenticated ownership on preference updates by whitelisting preference fields and keeping route-provided `user_id` / `tenant_id`.
+- Kept legacy `notification_queue.recipient_id` user-only for external identity deliveries and relied on `recipient_identity_id` for WhatsApp/Telegram/Facebook/Instagram/SMS/email/push contacts without CarUp users.
+- Replaced plain invalid-webhook `Error` throws with `ForbiddenError` so central middleware returns 403 instead of 500 for rejected provider signatures.
+
 ## Tests Run And Results
 
 Passing:
 
-- `node --test backend/tests/communication-engine.test.js` - 34 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, and migration hardening assertions for queue RLS, admin audit policies, FK indexes, and claim RPC grants.
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 49 passed.
+- `node --test backend/tests/communication-engine.test.js` - 35 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, migration hardening assertions for queue RLS/admin audit policies/FK indexes/claim RPC grants, guarded runtime hardening migration grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 50 passed.
 - `node --test backend/tests/referral-channel-gateway-phase3.test.js` - 15 passed immediately before PR #88 merge.
 - `node backend/tests/run-tests.js` - passed with network escalation for live Supabase access. Initial sandboxed run failed at Supabase fetch; rerun passed all 35 governance/integration/trust/security checks. The live database used by the suite does not yet have Agent 8 tables, so communication fanout logs a single migration warning and skips until `COMMUNICATION_ENGINE_ENABLED=true` after migration.
 - `node --test backend/tests/server-export.test.js` - 1 passed. Supabase live connection warning is expected without live credentials.
