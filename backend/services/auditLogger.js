@@ -121,23 +121,38 @@ function warnLegacySkipBounded(reason) {
  * so a membership row proves the (user_id, organization_id) pair satisfies both
  * `organization_audit_logs` foreign keys. We therefore only ever attribute the
  * legacy audit to an org the actor is actually a member of — never a fabricated id.
- * Returns null when no FK-backed membership exists (caller skips the insert).
+ *
+ * Tenant correctness: when an explicit `candidateOrgId` (request/session tenant) is
+ * supplied, the result is that org if the actor is a member of it, otherwise null —
+ * there is NO fallback to a different organization. Only when no explicit tenant is
+ * supplied do we fall back to a single verified membership.
+ * Returns null when no FK-backed, tenant-correct membership exists (caller skips).
  */
 async function resolveLegacyOrganizationId(client, userId, candidateOrgId) {
   try {
     if (candidateOrgId) {
+      // Explicit request/session tenant: attribute the legacy audit ONLY to that
+      // org, and only when the actor is genuinely a member of it. If the actor is
+      // NOT a member of the explicit tenant, return null and skip the legacy write
+      // — never silently re-attribute the record to a different organization the
+      // user happens to belong to. That would be FK-valid but tenant-INCORRECT,
+      // mis-filing one tenant's action under another. The explicit tenant is
+      // authoritative; there is no cross-org fallback when it is supplied.
       const { data } = await client
         .from('organization_users')
         .select('organization_id')
         .eq('user_id', userId)
         .eq('organization_id', candidateOrgId)
         .maybeSingle();
-      if (data?.organization_id) return data.organization_id;
+      return data?.organization_id || null;
     }
+    // No explicit tenant on the request/session: fall back to a single verified
+    // membership solely to attribute this optional legacy mirror.
     const { data } = await client
       .from('organization_users')
       .select('organization_id')
       .eq('user_id', userId)
+      .limit(1)
       .maybeSingle();
     return data?.organization_id || null;
   } catch {

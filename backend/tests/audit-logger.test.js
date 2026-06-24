@@ -20,8 +20,13 @@ function mockClient({ failTrustInsert = false, failLegacyInsert = false, members
         },
         select() { return builder; },
         eq(col, val) { filters[col] = val; return builder; },
+        limit() { return builder; },
         maybeSingle() {
           if (table === 'organization_users') {
+            // Mirrors the real query: a row matches only when it satisfies EVERY
+            // applied filter. The no-candidate path applies only user_id (returns
+            // the first membership); the explicit-candidate path applies user_id
+            // AND organization_id (returns a row only when the actor is in THAT org).
             const m = memberships.find(r =>
               (filters.user_id === undefined || r.user_id === filters.user_id) &&
               (filters.organization_id === undefined || r.organization_id === filters.organization_id));
@@ -140,13 +145,93 @@ test('unknown user (no membership) does not attempt an invalid legacy insertion'
   assertNoFakeIdentity(client);
 });
 
-test('unknown organization does not attempt an invalid legacy insertion', async () => {
+test('unknown organization (no membership at all) does not attempt an invalid legacy insertion', async () => {
   // explicit org provided, but the user is not a member of it and has no other membership
   const client = mockClient({ memberships: [] });
   const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3', organization_id: 'org-ghost' });
   await tick();
   assert.equal(result.success, true);
   assert.equal(legacyInserts(client).length, 0); // skipped — never inserts org_croco / an unverified org
+  assertNoFakeIdentity(client);
+});
+
+// ── Tenant attribution: an explicit candidate org is authoritative ──────────
+// (regression for the P2 where a mismatched explicit org silently fell back to a
+//  DIFFERENT organization the actor happened to belong to)
+
+test('explicit mismatched organization skips the legacy write (no cross-org fallback)', async () => {
+  // The actor IS a member of org-A, but the request explicitly targets org-B.
+  // The legacy write must be SKIPPED — never re-attributed to org-A.
+  const client = mockClient({ memberships: [{ user_id: 'u3', organization_id: 'org-A' }] });
+  const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3', organization_id: 'org-B' });
+  await tick();
+  assert.equal(result.success, true); // trust_audit_events still authoritative
+  assert.equal(legacyInserts(client).length, 0); // explicit mismatch ⇒ no insert attempted
+  assertNoFakeIdentity(client);
+});
+
+test('stale req.userContext.tenantId does not fall back to another organization', async () => {
+  // Session tenant says org-stale (the actor is NOT a member); actual membership is org-real.
+  const client = mockClient({ memberships: [{ user_id: 'u3', organization_id: 'org-real' }] });
+  const result = await logAuditEvent(client, {
+    event_type: 'E',
+    actor_user_id: 'u3',
+    req: { userContext: { tenantId: 'org-stale' } },
+  });
+  await tick();
+  assert.equal(result.success, true);
+  assert.equal(legacyInserts(client).length, 0); // org-stale not a membership ⇒ skip, never org-real
+  assertNoFakeIdentity(client);
+});
+
+test('stale x-tenant-id header does not fall back to another organization', async () => {
+  const client = mockClient({ memberships: [{ user_id: 'u3', organization_id: 'org-real' }] });
+  const result = await logAuditEvent(client, {
+    event_type: 'E',
+    actor_user_id: 'u3',
+    req: { headers: { 'x-tenant-id': 'org-stale' } },
+  });
+  await tick();
+  assert.equal(result.success, true);
+  assert.equal(legacyInserts(client).length, 0); // header tenant not a membership ⇒ skip
+  assertNoFakeIdentity(client);
+});
+
+test('no candidate organization uses a valid single-membership fallback', async () => {
+  const client = mockClient({ failTrustInsert: true, memberships: [{ user_id: 'u3', organization_id: 'org-only' }] });
+  const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3' }); // no org anywhere
+  await tick();
+  assert.equal(result.success, true);
+  const legacy = legacyInserts(client);
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].payload.organization_id, 'org-only'); // membership fallback used
+  assertNoFakeIdentity(client);
+});
+
+test('multi-membership user is attributed to the EXPLICIT candidate, not another org', async () => {
+  // Member of both org-A and org-B; request explicitly targets org-B → must write under org-B.
+  const client = mockClient({
+    failTrustInsert: true,
+    memberships: [{ user_id: 'u3', organization_id: 'org-A' }, { user_id: 'u3', organization_id: 'org-B' }],
+  });
+  const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3', organization_id: 'org-B' });
+  await tick();
+  assert.equal(result.success, true);
+  const legacy = legacyInserts(client);
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].payload.organization_id, 'org-B'); // exact explicit org, never org-A
+  assertNoFakeIdentity(client);
+});
+
+test('multi-membership user with an UNRELATED explicit candidate is never cross-attributed', async () => {
+  // Member of org-A and org-B; request targets org-C (not a member) → skip, never org-A/org-B.
+  const client = mockClient({
+    memberships: [{ user_id: 'u3', organization_id: 'org-A' }, { user_id: 'u3', organization_id: 'org-B' }],
+  });
+  const result = await logAuditEvent(client, { event_type: 'E', actor_user_id: 'u3', organization_id: 'org-C' });
+  await tick();
+  assert.equal(result.success, true);
+  assert.equal(legacyInserts(client).length, 0); // no membership in org-C ⇒ skip
   assertNoFakeIdentity(client);
 });
 
