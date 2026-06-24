@@ -5,11 +5,12 @@
  * Strategy:
  *   1. Bootstrap a Supabase-compat environment: pgcrypto, roles (anon/authenticated/service_role),
  *      an auth.uid() stub, and the PRE-MERGE prerequisite schema the six new migrations build on
- *      (vehicles, users, domain_events, and vehicle_evidence via the real 014 + 015 migrations).
- *   2. Apply the SIX new migrations' Up sections in timestamp order — verify each.
+ *      (vehicles, users, domain_events, vehicle_ownership_history, and vehicle_evidence via
+ *      the real 014 + 015 migrations).
+ *   2. Apply the SIX M1–M6 migrations + Phase 2 security hardening migration Up in order.
  *   3. Apply their Down sections in REVERSE order — verify each.
  *   4. Re-apply all Up sections — verify each (idempotent-after-rollback).
- *   5. Inspect catalog: tables, triggers, views, RLS policies, grants created by the six.
+ *   5. Inspect catalog: tables, triggers, views, RLS policies, FK constraints.
  *
  * Run:  node database/test/migration_pglite_check.mjs
  */
@@ -27,6 +28,8 @@ const NEW_MIGRATIONS = [
   '20260621150000_report_versions.sql',
   '20260621160000_governance_disputes_corrections.sql',
   '20260621170000_outbox_dead_letter.sql',
+  // Phase 2 — security hardening applied after all M1–M6 tables exist
+  '20260624120000_vehicle_trust_security_hardening.sql',
 ];
 
 function splitMigration(file) {
@@ -60,6 +63,12 @@ const BOOTSTRAP = `
   CREATE TABLE IF NOT EXISTS domain_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), event_type TEXT, status TEXT DEFAULT 'pending',
     attempts INT DEFAULT 0, payload JSONB, created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  -- Required for report_versions owner read policy (Phase 2)
+  CREATE TABLE IF NOT EXISTS vehicle_ownership_history (
+    id BIGSERIAL PRIMARY KEY, vin TEXT NOT NULL REFERENCES vehicles(vin) ON DELETE CASCADE,
+    previous_owner_id TEXT, new_owner_id TEXT NOT NULL,
+    transfer_date TEXT NOT NULL DEFAULT '2026-01-01', transfer_hash TEXT NOT NULL DEFAULT 'h'
   );
 `;
 
@@ -136,6 +145,38 @@ try {
   catch { blocked = true; }
   results.catalog.provenance_append_only_enforced = blocked;
 } catch (e) { results.catalog.provenance_functional_error = e.message; }
+
+// 3b. Phase 2 catalog checks: FK constraint modes + RLS on vehicle_evidence
+results.catalog.provenance_fk_mode = (await q(`
+  SELECT confdeltype FROM pg_constraint
+  WHERE conrelid = 'evidence_provenance_events'::regclass
+    AND confrelid = 'vehicle_evidence'::regclass
+    AND contype = 'f'
+  LIMIT 1`))[0]?.confdeltype || null;
+// 'r' = RESTRICT (expected after Phase 2), 'a' = CASCADE (original M1 setting)
+results.catalog.provenance_fk_is_restrict = results.catalog.provenance_fk_mode === 'r';
+results.catalog.evidence_sets_fk_mode = (await q(`
+  SELECT confdeltype FROM pg_constraint
+  WHERE conrelid = 'evidence_sets'::regclass
+    AND confrelid = 'vehicles'::regclass
+    AND contype = 'f'
+    AND conkey = (SELECT ARRAY[attnum] FROM pg_attribute
+                  WHERE attrelid = 'evidence_sets'::regclass AND attname = 'vin')
+  LIMIT 1`))[0]?.confdeltype || null;
+results.catalog.evidence_sets_fk_is_restrict = results.catalog.evidence_sets_fk_mode === 'r';
+results.catalog.report_versions_fk_mode = (await q(`
+  SELECT confdeltype FROM pg_constraint
+  WHERE conrelid = 'report_versions'::regclass
+    AND confrelid = 'vehicles'::regclass
+    AND contype = 'f'
+  LIMIT 1`))[0]?.confdeltype || null;
+results.catalog.report_versions_fk_is_restrict = results.catalog.report_versions_fk_mode === 'r';
+results.catalog.vehicle_evidence_rls = (await q(`
+  SELECT relrowsecurity FROM pg_class WHERE relname = 'vehicle_evidence' AND relnamespace = 'public'::regnamespace
+`))[0]?.relrowsecurity || false;
+results.catalog.vehicle_plate_history_rls = (await q(`
+  SELECT relrowsecurity FROM pg_class WHERE relname = 'vehicle_plate_history' AND relnamespace = 'public'::regnamespace
+`))[0]?.relrowsecurity || false;
 
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
