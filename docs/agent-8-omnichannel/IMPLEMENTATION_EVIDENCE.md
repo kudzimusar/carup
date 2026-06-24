@@ -72,12 +72,20 @@ Resolved in commit `b44eee7`:
 - Notification enqueue no longer forces UUID IDs into `notification_queue`; the database default is used unless an explicit ID is supplied. The test harness now emulates legacy BIGSERIAL queue IDs.
 - Provider adapter exceptions are normalized into delivery failure results, recorded in `message_delivery_attempts`, and routed through retry/backoff or dead-letter handling with locks cleared.
 
+Resolved fresh Codex follow-up review in commit `a286f9c`:
+
+- Granted `service_role` execute permission on `claim_due_communication_notifications(TEXT, INTEGER, INTEGER)` after the public revoke, so the service-role Supabase client can call the durable claim RPC.
+- Cast legacy `notification_queue.scheduled_at` values to `timestamptz` inside the claim RPC due-date comparisons and ordering, preserving compatibility with text-backed legacy queues.
+- Added safe legacy TEXT queue handling: the migration supplies a `gen_random_uuid()::text` default when a text `notification_queue.id` column has no default, and the repository retries notification inserts with a generated UUID only when a legacy no-default text ID error is observed. BIGSERIAL queues continue to use the database default.
+- Admin replies to guest/external requester identities now create canonical queue rows with `recipient_identity_id` and provider delivery payloads, so WhatsApp, Telegram, Facebook, Instagram, SMS, email, and push identity threads can be delivered by the existing worker even when `primary_user_id` is null.
+- Added regressions for external-identity admin reply delivery, legacy TEXT queue retry, migration grant/casts/defaults, and retained the existing admin-user reply, internal-note, Meta verification/signature, BIGSERIAL, retry, and dead-letter coverage.
+
 ## Tests Run And Results
 
 Passing:
 
-- `node --test backend/tests/communication-engine.test.js` - 32 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, and thrown adapter retry/dead-letter handling.
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 46 passed.
+- `node --test backend/tests/communication-engine.test.js` - 34 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, and thrown adapter retry/dead-letter handling.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 49 passed.
 - `node backend/tests/run-tests.js` - passed with network escalation for live Supabase access. Initial sandboxed run failed at Supabase fetch; rerun passed all 35 governance/integration/trust/security checks. The live database used by the suite does not yet have Agent 8 tables, so communication fanout logs a single migration warning and skips until `COMMUNICATION_ENGINE_ENABLED=true` after migration.
 - `node --test backend/tests/server-export.test.js` - 1 passed. Supabase live connection warning is expected without live credentials.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with localhost binding escalation.
