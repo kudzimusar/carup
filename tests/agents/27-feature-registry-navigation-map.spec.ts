@@ -123,13 +123,15 @@ test.describe('Feature Registry & Navigation Map', () => {
       // Reconciled 2026-06-21 to the live registry (Navigation Blueprint M1/M2):
       // owner/government/admin counts had drifted on main as referral + diaspora
       // admin/government tools were added after this assertion was first written.
-      expect(result.roleItemCounts['owner']).toBe(12);
+      // Agent 8 adds the owner Communications sidebar item.
+      expect(result.roleItemCounts['owner']).toBe(13);
       expect(result.roleItemCounts['dealer']).toBe(6);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(8);
-      // admin gained the new 'Feature Governance' (admin.features) sidebar item (M7).
-      expect(result.roleItemCounts['admin']).toBe(16);
+      // admin gained the new 'Feature Governance' (admin.features) sidebar item (M7)
+      // and Agent 8 adds admin Communications.
+      expect(result.roleItemCounts['admin']).toBe(17);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
