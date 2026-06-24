@@ -1,0 +1,49 @@
+name: Referral Engine CI
+
+# Real CI for the referral engine: runs the actual TypeScript, unit, referral
+# backend, syntax and build suites on every PR and on pushes to the release
+# branch. No secrets required — backend modules that demand Supabase env vars at
+# import time are satisfied with non-secret dummy values, and the referral test
+# suites self-mock the database (the full backend harness, which needs a live DB,
+# is intentionally NOT run here).
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feat/referral-final-uat-release
+  workflow_dispatch:
+
+jobs:
+  referral-ci:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: dummy_ci_key_not_a_secret
+      JWT_SECRET: dummy_ci_jwt_secret_not_a_secret
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Web TypeScript
+        run: npx tsc -p web/tsconfig.app.json --noEmit
+      - name: Web unit tests
+        run: npm run test:unit --workspace=web
+      - name: Mobile TypeScript
+        run: npm run ts:check --workspace=mobile
+      - name: Referral backend suites (self-mocked, no live DB)
+        run: |
+          set -e
+          for f in backend/tests/auth-login.test.js backend/tests/referral-*.test.js; do
+            echo "::group::$f"
+            node --test "$f"
+            echo "::endgroup::"
+          done
+      - name: UAT runner syntax check
+        run: node --check backend/scripts/uat/referral-uat-journeys.mjs
+      - name: Web production build
+        run: npm run build --workspace=web
