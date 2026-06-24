@@ -14,6 +14,8 @@ Latest Codex review-fix commit: `b44eee7` (`fix(communication): address codex re
 
 Latest staging activation hardening commit: `3a848ef` (`fix(communication): harden staging activation schema`)
 
+Latest native navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -120,7 +122,9 @@ Passing:
 - `npm run build --workspace=web` - passed. Existing Vite chunk-size warning remains: main JS chunk about 2,051 kB before gzip.
 - `npx tsc --noEmit --project mobile/tsconfig.json` - passed.
 - `cd mobile && npx tsx tests/communication-api.test.ts` - passed with normal IPC escalation for `tsx`.
-- `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after reconciling the Agent 8 Messages tab with the merged native navigation manifest.
+- `cd mobile && npx tsx tests/native-navigation.test.ts` - 19 passed after preserving the native More-tab budget.
+- `cd mobile && npx tsx tests/native-tabs.test.ts` - 18 passed after keeping Messages visible and Referrals drawer-placed.
+- `cd mobile && npx tsx tests/native-drawer.test.ts` - 28 passed after moving Referrals into the governed drawer.
 - `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating owner/navigation artifacts.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome with local Vite server binding.
 - `git diff --check` - passed.
