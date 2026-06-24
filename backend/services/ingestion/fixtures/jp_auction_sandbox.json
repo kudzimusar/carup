@@ -1,0 +1,64 @@
+{
+  "_note": "SANDBOX FIXTURES ONLY — synthetic Japanese-auction records. NOT a live data source. No real credentials or external API are involved (master plan §2.6, §6.3).",
+  "pages": [
+    {
+      "nextCursor": "page-2",
+      "records": [
+        {
+          "lot": "JP-2021-00041",
+          "chassis": "JTDBR32E120111111",
+          "vin": "JTDBR32E120111111",
+          "make": "Toyota",
+          "model": "Premio",
+          "year": 2021,
+          "auction_date": "2021-08-14",
+          "grade": "4.0",
+          "odometer_km": 62000,
+          "title": "2021 Toyota Premio — Grade 4.0",
+          "images": [
+            { "ref": "fixture://jp/JP-2021-00041/front.png", "view": "front" },
+            { "ref": "fixture://jp/JP-2021-00041/rear.png", "view": "rear" }
+          ],
+          "damage_notes": "Minor rear-quarter scuff noted on sheet"
+        },
+        {
+          "lot": "JP-2022-00099",
+          "chassis": "JTDBR32E120222222",
+          "vin": "JTDBR32E120222222",
+          "make": "Honda",
+          "model": "Fit",
+          "year": 2022,
+          "auction_date": "2022-03-02",
+          "grade": "3.5",
+          "odometer_km": 48000,
+          "title": "2022 Honda Fit — Grade 3.5",
+          "images": [{ "ref": "fixture://jp/JP-2022-00099/front.png", "view": "front" }]
+        }
+      ]
+    },
+    {
+      "nextCursor": null,
+      "records": [
+        {
+          "lot": "JP-2021-BADREC",
+          "make": "Unknown",
+          "model": "",
+          "year": null,
+          "auction_date": "not-a-date",
+          "images": [],
+          "_expected": "quarantined (missing identity + invalid date)"
+        },
+        {
+          "lot": "JP-2020-AMBIG",
+          "make": "Mazda",
+          "model": "Demio",
+          "year": 2020,
+          "auction_date": "2020-11-20",
+          "odometer_km": 71000,
+          "images": [{ "ref": "fixture://jp/JP-2020-AMBIG/front.png", "view": "front" }],
+          "_expected": "needs_identity_review (make/model/year only, no VIN/chassis/plate)"
+        }
+      ]
+    }
+  ]
+}

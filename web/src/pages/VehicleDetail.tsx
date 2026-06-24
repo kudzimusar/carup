@@ -1,6 +1,10 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { PremiumEvidenceGallery } from '@/components/PremiumEvidenceGallery'
+import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
+import VehicleTemporalComparison from '@/components/VehicleTemporalComparison'
+import VehicleDisclosurePanel from '@/components/VehicleDisclosurePanel'
+import VehicleHistoryReport from '@/components/VehicleHistoryReport'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -18,7 +22,7 @@ import {
   Phone, MessageSquare, Heart, Share2, ArrowLeft, AlertTriangle, Search,
   FileCheck, Star, Loader2, Lock, CreditCard, ChevronLeft, ChevronRight,
   XCircle, HelpCircle, Wrench, UserCheck, TrendingDown, ClipboardCheck,
-  Clock, Image as ImageIcon, FileText
+  Clock, Image as ImageIcon, FileText, FileSearch, Link2, Copy
 } from 'lucide-react'
 import { formatPrice } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -30,11 +34,17 @@ import type {
   TimelineEvent,
   PassportVerificationSource,
   MarketplaceListingDetail,
+  EvidenceTaxonomyResponse,
+  EvidenceSource,
+  TemporalFinding,
+  DisclosureConflict,
+  VehicleHistoryReportData,
 } from '@/types'
 import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
 import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
 import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
+import DisputePanel from '@/components/DisputePanel'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
@@ -186,8 +196,12 @@ function buildTrustBreakdown(passport: VehiclePassport | null): { label: string;
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings } = useCarUpApi()
-  const { isAuthenticated } = useAuth()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink } = useCarUpApi()
+  const { isAuthenticated, user } = useAuth()
+
+  // Buyers/owners can generate a snapshot + share link; backend enforces the role.
+  // Keep the owner actions unobtrusive: only authenticated privileged roles see them.
+  const canManageReport = isAuthenticated && ['owner', 'dealer', 'admin', 'government'].includes(user?.role ?? '')
 
   const [vehicle, setVehicle]   = useState<Vehicle | null>(null)
   const [passport, setPassport] = useState<VehiclePassport | null>(null)
@@ -210,6 +224,99 @@ export default function VehicleDetail() {
   const [selectedBank, setSelectedBank]         = useState('cbz')
 
   const [lookupQuery, setLookupQuery] = useState('')
+
+  // Vehicle Life Evidence Taxonomy (M1) — used to derive a life-stage class for
+  // legacy evidence and to resolve human-readable source labels in the timeline.
+  const [evidenceTaxonomy, setEvidenceTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
+  const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    Promise.allSettled([fetchEvidenceTaxonomy(), fetchEvidenceSources()]).then(([tax, src]) => {
+      if (!mounted) return
+      if (tax.status === 'fulfilled') setEvidenceTaxonomy(tax.value)
+      if (src.status === 'fulfilled') setEvidenceSources(src.value.sources || [])
+    })
+    return () => { mounted = false }
+  }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
+
+  // Vehicle Life Intelligence (M3): reviewer-confirmed, public-safe temporal
+  // comparisons and disclosure conflicts. Buyers typically see empty/governed
+  // results — that is correct and expected; the UI handles empty gracefully.
+  const [temporalFindings, setTemporalFindings] = useState<TemporalFinding[]>([])
+  const [disclosureConflicts, setDisclosureConflicts] = useState<DisclosureConflict[]>([])
+
+  useEffect(() => {
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    let mounted = true
+    Promise.allSettled([fetchTemporalFindings(vin), fetchDisclosureConflicts(vin)]).then(([findings, conflicts]) => {
+      if (!mounted) return
+      setTemporalFindings(findings.status === 'fulfilled' ? findings.value.findings || [] : [])
+      setDisclosureConflicts(conflicts.status === 'fulfilled' ? conflicts.value.conflicts || [] : [])
+    })
+    return () => { mounted = false }
+  }, [vehicle?.vin, id, fetchTemporalFindings, fetchDisclosureConflicts])
+
+  // Vehicle History Report (M4): full public-safe buyer report. Audience is derived
+  // server-side from role; buyers get verified, public-safe data only. Loaded lazily
+  // alongside the page so the dedicated tab renders immediately when opened.
+  const [report, setReport] = useState<VehicleHistoryReportData | null>(null)
+  const [reportLoading, setReportLoading] = useState(true)
+  const [reportError, setReportError] = useState<string | null>(null)
+  const [reportBusy, setReportBusy] = useState(false)
+  const [shareLink, setShareLink] = useState<string | null>(null)
+
+  // Vehicle History Report fetch. No synchronous setState in the effect body
+  // (react-hooks/set-state-in-effect): reportLoading is initialised true and all state
+  // updates happen in async continuations; error is cleared on a successful load.
+  useEffect(() => {
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    let mounted = true
+    fetchVehicleReport(vin)
+      .then((data) => { if (mounted) { setReport(data); setReportError(null) } })
+      .catch((err) => { if (mounted) setReportError(err instanceof Error ? err.message : 'Report unavailable') })
+      .finally(() => { if (mounted) setReportLoading(false) })
+    return () => { mounted = false }
+  }, [vehicle?.vin, id, fetchVehicleReport])
+
+  const handleGenerateReportVersion = useCallback(async () => {
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    setReportBusy(true)
+    try {
+      const version = await generateReportVersion(vin)
+      toast.success(`Report version v${version.version} snapshotted.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not generate report version.')
+    } finally {
+      setReportBusy(false)
+    }
+  }, [vehicle?.vin, id, generateReportVersion])
+
+  const handleCreateShareLink = useCallback(async () => {
+    const vin = vehicle?.vin || id
+    if (!vin) return
+    setReportBusy(true)
+    try {
+      // Snapshot a fresh version, then create an expiring share link for it.
+      const version = await generateReportVersion(vin)
+      const link = await createReportShareLink(version.id)
+      const url = `${window.location.origin}/reports/shared/${link.share_token}`
+      setShareLink(url)
+      try {
+        await navigator.clipboard?.writeText(url)
+        toast.success('Share link created and copied to clipboard.')
+      } catch {
+        toast.success('Share link created.')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create share link.')
+    } finally {
+      setReportBusy(false)
+    }
+  }, [vehicle?.vin, id, generateReportVersion, createReportShareLink])
 
   const handleLookupSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -723,8 +830,9 @@ export default function VehicleDetail() {
             <Card className="border-0 card-shadow">
               <CardContent className="p-6">
                 <Tabs defaultValue="history">
-                  <TabsList className="w-full">
+                  <TabsList className="w-full flex-wrap">
                     <TabsTrigger value="history" className="flex-1">Vehicle History</TabsTrigger>
+                    <TabsTrigger value="report" className="flex-1">History Report</TabsTrigger>
                     <TabsTrigger value="evidence" className="flex-1">Evidence Vault</TabsTrigger>
                     <TabsTrigger value="verification" className="flex-1">Verification</TabsTrigger>
                     <TabsTrigger value="market" className="flex-1">Market Analysis</TabsTrigger>
@@ -796,9 +904,111 @@ export default function VehicleDetail() {
                     )}
                   </TabsContent>
 
+                  {/* ── Vehicle History Report tab (M4): full buyer report ── */}
+                  <TabsContent value="report" className="mt-4" data-testid="history-report-tab-content">
+                    {/* Owner/dealer/admin actions: snapshot a version + create an expiring share link.
+                        Backend role-gates the writes; UI keeps them unobtrusive for privileged roles. */}
+                    {canManageReport && (
+                      <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4" data-testid="report-owner-actions">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-sm text-gray-600">
+                            <FileSearch className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                            <span>Snapshot this report or share it with a buyer via an expiring link.</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleGenerateReportVersion}
+                              disabled={reportBusy}
+                            >
+                              {reportBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck className="mr-2 h-4 w-4" />}
+                              Generate report version
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleCreateShareLink}
+                              disabled={reportBusy}
+                            >
+                              {reportBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                              Create share link
+                            </Button>
+                          </div>
+                        </div>
+                        {shareLink && (
+                          <div className="mt-3 flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2" data-testid="report-share-link">
+                            <Copy className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                            <code className="min-w-0 flex-1 truncate text-xs text-gray-600">{shareLink}</code>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => { navigator.clipboard?.writeText(shareLink); toast.success('Copied.') }}
+                            >
+                              Copy
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {reportLoading ? (
+                      <div className="flex flex-col items-center py-12 text-gray-400">
+                        <Loader2 className="h-7 w-7 animate-spin" aria-hidden="true" />
+                        <p className="mt-3 text-sm">Loading vehicle history report…</p>
+                      </div>
+                    ) : report ? (
+                      <VehicleHistoryReport report={report} />
+                    ) : (
+                      <div className="text-center py-10 text-gray-400" data-testid="history-report-unavailable">
+                        <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-30" aria-hidden="true" />
+                        <p className="font-medium">History report unavailable</p>
+                        <p className="text-xs mt-1">{reportError || 'The report could not be loaded for this vehicle.'}</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
                   {/* ── Evidence tab: buyer-facing visual proof timeline ── */}
                   <TabsContent value="evidence" className="mt-4" data-testid="evidence-timeline-tab-content">
+                    {/* Vehicle life-stage timeline (M1): groups verified, public-safe evidence by the eight life stages. */}
+                    {publicEvidence.length > 0 && (
+                      <div className="mb-8">
+                        <h3 className="text-lg font-semibold mb-3">Vehicle Life Timeline</h3>
+                        <VehicleLifeStageTimeline
+                          evidence={publicEvidence}
+                          taxonomy={evidenceTaxonomy}
+                          sources={evidenceSources}
+                        />
+                      </div>
+                    )}
                     <PremiumEvidenceGallery evidence={evidenceVault} />
+
+                    {/* Vehicle Life Intelligence (M3): reviewer-confirmed, public-safe
+                        before/after comparisons across the vehicle's life. Empty is the
+                        expected case for most vehicles and implies nothing is wrong. */}
+                    <div className="mt-8" data-testid="temporal-comparison-section">
+                      <h3 className="text-lg font-semibold mb-1">Component Changes Over Time</h3>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Reviewer-confirmed before/after comparisons of vehicle components across its life.
+                      </p>
+                      <VehicleTemporalComparison findings={temporalFindings} />
+                    </div>
+
+                    {/* Disclosure conflicts: neutral comparison of seller disclosures
+                        against available evidence. Empty is the expected case. */}
+                    <div className="mt-8" data-testid="disclosure-panel-section">
+                      <h3 className="text-lg font-semibold mb-1">Disclosure Review</h3>
+                      <p className="text-xs text-gray-500 mb-3">
+                        How the seller's disclosures compare against available evidence, as confirmed by a reviewer.
+                      </p>
+                      <VehicleDisclosurePanel conflicts={disclosureConflicts} />
+                    </div>
+                    {/* M5 governance: disputes & corrections (public-safe; owners can raise). */}
+                    <div className="mt-8" data-testid="dispute-panel-section">
+                      <DisputePanel vin={vehicle?.vin || id || ''} />
+                    </div>
                   </TabsContent>
 
                   {/* ── Verification tab: real trust metrics ── */}

@@ -777,12 +777,73 @@ export type EvidenceType =
 
 export type EvidenceVerificationStatus = 'pending' | 'verified' | 'rejected' | 'disputed' | 'superseded';
 
+// ── Vehicle Life Evidence Taxonomy (M1) ──────────────────────────────────────
+// The eight life-stage evidence classes, mirroring the backend taxonomy
+// (backend/services/evidence/evidenceTaxonomy.js EVIDENCE_CLASSES).
+export type EvidenceClass =
+  | 'import'
+  | 'auction'
+  | 'accident'
+  | 'repair'
+  | 'inspection'
+  | 'ownership_transfer'
+  | 'dealer_listing'
+  | 'current_condition';
+
+// One subtype as returned by GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomySubtype {
+  subtype_code: string;
+  label: string;
+  is_document: boolean;
+  requires_event_date: boolean;
+  requires_mileage: boolean;
+  supports_components: boolean;
+}
+
+// One class (with its subtypes) as returned by GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomyClass {
+  evidence_class: EvidenceClass | string;
+  subtypes: EvidenceTaxonomySubtype[];
+}
+
+// Full payload of GET /api/evidence/taxonomy.
+export interface EvidenceTaxonomyResponse {
+  version: string;
+  classes: EvidenceTaxonomyClass[];
+  legacy_type_to_class: Record<string, EvidenceClass | string>;
+}
+
+// One source as returned by GET /api/evidence/sources (public-safe).
+export interface EvidenceSource {
+  id: string;
+  code: string;
+  display_name: string;
+  source_type: string;
+  organization?: string | null;
+  country?: string | null;
+  verification_status: string;
+  trust_tier: string;
+  permitted_evidence_classes: string[];
+  active: boolean;
+}
+
+// Full payload of GET /api/evidence/sources.
+export interface EvidenceSourcesResponse {
+  sources: EvidenceSource[];
+}
+
 export interface VehicleEvidence {
   id: string;
   vehicle_id: string;
   vin: string;
   event_type: string;
   evidence_type: EvidenceType;
+  // Vehicle Life Evidence Taxonomy (M1) — optional on legacy records.
+  evidence_class?: EvidenceClass | string | null;
+  evidence_subtype?: string | null;
+  event_date?: string | null;
+  source_id?: string | null;
+  perceptual_hash?: string | null;
   file_url: string;
   uploaded_by: string;
   uploader_role: string;
@@ -1059,4 +1120,370 @@ export interface ApiMutationResponse {
   url?: string;
   path?: string;
   [key: string]: unknown;
+}
+
+// ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──────────
+// Buyer-facing, PUBLIC-SAFE shapes only. The backend projects reviewer-confirmed
+// findings/conflicts through publicSafeFinding/publicSafeConflict
+// (backend/routes/intelligenceRoutes.js); privileged callers receive more fields,
+// but the buyer UI must rely only on the public-safe shape below.
+
+// Shared review-status indicator for intelligence findings/conflicts.
+// Buyers only ever see 'confirmed' (others are filtered server-side), but the
+// type allows the full lifecycle so privileged views can reuse it later.
+export type IntelligenceReviewerState =
+  | 'pending_review'
+  | 'confirmed'
+  | 'dismissed';
+
+// Severity ladder shared by temporal findings and disclosure conflicts.
+export type IntelligenceSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+
+// The kind of component-level change a temporal comparison surfaced.
+export type TemporalFindingType =
+  | 'newly_damaged'
+  | 'repaired'
+  | 'replaced'
+  | 'removed_missing'
+  | 'repainted_colour_mismatch'
+  | 'worsened'
+  | 'improved'
+  | 'unchanged'
+  | 'unable_to_compare';
+
+// One public-safe temporal finding from
+// GET /api/vehicles/:vin/temporal-findings -> { findings: TemporalFinding[] }.
+export interface TemporalFinding {
+  finding_type: TemporalFindingType | string;
+  component: string | null;
+  earlier_date: string | null;
+  later_date: string | null;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+}
+
+// How a disclosure claim compares against available evidence.
+export type DisclosureClassification =
+  | 'supported'
+  | 'not_verifiable'
+  | 'possible_conflict'
+  | 'strong_conflict'
+  | 'outdated_claim'
+  | 'resolved_corrected';
+
+// One public-safe disclosure conflict from
+// GET /api/vehicles/:vin/disclosure-conflicts -> { conflicts: DisclosureConflict[] }.
+export interface DisclosureConflict {
+  conflict_type: string | null;
+  classification: DisclosureClassification | string;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+  seller_response: string | null;
+}
+
+// Wrapper responses (match the route handlers exactly).
+export interface TemporalFindingsResponse {
+  findings: TemporalFinding[];
+}
+export interface DisclosureConflictsResponse {
+  conflicts: DisclosureConflict[];
+}
+
+// ── Vehicle History Report (M4) ──────────────────────────────────────────────
+// Public-safe buyer report from GET /api/vehicles/:vin/report and from the
+// `report` field of GET /api/reports/shared/:token. Mirrors the backend
+// assembleReport() shape exactly (backend/services/report/reportService.js).
+
+// The kind of report alert. Buyers see itemized, evidence-linked alerts — never a
+// single opaque score.
+export type ReportAlertCategory = 'visual_change' | 'disclosure' | 'mileage' | string;
+
+export interface ReportKeyAlert {
+  category: ReportAlertCategory;
+  type: string | null;
+  component?: string | null;
+  severity: IntelligenceSeverity | string;
+  summary: string | null;
+  reviewed: boolean;
+  evidence_count: number;
+  recommended_action: string;
+}
+
+// One public-safe timeline / evidence-index row.
+export interface ReportTimelineItem {
+  evidence_id: string;
+  evidence_class: EvidenceClass | string | null;
+  evidence_subtype: string | null;
+  date: string | null;
+  source_id: string | null;
+  verification_status: EvidenceVerificationStatus | string | null;
+}
+
+export interface ReportSections {
+  auction_import: { auction: number; import: number };
+  accident_repair: { accident: number; repair: number };
+  inspection: number;
+  ownership_transfer: number;
+  current_condition: number;
+}
+
+export interface ReportMileageObservation {
+  date: string | null;
+  value: number;
+  unit: string;
+  source: string;
+  evidence_id?: string;
+  listing_id?: string;
+}
+
+export interface ReportMileageHistory {
+  observations: ReportMileageObservation[];
+  anomaly: boolean;
+}
+
+export interface ReportListingSnapshot {
+  version: number | null;
+  captured_at: string | null;
+  title: string | null;
+  price: number | null;
+  currency: string | null;
+  advertised_mileage: number | null;
+  claimed_condition: string | null;
+}
+
+// Visual comparison rows are structurally compatible with TemporalFinding so the
+// existing VehicleTemporalComparison component can render them directly.
+export interface ReportVisualComparison {
+  finding_type: TemporalFindingType | string;
+  component: string | null;
+  earlier_date: string | null;
+  later_date: string | null;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+}
+
+// Disclosure rows are structurally compatible with DisclosureConflict so the
+// existing VehicleDisclosurePanel component can render them directly.
+export interface ReportDisclosureItem {
+  conflict_type: string | null;
+  classification: DisclosureClassification | string;
+  severity: IntelligenceSeverity | string;
+  public_summary: string | null;
+  reviewer_state: IntelligenceReviewerState | string;
+  seller_response: string | null;
+}
+
+export interface ReportCompleteness {
+  identity_coverage: number;
+  timeline_coverage: number;
+  classes_present: string[];
+  classes_missing: string[];
+  mileage_coverage: number;
+  source_diversity: number;
+  inspection_recency: string | null;
+  current_condition_coverage: number;
+  unresolved_conflict_count: number;
+}
+
+export interface VehicleHistoryReportData {
+  schema: string;
+  vin: string;
+  audience: string;
+  identity: { vin: string; make?: string | null; model?: string | null; year?: number | null };
+  key_alerts: ReportKeyAlert[];
+  timeline: ReportTimelineItem[];
+  sections: ReportSections;
+  mileage_history: ReportMileageHistory;
+  listing_history: ReportListingSnapshot[];
+  visual_comparisons: ReportVisualComparison[];
+  disclosure: ReportDisclosureItem[];
+  completeness: ReportCompleteness;
+  limitations: string[];
+  evidence_index: ReportTimelineItem[];
+  generated_at_note?: string;
+}
+
+// POST /api/vehicles/:vin/report/versions
+export interface ReportVersionResponse {
+  id: string;
+  version: number;
+  content_hash: string;
+  completeness: ReportCompleteness;
+}
+
+// POST /api/report-versions/:id/share
+export interface ReportShareLinkResponse {
+  share_token: string;
+  share_expires_at: string;
+  version: number;
+}
+
+// GET /api/reports/shared/:token (success body)
+export interface SharedReportResponse {
+  version: number;
+  generated_at: string;
+  correction_notice: string | null;
+  report: VehicleHistoryReportData;
+}
+
+// Discriminated result for the public shared-report fetch so callers can render
+// distinct "expired/revoked" (410) and "not found" (404) states without parsing
+// error strings.
+export type SharedReportResult =
+  | { status: 'ok'; data: SharedReportResponse }
+  | { status: 'gone'; reason: string }
+  | { status: 'not_found' }
+  | { status: 'error'; message: string };
+
+// ── Governance, disputes & corrections (M5, master plan §11) ──
+// Mirrors backend/services/governance/governanceService.js + disputeService.js and
+// backend/routes/governanceRoutes.js exactly.
+
+// Master-plan task types surfaced by GET /api/governance/review-queue.
+export type GovernanceTaskType =
+  | 'temporal_finding'
+  | 'disclosure_conflict'
+  | 'vehicle_identity'
+  | 'evidence_verification';
+
+// The review-target tables a governed decision may act on (decisions.targetType).
+export type GovernanceTargetType =
+  | 'temporal_findings'
+  | 'disclosure_conflicts'
+  | 'vehicle_evidence'
+  | 'vehicle_identity_candidates';
+
+// Decisions a reviewer may take against a finding/evidence target. The UI verbs
+// map onto these wire values (request-more -> request_more, etc.).
+export type GovernanceDecision =
+  | 'confirm'
+  | 'reject'
+  | 'amend'
+  | 'request_more'
+  | 'inconclusive'
+  | 'publish'
+  | 'unpublish'
+  | 'supersede'
+  | 'escalate';
+
+// One aggregated pending item from the unified reviewer queue.
+export interface GovernanceReviewItem {
+  task_type: GovernanceTaskType;
+  target_type: GovernanceTargetType;
+  target_id: string;
+  vin: string | null;
+  state: string;
+  confidence: number | null;
+  severity: IntelligenceSeverity | string | null;
+  created_at: string | null;
+  summary: string | null;
+}
+
+export interface GovernanceReviewQueueResponse {
+  queue: GovernanceReviewItem[];
+  total: number;
+}
+
+// Payload for POST /api/governance/decisions.
+export interface GovernanceDecisionPayload {
+  targetType: GovernanceTargetType;
+  targetId: string;
+  vin?: string | null;
+  decision: GovernanceDecision;
+  notes?: string | null;
+  policyVersion?: string | null;
+  reviewTaskId?: string | null;
+}
+
+// Append-only review_decisions row returned by the decisions endpoint.
+export interface GovernanceDecisionRecord {
+  id: string;
+  review_task_id: string | null;
+  target_type: string;
+  target_id: string;
+  vin: string | null;
+  reviewer_id: string;
+  reviewer_role: string;
+  decision: GovernanceDecision;
+  notes: string | null;
+  policy_version: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  correlation_id: string | null;
+  conflict_of_interest: boolean;
+  created_at?: string | null;
+}
+
+export interface GovernanceDecisionResponse {
+  success: boolean;
+  decision: GovernanceDecisionRecord;
+}
+
+// Dispute lifecycle: open -> responded -> independent_review -> resolved (-> appealed).
+export type DisputeStatus =
+  | 'open'
+  | 'responded'
+  | 'independent_review'
+  | 'resolved'
+  | 'appealed';
+
+// Privileged view of a dispute row (admin/government/reviewer).
+export interface Dispute {
+  id: string;
+  vin: string | null;
+  subject_type: string;
+  subject_id: string;
+  raised_by: string;
+  raised_by_role: string;
+  status: DisputeStatus | string;
+  resolution?: string | null;
+  assigned_reviewer?: string | null;
+  response_deadline?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+// Public-safe projection returned to non-privileged callers from
+// GET /api/vehicles/:vin/disputes.
+export interface PublicSafeDispute {
+  subject_type: string;
+  status: DisputeStatus | string;
+  created_at: string | null;
+  target_id: string | null;
+  vin: string | null;
+  public_state: 'confirmed_public' | 'not_public';
+  disputed: boolean;
+  public_summary: string | null;
+}
+
+export interface VehicleDisputesResponse {
+  vin: string;
+  // Privileged callers receive full Dispute rows; non-privileged callers receive the
+  // public-safe projection. The union covers both shapes the route can return.
+  disputes: Array<Dispute | PublicSafeDispute>;
+  total: number;
+}
+
+// Payloads for the dispute lifecycle endpoints.
+export interface SubmitDisputePayload {
+  vin?: string | null;
+  subjectType: string;
+  subjectId: string;
+  reason?: string | null;
+}
+
+export interface ResolveDisputePayload {
+  resolution: string;
+  outcome?: 'upheld' | 'rejected' | string;
+  targetType?: GovernanceTargetType;
+  targetId?: string;
+  policyVersion?: string | null;
+}
+
+export interface DisputeMutationResponse {
+  success: boolean;
+  dispute: Dispute;
 }

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -11,6 +11,17 @@ import type {
   ApiMutationResponse,
   VehiclePassport,
   VehicleEvidence,
+  EvidenceTaxonomyResponse,
+  EvidenceSourcesResponse,
+  TemporalFindingsResponse,
+  DisclosureConflictsResponse,
+  GovernanceTaskType,
+  GovernanceReviewQueueResponse,
+  GovernanceDecisionPayload,
+  GovernanceDecisionResponse,
+  VehicleDisputesResponse,
+  SubmitDisputePayload,
+  DisputeMutationResponse,
   TimelineEvent,
   MarketplaceListingsResponse,
   MarketplaceListingDetail,
@@ -40,7 +51,12 @@ import type {
   DiasporaWorkbookDryRunPayload,
   DiasporaWorkbookDryRunResult,
   DiasporaWorkbookTemplateDownloadStatus,
-  DiasporaWorkbookTemplateSchemaResponse
+  DiasporaWorkbookTemplateSchemaResponse,
+  VehicleHistoryReportData,
+  ReportVersionResponse,
+  ReportShareLinkResponse,
+  SharedReportResponse,
+  SharedReportResult
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -302,6 +318,104 @@ export function useCarUpApi() {
 
   const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidence[]> => {
     return request<VehicleEvidence[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
+  }, [request])
+
+  // ── Vehicle Life Evidence Taxonomy (M1): public discovery endpoints ──
+  // GET /api/evidence/taxonomy — the eight life-stage classes, their subtypes,
+  // and the legacy evidence_type → class map, used to drive upload forms and
+  // to derive a life-stage class for legacy evidence records.
+  const fetchEvidenceTaxonomy = useCallback(async (): Promise<EvidenceTaxonomyResponse> => {
+    return request<EvidenceTaxonomyResponse>('/evidence/taxonomy')
+  }, [request])
+
+  // GET /api/evidence/sources — public-safe source registry.
+  const fetchEvidenceSources = useCallback(async (): Promise<EvidenceSourcesResponse> => {
+    return request<EvidenceSourcesResponse>('/evidence/sources')
+  }, [request])
+
+  // ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──
+  // GET /api/vehicles/:vin/temporal-findings — component-change findings across the
+  // vehicle's life. For buyers the backend returns only reviewer-CONFIRMED findings
+  // in a public-safe shape (backend/routes/intelligenceRoutes.js); empty is expected
+  // and correct for most buyer-facing vehicles.
+  const fetchTemporalFindings = useCallback(async (vin: string): Promise<TemporalFindingsResponse> => {
+    return request<TemporalFindingsResponse>(`/vehicles/${encodeURIComponent(vin)}/temporal-findings`)
+  }, [request])
+
+  // GET /api/vehicles/:vin/disclosure-conflicts — disclosure claims compared against
+  // evidence. Buyers see only reviewer-CONFIRMED conflicts in a neutral public-safe
+  // shape; empty is expected and correct for most buyer-facing vehicles.
+  const fetchDisclosureConflicts = useCallback(async (vin: string): Promise<DisclosureConflictsResponse> => {
+    return request<DisclosureConflictsResponse>(`/vehicles/${encodeURIComponent(vin)}/disclosure-conflicts`)
+  }, [request])
+
+  // ── Vehicle History Report (M4): buyer-facing report + owner version/share ──
+  // GET /api/vehicles/:vin/report — assembled public-safe report. Audience is
+  // derived server-side from role (optionalAuth); buyers receive only verified,
+  // public-safe evidence and reviewer-confirmed findings. Missing data is reported
+  // explicitly via `limitations` and never presented as a clean history.
+  const fetchVehicleReport = useCallback(async (vin: string): Promise<VehicleHistoryReportData> => {
+    return request<VehicleHistoryReportData>(`/vehicles/${encodeURIComponent(vin)}/report`)
+  }, [request])
+
+  // POST /api/vehicles/:vin/report/versions — snapshot an immutable version
+  // (owner/dealer/admin/government, backend role-gated).
+  const generateReportVersion = useCallback(async (vin: string): Promise<ReportVersionResponse> => {
+    return request<ReportVersionResponse>(`/vehicles/${encodeURIComponent(vin)}/report/versions`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    })
+  }, [request])
+
+  // POST /api/report-versions/:id/share — create an expiring share link
+  // (owner/dealer/admin/government, backend role-gated).
+  const createReportShareLink = useCallback(async (versionId: string, ttlSeconds?: number): Promise<ReportShareLinkResponse> => {
+    return request<ReportShareLinkResponse>(`/report-versions/${encodeURIComponent(versionId)}/share`, {
+      method: 'POST',
+      body: JSON.stringify(ttlSeconds ? { ttl_seconds: ttlSeconds } : {})
+    })
+  }, [request])
+
+  // GET /api/reports/shared/:token — PUBLIC, no auth. Resolved with a plain fetch
+  // (not the auth/CSRF `request` helper) so the HTTP status is preserved: 410 for
+  // expired/revoked links, 404 for missing tokens. Returns a discriminated result
+  // the page renders distinct friendly states from.
+  const fetchSharedReport = useCallback(async (token: string): Promise<SharedReportResult> => {
+    try {
+      const res = await fetch(`${BASE_URL}/reports/shared/${encodeURIComponent(token)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (res.ok) {
+        const data = (await res.json()) as SharedReportResponse
+        return { status: 'ok', data }
+      }
+      const body = await res.json().catch(() => ({}))
+      const message = extractApiErrorMessage(body)
+      if (res.status === 410) return { status: 'gone', reason: message || 'This shared report has expired or been revoked.' }
+      if (res.status === 404) return { status: 'not_found' }
+      return { status: 'error', message: message || `Unable to load shared report (status ${res.status}).` }
+    } catch (err) {
+      return { status: 'error', message: err instanceof Error ? err.message : 'Unable to load shared report.' }
+    }
+  }, [])
+
+  // --- Milestone 5: governance, disputes & corrections ---
+  const fetchReviewQueue = useCallback(async (taskType?: GovernanceTaskType): Promise<GovernanceReviewQueueResponse> => {
+    const query = taskType ? `?taskType=${encodeURIComponent(taskType)}` : ''
+    return request<GovernanceReviewQueueResponse>(`/governance/review-queue${query}`)
+  }, [request])
+
+  const submitGovernanceDecision = useCallback(async (payload: GovernanceDecisionPayload): Promise<GovernanceDecisionResponse> => {
+    return request<GovernanceDecisionResponse>('/governance/decisions', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchVehicleDisputes = useCallback(async (vin: string): Promise<VehicleDisputesResponse> => {
+    return request<VehicleDisputesResponse>(`/vehicles/${encodeURIComponent(vin)}/disputes`)
+  }, [request])
+
+  const submitDispute = useCallback(async (payload: SubmitDisputePayload): Promise<DisputeMutationResponse> => {
+    return request<DisputeMutationResponse>('/governance/disputes', { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
@@ -806,6 +920,21 @@ export function useCarUpApi() {
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
+    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
+    // backend still requires the legacy evidence_type above.
+    evidence_class?: string;
+    evidence_subtype?: string;
+    event_date?: string;
+    event_date_precision?: 'day' | 'month' | 'year' | 'unknown';
+    capture_country?: string;
+    odometer_value?: number;
+    odometer_unit?: string;
+    component_tags?: string[] | string;
+    declared_condition?: string;
+    source_code?: string;
+    source_record_id?: string;
+    evidence_set_id?: string;
+    retention_class?: string;
   }): Promise<VehicleEvidence> => {
     return request<VehicleEvidence>(`/vehicles/${vin}/evidence/upload`, {
       method: 'POST',
@@ -1017,6 +1146,18 @@ export function useCarUpApi() {
     revokeTrustFactRequest,
     fetchTrustAuditTrail,
     fetchVehicleEvidence,
+    fetchEvidenceTaxonomy,
+    fetchEvidenceSources,
+    fetchTemporalFindings,
+    fetchDisclosureConflicts,
+    fetchVehicleReport,
+    generateReportVersion,
+    createReportShareLink,
+    fetchSharedReport,
+    fetchReviewQueue,
+    submitGovernanceDecision,
+    fetchVehicleDisputes,
+    submitDispute,
     approveEvidence,
     rejectEvidence,
     lookupVehiclePassport,
