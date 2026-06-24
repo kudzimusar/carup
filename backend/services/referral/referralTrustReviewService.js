@@ -73,6 +73,10 @@ function numeric(value, label, fallback = 0) { const n = Number(value ?? fallbac
 function nonNegative(value, label, fallback = 0) { const n = numeric(value, label, fallback); if (n < 0) throw new ValidationError(`${label} must be non-negative.`, { value }); return n; }
 function redact(value) { if (!value) return null; return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16); }
 function checksum(value) { return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
+
+// Audit export page-size bounds — never an unbounded full-table scan.
+const AUDIT_EXPORT_DEFAULT_LIMIT = 500;
+const AUDIT_EXPORT_MAX_LIMIT = 1000;
 function timestamp(now) { return now().toISOString(); }
 function normalizeReason(reason) { return String(reason || '').replace(/\s+/g, ' ').trim(); }
 
@@ -398,28 +402,58 @@ export class ReferralTrustReviewService {
 
   async exportAuditTrail(filters = {}, actor = {}) {
     this.assertOperator(actor);
+    // Validate + cap the page size — never an unbounded full-table scan.
+    const requestedLimit = Number(filters.limit ?? AUDIT_EXPORT_DEFAULT_LIMIT);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), AUDIT_EXPORT_MAX_LIMIT)
+      : AUDIT_EXPORT_DEFAULT_LIMIT;
     const events = await this.referralService.getAdminTimeline({
       tenant_id: filters.tenant_id || undefined,
       campaign_id: filters.campaign_id || undefined,
       code_id: filters.code_id || undefined,
       event_type: filters.event_type || undefined,
-      limit: Number(filters.limit || 500),
+      limit,
     });
+    // Compact, bounded per-event records. We store a checksum of each event's
+    // metadata rather than the raw metadata, so the export payload + checksum stay
+    // bounded regardless of individual event metadata size (tamper-evident, stable).
+    const eventRecords = events.map((event) => ({
+      id: event.id,
+      event_type: event.event_type,
+      subject_type: event.subject_type,
+      subject_id: event.subject_id,
+      wallet_transaction_id: event.wallet_transaction_id || null,
+      campaign_id: event.campaign_id || null,
+      code_id: event.code_id || null,
+      created_at: event.created_at || event.occurred_at || null,
+      metadata_checksum: checksum(cleanObject(event.metadata)),
+    }));
     const exportPayload = {
       generated_at: timestamp(this.now),
       generated_by: actor.actor_user_id || null,
       filters: cleanObject(filters),
-      count: events.length,
-      events: events.map((event) => ({ id: event.id, event_type: event.event_type, subject_type: event.subject_type, subject_id: event.subject_id, wallet_transaction_id: event.wallet_transaction_id || null, campaign_id: event.campaign_id || null, code_id: event.code_id || null, metadata: cleanObject(event.metadata), created_at: event.created_at || null })),
+      limit,
+      count: eventRecords.length,
+      events: eventRecords,
     };
     const exportChecksum = checksum(exportPayload);
+    // The recorded audit-export event stores ONLY a summary — never the event list
+    // — to prevent recursive export-event growth (each export previously embedded
+    // every prior event, including prior exports, causing exponential bloat).
     const event = await this.referralService.recordReferralEvent({
       event_type: TRUST_EVENT_TYPES.AUDIT_EXPORT_CREATED,
       subject_type: 'audit_export',
       subject_id: exportChecksum,
       channel: REFERRAL_CHANNELS.ADMIN,
       session_id: filters.session_id || actor.session_id || null,
-      metadata: { ...exportPayload, checksum: exportChecksum },
+      metadata: {
+        generated_at: exportPayload.generated_at,
+        generated_by: exportPayload.generated_by,
+        filters: exportPayload.filters,
+        limit,
+        count: exportPayload.count,
+        checksum: exportChecksum,
+      },
     }, { ...actor, actor_type: ACTOR_TYPES.ADMIN });
     return { success: true, export: { ...exportPayload, checksum: exportChecksum, event_id: event.id } };
   }

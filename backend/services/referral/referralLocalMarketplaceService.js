@@ -362,7 +362,18 @@ export class ReferralLocalMarketplaceService {
 
     const metadata = cleanObject(leadEvent.metadata);
     const flowType = normalizeEnum(input.flow_type || metadata.flow_type || LOCAL_FLOW_TYPES.GENERAL_MARKETPLACE, enumValues(LOCAL_FLOW_TYPES), LOCAL_FLOW_TYPES.GENERAL_MARKETPLACE, 'flow_type');
-    const referralCode = normalizeReferralCode(input.referral_code || metadata.referral_code || '');
+    // SECURITY (wallet attribution): the reward must be credited to the owner of
+    // the referral code that drove THIS lead, never a code supplied at
+    // qualification time (which could redirect the credit to a different owner
+    // and bypass the hardened self-referral/duplicate guards). Resolve attribution
+    // from the lead first (its stored code, then its code_id); only fall back to a
+    // caller-supplied code when the lead carries no attribution of its own.
+    let referralCode = normalizeReferralCode(metadata.referral_code || '');
+    if (!referralCode && leadEvent.code_id) {
+      const leadCode = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { id: leadEvent.code_id });
+      referralCode = normalizeReferralCode(leadCode?.code || '');
+    }
+    if (!referralCode) referralCode = normalizeReferralCode(input.referral_code || '');
     let validation = null;
     if (referralCode) validation = await this.referralService.validateReferralCode({ code: referralCode, channel: leadEvent.channel, source: 'local_marketplace_qualification', session_id: leadEvent.session_id, subject_type: 'local_marketplace_lead', subject_id: input.lead_event_id }, { ...actor, actor_type: ACTOR_TYPES.AGENT });
 

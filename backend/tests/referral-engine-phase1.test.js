@@ -40,6 +40,20 @@ test('Phase 1 migration contains required tables, RLS, foreign keys, and indexes
   }
 });
 
+test('referral trigger function search_path is pinned (Supabase advisory) and triggers stay bound', () => {
+  const searchPathFix = readFileSync(new URL('../../database/migrations/20260621120000_referral_pin_function_search_path.sql', import.meta.url), 'utf8');
+  // The fix redefines the function with a pinned search_path.
+  assert.equal(searchPathFix.includes('CREATE OR REPLACE FUNCTION public.set_referral_updated_at()'), true);
+  assert.match(searchPathFix, /SET\s+search_path\s*=\s*''/);
+  // It must be additive + idempotent: no destructive statements.
+  assert.equal(/DROP\s+(FUNCTION|TABLE|TRIGGER)/i.test(searchPathFix), false, 'search_path fix must not drop anything');
+  // The original triggers reference the function by name, so CREATE OR REPLACE keeps them bound.
+  for (const trig of ['referral_campaigns_updated_at', 'referral_codes_updated_at', 'referral_coupons_updated_at', 'referral_wallets_updated_at', 'referral_wallet_transactions_updated_at']) {
+    assert.equal(migrationFile.includes(`${trig} BEFORE UPDATE`), true, `${trig} trigger should still exist in 016`);
+    assert.equal(migrationFile.includes('EXECUTE FUNCTION set_referral_updated_at()'), true);
+  }
+});
+
 test('Referral API is mounted and exposes Phase 1 endpoints', () => {
   assert.equal(promotionsRouteFile.includes("router.use('/api/referrals', referralRouter)"), true);
   for (const marker of ["router.post('/campaigns'", "router.post('/validate'", "router.post('/coupons/apply'", "router.patch('/wallets/transactions/:id/status'", "router.get('/admin/events'"]) assert.equal(routeFile.includes(marker), true, `${marker} should exist`);
@@ -70,6 +84,23 @@ test('creates and validates referral codes with attribution preserved', async ()
   const events = await repository.list(REFERRAL_TABLES.events, { code_id: code.id });
   assert.equal(events.some((event) => event.event_type === REFERRAL_EVENT_TYPES.CODE_CREATED), true);
   assert.equal(events.some((event) => event.event_type === REFERRAL_EVENT_TYPES.CODE_VALIDATED), true);
+});
+
+test('QR and barcode scans create dedicated scan referral events alongside validation', async () => {
+  const { repository, service } = createService();
+  const campaign = await service.createCampaign({ name: 'Scan Attribution Push', status: 'ACTIVE' }, adminActor);
+  const code = await service.createReferralCode({ campaign_id: campaign.id, owner_user_id: 'seller-scan', code: 'scan-code-1', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'web' }, adminActor);
+  // A QR scan validation must emit a QR_SCANNED event.
+  await service.validateReferralCode({ code: 'scan-code-1', channel: 'qr', subject_id: 'qr-lead' }, { actor_type: 'user' });
+  // A barcode scan validation must emit a BARCODE_SCANNED event.
+  await service.validateReferralCode({ code: 'scan-code-1', channel: 'barcode', subject_id: 'barcode-lead' }, { actor_type: 'user' });
+  const events = await repository.list(REFERRAL_TABLES.events, { code_id: code.id });
+  assert.equal(events.some((e) => e.event_type === REFERRAL_EVENT_TYPES.QR_SCANNED), true);
+  assert.equal(events.some((e) => e.event_type === REFERRAL_EVENT_TYPES.BARCODE_SCANNED), true);
+  // A plain web validation must NOT emit a scan event.
+  await service.validateReferralCode({ code: 'scan-code-1', channel: 'web', subject_id: 'web-lead' }, { actor_type: 'user' });
+  const webScan = (await repository.list(REFERRAL_TABLES.events, { code_id: code.id })).filter((e) => e.event_type === REFERRAL_EVENT_TYPES.QR_SCANNED || e.event_type === REFERRAL_EVENT_TYPES.BARCODE_SCANNED);
+  assert.equal(webScan.length, 2); // still only the QR + barcode scans, web added none
 });
 
 test('invalid, expired, and exhausted codes fail safely', async () => {
