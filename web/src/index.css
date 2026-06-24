@@ -129,3 +129,25 @@
 .animate-pulse-glow {
   animation: pulse-glow 2s infinite;
 }
+
+/*
+ * Reduced motion (Milestone H — accessibility).
+ * Honor the user's OS-level "reduce motion" preference. This neutralizes all
+ * CSS animations and transitions (including Radix Dialog/Sheet/DropdownMenu
+ * enter/exit animations driven by tailwindcss-animate, the custom keyframes
+ * above, and smooth scrolling) without disabling functionality. Functional
+ * behavior (open/close, focus trap, Escape) is unaffected — only motion is.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
