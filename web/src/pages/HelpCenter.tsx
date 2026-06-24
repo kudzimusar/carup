@@ -40,7 +40,7 @@ const FAQS: FAQ[] = [
     id: 'faq-1',
     category: 'security',
     question: 'How does CarUp verify vehicle history in Zimbabwe?',
-    answer: 'CarUp uses an advanced verification engine that aggregates data from multiple sources in Zimbabwe. When a seller uploads a vehicle, we cross-reference the Chassis/VIN number with the Zimbabwe National Road Administration (ZINARA) registry, Central Vehicle Registry (CVR), insurance databases, and police clearance logs. Additionally, any maintenance logs recorded by certified mechanics on the PartSentry ledger are permanently written to a tamper-proof blockchain history report.',
+    answer: 'CarUp uses an evidence-based trust engine that aggregates data from multiple sources in Zimbabwe. When a seller uploads a vehicle, we cross-reference the Chassis/VIN number with the Zimbabwe National Road Administration (ZINARA) registry, Central Vehicle Registry (CVR), insurance databases, and police clearance logs. Additionally, any maintenance logs recorded by certified mechanics on the PartSentry ledger are permanently written to a tamper-evident CarUp audit ledger.',
     tags: ['ZINARA', 'history', 'VIN', 'verification', 'CVR']
   },
   {
@@ -75,8 +75,8 @@ const FAQS: FAQ[] = [
     id: 'faq-6',
     category: 'mechanic',
     question: 'What is the PartSentry ledger, and how does it protect my car?',
-    answer: 'PartSentry is our blockchain-backed spare parts lifecycle ledger. When a verified CarUp mechanic replaces a critical part (e.g., timing belt, brake pads, suspension components), the part\'s serial number and installation date are logged. This prevents counterfeit parts from being sold as genuine and creates an immutable audit trail that boosts your vehicle\'s resale value and CarUp Trust Score.',
-    tags: ['PartSentry', 'mechanics', 'parts', 'blockchain', 'maintenance']
+    answer: 'PartSentry is our tamper-evident parts lifecycle ledger. When a verified CarUp mechanic replaces a critical part (e.g., timing belt, brake pads, suspension components), the part\'s serial number and installation date are logged. This prevents counterfeit parts from being sold as genuine and creates an immutable audit trail that contributes to your vehicle\'s CarUp Trust Score.',
+    tags: ['PartSentry', 'mechanics', 'parts', 'audit ledger', 'maintenance']
   },
   {
     id: 'faq-7',
@@ -96,7 +96,7 @@ const FAQS: FAQ[] = [
     id: 'faq-9',
     category: 'mechanic',
     question: 'How do independent garages join the CarUp Mechanic network?',
-    answer: 'Independent mechanics can apply through the Mechanic Directory. You must submit your trade certifications, garage address, and details of diagnostic equipment. Once verified, you are listed in the CarUp Garage Directory, allowing you to access repair requests, write to the PartSentry blockchain database, and earn reputation points based on positive customer reviews.',
+    answer: 'Independent mechanics can apply through the Mechanic Directory. You must submit your trade certifications, garage address, and details of diagnostic equipment. Once verified, you are listed in the CarUp Garage Directory, allowing you to access repair requests, write to the PartSentry audit ledger, and earn reputation points based on positive customer reviews.',
     tags: ['mechanics', 'garages', 'PartSentry', 'accreditation']
   }
 ];
@@ -129,7 +129,7 @@ const CATEGORIES = [
   {
     id: 'mechanic',
     title: 'For Mechanics',
-    desc: 'PartSentry blockchain ledger registration, service logs & client work orders.',
+    desc: 'PartSentry audit ledger registration, service logs & client work orders.',
     icon: Wrench,
     color: 'text-emerald-400',
     bgColor: 'bg-emerald-500/10',
@@ -153,7 +153,7 @@ const CATEGORIES = [
   {
     id: 'security',
     title: 'Trust & Security',
-    desc: 'Biometric face-match KYC, blockchain record tracking & Cyber Protection Act compliance.',
+    desc: 'Biometric face-match KYC, tamper-evident audit record tracking & Cyber Protection Act compliance.',
     icon: ShieldCheck,
     color: 'text-rose-400',
     bgColor: 'bg-rose-500/10',
@@ -200,7 +200,7 @@ export default function HelpCenter() {
     {
       id: 'm2',
       sender: 'gutu',
-      text: "Ask me anything about ZINARA road clearances, Japanese transit imports, PartSentry blockchain ledgers, or our digital Trust Scores!",
+      text: "Ask me anything about ZINARA road clearances, Japanese transit imports, the PartSentry audit ledger, or our digital Trust Scores!",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -257,7 +257,7 @@ export default function HelpCenter() {
       } else if (cleanedMsg.includes('import') || cleanedMsg.includes('japan') || cleanedMsg.includes('transit') || cleanedMsg.includes('beira') || cleanedMsg.includes('durban')) {
         replyText = "Gutu AI: Transit vehicles imported from Japan (via Beira or Durban ports) or South Africa can be listed using our 'In Transit' tag. To verify, upload the original Japanese export certificates and auction sheets. I will scan them to confirm authentic mileage and prevent odometer rollbacks!";
       } else if (cleanedMsg.includes('partsentry') || cleanedMsg.includes('ledger') || cleanedMsg.includes('parts') || cleanedMsg.includes('repair') || cleanedMsg.includes('mechanic')) {
-        replyText = "Gutu AI: PartSentry is our blockchain parts lifecycle ledger. When a registered garage changes a part (e.g. timing belt, filters), the serial code is written to the ledger. This guarantees genuine components, prevents fraud, and raises your vehicle resale Trust Score!";
+        replyText = "Gutu AI: PartSentry is our tamper-evident parts lifecycle audit ledger. When a registered garage changes a part (e.g. timing belt, filters), the serial code is written to the ledger. This guarantees genuine components, prevents fraud, and raises your vehicle resale Trust Score!";
       } else if (cleanedMsg.includes('trust') || cleanedMsg.includes('score') || cleanedMsg.includes('binding') || cleanedMsg.includes('verify')) {
         replyText = "Gutu AI: The CarUp Trust Score represents vehicle authenticity, calculated from ownership records, ZINARA state, and PartSentry logs. While the score is a trust indicator, all signed documents and digital records are legally binding under Zimbabwe's Cyber & Data Protection Act [Chapter 12:07].";
       } else if (cleanedMsg.includes('zig') || cleanedMsg.includes('usd') || cleanedMsg.includes('payment') || cleanedMsg.includes('ecocash') || cleanedMsg.includes('zipit') || cleanedMsg.includes('fee')) {
@@ -323,7 +323,7 @@ export default function HelpCenter() {
             today?
           </h1>
           <p className="text-gray-400 max-w-2xl mx-auto mb-10 text-base md:text-lg leading-relaxed">
-            Get instant answers regarding ZINARA clearances, CVR registry queries, PartSentry blockchain ledgers, and secure USD/ZiG transactions.
+            Get instant answers regarding ZINARA clearances, CVR registry queries, the PartSentry audit ledger, and secure USD/ZiG transactions.
           </p>
 
           {/* Premium Glowing Search Bar */}
