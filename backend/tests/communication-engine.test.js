@@ -7,7 +7,7 @@ process.env.NODE_ENV = 'test';
 process.env.CARUP_CHANNEL_WEBHOOK_SECRET = 'test-channel-secret';
 process.env.CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN = 'telegram-secret';
 
-import { MemoryCommunicationRepository } from '../services/communication/communicationRepository.js';
+import { CommunicationRepository, MemoryCommunicationRepository } from '../services/communication/communicationRepository.js';
 import { CommunicationIdentityService } from '../services/communication/communicationIdentityService.js';
 import { CommunicationThreadService } from '../services/communication/communicationThreadService.js';
 import { CommunicationNotificationService } from '../services/communication/communicationNotificationService.js';
@@ -165,7 +165,9 @@ test('provider runtime migration adds SKIP LOCKED claim function without changin
   assert.match(providerRuntimeMigrationSql, /CREATE OR REPLACE FUNCTION claim_due_communication_notifications/);
   assert.match(providerRuntimeMigrationSql, /FOR UPDATE SKIP LOCKED/);
   assert.match(providerRuntimeMigrationSql, /RETURNS SETOF notification_queue/);
-  assert.equal(/ALTER TABLE notification_queue\s+ALTER COLUMN id/i.test(providerRuntimeMigrationSql), false);
+  assert.match(providerRuntimeMigrationSql, /scheduled_at::timestamptz/);
+  assert.match(providerRuntimeMigrationSql, /ALTER TABLE notification_queue ALTER COLUMN id SET DEFAULT gen_random_uuid\(\)::text/);
+  assert.match(providerRuntimeMigrationSql, /GRANT EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) TO service_role/);
   assert.equal(/DROP TABLE IF EXISTS notification_queue/i.test(providerRuntimeMigrationSql), false);
 });
 
@@ -407,6 +409,42 @@ test('external admin reply creates one canonical message, queues notification, a
   assert.equal((await repository.list('message_delivery_attempts')).length, 1);
 });
 
+test('external admin reply to requester identity queues canonical notification and delivery worker sends it', async () => {
+  const adapter = new FakeCommunicationAdapter({ channel: 'telegram', provider: 'telegram' });
+  const { repository, identityService, threadService, notificationService, deliveryWorker } = createHarness({ adapter });
+  const identity = await identityService.resolveOrCreateIdentity({
+    channel: 'telegram',
+    provider: 'telegram',
+    external_id: 'tg-chat-99',
+    display_name: 'Telegram Guest',
+  });
+  const thread = (await threadService.resolveOrCreateThread({
+    thread_type: 'support',
+    primary_channel: 'telegram',
+    external_identity_id: identity.id,
+  })).thread;
+  const result = await recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-1' },
+    body: { message: 'Thanks, we can help from here.', channel: 'telegram' },
+  });
+
+  assert.equal(result.message.direction, 'outbound');
+  assert.equal(result.notification.message_id, result.message.id);
+  assert.equal(result.notification.recipient_user_id, null);
+  assert.equal(result.notification.recipient_identity_id, identity.id);
+  assert.equal(result.notification.payload.telegram_chat_id, 'tg-chat-99');
+  assert.equal(result.notification.payload.external_identity_id, identity.id);
+  assert.equal((await repository.list('messages')).length, 1);
+  assert.equal((await repository.list('notification_queue')).length, 1);
+
+  const delivered = await deliveryWorker.deliverNotification(result.notification);
+  assert.equal(delivered.status, 'sent');
+  assert.equal((await repository.findOne('messages', { id: result.message.id })).status, 'delivered');
+  assert.equal((await repository.list('message_delivery_attempts')).length, 1);
+});
+
 test('internal admin note creates no external notification queue row', async () => {
   const { repository, threadService, notificationService } = createHarness();
   const thread = (await threadService.resolveOrCreateThread({
@@ -524,6 +562,50 @@ test('notification enqueue uses database default id and works with legacy BIGSER
   assert.equal(queued.notification.id, 1);
   assert.equal(typeof queued.notification.id, 'number');
   assert.equal(queued.notification.message_id, queued.message.id);
+});
+
+test('notification insert retries with generated id for legacy TEXT queue shape without a database default', async () => {
+  const insertedRows = [];
+  const fakeClient = {
+    from(table) {
+      return {
+        insert(row) {
+          insertedRows.push({ table, row });
+          return {
+            select() {
+              return {
+                async single() {
+                  if (table === 'notification_queue' && row.id === undefined) {
+                    return {
+                      data: null,
+                      error: {
+                        message: 'null value in column "id" of relation "notification_queue" violates not-null constraint',
+                      },
+                    };
+                  }
+                  return { data: row, error: null };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+  const repository = new CommunicationRepository({ client: fakeClient });
+  const inserted = await repository.insert('notification_queue', {
+    recipient_id: 'legacy-text-user',
+    recipient_user_id: 'legacy-text-user',
+    channel: 'in_app',
+    status: 'queued',
+    dedupe_key: 'legacy-text-dedupe',
+  });
+
+  assert.equal(insertedRows.length, 2);
+  assert.equal(insertedRows[0].row.id, undefined);
+  assert.match(inserted.id, /^[0-9a-f-]{36}$/);
+  assert.equal(inserted.dedupe_key, 'legacy-text-dedupe');
+  assert.equal(insertedRows[1].row.id, inserted.id);
 });
 
 test('memory repository atomically claims due notifications and recovers stale processing locks', async () => {

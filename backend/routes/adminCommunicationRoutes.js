@@ -5,6 +5,43 @@ import { createCommunicationServices } from '../services/communication/communica
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+function deliveryPayloadForIdentity(identity = {}) {
+  const address = identity.normalized_address || identity.external_id || '';
+  const payload = {
+    external_identity_id: identity.id,
+    external_id: identity.external_id || address,
+    address,
+  };
+  switch (identity.channel) {
+    case 'email':
+      payload.email = address;
+      break;
+    case 'sms':
+    case 'whatsapp':
+      payload.phone_number = address;
+      break;
+    case 'telegram':
+      payload.telegram_chat_id = identity.external_id || address;
+      break;
+    case 'push':
+      payload.expo_push_token = identity.external_id || address;
+      break;
+    default:
+      break;
+  }
+  return payload;
+}
+
+async function resolveExternalReplyIdentity({ repository, thread }) {
+  if (!repository || !thread?.id) return null;
+  const participants = await repository.list('message_participants', { thread_id: thread.id });
+  const participant = participants.find((entry) => entry.role === 'requester' && entry.external_identity_id)
+    || participants.find((entry) => entry.participant_type === 'external_contact' && entry.external_identity_id)
+    || participants.find((entry) => entry.external_identity_id);
+  if (!participant?.external_identity_id) return null;
+  return repository.findOne('channel_identities', { id: participant.external_identity_id });
+}
+
 export async function recordAdminThreadReply({ services, thread, actor, body = {} }) {
   const internal = Boolean(body?.internal);
   const message = await services.threadService.recordMessage(thread, {
@@ -31,6 +68,27 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
       dedupeParts: ['admin_reply', thread.id, message.id, thread.primary_user_id],
       payload: { thread_id: thread.id, admin_reply: true },
     })).notification;
+  } else if (!internal) {
+    const identity = await resolveExternalReplyIdentity({ repository: services.repository, thread });
+    if (identity) {
+      notification = (await services.notificationService.queueExistingMessage({
+        recipientIdentityId: identity.id,
+        thread,
+        message,
+        channel: body?.channel || identity.channel || thread.primary_channel || 'in_app',
+        provider: identity.provider || message.provider || null,
+        notificationType: 'admin_reply',
+        templateKey: 'admin_reply_v1',
+        priority: thread.priority || 'normal',
+        humanApproved: true,
+        dedupeParts: ['admin_reply', thread.id, message.id, identity.id],
+        payload: {
+          thread_id: thread.id,
+          admin_reply: true,
+          ...deliveryPayloadForIdentity(identity),
+        },
+      })).notification;
+    }
   }
   return { message, notification };
 }
