@@ -22,6 +22,8 @@ Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): addres
 
 Latest final Codex review fix commit: `05cdea7` (`fix(communication): address final review thread gaps`)
 
+Latest Cloudflare email activation commit: pending local commit (`feat(communication): add cloudflare email edge integration`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -40,6 +42,7 @@ All checks below were read-only or unauthenticated reachability checks. No provi
 | Supabase staging | Visible through Supabase MCP as `carup-staging` (`eoyenigwevnxwwhyhaer`) | Project list, migrations, SQL checks, and advisors succeeded | Staging database exists and is healthy; Agent 8 migrations were applied to staging only | Database-layer staging verification completed | Configure staging app env/scheduler before provider UAT |
 | Supabase local CLI | CLI installed (`2.98.2`) | Authenticated, but project list does not include CarUp/CarUp staging | No CarUp project ref linked in checkout | DB work was performed through Supabase MCP | Keep MCP as the migration path unless CLI is explicitly linked |
 | Vercel | CLI installed (`54.7.1`) and `vercel whoami` succeeds as `kudzimusar` | Backend checkout linked to `pay-pass-project/carup-backend-staging` | Branch-scoped Preview envs added for `COMMUNICATION_ENGINE_ENABLED`, `COMMUNICATION_WORKER_ENABLED`, `COMMUNICATION_WORKER_SECRET`, and `CRON_SECRET` on `feature/agent-8-omnichannel-communication-engine` | Preview checks pass through GitHub; new preview deployments can pick up branch envs | Production envs were not changed; 1-5 minute scheduler still needs shared secret storage or Vercel Pro/external scheduler |
+| Cloudflare | No Cloudflare connector exposed by tool search; `wrangler` not installed; no local `CLOUDFLARE*`/`CF_*` env vars found | Account/zone/API auth not discoverable | Email Service sender/domain, Email Routing address, Worker, Queues, DLQ, R2, WAF, and Cron are not configured | Live Cloudflare UAT blocked | Add staging Cloudflare account/zone/tooling/secrets, deploy Worker, configure DNS/routing/queues/cron, then run live inbox/UAT |
 | SendGrid | API endpoint reachable; unauthenticated `/v3/scopes` returned `401` | No local `SENDGRID_API_KEY` detected and no connector tool exposed | `SENDGRID_FROM_EMAIL` and webhook verification key are not present in local env files yet | Authenticated account health/send/webhook UAT blocked | Add provider secrets in staging and verify sender identity/webhook signing key |
 | Twilio | API endpoint reachable; unauthenticated Accounts API returned `401` | No local `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN` detected and no Twilio CLI installed | No local messaging service SID/from number found | Authenticated SMS/WhatsApp sandbox UAT blocked | Add Twilio credentials and sender or messaging service in staging |
 | Meta Graph / WhatsApp / Facebook / Instagram | Graph API reachable; unauthenticated root returned `400` | No local `CARUP_META_ACCESS_TOKEN` detected | Env examples include Meta access token, app secret, webhook verify token, and phone number ID placeholders | Authenticated account/page/phone/webhook UAT blocked | Add Meta token, app secret, phone number ID, page ID, and configure webhook URL |
@@ -83,6 +86,7 @@ See `docs/agent-8-omnichannel/ACTIVATION_EVIDENCE.md` for the full activation le
 
 Implemented after connector discovery:
 
+- Cloudflare Email adapter (`cloudflare_email`) with `EMAIL_PROVIDER=cloudflare` selection, authenticated Worker outbound mode, official REST Email Sending fallback, provider health metadata, 5 MiB attachment guard, and explicit SendGrid fallback intent without automatic cross-provider delivery.
 - Real SendGrid Mail Send adapter with configuration validation, bearer auth, custom args for notification/message IDs, normalized accepted/error results, and signed Event Webhook verification.
 - Real Twilio SMS adapter using Programmable Messaging form-encoded API, messaging-service or from-number configuration, status callback URL support, normalized SID/status mapping, and Twilio callback signature verification.
 - Real Meta WhatsApp Cloud API adapter using `CARUP_META_PHONE_NUMBER_ID` and Graph `/messages`, plus Meta status receipt extraction.
@@ -93,6 +97,21 @@ Implemented after connector discovery:
 - Added authenticated scheduler endpoint `GET|POST /api/internal/communications/process`, protected by `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET`, and backend `vercel.json` cron declaration. The Vercel project is currently on a Hobby plan, so the bundled Vercel cron uses the daily-compatible `0 0 * * *` schedule; production-frequency processing should use Vercel Pro cron or an external/Supabase scheduler calling the same endpoint.
 - Production registry no longer treats missing provider credentials as fake delivery. Production uses real adapters that fail closed with `provider_not_configured`; fake adapters remain deterministic for development/test.
 - Domain event listeners now fail safely when Agent 8 communication tables have not yet been migrated: they log one migration warning and skip communication fanout unless `COMMUNICATION_ENGINE_ENABLED=true` is explicitly set after migration.
+
+## Cloudflare Email And Edge Addendum
+
+Implemented on 2026-06-25:
+
+- Added `cloudflare/carup-communications-edge/` Worker project with `fetch`, `email`, `queue`, and `scheduled` handlers.
+- Worker `fetch` supports health, authenticated diagnostics/callback, and authenticated `/email/send`.
+- Worker `email()` parses inbound Email Routing metadata, enforces recipient/size/attachment checks, preserves Message-ID threading headers, and forwards a canonical signed payload to CarUp.
+- Worker `queue()` consumes inbound/outbound transport jobs, retries transient failures, and hands terminal failures to DLQ when configured.
+- Worker `scheduled()` calls protected CarUp `/api/internal/communications/process` for staging-frequency processing once deployed.
+- Backend accepts `POST /api/communications/webhooks/cloudflare/email` through the existing provider/channel webhook route with exact raw-body HMAC verification, timestamp, nonce, body hash, optional Cloudflare Access service-token checks, recipient allow-list, attachment safety checks, dedupe, and canonical Supabase message storage.
+- Cloudflare Queues remain transport-only. `notification_queue`, `messages`, `webhook_logs`, and `message_delivery_attempts` remain the canonical state.
+- Added `docs/agent-8-omnichannel/CLOUDFLARE_ACTIVATION_EVIDENCE.md` with the redacted access matrix and provider readiness status.
+
+Cloudflare live activation remains blocked: no connector, no Wrangler binary, no Cloudflare env vars, no account/zone credentials, no deployed Worker, no configured Email Service/Email Routing/Queues/R2/Cron/WAF/DNS, and no live inbound/outbound UAT evidence.
 
 ## Codex Review Corrections
 
@@ -131,6 +150,9 @@ Resolved final Codex follow-up review in commit `05cdea7`:
 Passing:
 
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed, proving the communication test suite sets safe dummy Supabase env before dynamic route imports.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 42 passed after Cloudflare email adapter, webhook, and Worker contract coverage.
+- `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed.
+- `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
 - `node --test backend/tests/communication-engine.test.js` - 36 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, migration hardening assertions for queue RLS/admin audit policies/FK indexes/claim RPC grants, guarded runtime hardening migration grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed.
 - `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
@@ -169,7 +191,7 @@ Non-blocking existing lint debt:
 
 - Provider: WhatsApp, Telegram, Instagram/Facebook, email, SMS, push.
 - Environment: local deterministic fake/test provider and real-client unit harness with fake fetch/signature inputs.
-- Result: real provider clients and webhook verification paths are implemented and tested without live sends. Provider endpoint reachability was checked safely: SendGrid `401`, Twilio `401`, Meta `400`, Telegram redirect, Expo `405` on safe unauthenticated probes.
+- Result: real provider clients and webhook verification paths are implemented and tested without live sends. Cloudflare Email Service/Worker paths are implemented and locally tested, but no Cloudflare live account access was available. Provider endpoint reachability was checked safely for non-Cloudflare providers: SendGrid `401`, Twilio `401`, Meta `400`, Telegram redirect, Expo `405` on safe unauthenticated probes.
 - Limitations: no live provider delivery was claimed or attempted. Authenticated sandbox/live UAT is blocked until provider credentials, sender resources, callback URLs, and staging secrets are configured.
 - Vercel scheduler limitation: current Vercel account rejected `*/5 * * * *` because Hobby cron is limited to daily jobs. The code now ships a daily-compatible Vercel cron plus a protected endpoint that can be called at production frequency by Vercel Pro Cron, Supabase scheduling, or another authenticated scheduler.
 
@@ -177,6 +199,24 @@ Non-blocking existing lint debt:
 
 - Staging Vercel project link or project IDs for `carup-backend-staging` / `carup-staging`
 - `COMMUNICATION_WORKER_SECRET` or `CRON_SECRET` for non-preview staging/production targets and any external scheduler secret store
+- `EMAIL_PROVIDER=cloudflare`
+- `EMAIL_PROVIDER_FALLBACK=sendgrid`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_ZONE_ID`
+- `CLOUDFLARE_EMAIL_API_TOKEN`
+- `CLOUDFLARE_EMAIL_FROM`
+- `CLOUDFLARE_EMAIL_FROM_NAME`
+- `CLOUDFLARE_EMAIL_REPLY_TO`
+- `CLOUDFLARE_EMAIL_WORKER_URL`
+- `CLOUDFLARE_EMAIL_WORKER_SECRET`
+- `CLOUDFLARE_EMAIL_INBOUND_SECRET`
+- `CLOUDFLARE_EMAIL_ALLOWED_RECIPIENTS`
+- `CLOUDFLARE_ACCESS_CLIENT_ID`
+- `CLOUDFLARE_ACCESS_CLIENT_SECRET`
+- `CLOUDFLARE_R2_BUCKET`
+- `CLOUDFLARE_QUEUE_INBOUND`
+- `CLOUDFLARE_QUEUE_OUTBOUND`
+- `CLOUDFLARE_QUEUE_DLQ`
 - `SENDGRID_API_KEY`
 - `SENDGRID_FROM_EMAIL`
 - `SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY`
@@ -200,10 +240,11 @@ Non-blocking existing lint debt:
 3. Deploy or confirm the staging hardening migrations `20260624044812_agent8_communication_runtime_security_hardening.sql` and `20260624045600_agent8_communication_fk_indexes.sql` where the first two migrations were already applied without the new source hardening.
 4. Deploy backend services, routes, adapters, event listeners, and environment variable contract.
 5. Configure provider secrets and `COMMUNICATION_WORKER_SECRET`/`CRON_SECRET` in the target environment.
-6. Deploy web and mobile application updates.
-7. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Vercel Pro Cron or an external/Supabase scheduler for production-frequency processing.
-8. Run smoke tests with the deterministic fake provider.
-9. Register provider webhooks and run live provider sandbox verification only after credentials are available.
+6. For Cloudflare staging email, configure Email Service sender/domain, Email Routing recipient(s), Worker secrets, Queues/DLQ, optional R2 bucket, WAF/rate limits, and deploy `cloudflare/carup-communications-edge/` to staging only.
+7. Deploy web and mobile application updates.
+8. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Cloudflare Cron, Vercel Pro Cron, or another authenticated scheduler for production-frequency processing.
+9. Run smoke tests with the deterministic fake provider.
+10. Register provider webhooks and run live provider sandbox verification only after credentials are available.
 
 ## Rollback Plan
 

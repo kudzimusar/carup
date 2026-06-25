@@ -18,6 +18,8 @@ Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): addres
 
 Latest final Codex review fix commit: `05cdea7` (`fix(communication): address final review thread gaps`).
 
+Latest Cloudflare email activation commit: pending local commit (`feat(communication): add cloudflare email edge integration`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -117,10 +119,22 @@ for Hobby limits.
 - WhatsApp: Meta configuration-gated adapter path and deterministic fake coverage.
 - Telegram: bot configuration-gated adapter path, webhook secret validation, and deterministic fake coverage.
 - Instagram/Facebook: Meta adapter path and webhook normalization through the same contract.
-- Email: SendGrid-compatible configuration contract.
+- Email: SendGrid-compatible configuration contract plus Cloudflare Email provider (`EMAIL_PROVIDER=cloudflare`) with Worker outbound, official REST fallback, inbound Email Routing webhook verification, and explicit disabled SendGrid fallback metadata.
 - SMS: Twilio-compatible configuration contract.
 - Web/Mobile chat: canonical inbound API path.
 - In-app/Push: in-app provider path plus push configuration contract.
+
+## Cloudflare Email / Edge Addendum
+
+- Adds `CloudflareEmailAdapter` with provider name `cloudflare_email`.
+- Adds `cloudflare/carup-communications-edge/` Worker project with `fetch`, `email`, `queue`, and `scheduled` handlers.
+- Worker `fetch` supports health, authenticated diagnostics/callback, and authenticated `/email/send`.
+- Worker `email()` processes inbound Email Routing metadata, preserves Message-ID/In-Reply-To/References, and forwards a signed canonical payload to CarUp.
+- Worker `queue()` keeps Cloudflare Queues as transport only; Supabase remains canonical.
+- Worker `scheduled()` calls protected `/api/internal/communications/process` for staging-frequency queue processing after deployment.
+- Backend Cloudflare inbound webhook uses exact raw-body HMAC verification with timestamp, nonce, body hash, optional Cloudflare Access service-token headers, recipient allow-list, attachment safety checks, webhook dedupe, and canonical message storage.
+- Cloudflare activation evidence is recorded in `docs/agent-8-omnichannel/CLOUDFLARE_ACTIVATION_EVIDENCE.md`.
+- Live Cloudflare staging UAT is still blocked: no Cloudflare connector, no Wrangler binary, no Cloudflare env vars, no account/zone access, no deployed Worker, no configured Email Service/Email Routing/Queues/R2/Cron/WAF/DNS, and no real inbox evidence.
 
 ## Webhooks, Security, and Deduplication
 
@@ -197,6 +211,7 @@ for Hobby limits.
 ## Files Changed
 
 - Spec/docs: `AGENT_8_OMNICHANNEL_COMMUNICATION_GOAL_LOOP.md`, `docs/agent-8-omnichannel/*`.
+- Cloudflare Worker: `cloudflare/carup-communications-edge/*`.
 - Database/shared: Agent 8 migration, `shared/types/communication.ts`, `shared/types/index.ts`.
 - Backend services/routes: `backend/services/communication/*`, communication/admin routes, server registration, CSRF webhook allowlist, marketplace/finance event bridges, env example.
 - Web: API hook additions, owner/admin communication pages, routes, feature registry, dashboard navigation, route test.
@@ -205,7 +220,10 @@ for Hobby limits.
 
 ## Tests Run and Results
 
-- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 42 passed after Cloudflare adapter/webhook/Worker contract coverage.
+- `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed.
+- `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed before Cloudflare addendum.
 - `node --test backend/tests/communication-engine.test.js` - 36 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, migration hardening assertions, guarded runtime-hardening RPC grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed.
 - `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
@@ -235,8 +253,8 @@ for Hobby limits.
 
 - Provider: WhatsApp, Telegram, Instagram/Facebook, email, SMS, push.
 - Environment: local deterministic fake/test provider only.
-- Result: no live provider delivery was claimed.
-- Limitations: real provider credentials and webhook secrets must be added before sandbox/live delivery verification.
+- Result: no live provider delivery was claimed. Cloudflare email paths are code-ready and locally tested only.
+- Limitations: Cloudflare account/zone/Worker/Email Service/Email Routing/Queue/R2/Cron/WAF/DNS configuration and all real provider credentials/webhook secrets must be added before sandbox/live delivery verification.
 
 ## Known Limitations
 
@@ -245,8 +263,9 @@ for Hobby limits.
 - `npm run test --workspace=backend` failed locally at the first Supabase seeding check with `fetch failed`; a network-enabled rerun was rejected because the suite may mutate an unverified live service-role database. The safer Referral Engine CI backend suite shape passed.
 - Full `npx playwright test` remains red outside Agent 8: 74 passed, 18 skipped, 60 failed in pre-existing auth, vehicle evidence, premium evidence gallery, feature registry/navigation, feature governance, and navigation accessibility specs. The focused Agent 8 WhatsApp/Telegram Playwright spec passed 6/6.
 - Provider adapters are configuration-gated and ready for credentials, but live provider send/webhook verification was not performed.
+- Cloudflare email integration is not complete by the authoritative activation standard: there is no real outbound inbox proof, inbound mailbox proof, admin reply proof, Message-ID live-threading proof, queue/DLQ live proof, Cron event proof, DNS auth proof, WAF proof, or R2 attachment proof yet.
 - Vercel backend checkout is now linked to `carup-backend-staging`, and branch-scoped Preview worker envs were configured. Non-preview staging/production envs were not changed.
-- No SendGrid, Twilio, Meta, Telegram, or Expo credentials/account resources were available; live provider UAT was not claimed.
+- No Cloudflare, SendGrid, Twilio, Meta, Telegram, or Expo credentials/account resources were available; live provider UAT was not claimed.
 - No physical device was available for push notification validation.
 
 ## Migration / Deployment Order
@@ -256,10 +275,11 @@ for Hobby limits.
 3. Deploy or confirm `20260624044812_agent8_communication_runtime_security_hardening.sql` and `20260624045600_agent8_communication_fk_indexes.sql` on environments where the first two migrations were already applied without the new source hardening.
 4. Deploy backend routes/services/listeners and environment variable contract.
 5. Configure provider credentials and webhook secrets.
-6. Deploy web and mobile updates.
-7. Enable or schedule communication delivery worker processing.
-8. Run deterministic fake-provider smoke tests.
-9. Run sandbox/live provider verification after credentials are configured.
+6. For Cloudflare staging, configure Email Service sender/domain, Email Routing recipients, Worker secrets, Queues/DLQ, optional R2 bucket, WAF/rate limits, DNS authentication, and deploy `cloudflare/carup-communications-edge/`.
+7. Deploy web and mobile updates.
+8. Enable or schedule communication delivery worker processing.
+9. Run deterministic fake-provider smoke tests.
+10. Run sandbox/live provider verification after credentials are configured.
 
 ## Rollback Plan
 

@@ -33,3 +33,4 @@ coverage
 test-results
 playwright-report
 .vercel
+supabase/.temp/

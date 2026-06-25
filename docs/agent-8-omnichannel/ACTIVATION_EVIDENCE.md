@@ -104,6 +104,7 @@ Security and performance advisors were run after migration.
 | Supabase MCP | Yes | `carup-staging` `eoyenigwevnxwwhyhaer` | SQL/migrations/advisors available | DB verification available | Used for staging migrations |
 | Supabase CLI | Yes | CLI v2.98.2 | Not linked to staging by checkout | DB work done via MCP | Available but MCP preferred |
 | Vercel CLI | Yes | Linked backend checkout to `pay-pass-project/carup-backend-staging` | Branch-scoped Preview env mutation available | Preview checks available via GitHub | Used for PR-branch staging preview worker env |
+| Cloudflare | No connector exposed; no Wrangler binary; no local Cloudflare env vars | Account/zone not discoverable | No | No | Code-ready integration added, live activation blocked by tooling/credentials |
 | SendGrid | No provider account connector exposed | Env contract present only | No | No | Blocked by provider credentials/account access |
 | Twilio | No provider account connector exposed | Env contract present only | No | No | Blocked by provider credentials/account access |
 | Meta / WhatsApp / Facebook / Instagram | No provider account connector exposed | Env contract present only | No | No | Blocked by provider credentials/app/account access |
@@ -127,6 +128,9 @@ Security and performance advisors were run after migration.
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed after final Codex fixes, proving clean-env route imports work.
 - `node --test backend/tests/communication-engine.test.js` - 36 passed after final Codex fixes for legacy queue columns, target-thread preservation, and dynamic route imports.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed after final Codex fixes.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 42 passed after Cloudflare email adapter, webhook, and Worker contract coverage.
+- `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed for Worker fetch/email/queue fallback/signing/scheduler behavior.
+- `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
 - `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
 - Referral Engine CI backend suite shape (`backend/tests/auth-login.test.js` plus `backend/tests/referral-*.test.js`) - passed with local listener permission for the route smoke test.
 - `node --check backend/scripts/uat/referral-uat-journeys.mjs` - passed.
@@ -141,6 +145,7 @@ Security and performance advisors were run after migration.
 | WhatsApp | Yes | No | Preview only | No | No | No | Blocked by Meta credentials/test phone/webhook registration |
 | Telegram | Yes | No | Preview only | No | No | No | Blocked by bot token/webhook registration |
 | Email / SendGrid | Yes | No | Preview only | No | No | No | Blocked by SendGrid credentials/sender verification |
+| Email / Cloudflare | Yes | No | No | No | No | No | Code-ready, blocked by Cloudflare account/zone/Email Service/Worker/Queue/DNS configuration |
 | SMS / Twilio | Yes | No | Preview only | No | No | No | Blocked by Twilio credentials/sender/test recipient |
 | Facebook Messenger | Yes | No | Preview only | No | No | No | Blocked by Meta Page/app permissions |
 | Instagram Messaging | Yes | No | Preview only | No | No | No | Blocked by Instagram professional account/app permissions |
@@ -158,8 +163,13 @@ Security and performance advisors were run after migration.
   `feature/agent-8-omnichannel-communication-engine`. Secret values were generated
   and stored by Vercel without being printed. They apply to new preview deployments
   for this branch; production Vercel envs were not changed.
-- No SendGrid, Twilio, Meta, Telegram, or Expo provider credentials/account
+- No Cloudflare, SendGrid, Twilio, Meta, Telegram, or Expo provider credentials/account
   connectors are available in this session. Live provider UAT cannot be claimed.
+- No Cloudflare connector was exposed by tool search, `wrangler` is not installed,
+  and a redacted local env scan found no `CLOUDFLARE*`/`CF_*` variables. Cloudflare
+  Worker deploy, Email Service, Email Routing, Queues, DLQ, R2, DNS authentication,
+  Cron Trigger, WAF/rate-limit, inbound real mailbox, and outbound real inbox UAT
+  are therefore blocked pending operator-provided staging access.
 - No physical device is available through the tool environment, so physical-device
   push evidence cannot be produced here.
 - The 1-5 minute scheduler is not yet configured. The generated preview worker
