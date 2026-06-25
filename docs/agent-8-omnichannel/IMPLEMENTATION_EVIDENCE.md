@@ -26,6 +26,8 @@ Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add 
 
 Latest legacy queue compatibility fix commit: `1e88e22` (`fix(communication): harden legacy queue compatibility`)
 
+Latest Cloudflare Worker review fix commit: pending local commit (`fix(communication): harden cloudflare worker delivery`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -154,6 +156,12 @@ Resolved additional Codex review findings after Cloudflare addendum:
 - External-only admin replies continue to keep `recipient_id` user-only and rely on `recipient_identity_id` plus provider payload fields for delivery. The schema now permits that safe shape on old `002_add_notification_queue.sql` tables.
 - Added regression coverage for the no-cast due index and `recipient_id DROP NOT NULL` compatibility migration.
 
+Resolved Cloudflare Worker Codex review findings after commit `bf3e0a5`:
+
+- Worker `/email/send` and queue consumer delivery no longer report success when the `send_email` binding is missing. `sendEmail()` now throws `cloudflare_email_binding_missing`, allowing Worker queue retry/DLQ behavior and preventing Supabase canonical notifications from being marked sent when no email was accepted by Cloudflare Email Service.
+- Worker inbound forwarding now sends `cf-access-client-id` and `cf-access-client-secret` headers when configured, so backend optional `CLOUDFLARE_ACCESS_CLIENT_ID` / `CLOUDFLARE_ACCESS_CLIENT_SECRET` verification works alongside the HMAC timestamp/nonce/body-hash signature.
+- Added Worker regressions for missing `send_email` binding rejection and Access service-token header forwarding.
+
 ## Tests Run And Results
 
 Passing:
@@ -164,6 +172,9 @@ Passing:
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 58 passed after the legacy queue compatibility fixes.
 - `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed.
 - `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
+- `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed after Cloudflare Worker review fixes.
+- `node --check cloudflare/carup-communications-edge/src/index.js` - passed after Cloudflare Worker review fixes.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 43 passed after Cloudflare Worker review fixes.
 - `node --test backend/tests/communication-engine.test.js` - 36 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, migration hardening assertions for queue RLS/admin audit policies/FK indexes/claim RPC grants, guarded runtime hardening migration grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed.
 - `npm run test:unit --workspace=web` - 27 files, 317 tests passed.

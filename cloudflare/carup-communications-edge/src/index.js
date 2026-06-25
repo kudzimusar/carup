@@ -87,10 +87,6 @@ async function sendEmail(payload, env) {
     });
     return { accepted: true, providerStatus: 'accepted', providerMessageId: result?.messageId || null };
   }
-  if (env.OUTBOUND_QUEUE?.send) {
-    await env.OUTBOUND_QUEUE.send({ type: 'outbound_email', payload: emailPayload, enqueuedAt: new Date().toISOString() });
-    return { accepted: true, providerStatus: 'queued', providerMessageId: null };
-  }
   throw new Error('cloudflare_email_binding_missing');
 }
 
@@ -161,6 +157,8 @@ async function forwardInboundEmail(payload, env, fetchImpl = fetch) {
       'x-carup-cloudflare-nonce': signed.nonce,
       'x-carup-body-sha256': signed.bodyHash,
       'x-carup-cloudflare-signature': signed.signature,
+      ...(env.CLOUDFLARE_ACCESS_CLIENT_ID ? { 'cf-access-client-id': env.CLOUDFLARE_ACCESS_CLIENT_ID } : {}),
+      ...(env.CLOUDFLARE_ACCESS_CLIENT_SECRET ? { 'cf-access-client-secret': env.CLOUDFLARE_ACCESS_CLIENT_SECRET } : {}),
     },
     body: rawBody,
   });

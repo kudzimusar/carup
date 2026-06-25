@@ -68,6 +68,8 @@ test('inbound forward signs exact raw body for CarUp backend verification', asyn
   await forwardInboundEmail({ event: 'inbound_email', message_id: 'm1', sender: 'a@example.test', recipient: 'support@example.test', nonce: 'nonce-1' }, {
     CARUP_API_BASE_URL: 'https://api.example.test',
     CARUP_CLOUDFLARE_WEBHOOK_SECRET: 'secret',
+    CLOUDFLARE_ACCESS_CLIENT_ID: 'access-id',
+    CLOUDFLARE_ACCESS_CLIENT_SECRET: 'access-secret',
   }, async (url, options) => {
     calls.push({ url, options });
     return new Response('{}', { status: 200 });
@@ -75,6 +77,8 @@ test('inbound forward signs exact raw body for CarUp backend verification', asyn
   assert.equal(calls[0].url, 'https://api.example.test/api/communications/webhooks/cloudflare/email');
   assert.equal(calls[0].options.headers['x-carup-cloudflare-nonce'], 'nonce-1');
   assert.match(calls[0].options.headers['x-carup-cloudflare-signature'], /^v1=/);
+  assert.equal(calls[0].options.headers['cf-access-client-id'], 'access-id');
+  assert.equal(calls[0].options.headers['cf-access-client-secret'], 'access-secret');
 });
 
 test('scheduled handler calls protected CarUp processor', async () => {
@@ -90,16 +94,13 @@ test('scheduled handler calls protected CarUp processor', async () => {
   assert.equal(calls[0].options.headers['x-communication-worker-secret'], 'worker-secret');
 });
 
-test('sendEmail queues when send_email binding is unavailable', async () => {
-  const queued = [];
-  const result = await sendEmail({
+test('sendEmail rejects when send_email binding is unavailable', async () => {
+  await assert.rejects(() => sendEmail({
     to: 'buyer@example.test',
     from: 'noreply@example.test',
     subject: 'Queued',
     text: 'Queued body',
   }, {
-    OUTBOUND_QUEUE: { async send(payload) { queued.push(payload); } },
-  });
-  assert.equal(result.providerStatus, 'queued');
-  assert.equal(queued[0].type, 'outbound_email');
+    OUTBOUND_QUEUE: { async send() { throw new Error('should_not_enqueue_unsent_mail'); } },
+  }), /cloudflare_email_binding_missing/);
 });

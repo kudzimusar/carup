@@ -73,8 +73,9 @@ Cloudflare-specific coverage includes:
 - unsupported recipient rejection
 - unsafe attachment rejection
 - Worker `send_email` binding use
-- Worker queue fallback
+- Worker missing `send_email` binding rejection
 - Worker inbound signing for CarUp backend
+- Worker optional Cloudflare Access service-token header forwarding
 - Worker scheduled processor call
 - Worker handler presence for `fetch`, `email`, `queue`, and `scheduled`
 
@@ -86,6 +87,8 @@ Cloudflare-specific coverage includes:
 - HMAC covers exact raw body and a separately supplied body hash.
 - Expired signatures and tampered payloads are rejected with 403 before ingest.
 - Optional Cloudflare Access client ID/secret checks are enforced if configured.
+- Worker forwards matching Cloudflare Access client ID/secret headers when configured.
+- Worker does not acknowledge outbound mail as accepted unless the `send_email` binding accepts it.
 - Secrets are represented only as empty examples or Wrangler-secret comments.
 
 ## Blocked Live UAT
