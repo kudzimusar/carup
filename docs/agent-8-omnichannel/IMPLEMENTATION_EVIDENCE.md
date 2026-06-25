@@ -24,6 +24,8 @@ Latest final Codex review fix commit: `05cdea7` (`fix(communication): address fi
 
 Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add cloudflare email edge integration`)
 
+Latest legacy queue compatibility fix commit: pending local commit (`fix(communication): harden legacy queue compatibility`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -145,12 +147,21 @@ Resolved final Codex follow-up review in commit `05cdea7`:
 - Moved communication route/admin route imports in `backend/tests/communication-engine.test.js` behind test Supabase env setup so clean environments without Supabase variables do not fail before tests execute.
 - Added regressions for clean-env route import, target-thread preservation with marketplace-looking text in a support thread, and legacy queue column migration coverage.
 
+Resolved additional Codex review findings after Cloudflare addendum:
+
+- Replaced the Agent 8 `idx_notification_queue_status_due` expression index that cast legacy TEXT `scheduled_at` / `created_at` values to `timestamptz`. The migration now uses a plain `(status, next_attempt_at, scheduled_at, created_at)` index so PostgreSQL does not reject an immutable-expression requirement on legacy schemas.
+- Added migration `20260625031500_agent8_communication_legacy_queue_compatibility.sql` for already-migrated environments. It drops the legacy `notification_queue.recipient_id` `NOT NULL` constraint and recreates the due index without timestamp casts.
+- External-only admin replies continue to keep `recipient_id` user-only and rely on `recipient_identity_id` plus provider payload fields for delivery. The schema now permits that safe shape on old `002_add_notification_queue.sql` tables.
+- Added regression coverage for the no-cast due index and `recipient_id DROP NOT NULL` compatibility migration.
+
 ## Tests Run And Results
 
 Passing:
 
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed, proving the communication test suite sets safe dummy Supabase env before dynamic route imports.
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 42 passed after Cloudflare email adapter, webhook, and Worker contract coverage.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 43 passed after the legacy queue compatibility fixes.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 58 passed after the legacy queue compatibility fixes.
 - `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed.
 - `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
 - `node --test backend/tests/communication-engine.test.js` - 36 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, migration hardening assertions for queue RLS/admin audit policies/FK indexes/claim RPC grants, guarded runtime hardening migration grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
@@ -238,13 +249,14 @@ Non-blocking existing lint debt:
 1. Deploy the migration `20260623143000_omnichannel_communication_engine.sql`.
 2. Deploy the migration `20260624120000_communication_provider_runtime.sql`.
 3. Deploy or confirm the staging hardening migrations `20260624044812_agent8_communication_runtime_security_hardening.sql` and `20260624045600_agent8_communication_fk_indexes.sql` where the first two migrations were already applied without the new source hardening.
-4. Deploy backend services, routes, adapters, event listeners, and environment variable contract.
-5. Configure provider secrets and `COMMUNICATION_WORKER_SECRET`/`CRON_SECRET` in the target environment.
-6. For Cloudflare staging email, configure Email Service sender/domain, Email Routing recipient(s), Worker secrets, Queues/DLQ, optional R2 bucket, WAF/rate limits, and deploy `cloudflare/carup-communications-edge/` to staging only.
-7. Deploy web and mobile application updates.
-8. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Cloudflare Cron, Vercel Pro Cron, or another authenticated scheduler for production-frequency processing.
-9. Run smoke tests with the deterministic fake provider.
-10. Register provider webhooks and run live provider sandbox verification only after credentials are available.
+4. Deploy `20260625031500_agent8_communication_legacy_queue_compatibility.sql` where Agent 8 was already applied before the legacy queue compatibility fixes.
+5. Deploy backend services, routes, adapters, event listeners, and environment variable contract.
+6. Configure provider secrets and `COMMUNICATION_WORKER_SECRET`/`CRON_SECRET` in the target environment.
+7. For Cloudflare staging email, configure Email Service sender/domain, Email Routing recipient(s), Worker secrets, Queues/DLQ, optional R2 bucket, WAF/rate limits, and deploy `cloudflare/carup-communications-edge/` to staging only.
+8. Deploy web and mobile application updates.
+9. Enable the backend cron/scheduler for `/api/internal/communications/process`. On the current Vercel Hobby plan, bundled cron is daily; configure Cloudflare Cron, Vercel Pro Cron, or another authenticated scheduler for production-frequency processing.
+10. Run smoke tests with the deterministic fake provider.
+11. Register provider webhooks and run live provider sandbox verification only after credentials are available.
 
 ## Rollback Plan
 

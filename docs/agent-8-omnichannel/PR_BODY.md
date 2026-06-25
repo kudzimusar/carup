@@ -20,6 +20,8 @@ Latest final Codex review fix commit: `05cdea7` (`fix(communication): address fi
 
 Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add cloudflare email edge integration`).
 
+Latest legacy queue compatibility fix commit: pending local commit (`fix(communication): harden legacy queue compatibility`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -85,6 +87,12 @@ Commit `05cdea7` resolves the final three Codex review threads:
 - Added missing legacy `notification_queue` columns (`type`, `title`, `message`, `read`) in the additive Agent 8 migration before the queue service writes them.
 - Preserved the authorized target thread for `POST /api/communications/threads/:id/messages` by passing the loaded thread into inbound ingestion and preventing message intent from redirecting user-visible sends into another thread.
 - Set safe test Supabase env before importing route modules by switching the route imports in `backend/tests/communication-engine.test.js` to top-level dynamic imports after env setup.
+
+Additional Codex review corrections after the Cloudflare addendum:
+
+- Replaced the legacy-sensitive `idx_notification_queue_status_due` expression index with a plain `(status, next_attempt_at, scheduled_at, created_at)` index so installations with TEXT `scheduled_at` / `created_at` do not fail PostgreSQL immutable-expression checks.
+- Added `20260625031500_agent8_communication_legacy_queue_compatibility.sql` for environments that already applied Agent 8 before this source fix.
+- Dropped legacy `notification_queue.recipient_id` `NOT NULL` so external-only channel replies can use `recipient_identity_id` without violating old queue schemas while keeping `recipient_id` user-only.
 
 ## Vercel Staging Preview Activation
 
@@ -221,6 +229,8 @@ for Hobby limits.
 ## Tests Run and Results
 
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 42 passed after Cloudflare adapter/webhook/Worker contract coverage.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 43 passed after legacy queue compatibility fixes.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 58 passed after legacy queue compatibility fixes.
 - `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed.
 - `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed before Cloudflare addendum.
@@ -273,13 +283,14 @@ for Hobby limits.
 1. Deploy `20260623143000_omnichannel_communication_engine.sql`.
 2. Deploy `20260624120000_communication_provider_runtime.sql`.
 3. Deploy or confirm `20260624044812_agent8_communication_runtime_security_hardening.sql` and `20260624045600_agent8_communication_fk_indexes.sql` on environments where the first two migrations were already applied without the new source hardening.
-4. Deploy backend routes/services/listeners and environment variable contract.
-5. Configure provider credentials and webhook secrets.
-6. For Cloudflare staging, configure Email Service sender/domain, Email Routing recipients, Worker secrets, Queues/DLQ, optional R2 bucket, WAF/rate limits, DNS authentication, and deploy `cloudflare/carup-communications-edge/`.
-7. Deploy web and mobile updates.
-8. Enable or schedule communication delivery worker processing.
-9. Run deterministic fake-provider smoke tests.
-10. Run sandbox/live provider verification after credentials are configured.
+4. Deploy `20260625031500_agent8_communication_legacy_queue_compatibility.sql` where Agent 8 was already applied before the legacy queue compatibility fixes.
+5. Deploy backend routes/services/listeners and environment variable contract.
+6. Configure provider credentials and webhook secrets.
+7. For Cloudflare staging, configure Email Service sender/domain, Email Routing recipients, Worker secrets, Queues/DLQ, optional R2 bucket, WAF/rate limits, DNS authentication, and deploy `cloudflare/carup-communications-edge/`.
+8. Deploy web and mobile updates.
+9. Enable or schedule communication delivery worker processing.
+10. Run deterministic fake-provider smoke tests.
+11. Run sandbox/live provider verification after credentials are configured.
 
 ## Rollback Plan
 
