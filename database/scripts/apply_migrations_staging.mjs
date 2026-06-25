@@ -89,13 +89,15 @@ async function run() {
 
   const pool = new pg.Pool({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
   const results = [];
+  let aborted = null; // set to the failing migration name to STOP on first SQL error
 
   for (const name of MIGRATIONS) {
     const filepath = join(MIG_DIR, name);
     if (!existsSync(filepath)) {
       console.error(`  ✗ FILE MISSING: ${name}`);
       results.push({ name, status: 'FILE_MISSING' });
-      continue;
+      aborted = name; // a missing migration is also a hard stop
+      break;
     }
 
     const sql = extractUpSection(filepath);
@@ -118,9 +120,15 @@ async function run() {
       } else {
         console.error(`  ✗ FAIL: ${name}\n    ${msg}`);
         results.push({ name, status: 'FAIL', error: msg });
+        aborted = name; // STOP on first real SQL error
       }
     } finally {
       client.release();
+    }
+
+    if (aborted) {
+      console.error(`\n⛔ Stopping on first error at ${aborted}. No further migrations attempted.`);
+      break;
     }
   }
 
