@@ -20,6 +20,8 @@ Latest navigation e2e count fix commit: `02ddb68` (`test(navigation): account fo
 
 Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): address follow-up review defects`)
 
+Latest final Codex review fix commit: `05cdea7` (`fix(communication): address final review thread gaps`)
+
 Latest provider-runtime commits:
 
 - `ab8a11a` (`feat(communication): add real provider adapters`)
@@ -117,12 +119,23 @@ Resolved second fresh Codex follow-up review in commit `7c30980`:
 - Kept legacy `notification_queue.recipient_id` user-only for external identity deliveries and relied on `recipient_identity_id` for WhatsApp/Telegram/Facebook/Instagram/SMS/email/push contacts without CarUp users.
 - Replaced plain invalid-webhook `Error` throws with `ForbiddenError` so central middleware returns 403 instead of 500 for rejected provider signatures.
 
+Resolved final Codex follow-up review in commit `05cdea7`:
+
+- Added legacy queue compatibility columns (`type`, `title`, `message`, `read`) to the additive Agent 8 `notification_queue` migration so deployments that started from `002_add_notification_queue.sql` have every column written by the canonical queue service.
+- Preserved the authorized target thread for user-visible `POST /api/communications/threads/:id/messages` sends by passing the loaded thread into inbound ingestion and teaching ingestion to use a trusted target thread instead of rediscovering a new thread from message intent.
+- Moved communication route/admin route imports in `backend/tests/communication-engine.test.js` behind test Supabase env setup so clean environments without Supabase variables do not fail before tests execute.
+- Added regressions for clean-env route import, target-thread preservation with marketplace-looking text in a support thread, and legacy queue column migration coverage.
+
 ## Tests Run And Results
 
 Passing:
 
-- `node --test backend/tests/communication-engine.test.js` - 35 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, migration hardening assertions for queue RLS/admin audit policies/FK indexes/claim RPC grants, guarded runtime hardening migration grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 50 passed.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed, proving the communication test suite sets safe dummy Supabase env before dynamic route imports.
+- `node --test backend/tests/communication-engine.test.js` - 36 passed, including real provider adapter request/response mapping, SendGrid signed webhook verification, Twilio status signature verification, provider receipt updates, scheduler-safe claim/recovery, internal processor GET/POST authentication, missing-migration listener guard, Codex review regressions for admin reply queueing, external-identity admin delivery, internal-note suppression, Meta GET verification, raw-body HMAC, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue generated-ID retry, thrown adapter retry/dead-letter handling, migration hardening assertions for queue RLS/admin audit policies/FK indexes/claim RPC grants, guarded runtime hardening migration grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed.
+- `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
+- `for f in backend/tests/auth-login.test.js backend/tests/referral-*.test.js; do node --test "$f" || exit 1; done` - passed with local listener permission for the referral route smoke test; this mirrors Referral Engine CI's backend suite shape with dummy Supabase env.
+- `node --check backend/scripts/uat/referral-uat-journeys.mjs` - passed.
 - `node --test backend/tests/referral-channel-gateway-phase3.test.js` - 15 passed immediately before PR #88 merge.
 - `node backend/tests/run-tests.js` - passed with network escalation for live Supabase access. Initial sandboxed run failed at Supabase fetch; rerun passed all 35 governance/integration/trust/security checks. The live database used by the suite does not yet have Agent 8 tables, so communication fanout logs a single migration warning and skips until `COMMUNICATION_ENGINE_ENABLED=true` after migration.
 - `node --test backend/tests/server-export.test.js` - 1 passed. Supabase live connection warning is expected without live credentials.
@@ -141,6 +154,7 @@ Passing:
 - `npm run test:qa -- tests/agents/27-feature-registry-navigation-map.spec.ts` - local rerun hit sidebar rendering timeouts in this environment, but exposed and fixed deterministic owner/admin count drift from Agent 8 Communications entries; GitHub `navigation-e2e` passed afterward.
 - `node scripts/generate-feature-manifest.mjs --check` - passed after regenerating owner/navigation artifacts.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome with local Vite server binding.
+- `npx playwright test tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome with local Vite server binding.
 - `git diff --check` - passed.
 - Secret-pattern scan over changed communication/env/evidence files found no committed provider credentials. It matched only pre-existing generated fake `sk_live_` test-token strings in `backend/server.js`.
 
@@ -148,6 +162,8 @@ Non-blocking existing lint debt:
 
 - `npm run lint --workspace=web` still fails on pre-existing app-wide lint issues including `react-refresh/only-export-components`, existing `any` usage, and React compiler hook rules in older files. Agent 8 targeted web lint passes.
 - `npm run lint --workspace=mobile` still fails on a pre-existing `react/no-unescaped-entities` error in `mobile/app/(auth)/register.tsx` and existing warnings in auth/verification/garage files. Agent 8 removed the new unused imports it surfaced.
+- `npm run test --workspace=backend` failed locally at the first Supabase seeding check with `fetch failed`; an escalated rerun was rejected because the suite may mutate an unverified live service-role database. The safer Referral Engine CI backend suite shape passed.
+- Full `npx playwright test` was executed with local server permission and remains red outside Agent 8: 74 passed, 18 skipped, 60 failed in pre-existing auth, vehicle evidence, premium evidence gallery, feature registry/navigation, feature governance, and navigation accessibility specs. The focused Agent 8 WhatsApp/Telegram Playwright spec passed 6/6.
 
 ## Live Provider Verification
 

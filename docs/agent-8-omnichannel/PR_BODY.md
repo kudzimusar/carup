@@ -16,6 +16,8 @@ Latest navigation e2e count fix commit: `02ddb68` (`test(navigation): account fo
 
 Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): address follow-up review defects`).
 
+Latest final Codex review fix commit: `05cdea7` (`fix(communication): address final review thread gaps`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -75,6 +77,12 @@ Commit `7c30980` resolves the latest four Codex review threads:
 - Preserved trusted authenticated ownership on preference updates by whitelisting preference fields and keeping route-provided `user_id` / `tenant_id`.
 - Kept legacy `notification_queue.recipient_id` user-only for external identity deliveries and relied on `recipient_identity_id` for contacts without CarUp users.
 - Replaced plain invalid-webhook errors with `ForbiddenError` so rejected provider signatures return 403 instead of 500.
+
+Commit `05cdea7` resolves the final three Codex review threads:
+
+- Added missing legacy `notification_queue` columns (`type`, `title`, `message`, `read`) in the additive Agent 8 migration before the queue service writes them.
+- Preserved the authorized target thread for `POST /api/communications/threads/:id/messages` by passing the loaded thread into inbound ingestion and preventing message intent from redirecting user-visible sends into another thread.
+- Set safe test Supabase env before importing route modules by switching the route imports in `backend/tests/communication-engine.test.js` to top-level dynamic imports after env setup.
 
 ## Vercel Staging Preview Activation
 
@@ -197,8 +205,12 @@ for Hobby limits.
 
 ## Tests Run and Results
 
-- `node --test backend/tests/communication-engine.test.js` - 35 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, migration hardening assertions, guarded runtime-hardening RPC grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
-- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 50 passed.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed.
+- `node --test backend/tests/communication-engine.test.js` - 36 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, migration hardening assertions, guarded runtime-hardening RPC grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed.
+- `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
+- `for f in backend/tests/auth-login.test.js backend/tests/referral-*.test.js; do node --test "$f" || exit 1; done` - passed with local listener permission for the referral route smoke test; this mirrors Referral Engine CI's backend suite shape with dummy Supabase env.
+- `node --check backend/scripts/uat/referral-uat-journeys.mjs` - passed.
 - `node --test backend/tests/referral-channel-gateway-phase3.test.js` - 15 passed before PR #88 merge.
 - `node --test backend/tests/server-export.test.js` - 1 passed.
 - `node --test backend/tests/diaspora-csrf-flow.test.js backend/tests/referral-engine-route-smoke.test.js` - 15 passed with local server binding.
@@ -216,6 +228,7 @@ for Hobby limits.
 - `node scripts/generate-feature-manifest.mjs --check` - passed.
 - GitHub `navigation-e2e` - passed after updating owner/admin dashboard item counts for Agent 8 Communications entries.
 - `npm run test:qa -- tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome.
+- `npx playwright test tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome.
 - `git diff --check` - passed.
 
 ## Live Provider Verification
@@ -229,6 +242,8 @@ for Hobby limits.
 
 - Full web lint still reports pre-existing app-wide lint debt outside Agent 8; Agent 8 targeted web lint passes.
 - Full mobile lint still reports a pre-existing auth registration lint error and warnings outside Agent 8; mobile type-check and Agent 8 contract tests pass.
+- `npm run test --workspace=backend` failed locally at the first Supabase seeding check with `fetch failed`; a network-enabled rerun was rejected because the suite may mutate an unverified live service-role database. The safer Referral Engine CI backend suite shape passed.
+- Full `npx playwright test` remains red outside Agent 8: 74 passed, 18 skipped, 60 failed in pre-existing auth, vehicle evidence, premium evidence gallery, feature registry/navigation, feature governance, and navigation accessibility specs. The focused Agent 8 WhatsApp/Telegram Playwright spec passed 6/6.
 - Provider adapters are configuration-gated and ready for credentials, but live provider send/webhook verification was not performed.
 - Vercel backend checkout is now linked to `carup-backend-staging`, and branch-scoped Preview worker envs were configured. Non-preview staging/production envs were not changed.
 - No SendGrid, Twilio, Meta, Telegram, or Expo credentials/account resources were available; live provider UAT was not claimed.
