@@ -9,7 +9,7 @@ import {
   explainReferralBenefit,
   createReferralDispute,
   type ReferralWalletTransactionLite,
-} from '../../utils/referralApi';
+} from '../../services/referralApi';
 
 /**
  * Owner "Refer & Earn" mobile surface.
