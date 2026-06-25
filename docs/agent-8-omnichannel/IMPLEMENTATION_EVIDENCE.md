@@ -26,7 +26,7 @@ Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add 
 
 Latest legacy queue compatibility fix commit: `1e88e22` (`fix(communication): harden legacy queue compatibility`)
 
-Latest Cloudflare Worker review fix commit: pending local commit (`fix(communication): harden cloudflare worker delivery`)
+Latest Cloudflare Worker review fix commit: `82c998d` (`fix(communication): harden cloudflare worker delivery`)
 
 Latest provider-runtime commits:
 
