@@ -133,7 +133,10 @@ ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS recipient_identity_id UU
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS thread_id UUID REFERENCES message_threads(id) ON DELETE SET NULL;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS message_id UUID REFERENCES messages(id) ON DELETE SET NULL;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS event_id TEXT;
+ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS type TEXT;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS notification_type TEXT;
+ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS message TEXT;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS provider TEXT;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS template_key TEXT;
@@ -153,6 +156,7 @@ ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMPTZ;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS read BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 ALTER TABLE notification_queue DROP CONSTRAINT IF EXISTS notification_queue_channel_check;

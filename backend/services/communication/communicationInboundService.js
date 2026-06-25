@@ -83,30 +83,41 @@ export class CommunicationInboundService {
     const threadType = this.threadTypeForIntent(classification.intent);
     const priority = classification.intent === 'complaint' || classification.intent === 'fraud_report' ? 'high' : 'normal';
 
-    const { thread, created } = await this.threadService.resolveOrCreateThread({
-      tenant_id: input.tenant_id || actor.actor_tenant_id || null,
-      thread_type: threadType,
-      subject_type: input.subject_type || threadType,
-      subject_id: input.subject_id || input.marketplace_listing_id || input.escrow_id || input.financing_application_id || null,
-      primary_user_id: identity.user_id || input.user_id || null,
-      external_identity_id: identity.id,
-      external_conversation_id: input.externalConversationId || input.conversation_id || externalSenderId,
-      primary_channel: channel,
-      priority,
-      status: classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai',
-      intent: classification.intent,
-      referral_code_id: referralResult?.validation?.code?.id || null,
-      referral_campaign_id: referralResult?.validation?.code?.campaign_id || null,
-      marketplace_listing_id: input.marketplace_listing_id || null,
-      escrow_id: input.escrow_id || null,
-      financing_application_id: input.financing_application_id || null,
-      metadata: {
+    let thread = input.thread?.id ? input.thread : null;
+    let created = false;
+    const targetThreadId = input.target_thread_id || input.threadId || input.thread_id || null;
+    if (!thread && targetThreadId) {
+      thread = await this.repository.findOne('message_threads', { id: targetThreadId });
+      if (!thread) throw new Error('Target communication thread not found.');
+    }
+    if (!thread) {
+      const resolved = await this.threadService.resolveOrCreateThread({
+        tenant_id: input.tenant_id || actor.actor_tenant_id || null,
+        thread_type: threadType,
+        subject_type: input.subject_type || threadType,
+        subject_id: input.subject_id || input.marketplace_listing_id || input.escrow_id || input.financing_application_id || null,
+        primary_user_id: identity.user_id || input.user_id || null,
+        external_identity_id: identity.id,
+        external_conversation_id: input.externalConversationId || input.conversation_id || externalSenderId,
+        primary_channel: channel,
+        priority,
+        status: classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai',
         intent: classification.intent,
-        referral_code: referralResult?.extracted_referral_code || null,
-        referral_validation: referralResult?.validation?.valid ?? null,
-        source_channel: channel,
-      },
-    });
+        referral_code_id: referralResult?.validation?.code?.id || null,
+        referral_campaign_id: referralResult?.validation?.code?.campaign_id || null,
+        marketplace_listing_id: input.marketplace_listing_id || null,
+        escrow_id: input.escrow_id || null,
+        financing_application_id: input.financing_application_id || null,
+        metadata: {
+          intent: classification.intent,
+          referral_code: referralResult?.extracted_referral_code || null,
+          referral_validation: referralResult?.validation?.valid ?? null,
+          source_channel: channel,
+        },
+      });
+      thread = resolved.thread;
+      created = resolved.created;
+    }
 
     const participant = await this.threadService.addParticipant(thread.id, {
       participant_type: identity.user_id ? 'user' : 'external_contact',
@@ -137,7 +148,7 @@ export class CommunicationInboundService {
       await this.threadService.escalateThread(thread.id, classification.intent || 'human_request', {
         severity: priority === 'high' ? 'high' : 'normal',
         source: 'ai_policy',
-        team: this.threadService.teamForThread(threadType),
+        team: this.threadService.teamForThread(thread.thread_type || threadType),
       });
     } else if (this.notificationService && (identity.user_id || input.user_id)) {
       await this.notificationService.queueNotification({

@@ -91,6 +91,8 @@ export function createCommunicationRouter({ services = createCommunicationServic
       text: req.body?.message || req.body?.text || '',
       externalSenderId: req.userContext.id,
       externalConversationId: thread.thread_key,
+      thread,
+      target_thread_id: thread.id,
       user_id: req.userContext.id,
       tenant_id: req.userContext.tenantId || thread.tenant_id || null,
       subject_type: thread.subject_type,
