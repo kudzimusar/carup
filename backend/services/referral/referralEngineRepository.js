@@ -10,6 +10,8 @@ export const REFERRAL_TABLES = Object.freeze({
   walletTransactions: 'referral_wallet_transactions',
   shareAssets: 'referral_share_assets',
   auditEvents: 'referral_admin_audit_events',
+  attributionJourneys: 'referral_attribution_journeys',
+  attributionTouches: 'referral_attribution_touches',
 });
 
 function assertClient(client) {

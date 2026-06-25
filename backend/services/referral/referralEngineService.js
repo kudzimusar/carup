@@ -365,9 +365,46 @@ export class ReferralEngineService {
       created_by: actor.actor_user_id || input.created_by || null,
       actor_type: actor.actor_type || ACTOR_TYPES.ADMIN,
     };
+    if (input.is_permanent) {
+      payload.is_permanent = true;
+    }
     const created = await this.repository.insert(REFERRAL_TABLES.codes, payload);
     await this.recordReferralEvent({ event_type: REFERRAL_EVENT_TYPES.CODE_CREATED, code_id: created.id, campaign_id: created.campaign_id, channel: created.channel }, actor);
     return created;
+  }
+
+  async ensurePermanentMemberCode(authenticatedUserId, tenantId = DEFAULT_PLATFORM_TENANT) {
+    if (!authenticatedUserId) throw new ValidationError('Authenticated User ID is required.');
+    const codeStr = normalizeReferralCode(generateReferralCode({ seed: authenticatedUserId }));
+    const payload = {
+      tenant_id: tenantId,
+      owner_user_id: authenticatedUserId,
+      code: codeStr,
+      code_type: REFERRAL_CODE_TYPES.MEMBER,
+      status: REFERRAL_CODE_STATUSES.ACTIVE,
+      channel: REFERRAL_CHANNELS.WEB,
+      active_from: this.currentIso(),
+      is_permanent: true,
+      uses_count: 0,
+      location_scope: [],
+      role_scope: [],
+      metadata: {},
+      created_by: authenticatedUserId,
+      actor_type: ACTOR_TYPES.SYSTEM,
+    };
+
+    try {
+      const created = await this.repository.insert(REFERRAL_TABLES.codes, payload);
+      await this.recordReferralEvent({ event_type: REFERRAL_EVENT_TYPES.CODE_CREATED, code_id: created.id, channel: created.channel }, { actor_user_id: authenticatedUserId, actor_type: ACTOR_TYPES.SYSTEM, actor_tenant_id: tenantId });
+      return created;
+    } catch (err) {
+      // 23505 is the Postgres code for unique_violation
+      if (err.originalError?.code === '23505' || err.message?.includes('duplicate key') || err.message?.includes('violates unique constraint')) {
+        const existing = await this.repository.findOne(REFERRAL_TABLES.codes, { tenant_id: tenantId, owner_user_id: authenticatedUserId, is_permanent: true });
+        if (existing) return existing;
+      }
+      throw err;
+    }
   }
 
   async validateReferralCode(input = {}, actor = {}) {
@@ -405,7 +442,7 @@ export class ReferralEngineService {
         session_id: input.session_id || null,
         subject_type: input.subject_type || null,
         subject_id: input.subject_id || null,
-        metadata: { source: input.source || null },
+        metadata: { source: input.source || null, scan_context: input.scan_context || null },
       }, actor);
     }
 
@@ -610,6 +647,98 @@ export class ReferralEngineService {
       payload: assets,
       created_by: actor.actor_user_id || null,
     });
+  }
+
+  async ensureAttributionJourney(anonymousId, userId, tenantId = DEFAULT_PLATFORM_TENANT) {
+    let journey = null;
+    if (userId) {
+      journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { user_id: userId, status: 'active' });
+    }
+    if (!journey && anonymousId) {
+      journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { anonymous_journey_id: anonymousId, status: 'active' });
+      if (journey && userId && !journey.user_id) {
+        journey = await this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, { user_id: userId });
+      }
+    }
+    if (!journey) {
+      journey = await this.repository.insert(REFERRAL_TABLES.attributionJourneys, {
+        tenant_id: tenantId,
+        anonymous_journey_id: anonymousId || null,
+        user_id: userId || null,
+        status: 'active'
+      });
+    }
+    return journey;
+  }
+
+  async bindAttributionJourney(anonymousId, userId, tenantId = DEFAULT_PLATFORM_TENANT) {
+    if (!anonymousId || !userId) throw new ValidationError('anonymousId and userId are required to bind journey.');
+    const journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { anonymous_journey_id: anonymousId, status: 'active' });
+    if (!journey) return null; // No active anonymous journey to bind
+    if (journey.user_id && journey.user_id !== userId) throw new ValidationError('Journey is already bound to another user.');
+    return this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, { user_id: userId });
+  }
+
+  async recordAttributionTouch(journeyId, touchKind, input = {}, actor = {}) {
+    assertEnum(touchKind, ['first', 'last', 'assisted'], 'touch_kind');
+    const journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { id: journeyId });
+    if (!journey) throw new NotFoundError('Attribution journey not found.', { journeyId });
+
+    let code = null;
+    if (input.code) {
+      code = await this.repository.findOne(REFERRAL_TABLES.codes, { code: normalizeReferralCode(input.code) });
+      if (!code) throw new NotFoundError('Referral code not found.', { code: input.code });
+    } else if (input.code_id) {
+      code = await this.repository.findOne(REFERRAL_TABLES.codes, { id: input.code_id });
+    }
+
+    if (code && journey.user_id && code.owner_user_id === journey.user_id) {
+      throw new ValidationError('Self-referral is rejected.');
+    }
+
+    const idempotencyKey = input.idempotency_key || `${journeyId}-${touchKind}-${code?.id || 'none'}-${this.currentIso()}`;
+    
+    // Check idempotency
+    const existingTouch = await this.repository.findOne(REFERRAL_TABLES.attributionTouches, { idempotency_key: idempotencyKey });
+    if (existingTouch) return existingTouch;
+
+    const touchPayload = {
+      tenant_id: journey.tenant_id,
+      journey_id: journey.id,
+      touch_kind: touchKind,
+      code_id: code?.id || null,
+      campaign_id: code?.campaign_id || input.campaign_id || null,
+      channel: input.channel || REFERRAL_CHANNELS.WEB,
+      source: input.source || null,
+      session_id: input.session_id || null,
+      subject_type: input.subject_type || null,
+      subject_id: input.subject_id || null,
+      actor_type: actor.actor_type || ACTOR_TYPES.USER,
+      actor_user_id: actor.actor_user_id || null,
+      metadata: cleanMetadata(input.metadata),
+      idempotency_key: idempotencyKey
+    };
+
+    const touch = await this.repository.insert(REFERRAL_TABLES.attributionTouches, touchPayload);
+    await this.recordReferralEvent({ event_type: REFERRAL_EVENT_TYPES.ATTRIBUTION_RECORDED, subject_type: 'attribution_touch', subject_id: touch.id, code_id: code?.id, campaign_id: touchPayload.campaign_id, channel: touchPayload.channel }, actor);
+
+    const journeyPatch = {};
+    if (touchKind === 'first' || (!journey.first_touch_id && code)) {
+      journeyPatch.first_touch_id = touch.id;
+      if (code && !journey.reward_owner_user_id) {
+        journeyPatch.reward_owner_user_id = code.owner_user_id;
+        journeyPatch.campaign_id = code.campaign_id;
+      }
+    }
+    if (touchKind === 'last' || code) {
+      journeyPatch.last_touch_id = touch.id;
+    }
+
+    if (Object.keys(journeyPatch).length > 0) {
+      await this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, journeyPatch);
+    }
+
+    return touch;
   }
 
   async getAdminTimeline(filters = {}) {

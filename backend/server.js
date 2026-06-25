@@ -25,6 +25,7 @@ import { reportVehicleStolen, checkStolenStatus } from './services/security/secu
 import { calculateDealerReputation } from './services/reputation/reputationService.js';
 import { getSmartRecommendations } from './services/recommendation/recommendationService.js';
 import { reserveVehicle } from './services/reservation/reservationService.js';
+import { ReferralEngineService } from './services/referral/referralEngineService.js';
 
 // ✅ Phase 6: Event-Driven Architecture Imports
 import { eventWorker } from './services/eventBus/eventWorker.js';
@@ -1219,6 +1220,13 @@ app.post('/api/auth/register', async (req, res) => {
     if (sessionError) {
       console.error('Failed to persist user session on register:', sessionError.message);
       return res.status(500).json({ error: 'Account created, but a session could not be established. Please log in.' });
+    }
+
+    try {
+      const referralService = new ReferralEngineService({ client: supabase });
+      await referralService.ensurePermanentMemberCode(id, 'platform');
+    } catch (refErr) {
+      console.error('Referral provisioning failed, but registration succeeds:', refErr.message);
     }
 
     const newUser = { id, name, email, phone: phone || '', role: assignedRole };

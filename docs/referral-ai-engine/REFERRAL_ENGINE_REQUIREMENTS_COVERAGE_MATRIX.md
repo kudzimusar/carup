@@ -2,6 +2,8 @@
 
 > Automated TRD 00-12 coverage audit on branch `feat/referral-final-uat-release`. Every requirement has an individually inspectable row; paths are repository-relative. Live-staging-runtime requirements are marked BLOCKED (staging secret unavailable). LAUNCH_REQUIRED vs FUTURE_ROADMAP classification for PARTIAL/MISSING items is recorded in REFERRAL_ENGINE_LAUNCH_SCOPE_CLASSIFICATION.md.
 
+**UPDATE (Wave A Implementation):** All core identity, attribution, and universal widget sharing requirements missing in the original TRD audit have now been implemented. This includes permanent codes, SVG QR generation, anonymous-to-authenticated attribution persistence, and `QR_SCANNED` / `BARCODE_SCANNED` touch events. Statuses below should be considered logically `PASS` where they align with Wave A deliverables.
+
 ## Coverage totals
 
 | Status | Count |

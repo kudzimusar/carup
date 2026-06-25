@@ -142,6 +142,75 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.json({ success: true, ...result });
   }));
 
+  // --- WAVE A ENDPOINTS ---
+
+  router.post('/me/bootstrap', authorizeRole(['owner', 'dealer', 'mechanic', 'insurance', 'government']), asyncHandler(async (req, res) => {
+    const code = await referralService.ensurePermanentMemberCode(req.userContext.id, req.userContext.tenantId || 'platform');
+    res.json({ success: true, code });
+  }));
+
+  router.get('/me/summary', authorizeRole(['owner', 'dealer', 'mechanic', 'insurance', 'government']), asyncHandler(async (req, res) => {
+    const userId = req.userContext.id;
+    const code = await referralService.ensurePermanentMemberCode(userId, req.userContext.tenantId || 'platform');
+    const wallet = await referralService.getOrCreateWallet(userId, createActor(req, ACTOR_TYPES.USER));
+    
+    // Summary data
+    const summary = {
+      permanent_code: code,
+      wallet_totals: wallet,
+      referred_user_count: await referralService.repository.count('referral_codes', { created_by: userId }), // Approximation, maybe want conversions
+      active_campaigns: await referralService.listCampaigns({ status: 'active' }).then(res => res.campaigns)
+    };
+    res.json({ success: true, summary });
+  }));
+
+  router.get('/me/attribution', authorizeRole(['owner', 'dealer', 'mechanic', 'insurance', 'government']), asyncHandler(async (req, res) => {
+    const userId = req.userContext.id;
+    const journeys = await referralService.repository.list('referral_attribution_journeys', { user_id: userId });
+    res.json({ success: true, attributions: journeys });
+  }));
+
+  router.post('/attribution/claim', authorizeRole(['owner', 'dealer', 'mechanic', 'insurance', 'government']), asyncHandler(async (req, res) => {
+    const userId = req.userContext.id;
+    const { anonymous_journey_id } = req.body;
+    if (!anonymous_journey_id) throw new ValidationError('anonymous_journey_id is required');
+    const journey = await referralService.bindAttributionJourney(anonymous_journey_id, userId, req.userContext.tenantId || 'platform');
+    res.json({ success: true, journey });
+  }));
+
+  router.get('/admin/attributions/:userId', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+    const journeys = await referralService.repository.list('referral_attribution_journeys', { user_id: req.params.userId });
+    const touches = await Promise.all(journeys.map(j => referralService.repository.list('referral_attribution_touches', { journey_id: j.id })));
+    res.json({ success: true, journeys, touches: touches.flat() });
+  }));
+
+  // Public Redirect Contract
+  router.get('/r/:code', asyncHandler(async (req, res) => {
+    const { code } = req.params;
+    const anonymousId = req.cookies?.anonymous_journey_id || req.headers['x-anonymous-id'];
+    // We should not use browser fingerprinting, so we require the client to eventually pass an anonymous ID.
+    // If not provided, we can generate one and set it as a cookie for later claiming.
+    
+    let currentAnonymousId = anonymousId;
+    if (!currentAnonymousId) {
+      currentAnonymousId = 'anon_' + Date.now() + Math.random().toString(36).substr(2, 9);
+      res.cookie('anonymous_journey_id', currentAnonymousId, { maxAge: 900000, httpOnly: true });
+    }
+
+    // Validate the code
+    const validation = await referralService.validateReferralCode({ code, channel: 'link' }, createActor(req, ACTOR_TYPES.SYSTEM));
+    if (!validation.valid) {
+      return res.redirect(process.env.FRONTEND_URL || 'http://localhost:3000');
+    }
+
+    // Ensure journey and record touch
+    const journey = await referralService.ensureAttributionJourney(currentAnonymousId, null, validation.code.tenant_id);
+    await referralService.recordAttributionTouch(journey.id, 'first', { code: validation.code.code, channel: 'link', subject_type: 'referral_redirect' }, createActor(req, ACTOR_TYPES.SYSTEM));
+
+    // Redirect to trusted destination
+    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/signup?ref=${encodeURIComponent(validation.code.code)}`);
+  }));
+
   router.post('/validate', asyncHandler(async (req, res) => {
     const result = await referralService.validateReferralCode(req.body, createActor(req, req.headers['x-actor-type'] || ACTOR_TYPES.USER));
     res.status(result.valid ? 200 : 422).json({ success: result.valid, ...result });

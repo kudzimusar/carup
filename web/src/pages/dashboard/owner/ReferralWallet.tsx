@@ -9,6 +9,8 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { ReferralWalletTransaction } from '@/types/referral'
 
+import { UniversalReferralWidget } from '@/components/referral/UniversalReferralWidget'
+
 /**
  * Owner "Refer & Earn" surface (Phase B). Owner-scoped, read-mostly:
  * - wallet benefit status (pending vs approved shown separately)
@@ -202,6 +204,9 @@ export default function ReferralWallet() {
           <p className="text-gray-500">Your referral benefits, sharing, and dispute history</p>
         </div>
       </div>
+
+      {/* Universal Referral Widget */}
+      <UniversalReferralWidget />
 
       {/* Wallet */}
       <Card className="border-0 card-shadow">

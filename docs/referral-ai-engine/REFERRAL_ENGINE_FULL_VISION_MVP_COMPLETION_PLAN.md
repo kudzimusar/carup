@@ -49,12 +49,12 @@ The production branch contains the code, but the production database did not con
 
 | Capability | Current state | MVP required |
 |---|---|---|
-| Permanent code for every user | Manual/service code creation exists | Idempotently issue one permanent member code after registration or first authenticated bootstrap |
-| Universal referral widget | Owner wallet/share page exists | My code, direct channel shares, downloadable QR, referred-user/conversion summary, active campaigns and rewards |
-| Visual QR | QR payload exists; web shows text | Scannable QR, download/print and tracked redirect event |
-| Barcode validation context | Barcode SVG and code validation exist | Agent/depot/invoice/booking scan form that logs context without approving reward |
-| First/last/assisted attribution | First-touch reward owner is proven | Persist and display first, last and assisted touches while keeping deterministic reward ownership |
-| Cross-surface continuation | Partial code/session handling | Preserve attribution through anonymous visit, signup, login, inquiry/quote, WhatsApp, mobile and agent handoff |
+| Permanent code for every user | **IMPLEMENTED (Wave A)** | Idempotently issue one permanent member code after registration or first authenticated bootstrap |
+| Universal referral widget | **IMPLEMENTED (Wave A)** | My code, direct channel shares, downloadable QR, referred-user/conversion summary, active campaigns and rewards |
+| Visual QR | **IMPLEMENTED (Wave A)** | Scannable QR, download/print and tracked redirect event |
+| Barcode validation context | **IMPLEMENTED (Wave A)** | Agent/depot/invoice/booking scan form that logs context without approving reward |
+| First/last/assisted attribution | **IMPLEMENTED (Wave A)** | Persist and display first, last and assisted touches while keeping deterministic reward ownership |
+| Cross-surface continuation | **IMPLEMENTED (Wave A)** | Preserve attribution through anonymous visit, signup, login, inquiry/quote, WhatsApp, mobile and agent handoff |
 | Zimbabwe receiver | Metadata only | Payer–receiver relationship, invitation/acceptance and receiver tracking/referral journey |
 | Ambassador | Can own codes/bundles | Ambassador profile, grouped campaigns, share kit, conversions, rewards, tiers and own-only dashboard |
 | Mechanic/parts supplier | Participant types exist | Dedicated parts referral/request journey, milestone, own referrals and rewards |

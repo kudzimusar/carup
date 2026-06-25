@@ -853,6 +853,15 @@ export function useCarUpApi() {
     request<ReferralCouponApplyResponse>('/referrals/coupons/apply', { method: 'POST', body: JSON.stringify(payload) }), [request])
   const redeemReferralCoupon = useCallback((payload: Record<string, unknown>): Promise<ReferralCouponRedeemResponse> =>
     request<ReferralCouponRedeemResponse>('/referrals/coupons/redeem', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const bootstrapReferralMemberCode = useCallback((): Promise<any> =>
+    request<any>('/referrals/me/bootstrap', { method: 'POST' }), [request])
+
+  const getReferralSummary = useCallback((): Promise<any> =>
+    request<any>('/referrals/me/summary'), [request])
+
+  const claimReferralAttribution = useCallback((anonymous_journey_id: string): Promise<any> =>
+    request<any>('/referrals/attribution/claim', { method: 'POST', body: JSON.stringify({ anonymous_journey_id }) }), [request])
+
   const getReferralWallet = useCallback((userId: string): Promise<ReferralWalletResponse> =>
     request<ReferralWalletResponse>(`/referrals/wallets/${encodeURIComponent(userId)}`), [request])
   const createReferralWalletTransaction = useCallback((payload: Record<string, unknown>): Promise<ReferralWalletTransactionResponse> =>
@@ -1100,6 +1109,9 @@ export function useCarUpApi() {
     createReferralCoupon,
     applyReferralCoupon,
     redeemReferralCoupon,
+    bootstrapReferralMemberCode,
+    getReferralSummary,
+    claimReferralAttribution,
     getReferralWallet,
     createReferralWalletTransaction,
     transitionReferralWalletTransaction,
