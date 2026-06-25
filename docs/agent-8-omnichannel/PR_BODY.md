@@ -20,7 +20,7 @@ Latest final Codex review fix commit: `05cdea7` (`fix(communication): address fi
 
 Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add cloudflare email edge integration`).
 
-Latest legacy queue compatibility fix commit: pending local commit (`fix(communication): harden legacy queue compatibility`).
+Latest legacy queue compatibility fix commit: `1e88e22` (`fix(communication): harden legacy queue compatibility`).
 
 ## Dependency / Base
 
