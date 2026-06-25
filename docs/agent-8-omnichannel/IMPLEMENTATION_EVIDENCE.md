@@ -22,7 +22,7 @@ Latest follow-up Codex review fix commit: `7c30980` (`fix(communication): addres
 
 Latest final Codex review fix commit: `05cdea7` (`fix(communication): address final review thread gaps`)
 
-Latest Cloudflare email activation commit: pending local commit (`feat(communication): add cloudflare email edge integration`)
+Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add cloudflare email edge integration`)
 
 Latest provider-runtime commits:
 
