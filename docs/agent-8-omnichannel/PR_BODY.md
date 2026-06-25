@@ -22,6 +22,8 @@ Latest Cloudflare email activation commit: `85ff9ed` (`feat(communication): add 
 
 Latest legacy queue compatibility fix commit: `1e88e22` (`fix(communication): harden legacy queue compatibility`).
 
+Latest Cloudflare Worker review fix commit: pending local commit (`fix(communication): harden cloudflare worker delivery`).
+
 ## Dependency / Base
 
 - Main SHA: `c25b094` recorded before implementation.
@@ -93,6 +95,8 @@ Additional Codex review corrections after the Cloudflare addendum:
 - Replaced the legacy-sensitive `idx_notification_queue_status_due` expression index with a plain `(status, next_attempt_at, scheduled_at, created_at)` index so installations with TEXT `scheduled_at` / `created_at` do not fail PostgreSQL immutable-expression checks.
 - Added `20260625031500_agent8_communication_legacy_queue_compatibility.sql` for environments that already applied Agent 8 before this source fix.
 - Dropped legacy `notification_queue.recipient_id` `NOT NULL` so external-only channel replies can use `recipient_identity_id` without violating old queue schemas while keeping `recipient_id` user-only.
+- Worker outbound email now fails when the `send_email` binding is missing instead of reporting accepted/queued to the backend, preventing canonical Supabase notifications from being marked sent without provider acceptance.
+- Worker inbound forwarding includes Cloudflare Access service-token headers when configured, so the backend optional Access gate can be enabled without rejecting otherwise valid signed email payloads.
 
 ## Vercel Staging Preview Activation
 
@@ -233,6 +237,9 @@ for Hobby limits.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 58 passed after legacy queue compatibility fixes.
 - `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed.
 - `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
+- `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed after Cloudflare Worker review fixes.
+- `node --check cloudflare/carup-communications-edge/src/index.js` - passed after Cloudflare Worker review fixes.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 43 passed after Cloudflare Worker review fixes.
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed before Cloudflare addendum.
 - `node --test backend/tests/communication-engine.test.js` - 36 passed, including Codex review regressions for admin reply queueing, internal-note suppression, valid/invalid Meta GET verification, raw-body Meta signature pass/fail, target-thread preservation, legacy queue column compatibility, legacy BIGSERIAL queue IDs, legacy TEXT queue retry, thrown adapter retry/dead-letter handling, provider runtime coverage, scheduler-safe claim/recovery, migration hardening assertions, guarded runtime-hardening RPC grants, preference ownership preservation, external identity queue FK safety, and 403 invalid-webhook errors.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed.

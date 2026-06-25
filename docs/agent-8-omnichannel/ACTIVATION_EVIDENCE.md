@@ -137,6 +137,8 @@ Security and performance advisors were run after migration.
 - `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 43 passed after the no-cast due index and nullable legacy recipient compatibility fixes.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 58 passed after the legacy queue compatibility fixes.
+- `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed after the Worker was hardened to reject missing `send_email` binding delivery and forward Cloudflare Access service-token headers when configured.
+- `node --check cloudflare/carup-communications-edge/src/index.js` - passed after the Worker review fixes.
 - `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
 - Referral Engine CI backend suite shape (`backend/tests/auth-login.test.js` plus `backend/tests/referral-*.test.js`) - passed with local listener permission for the route smoke test.
 - `node --check backend/scripts/uat/referral-uat-journeys.mjs` - passed.
