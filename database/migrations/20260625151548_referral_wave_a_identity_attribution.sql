@@ -6,7 +6,7 @@ ALTER TABLE referral_codes ADD COLUMN IF NOT EXISTS is_permanent BOOLEAN NOT NUL
 -- 2. Partial unique index to guarantee one permanent MEMBER code per tenant and owner
 CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_codes_permanent_owner 
   ON referral_codes(tenant_id, owner_user_id) 
-  WHERE is_permanent = true;
+  WHERE is_permanent = true AND code_type = 'MEMBER' AND owner_user_id IS NOT NULL;
 
 -- 3. Create referral_attribution_journeys
 CREATE TABLE IF NOT EXISTS referral_attribution_journeys (
@@ -17,8 +17,11 @@ CREATE TABLE IF NOT EXISTS referral_attribution_journeys (
   first_touch_id UUID,
   last_touch_id UUID,
   reward_owner_user_id TEXT,
+  reward_owner_code_id UUID REFERENCES referral_codes(id) ON DELETE SET NULL,
   campaign_id UUID REFERENCES referral_campaigns(id) ON DELETE SET NULL,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'abandoned')),
+  expires_at TIMESTAMPTZ,
+  claimed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -40,7 +43,7 @@ CREATE TABLE IF NOT EXISTS referral_attribution_touches (
   actor_user_id TEXT,
   occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  idempotency_key TEXT UNIQUE,
+  idempotency_key TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -63,10 +66,19 @@ END $$;
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_referral_attr_journeys_anon ON referral_attribution_journeys(anonymous_journey_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_attr_journeys_anon_tenant 
+  ON referral_attribution_journeys(tenant_id, anonymous_journey_id) 
+  WHERE anonymous_journey_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_referral_attr_journeys_user ON referral_attribution_journeys(user_id);
+CREATE INDEX IF NOT EXISTS idx_referral_attr_journeys_tenant_user_status ON referral_attribution_journeys(tenant_id, user_id, status);
+
 CREATE INDEX IF NOT EXISTS idx_referral_attr_touches_journey ON referral_attribution_touches(journey_id);
 CREATE INDEX IF NOT EXISTS idx_referral_attr_touches_code ON referral_attribution_touches(code_id);
 CREATE INDEX IF NOT EXISTS idx_referral_attr_touches_idemp ON referral_attribution_touches(idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_attr_touches_idemp_tenant 
+  ON referral_attribution_touches(tenant_id, idempotency_key) 
+  WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_referral_attr_touches_tenant_journey_occurred ON referral_attribution_touches(tenant_id, journey_id, occurred_at);
 
 -- Triggers for updated_at
 DROP TRIGGER IF EXISTS referral_attr_journeys_updated_at ON referral_attribution_journeys;

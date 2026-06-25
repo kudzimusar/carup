@@ -59,6 +59,19 @@ export interface ReferralValidateResponse {
   [key: string]: unknown;
 }
 
+// GET /api/referrals/me/summary -> { success, summary: { permanent_code, wallet_totals, referred_user_count, conversion_count, active_campaigns } }
+export interface ReferralSummaryResponse {
+  success: boolean;
+  summary?: {
+    permanent_code?: any;
+    wallet_totals?: ReferralWalletLite;
+    referred_user_count?: number;
+    conversion_count?: number;
+    active_campaigns?: any[];
+  };
+  [key: string]: unknown;
+}
+
 // ── Shared request plumbing (mirrors verificationApi.ts) ────────────────────
 async function authHeaders(): Promise<Record<string, string>> {
   const { useAuthStore } = await import('../store/authStore');
@@ -164,6 +177,11 @@ export async function validateReferralCode(payload: Record<string, unknown>): Pr
 /** Owner (self) or admin: fetch the referral wallet for a user. */
 export async function getReferralWallet(userId: string): Promise<ReferralWalletResponse> {
   return requestJson<ReferralWalletResponse>(`/api/referrals/wallets/${encodeURIComponent(userId)}`);
+}
+
+/** Owner: fetch full summary including code, conversions, and campaigns. */
+export async function getReferralSummary(): Promise<ReferralSummaryResponse> {
+  return requestJson<ReferralSummaryResponse>('/api/referrals/me/summary');
 }
 
 /** Authenticated: human-readable explanation of a wallet benefit transaction. */

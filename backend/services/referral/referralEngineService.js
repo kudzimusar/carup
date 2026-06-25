@@ -652,20 +652,23 @@ export class ReferralEngineService {
   async ensureAttributionJourney(anonymousId, userId, tenantId = DEFAULT_PLATFORM_TENANT) {
     let journey = null;
     if (userId) {
-      journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { user_id: userId, status: 'active' });
+      journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { tenant_id: tenantId, user_id: userId, status: 'active' });
     }
     if (!journey && anonymousId) {
-      journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { anonymous_journey_id: anonymousId, status: 'active' });
+      journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { tenant_id: tenantId, anonymous_journey_id: anonymousId, status: 'active' });
       if (journey && userId && !journey.user_id) {
         journey = await this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, { user_id: userId });
       }
     }
     if (!journey) {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // 30 days expiry
       journey = await this.repository.insert(REFERRAL_TABLES.attributionJourneys, {
         tenant_id: tenantId,
         anonymous_journey_id: anonymousId || null,
         user_id: userId || null,
-        status: 'active'
+        status: 'active',
+        expires_at: expiresAt.toISOString()
       });
     }
     return journey;
@@ -673,10 +676,24 @@ export class ReferralEngineService {
 
   async bindAttributionJourney(anonymousId, userId, tenantId = DEFAULT_PLATFORM_TENANT) {
     if (!anonymousId || !userId) throw new ValidationError('anonymousId and userId are required to bind journey.');
-    const journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { anonymous_journey_id: anonymousId, status: 'active' });
+    const journey = await this.repository.findOne(REFERRAL_TABLES.attributionJourneys, { tenant_id: tenantId, anonymous_journey_id: anonymousId, status: 'active' });
     if (!journey) return null; // No active anonymous journey to bind
     if (journey.user_id && journey.user_id !== userId) throw new ValidationError('Journey is already bound to another user.');
-    return this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, { user_id: userId });
+    
+    // Check self-referral upon claim: if the journey's reward owner is this exact user, abandon or reject it
+    if (journey.reward_owner_user_id === userId) {
+       await this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, { 
+         status: 'abandoned',
+         user_id: userId,
+         claimed_at: this.currentIso()
+       });
+       return null;
+    }
+    
+    return this.repository.updateById(REFERRAL_TABLES.attributionJourneys, journey.id, { 
+      user_id: userId,
+      claimed_at: this.currentIso()
+    });
   }
 
   async recordAttributionTouch(journeyId, touchKind, input = {}, actor = {}) {
@@ -686,10 +703,10 @@ export class ReferralEngineService {
 
     let code = null;
     if (input.code) {
-      code = await this.repository.findOne(REFERRAL_TABLES.codes, { code: normalizeReferralCode(input.code) });
+      code = await this.repository.findOne(REFERRAL_TABLES.codes, { tenant_id: journey.tenant_id, code: normalizeReferralCode(input.code) });
       if (!code) throw new NotFoundError('Referral code not found.', { code: input.code });
     } else if (input.code_id) {
-      code = await this.repository.findOne(REFERRAL_TABLES.codes, { id: input.code_id });
+      code = await this.repository.findOne(REFERRAL_TABLES.codes, { tenant_id: journey.tenant_id, id: input.code_id });
     }
 
     if (code && journey.user_id && code.owner_user_id === journey.user_id) {
@@ -698,8 +715,8 @@ export class ReferralEngineService {
 
     const idempotencyKey = input.idempotency_key || `${journeyId}-${touchKind}-${code?.id || 'none'}-${this.currentIso()}`;
     
-    // Check idempotency
-    const existingTouch = await this.repository.findOne(REFERRAL_TABLES.attributionTouches, { idempotency_key: idempotencyKey });
+    // Check idempotency (tenant-scoped)
+    const existingTouch = await this.repository.findOne(REFERRAL_TABLES.attributionTouches, { tenant_id: journey.tenant_id, idempotency_key: idempotencyKey });
     if (existingTouch) return existingTouch;
 
     const touchPayload = {
@@ -723,14 +740,24 @@ export class ReferralEngineService {
     await this.recordReferralEvent({ event_type: REFERRAL_EVENT_TYPES.ATTRIBUTION_RECORDED, subject_type: 'attribution_touch', subject_id: touch.id, code_id: code?.id, campaign_id: touchPayload.campaign_id, channel: touchPayload.channel }, actor);
 
     const journeyPatch = {};
-    if (touchKind === 'first' || (!journey.first_touch_id && code)) {
-      journeyPatch.first_touch_id = touch.id;
-      if (code && !journey.reward_owner_user_id) {
-        journeyPatch.reward_owner_user_id = code.owner_user_id;
-        journeyPatch.campaign_id = code.campaign_id;
+    
+    // First touch is write-once
+    if (!journey.first_touch_id) {
+      if (touchKind === 'first' || code) {
+        journeyPatch.first_touch_id = touch.id;
       }
     }
-    if (touchKind === 'last' || code) {
+    
+    // Reward owner code is write-once
+    if (code && !journey.reward_owner_code_id) {
+      journeyPatch.reward_owner_code_id = code.id;
+      journeyPatch.reward_owner_user_id = code.owner_user_id;
+      journeyPatch.campaign_id = code.campaign_id;
+    }
+
+    // Last touch updates only for an eligible direct subsequent touch
+    // Assisted touch must not overwrite last touch automatically
+    if (touchKind === 'last' || (touchKind === 'first' && !journey.last_touch_id && code)) {
       journeyPatch.last_touch_id = touch.id;
     }
 
@@ -739,6 +766,23 @@ export class ReferralEngineService {
     }
 
     return touch;
+  }
+  
+  async recordAnonymousTouch(input) {
+     const { code, journeyToken, channel, source, req } = input;
+     const tenantId = DEFAULT_PLATFORM_TENANT;
+     const journey = await this.ensureAttributionJourney(journeyToken, null, tenantId);
+     
+     // Determine touch kind based on existing journey
+     const touchKind = journey.first_touch_id ? 'last' : 'first';
+     
+     return this.recordAttributionTouch(journey.id, touchKind, {
+       code,
+       channel,
+       source,
+       session_id: req ? req.headers['x-session-id'] : null,
+       metadata: { user_agent: req?.headers['user-agent'] }
+     }, { actor_type: ACTOR_TYPES.SYSTEM });
   }
 
   async getAdminTimeline(filters = {}) {

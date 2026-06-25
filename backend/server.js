@@ -129,6 +129,46 @@ app.get('/api/security/csrf-token', (req, res) => {
   res.json({ csrfToken: token });
 });
 
+// --- REFERRAL PUBLIC ENTRY (WAVE A) ---
+app.get('/r/:code', async (req, res, next) => {
+  try {
+    const code = req.params.code;
+    
+    // We do NOT validate the code synchronously here, to keep the redirect lightning fast.
+    // The validation and touch recording happen asynchronously or at registration.
+    
+    // 1. Generate opaque journey ID securely
+    const journeyToken = crypto.randomUUID();
+    
+    // 2. Set HttpOnly, Secure, SameSite=Lax cookie
+    res.cookie('referral_journey_token', JSON.stringify({ token: journeyToken, code }), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    });
+
+    // 3. Persist the anonymous journey touch asynchronously
+    // (We wrap this in a fire-and-forget or await it if we want strict consistency)
+    const referralService = new ReferralEngineService({ client: supabase });
+    
+    // Attempt to persist the initial anonymous touch in the background
+    referralService.recordAnonymousTouch({
+      code,
+      journeyToken,
+      channel: 'web',
+      source: 'public_link',
+      req
+    }).catch(e => console.error('[Referral] Background anonymous touch failed:', e.message));
+
+    // 4. Redirect to registration preserving the code in URL for fallback UI tracking
+    res.redirect(302, `/register?ref=${encodeURIComponent(code)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+
 // Expose operational health and metrics endpoint
 app.get('/api/health', async (req, res) => {
   let supabaseHealth = 'healthy';
@@ -1224,6 +1264,20 @@ app.post('/api/auth/register', async (req, res) => {
 
     try {
       const referralService = new ReferralEngineService({ client: supabase });
+      
+      // Attempt to bind the anonymous journey if cookie exists
+      const cookies = parseCookies(req.headers.cookie);
+      if (cookies['referral_journey_token']) {
+        try {
+          const journeyData = JSON.parse(cookies['referral_journey_token']);
+          if (journeyData && journeyData.token) {
+            await referralService.bindAttributionJourney(journeyData.token, id, 'platform');
+          }
+        } catch (cookieErr) {
+          console.warn('[Referral] Failed to parse or bind journey token:', cookieErr.message);
+        }
+      }
+
       await referralService.ensurePermanentMemberCode(id, 'platform');
     } catch (refErr) {
       console.error('Referral provisioning failed, but registration succeeds:', refErr.message);
