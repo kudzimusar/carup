@@ -15,6 +15,9 @@ import type {
   EvidenceSourcesResponse,
   TemporalFindingsResponse,
   DisclosureConflictsResponse,
+  VehicleDocumentExtractionsResponse,
+  ExtractionReviewDecisionPayload,
+  VehicleDocumentExtraction,
   GovernanceTaskType,
   GovernanceReviewQueueResponse,
   GovernanceDecisionPayload,
@@ -347,6 +350,34 @@ export function useCarUpApi() {
   // shape; empty is expected and correct for most buyer-facing vehicles.
   const fetchDisclosureConflicts = useCallback(async (vin: string): Promise<DisclosureConflictsResponse> => {
     return request<DisclosureConflictsResponse>(`/vehicles/${encodeURIComponent(vin)}/disclosure-conflicts`)
+  }, [request])
+
+  // ── OCR document extractions (Phase 12): admin/reviewer surface ──
+  // GET /api/vehicles/:vin/extractions — per-field OCR results with match_status + per-field
+  // confidence + review_status. Privileged roles only (backend enforces).
+  const fetchVehicleExtractions = useCallback(async (
+    vin: string,
+    opts?: { evidenceId?: string; matchStatus?: string; pendingOnly?: boolean },
+  ): Promise<VehicleDocumentExtractionsResponse> => {
+    const qs = new URLSearchParams()
+    if (opts?.evidenceId) qs.set('evidence_id', opts.evidenceId)
+    if (opts?.matchStatus) qs.set('match_status', opts.matchStatus)
+    if (opts?.pendingOnly) qs.set('pending_only', 'true')
+    const q = qs.toString() ? `?${qs.toString()}` : ''
+    return request<VehicleDocumentExtractionsResponse>(`/vehicles/${encodeURIComponent(vin)}/extractions${q}`)
+  }, [request])
+
+  // PATCH /api/vehicles/:vin/extractions/:id/review — reviewer decision. Only review_status +
+  // mismatch_reason change; the extracted content stays immutable (no overwrite of the original).
+  const reviewVehicleExtraction = useCallback(async (
+    vin: string,
+    extractionId: string,
+    payload: ExtractionReviewDecisionPayload,
+  ): Promise<{ extraction: VehicleDocumentExtraction }> => {
+    return request<{ extraction: VehicleDocumentExtraction }>(`/vehicles/${encodeURIComponent(vin)}/extractions/${encodeURIComponent(extractionId)}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
   }, [request])
 
   // ── Vehicle History Report (M4): buyer-facing report + owner version/share ──
@@ -1150,6 +1181,8 @@ export function useCarUpApi() {
     fetchEvidenceSources,
     fetchTemporalFindings,
     fetchDisclosureConflicts,
+    fetchVehicleExtractions,
+    reviewVehicleExtraction,
     fetchVehicleReport,
     generateReportVersion,
     createReportShareLink,
