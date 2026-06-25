@@ -18,6 +18,7 @@ import type {
   VehicleDocumentExtractionsResponse,
   ExtractionReviewDecisionPayload,
   VehicleDocumentExtraction,
+  VehicleCompleteness,
   GovernanceTaskType,
   GovernanceReviewQueueResponse,
   GovernanceDecisionPayload,
@@ -378,6 +379,14 @@ export function useCarUpApi() {
       method: 'PATCH',
       body: JSON.stringify(payload),
     })
+  }, [request])
+
+  // ── Phase 4 — Publication completeness gate ──────────────────────────────────
+  // GET /api/vehicles/:vin/completeness — deterministic requirements evaluator.
+  // Returns blocking gaps, advisory gaps, completeness %, and publication_status.
+  // Requires owner/dealer/admin/reviewer role (enforced on the server).
+  const fetchVehicleCompleteness = useCallback(async (vin: string): Promise<VehicleCompleteness> => {
+    return request<VehicleCompleteness>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/completeness`)
   }, [request])
 
   // ── Vehicle History Report (M4): buyer-facing report + owner version/share ──
@@ -1183,6 +1192,7 @@ export function useCarUpApi() {
     fetchDisclosureConflicts,
     fetchVehicleExtractions,
     reviewVehicleExtraction,
+    fetchVehicleCompleteness,
     fetchVehicleReport,
     generateReportVersion,
     createReportShareLink,

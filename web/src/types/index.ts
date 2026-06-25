@@ -777,6 +777,34 @@ export type EvidenceType =
 
 export type EvidenceVerificationStatus = 'pending' | 'verified' | 'rejected' | 'disputed' | 'superseded';
 
+// ── Phase 4 — Vehicle Publication Completeness ───────────────────────────────
+
+export type EvidenceRequirementStatus =
+  | 'present'
+  | 'pending'
+  | 'verified'
+  | 'missing'
+  | 'rejected'
+  | 'expired'
+  | 'not_applicable';
+
+export interface EvidenceRequirement {
+  key: string;
+  label: string;
+  status: EvidenceRequirementStatus;
+  is_blocking: boolean;
+}
+
+export interface VehicleCompleteness {
+  vin: string;
+  requirements: EvidenceRequirement[];
+  completeness_percent: number;
+  is_publishable: boolean;
+  blocking_gaps: string[];
+  pending_gaps: string[];
+  publication_status: string;
+}
+
 // ── Phase 3 — Vehicle Document Extractions (OCR field-level contract) ────────
 
 export type ExtractionMatchStatus = 'match' | 'mismatch' | 'missing_reference' | 'inconclusive';
