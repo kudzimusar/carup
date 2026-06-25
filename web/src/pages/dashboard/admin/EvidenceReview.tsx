@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import ExtractionReviewPanel from '@/components/ExtractionReviewPanel'
 import { CheckCircle, FileText, Image as ImageIcon, Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import type { EvidenceVerificationStatus, VehicleEvidence } from '@/types'
@@ -257,6 +258,12 @@ export default function EvidenceReview() {
                         "{item.verification_notes}"
                       </p>
                     )}
+
+                    {/* Phase 12: OCR field-level extractions for this evidence (states, confidence,
+                        identity match) with reviewer confirm/reject/amend/waive. */}
+                    <div className="rounded-md border border-gray-100 bg-gray-50/50 p-2.5">
+                      <ExtractionReviewPanel vin={item.vin} evidenceId={item.id} />
+                    </div>
 
                     {status === 'pending' && (
                       <div className="space-y-3">
