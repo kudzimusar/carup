@@ -61,7 +61,7 @@ export class CommunicationDeliveryWorker {
         },
         content: {
           subject: notification.title,
-          body: notification.message || notification.message_content || '',
+          body: notification.message || '',
           data: notification.payload || {},
         },
         idempotencyKey: notification.dedupe_key,

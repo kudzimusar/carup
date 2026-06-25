@@ -39,10 +39,11 @@ const legacyQueueCompatibilityMigrationSql = readFileSync(new URL('../../databas
 const securityFile = readFileSync(new URL('../middleware/securityMiddleware.js', import.meta.url), 'utf8');
 const communicationRouteFile = readFileSync(new URL('../routes/communicationRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+const eventWorkerFile = readFileSync(new URL('../services/eventBus/eventWorker.js', import.meta.url), 'utf8');
 const cloudflareWorkerFile = readFileSync(new URL('../../cloudflare/carup-communications-edge/src/index.js', import.meta.url), 'utf8');
 
-function createHarness({ adapter = null, referralChannelGateway = null } = {}) {
-  const repository = new MemoryCommunicationRepository();
+function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
+  repository ||= new MemoryCommunicationRepository();
   const identityService = new CommunicationIdentityService({ repository });
   const threadService = new CommunicationThreadService({ repository });
   const notificationService = new CommunicationNotificationService({ repository, threadService });
@@ -615,6 +616,121 @@ test('external admin reply to requester identity queues canonical notification a
   assert.equal((await repository.list('message_delivery_attempts')).length, 1);
 });
 
+test('Telegram admin reply uses migrated queue schema and creates one message plus one queue row', async () => {
+  const adapter = new FakeCommunicationAdapter({ channel: 'telegram', provider: 'telegram' });
+  const repository = new MemoryCommunicationRepository({}, {
+    strictNotificationQueueColumns: true,
+    legacyNotificationQueueIds: true,
+  });
+  const { identityService, threadService, notificationService, deliveryWorker } = createHarness({ adapter, repository });
+  const identity = await identityService.resolveOrCreateIdentity({
+    channel: 'telegram',
+    provider: 'telegram',
+    external_id: 'tg-issue-108',
+    normalized_address: 'tg-issue-108',
+  });
+  const thread = (await threadService.resolveOrCreateThread({
+    thread_type: 'support',
+    primary_channel: 'telegram',
+    external_identity_id: identity.id,
+  })).thread;
+
+  const result = await recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-issue-108' },
+    body: {
+      message: 'Telegram reply from admin.',
+      channel: 'telegram',
+      client_message_id: 'issue-108-telegram-reply',
+    },
+  });
+
+  const messages = await repository.list('messages');
+  const queueRows = await repository.list('notification_queue');
+  assert.equal(messages.length, 1);
+  assert.equal(queueRows.length, 1);
+  assert.equal(queueRows[0].recipient_identity_id, identity.id);
+  assert.equal(queueRows[0].channel, 'telegram');
+  assert.equal(queueRows[0].provider, 'telegram');
+  assert.equal(queueRows[0].message_id, result.message.id);
+  assert.equal(queueRows[0].payload.telegram_chat_id, 'tg-issue-108');
+  assert.equal(Object.hasOwn(queueRows[0], 'message_content'), false);
+  assert.equal(typeof queueRows[0].id, 'number');
+
+  const delivered = await deliveryWorker.deliverNotification(result.notification);
+  assert.equal(delivered.status, 'sent');
+  assert.equal((await repository.findOne('messages', { id: result.message.id })).status, 'delivered');
+});
+
+test('admin reply queue insertion failure leaves no orphan outbound message', async () => {
+  class FailingQueueRepository extends MemoryCommunicationRepository {
+    async insert(table, row) {
+      if (table === 'notification_queue') throw new Error('simulated notification_queue insert failure');
+      return super.insert(table, row);
+    }
+  }
+
+  const repository = new FailingQueueRepository();
+  const { threadService, notificationService } = createHarness({ repository });
+  const thread = (await threadService.resolveOrCreateThread({
+    primary_user_id: 'issue-108-user',
+    thread_type: 'support',
+    primary_channel: 'in_app',
+  })).thread;
+
+  await assert.rejects(() => recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-issue-108' },
+    body: {
+      message: 'This should roll back.',
+      channel: 'in_app',
+      client_message_id: 'issue-108-failing-reply',
+    },
+  }), /simulated notification_queue insert failure/);
+
+  assert.equal((await repository.list('messages')).length, 0);
+  assert.equal((await repository.list('notification_queue')).length, 0);
+  const restoredThread = await repository.findOne('message_threads', { id: thread.id });
+  assert.equal(restoredThread.status, thread.status);
+  assert.equal(restoredThread.last_message_at, null);
+});
+
+test('duplicate admin reply client_message_id returns original records without duplicates', async () => {
+  const repository = new MemoryCommunicationRepository();
+  const { threadService, notificationService } = createHarness({ repository });
+  const thread = (await threadService.resolveOrCreateThread({
+    primary_user_id: 'issue-108-idempotent-user',
+    thread_type: 'support',
+    primary_channel: 'in_app',
+  })).thread;
+  const body = {
+    message: 'Please retry safely.',
+    channel: 'in_app',
+    client_message_id: 'issue-108-idempotent-reply',
+  };
+
+  const first = await recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-issue-108' },
+    body,
+  });
+  const second = await recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-issue-108' },
+    body,
+  });
+
+  assert.equal(second.duplicate, true);
+  assert.equal(second.message.id, first.message.id);
+  assert.equal(second.notification.id, first.notification.id);
+  assert.equal((await repository.list('messages')).length, 1);
+  assert.equal((await repository.list('notification_queue')).length, 1);
+});
+
 test('internal admin note creates no external notification queue row', async () => {
   const { repository, threadService, notificationService } = createHarness();
   const thread = (await threadService.resolveOrCreateThread({
@@ -886,6 +1002,17 @@ test('notification insert retries with generated id for legacy TEXT queue shape 
   assert.match(inserted.id, /^[0-9a-f-]{36}$/);
   assert.equal(inserted.dedupe_key, 'legacy-text-dedupe');
   assert.equal(insertedRows[1].row.id, inserted.id);
+});
+
+test('event worker prefers pooler connection strings and skips interval polling in Vercel by default', () => {
+  assert.match(eventWorkerFile, /process\.env\.EVENT_WORKER_DATABASE_URL/);
+  assert.match(eventWorkerFile, /process\.env\.SUPABASE_POOLER_DB_URL/);
+  assert.match(eventWorkerFile, /process\.env\.SUPABASE_TRANSACTION_POOLER_URL/);
+  assert.match(eventWorkerFile, /process\.env\.DATABASE_URL/);
+  assert.match(eventWorkerFile, /process\.env\.SUPABASE_DB_URL/);
+  assert.match(eventWorkerFile, /VERCEL/);
+  assert.match(eventWorkerFile, /EVENT_WORKER_INTERVAL_ENABLED/);
+  assert.match(eventWorkerFile, /shouldStartInterval\(\)/);
 });
 
 test('memory repository atomically claims due notifications and recovers stale processing locks', async () => {

@@ -204,7 +204,10 @@ test('Diaspora migration has no destructive statements against existing core tab
 });
 
 test('Event worker uses environment connection settings and no hard-coded Supabase credentials', () => {
-  assert.equal(eventWorker.includes('process.env.DATABASE_URL || process.env.SUPABASE_DB_URL'), true);
+  assert.equal(eventWorker.includes('process.env.EVENT_WORKER_DATABASE_URL'), true);
+  assert.equal(eventWorker.includes('process.env.SUPABASE_POOLER_DB_URL'), true);
+  assert.equal(eventWorker.includes('process.env.SUPABASE_TRANSACTION_POOLER_URL'), true);
+  assert.equal(eventWorker.includes('EVENT_WORKER_INTERVAL_ENABLED'), true);
   assert.equal(eventWorker.includes('vhmnajoeicasaigiophh'), false);
   assert.equal(eventWorker.includes('HVYbYVb1x2ErqzH4'), false);
 });
