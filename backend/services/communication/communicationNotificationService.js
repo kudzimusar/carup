@@ -133,6 +133,20 @@ export class CommunicationNotificationService {
       primary_user_id: input.recipientUserId,
       primary_channel: channel,
     })).thread;
+    const dedupeKey = buildDedupeKey(input.dedupeParts || [thread.id, input.notificationType, input.recipientUserId, channel, input.templateKey]);
+    const existingNotification = await this.repository.findOne('notification_queue', { dedupe_key: dedupeKey });
+    if (existingNotification) {
+      const existingMessage = existingNotification.message_id
+        ? await this.repository.findOne('messages', { id: existingNotification.message_id })
+        : null;
+      return { notification: existingNotification, message: existingMessage, thread };
+    }
+
+    const originalThread = {
+      status: thread.status || null,
+      last_message_at: thread.last_message_at || null,
+      updated_at: thread.updated_at || null,
+    };
     const message = await this.threadService.recordMessage(thread, {
       direction: 'outbound',
       channel,
@@ -144,7 +158,6 @@ export class CommunicationNotificationService {
       human_approved: Boolean(input.humanApproved),
       thread_status: thread.status,
     });
-    const dedupeKey = buildDedupeKey(input.dedupeParts || [thread.id, input.notificationType, input.recipientUserId, channel, input.templateKey]);
     const notificationRow = {
       tenant_id: thread.tenant_id || null,
       recipient_id: input.recipientUserId,
@@ -157,7 +170,6 @@ export class CommunicationNotificationService {
       notification_type: input.notificationType || 'general',
       title: rendered.subject,
       message: rendered.body,
-      message_content: rendered.body,
       channel,
       provider: input.provider || null,
       template_key: input.templateKey || rendered.templateKey,
@@ -175,8 +187,20 @@ export class CommunicationNotificationService {
       metadata: { transactional: input.transactional !== false },
     };
     if (input.id) notificationRow.id = input.id;
-    const notification = await this.repository.insert('notification_queue', notificationRow);
-    return { notification, message, thread };
+    try {
+      const notification = await this.insertNotificationIdempotently(notificationRow);
+      if (notification.message_id && notification.message_id !== message.id) {
+        await this.repository.deleteById?.('messages', message.id).catch(() => null);
+        await this.repository.updateById('message_threads', thread.id, originalThread).catch(() => null);
+        const existingMessage = await this.repository.findOne('messages', { id: notification.message_id });
+        return { notification, message: existingMessage, thread };
+      }
+      return { notification, message, thread };
+    } catch (error) {
+      await this.repository.deleteById?.('messages', message.id).catch(() => null);
+      await this.repository.updateById('message_threads', thread.id, originalThread).catch(() => null);
+      throw error;
+    }
   }
 
   async queueExistingMessage(input = {}) {
@@ -187,6 +211,8 @@ export class CommunicationNotificationService {
     const channel = normalizeChannel(input.channel || message.channel || thread.primary_channel) || 'in_app';
     const recipientKey = input.recipientUserId || input.recipientIdentityId;
     const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, recipientKey, channel]);
+    const existingNotification = await this.repository.findOne('notification_queue', { dedupe_key: dedupeKey });
+    if (existingNotification) return { notification: existingNotification, message, thread };
     const notificationRow = {
       tenant_id: thread.tenant_id || null,
       recipient_id: input.recipientUserId || null,
@@ -199,7 +225,6 @@ export class CommunicationNotificationService {
       notification_type: input.notificationType || 'admin_reply',
       title: input.title || 'CarUp message',
       message: message.content_text || input.message || '',
-      message_content: message.content_text || input.message || '',
       channel,
       provider: input.provider || message.provider || null,
       template_key: input.templateKey || 'admin_reply_v1',
@@ -217,8 +242,20 @@ export class CommunicationNotificationService {
       metadata: { transactional: input.transactional !== false, source: 'existing_message' },
     };
     if (input.id) notificationRow.id = input.id;
-    const notification = await this.repository.insert('notification_queue', notificationRow);
+    const notification = await this.insertNotificationIdempotently(notificationRow);
     return { notification, message, thread };
+  }
+
+  async insertNotificationIdempotently(notificationRow) {
+    try {
+      return await this.repository.insert('notification_queue', notificationRow);
+    } catch (error) {
+      const duplicate = error?.code === '23505' || /duplicate key|idx_notification_queue_dedupe|dedupe/i.test(error?.message || '');
+      if (!duplicate || !notificationRow.dedupe_key) throw error;
+      const existing = await this.repository.findOne('notification_queue', { dedupe_key: notificationRow.dedupe_key });
+      if (existing) return existing;
+      throw error;
+    }
   }
 
   async listNotificationsForUser(userId) {

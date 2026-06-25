@@ -137,12 +137,19 @@ type CommunicationNotificationSummary = {
   read?: boolean
   title?: string
   message?: string
+  status?: string
   notification_type?: string
   last_error_code?: string
 }
 
 type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
-type CommunicationMutationResponse = { success?: boolean; [key: string]: unknown }
+type CommunicationMutationResponse = {
+  success?: boolean
+  message?: CommunicationMessageSummary
+  notification?: CommunicationNotificationSummary
+  duplicate?: boolean
+  [key: string]: unknown
+}
 type CommunicationMetricsResponse = Record<string, number | string | null | undefined>
 
 export function useCarUpApi() {
