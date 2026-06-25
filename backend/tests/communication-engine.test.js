@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import crypto from 'node:crypto';
 
 process.env.NODE_ENV = 'test';
+process.env.SUPABASE_URL ||= 'http://127.0.0.1:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 process.env.CARUP_CHANNEL_WEBHOOK_SECRET = 'test-channel-secret';
 process.env.CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN = 'telegram-secret';
 
@@ -26,8 +28,8 @@ import {
   ExpoPushAdapter,
   createDefaultAdapterRegistry,
 } from '../services/communication/adapters/providerAdapters.js';
-import { createCommunicationRouter } from '../routes/communicationRoutes.js';
-import { recordAdminThreadReply } from '../routes/adminCommunicationRoutes.js';
+const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
+const { recordAdminThreadReply } = await import('../routes/adminCommunicationRoutes.js');
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
@@ -131,6 +133,43 @@ function invokeRouter(router, req) {
   });
 }
 
+function invokeRouteHandler(router, method, path, handlerIndex, req) {
+  const layer = router.stack.find((item) => item.route?.path === path && item.route.methods?.[method.toLowerCase()]);
+  assert.ok(layer, `Route ${method.toUpperCase()} ${path} not found`);
+  const handler = layer.route.stack[handlerIndex]?.handle;
+  assert.equal(typeof handler, 'function', `Route ${method.toUpperCase()} ${path} handler ${handlerIndex} not found`);
+  return new Promise((resolve, reject) => {
+    const response = {
+      statusCode: 200,
+      headers: {},
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      type(value) {
+        this.headers.type = value;
+        return this;
+      },
+      send(body) {
+        resolve({ statusCode: this.statusCode, headers: this.headers, body });
+      },
+      json(body) {
+        resolve({ statusCode: this.statusCode, headers: this.headers, body });
+      },
+    };
+    handler({
+      headers: {},
+      query: {},
+      body: {},
+      params: {},
+      ...req,
+    }, response, (error) => {
+      if (error) reject(error);
+      else resolve({ statusCode: 404, headers: {}, body: null });
+    });
+  });
+}
+
 function jsonFetchRecorder({ status = 200, body = {}, headers = {} } = {}) {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
@@ -156,6 +195,9 @@ test('migration is additive and creates canonical communication tables without d
     assert.match(migrationSql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
   }
   assert.match(migrationSql, /ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS/);
+  for (const column of ['type', 'title', 'message', 'read']) {
+    assert.match(migrationSql, new RegExp(`ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS ${column}\\b`));
+  }
   assert.match(migrationSql, /ALTER TABLE domain_events ADD COLUMN IF NOT EXISTS/);
   assert.equal(/DROP TABLE IF EXISTS notification_queue/i.test(migrationSql), false);
   assert.equal(/DROP TABLE IF EXISTS outbox_events/i.test(migrationSql), false);
@@ -529,6 +571,34 @@ test('communication Meta GET route returns the challenge as plain text', async (
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers.type, 'text/plain');
   assert.equal(response.body, 'abc123');
+});
+
+test('user-visible thread message route records inbound message on the authorized target thread', async () => {
+  const services = createHarness();
+  const thread = (await services.threadService.resolveOrCreateThread({
+    primary_user_id: 'route-user',
+    thread_type: 'support',
+    primary_channel: 'web_chat',
+  })).thread;
+  const router = createCommunicationRouter({ services });
+  const response = await invokeRouteHandler(router, 'post', '/api/communications/threads/:id/messages', 1, {
+    params: { id: thread.id },
+    userContext: { id: 'route-user', tenantId: null },
+    headers: { 'x-user-id': 'route-user' },
+    body: {
+      channel: 'web_chat',
+      message: 'Is the marketplace listing price still available?',
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.body.thread.id, thread.id);
+  assert.equal(response.body.thread.thread_type, 'support');
+  assert.equal(response.body.created_thread, false);
+  assert.equal(response.body.message.thread_id, thread.id);
+  assert.equal(response.body.classification.intent, 'marketplace_inquiry');
+  assert.equal((await services.repository.list('message_threads')).length, 1);
+  assert.equal((await services.repository.list('messages', { thread_id: thread.id })).length, 2);
 });
 
 test('Meta raw-body signature accepts exact payload and rejects modified payload', async () => {
