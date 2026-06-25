@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Share, ActivityIndicator, Image } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { useAuthStore } from '../../store/authStore';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import {
@@ -187,10 +188,14 @@ function ReferralScreenInner() {
                   <Text className="text-2xl font-black text-slate-900 tracking-widest">{permanentCode}</Text>
                 </View>
                 
-                <Image 
-                  source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(publicLink)}` }}
-                  style={{ width: 150, height: 150, marginBottom: 16 }}
-                />
+                <View style={{ marginBottom: 16 }} accessibilityLabel={`QR Code for referral link ${publicLink}`}>
+                  <QRCode
+                    value={publicLink}
+                    size={150}
+                    color="black"
+                    backgroundColor="white"
+                  />
+                </View>
 
                 <Pressable onPress={() => onShare(permanentCode)} className="bg-orange-500 rounded-xl py-3 px-8 w-full items-center">
                   <Text className="text-white text-sm font-bold">Share Code</Text>
