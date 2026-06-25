@@ -22,11 +22,19 @@ export class CommunicationRepository {
     if (error && table === 'notification_queue' && row.id === undefined && /null value.*id|violates not-null constraint/i.test(error.message || '')) {
       const retryRow = { id: randomUUID(), ...row };
       const retry = await this.client.from(table).insert(retryRow).select().single();
-      if (retry.error) throw new Error(`${table} insert failed: ${retry.error.message}`);
+      if (retry.error) throw this.toDatabaseError(`${table} insert failed: ${retry.error.message}`, retry.error);
       return retry.data || retryRow;
     }
-    if (error) throw new Error(`${table} insert failed: ${error.message}`);
+    if (error) throw this.toDatabaseError(`${table} insert failed: ${error.message}`, error);
     return data || row;
+  }
+
+  toDatabaseError(message, error = {}) {
+    const failure = new Error(message);
+    if (error.code) failure.code = error.code;
+    if (error.details) failure.details = error.details;
+    if (error.hint) failure.hint = error.hint;
+    return failure;
   }
 
   async upsert(table, row, options = {}) {
@@ -64,6 +72,12 @@ export class CommunicationRepository {
     const { data, error } = await this.client.from(table).update(patch).eq('id', id).select().single();
     if (error) throw new Error(`${table} update failed: ${error.message}`);
     return data;
+  }
+
+  async deleteById(table, id) {
+    const { data, error } = await this.client.from(table).delete().eq('id', id).select().maybeSingle();
+    if (error) throw new Error(`${table} delete failed: ${error.message}`);
+    return data || null;
   }
 
   async updateWhere(table, filters, patch) {
@@ -126,6 +140,45 @@ export class MemoryCommunicationRepository {
   }
 
   async insert(table, row) {
+    if (table === 'notification_queue' && this.options.strictNotificationQueueColumns) {
+      const allowed = new Set(this.options.notificationQueueColumns || [
+        'id',
+        'tenant_id',
+        'recipient_id',
+        'recipient_user_id',
+        'recipient_identity_id',
+        'thread_id',
+        'message_id',
+        'event_id',
+        'type',
+        'notification_type',
+        'title',
+        'message',
+        'channel',
+        'provider',
+        'template_key',
+        'payload',
+        'priority',
+        'status',
+        'dedupe_key',
+        'scheduled_at',
+        'next_attempt_at',
+        'attempt_count',
+        'max_attempts',
+        'read',
+        'created_at',
+        'updated_at',
+        'metadata',
+        'locked_at',
+        'locked_by',
+        'last_error',
+        'dead_lettered_at',
+      ]);
+      const unsupported = Object.keys(row).filter((key) => !allowed.has(key));
+      if (unsupported.length) {
+        throw new Error(`notification_queue column not allowed by migrated schema: ${unsupported.join(', ')}`);
+      }
+    }
     if (table === 'notification_queue' && this.options.legacyNotificationQueueIds && row.id !== undefined && !Number.isInteger(Number(row.id))) {
       throw new Error('invalid input syntax for type bigint');
     }
@@ -193,6 +246,14 @@ export class MemoryCommunicationRepository {
     if (index === -1) throw new Error(`${table} row not found`);
     rows[index] = { ...rows[index], ...patch, updated_at: patch.updated_at || new Date().toISOString() };
     return rows[index];
+  }
+
+  async deleteById(table, id) {
+    const rows = this.rows(table);
+    const index = rows.findIndex((row) => row.id === id);
+    if (index === -1) return null;
+    const [deleted] = rows.splice(index, 1);
+    return deleted;
   }
 
   async updateWhere(table, filters, patch) {

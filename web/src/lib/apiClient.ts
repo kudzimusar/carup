@@ -103,6 +103,13 @@ export function extractApiErrorMessage(errorData: unknown): string | undefined {
   return undefined
 }
 
+function extractApiErrorMetadata(errorData: unknown): Record<string, unknown> {
+  if (!errorData || typeof errorData !== 'object') return {}
+  const e = errorData as Record<string, unknown>
+  if (e.error && typeof e.error === 'object') return e.error as Record<string, unknown>
+  return e
+}
+
 // Module-level cache. Keyed by identity so a token bound to one user/session is never reused for
 // another (e.g. after login/logout or a role switch).
 let cachedCsrfToken: string | null = null
@@ -220,7 +227,18 @@ export async function apiRequest<T = any>({
       throw new SessionExpiredError(message || SESSION_INVALID_MESSAGE)
     }
 
-    throw new Error(message || `HTTP error! status: ${response.status}`)
+    const metadata = extractApiErrorMetadata(errorData)
+    const failure = new Error(message || `HTTP error! status: ${response.status}`) as Error & {
+      status?: number
+      requestId?: string
+      correlationId?: string
+      code?: string
+    }
+    failure.status = response.status
+    if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
+    if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
+    if (typeof metadata.code === 'string') failure.code = metadata.code
+    throw failure
   }
 
   return (await response.json()) as T
