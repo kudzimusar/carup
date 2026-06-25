@@ -1,6 +1,6 @@
 # Agent 8 Omnichannel Activation Evidence
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 
 This document records the operational activation run for PR #100 without secrets.
 Production was not migrated or deployed during this run.
@@ -22,6 +22,7 @@ Production was not migrated or deployed during this run.
   - Navigation gate fix commit: `4da5c15` (`fix(mobile): preserve native tab budget with messages`)
   - Navigation e2e count fix commit: `02ddb68` (`test(navigation): account for communication entries`)
   - Follow-up Codex review fix commit: `7c30980` (`fix(communication): address follow-up review defects`)
+  - Final Codex review fix commit: `05cdea7` (`fix(communication): address final review thread gaps`)
   - Final PR head: updated on GitHub after this evidence update is pushed.
   - GitHub checks observed after retarget: `referral-ci`, Vercel web/backend/staging previews all passed.
 
@@ -123,6 +124,14 @@ Security and performance advisors were run after migration.
 - `node --test backend/tests/communication-engine.test.js` - 34 passed after migration hardening assertions.
 - `node --test backend/tests/communication-engine.test.js` - 35 passed after follow-up Codex fixes for guarded RPC grants, preference ownership, external identity queue FK safety, and webhook 403 errors.
 - `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 50 passed after follow-up Codex fixes.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 36 passed after final Codex fixes, proving clean-env route imports work.
+- `node --test backend/tests/communication-engine.test.js` - 36 passed after final Codex fixes for legacy queue columns, target-thread preservation, and dynamic route imports.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 51 passed after final Codex fixes.
+- `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
+- Referral Engine CI backend suite shape (`backend/tests/auth-login.test.js` plus `backend/tests/referral-*.test.js`) - passed with local listener permission for the route smoke test.
+- `node --check backend/scripts/uat/referral-uat-journeys.mjs` - passed.
+- `npx playwright test tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome.
+- Full `npx playwright test` - 74 passed, 18 skipped, 60 failed in existing non-Agent-8 auth, evidence, navigation, feature governance, and navigation accessibility specs.
 - `git diff --check` - passed after staging-hardening migration additions.
 
 ## Channel Operational Matrix
