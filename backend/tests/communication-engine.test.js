@@ -20,6 +20,7 @@ import { registerCommunicationListeners } from '../services/communication/commun
 import { FakeCommunicationAdapter } from '../services/communication/adapters/fakeCommunicationAdapter.js';
 import {
   SendGridEmailAdapter,
+  CloudflareEmailAdapter,
   TwilioSmsAdapter,
   MetaWhatsAppAdapter,
   FacebookMessengerAdapter,
@@ -37,6 +38,7 @@ const runtimeHardeningMigrationSql = readFileSync(new URL('../../database/migrat
 const securityFile = readFileSync(new URL('../middleware/securityMiddleware.js', import.meta.url), 'utf8');
 const communicationRouteFile = readFileSync(new URL('../routes/communicationRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+const cloudflareWorkerFile = readFileSync(new URL('../../cloudflare/carup-communications-edge/src/index.js', import.meta.url), 'utf8');
 
 function createHarness({ adapter = null, referralChannelGateway = null } = {}) {
   const repository = new MemoryCommunicationRepository();
@@ -91,6 +93,42 @@ function createMetaWhatsAppPayload(text = 'hello from WhatsApp') {
         },
       }],
     }],
+  };
+}
+
+function createCloudflareEmailPayload(overrides = {}) {
+  return {
+    event: 'inbound_email',
+    message_id: '<cf-message-1@example.test>',
+    idempotency_key: 'cf-inbound-1',
+    sender: 'buyer@example.test',
+    recipient: 'support@example.test',
+    subject: 'Marketplace inquiry',
+    text: 'Can I inspect the marketplace listing?',
+    raw_size: 512,
+    headers: {
+      'message-id': '<cf-message-1@example.test>',
+      'in-reply-to': '<root@example.test>',
+      references: '<root@example.test>',
+    },
+    references: ['<root@example.test>'],
+    attachments: [],
+    ...overrides,
+  };
+}
+
+function signCloudflarePayload(payload, secret = 'cloudflare-inbound-secret', { timestamp = Math.floor(Date.now() / 1000), nonce = 'nonce-1', rawBody = null } = {}) {
+  const body = rawBody || JSON.stringify(payload);
+  const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${nonce}.${bodyHash}.${body}`).digest('hex');
+  return {
+    rawBody: body,
+    headers: {
+      'x-carup-cloudflare-timestamp': String(timestamp),
+      'x-carup-cloudflare-nonce': nonce,
+      'x-carup-body-sha256': bodyHash,
+      'x-carup-cloudflare-signature': `v1=${signature}`,
+    },
   };
 }
 
@@ -264,6 +302,12 @@ test('default adapter registry uses deterministic fakes in test and real fail-cl
   assert.equal(emailHealth.provider, 'sendgrid');
   assert.equal(emailHealth.available, false);
   assert.deepEqual(emailHealth.missing, ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL']);
+  const cloudflareRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'production', EMAIL_PROVIDER: 'cloudflare', EMAIL_PROVIDER_FALLBACK: 'sendgrid' } });
+  const cloudflareHealth = cloudflareRegistry.get('email').validateConfiguration();
+  assert.equal(cloudflareHealth.provider, 'cloudflare_email');
+  assert.equal(cloudflareHealth.available, false);
+  assert.equal(cloudflareHealth.fallback_provider, 'sendgrid');
+  assert.deepEqual(cloudflareHealth.missing, ['CLOUDFLARE_EMAIL_FROM', 'CLOUDFLARE_EMAIL_WORKER_URL_OR_REST_API']);
 });
 
 test('real SendGrid email adapter posts mail send request and maps accepted response', async () => {
@@ -283,6 +327,57 @@ test('real SendGrid email adapter posts mail send request and maps accepted resp
   assert.equal(fetchImpl.calls[0].url, 'https://api.sendgrid.com/v3/mail/send');
   assert.equal(JSON.parse(fetchImpl.calls[0].options.body).personalizations[0].to[0].email, 'buyer@example.test');
   assert.equal(fetchImpl.calls[0].options.headers.authorization, 'Bearer sg-test-key');
+});
+
+test('Cloudflare email adapter posts authenticated Worker request and maps accepted response', async () => {
+  const fetchImpl = jsonFetchRecorder({ status: 200, body: { accepted: true, providerMessageId: 'cf-worker-msg-1', providerStatus: 'accepted' }, headers: { 'cf-ray': 'ray-1' } });
+  const adapter = new CloudflareEmailAdapter({
+    env: {
+      CLOUDFLARE_EMAIL_FROM: 'noreply@example.test',
+      CLOUDFLARE_EMAIL_FROM_NAME: 'CarUp',
+      CLOUDFLARE_EMAIL_WORKER_URL: 'https://communications-edge.example.test',
+      CLOUDFLARE_EMAIL_WORKER_SECRET: 'worker-secret',
+    },
+    fetchImpl,
+  });
+  const result = await adapter.send({
+    notificationId: 'notif-cf-1',
+    messageId: 'msg-cf-1',
+    recipient: { email: 'buyer@example.test' },
+    content: { subject: 'CarUp update', body: 'Your update is ready.', data: { headers: { 'X-CarUp-Test': 'yes' } } },
+    idempotencyKey: 'dedupe-cf-1',
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(result.providerMessageId, 'cf-worker-msg-1');
+  assert.equal(fetchImpl.calls[0].url, 'https://communications-edge.example.test/email/send');
+  assert.equal(fetchImpl.calls[0].options.headers.authorization, 'Bearer worker-secret');
+  const body = JSON.parse(fetchImpl.calls[0].options.body);
+  assert.equal(body.to, 'buyer@example.test');
+  assert.equal(body.from.address, 'noreply@example.test');
+  assert.equal(body.metadata.notification_id, 'notif-cf-1');
+  assert.equal(body.headers['X-CarUp-Test'], 'yes');
+});
+
+test('Cloudflare email adapter uses official REST fallback when Worker credentials are incomplete', async () => {
+  const fetchImpl = jsonFetchRecorder({ status: 200, body: { success: true, result: { delivered: [], queued: ['buyer@example.test'] } }, headers: { 'cf-ray': 'ray-rest-1' } });
+  const adapter = new CloudflareEmailAdapter({
+    env: {
+      CLOUDFLARE_EMAIL_FROM: 'noreply@example.test',
+      CLOUDFLARE_EMAIL_WORKER_URL: 'https://communications-edge.example.test',
+      CLOUDFLARE_ACCOUNT_ID: 'account-1',
+      CLOUDFLARE_EMAIL_API_TOKEN: 'cf-api-token',
+    },
+    fetchImpl,
+  });
+  const result = await adapter.send({
+    notificationId: 'notif-cf-rest',
+    recipient: { email: 'buyer@example.test' },
+    content: { subject: 'REST update', body: 'REST body', data: {} },
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(result.providerRequestId, 'ray-rest-1');
+  assert.equal(fetchImpl.calls[0].url, 'https://api.cloudflare.com/client/v4/accounts/account-1/email/sending/send');
+  assert.equal(fetchImpl.calls[0].options.headers.authorization, 'Bearer cf-api-token');
 });
 
 test('real Twilio SMS adapter sends one form-encoded message request and maps SID', async () => {
@@ -636,6 +731,88 @@ test('Meta raw-body signature accepts exact payload and rejects modified payload
     headers: { 'x-hub-signature-256': signature },
     actor: { actor_tenant_id: 'platform' },
   }), (error) => error.statusCode === 403 && /Webhook verification failed/.test(error.message));
+});
+
+test('Cloudflare email webhook accepts valid raw-body HMAC and stores canonical inbound message', async () => {
+  const { repository, identityService, threadService, notificationService } = createHarness();
+  const inboundService = new CommunicationInboundService({
+    repository,
+    identityService,
+    threadService,
+    notificationService,
+    referralChannelGateway: {
+      async processInbound(channel, input) {
+        return { success: true, channel, validation: null, reply: 'ok', input };
+      },
+    },
+  });
+  const webhookService = new CommunicationWebhookService({
+    repository,
+    inboundService,
+    env: {
+      CLOUDFLARE_EMAIL_INBOUND_SECRET: 'cloudflare-inbound-secret',
+      CLOUDFLARE_EMAIL_ALLOWED_RECIPIENTS: 'support@example.test',
+    },
+  });
+  const payload = createCloudflareEmailPayload({
+    attachments: [{ filename: 'inspection.pdf', content_type: 'application/pdf', size: 1234, sha256: 'abc123', r2_key: 'email/message/inspection.pdf' }],
+  });
+  const signed = signCloudflarePayload(payload);
+  const accepted = await webhookService.handleWebhook('cloudflare', 'email', payload, {
+    rawBody: signed.rawBody,
+    headers: signed.headers,
+    actor: { actor_tenant_id: 'platform' },
+  });
+  assert.equal(accepted.success, true);
+  assert.equal(accepted.count, 1);
+  const messages = await repository.list('messages');
+  assert.equal(messages[0].provider, 'cloudflare_email');
+  assert.equal(messages[0].provider_message_id, '<cf-message-1@example.test>');
+  assert.equal(messages[0].attachment_metadata[0].filename, 'inspection.pdf');
+  assert.equal((await repository.list('channel_identities'))[0].external_id, 'buyer@example.test');
+});
+
+test('Cloudflare email webhook rejects modified raw payload signature and unsupported recipients', async () => {
+  const { webhookService } = createHarness();
+  webhookService.env = {
+    CLOUDFLARE_EMAIL_INBOUND_SECRET: 'cloudflare-inbound-secret',
+    CLOUDFLARE_EMAIL_ALLOWED_RECIPIENTS: 'support@example.test',
+  };
+  const payload = createCloudflareEmailPayload();
+  const signed = signCloudflarePayload(payload);
+  const modified = createCloudflareEmailPayload({ text: 'tampered body' });
+  await assert.rejects(() => webhookService.handleWebhook('cloudflare', 'email', modified, {
+    rawBody: JSON.stringify(modified),
+    headers: signed.headers,
+  }), (error) => error.statusCode === 403 && /Webhook verification failed/.test(error.message));
+
+  const unsupported = createCloudflareEmailPayload({ message_id: '<cf-message-2@example.test>', recipient: 'sales@example.test' });
+  const unsupportedSigned = signCloudflarePayload(unsupported, 'cloudflare-inbound-secret', { nonce: 'nonce-2' });
+  await assert.rejects(() => webhookService.handleWebhook('cloudflare', 'email', unsupported, {
+    rawBody: unsupportedSigned.rawBody,
+    headers: unsupportedSigned.headers,
+  }), /recipient is not supported/);
+});
+
+test('Cloudflare email webhook rejects expired timestamps and unsafe attachments', async () => {
+  const { webhookService } = createHarness();
+  webhookService.env = {
+    CLOUDFLARE_EMAIL_INBOUND_SECRET: 'cloudflare-inbound-secret',
+    CLOUDFLARE_EMAIL_ALLOWED_RECIPIENTS: 'support@example.test',
+  };
+  const payload = createCloudflareEmailPayload();
+  const expired = signCloudflarePayload(payload, 'cloudflare-inbound-secret', { timestamp: Math.floor(Date.now() / 1000) - 1000, nonce: 'nonce-expired' });
+  await assert.rejects(() => webhookService.handleWebhook('cloudflare', 'email', payload, {
+    rawBody: expired.rawBody,
+    headers: expired.headers,
+  }), (error) => error.statusCode === 403 && /Webhook verification failed/.test(error.message));
+
+  const unsafe = createCloudflareEmailPayload({ message_id: '<cf-message-3@example.test>', attachments: [{ filename: 'payload.js', size: 1 }] });
+  const unsafeSigned = signCloudflarePayload(unsafe, 'cloudflare-inbound-secret', { nonce: 'nonce-unsafe' });
+  await assert.rejects(() => webhookService.handleWebhook('cloudflare', 'email', unsafe, {
+    rawBody: unsafeSigned.rawBody,
+    headers: unsafeSigned.headers,
+  }), /attachment type is not allowed/);
 });
 
 test('notification enqueue uses database default id and works with legacy BIGSERIAL queue shape', async () => {
@@ -1048,4 +1225,13 @@ test('communication router registers Meta GET webhook verification endpoint and 
   assert.equal(communicationRouteFile.includes('rawBody: req.rawBody'), true);
   assert.equal(serverFile.includes('verify: (req, _res, buf)'), true);
   assert.equal(serverFile.includes('communications\\/webhooks\\/[^/]+\\/[^/]+'), true);
+});
+
+test('Cloudflare Worker project exposes fetch, email, queue, and scheduled handlers', () => {
+  assert.equal(cloudflareWorkerFile.includes('async email(message, env, ctx)'), true);
+  assert.equal(cloudflareWorkerFile.includes('async queue(batch, env)'), true);
+  assert.equal(cloudflareWorkerFile.includes('async scheduled(controller, env, ctx)'), true);
+  assert.equal(cloudflareWorkerFile.includes('/api/internal/communications/process'), true);
+  assert.equal(cloudflareWorkerFile.includes('/api/communications/webhooks/cloudflare/email'), true);
+  assert.equal(cloudflareWorkerFile.includes('x-carup-cloudflare-signature'), true);
 });

@@ -46,6 +46,70 @@ function subjectText(input, fallback = 'CarUp notification') {
   return String(input?.content?.subject || fallback).trim();
 }
 
+function emailHtml(input) {
+  return input?.content?.html || input?.content?.data?.html || null;
+}
+
+function replyToAddress(input, env) {
+  return firstPresent(input?.content?.data?.reply_to, input?.content?.data?.replyTo, envValue(env, 'CLOUDFLARE_EMAIL_REPLY_TO'));
+}
+
+function normalizedAttachments(input = {}) {
+  const attachments = input?.content?.data?.attachments || input?.content?.data?.attachment_metadata || [];
+  return Array.isArray(attachments) ? attachments : [];
+}
+
+function cloudflareEmailBody(input = {}, env = {}) {
+  const to = recipientField(input, 'email', 'address', 'to');
+  const text = textBody(input);
+  const body = {
+    to,
+    from: {
+      address: envValue(env, 'CLOUDFLARE_EMAIL_FROM'),
+      name: envValue(env, 'CLOUDFLARE_EMAIL_FROM_NAME') || 'CarUp',
+    },
+    subject: subjectText(input),
+    text,
+    html: emailHtml(input),
+    reply_to: replyToAddress(input, env) || undefined,
+    headers: {
+      'X-CarUp-Notification-Id': String(input.notificationId || ''),
+      'X-CarUp-Message-Id': String(input.messageId || ''),
+      'X-CarUp-Correlation-Id': String(input.correlationId || input.notificationId || ''),
+      ...(input?.content?.data?.headers || {}),
+    },
+    attachments: normalizedAttachments(input),
+    metadata: {
+      notification_id: String(input.notificationId || ''),
+      message_id: String(input.messageId || ''),
+      idempotency_key: String(input.idempotencyKey || ''),
+      correlation_id: String(input.correlationId || ''),
+    },
+  };
+  if (!body.html) delete body.html;
+  if (!body.reply_to) delete body.reply_to;
+  if (!body.attachments.length) delete body.attachments;
+  return body;
+}
+
+function cloudflareWorkerSendUrl(env = {}) {
+  const configured = envValue(env, 'CLOUDFLARE_EMAIL_WORKER_URL');
+  if (!configured) return null;
+  try {
+    const url = new URL(configured);
+    if (!/\/email\/send\/?$/.test(url.pathname)) {
+      url.pathname = `${url.pathname.replace(/\/+$/, '')}/email/send`;
+    }
+    return url.toString();
+  } catch (_error) {
+    return configured.replace(/\/+$/, '') + '/email/send';
+  }
+}
+
+function hasCloudflareWorkerConfig(env = {}) {
+  return Boolean(envValue(env, 'CLOUDFLARE_EMAIL_WORKER_URL') && envValue(env, 'CLOUDFLARE_EMAIL_WORKER_SECRET'));
+}
+
 function parseProviderError(status, body) {
   const text = typeof body === 'string' ? body : body?.message || body?.error?.message || body?.errors?.[0]?.message || JSON.stringify(body || {});
   if (status === 429) return { retryable: true, errorCode: 'rate_limited', errorMessage: text || 'Provider rate limit' };
@@ -150,6 +214,89 @@ export class SendGridEmailAdapter extends HttpCommunicationAdapter {
       providerRequestId: response.headers?.get?.('x-message-id') || stableRequestId('sendgrid', input),
       providerMessageId: response.headers?.get?.('x-message-id') || null,
       providerStatus: 'accepted',
+    };
+  }
+}
+
+export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
+  constructor(options = {}) {
+    super({ channel: 'email', provider: 'cloudflare_email', requiredEnv: [], ...options });
+  }
+
+  validateConfiguration(env = this.env) {
+    const missing = [];
+    if (!envValue(env, 'CLOUDFLARE_EMAIL_FROM')) missing.push('CLOUDFLARE_EMAIL_FROM');
+    const workerConfigured = hasCloudflareWorkerConfig(env);
+    const restConfigured = Boolean(envValue(env, 'CLOUDFLARE_ACCOUNT_ID') && envValue(env, 'CLOUDFLARE_EMAIL_API_TOKEN'));
+    if (!workerConfigured && !restConfigured) missing.push('CLOUDFLARE_EMAIL_WORKER_URL_OR_REST_API');
+    return {
+      available: missing.length === 0,
+      channel: this.channel,
+      provider: this.provider,
+      mode: workerConfigured ? 'worker' : restConfigured ? 'rest' : 'real',
+      fallback_provider: envValue(env, 'EMAIL_PROVIDER_FALLBACK') || null,
+      missing,
+    };
+  }
+
+  missingConfigurationResult() {
+    const config = this.validateConfiguration();
+    return {
+      accepted: false,
+      retryable: false,
+      errorCode: 'provider_not_configured',
+      errorMessage: `cloudflare_email adapter is not configured: ${config.missing.join(', ')}`,
+    };
+  }
+
+  async send(input = {}) {
+    if (!this.validateConfiguration().available) return this.missingConfigurationResult();
+    const to = recipientField(input, 'email', 'address', 'to');
+    if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'Email recipient address is required.' };
+    const attachments = normalizedAttachments(input);
+    const totalAttachmentBytes = attachments.reduce((sum, attachment) => sum + Number(attachment.size || attachment.size_bytes || 0), 0);
+    if (totalAttachmentBytes > 5 * 1024 * 1024) {
+      return { accepted: false, retryable: false, errorCode: 'email_too_large', errorMessage: 'Cloudflare Email attachments exceed the 5 MiB provider limit.' };
+    }
+    if (hasCloudflareWorkerConfig(this.env)) return this.sendViaWorker(input);
+    return this.sendViaRest(input);
+  }
+
+  async sendViaWorker(input = {}) {
+    const url = cloudflareWorkerSendUrl(this.env);
+    const response = await this.requestJson(url, {
+      headers: jsonHeaders({
+        authorization: `Bearer ${envValue(this.env, 'CLOUDFLARE_EMAIL_WORKER_SECRET')}`,
+        'x-carup-idempotency-key': String(input.idempotencyKey || input.notificationId || ''),
+      }),
+      body: cloudflareEmailBody(input, this.env),
+    });
+    if (!response.ok) return this.providerFailure(response);
+    return {
+      accepted: response.body?.accepted !== false,
+      providerRequestId: response.body?.providerRequestId || response.body?.id || response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
+      providerMessageId: response.body?.providerMessageId || response.body?.message_id || null,
+      providerStatus: response.body?.providerStatus || response.body?.status || 'accepted',
+    };
+  }
+
+  async sendViaRest(input = {}) {
+    const accountId = envValue(this.env, 'CLOUDFLARE_ACCOUNT_ID');
+    const response = await this.requestJson(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/email/sending/send`, {
+      headers: jsonHeaders({ authorization: `Bearer ${envValue(this.env, 'CLOUDFLARE_EMAIL_API_TOKEN')}` }),
+      body: cloudflareEmailBody(input, this.env),
+    });
+    if (!response.ok || response.body?.success === false) return this.providerFailure(response);
+    const result = response.body?.result || {};
+    const to = recipientField(input, 'email', 'address', 'to');
+    const delivered = Array.isArray(result.delivered) && result.delivered.includes(to);
+    return {
+      accepted: true,
+      providerRequestId: response.headers?.get?.('cf-ray') || stableRequestId('cloudflare_email', input),
+      providerMessageId: response.body?.result?.id || null,
+      providerStatus: delivered ? 'delivered' : 'accepted',
+      deliveredRecipients: result.delivered || [],
+      queuedRecipients: result.queued || [],
     };
   }
 }
@@ -345,7 +492,11 @@ export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.
 
   put('whatsapp', configured('whatsapp', new MetaWhatsAppAdapter(realOptions)));
   put('telegram', configured('telegram', new TelegramBotAdapter(realOptions)));
-  put('email', configured('email', new SendGridEmailAdapter(realOptions)));
+  const emailProvider = String(env.EMAIL_PROVIDER || 'sendgrid').toLowerCase();
+  const emailAdapter = emailProvider === 'cloudflare'
+    ? new CloudflareEmailAdapter(realOptions)
+    : new SendGridEmailAdapter(realOptions);
+  put('email', configured('email', emailAdapter));
   put('sms', configured('sms', new TwilioSmsAdapter(realOptions)));
   put('instagram', configured('instagram', new InstagramMessagingAdapter(realOptions)));
   put('facebook', configured('facebook', new FacebookMessengerAdapter(realOptions)));
