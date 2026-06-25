@@ -54,6 +54,10 @@ Applied to `carup-staging` only:
 - `agent8_communication_admin_audit_policies`
 - `agent8_communication_fk_indexes`
 
+Pending after latest review fixes:
+
+- `20260625031500_agent8_communication_legacy_queue_compatibility.sql` still needs to be applied to `carup-staging` because staging already received the earlier Agent 8 migrations before the no-cast due index and nullable external-recipient queue compatibility fixes were added.
+
 The first two correspond to the Agent 8 migrations in the branch. The latter
 three are staging-hardening follow-ups discovered during activation verification
 and are represented in committed migration files:
@@ -131,6 +135,8 @@ Security and performance advisors were run after migration.
 - `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 42 passed after Cloudflare email adapter, webhook, and Worker contract coverage.
 - `node --test cloudflare/carup-communications-edge/test/edge.test.js` - 6 passed for Worker fetch/email/queue fallback/signing/scheduler behavior.
 - `node --check cloudflare/carup-communications-edge/src/index.js` - passed.
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 43 passed after the no-cast due index and nullable legacy recipient compatibility fixes.
+- `node --test backend/tests/communication-engine.test.js backend/tests/referral-channel-gateway-phase3.test.js` - 58 passed after the legacy queue compatibility fixes.
 - `npm run test:unit --workspace=web` - 27 files, 317 tests passed.
 - Referral Engine CI backend suite shape (`backend/tests/auth-login.test.js` plus `backend/tests/referral-*.test.js`) - passed with local listener permission for the route smoke test.
 - `node --check backend/scripts/uat/referral-uat-journeys.mjs` - passed.
@@ -170,6 +176,10 @@ Security and performance advisors were run after migration.
   Worker deploy, Email Service, Email Routing, Queues, DLQ, R2, DNS authentication,
   Cron Trigger, WAF/rate-limit, inbound real mailbox, and outbound real inbox UAT
   are therefore blocked pending operator-provided staging access.
+- The new legacy queue compatibility migration must still be applied to staging
+  through the approved Supabase migration path before staging activation evidence
+  can claim that already-migrated databases have the no-cast due index and nullable
+  external-recipient queue shape.
 - No physical device is available through the tool environment, so physical-device
   push evidence cannot be produced here.
 - The 1-5 minute scheduler is not yet configured. The generated preview worker

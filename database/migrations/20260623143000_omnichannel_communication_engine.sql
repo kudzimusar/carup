@@ -159,6 +159,19 @@ ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ N
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS read BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'notification_queue'
+      AND column_name = 'recipient_id'
+  ) THEN
+    ALTER TABLE notification_queue ALTER COLUMN recipient_id DROP NOT NULL;
+  END IF;
+END $$;
+
 ALTER TABLE notification_queue DROP CONSTRAINT IF EXISTS notification_queue_channel_check;
 ALTER TABLE notification_queue DROP CONSTRAINT IF EXISTS notification_queue_status_check;
 ALTER TABLE notification_queue DROP CONSTRAINT IF EXISTS notification_queue_channel_agent8_check;
@@ -185,7 +198,7 @@ UPDATE notification_queue SET dedupe_key = COALESCE(dedupe_key, id::text) WHERE 
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_queue_dedupe ON notification_queue (dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_status_due
-  ON notification_queue (status, COALESCE(next_attempt_at, scheduled_at::timestamptz, created_at::timestamptz));
+  ON notification_queue (status, next_attempt_at, scheduled_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_recipient_created ON notification_queue (recipient_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_recipient_id ON notification_queue (recipient_id);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_recipient_identity ON notification_queue (recipient_identity_id);

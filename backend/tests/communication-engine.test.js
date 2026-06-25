@@ -35,6 +35,7 @@ const { recordAdminThreadReply } = await import('../routes/adminCommunicationRou
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
 const runtimeHardeningMigrationSql = readFileSync(new URL('../../database/migrations/20260624044812_agent8_communication_runtime_security_hardening.sql', import.meta.url), 'utf8');
+const legacyQueueCompatibilityMigrationSql = readFileSync(new URL('../../database/migrations/20260625031500_agent8_communication_legacy_queue_compatibility.sql', import.meta.url), 'utf8');
 const securityFile = readFileSync(new URL('../middleware/securityMiddleware.js', import.meta.url), 'utf8');
 const communicationRouteFile = readFileSync(new URL('../routes/communicationRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
@@ -236,6 +237,9 @@ test('migration is additive and creates canonical communication tables without d
   for (const column of ['type', 'title', 'message', 'read']) {
     assert.match(migrationSql, new RegExp(`ALTER TABLE notification_queue ADD COLUMN IF NOT EXISTS ${column}\\b`));
   }
+  assert.match(migrationSql, /ALTER TABLE notification_queue ALTER COLUMN recipient_id DROP NOT NULL/);
+  assert.match(migrationSql, /CREATE INDEX IF NOT EXISTS idx_notification_queue_status_due\s+ON notification_queue \(status, next_attempt_at, scheduled_at, created_at\)/);
+  assert.equal(/idx_notification_queue_status_due\s+ON notification_queue \(status, COALESCE\(next_attempt_at, scheduled_at::timestamptz/i.test(migrationSql), false);
   assert.match(migrationSql, /ALTER TABLE domain_events ADD COLUMN IF NOT EXISTS/);
   assert.equal(/DROP TABLE IF EXISTS notification_queue/i.test(migrationSql), false);
   assert.equal(/DROP TABLE IF EXISTS outbox_events/i.test(migrationSql), false);
@@ -270,6 +274,13 @@ test('provider runtime migration adds SKIP LOCKED claim function without changin
 test('runtime hardening migration guards claim RPC grants for fresh databases', () => {
   assert.match(runtimeHardeningMigrationSql, /to_regprocedure\('claim_due_communication_notifications\(text, integer, integer\)'\)/);
   assert.match(runtimeHardeningMigrationSql, /GRANT EXECUTE ON FUNCTION claim_due_communication_notifications\(TEXT, INTEGER, INTEGER\) TO service_role/);
+});
+
+test('legacy queue compatibility migration removes immutable cast index and external recipient blocker', () => {
+  assert.match(legacyQueueCompatibilityMigrationSql, /ALTER TABLE notification_queue ALTER COLUMN recipient_id DROP NOT NULL/);
+  assert.match(legacyQueueCompatibilityMigrationSql, /DROP INDEX IF EXISTS idx_notification_queue_status_due/);
+  assert.match(legacyQueueCompatibilityMigrationSql, /ON notification_queue \(status, next_attempt_at, scheduled_at, created_at\)/);
+  assert.equal(/scheduled_at::timestamptz|created_at::timestamptz/.test(legacyQueueCompatibilityMigrationSql), false);
 });
 
 test('communication domain listener skips missing Agent 8 schema until engine is explicitly enabled', async () => {
