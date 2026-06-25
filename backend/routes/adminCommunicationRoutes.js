@@ -1,4 +1,5 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 
@@ -42,53 +43,102 @@ async function resolveExternalReplyIdentity({ repository, thread }) {
   return repository.findOne('channel_identities', { id: participant.external_identity_id });
 }
 
+async function findExistingClientMessage({ repository, thread, clientMessageId }) {
+  if (!clientMessageId) return null;
+  const matches = await repository.list('messages', { client_message_id: clientMessageId });
+  const message = matches.find((entry) => entry.thread_id === thread.id) || null;
+  if (matches.length && !message) {
+    const err = new Error('client_message_id is already associated with another communication thread.');
+    err.statusCode = 409;
+    throw err;
+  }
+  return message;
+}
+
+async function notificationForMessage(repository, messageId) {
+  const rows = await repository.list('notification_queue', { message_id: messageId }, { order: { column: 'created_at', ascending: true }, limit: 1 });
+  return rows[0] || null;
+}
+
 export async function recordAdminThreadReply({ services, thread, actor, body = {} }) {
+  const repository = services.repository || services.notificationService?.repository || services.threadService?.repository;
+  if (!repository) throw new Error('Communication repository is required for admin replies.');
   const internal = Boolean(body?.internal);
+  const clientMessageId = body?.client_message_id || body?.clientMessageId || body?.idempotency_key || body?.idempotencyKey || randomUUID();
+  const existingMessage = await findExistingClientMessage({
+    repository,
+    thread,
+    clientMessageId,
+  });
+  if (existingMessage) {
+    return {
+      message: existingMessage,
+      notification: internal ? null : await notificationForMessage(repository, existingMessage.id),
+      duplicate: true,
+    };
+  }
+  const originalThread = {
+    status: thread.status || null,
+    last_message_at: thread.last_message_at || null,
+    updated_at: thread.updated_at || null,
+  };
   const message = await services.threadService.recordMessage(thread, {
     direction: internal ? 'internal' : 'outbound',
     sender_user_id: actor.id,
     channel: body?.channel || thread.primary_channel || 'in_app',
     content_text: body?.message || body?.text || '',
     content_json: { admin_reply: true, internal },
+    client_message_id: clientMessageId,
     human_approved: true,
     status: internal ? 'delivered' : 'queued',
     thread_status: 'awaiting_user',
   });
   let notification = null;
-  if (!internal && thread.primary_user_id) {
-    notification = (await services.notificationService.queueExistingMessage({
-      recipientUserId: thread.primary_user_id,
-      thread,
-      message,
-      channel: body?.channel || thread.primary_channel || 'in_app',
-      notificationType: 'admin_reply',
-      templateKey: 'admin_reply_v1',
-      priority: thread.priority || 'normal',
-      humanApproved: true,
-      dedupeParts: ['admin_reply', thread.id, message.id, thread.primary_user_id],
-      payload: { thread_id: thread.id, admin_reply: true },
-    })).notification;
-  } else if (!internal) {
-    const identity = await resolveExternalReplyIdentity({ repository: services.repository, thread });
-    if (identity) {
+  try {
+    if (!internal && thread.primary_user_id) {
       notification = (await services.notificationService.queueExistingMessage({
-        recipientIdentityId: identity.id,
+        recipientUserId: thread.primary_user_id,
         thread,
         message,
-        channel: body?.channel || identity.channel || thread.primary_channel || 'in_app',
-        provider: identity.provider || message.provider || null,
+        channel: body?.channel || thread.primary_channel || 'in_app',
         notificationType: 'admin_reply',
         templateKey: 'admin_reply_v1',
         priority: thread.priority || 'normal',
         humanApproved: true,
-        dedupeParts: ['admin_reply', thread.id, message.id, identity.id],
-        payload: {
-          thread_id: thread.id,
-          admin_reply: true,
-          ...deliveryPayloadForIdentity(identity),
-        },
+        dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
+        payload: { thread_id: thread.id, admin_reply: true },
       })).notification;
+    } else if (!internal) {
+      const identity = await resolveExternalReplyIdentity({ repository, thread });
+      if (identity) {
+        notification = (await services.notificationService.queueExistingMessage({
+          recipientIdentityId: identity.id,
+          thread,
+          message,
+          channel: body?.channel || identity.channel || thread.primary_channel || 'in_app',
+          provider: identity.provider || message.provider || null,
+          notificationType: 'admin_reply',
+          templateKey: 'admin_reply_v1',
+          priority: thread.priority || 'normal',
+          humanApproved: true,
+          dedupeParts: ['admin_reply', thread.id, clientMessageId, identity.id],
+          payload: {
+            thread_id: thread.id,
+            admin_reply: true,
+            ...deliveryPayloadForIdentity(identity),
+          },
+        })).notification;
+      }
     }
+    if (!internal && !notification) {
+      const err = new Error('No deliverable communication recipient found for admin reply.');
+      err.statusCode = 422;
+      throw err;
+    }
+  } catch (error) {
+    await repository.deleteById?.('messages', message.id).catch(() => null);
+    await repository.updateById('message_threads', thread.id, originalThread).catch(() => null);
+    throw error;
   }
   return { message, notification };
 }
@@ -119,8 +169,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   router.post('/api/admin/communications/threads/:id/reply', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await services.repository.findOne('message_threads', { id: req.params.id });
     if (!thread) return res.status(404).json({ error: 'Thread not found.' });
-    const { message, notification } = await recordAdminThreadReply({ services, thread, actor: req.userContext, body: req.body });
-    res.status(201).json({ message, notification });
+    const { message, notification, duplicate } = await recordAdminThreadReply({ services, thread, actor: req.userContext, body: req.body });
+    res.status(duplicate ? 200 : 201).json({ message, notification, duplicate: Boolean(duplicate) });
   }));
 
   router.patch('/api/admin/communications/threads/:id/assignment', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {

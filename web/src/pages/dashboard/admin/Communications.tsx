@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Bell, CheckCircle2, MessageSquare, RefreshCcw, Send, UserCheck } from 'lucide-react'
+import { AlertTriangle, Bell, CheckCircle2, Loader2, MessageSquare, RefreshCcw, Send, UserCheck, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,20 @@ type MessageSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAd
 type DeadLetterNotification = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationDeadLetters']>>['notifications'][number]
 type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationMetrics']>>
 type StatCard = { label: string; value: string | number; icon: LucideIcon }
+type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
+
+function newClientMessageId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `admin-reply-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function mapReplyStatus(notificationStatus?: unknown, messageStatus?: unknown): ReplyStatus {
+  const status = String(notificationStatus || messageStatus || 'queued').toLowerCase()
+  if (status === 'delivered') return 'delivered'
+  if (status === 'sent') return 'sent'
+  if (status === 'failed' || status === 'dead_letter') return 'failed'
+  return 'queued'
+}
 
 export default function AdminCommunications() {
   const {
@@ -33,6 +47,10 @@ export default function AdminCommunications() {
   const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
   const [metrics, setMetrics] = useState<Metrics>({})
   const [reply, setReply] = useState('')
+  const [replyStatus, setReplyStatus] = useState<ReplyStatus>('idle')
+  const [replyError, setReplyError] = useState<string | null>(null)
+  const [replyCorrelationId, setReplyCorrelationId] = useState<string | null>(null)
+  const [replyClientMessageId, setReplyClientMessageId] = useState(() => newClientMessageId())
   const [assignee, setAssignee] = useState('')
   const [filter, setFilter] = useState('awaiting_human')
 
@@ -70,13 +88,32 @@ export default function AdminCommunications() {
     const detail = await fetchAdminCommunicationThread(thread.id)
     setSelected(detail.thread)
     setMessages(detail.messages || [])
+    setReplyStatus('idle')
+    setReplyError(null)
+    setReplyCorrelationId(null)
   }, [fetchAdminCommunicationThread])
 
   async function sendReply() {
-    if (!selected || !reply.trim()) return
-    await adminReplyCommunicationThread(selected.id, { message: reply, channel: selected.primary_channel || 'in_app' })
-    setReply('')
-    await openThread(selected)
+    if (!selected || !reply.trim() || replyStatus === 'sending') return
+    setReplyStatus('sending')
+    setReplyError(null)
+    setReplyCorrelationId(null)
+    try {
+      const result = await adminReplyCommunicationThread(selected.id, {
+        message: reply,
+        channel: selected.primary_channel || 'in_app',
+        client_message_id: replyClientMessageId,
+      })
+      setReply('')
+      setReplyClientMessageId(newClientMessageId())
+      await openThread(selected)
+      setReplyStatus(mapReplyStatus(result.notification?.status, result.message?.status))
+    } catch (error) {
+      const apiError = error as Error & { requestId?: string; correlationId?: string }
+      setReplyStatus('failed')
+      setReplyError(apiError.message || 'Reply failed.')
+      setReplyCorrelationId(apiError.requestId || apiError.correlationId || null)
+    }
   }
 
   async function assign() {
@@ -176,12 +213,35 @@ export default function AdminCommunications() {
                     </div>
                   ))}
                 </div>
-                <Textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Write a user-visible reply" />
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={sendReply} className="gap-2"><Send className="w-4 h-4" /> Reply</Button>
+                <Textarea
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  placeholder="Write a user-visible reply"
+                  disabled={replyStatus === 'sending'}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button onClick={sendReply} className="gap-2" disabled={!reply.trim() || replyStatus === 'sending'}>
+                    {replyStatus === 'sending' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {replyStatus === 'sending' ? 'Sending' : 'Reply'}
+                  </Button>
                   <Button onClick={escalate} variant="outline">Escalate</Button>
                   <Button onClick={resolve} variant="secondary" className="gap-2"><CheckCircle2 className="w-4 h-4" /> Resolve</Button>
+                  {replyStatus !== 'idle' && replyStatus !== 'failed' && (
+                    <Badge variant={replyStatus === 'delivered' ? 'default' : 'secondary'} className="capitalize">{replyStatus}</Badge>
+                  )}
+                  {replyStatus === 'failed' && (
+                    <Badge variant="destructive" className="gap-1">
+                      <XCircle className="w-3 h-3" />
+                      Failed
+                    </Badge>
+                  )}
                 </div>
+                {replyError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p>{replyError}</p>
+                    {replyCorrelationId && <p className="mt-1 text-xs">Correlation ID: {replyCorrelationId}</p>}
+                  </div>
+                )}
               </>
             )}
           </CardContent>
