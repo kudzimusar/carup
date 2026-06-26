@@ -10,7 +10,7 @@
  *   GET /api/partner/v1/vehicles/:vin/identity           scope: vehicle:identity
  *   GET /api/partner/v1/vehicles/:vin/trust-summary      scope: vehicle:trust
  *   GET /api/partner/v1/vehicles/:vin/source-coverage    scope: vehicle:sources
- *   GET /api/partner/v1/vehicles/:vin/fraud-summary      scope: vehicle:risk
+ *   GET /api/partner/v1/vehicles/:vin/fraud-summary      scope: fraud:read_summary
  */
 import express from 'express';
 import { supabase } from '../db/supabase.js';

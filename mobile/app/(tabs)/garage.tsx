@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl, ScrollView, Alert } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
@@ -6,6 +6,8 @@ import { useRouter } from 'expo-router';
 import { captureOdometerPhoto, formatFileSize } from '../../utils/camera';
 import { apiUrl } from '../../utils/apiBase';
 import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
+import { useUploadQueueStore } from '../../store/uploadQueueStore';
+import { drainUploadQueue, makeHttpUploader } from '../../utils/uploadQueueDrain';
 
 interface Vehicle {
   vin: string;
@@ -39,8 +41,29 @@ function GarageScreenInner() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
+  const enqueueUpload = useUploadQueueStore((state) => state.enqueue);
+  const hydrateQueue = useUploadQueueStore((state) => state.hydrate);
   const [activeTab, setActiveTab] = useState<'vehicles' | 'history'>('vehicles');
   const [scanningVin, setScanningVin] = useState<string | null>(null);
+
+  // Restore any durable offline queue on mount, then attempt to drain it (best-effort).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await hydrateQueue();
+      if (cancelled || !user?.id) return;
+      try {
+        const { resolveApiBaseUrl } = await import('../../utils/apiBase');
+        const base = resolveApiBaseUrl();
+        await drainUploadQueue({
+          resolvePayload: async (item) => item.localFileRef || null,
+          uploadOne: makeHttpUploader(base, token),
+        });
+      } catch { /* offline / unconfigured — items remain queued for the next attempt */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrateQueue]);
 
   // Fetch owned vehicles
   const { data: vehicles = [], isLoading: isLoadingVehicles, error: vehiclesError, refetch: refetchVehicles } = useQuery<Vehicle[]>({
@@ -138,10 +161,24 @@ function GarageScreenInner() {
           );
         }
       } catch (networkErr) {
-        // Network failure — offline mode
+        // Network failure — persist the capture to the durable offline queue so it survives
+        // app restart and is uploaded once (server-side idempotent) when connectivity returns.
+        let queuedNote = '';
+        if (user?.id) {
+          const checksum = `${asset.fileSizeBytes}:${(asset.dataUri || '').slice(-32)}`;
+          enqueueUpload({
+            userId: user.id,
+            tenantId: (user as { tenantId?: string }).tenantId || 'default',
+            vin,
+            evidenceType: 'odometer_reading',
+            localFileRef: asset.dataUri,
+            checksum,
+          });
+          queuedNote = ' It is saved to your device and will upload once, automatically, when you are back online.';
+        }
         Alert.alert(
           'Offline Mode',
-          `Odometer image captured (${formatFileSize(asset.fileSizeBytes)}) and queued for upload when connectivity returns.`,
+          `Odometer image captured (${formatFileSize(asset.fileSizeBytes)}) and queued for upload.${queuedNote}`,
           [{ text: 'OK' }]
         );
       }

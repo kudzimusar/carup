@@ -7,9 +7,14 @@
  */
 import crypto from 'crypto';
 
+const IS_PRODUCTION = () => process.env.NODE_ENV === 'production' || process.env.CARUP_ENV === 'production';
+
+// Fail-closed: in production a missing secret yields NO usable secret (null), so signature
+// verification can never succeed against a committed literal. Outside production a stable
+// dev secret is used so sandbox/staging webhook tests are reproducible.
 const PROVIDER_SECRETS = () => ({
-  insurance_sandbox: process.env.INSURANCE_WEBHOOK_SECRET || 'insurance-sandbox-hmac-secret',
-  finance_sandbox: process.env.FINANCE_WEBHOOK_SECRET || 'finance-sandbox-hmac-secret',
+  insurance_sandbox: process.env.INSURANCE_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'insurance-sandbox-hmac-secret'),
+  finance_sandbox: process.env.FINANCE_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'finance-sandbox-hmac-secret'),
 });
 
 export const REPLAY_WINDOW_MS = 5 * 60 * 1000;
@@ -23,7 +28,9 @@ export function sign(providerId, payloadString, timestamp) {
 
 /** Verify signature + timestamp drift. Returns { valid, replay, reason }. */
 export function verifyWebhook(providerId, payloadString, signatureHeader, timestampHeader, now = Date.now()) {
-  if (process.env.NODE_ENV !== 'production' && signatureHeader === 'dev-bypass-sig') {
+  // Dev bypass is opt-in only (WEBHOOK_DEV_BYPASS=1) and never available in production —
+  // so neither production nor an un-flagged staging can be bypassed.
+  if (!IS_PRODUCTION() && process.env.WEBHOOK_DEV_BYPASS === '1' && signatureHeader === 'dev-bypass-sig') {
     return { valid: true, replay: false, reason: 'dev_bypass' };
   }
   if (!signatureHeader) return { valid: false, replay: false, reason: 'missing_signature' };
