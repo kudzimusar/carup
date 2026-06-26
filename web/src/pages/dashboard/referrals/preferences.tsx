@@ -1,0 +1,1 @@
+export default function ConsentPreferences() { return <div>Consent and Preferences: WhatsApp, Email, Language, Opt-in</div>; }

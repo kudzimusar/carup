@@ -1,0 +1,1 @@
+export default function FraudChecks() { return <div>Fraud Checks: Duplicate Phone/Email, Excessive Velocity, Self-referral</div>; }
