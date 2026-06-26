@@ -2,7 +2,7 @@ import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
 
-const connectionString = 'postgresql://postgres:[ROTATED-SEE-CR1]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres';
+const connectionString = (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
 
 const client = new pg.Client({
   connectionString,
