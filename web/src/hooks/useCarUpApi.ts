@@ -392,6 +392,28 @@ export function useCarUpApi() {
     return request<{ decision: TrustDecision }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/trust-decision`)
   }, [request])
 
+  // ── WS-A fraud queue + WS-B dealer compliance (admin/reviewer) ────────────────
+  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: any[] }> => {
+    const qs = new URLSearchParams(filters as Record<string, string>).toString()
+    return request<{ cases: any[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
+  }, [request])
+  const fetchFraudCase = useCallback(async (id: string): Promise<{ case: any }> =>
+    request<{ case: any }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
+  const resolveFraudCase = useCallback(async (id: string, body: { resolution: string; reason: string }): Promise<any> =>
+    request(`/fraud/cases/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+  const evaluateVehicleFraud = useCallback(async (vin: string): Promise<any> =>
+    request(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/fraud/evaluate`, { method: 'POST' }), [request])
+  const fetchDealers = useCallback(async (): Promise<{ dealers: any[] }> =>
+    request<{ dealers: any[] }>(`/admin/dealers`), [request])
+  const fetchDealer = useCallback(async (id: string): Promise<{ dealer: any }> =>
+    request<{ dealer: any }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
+  const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<any> =>
+    request(`/admin/dealers/${encodeURIComponent(id)}/decision`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+  const fetchMyDealerProfile = useCallback(async (): Promise<{ profile: any }> =>
+    request<{ profile: any }>(`/dealer/profile`), [request])
+  const saveMyDealerProfile = useCallback(async (body: Record<string, unknown>): Promise<any> =>
+    request(`/dealer/profile`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
   // ── Phase 4 — Publication completeness gate ──────────────────────────────────
   // GET /api/vehicles/:vin/completeness — deterministic requirements evaluator.
   // Returns blocking gaps, advisory gaps, completeness %, and publication_status.
@@ -1206,6 +1228,15 @@ export function useCarUpApi() {
     fetchVehicleCompleteness,
     fetchVehicleSourceCoverage,
     fetchVehicleTrustDecision,
+    fetchFraudCases,
+    fetchFraudCase,
+    resolveFraudCase,
+    evaluateVehicleFraud,
+    fetchDealers,
+    fetchDealer,
+    recordDealerDecision,
+    fetchMyDealerProfile,
+    saveMyDealerProfile,
     fetchVehicleReport,
     generateReportVersion,
     createReportShareLink,
