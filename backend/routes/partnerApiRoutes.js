@@ -17,9 +17,26 @@ import { supabase } from '../db/supabase.js';
 import { requirePartnerScope } from '../middleware/partnerAuth.js';
 import { getTrustDecision, toPublicDecision } from '../services/trustDecision/trustDecisionService.js';
 import { getCoverage } from '../services/sourceVerification/sourceVerificationService.js';
+import { requestEligibility, getLatestStatus } from '../services/eligibility/eligibilityService.js';
+import { listSessionsForVin } from '../services/escrow/escrowTrustService.js';
+import { getBuyerSafeSummary } from '../services/dealer/dealerComplianceService.js';
 
 const router = express.Router();
 const BASE = '/api/partner/v1';
+
+// Build eligibility gate context from the unified decision (consistent with internal routes).
+async function partnerGateContext(vin) {
+  try {
+    const d = await getTrustDecision(vin);
+    return {
+      identity_status: d.dimensions.identity.status,
+      fraud_block: d.dimensions.fraud_risk.status === 'high',
+      publication_status: d.dimensions.publication_eligibility.value,
+      source_coverage_connected: d.dimensions.source_coverage.connected ?? 0,
+      min_source_coverage: 0,
+    };
+  } catch { return { identity_status: 'incomplete' }; }
+}
 
 router.get(`${BASE}/ping`, requirePartnerScope(null), (req, res) => {
   res.json({ ok: true, partner: req.partner?.name, ts: new Date().toISOString() });
@@ -57,12 +74,79 @@ router.get(`${BASE}/vehicles/:vin/source-coverage`, requirePartnerScope('vehicle
 });
 
 // Fraud/risk summary — derived risk dimension only, no internal signal detail.
-router.get(`${BASE}/vehicles/:vin/fraud-summary`, requirePartnerScope('vehicle:risk'), async (req, res, next) => {
+router.get(`${BASE}/vehicles/:vin/fraud-summary`, requirePartnerScope('fraud:read_summary'), async (req, res, next) => {
   try {
     const decision = await getTrustDecision(req.params.vin);
     const fr = decision.dimensions.fraud_risk;
     const sc = decision.dimensions.source_conflicts;
-    res.json({ risk: { fraud_status: fr.status, conflicts: sc.status, reason_codes: fr.reason_codes } });
+    res.json({ risk: { fraud_status: fr.status, conflicts: sc.status, open_cases: fr.open_cases ?? 0, reason_codes: fr.reason_codes } });
+  } catch (err) { next(err); }
+});
+
+// Unified trust decision — redacted public projection (private dims stripped).
+router.get(`${BASE}/vehicles/:vin/decision`, requirePartnerScope('trust:read'), async (req, res, next) => {
+  try {
+    res.json({ decision: toPublicDecision(await getTrustDecision(req.params.vin)) });
+  } catch (err) { next(err); }
+});
+
+// Dealer compliance summary — buyer/partner-safe (no private documents/contacts/notes).
+router.get(`${BASE}/dealers/:id/summary`, requirePartnerScope('dealer:read_summary'), async (req, res, next) => {
+  try {
+    const summary = await getBuyerSafeSummary(req.params.id);
+    if (!summary) return res.status(404).json({ error: 'dealer not found' });
+    res.json({ dealer: summary });
+  } catch (err) { next(err); }
+});
+
+// Insurance eligibility — request + status (status only; no applicant PII).
+router.post(`${BASE}/vehicles/:vin/insurance`, requirePartnerScope('insurance:request'), async (req, res, next) => {
+  try {
+    const ctx = await partnerGateContext(req.params.vin);
+    const request = await requestEligibility('insurance', req.params.vin, {
+      requestedBy: `partner:${req.partner?.id}`, idempotencyKey: req.headers['idempotency-key'], gateContext: ctx,
+    });
+    res.status(201).json({ request: { vin: request.vin, capability: request.capability, status: request.status, mode: request.mode, conditions: request.conditions } });
+  } catch (err) {
+    if (/Vehicle not found/.test(err.message)) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+router.get(`${BASE}/vehicles/:vin/insurance`, requirePartnerScope('insurance:read'), async (req, res, next) => {
+  try {
+    const s = await getLatestStatus('insurance', req.params.vin);
+    res.json({ insurance: { vin: req.params.vin, status: s.status, mode: s.mode || null, conditions: s.conditions || [] } });
+  } catch (err) { next(err); }
+});
+
+// Finance eligibility — request + STATUS ONLY. Never returns applicant/credit data.
+router.post(`${BASE}/vehicles/:vin/finance`, requirePartnerScope('finance:request'), async (req, res, next) => {
+  try {
+    const ctx = await partnerGateContext(req.params.vin);
+    const request = await requestEligibility('finance', req.params.vin, {
+      requestedBy: `partner:${req.partner?.id}`, idempotencyKey: req.headers['idempotency-key'],
+      consentReference: req.body?.consent_reference, gateContext: ctx,
+    });
+    res.status(201).json({ request: { vin: request.vin, capability: 'finance', status: request.status, mode: request.mode } });
+  } catch (err) {
+    if (/Vehicle not found/.test(err.message)) return res.status(404).json({ error: err.message });
+    next(err);
+  }
+});
+router.get(`${BASE}/vehicles/:vin/finance`, requirePartnerScope('finance:read'), async (req, res, next) => {
+  try {
+    const s = await getLatestStatus('finance', req.params.vin);
+    // Status only — no conditions detail, no applicant data.
+    res.json({ finance: { vin: req.params.vin, status: s.status } });
+  } catch (err) { next(err); }
+});
+
+// Escrow eligibility/status — latest session status only.
+router.get(`${BASE}/vehicles/:vin/escrow`, requirePartnerScope('escrow:read'), async (req, res, next) => {
+  try {
+    const sessions = await listSessionsForVin(req.params.vin);
+    const latest = sessions[0];
+    res.json({ escrow: latest ? { vin: req.params.vin, status: latest.status } : { vin: req.params.vin, status: 'not_requested' } });
   } catch (err) { next(err); }
 });
 

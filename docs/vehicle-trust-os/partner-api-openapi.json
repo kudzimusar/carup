@@ -76,7 +76,16 @@
     }
   },
   "x-rate-limit": { "default_per_minute": 60, "note": "Per-client rate limit configured at issuance (partner_clients.rate_limit_per_min)." },
-  "x-scopes": ["vehicle:identity", "vehicle:trust", "vehicle:sources", "vehicle:risk", "vehicle:*"],
+  "x-scopes": ["vehicle:identity", "vehicle:trust", "vehicle:sources", "trust:read", "fraud:read_summary", "dealer:read_summary", "insurance:request", "insurance:read", "finance:request", "finance:read", "escrow:read", "vehicle:*"],
+  "x-endpoints-v1-1": {
+    "GET /vehicles/{vin}/decision": "trust:read — redacted unified trust decision (private dims stripped)",
+    "GET /dealers/{id}/summary": "dealer:read_summary — buyer-safe dealer compliance summary (no private docs/contacts)",
+    "POST /vehicles/{vin}/insurance": "insurance:request — request insurance eligibility (status only returned)",
+    "GET /vehicles/{vin}/insurance": "insurance:read — latest insurance eligibility status",
+    "POST /vehicles/{vin}/finance": "finance:request — request finance eligibility (consent_reference); status only",
+    "GET /vehicles/{vin}/finance": "finance:read — STATUS ONLY; never applicant/credit data",
+    "GET /vehicles/{vin}/escrow": "escrow:read — latest escrow session status"
+  },
   "x-source-mode-semantics": {
     "live": "Real approved provider endpoint + credential.",
     "sandbox": "Synthetic demonstration data. NOT a live government confirmation.",
