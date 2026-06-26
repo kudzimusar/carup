@@ -219,6 +219,16 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       : null;
     const slaBreachingCount = queued.filter((r) => (now - new Date(r.created_at || r.scheduled_at || now).getTime()) > slaThresholdSeconds * 1000).length;
     const telegramHealth = services.adapterRegistry.health().find((h) => h.channel === 'telegram') || null;
+
+    // Query pg_cron/pg_net health via Supabase RPC (fails gracefully when extension unavailable)
+    let schedulerHealth = { scheduler_type: 'supabase_cron', pg_cron_available: false, job_configured: false, stale_lock_count: 0 };
+    try {
+      const { data, error } = await services.repository.client.rpc('get_communication_scheduler_health');
+      if (!error && data) schedulerHealth = data;
+    } catch (_err) {
+      // Memory repository in tests or pg_cron not installed — use fallback
+    }
+
     res.json({
       timestamp: new Date().toISOString(),
       queue: {
@@ -233,11 +243,14 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       },
       telegram: telegramHealth,
       adapters: services.adapterRegistry.health(),
-      scheduler: {
-        schedule: '* * * * *',
-        cadence: 'every_minute',
-        endpoint: '/api/internal/communications/process',
-        note: 'Requires Vercel Pro plan. Hobby plan minimum is once per day.',
+      scheduler: schedulerHealth,
+      inspect: {
+        cron_job_table: 'cron.job',
+        cron_run_history: 'cron.job_run_details',
+        http_responses: 'net._http_response',
+        worker_logs: 'Vercel function logs (structured JSON lines with event=communication_worker_invoked/completed)',
+        queue_table: 'public.notification_queue',
+        attempts_table: 'public.message_delivery_attempts',
       },
     });
   }));

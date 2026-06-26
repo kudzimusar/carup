@@ -233,7 +233,7 @@ export default function AdminCommunications() {
             Telegram: <strong>{telegramOk ? 'real' : workerHealth.telegram?.mode ?? 'unknown'}</strong>
             {telegramOk ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
           </span>
-          <span className="text-gray-400 text-xs">Cron: {workerHealth.scheduler.cadence}</span>
+          <span className="text-gray-400 text-xs">Cron: {workerHealth.scheduler.job_config?.schedule ?? (workerHealth.scheduler.pg_cron_available ? '* * * * *' : 'pg_cron pending')}</span>
         </div>
       )}
 
@@ -376,7 +376,7 @@ export default function AdminCommunications() {
                     {workerHealth.telegram?.provider ?? 'not configured'} ({workerHealth.telegram?.mode ?? '—'})
                   </span>
                 </div>
-                <div className="flex justify-between"><span className="text-gray-500">Schedule</span><strong>{workerHealth.scheduler.cadence}</strong></div>
+                <div className="flex justify-between"><span className="text-gray-500">Schedule</span><strong>{workerHealth.scheduler.job_config?.schedule ?? (workerHealth.scheduler.pg_cron_available ? '* * * * *' : 'pg_cron pending')}</strong></div>
                 {workerHealth.queue.oldest_queued_seconds != null && (
                   <div className="flex justify-between"><span className="text-gray-500">Oldest queued</span><strong>{workerHealth.queue.oldest_queued_seconds}s</strong></div>
                 )}
