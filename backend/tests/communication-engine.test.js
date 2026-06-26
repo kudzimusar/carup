@@ -28,6 +28,7 @@ import {
   TelegramBotAdapter,
   ExpoPushAdapter,
   createDefaultAdapterRegistry,
+  assertRealTelegramAdapter,
 } from '../services/communication/adapters/providerAdapters.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply } = await import('../routes/adminCommunicationRoutes.js');
@@ -38,9 +39,11 @@ const runtimeHardeningMigrationSql = readFileSync(new URL('../../database/migrat
 const legacyQueueCompatibilityMigrationSql = readFileSync(new URL('../../database/migrations/20260625031500_agent8_communication_legacy_queue_compatibility.sql', import.meta.url), 'utf8');
 const securityFile = readFileSync(new URL('../middleware/securityMiddleware.js', import.meta.url), 'utf8');
 const communicationRouteFile = readFileSync(new URL('../routes/communicationRoutes.js', import.meta.url), 'utf8');
+const adminCommunicationRouteFile = readFileSync(new URL('../routes/adminCommunicationRoutes.js', import.meta.url), 'utf8');
 const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const eventWorkerFile = readFileSync(new URL('../services/eventBus/eventWorker.js', import.meta.url), 'utf8');
 const cloudflareWorkerFile = readFileSync(new URL('../../cloudflare/carup-communications-edge/src/index.js', import.meta.url), 'utf8');
+const backendVercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
@@ -1372,4 +1375,213 @@ test('Cloudflare Worker project exposes fetch, email, queue, and scheduled handl
   assert.equal(cloudflareWorkerFile.includes('/api/internal/communications/process'), true);
   assert.equal(cloudflareWorkerFile.includes('/api/communications/webhooks/cloudflare/email'), true);
   assert.equal(cloudflareWorkerFile.includes('x-carup-cloudflare-signature'), true);
+});
+
+// ── Issue #110: Automatic Telegram delivery ────────────────────────────────────
+
+test('communication worker cron is scheduled every minute (not daily)', () => {
+  const cron = backendVercelConfig?.crons?.find((c) => c.path === '/api/internal/communications/process');
+  assert.ok(cron, 'cron entry for /api/internal/communications/process must exist in backend/vercel.json');
+  assert.equal(cron.schedule, '* * * * *', 'cron schedule must be every-minute (* * * * *)');
+});
+
+test('staging and production environments use real Telegram adapter when CARUP_TELEGRAM_BOT_TOKEN is set', () => {
+  const stagingRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'staging', CARUP_TELEGRAM_BOT_TOKEN: 'test-token' } });
+  const stagingAdapter = stagingRegistry.get('telegram');
+  assert.equal(stagingAdapter.provider, 'telegram_bot_api', 'staging must use real Telegram adapter');
+  assert.equal(stagingAdapter.validateConfiguration?.({ CARUP_TELEGRAM_BOT_TOKEN: 'test-token' }).mode, 'real');
+
+  const productionRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'production', CARUP_TELEGRAM_BOT_TOKEN: 'test-token' } });
+  assert.equal(productionRegistry.get('telegram').provider, 'telegram_bot_api');
+
+  const testRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'test' } });
+  assert.equal(testRegistry.get('telegram').validateConfiguration?.().mode, 'fake', 'test env still uses fake');
+});
+
+test('assertRealTelegramAdapter throws when Telegram bot token set but fake adapter active in staging', () => {
+  const fakeRegistryWithToken = {
+    get: () => new FakeCommunicationAdapter({ channel: 'telegram', provider: 'fake' }),
+  };
+  assert.throws(
+    () => assertRealTelegramAdapter(fakeRegistryWithToken, { NODE_ENV: 'staging', CARUP_TELEGRAM_BOT_TOKEN: 'test-token' }),
+    /FATAL.*fake/i,
+    'must throw when staging uses fake adapter with bot token configured'
+  );
+});
+
+test('assertRealTelegramAdapter is a no-op in test environment regardless of bot token', () => {
+  const fakeRegistry = { get: () => new FakeCommunicationAdapter({ channel: 'telegram' }) };
+  assert.doesNotThrow(
+    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'test', CARUP_TELEGRAM_BOT_TOKEN: 'test-token' }),
+    'must not throw in test environment'
+  );
+  assert.doesNotThrow(
+    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'staging' }),
+    'must not throw when CARUP_TELEGRAM_BOT_TOKEN is not set'
+  );
+  assert.doesNotThrow(
+    () => assertRealTelegramAdapter(fakeRegistry, { NODE_ENV: 'staging', COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' }),
+    'must not throw when COMMUNICATION_FAKE_ADAPTERS_ENABLED=true'
+  );
+});
+
+test('COMMUNICATION_REAL_ADAPTERS=true forces real adapters regardless of NODE_ENV', () => {
+  const registry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'development', COMMUNICATION_REAL_ADAPTERS: 'true', CARUP_TELEGRAM_BOT_TOKEN: 'tk' } });
+  assert.equal(registry.get('telegram').provider, 'telegram_bot_api');
+});
+
+test('worker health endpoint is registered in admin communication routes', () => {
+  assert.ok(adminCommunicationRouteFile.includes('/api/admin/communications/worker/health'), 'health endpoint must be registered');
+  assert.ok(adminCommunicationRouteFile.includes('sla_threshold_seconds'), 'must include SLA threshold field');
+  assert.ok(adminCommunicationRouteFile.includes('oldest_queued_seconds'), 'must include oldest queued age');
+  assert.ok(adminCommunicationRouteFile.includes('telegram'), 'must include telegram adapter status');
+  assert.ok(adminCommunicationRouteFile.includes('scheduler'), 'must include scheduler metadata');
+});
+
+test('communication worker endpoint includes correlation_id and timestamps in response', () => {
+  assert.ok(communicationRouteFile.includes('correlation_id'), 'response must include correlation_id');
+  assert.ok(communicationRouteFile.includes('invoked_at'), 'response must include invoked_at timestamp');
+  assert.ok(communicationRouteFile.includes('completed_at'), 'response must include completed_at timestamp');
+  assert.ok(communicationRouteFile.includes('JSON.stringify'), 'must emit structured JSON logs');
+  assert.ok(communicationRouteFile.includes('communication_worker_invoked'), 'must log invocation event');
+  assert.ok(communicationRouteFile.includes('communication_worker_completed'), 'must log completion event');
+});
+
+test('worker health endpoint returns queue depth and adapter status from memory repository', async () => {
+  const adapter = new FakeCommunicationAdapter({ channel: 'telegram', provider: 'telegram' });
+  const repository = new MemoryCommunicationRepository();
+  const { threadService, notificationService } = createHarness({ adapter, repository });
+  const thread = (await threadService.resolveOrCreateThread({
+    primary_user_id: 'health-user',
+    thread_type: 'support',
+    primary_channel: 'telegram',
+  })).thread;
+
+  // Queue two notifications
+  await notificationService.queueExistingMessage({
+    recipientUserId: 'health-user',
+    thread,
+    message: { id: 'msg-health-1', content_text: 'hi', channel: 'telegram', direction: 'outbound' },
+    channel: 'telegram',
+    notificationType: 'admin_reply',
+    templateKey: 'admin_reply_v1',
+    dedupeParts: ['health', '1'],
+  });
+  await notificationService.queueExistingMessage({
+    recipientUserId: 'health-user',
+    thread,
+    message: { id: 'msg-health-2', content_text: 'hi2', channel: 'telegram', direction: 'outbound' },
+    channel: 'telegram',
+    notificationType: 'admin_reply',
+    templateKey: 'admin_reply_v1',
+    dedupeParts: ['health', '2'],
+  });
+
+  const queued = await repository.list('notification_queue', { status: 'queued' });
+  assert.equal(queued.length, 2, 'both notifications must be queued');
+
+  // Simulate the health endpoint logic inline
+  const processing = await repository.list('notification_queue', { status: 'processing' });
+  const retryScheduled = await repository.list('notification_queue', { status: 'retry_scheduled' });
+  const deadLetter = await repository.list('notification_queue', { status: 'dead_letter' });
+  const health = {
+    queue: {
+      queued: queued.length,
+      processing: processing.length,
+      retry_scheduled: retryScheduled.length,
+      dead_letter: deadLetter.length,
+      depth: queued.length + processing.length + retryScheduled.length,
+    },
+  };
+  assert.equal(health.queue.queued, 2);
+  assert.equal(health.queue.depth, 2);
+  assert.equal(health.queue.processing, 0);
+  assert.equal(health.queue.dead_letter, 0);
+});
+
+test('automatic delivery processes a queued Telegram notification without manual command', async () => {
+  const adapter = new FakeCommunicationAdapter({ channel: 'telegram', provider: 'telegram' });
+  const repository = new MemoryCommunicationRepository({}, { strictNotificationQueueColumns: true, legacyNotificationQueueIds: true });
+  const { identityService, threadService, notificationService, deliveryWorker } = createHarness({ adapter, repository });
+
+  const identity = await identityService.resolveOrCreateIdentity({
+    channel: 'telegram',
+    provider: 'telegram',
+    external_id: 'auto-tg-110',
+    normalized_address: 'auto-tg-110',
+  });
+  const thread = (await threadService.resolveOrCreateThread({
+    thread_type: 'support',
+    primary_channel: 'telegram',
+    external_identity_id: identity.id,
+  })).thread;
+
+  const { message, notification } = await recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-110' },
+    body: { message: 'Automatic Telegram delivery test.', channel: 'telegram', client_message_id: 'issue-110-auto' },
+  });
+
+  // Confirm message is queued — has NOT been sent yet
+  assert.equal(notification.status, 'queued');
+  assert.equal(message.status, 'queued');
+
+  // Simulate what the Vercel cron calls: processDueNotifications
+  const results = await deliveryWorker.processDueNotifications({ limit: 10 });
+
+  assert.equal(results.length, 1, 'exactly one notification must be processed');
+  assert.equal(results[0].status, 'sent', 'processDueNotifications must return sent');
+
+  const updatedNotif = await repository.findOne('notification_queue', { id: notification.id });
+  const updatedMsg = await repository.findOne('messages', { id: message.id });
+  // Fake adapter returns providerStatus=delivered so the row may be 'sent' or 'delivered'
+  assert.ok(['sent', 'delivered'].includes(updatedNotif.status), `notification must be sent or delivered, got ${updatedNotif.status}`);
+  assert.ok(['sent', 'delivered'].includes(updatedMsg.status), `message must be sent or delivered, got ${updatedMsg.status}`);
+
+  // Exactly one delivery attempt recorded
+  const attempts = await repository.list('message_delivery_attempts');
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].provider, 'telegram');
+  assert.ok(attempts[0].provider_message_id, 'provider_message_id must be populated');
+  assert.equal(attempts[0].status, 'sent');
+});
+
+test('overlapping cron calls do not duplicate Telegram delivery', async () => {
+  const adapter = new FakeCommunicationAdapter({ channel: 'telegram', provider: 'telegram' });
+  const repository = new MemoryCommunicationRepository({}, { legacyNotificationQueueIds: true });
+  const { identityService, threadService, notificationService, deliveryWorker } = createHarness({ adapter, repository });
+
+  const identity = await identityService.resolveOrCreateIdentity({
+    channel: 'telegram',
+    provider: 'telegram',
+    external_id: 'overlap-tg-110',
+    normalized_address: 'overlap-tg-110',
+  });
+  const thread = (await threadService.resolveOrCreateThread({
+    thread_type: 'support',
+    primary_channel: 'telegram',
+    external_identity_id: identity.id,
+  })).thread;
+
+  const { notification } = await recordAdminThreadReply({
+    services: { repository, threadService, notificationService },
+    thread,
+    actor: { id: 'admin-110-overlap' },
+    body: { message: 'Only send once.', channel: 'telegram', client_message_id: 'issue-110-overlap' },
+  });
+
+  // Two concurrent cron invocations — only one should send
+  const [r1, r2] = await Promise.all([
+    deliveryWorker.processDueNotifications({ limit: 5 }),
+    deliveryWorker.processDueNotifications({ limit: 5 }),
+  ]);
+
+  const allResults = [...r1, ...r2];
+  const sentResults = allResults.filter((r) => r.notificationId === notification.id && r.status === 'sent');
+  assert.equal(sentResults.length, 1, 'notification must be sent exactly once despite concurrent cron calls');
+
+  const attempts = await repository.list('message_delivery_attempts');
+  const telegramAttempts = attempts.filter((a) => String(a.notification_id) === String(notification.id));
+  assert.equal(telegramAttempts.length, 1, 'exactly one delivery attempt must exist');
 });

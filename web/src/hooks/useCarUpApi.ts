@@ -894,6 +894,25 @@ export function useCarUpApi() {
     return request('/admin/communications/metrics', { method: 'GET' })
   }, [request])
 
+  const fetchCommunicationWorkerHealth = useCallback(async (): Promise<{
+    timestamp: string
+    queue: {
+      queued: number
+      processing: number
+      retry_scheduled: number
+      dead_letter: number
+      depth: number
+      oldest_queued_seconds: number | null
+      sla_threshold_seconds: number
+      sla_breaching: number
+    }
+    telegram: { channel: string; provider: string; mode: string; available: boolean; missing?: string[] } | null
+    adapters: Array<{ channel: string; provider: string; mode: string; available: boolean }>
+    scheduler: { schedule: string; cadence: string; endpoint: string; note: string }
+  }> => {
+    return request('/admin/communications/worker/health', { method: 'GET' })
+  }, [request])
+
   const fetchAdminUsers = useCallback(async (): Promise<User[]> => {
     return request<User[]>('/users/management', { method: 'GET' })
   }, [request])
@@ -1123,6 +1142,7 @@ export function useCarUpApi() {
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
     fetchAdminCommunicationMetrics,
+    fetchCommunicationWorkerHealth,
     fetchAdminUsers,
     fetchAdminTelemetry,
   

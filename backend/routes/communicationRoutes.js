@@ -37,11 +37,19 @@ function requireWorkerSecret(req, res) {
 
 async function processWorkerBatch(req, res, services) {
   if (!requireWorkerSecret(req, res)) return;
+  const correlationId = req.headers['x-correlation-id'] || req.correlationId || crypto.randomUUID();
   const limit = Math.min(Number(req.body?.limit || req.query.limit || process.env.COMMUNICATION_WORKER_BATCH_SIZE || 10), 100);
+  const invokedAt = new Date().toISOString();
+  console.log(JSON.stringify({ level: 'info', event: 'communication_worker_invoked', correlation_id: correlationId, batch_limit: limit, ts: invokedAt }));
   const results = await services.deliveryWorker.processDueNotifications({ limit });
+  const completedAt = new Date().toISOString();
+  console.log(JSON.stringify({ level: 'info', event: 'communication_worker_completed', correlation_id: correlationId, processed: results.length, ts: completedAt }));
   res.json({
     success: true,
     processed: results.length,
+    correlation_id: correlationId,
+    invoked_at: invokedAt,
+    completed_at: completedAt,
     results: results.map((result) => ({
       notificationId: result.notificationId,
       status: result.status,
