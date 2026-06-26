@@ -1,0 +1,88 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CarUp Vehicle Trust — Partner API",
+    "version": "1.0.0",
+    "description": "Controlled, versioned, scoped read API for approved external partners (insurers, lenders, fleet/import operators). Authenticate with an issued API key (header x-api-key). Every response is redacted: no raw provider payloads, no private owner PII, no internal reviewer notes. Source results carry an honest mode — a sandbox demonstration is never presented as a live government confirmation."
+  },
+  "servers": [{ "url": "https://api.carup.example/api/partner/v1", "description": "Partner base (staging uses the staging host)" }],
+  "security": [{ "ApiKeyAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key" }
+    },
+    "schemas": {
+      "Error": { "type": "object", "properties": { "error": { "type": "string" }, "correlation_id": { "type": "string" } } },
+      "Identity": { "type": "object", "properties": { "vin": { "type": "string" }, "make": { "type": "string" }, "model": { "type": "string" }, "year": { "type": "integer" }, "plate_number": { "type": "string", "nullable": true } } },
+      "CoverageEntry": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["zimra", "cvr", "zinara", "vid", "cid"] },
+          "mode": { "type": "string", "enum": ["live", "partner_file", "manual_verification", "sandbox", "unavailable"] },
+          "coverage_status": { "type": "string", "enum": ["source_connected", "sandbox_demonstration", "partner_file_reviewed", "carup_manual_reviewed", "conflict_under_review", "risk_flagged", "no_record_found", "source_unavailable", "pending"] },
+          "retrieved_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "TrustSummary": {
+        "type": "object",
+        "properties": {
+          "vin": { "type": "string" },
+          "calculation_version": { "type": "string" },
+          "overall_trust": { "type": "object", "properties": { "status": { "type": "string" }, "value": { "type": "integer" } } },
+          "dimensions": { "type": "object", "additionalProperties": { "type": "object" } },
+          "known_limitations": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/ping": {
+      "get": { "summary": "Health/identity check", "responses": { "200": { "description": "ok" }, "401": { "description": "missing/invalid key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } } } }
+    },
+    "/vehicles/{vin}/identity": {
+      "get": {
+        "summary": "Canonical vehicle identity (no owner PII)",
+        "description": "Requires scope vehicle:identity.",
+        "parameters": [{ "name": "vin", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "identity", "content": { "application/json": { "schema": { "type": "object", "properties": { "identity": { "$ref": "#/components/schemas/Identity" } } } } } },
+          "401": { "description": "unauthorized" }, "403": { "description": "missing scope" }, "404": { "description": "not found" }
+        }
+      }
+    },
+    "/vehicles/{vin}/trust-summary": {
+      "get": {
+        "summary": "Unified, redacted trust decision",
+        "description": "Requires scope vehicle:trust. Private dimensions (e.g. finance) are stripped.",
+        "parameters": [{ "name": "vin", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "trust", "content": { "application/json": { "schema": { "type": "object", "properties": { "trust": { "$ref": "#/components/schemas/TrustSummary" } } } } } }, "401": { "description": "unauthorized" }, "403": { "description": "missing scope" } }
+      }
+    },
+    "/vehicles/{vin}/source-coverage": {
+      "get": {
+        "summary": "Government/partner source coverage (status + honest mode)",
+        "description": "Requires scope vehicle:sources. No identity fields, no raw payloads.",
+        "parameters": [{ "name": "vin", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "coverage", "content": { "application/json": { "schema": { "type": "object", "properties": { "coverage": { "type": "array", "items": { "$ref": "#/components/schemas/CoverageEntry" } } } } } } }, "401": { "description": "unauthorized" }, "403": { "description": "missing scope" } }
+      }
+    },
+    "/vehicles/{vin}/fraud-summary": {
+      "get": {
+        "summary": "Derived risk summary (no internal signal detail)",
+        "description": "Requires scope vehicle:risk.",
+        "parameters": [{ "name": "vin", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "risk" }, "401": { "description": "unauthorized" }, "403": { "description": "missing scope" } }
+      }
+    }
+  },
+  "x-rate-limit": { "default_per_minute": 60, "note": "Per-client rate limit configured at issuance (partner_clients.rate_limit_per_min)." },
+  "x-scopes": ["vehicle:identity", "vehicle:trust", "vehicle:sources", "vehicle:risk", "vehicle:*"],
+  "x-source-mode-semantics": {
+    "live": "Real approved provider endpoint + credential.",
+    "sandbox": "Synthetic demonstration data. NOT a live government confirmation.",
+    "partner_file": "Signed partner file import, reviewed.",
+    "manual_verification": "CarUp authorized manual document review.",
+    "unavailable": "Source not queried or could not provide data. Never equivalent to clear/verified."
+  },
+  "x-privacy": "No endpoint returns raw provider payloads, private owner identity documents, reviewer-private notes, actor IDs or IP addresses."
+}

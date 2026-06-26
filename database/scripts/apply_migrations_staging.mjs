@@ -57,6 +57,10 @@ const MIGRATIONS = [
   '20260624140000_listing_publication_lifecycle.sql',
   // Phase 6 — trust_change_log immutability
   '20260624150000_trust_change_log_immutability.sql',
+  // WS2 — external source verification network
+  '20260626120000_source_verification_network.sql',
+  // WS9 — controlled partner API
+  '20260626130000_partner_api.sql',
 ];
 
 function extractUpSection(filepath) {
