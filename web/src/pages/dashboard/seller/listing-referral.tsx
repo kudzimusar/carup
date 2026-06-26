@@ -1,0 +1,1 @@
+export default function SellerListingReferral() { return <div>Seller Listing Referral: Link, QR, Milestone, Reward status</div>; }

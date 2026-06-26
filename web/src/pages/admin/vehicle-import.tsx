@@ -1,0 +1,1 @@
+export default function VehicleImportMilestones() { return <div>Vehicle Import Milestones: Quote, Deposit, Inspection, Shipment, Customs, Delivery</div>; }

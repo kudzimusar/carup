@@ -1,0 +1,1 @@
+export default function PartsRequest() { return <div>Parts Request Form: Vehicle details, Part description, Photo, Referral Code, Quote Status</div>; }

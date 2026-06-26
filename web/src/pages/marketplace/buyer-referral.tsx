@@ -1,0 +1,1 @@
+export default function BuyerReferral() { return <div>Buyer Referral Capture: Code, Valid code check, Discount</div>; }

@@ -1,0 +1,1 @@
+export default function ContainerBooking() { return <div>Public Container Booking: Dates, Capacity, Waitlist, Share</div>; }
