@@ -82,7 +82,7 @@ function ReferralScreenInner() {
       setApproved((w?.approved_balance ?? 0) + (w?.payable_balance ?? 0));
       setSettled(w?.paid_or_applied_balance);
       
-      setPermanentCode(s?.permanent_code?.code_value || null);
+      setPermanentCode(s?.permanent_code?.code || null);
       setReferredUserCount(s?.referred_user_count || 0);
       setConversionCount(s?.conversion_count || 0);
       setCampaigns(s?.active_campaigns || []);

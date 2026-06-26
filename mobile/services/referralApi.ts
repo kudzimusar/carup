@@ -10,7 +10,7 @@
  * dispute filing, code validation, agent tools). Admin/operator surfaces remain
  * web-only for now per the integration plan.
  */
-import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
+import { getVerificationApiBaseUrl, fetchCsrfToken } from '../utils/verificationApi';
 
 export class ReferralApiError extends Error {
   statusCode: number | null;
