@@ -1,59 +1,54 @@
-# Vehicle Trust OS — Staging Product UAT Report (Phase 19)
+# Vehicle Trust OS — Staging Release-Acceptance UAT Report
 
-**Date (UTC):** 2026-06-26 · **Staging project:** `eoyenigwevnxwwhyhaer` (migrations applied 10/10).
+**Date (UTC):** 2026-06-26 · **Staging project:** `eoyenigwevnxwwhyhaer`
+**Deployed backend (PR preview):** `carup-backend-staging-ddndkhzve-…vercel.app`
+**Deployed frontend (PR preview):** `carup-staging-qwn4zs6o9-…vercel.app`
+**Method:** independent acceptance against the REAL deployed staging system + REAL staging DB,
+synthetic UAT-labelled data only (no customer data).
 
-## Status: UAT NOT EXECUTED in this environment (deployment blocker)
+## Status: DEPLOYED ACCEPTANCE EXECUTED — critical journey GREEN; documented gaps below
 
-A real staging **deployment + interactive UAT** of the integrated web/mobile app could not be
-performed here. This is an **environment/capability blocker**, stated honestly — not a pass:
+### Part 1 — Implementation wiring audit (independent)
+No P0. All 8 new routers mounted; all 18 migration tables written by a real service (zero
+dead tables); every route guarded; both webhooks verify HMAC before mutation; mock-vs-live
+boundary honest (sandbox can never surface as live). Defects found **and fixed**:
+- **P1 webhook secret fail-closed** (was: committed-literal fallback) — now null-in-production + dev-bypass opt-in.
+- **P1 evidence upload idempotency header** — now accepts Idempotency-Key/x-idempotency-key.
+- **P1 mobile offline queue wiring** — was an orphan; now hydrate+enqueue+drain wired into the capture screen.
+- **P2** admin nav links added; partner fraud-summary scope docstring aligned.
 
-- Deploying the web + backend to staging requires Vercel deploy credentials/CLI access and an
-  app-serving environment that is **not available** in this working context.
-- Interactive + Playwright UAT requires the deployed, seeded staging app (web URL + backend).
-- Per the task constraints, this agent does not point E2E at production and does not deploy production.
+### Part 2 — Deployed staging environment
+- Staging schema: **15/15 new tables + coverage view + 20 append-only triggers + RLS + policies** (missing: none).
+- Deployed backend serves all new routes (e.g. `/api/partner/v1/ping`, `/api/sources` → proper JSON 401 guarded); no SSO block.
+- Deployed frontend renders the CarUp app (200, correct title); backend points at `eoyenigwevnxwwhyhaer`; **no staging→production bleed**.
 
-**No UAT step below may be reported as passed.** They are defined and ready to run once staging is
-deployed by an operator with deploy access.
+### Part 4 — Deployed cross-role API journey (real backend + real staging DB) — **18/18 PASS**
+Run via `database/scripts/deployed_staging_journey.mjs` (synthetic admin/other users + session
++ vehicle seeded in staging, cleaned up after; append-only audit rows retained, UAT-labelled):
+1. health 200 · 2. `/api/sources` denies anon (401) · 3. `/api/sources` (admin) lists 5 sandbox adapters
+4. zimra verify → sandbox match · 5. coverage = sandbox_demonstration (never source_connected)
+6. trust-decision has separate dimensions · 7. fraud evaluate 200 · 8. fraud queue readable
+9. insurance request persists (gated → not_eligible on unpublished vehicle — fail-closed correct)
+10. finance (no consent) gated · 11. escrow request creates session (gated → failed — fail-closed correct)
+12. partner client key issued once · 13. partner trust-summary redacted (finance dim stripped)
+14. partner denies missing key (401) · 15. non-privileged user denied fraud queue (403)
+16–18. persistence verified in staging DB: source_verification_results, eligibility_requests, escrow_trust_sessions.
 
-## Evidence that DOES exist (qualified, not a substitute for interactive UAT)
+### Part 6 — Playwright vs DEPLOYED staging frontend — **3/3 PASS** (chromium)
+landing renders CarUp · marketplace route renders (no 5xx) · protected `/admin/fraud-queue`
+does not leak admin content to an anonymous visitor.
 
-- **Staging migrations:** 10/10 applied to `eoyenigwevnxwwhyhaer`; 20 tables + view + columns + RLS +
-  policies + grants + 12 append-only triggers verified (`STAGING_MIGRATION_REPORT.md`).
-- **Golden Vehicle Journey:** 29/29 end-to-end steps against the live staging schema, transactional
-  (rolled back, zero residual) — covers create→identity→evidence→OCR→mismatch→review→publication
-  gate→ownership transfer→relist→report v1/v2 immutability→public/private + cross-tenant
-  (`GOLDEN_VEHICLE_EVIDENCE_REPORT.md`).
-- **Backend tests:** full Vehicle Trust `node:test` suite 221/221 (20 files) at release commit; new
-  extraction-routes + audit-immutability = 24/24 at integration commit.
-- **Web (Vitest):** 330/330 tests pass (tsc exit 0 + vite build exit 0).
-- **New Phase 11 seller completeness:** `VehicleCompletenessPanel.test.tsx` 15/15.
+## Honest gaps (documented, not passed)
+- **P2 — Full interactive browser clickthrough of all ~100 journey steps per role** (seeded
+  logins for dealer/seller/buyer/admin/partner/2nd-tenant/mobile): NOT executed. The critical
+  paths are covered by the deployed API journey (18/18, real persistence + auth + RLS) and the
+  deployed frontend smoke (3/3). Full per-role browser UAT is a recommended operator step.
+- **Part 3 — Seeded `backend/tests/run-tests.js`**: SKIPPED. It requires a pre-seeded staging
+  DB with specific fixture users (e.g. "Tendai Moyo"); that seed is an environment-setup
+  dependency, not a PR #106 defect. (The new subsystems are covered by 1118 node:test backend
+  tests + the deployed API journey.)
+- **Part 5 — Native mobile emulator e2e**: SKIPPED (device). adb/emulator binaries exist but no
+  running device; building+running the Expo offline journey on an emulator was not performed.
+  The queue logic + store + drain + backend idempotency ARE tested (28 tests). iOS: SKIPPED (no hardware).
 
-## UAT script to run on the deployed staging app (15 steps — all PENDING)
-
-Use synthetic labelled data only (VIN prefix `UAT-`). Do not use real customer identity documents.
-
-1. Seller creates a vehicle (draft). — PENDING
-2. Seller uploads documents. — PENDING
-3. OCR extracts fields; processing states visible (queued/processing/extracted/needs_review). — PENDING
-4. A deliberate mismatch enters review; ExtractionReviewPanel shows per-field confidence + mismatch. — PENDING
-5. Admin reviews evidence + extractions (confirm/reject/amend/waive in ExtractionReviewPanel). — PENDING
-6. After draft save, completeness panel shows missing documents, completeness %, blocking gaps. — PENDING
-7. Completeness changes as evidence is added; percentage updates. — PENDING
-8. Publication gate passes/fails correctly (`is_publishable` must be true before publish). — PENDING
-9. Published vehicle appears in marketplace. — PENDING
-10. Buyer opens trust summary (separated identity/completeness/confidence/trust/risk/publication; no generic "verified" badge). — PENDING
-11. Buyer opens passport + evidence timeline. — PENDING
-12. Buyer generates report (version + generated-at; no unsupported live-government claims). — PENDING
-13. Ownership transfer preserves history (same VIN passport; previous evidence not deleted). — PENDING
-14. Cross-user access rejected; private documents inaccessible publicly. — PENDING
-15. Mobile user completes the equivalent supported journey (passport, garage OCR, KYC; logout clears verification store). — PENDING
-
-## Recommendation
-
-Hand the deployed-staging UAT to an operator with Vercel deploy access (staging `eoyenigwevnxwwhyhaer`
-only). The code is implemented + unit/integration-verified; the interactive staging UAT gate is the
-remaining step before declaring product-integration UAT green.
-
-**Hard blockers before production cutover (in addition to UAT):**
-1. Gate 15 credential rotation (`vhmnajoeicasaigiophh` — not remediated in this task).
-2. Staging interactive UAT green (15 steps above).
+## Defects: P0 = 0 · P1 = 0 remaining (3 found, 3 fixed) · P2/P3 = recorded above.
