@@ -48,6 +48,7 @@ export const REFERRAL_EVENT_TYPES = Object.freeze({
   COUPON_REDEEMED: 'coupon.redeemed',
   WALLET_TRANSACTION_CREATED: 'wallet.transaction_created',
   WALLET_TRANSACTION_STATUS_CHANGED: 'wallet.transaction_status_changed',
+  ATTRIBUTION_RECORDED: 'referral.attribution_recorded',
 });
 
 export const COUPON_STATUSES = Object.freeze({

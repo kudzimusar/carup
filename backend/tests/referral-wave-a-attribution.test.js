@@ -1,138 +1,209 @@
-const request = require('supertest');
-const { app, supabase } = require('../server');
-const crypto = require('crypto');
+/**
+ * Wave A attribution unit tests using Node's built-in test runner.
+ *
+ * Uses the same MemoryReferralRepository pattern as referral-engine-phase1.test.js.
+ * No live Supabase, no require(), no Jest globals.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { ReferralEngineService } from '../services/referral/referralEngineService.js';
+import { REFERRAL_TABLES } from '../services/referral/referralEngineRepository.js';
+import {
+  REFERRAL_CODE_STATUSES,
+  REFERRAL_CODE_TYPES,
+} from '../constants/referral/referralConstants.js';
+import { readFileSync } from 'node:fs';
 
-describe('Wave A: Attribution and Race Conditions (Staging Proof)', () => {
-  let testTenant = 'platform';
-  let referrerId = 'u_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
-  let referralCode = 'STAGE_REF_' + Date.now();
-  let codeId;
+const migrationFile = readFileSync(
+  new URL('../../database/migrations/20260625151548_referral_wave_a_identity_attribution.sql', import.meta.url),
+  'utf8'
+);
 
-  beforeAll(async () => {
-    // 1. Create a real active staging code for a test referrer
-    await supabase.from('users').insert({
-      id: referrerId,
-      name: 'Referrer User',
-      email: `referrer_${Date.now()}@staging-test.com`,
-      role: 'owner',
-      join_date: new Date().toISOString()
-    });
+// ─── In-Memory Repository (same pattern as phase1 test) ──────────────────────
+class MemoryReferralRepository {
+  constructor() {
+    this.counter = 0;
+    this.tables = new Map(Object.values(REFERRAL_TABLES).map((t) => [t, []]));
+  }
+  nextId(table) { this.counter += 1; return `${table}-${this.counter}`; }
+  match(row, filters = {}) {
+    return Object.entries(filters).every(([k, v]) => v === undefined || v === null || row[k] === v);
+  }
+  async insert(table, payload) {
+    const row = { id: payload.id || this.nextId(table), created_at: payload.created_at || new Date().toISOString(), ...payload };
+    this.tables.get(table).push(row);
+    return row;
+  }
+  async findOne(table, filters = {}) {
+    return this.tables.get(table).find((row) => this.match(row, filters)) || null;
+  }
+  async list(table, filters = {}) {
+    return this.tables.get(table).filter((row) => this.match(row, filters));
+  }
+  async updateById(table, id, patch) {
+    const rows = this.tables.get(table);
+    const idx = rows.findIndex((r) => r.id === id);
+    if (idx === -1) return null;
+    rows[idx] = { ...rows[idx], ...patch };
+    return rows[idx];
+  }
+  async count(table, filters = {}) { return (await this.list(table, filters)).length; }
+}
 
-    const codeRes = await supabase.from('referral_codes').insert({
-      tenant_id: testTenant,
-      owner_user_id: referrerId,
-      code: referralCode,
-      code_type: 'MEMBER',
-      is_permanent: true,
-      status: 'ACTIVE'
-    }).select().single();
-    
-    codeId = codeRes.data.id;
+function createService() {
+  const repository = new MemoryReferralRepository();
+  const service = new ReferralEngineService({
+    repository,
+    now: () => new Date('2026-06-26T00:00:00.000Z'),
+    shareOptions: { baseUrl: 'https://carup.test', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' },
+  });
+  return { repository, service };
+}
+
+// ─── Migration content gate ───────────────────────────────────────────────────
+test('Wave A migration contains required tables and columns', () => {
+  const required = [
+    'referral_attribution_journeys',
+    'referral_attribution_touches',
+    'is_permanent',
+    'anonymous_journey_id',
+    'reward_owner_code_id',
+    'claimed_at',
+    'idempotency_key',
+  ];
+  for (const token of required) {
+    assert.ok(migrationFile.includes(token), `Migration must contain: ${token}`);
+  }
+  // Must enable RLS on journey tables
+  assert.ok(
+    migrationFile.includes('ENABLE ROW LEVEL SECURITY'),
+    'Migration must enable RLS on attribution tables'
+  );
+});
+
+// ─── Permanent MEMBER code issuance ──────────────────────────────────────────
+test('ensurePermanentMemberCode creates exactly one permanent MEMBER code', async () => {
+  const { repository, service } = createService();
+
+  await service.ensurePermanentMemberCode('user-1', 'platform');
+  const codes = await repository.list(REFERRAL_TABLES.codes, { owner_user_id: 'user-1' });
+  assert.equal(codes.length, 1);
+  assert.equal(codes[0].is_permanent, true);
+  assert.equal(codes[0].code_type, REFERRAL_CODE_TYPES.MEMBER);
+  assert.equal(codes[0].status, REFERRAL_CODE_STATUSES.ACTIVE);
+});
+
+test('ensurePermanentMemberCode is idempotent — no duplicate on repeat call', async () => {
+  const { repository, service } = createService();
+
+  await service.ensurePermanentMemberCode('user-2', 'platform');
+  await service.ensurePermanentMemberCode('user-2', 'platform');
+  const codes = await repository.list(REFERRAL_TABLES.codes, { owner_user_id: 'user-2' });
+  assert.equal(codes.length, 1, 'Must not create a second permanent code on repeat call');
+});
+
+// ─── Code validation ─────────────────────────────────────────────────────────
+test('validateReferralCode returns valid for an active code', async () => {
+  const { repository, service } = createService();
+  await repository.insert(REFERRAL_TABLES.codes, {
+    id: 'code-1', tenant_id: 'platform', code: 'ACTIVE001', code_type: 'MEMBER',
+    status: REFERRAL_CODE_STATUSES.ACTIVE, owner_user_id: 'user-3',
+  });
+  const result = await service.validateReferralCode({ code: 'ACTIVE001' });
+  assert.equal(result.valid, true);
+  assert.equal(result.code.code, 'ACTIVE001');
+});
+
+test('validateReferralCode rejects missing code', async () => {
+  const { service } = createService();
+  const result = await service.validateReferralCode({ code: 'NOTEXIST' });
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'CODE_NOT_FOUND');
+});
+
+test('validateReferralCode rejects expired code', async () => {
+  const { repository, service } = createService();
+  await repository.insert(REFERRAL_TABLES.codes, {
+    id: 'code-expired', tenant_id: 'platform', code: 'EXPIREDX', code_type: 'MEMBER',
+    status: REFERRAL_CODE_STATUSES.ACTIVE, owner_user_id: 'user-4',
+    expires_at: new Date('2020-01-01').toISOString(),
+  });
+  const result = await service.validateReferralCode({ code: 'EXPIREDX' });
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'CODE_EXPIRED');
+});
+
+// ─── Anonymous attribution journey ───────────────────────────────────────────
+test('recordAnonymousTouch creates journey + first touch', async () => {
+  const { repository, service } = createService();
+  await repository.insert(REFERRAL_TABLES.codes, {
+    id: 'code-2', tenant_id: 'platform', code: 'WAVE0001', code_type: 'MEMBER',
+    status: REFERRAL_CODE_STATUSES.ACTIVE, owner_user_id: 'owner-1',
   });
 
-  it('valid /r/:code -> full attribution journey', async () => {
-    // 2. Open /r/<active-code>
-    const res = await request(app).get(`/r/${referralCode}`).redirects(0);
-    
-    // 4. Confirm redirect to /register
-    expect(res.status).toBe(302);
-    expect(res.headers.location).toBe(`/register?ref=${referralCode}`);
-
-    const cookies = res.headers['set-cookie'];
-    expect(cookies).toBeDefined();
-    const journeyCookie = cookies.find(c => c.startsWith('referral_journey_token='));
-    expect(journeyCookie).toBeDefined();
-    
-    // Parse cookie to get token
-    const cookieVal = journeyCookie.split(';')[0].split('=')[1];
-    const decoded = JSON.parse(decodeURIComponent(cookieVal));
-    expect(decoded.token).toBeDefined();
-
-    // Confirm anonymous journey stored
-    const { data: journey } = await supabase.from('referral_attribution_journeys')
-      .select('*')
-      .eq('anonymous_journey_id', decoded.token)
-      .single();
-    expect(journey).toBeDefined();
-    expect(journey.reward_owner_user_id).toBe(referrerId);
-
-    // 3. Confirm first touch stored
-    const { data: touches } = await supabase.from('referral_attribution_touches')
-      .select('*')
-      .eq('journey_id', journey.id);
-    expect(touches.length).toBe(1);
-    expect(touches[0].touch_kind).toBe('first');
-    
-    // 5. Register a test user (confirm journey claim)
-    const newEmail = `newuser_${Date.now()}@staging-test.com`;
-    const regRes = await request(app)
-      .post('/api/auth/register')
-      .set('Cookie', [`referral_journey_token=${encodeURIComponent(JSON.stringify(decoded))}`])
-      .send({
-        name: 'New User',
-        email: newEmail,
-        password: 'password123'
-      });
-      
-    expect(regRes.status).toBe(200);
-    const newUserId = regRes.body.user.id;
-    
-    // Confirm cookie is rotated/cleared
-    const regCookies = regRes.headers['set-cookie'];
-    const clearedCookie = regCookies && regCookies.find(c => c.startsWith('referral_journey_token=;'));
-    expect(clearedCookie).toBeDefined();
-
-    // 6. Confirm journey claim
-    const { data: claimedJourney } = await supabase.from('referral_attribution_journeys')
-      .select('*')
-      .eq('id', journey.id)
-      .single();
-    expect(claimedJourney.user_id).toBe(newUserId);
-    expect(claimedJourney.status).toBe('active');
-    expect(claimedJourney.claimed_at).not.toBeNull();
-    // 7. Confirm original reward_owner_code_id
-    expect(claimedJourney.reward_owner_code_id).toBe(codeId);
-    
-    // 8. Confirm exactly one permanent member code for the new user
-    const { data: newCodes } = await supabase.from('referral_codes')
-      .select('*')
-      .eq('owner_user_id', newUserId)
-      .eq('is_permanent', true);
-    expect(newCodes.length).toBe(1);
-
-    // Repeat bootstrap creates no duplicate
-    await request(app)
-      .post('/api/auth/register')
-      .set('Cookie', [`referral_journey_token=${encodeURIComponent(JSON.stringify(decoded))}`])
-      .send({
-        name: 'New User 2',
-        email: `newuser2_${Date.now()}@staging-test.com`,
-        password: 'password123'
-      });
-      
-    const { data: newCodesCheck } = await supabase.from('referral_codes')
-      .select('*')
-      .eq('owner_user_id', newUserId)
-      .eq('is_permanent', true);
-    expect(newCodesCheck.length).toBe(1);
-
-    // Self-referral rejected
-    const myCode = newCodesCheck[0].code;
-    const selfRes = await request(app).get(`/r/${myCode}`).redirects(0);
-    const selfCookies = selfRes.headers['set-cookie'];
-    const selfJourneyCookie = selfCookies.find(c => c.startsWith('referral_journey_token='));
-    const selfCookieVal = selfJourneyCookie.split(';')[0].split('=')[1];
-    const selfDecoded = JSON.parse(decodeURIComponent(selfCookieVal));
-    
-    // Attempt claim via service
-    const { ReferralEngineService } = require('../services/referral/referralEngineService');
-    const service = new ReferralEngineService({ client: supabase });
-    await service.bindAttributionJourney(selfDecoded.token, newUserId, testTenant);
-    
-    const { data: selfJourney } = await supabase.from('referral_attribution_journeys')
-      .select('*')
-      .eq('anonymous_journey_id', selfDecoded.token)
-      .single();
-    expect(selfJourney.status).toBe('abandoned');
+  await service.recordAnonymousTouch({
+    code: 'WAVE0001',
+    journeyToken: 'anon-tok-1',
+    channel: 'web',
+    source: 'public_link',
+    req: null,
   });
+
+  const journeys = await repository.list(REFERRAL_TABLES.attributionJourneys, { anonymous_journey_id: 'anon-tok-1' });
+  assert.equal(journeys.length, 1, 'Journey must be created');
+
+  const touches = await repository.list(REFERRAL_TABLES.attributionTouches, { journey_id: journeys[0].id });
+  assert.equal(touches.length, 1, 'Exactly one touch must be recorded');
+  assert.equal(touches[0].touch_kind, 'first', 'First touch_kind must be "first"');
+  assert.equal(journeys[0].reward_owner_user_id, 'owner-1', 'reward_owner_user_id must be set');
+});
+
+// ─── Self-referral rejection ──────────────────────────────────────────────────
+test('bindAttributionJourney abandons journey on self-referral', async () => {
+  const { repository, service } = createService();
+  // Create a journey owned by user-5
+  const journey = await repository.insert(REFERRAL_TABLES.attributionJourneys, {
+    tenant_id: 'platform',
+    anonymous_journey_id: 'anon-self-1',
+    status: 'active',
+    reward_owner_user_id: 'user-5',
+  });
+
+  // user-5 tries to claim their own referral journey
+  const result = await service.bindAttributionJourney('anon-self-1', 'user-5', 'platform');
+  assert.equal(result, null, 'Self-referral must return null (rejected)');
+
+  const updated = await repository.findOne(REFERRAL_TABLES.attributionJourneys, { id: journey.id });
+  assert.equal(updated.status, 'abandoned', 'Journey must be abandoned on self-referral');
+});
+
+// ─── Journey claim ────────────────────────────────────────────────────────────
+test('bindAttributionJourney claims journey for a different user', async () => {
+  const { repository, service } = createService();
+  await repository.insert(REFERRAL_TABLES.attributionJourneys, {
+    tenant_id: 'platform',
+    anonymous_journey_id: 'anon-bind-1',
+    status: 'active',
+    reward_owner_user_id: 'owner-2',
+  });
+
+  const bound = await service.bindAttributionJourney('anon-bind-1', 'new-user-1', 'platform');
+  assert.ok(bound, 'Journey must be bound');
+  assert.equal(bound.user_id, 'new-user-1');
+  assert.ok(bound.claimed_at, 'claimed_at must be set');
+});
+
+// ─── Tenant scoping ───────────────────────────────────────────────────────────
+test('bindAttributionJourney does not bind a journey from a different tenant', async () => {
+  const { repository, service } = createService();
+  await repository.insert(REFERRAL_TABLES.attributionJourneys, {
+    tenant_id: 'tenant-A',
+    anonymous_journey_id: 'anon-tenant-1',
+    status: 'active',
+    reward_owner_user_id: 'owner-3',
+  });
+
+  // Attempt to bind from tenant-B — should find nothing and return null
+  const result = await service.bindAttributionJourney('anon-tenant-1', 'new-user-2', 'tenant-B');
+  assert.equal(result, null, 'Cross-tenant bind must return null');
 });

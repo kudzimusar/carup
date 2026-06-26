@@ -127,6 +127,20 @@ import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
 import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
 import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
 
+// MVP Group 1-4 Pages
+import AmbassadorDashboard from './pages/dashboard/ambassador/referrals'
+import ReceiverDashboard from './pages/dashboard/receiver/referrals'
+import ConsentPreferences from './pages/dashboard/referrals/preferences'
+import SellerListingReferral from './pages/dashboard/seller/listing-referral'
+import BuyerReferral from './pages/marketplace/buyer-referral'
+import PartsRequest from './pages/public/parts-request'
+import ContainerBooking from './pages/public/container-space/[campaignId]'
+import RewardOperations from './pages/admin/referrals/rewards'
+import FraudChecks from './pages/admin/trust/fraud'
+import ReferralAnalytics from './pages/admin/referrals/analytics'
+import MultilingualDrafts from './pages/admin/referrals/marketing'
+import AgentDepotPage from './pages/admin/referrals/assisted-leads'
+
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
 import LendingQueue from './pages/dashboard/bank/LendingQueue'
@@ -244,6 +258,11 @@ export default function App() {
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
+
+          {/* Public Referral + Trade pages */}
+          <Route path="/parts-request" element={<PartsRequest />} />
+          <Route path="/container-space/:campaignId" element={<ContainerBooking />} />
+          <Route path="/marketplace/buy" element={<BuyerReferral />} />
         </Route>
 
         {/* Auth Routes */}
@@ -267,6 +286,12 @@ export default function App() {
           <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />
           <Route path="/dashboard/referrals" element={<ReferralWallet />} />
+
+          {/* MVP role pages */}
+          <Route path="/dashboard/ambassador/referrals" element={<AmbassadorDashboard />} />
+          <Route path="/dashboard/receiver/referrals" element={<ReceiverDashboard />} />
+          <Route path="/dashboard/referrals/preferences" element={<ConsentPreferences />} />
+          <Route path="/dashboard/seller/listing-referral" element={<SellerListingReferral />} />
         </Route>
 
         {/* Dealer Dashboard */}
@@ -343,6 +368,13 @@ export default function App() {
           <Route path="/admin/referrals/import-routes" element={<ReferralImportRoutes />} />
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
+
+          {/* MVP Group 1-4 admin pages */}
+          <Route path="/admin/referrals/analytics" element={<ReferralAnalytics />} />
+          <Route path="/admin/referrals/rewards" element={<RewardOperations />} />
+          <Route path="/admin/referrals/marketing/drafts" element={<MultilingualDrafts />} />
+          <Route path="/admin/referrals/assisted-leads" element={<AgentDepotPage />} />
+          <Route path="/admin/trust/fraud" element={<FraudChecks />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

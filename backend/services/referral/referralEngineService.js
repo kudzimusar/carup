@@ -375,6 +375,16 @@ export class ReferralEngineService {
 
   async ensurePermanentMemberCode(authenticatedUserId, tenantId = DEFAULT_PLATFORM_TENANT) {
     if (!authenticatedUserId) throw new ValidationError('Authenticated User ID is required.');
+
+    // Idempotency pre-check: return early if a permanent MEMBER code already exists.
+    // This avoids relying solely on the DB unique constraint (which in-memory repos don't enforce).
+    const existing = await this.repository.findOne(REFERRAL_TABLES.codes, {
+      tenant_id: tenantId,
+      owner_user_id: authenticatedUserId,
+      is_permanent: true,
+    });
+    if (existing) return existing;
+
     const codeStr = normalizeReferralCode(generateReferralCode({ seed: authenticatedUserId }));
     const payload = {
       tenant_id: tenantId,
@@ -400,8 +410,8 @@ export class ReferralEngineService {
     } catch (err) {
       // 23505 is the Postgres code for unique_violation
       if (err.originalError?.code === '23505' || err.message?.includes('duplicate key') || err.message?.includes('violates unique constraint')) {
-        const existing = await this.repository.findOne(REFERRAL_TABLES.codes, { tenant_id: tenantId, owner_user_id: authenticatedUserId, is_permanent: true });
-        if (existing) return existing;
+        const race = await this.repository.findOne(REFERRAL_TABLES.codes, { tenant_id: tenantId, owner_user_id: authenticatedUserId, is_permanent: true });
+        if (race) return race;
       }
       throw err;
     }

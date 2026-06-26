@@ -1158,6 +1158,60 @@ export function useCarUpApi() {
     explainReferralBenefit,
     createReferralDispute,
     resolveReferralDispute,
-    exportReferralAudit
+    exportReferralAudit,
+
+    // ── MVP Group 1: Roles ──
+    getReferralRoleProfiles: useCallback(() =>
+      request<any>('/referrals/roles/me'), [request]),
+    activateAmbassador: useCallback((payload: { tier?: string; metadata?: Record<string, unknown> }) =>
+      request<any>('/referrals/roles/ambassador', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    registerReceiver: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/roles/receiver', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    confirmReceiverHandover: useCallback((linkId: string, payload: { handover_status: string; note?: string }) =>
+      request<any>(`/referrals/roles/receiver/${encodeURIComponent(linkId)}/handover`, { method: 'PATCH', body: JSON.stringify(payload) }), [request]),
+    registerMechanic: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/roles/mechanic', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    registerAgentLead: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/roles/agent', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    getAgentLeads: useCallback(() =>
+      request<any>('/referrals/roles/agent/leads'), [request]),
+
+    // ── MVP Group 2: Trade ──
+    captureBuyerReferral: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/trade/buyer', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    createSellerReferral: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/trade/seller', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    submitPartsRequest: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/trade/parts', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    submitImportMilestone: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/trade/import', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    submitContainerBooking: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/trade/container', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    updateTradeEventStatus: useCallback((eventId: string, payload: Record<string, unknown>) =>
+      request<any>(`/referrals/trade/${encodeURIComponent(eventId)}/status`, { method: 'PATCH', body: JSON.stringify(payload) }), [request]),
+
+    // ── MVP Group 3: Ops ──
+    operateReward: useCallback((payload: { transaction_id: string; new_status: string; reason: string }) =>
+      request<any>('/referrals/rewards/operate', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    exportPayoutCsv: useCallback((status = 'payable', campaign_id?: string) => {
+      const q = campaign_id ? `?status=${status}&campaign_id=${encodeURIComponent(campaign_id)}` : `?status=${status}`
+      return request<string>(`/referrals/rewards/export${q}`)
+    }, [request]),
+    checkFraudSignals: useCallback((payload: { user_id: string; referral_code?: string; context?: Record<string, unknown> }) =>
+      request<any>('/referrals/fraud/check', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    upsertChannelPreference: useCallback((payload: Record<string, unknown>) =>
+      request<any>('/referrals/preferences', { method: 'POST', body: JSON.stringify(payload) }), [request]),
+    getChannelPreferences: useCallback(() =>
+      request<any>('/referrals/preferences'), [request]),
+
+    // ── MVP Group 4: Growth + Mobile ──
+    getReferralAnalytics: useCallback(() =>
+      request<any>('/referrals/growth/analytics'), [request]),
+    getMarketingDrafts: useCallback((language = 'en') =>
+      request<any>(`/referrals/growth/marketing/drafts?language=${language}`), [request]),
+    getMobileReceiverStatus: useCallback(() =>
+      request<any>('/referrals/mobile/receiver/status'), [request]),
+    getMobileAmbassadorSummary: useCallback(() =>
+      request<any>('/referrals/mobile/ambassador/summary'), [request])
   }
 }
