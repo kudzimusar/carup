@@ -19,6 +19,8 @@ import type {
   ExtractionReviewDecisionPayload,
   VehicleDocumentExtraction,
   VehicleCompleteness,
+  SourceCoverageEntry,
+  TrustDecision,
   GovernanceTaskType,
   GovernanceReviewQueueResponse,
   GovernanceDecisionPayload,
@@ -379,6 +381,15 @@ export function useCarUpApi() {
       method: 'PATCH',
       body: JSON.stringify(payload),
     })
+  }, [request])
+
+  // ── WS2/WS10 — Source coverage + unified trust decision (buyer-safe) ──────────
+  const fetchVehicleSourceCoverage = useCallback(async (vin: string): Promise<{ coverage: SourceCoverageEntry[] }> => {
+    return request<{ coverage: SourceCoverageEntry[] }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/sources/coverage`)
+  }, [request])
+
+  const fetchVehicleTrustDecision = useCallback(async (vin: string): Promise<{ decision: TrustDecision }> => {
+    return request<{ decision: TrustDecision }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/trust-decision`)
   }, [request])
 
   // ── Phase 4 — Publication completeness gate ──────────────────────────────────
@@ -1193,6 +1204,8 @@ export function useCarUpApi() {
     fetchVehicleExtractions,
     reviewVehicleExtraction,
     fetchVehicleCompleteness,
+    fetchVehicleSourceCoverage,
+    fetchVehicleTrustDecision,
     fetchVehicleReport,
     generateReportVersion,
     createReportShareLink,

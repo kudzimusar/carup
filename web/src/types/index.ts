@@ -805,6 +805,41 @@ export interface VehicleCompleteness {
   publication_status: string;
 }
 
+// ── WS2 — Source Verification Network (buyer-safe coverage) ──────────────────
+
+export type SourceProvider = 'zimra' | 'cvr' | 'zinara' | 'vid' | 'cid';
+export type SourceVerificationMode =
+  | 'live' | 'partner_file' | 'manual_verification' | 'sandbox' | 'unavailable';
+export type SourceCoverageStatus =
+  | 'source_connected' | 'sandbox_demonstration' | 'partner_file_reviewed'
+  | 'carup_manual_reviewed' | 'conflict_under_review' | 'risk_flagged'
+  | 'no_record_found' | 'source_unavailable' | 'pending';
+
+export interface SourceCoverageEntry {
+  vin: string;
+  provider: SourceProvider;
+  mode: SourceVerificationMode;
+  coverage_status: SourceCoverageStatus;
+  retrieved_at: string | null;
+  created_at?: string;
+}
+
+// ── WS10 — Unified Trust Decision (buyer-safe projection) ────────────────────
+
+export interface TrustDimension {
+  status: string;
+  value: string | number | null;
+  reason_codes?: string[];
+}
+export interface TrustDecision {
+  vin: string;
+  calculation_version: string;
+  last_updated: string | null;
+  overall_trust: { status: string; value: string | number | null };
+  dimensions: Record<string, TrustDimension>;
+  known_limitations: string[];
+}
+
 // ── Phase 3 — Vehicle Document Extractions (OCR field-level contract) ────────
 
 export type ExtractionMatchStatus = 'match' | 'mismatch' | 'missing_reference' | 'inconclusive';
