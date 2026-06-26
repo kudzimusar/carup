@@ -61,6 +61,11 @@ const MIGRATIONS = [
   '20260626120000_source_verification_network.sql',
   // WS9 — controlled partner API
   '20260626130000_partner_api.sql',
+  // WS-A fraud engine, WS-B dealer compliance, WS-C/D/E eligibility, WS-F escrow
+  '20260626140000_fraud_engine.sql',
+  '20260626150000_dealer_compliance.sql',
+  '20260626160000_eligibility_framework.sql',
+  '20260626180000_escrow_trust_sessions.sql',
 ];
 
 function extractUpSection(filepath) {
