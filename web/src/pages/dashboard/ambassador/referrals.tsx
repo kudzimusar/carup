@@ -1,0 +1,1 @@
+export default function AmbassadorDashboard() { return <div>Ambassador Dashboard: Status, Code, QR, Campaigns, Leads, Conversions, Rewards, Tier</div>; }

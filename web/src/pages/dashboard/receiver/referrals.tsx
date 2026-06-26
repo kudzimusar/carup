@@ -1,0 +1,1 @@
+export default function ReceiverDashboard() { return <div>Receiver Page: Payer, Shipment, Status, Handover, Invite</div>; }

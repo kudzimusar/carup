@@ -1,0 +1,1 @@
+export default function PartsSupplierDashboard() { return <div>Mechanic/Parts Page: Customer, Vehicle, Part, Request Status, Reward</div>; }

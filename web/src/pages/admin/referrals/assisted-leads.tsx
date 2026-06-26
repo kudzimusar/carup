@@ -1,0 +1,1 @@
+export default function AgentDepotPage() { return <div>Agent/Depot Page: Register Assisted Lead, Validate QR, Reference</div>; }
