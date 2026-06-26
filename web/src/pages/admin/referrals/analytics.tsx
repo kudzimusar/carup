@@ -1,0 +1,1 @@
+export default function Analytics() { return <div>Analytics: Visits, Leads, Conversions, Cost, CSV Export</div>; }

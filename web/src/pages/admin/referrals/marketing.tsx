@@ -1,0 +1,1 @@
+export default function MultilingualDrafts() { return <div>Multilingual Drafts: English, Shona, Ndebele. Needs Human Approval</div>; }

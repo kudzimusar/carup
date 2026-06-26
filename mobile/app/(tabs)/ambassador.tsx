@@ -1,0 +1,1 @@
+import React from 'react'; import { View, Text } from 'react-native'; export default function MobileAmbassador() { return <View><Text>Mobile Ambassador: Code, QR, Campaigns, Rewards</Text></View>; }

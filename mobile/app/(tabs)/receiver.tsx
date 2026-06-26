@@ -1,0 +1,1 @@
+import React from 'react'; import { View, Text } from 'react-native'; export default function MobileReceiver() { return <View><Text>Mobile Receiver: Tracking, Handover, Share</Text></View>; }
