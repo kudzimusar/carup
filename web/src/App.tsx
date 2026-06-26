@@ -120,6 +120,8 @@ import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import FraudQueue from './pages/dashboard/admin/FraudQueue'
+import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
 import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
@@ -339,6 +341,8 @@ export default function App() {
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/fraud-queue" element={<FraudQueue />} />
+          <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
           <Route path="/government/governance-review" element={<GovernanceReviewQueue />} />
