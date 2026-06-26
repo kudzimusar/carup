@@ -38,6 +38,8 @@ const NEW_MIGRATIONS = [
   '20260624150000_trust_change_log_immutability.sql',
   // WS2 — external source verification network (append-only registry results)
   '20260626120000_source_verification_network.sql',
+  // WS9 — controlled partner API (hashed credentials + append-only request audit)
+  '20260626130000_partner_api.sql',
 ];
 
 function splitMigration(file) {
@@ -302,6 +304,16 @@ results.catalog.source_coverage_view_sandbox_labelled = n0(await q(
    WHERE vin='V1' AND provider='zimra' AND coverage_status='sandbox_demonstration'`
 )) === 1;
 
+// partner_api_requests (WS9) — append-only request audit
+results.catalog.partner_requests_immutable = await checkImmutable(
+  'partner_api_requests',
+  `INSERT INTO partner_clients(name,key_hash,scopes) VALUES ('acme','HASHV1','["vehicle:identity"]');
+   INSERT INTO partner_api_requests(client_id,correlation_id,method,path,status_code)
+   SELECT id,'corr-1','GET','/api/partner/v1/ping',200 FROM partner_clients WHERE key_hash='HASHV1'`,
+  `UPDATE partner_api_requests SET status_code=500 WHERE correlation_id='corr-1'`,
+  `DELETE FROM partner_api_requests WHERE correlation_id='corr-1'`
+);
+
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
   await step(db, f + ' (Down)', splitMigration(f).down, results.down);
@@ -311,7 +323,7 @@ results.catalog.tables_after_down = n0(await q(`
   ('evidence_class_taxonomy','evidence_sources','evidence_sets','evidence_provenance_events',
    'ingestion_jobs','source_records','vehicle_identity_candidates','listing_snapshots',
    'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log',
-   'vehicle_document_extractions','source_verification_results')`));
+   'vehicle_document_extractions','source_verification_results','partner_clients','partner_api_requests')`));
 
 // 5. re-apply Up
 for (const f of NEW_MIGRATIONS) {
