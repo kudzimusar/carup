@@ -27,9 +27,14 @@ function dim(status, value, reasonCodes = [], extra = {}) {
     status,
     value,
     reason_codes: reasonCodes,
-    visibility: extra.visibility || PUBLIC,
     source_facts: extra.source_facts || [],
+    policy_version: extra.policy_version || CALCULATION_VERSION,
+    evaluated_at: extra.evaluated_at || null,
+    staleness: extra.staleness || null,
+    visibility: extra.visibility || PUBLIC,
     manual_override: extra.manual_override || null,
+    override_actor: extra.override_actor || null,
+    override_reason: extra.override_reason || null,
     ...extra.rest,
   };
 }
@@ -88,9 +93,26 @@ function fraudDimension(coverage, fraudInput) {
   if (fraudInput && Array.isArray(fraudInput.signals)) {
     for (const s of fraudInput.signals) reasons.push(`signal:${s}`);
   }
+  // Persisted fraud-engine summary: open_cases, highest_severity, blocks_publication.
+  const caseSevere = fraudInput && (fraudInput.highest_severity === 'critical' || fraudInput.highest_severity === 'high' || fraudInput.blocks_publication === true);
+  if (fraudInput && fraudInput.open_cases > 0) reasons.push(`open_fraud_cases:${fraudInput.open_cases}`);
   if (reasons.length === 0) return dim('clear', 'clear', [], {});
-  const severe = highRisk.length > 0 || (fraudInput && fraudInput.severity === 'high');
-  return dim(severe ? 'high' : 'watch', severe ? 'high' : 'watch', reasons, { visibility: PUBLIC });
+  const severe = highRisk.length > 0 || caseSevere || (fraudInput && fraudInput.severity === 'high');
+  return dim(severe ? 'high' : 'watch', severe ? 'high' : 'watch', reasons, {
+    visibility: PUBLIC,
+    rest: { open_cases: fraudInput?.open_cases ?? 0, highest_severity: fraudInput?.highest_severity ?? null, blocks_publication: Boolean(fraudInput?.blocks_publication) },
+  });
+}
+
+/** Render an eligibility dimension (insurance/finance/escrow) from a latest-status input. */
+function eligibilityDimension(input, capability, visibility) {
+  if (!input || !input.status || input.status === 'not_requested') return notEvaluated(capability, visibility);
+  const conditions = Array.isArray(input.conditions) ? input.conditions : [];
+  return dim(input.status, input.status, conditions.map((c) => `condition:${c}`), {
+    visibility,
+    evaluated_at: input.created_at || input.updated_at || null,
+    rest: { mode: input.mode || null, validity_until: input.validity_until || null },
+  });
 }
 
 /**
@@ -99,6 +121,39 @@ function fraudDimension(coverage, fraudInput) {
  */
 function notEvaluated(note, visibility = PUBLIC) {
   return dim('not_evaluated', null, [`pending_module:${note}`], { visibility });
+}
+
+/** Render the dealer-compliance dimension from a compliance summary, or not_evaluated. */
+function renderDealer(dealerCompliance) {
+  if (!dealerCompliance) return notEvaluated('dealer_compliance');
+  // Pass-through if already a dimension (has a status + reason_codes shape).
+  if (dealerCompliance.reason_codes && dealerCompliance.status && dealerCompliance.value !== undefined) return dealerCompliance;
+  const reasons = [];
+  if (dealerCompliance.suspension_state === 'suspended') reasons.push('dealer_suspended');
+  if (dealerCompliance.restriction_state === 'restricted') reasons.push('dealer_restricted');
+  if (dealerCompliance.identity_status && dealerCompliance.identity_status !== 'verified') reasons.push('dealer_identity_unverified');
+  const status = dealerCompliance.suspension_state === 'suspended' ? 'suspended'
+    : dealerCompliance.restriction_state === 'restricted' ? 'restricted'
+    : (dealerCompliance.can_publish ? 'compliant' : 'incomplete');
+  return dim(status, status, reasons, {
+    rest: {
+      identity_status: dealerCompliance.identity_status ?? null,
+      compliance_review_state: dealerCompliance.compliance_review_state ?? null,
+      can_publish: Boolean(dealerCompliance.can_publish),
+    },
+  });
+}
+
+/** Publication eligibility = completeness gate AND no fraud block AND dealer not suspended. */
+function publicationDimension(completeness, fraudInput, dealerCompliance) {
+  if (!completeness) return notEvaluated('publication');
+  const reasons = [];
+  if (!completeness.is_publishable) for (const g of (completeness.blocking_gaps || [])) reasons.push(`blocking:${g}`);
+  if (fraudInput && fraudInput.blocks_publication) reasons.push('fraud_block');
+  if (dealerCompliance && dealerCompliance.suspension_state === 'suspended') reasons.push('dealer_suspended');
+  const blocked = reasons.length > 0;
+  return dim(blocked ? 'blocked' : 'publishable',
+    blocked ? 'blocked' : completeness.publication_status, reasons);
 }
 
 /**
@@ -136,15 +191,11 @@ export function assembleDecision(inputs) {
     source_coverage: sourceCoverageDimension(coverage),
     source_conflicts: sourceConflictDimension(coverage),
     fraud_risk: fraudDimension(coverage, fraudInput),
-    dealer_compliance: dealerCompliance || notEvaluated('dealer_compliance'),
-    publication_eligibility: completeness
-      ? dim(completeness.is_publishable ? 'publishable' : 'blocked',
-          completeness.publication_status,
-          completeness.is_publishable ? [] : (completeness.blocking_gaps || []).map((g) => `blocking:${g}`))
-      : notEvaluated('publication'),
-    insurance_eligibility: insurance || notEvaluated('insurance', PUBLIC),
-    finance_eligibility: finance || notEvaluated('finance', PRIVATE),
-    escrow_eligibility: escrow || notEvaluated('escrow', PUBLIC),
+    dealer_compliance: renderDealer(dealerCompliance),
+    publication_eligibility: publicationDimension(completeness, fraudInput, dealerCompliance),
+    insurance_eligibility: eligibilityDimension(insurance, 'insurance', PUBLIC),
+    finance_eligibility: eligibilityDimension(finance, 'finance', PRIVATE),
+    escrow_eligibility: eligibilityDimension(escrow, 'escrow', PUBLIC),
   };
 
   const { score, scoreReasons } = computeOverallScore(dimensions);
@@ -259,18 +310,53 @@ export async function getTrustDecision(vin, opts = {}) {
   let coverage = [];
   try { coverage = await getCoverage(vin); } catch { /* coverage stays empty */ }
 
+  // Each external dimension is fetched defensively — a failure leaves it not_evaluated,
+  // never fabricates a clear/eligible state.
+  const fraudInput = opts.fraudInput !== undefined ? opts.fraudInput : await fetchFraudSummary(vin);
+  const insurance = opts.insurance !== undefined ? opts.insurance : await fetchEligibility('insurance', vin);
+  const finance = opts.finance !== undefined ? opts.finance : await fetchEligibility('finance', vin);
+  const escrow = opts.escrow !== undefined ? opts.escrow : await fetchEscrow(vin);
+
   return assembleDecision({
     vin,
     vehicle,
     completeness,
     coverage,
-    fraudInput: opts.fraudInput || null,
+    fraudInput,
     dealerCompliance: opts.dealerCompliance || null,
-    insurance: opts.insurance || null,
-    finance: opts.finance || null,
-    escrow: opts.escrow || null,
+    insurance,
+    finance,
+    escrow,
     now: opts.now || new Date().toISOString(),
   });
+}
+
+async function fetchFraudSummary(vin) {
+  try {
+    const { data } = await supabase.from('fraud_cases')
+      .select('status, highest_severity, blocks_publication').eq('vin', vin).eq('status', 'open');
+    if (!data || data.length === 0) return null;
+    const order = { low: 1, medium: 2, high: 3, critical: 4 };
+    const highest = data.reduce((acc, c) => (order[c.highest_severity] > order[acc] ? c.highest_severity : acc), 'low');
+    return { open_cases: data.length, highest_severity: highest, blocks_publication: data.some((c) => c.blocks_publication) };
+  } catch { return null; }
+}
+
+async function fetchEligibility(capability, vin) {
+  try {
+    const { data } = await supabase.from('eligibility_requests')
+      .select('status, conditions, mode, validity_until, created_at').eq('vin', vin).eq('capability', capability)
+      .order('created_at', { ascending: false });
+    return (data && data[0]) || null;
+  } catch { return null; }
+}
+
+async function fetchEscrow(vin) {
+  try {
+    const { data } = await supabase.from('escrow_trust_sessions')
+      .select('status, created_at').eq('vin', vin).order('created_at', { ascending: false });
+    return (data && data[0]) || null;
+  } catch { return null; }
 }
 
 export default { CALCULATION_VERSION, assembleDecision, toPublicDecision, getTrustDecision };
