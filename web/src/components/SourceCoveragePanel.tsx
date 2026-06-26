@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ShieldCheck, FlaskConical, FileCheck2, UserCheck, AlertTriangle, ShieldAlert, HelpCircle, CircleSlash, Clock } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { SourceCoverageEntry, SourceProvider, SourceCoverageStatus } from '@/types'
