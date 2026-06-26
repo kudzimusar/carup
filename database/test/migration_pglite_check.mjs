@@ -36,6 +36,8 @@ const NEW_MIGRATIONS = [
   '20260624140000_listing_publication_lifecycle.sql',
   // Phase 6 — trust_change_log append-only enforcement
   '20260624150000_trust_change_log_immutability.sql',
+  // WS2 — external source verification network (append-only registry results)
+  '20260626120000_source_verification_network.sql',
 ];
 
 function splitMigration(file) {
@@ -277,6 +279,29 @@ results.catalog.trust_change_log_immutable = await checkImmutable(
   `DELETE FROM trust_change_log WHERE vin='V1' AND rule='test_rule'`
 );
 
+// source_verification_results (WS2) — append-only registry verification log
+results.catalog.source_verification_immutable = await checkImmutable(
+  'source_verification_results',
+  `INSERT INTO source_verification_results(vin,provider,mode,query_value,result,confidence)
+   VALUES ('V1','zimra','sandbox','V1','match',0.9)`,
+  `UPDATE source_verification_results SET result='mismatch' WHERE vin='V1' AND provider='zimra'`,
+  `DELETE FROM source_verification_results WHERE vin='V1' AND provider='zimra'`
+);
+
+// source verification: mode CHECK rejects an unsanctioned "official" relabel; the public
+// coverage view must never expose a sandbox result as a live source_connected status.
+results.catalog.source_verification_mode_enforced = await (async () => {
+  try {
+    await db.exec(`INSERT INTO source_verification_results(vin,provider,mode,query_value,result)
+                   VALUES ('V1','cvr','definitely_official','V1','match')`);
+    return false; // should have thrown on the mode CHECK
+  } catch { return true; }
+})();
+results.catalog.source_coverage_view_sandbox_labelled = n0(await q(
+  `SELECT count(*)::int n FROM source_verification_coverage_public
+   WHERE vin='V1' AND provider='zimra' AND coverage_status='sandbox_demonstration'`
+)) === 1;
+
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
   await step(db, f + ' (Down)', splitMigration(f).down, results.down);
@@ -286,7 +311,7 @@ results.catalog.tables_after_down = n0(await q(`
   ('evidence_class_taxonomy','evidence_sources','evidence_sets','evidence_provenance_events',
    'ingestion_jobs','source_records','vehicle_identity_candidates','listing_snapshots',
    'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log',
-   'vehicle_document_extractions')`));
+   'vehicle_document_extractions','source_verification_results')`));
 
 // 5. re-apply Up
 for (const f of NEW_MIGRATIONS) {
