@@ -44,6 +44,7 @@ const serverFile = readFileSync(new URL('../server.js', import.meta.url), 'utf8'
 const eventWorkerFile = readFileSync(new URL('../services/eventBus/eventWorker.js', import.meta.url), 'utf8');
 const cloudflareWorkerFile = readFileSync(new URL('../../cloudflare/carup-communications-edge/src/index.js', import.meta.url), 'utf8');
 const backendVercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+const supabaseCronMigrationSql = readFileSync(new URL('../../database/migrations/20260626120000_communication_supabase_cron.sql', import.meta.url), 'utf8');
 
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
@@ -1379,10 +1380,24 @@ test('Cloudflare Worker project exposes fetch, email, queue, and scheduled handl
 
 // ── Issue #110: Automatic Telegram delivery ────────────────────────────────────
 
-test('communication worker cron is scheduled every minute (not daily)', () => {
-  const cron = backendVercelConfig?.crons?.find((c) => c.path === '/api/internal/communications/process');
-  assert.ok(cron, 'cron entry for /api/internal/communications/process must exist in backend/vercel.json');
-  assert.equal(cron.schedule, '* * * * *', 'cron schedule must be every-minute (* * * * *)');
+test('Vercel cron does not use per-minute schedule and Supabase pg_cron handles every-minute delivery', () => {
+  // Vercel Hobby plan does not support sub-daily cron schedules. The per-minute
+  // schedule MUST live in Supabase pg_cron, not vercel.json — otherwise the
+  // backend deployment fails on the Hobby plan.
+  const crons = backendVercelConfig?.crons || [];
+  const minuteCron = crons.find((c) => c.schedule === '* * * * *');
+  assert.equal(minuteCron, undefined, 'backend/vercel.json must not have a per-minute cron (breaks Vercel Hobby plan)');
+
+  // Supabase cron migration must carry the every-minute schedule
+  assert.ok(supabaseCronMigrationSql.includes('carup-communication-worker-every-minute'), 'migration must define the named cron job');
+  assert.ok(supabaseCronMigrationSql.includes("'* * * * *'"), 'migration must use every-minute schedule');
+  assert.ok(supabaseCronMigrationSql.includes('pg_cron'), 'migration must reference pg_cron extension');
+  assert.ok(supabaseCronMigrationSql.includes('pg_net'), 'migration must reference pg_net extension');
+  assert.ok(supabaseCronMigrationSql.includes('CARUP_WORKER_ENDPOINT_URL'), 'must read endpoint URL from Vault');
+  assert.ok(supabaseCronMigrationSql.includes('CARUP_WORKER_SECRET'), 'must read secret from Vault');
+  assert.ok(supabaseCronMigrationSql.includes('cron.unschedule'), 'must include idempotent unschedule step');
+  assert.ok(supabaseCronMigrationSql.includes('+migrate Down') || supabaseCronMigrationSql.includes('migrate Down'), 'must have rollback section');
+  assert.ok(supabaseCronMigrationSql.includes('get_communication_scheduler_health'), 'must include scheduler health RPC function');
 });
 
 test('staging and production environments use real Telegram adapter when CARUP_TELEGRAM_BOT_TOKEN is set', () => {
@@ -1430,12 +1445,17 @@ test('COMMUNICATION_REAL_ADAPTERS=true forces real adapters regardless of NODE_E
   assert.equal(registry.get('telegram').provider, 'telegram_bot_api');
 });
 
-test('worker health endpoint is registered in admin communication routes', () => {
+test('worker health endpoint is registered in admin communication routes and reports supabase_cron', () => {
   assert.ok(adminCommunicationRouteFile.includes('/api/admin/communications/worker/health'), 'health endpoint must be registered');
   assert.ok(adminCommunicationRouteFile.includes('sla_threshold_seconds'), 'must include SLA threshold field');
   assert.ok(adminCommunicationRouteFile.includes('oldest_queued_seconds'), 'must include oldest queued age');
   assert.ok(adminCommunicationRouteFile.includes('telegram'), 'must include telegram adapter status');
-  assert.ok(adminCommunicationRouteFile.includes('scheduler'), 'must include scheduler metadata');
+  assert.ok(adminCommunicationRouteFile.includes('supabase_cron'), 'must report scheduler_type=supabase_cron');
+  assert.ok(adminCommunicationRouteFile.includes('get_communication_scheduler_health'), 'must call pg_cron health RPC');
+  assert.ok(adminCommunicationRouteFile.includes('stale_lock_count'), 'must include stale lock count from RPC');
+  assert.ok(adminCommunicationRouteFile.includes('inspect'), 'must include observability table references');
+  assert.ok(adminCommunicationRouteFile.includes('cron.job'), 'must reference cron.job inspection table');
+  assert.ok(adminCommunicationRouteFile.includes('net._http_response'), 'must reference pg_net response table');
 });
 
 test('communication worker endpoint includes correlation_id and timestamps in response', () => {

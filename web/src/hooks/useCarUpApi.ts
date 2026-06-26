@@ -908,7 +908,20 @@ export function useCarUpApi() {
     }
     telegram: { channel: string; provider: string; mode: string; available: boolean; missing?: string[] } | null
     adapters: Array<{ channel: string; provider: string; mode: string; available: boolean }>
-    scheduler: { schedule: string; cadence: string; endpoint: string; note: string }
+    scheduler: {
+      scheduler_type: string
+      pg_cron_available: boolean
+      pg_net_available?: boolean
+      job_name?: string
+      job_configured: boolean
+      job_config?: { jobname: string; schedule: string; active: boolean } | null
+      latest_run?: { start_time: string; end_time: string; status: string; return_message?: string } | null
+      latest_success?: { start_time: string; end_time: string; status: string } | null
+      latest_failure?: { start_time: string; end_time: string; status: string; return_message?: string } | null
+      latest_http_call?: { status_code: number; created: string; timed_out: boolean } | null
+      stale_lock_count: number
+    }
+    inspect?: Record<string, string>
   }> => {
     return request('/admin/communications/worker/health', { method: 'GET' })
   }, [request])
