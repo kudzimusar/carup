@@ -134,12 +134,25 @@ app.get('/r/:code', async (req, res, next) => {
   try {
     const code = req.params.code;
     
-    // We do NOT validate the code synchronously here, to keep the redirect lightning fast.
-    // The validation and touch recording happen asynchronously or at registration.
-    
+    const referralService = new ReferralEngineService({ client: supabase });
+    const validation = await referralService.validateReferralCode({ code });
+    if (!validation.valid) {
+      return res.status(400).json(validation.error);
+    }
+    const tenantId = validation.code.tenant_id;
+
     // 1. Generate opaque journey ID securely
     const journeyToken = crypto.randomUUID();
     
+    // 3. Persist the anonymous journey touch synchronously
+    await referralService.recordAnonymousTouch({
+      code,
+      journeyToken,
+      channel: 'web',
+      source: 'public_link',
+      req
+    });
+
     // 2. Set HttpOnly, Secure, SameSite=Lax cookie
     res.cookie('referral_journey_token', JSON.stringify({ token: journeyToken, code }), {
       httpOnly: true,
@@ -147,19 +160,6 @@ app.get('/r/:code', async (req, res, next) => {
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     });
-
-    // 3. Persist the anonymous journey touch asynchronously
-    // (We wrap this in a fire-and-forget or await it if we want strict consistency)
-    const referralService = new ReferralEngineService({ client: supabase });
-    
-    // Attempt to persist the initial anonymous touch in the background
-    referralService.recordAnonymousTouch({
-      code,
-      journeyToken,
-      channel: 'web',
-      source: 'public_link',
-      req
-    }).catch(e => console.error('[Referral] Background anonymous touch failed:', e.message));
 
     // 4. Redirect to registration preserving the code in URL for fallback UI tracking
     res.redirect(302, `/register?ref=${encodeURIComponent(code)}`);
@@ -1272,6 +1272,7 @@ app.post('/api/auth/register', async (req, res) => {
           const journeyData = JSON.parse(cookies['referral_journey_token']);
           if (journeyData && journeyData.token) {
             await referralService.bindAttributionJourney(journeyData.token, id, 'platform');
+            res.clearCookie('referral_journey_token');
           }
         } catch (cookieErr) {
           console.warn('[Referral] Failed to parse or bind journey token:', cookieErr.message);
