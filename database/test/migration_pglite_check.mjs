@@ -36,6 +36,18 @@ const NEW_MIGRATIONS = [
   '20260624140000_listing_publication_lifecycle.sql',
   // Phase 6 — trust_change_log append-only enforcement
   '20260624150000_trust_change_log_immutability.sql',
+  // WS2 — external source verification network (append-only registry results)
+  '20260626120000_source_verification_network.sql',
+  // WS9 — controlled partner API (hashed credentials + append-only request audit)
+  '20260626130000_partner_api.sql',
+  // WS-A — fraud/duplicate engine (signals, cases, append-only events/resolutions)
+  '20260626140000_fraud_engine.sql',
+  // WS-B — dealer compliance (eight statuses + append-only decision ledger)
+  '20260626150000_dealer_compliance.sql',
+  // WS-C/D/E — shared eligibility framework (insurance + finance)
+  '20260626160000_eligibility_framework.sql',
+  // WS-F — trust-gated escrow lifecycle
+  '20260626180000_escrow_trust_sessions.sql',
 ];
 
 function splitMigration(file) {
@@ -277,6 +289,80 @@ results.catalog.trust_change_log_immutable = await checkImmutable(
   `DELETE FROM trust_change_log WHERE vin='V1' AND rule='test_rule'`
 );
 
+// source_verification_results (WS2) — append-only registry verification log
+results.catalog.source_verification_immutable = await checkImmutable(
+  'source_verification_results',
+  `INSERT INTO source_verification_results(vin,provider,mode,query_value,result,confidence)
+   VALUES ('V1','zimra','sandbox','V1','match',0.9)`,
+  `UPDATE source_verification_results SET result='mismatch' WHERE vin='V1' AND provider='zimra'`,
+  `DELETE FROM source_verification_results WHERE vin='V1' AND provider='zimra'`
+);
+
+// source verification: mode CHECK rejects an unsanctioned "official" relabel; the public
+// coverage view must never expose a sandbox result as a live source_connected status.
+results.catalog.source_verification_mode_enforced = await (async () => {
+  try {
+    await db.exec(`INSERT INTO source_verification_results(vin,provider,mode,query_value,result)
+                   VALUES ('V1','cvr','definitely_official','V1','match')`);
+    return false; // should have thrown on the mode CHECK
+  } catch { return true; }
+})();
+results.catalog.source_coverage_view_sandbox_labelled = n0(await q(
+  `SELECT count(*)::int n FROM source_verification_coverage_public
+   WHERE vin='V1' AND provider='zimra' AND coverage_status='sandbox_demonstration'`
+)) === 1;
+
+// fraud_signals (WS-A) — append-only signal ledger
+results.catalog.fraud_signals_immutable = await checkImmutable(
+  'fraud_signals',
+  `INSERT INTO fraud_signals(vin,signal_code,severity,confidence,rule_version)
+   VALUES ('V1','duplicate_vin','high',0.9,'fraud-rules-1.0.0')`,
+  `UPDATE fraud_signals SET severity='low' WHERE vin='V1' AND signal_code='duplicate_vin'`,
+  `DELETE FROM fraud_signals WHERE vin='V1' AND signal_code='duplicate_vin'`
+);
+
+// dealer_compliance_decisions (WS-B) — append-only governance decision ledger
+results.catalog.dealer_decisions_immutable = await checkImmutable(
+  'dealer_compliance_decisions',
+  `INSERT INTO users(id) VALUES ('dealer-imm-u') ON CONFLICT DO NOTHING;
+   INSERT INTO dealer_profiles(user_id) VALUES ('dealer-imm-u');
+   INSERT INTO dealer_compliance_decisions(dealer_id,decision,actor_id,actor_role)
+   SELECT id,'suspend','dealer-imm-u','admin' FROM dealer_profiles WHERE user_id='dealer-imm-u' ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE dealer_compliance_decisions SET reason='tampered' WHERE actor_id='dealer-imm-u' AND decision='suspend'`,
+  `DELETE FROM dealer_compliance_decisions WHERE actor_id='dealer-imm-u' AND decision='suspend'`
+);
+
+// eligibility_decisions (WS-C/D/E) — append-only decision history
+results.catalog.eligibility_decisions_immutable = await checkImmutable(
+  'eligibility_decisions',
+  `INSERT INTO eligibility_requests(capability,vin,provider_id,mode,correlation_id,status)
+     VALUES ('insurance','V1','insurance_sandbox','sandbox','corr-e1','pending');
+   INSERT INTO eligibility_decisions(request_id,status)
+     SELECT id,'pending' FROM eligibility_requests WHERE correlation_id='corr-e1' ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE eligibility_decisions SET status='eligible' WHERE status='pending'`,
+  `DELETE FROM eligibility_decisions WHERE status='pending'`
+);
+
+// escrow_trust_events (WS-F) — append-only state-transition history
+results.catalog.escrow_events_immutable = await checkImmutable(
+  'escrow_trust_events',
+  `INSERT INTO escrow_trust_sessions(vin,status,idempotency_key) VALUES ('V1','eligible','es-imm-1');
+   INSERT INTO escrow_trust_events(session_id,to_status)
+     SELECT id,'eligible' FROM escrow_trust_sessions WHERE idempotency_key='es-imm-1' ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE escrow_trust_events SET to_status='released_sandbox' WHERE to_status='eligible'`,
+  `DELETE FROM escrow_trust_events WHERE to_status='eligible'`
+);
+
+// partner_api_requests (WS9) — append-only request audit
+results.catalog.partner_requests_immutable = await checkImmutable(
+  'partner_api_requests',
+  `INSERT INTO partner_clients(name,key_hash,scopes) VALUES ('acme','HASHV1','["vehicle:identity"]');
+   INSERT INTO partner_api_requests(client_id,correlation_id,method,path,status_code)
+   SELECT id,'corr-1','GET','/api/partner/v1/ping',200 FROM partner_clients WHERE key_hash='HASHV1'`,
+  `UPDATE partner_api_requests SET status_code=500 WHERE correlation_id='corr-1'`,
+  `DELETE FROM partner_api_requests WHERE correlation_id='corr-1'`
+);
+
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
   await step(db, f + ' (Down)', splitMigration(f).down, results.down);
@@ -286,7 +372,8 @@ results.catalog.tables_after_down = n0(await q(`
   ('evidence_class_taxonomy','evidence_sources','evidence_sets','evidence_provenance_events',
    'ingestion_jobs','source_records','vehicle_identity_candidates','listing_snapshots',
    'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log',
-   'vehicle_document_extractions')`));
+   'vehicle_document_extractions','source_verification_results','partner_clients','partner_api_requests',
+   'fraud_signals','fraud_cases','dealer_profiles','dealer_compliance_decisions','eligibility_requests','eligibility_decisions','escrow_trust_sessions','escrow_trust_events')`));
 
 // 5. re-apply Up
 for (const f of NEW_MIGRATIONS) {

@@ -15,6 +15,12 @@ import type {
   EvidenceSourcesResponse,
   TemporalFindingsResponse,
   DisclosureConflictsResponse,
+  VehicleDocumentExtractionsResponse,
+  ExtractionReviewDecisionPayload,
+  VehicleDocumentExtraction,
+  VehicleCompleteness,
+  SourceCoverageEntry,
+  TrustDecision,
   GovernanceTaskType,
   GovernanceReviewQueueResponse,
   GovernanceDecisionPayload,
@@ -347,6 +353,73 @@ export function useCarUpApi() {
   // shape; empty is expected and correct for most buyer-facing vehicles.
   const fetchDisclosureConflicts = useCallback(async (vin: string): Promise<DisclosureConflictsResponse> => {
     return request<DisclosureConflictsResponse>(`/vehicles/${encodeURIComponent(vin)}/disclosure-conflicts`)
+  }, [request])
+
+  // ── OCR document extractions (Phase 12): admin/reviewer surface ──
+  // GET /api/vehicles/:vin/extractions — per-field OCR results with match_status + per-field
+  // confidence + review_status. Privileged roles only (backend enforces).
+  const fetchVehicleExtractions = useCallback(async (
+    vin: string,
+    opts?: { evidenceId?: string; matchStatus?: string; pendingOnly?: boolean },
+  ): Promise<VehicleDocumentExtractionsResponse> => {
+    const qs = new URLSearchParams()
+    if (opts?.evidenceId) qs.set('evidence_id', opts.evidenceId)
+    if (opts?.matchStatus) qs.set('match_status', opts.matchStatus)
+    if (opts?.pendingOnly) qs.set('pending_only', 'true')
+    const q = qs.toString() ? `?${qs.toString()}` : ''
+    return request<VehicleDocumentExtractionsResponse>(`/vehicles/${encodeURIComponent(vin)}/extractions${q}`)
+  }, [request])
+
+  // PATCH /api/vehicles/:vin/extractions/:id/review — reviewer decision. Only review_status +
+  // mismatch_reason change; the extracted content stays immutable (no overwrite of the original).
+  const reviewVehicleExtraction = useCallback(async (
+    vin: string,
+    extractionId: string,
+    payload: ExtractionReviewDecisionPayload,
+  ): Promise<{ extraction: VehicleDocumentExtraction }> => {
+    return request<{ extraction: VehicleDocumentExtraction }>(`/vehicles/${encodeURIComponent(vin)}/extractions/${encodeURIComponent(extractionId)}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // ── WS2/WS10 — Source coverage + unified trust decision (buyer-safe) ──────────
+  const fetchVehicleSourceCoverage = useCallback(async (vin: string): Promise<{ coverage: SourceCoverageEntry[] }> => {
+    return request<{ coverage: SourceCoverageEntry[] }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/sources/coverage`)
+  }, [request])
+
+  const fetchVehicleTrustDecision = useCallback(async (vin: string): Promise<{ decision: TrustDecision }> => {
+    return request<{ decision: TrustDecision }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/trust-decision`)
+  }, [request])
+
+  // ── WS-A fraud queue + WS-B dealer compliance (admin/reviewer) ────────────────
+  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: any[] }> => {
+    const qs = new URLSearchParams(filters as Record<string, string>).toString()
+    return request<{ cases: any[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
+  }, [request])
+  const fetchFraudCase = useCallback(async (id: string): Promise<{ case: any }> =>
+    request<{ case: any }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
+  const resolveFraudCase = useCallback(async (id: string, body: { resolution: string; reason: string }): Promise<any> =>
+    request(`/fraud/cases/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+  const evaluateVehicleFraud = useCallback(async (vin: string): Promise<any> =>
+    request(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/fraud/evaluate`, { method: 'POST' }), [request])
+  const fetchDealers = useCallback(async (): Promise<{ dealers: any[] }> =>
+    request<{ dealers: any[] }>(`/admin/dealers`), [request])
+  const fetchDealer = useCallback(async (id: string): Promise<{ dealer: any }> =>
+    request<{ dealer: any }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
+  const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<any> =>
+    request(`/admin/dealers/${encodeURIComponent(id)}/decision`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+  const fetchMyDealerProfile = useCallback(async (): Promise<{ profile: any }> =>
+    request<{ profile: any }>(`/dealer/profile`), [request])
+  const saveMyDealerProfile = useCallback(async (body: Record<string, unknown>): Promise<any> =>
+    request(`/dealer/profile`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  // ── Phase 4 — Publication completeness gate ──────────────────────────────────
+  // GET /api/vehicles/:vin/completeness — deterministic requirements evaluator.
+  // Returns blocking gaps, advisory gaps, completeness %, and publication_status.
+  // Requires owner/dealer/admin/reviewer role (enforced on the server).
+  const fetchVehicleCompleteness = useCallback(async (vin: string): Promise<VehicleCompleteness> => {
+    return request<VehicleCompleteness>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/completeness`)
   }, [request])
 
   // ── Vehicle History Report (M4): buyer-facing report + owner version/share ──
@@ -1150,6 +1223,20 @@ export function useCarUpApi() {
     fetchEvidenceSources,
     fetchTemporalFindings,
     fetchDisclosureConflicts,
+    fetchVehicleExtractions,
+    reviewVehicleExtraction,
+    fetchVehicleCompleteness,
+    fetchVehicleSourceCoverage,
+    fetchVehicleTrustDecision,
+    fetchFraudCases,
+    fetchFraudCase,
+    resolveFraudCase,
+    evaluateVehicleFraud,
+    fetchDealers,
+    fetchDealer,
+    recordDealerDecision,
+    fetchMyDealerProfile,
+    saveMyDealerProfile,
     fetchVehicleReport,
     generateReportVersion,
     createReportShareLink,

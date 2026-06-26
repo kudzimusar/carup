@@ -41,6 +41,8 @@ import type {
   VehicleHistoryReportData,
 } from '@/types'
 import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
+import { SourceCoveragePanel } from '@/components/SourceCoveragePanel'
+import { TrustDecisionPanel } from '@/components/TrustDecisionPanel'
 import { AllInPricePanel } from '@/components/marketplace/AllInPricePanel'
 import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
@@ -606,6 +608,8 @@ export default function VehicleDetail() {
           <div className="mb-6 grid gap-4 lg:grid-cols-3" data-testid="marketplace-detail-panels">
             <div className="space-y-4 lg:col-span-2">
               <TrustSummaryPanel trust={detail.trust_summary} verification={detail.verification_summary} />
+              {(vehicle?.vin || id) && <TrustDecisionPanel vin={(vehicle?.vin || id) as string} />}
+              {(vehicle?.vin || id) && <SourceCoveragePanel vin={(vehicle?.vin || id) as string} />}
               <SafetyWarnings warnings={detail.safety_warnings} />
             </div>
             <div className="space-y-4">

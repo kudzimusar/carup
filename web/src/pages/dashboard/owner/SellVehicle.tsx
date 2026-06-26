@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,6 +9,7 @@ import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle
 import { toast } from 'sonner'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 
 const MAKES = ['Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi', 'Other']
 const YEARS = Array.from({ length: 37 }, (_, i) => String(2026 - i))
@@ -45,12 +45,12 @@ function validateVin(vin: string) {
 }
 
 export default function SellVehicle() {
-  const navigate = useNavigate()
   const { createVehicleListing, uploadVehicleImages } = useCarUpApi()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [savedVin, setSavedVin] = useState<string | null>(null)
 
   const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
 
@@ -131,7 +131,7 @@ export default function SellVehicle() {
         }
       }
 
-      await createVehicleListing({
+      const result = await createVehicleListing({
         vin: form.vin.toUpperCase(),
         make: form.make,
         model: form.model,
@@ -156,8 +156,9 @@ export default function SellVehicle() {
         import_status: form.importStatus || undefined,
       })
 
+      const returnedVin: string = (result as any)?.vin ?? form.vin.toUpperCase()
+      setSavedVin(returnedVin)
       toast.success('Vehicle saved as draft. Upload ownership documents to publish your listing.')
-      navigate('/dashboard')
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : ''
       if (errMsg.includes('already listed')) {
@@ -171,6 +172,24 @@ export default function SellVehicle() {
   }
 
   const vinValid = form.vin.length >= 2 ? validateVin(form.vin) : null
+
+  // Post-save: show completeness panel instead of the form
+  if (savedVin) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="flex items-start gap-3">
+          <CheckCircle className="w-6 h-6 text-green-600 mt-0.5 shrink-0" />
+          <div>
+            <h1 className="text-2xl font-bold">Draft saved</h1>
+            <p className="text-gray-500">
+              Your vehicle has been registered as a draft. Complete the document requirements below to publish your listing.
+            </p>
+          </div>
+        </div>
+        <VehicleCompletenessPanel vin={savedVin} data-testid="post-save-completeness" />
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
