@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Bell, CheckCircle2, Loader2, MessageSquare, RefreshCcw, Send, UserCheck, XCircle } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Bell, CheckCircle2, Clock, Loader2, MessageSquare, RefreshCcw, Send, UserCheck, XCircle, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,8 +12,12 @@ type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdm
 type MessageSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThread']>>['messages'][number]
 type DeadLetterNotification = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationDeadLetters']>>['notifications'][number]
 type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationMetrics']>>
+type WorkerHealth = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationWorkerHealth']>>
 type StatCard = { label: string; value: string | number; icon: LucideIcon }
 type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
+
+const DELIVERY_POLL_INTERVAL_MS = 5_000   // while a reply is queued/processing
+const IDLE_POLL_INTERVAL_MS = 30_000      // background refresh cadence
 
 function newClientMessageId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -28,12 +32,33 @@ function mapReplyStatus(notificationStatus?: unknown, messageStatus?: unknown): 
   return 'queued'
 }
 
+function deliveryBadge(status?: string) {
+  const s = String(status || '').toLowerCase()
+  if (s === 'delivered') return <Badge variant="default" className="text-xs capitalize">Delivered</Badge>
+  if (s === 'sent') return <Badge variant="secondary" className="text-xs capitalize">Sent</Badge>
+  if (s === 'dead_letter' || s === 'failed') return <Badge variant="destructive" className="text-xs capitalize gap-1"><XCircle className="w-3 h-3" />Failed</Badge>
+  if (s === 'retry_scheduled') return <Badge variant="outline" className="text-xs capitalize">Retry scheduled</Badge>
+  if (s === 'processing') return <Badge variant="secondary" className="text-xs capitalize gap-1"><Loader2 className="w-3 h-3 animate-spin" />Processing</Badge>
+  if (s === 'queued') return <Badge variant="outline" className="text-xs capitalize gap-1"><Clock className="w-3 h-3" />Queued</Badge>
+  return null
+}
+
+function hasQueuedOrProcessing(msgs: MessageSummary[]) {
+  return msgs.some((m) => m.direction === 'outbound' && ['queued', 'processing', 'retry_scheduled'].includes(String(m.status || '')))
+}
+
+function ageSeconds(isoTs?: string | null): number | null {
+  if (!isoTs) return null
+  return Math.round((Date.now() - new Date(isoTs).getTime()) / 1000)
+}
+
 export default function AdminCommunications() {
   const {
     fetchAdminCommunicationThreads,
     fetchCommunicationDeadLetters,
     fetchAdminCommunicationMetrics,
     fetchAdminCommunicationThread,
+    fetchCommunicationWorkerHealth,
     adminReplyCommunicationThread,
     assignCommunicationThread,
     escalateCommunicationThread,
@@ -41,11 +66,13 @@ export default function AdminCommunications() {
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
   } = useCarUpApi()
+
   const [threads, setThreads] = useState<ThreadSummary[]>([])
   const [selected, setSelected] = useState<ThreadSummary | null>(null)
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
   const [metrics, setMetrics] = useState<Metrics>({})
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
   const [reply, setReply] = useState('')
   const [replyStatus, setReplyStatus] = useState<ReplyStatus>('idle')
   const [replyError, setReplyError] = useState<string | null>(null)
@@ -53,8 +80,10 @@ export default function AdminCommunications() {
   const [replyClientMessageId, setReplyClientMessageId] = useState(() => newClientMessageId())
   const [assignee, setAssignee] = useState('')
   const [filter, setFilter] = useState('awaiting_human')
+  const selectedRef = useRef<ThreadSummary | null>(null)
+  selectedRef.current = selected
 
-  const activeThreads = useMemo(() => threads.filter((thread) => thread.status !== 'resolved' && thread.status !== 'closed'), [threads])
+  const activeThreads = useMemo(() => threads.filter((t) => t.status !== 'resolved' && t.status !== 'closed'), [threads])
 
   const fetchDashboard = useCallback(async () => {
     const [threadRes, deadRes, metricRes] = await Promise.all([
@@ -72,6 +101,11 @@ export default function AdminCommunications() {
     setMetrics(metricRes || {})
   }, [fetchDashboard])
 
+  const refreshWorkerHealth = useCallback(async () => {
+    fetchCommunicationWorkerHealth().then(setWorkerHealth).catch(() => null)
+  }, [fetchCommunicationWorkerHealth])
+
+  // Initial load
   useEffect(() => {
     let mounted = true
     fetchDashboard().then(({ threadRes, deadRes, metricRes }) => {
@@ -80,8 +114,31 @@ export default function AdminCommunications() {
       setDeadLetters(deadRes.notifications || [])
       setMetrics(metricRes || {})
     })
+    refreshWorkerHealth()
     return () => { mounted = false }
-  }, [fetchDashboard])
+  }, [fetchDashboard, refreshWorkerHealth])
+
+  // Auto-refresh: poll aggressively when reply is in-flight, slowly otherwise
+  useEffect(() => {
+    const waiting = hasQueuedOrProcessing(messages)
+    const intervalMs = waiting ? DELIVERY_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS
+    const id = setInterval(async () => {
+      const cur = selectedRef.current
+      if (cur) {
+        const detail = await fetchAdminCommunicationThread(cur.id).catch(() => null)
+        if (detail) {
+          setMessages(detail.messages || [])
+          // Once all outbound messages are no longer queued, update reply status
+          if (waiting && !hasQueuedOrProcessing(detail.messages || [])) {
+            const lastOutbound = [...(detail.messages || [])].reverse().find((m) => m.direction === 'outbound')
+            if (lastOutbound) setReplyStatus(mapReplyStatus(undefined, lastOutbound.status))
+          }
+        }
+      }
+      refreshWorkerHealth()
+    }, intervalMs)
+    return () => clearInterval(id)
+  }, [messages, fetchAdminCommunicationThread, refreshWorkerHealth])
 
   const openThread = useCallback(async (thread: ThreadSummary) => {
     setSelected(thread)
@@ -144,6 +201,10 @@ export default function AdminCommunications() {
     { label: 'Dead letter', value: Number(metrics.dead_letter_count ?? deadLetters.length), icon: Bell },
   ]
 
+  const slaBreaching = workerHealth?.queue?.sla_breaching ?? 0
+  const telegramMode = workerHealth?.telegram?.mode ?? null
+  const telegramOk = workerHealth?.telegram?.available === true && telegramMode === 'real'
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -153,6 +214,28 @@ export default function AdminCommunications() {
         </div>
         <Button variant="outline" onClick={load} className="gap-2"><RefreshCcw className="w-4 h-4" /> Refresh</Button>
       </div>
+
+      {/* Worker health banner */}
+      {workerHealth && (
+        <div className={`rounded-lg border px-4 py-2 flex flex-wrap items-center gap-3 text-sm ${slaBreaching > 0 ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50'}`}>
+          <Zap className={`w-4 h-4 ${slaBreaching > 0 ? 'text-red-500' : 'text-green-500'}`} />
+          <span className="font-medium">Worker</span>
+          <span>Queued: <strong>{workerHealth.queue.queued}</strong></span>
+          <span>Processing: <strong>{workerHealth.queue.processing}</strong></span>
+          <span>Retry: <strong>{workerHealth.queue.retry_scheduled}</strong></span>
+          {workerHealth.queue.oldest_queued_seconds != null && (
+            <span>Oldest: <strong>{workerHealth.queue.oldest_queued_seconds}s</strong></span>
+          )}
+          {slaBreaching > 0 && (
+            <Badge variant="destructive" className="gap-1"><AlertTriangle className="w-3 h-3" />{slaBreaching} breaching {workerHealth.queue.sla_threshold_seconds}s SLA</Badge>
+          )}
+          <span className={`ml-auto flex items-center gap-1 ${telegramOk ? 'text-green-700' : 'text-red-600'}`}>
+            Telegram: <strong>{telegramOk ? 'real' : workerHealth.telegram?.mode ?? 'unknown'}</strong>
+            {telegramOk ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+          </span>
+          <span className="text-gray-400 text-xs">Cron: {workerHealth.scheduler.cadence}</span>
+        </div>
+      )}
 
       <div className="grid sm:grid-cols-4 gap-4">
         {stats.map(({ label, value, icon: Icon }) => (
@@ -206,12 +289,25 @@ export default function AdminCommunications() {
                   {selected.assigned_team && <Badge variant="outline">{selected.assigned_team}</Badge>}
                 </div>
                 <div className="rounded-lg border bg-gray-50 p-3 space-y-3 max-h-80 overflow-auto">
-                  {messages.length === 0 ? <p className="text-sm text-gray-500">No messages loaded.</p> : messages.map((message) => (
-                    <div key={message.id} className={`rounded-lg p-3 ${message.direction === 'inbound' ? 'bg-white' : message.direction === 'internal' ? 'bg-amber-50' : 'bg-orange-50'}`}>
-                      <p className="text-xs uppercase tracking-wide text-gray-400">{message.direction} · {message.channel} · {message.status}</p>
-                      <p className="text-sm mt-1 whitespace-pre-wrap">{message.content_text}</p>
-                    </div>
-                  ))}
+                  {messages.length === 0 ? <p className="text-sm text-gray-500">No messages loaded.</p> : messages.map((message) => {
+                    const isOutbound = message.direction === 'outbound'
+                    const ageSec = isOutbound ? ageSeconds((message as any).created_at) : null
+                    const isSlaBreaching = isOutbound && ['queued', 'processing'].includes(String(message.status || '')) && ageSec != null && ageSec > 60
+                    return (
+                      <div key={message.id} className={`rounded-lg p-3 ${message.direction === 'inbound' ? 'bg-white' : message.direction === 'internal' ? 'bg-amber-50' : 'bg-orange-50'}`}>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className="text-xs uppercase tracking-wide text-gray-400">{message.direction} · {message.channel}</p>
+                          <div className="flex items-center gap-1">
+                            {deliveryBadge(message.status)}
+                            {isSlaBreaching && (
+                              <Badge variant="destructive" className="text-xs gap-1"><AlertTriangle className="w-3 h-3" />{ageSec}s — past SLA</Badge>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-sm mt-1 whitespace-pre-wrap">{message.content_text}</p>
+                      </div>
+                    )
+                  })}
                 </div>
                 <Textarea
                   value={reply}
@@ -230,10 +326,7 @@ export default function AdminCommunications() {
                     <Badge variant={replyStatus === 'delivered' ? 'default' : 'secondary'} className="capitalize">{replyStatus}</Badge>
                   )}
                   {replyStatus === 'failed' && (
-                    <Badge variant="destructive" className="gap-1">
-                      <XCircle className="w-3 h-3" />
-                      Failed
-                    </Badge>
+                    <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Failed</Badge>
                   )}
                 </div>
                 {replyError && (
@@ -271,6 +364,26 @@ export default function AdminCommunications() {
               ))}
             </CardContent>
           </Card>
+
+          {workerHealth && (
+            <Card className="border-0 card-shadow">
+              <CardHeader className="pb-3"><CardTitle className="text-lg">Worker Health</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Queue depth</span><strong>{workerHealth.queue.depth}</strong></div>
+                <div className="flex justify-between"><span className="text-gray-500">Dead letter</span><strong>{workerHealth.queue.dead_letter}</strong></div>
+                <div className="flex justify-between"><span className="text-gray-500">Telegram</span>
+                  <span className={telegramOk ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                    {workerHealth.telegram?.provider ?? 'not configured'} ({workerHealth.telegram?.mode ?? '—'})
+                  </span>
+                </div>
+                <div className="flex justify-between"><span className="text-gray-500">Schedule</span><strong>{workerHealth.scheduler.cadence}</strong></div>
+                {workerHealth.queue.oldest_queued_seconds != null && (
+                  <div className="flex justify-between"><span className="text-gray-500">Oldest queued</span><strong>{workerHealth.queue.oldest_queued_seconds}s</strong></div>
+                )}
+                <p className="text-xs text-gray-400 pt-1">Auto-refreshes every {IDLE_POLL_INTERVAL_MS / 1000}s · {DELIVERY_POLL_INTERVAL_MS / 1000}s when queued</p>
+              </CardContent>
+            </Card>
+          )}
         </aside>
       </div>
     </div>

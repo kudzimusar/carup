@@ -205,6 +205,43 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     res.json({ notification: await services.deliveryWorker.cancelDeadLetter(req.params.id, req.body?.reason || 'admin_cancelled') });
   }));
 
+  router.get('/api/admin/communications/worker/health', authorizeRole(ADMIN_ROLES), asyncHandler(async (_req, res) => {
+    const slaThresholdSeconds = Number(process.env.COMMUNICATION_SLA_SECONDS || 60);
+    const now = Date.now();
+    const [queued, processing, retryScheduled, deadLetter] = await Promise.all([
+      services.repository.list('notification_queue', { status: 'queued' }, { limit: 500 }),
+      services.repository.list('notification_queue', { status: 'processing' }, { limit: 100 }),
+      services.repository.list('notification_queue', { status: 'retry_scheduled' }, { limit: 100 }),
+      services.repository.list('notification_queue', { status: 'dead_letter' }, { limit: 100 }),
+    ]);
+    const oldestQueuedMs = queued.length > 0
+      ? Math.max(...queued.map((r) => now - new Date(r.created_at || r.scheduled_at || now).getTime()))
+      : null;
+    const slaBreachingCount = queued.filter((r) => (now - new Date(r.created_at || r.scheduled_at || now).getTime()) > slaThresholdSeconds * 1000).length;
+    const telegramHealth = services.adapterRegistry.health().find((h) => h.channel === 'telegram') || null;
+    res.json({
+      timestamp: new Date().toISOString(),
+      queue: {
+        queued: queued.length,
+        processing: processing.length,
+        retry_scheduled: retryScheduled.length,
+        dead_letter: deadLetter.length,
+        depth: queued.length + processing.length + retryScheduled.length,
+        oldest_queued_seconds: oldestQueuedMs != null ? Math.round(oldestQueuedMs / 1000) : null,
+        sla_threshold_seconds: slaThresholdSeconds,
+        sla_breaching: slaBreachingCount,
+      },
+      telegram: telegramHealth,
+      adapters: services.adapterRegistry.health(),
+      scheduler: {
+        schedule: '* * * * *',
+        cadence: 'every_minute',
+        endpoint: '/api/internal/communications/process',
+        note: 'Requires Vercel Pro plan. Hobby plan minimum is once per day.',
+      },
+    });
+  }));
+
   router.get('/api/admin/communications/metrics', authorizeRole(ADMIN_ROLES), asyncHandler(async (_req, res) => {
     const [threads, deadLetters, webhooks] = await Promise.all([
       services.repository.list('message_threads'),
