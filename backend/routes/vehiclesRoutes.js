@@ -224,8 +224,11 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   });
 
   // WS-G: stamp the client idempotency key so a retried offline upload (same key) is
-  // deduped after an app restart via the Supabase-metadata fallback.
-  const clientIdempotencyKey = req.body.idempotency_key || req.body.idempotencyKey || null;
+  // deduped after an app restart via the Supabase-metadata fallback. Accept it from the
+  // standard header conventions OR the body, so any client convention dedupes correctly.
+  const clientIdempotencyKey =
+    req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
+    req.body.idempotency_key || req.body.idempotencyKey || null;
   if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
 
   // Milestone 1: resolve the source registry entry (best-effort) and compute the
