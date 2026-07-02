@@ -1,19 +1,19 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle } from 'lucide-react'
+import { CheckCircle, ChevronRight, ChevronLeft, Upload, X, Loader2, AlertCircle, FileWarning } from 'lucide-react'
 import { toast } from 'sonner'
 import { zimbabweLocations, zimbabweProvinces } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { VehicleCompletenessPanel } from '@/components/VehicleCompletenessPanel'
 
 const MAKES = ['Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen', 'Ford', 'Honda', 'Land Rover', 'Audi', 'Other']
 const YEARS = Array.from({ length: 37 }, (_, i) => String(2026 - i))
-const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Submit']
+const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
 
 function StepIndicator({ step, total }: { step: number; total: number }) {
   return (
@@ -32,7 +32,8 @@ function StepIndicator({ step, total }: { step: number; total: number }) {
 }
 
 const INITIAL = {
-  make: '', model: '', year: '2020', vin: '', engineNumber: '', color: '',
+  make: '', model: '', year: '2020', vin: '', engineNumber: '', chassisNumber: '',
+  plateNumber: '', tempPlateId: '', importStatus: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '',
   location: '', province: '', price: '', description: '',
   features: [] as string[], featureInput: '',
@@ -44,12 +45,12 @@ function validateVin(vin: string) {
 }
 
 export default function SellVehicle() {
-  const navigate = useNavigate()
   const { createVehicleListing, uploadVehicleImages } = useCarUpApi()
   const [step, setStep] = useState(0)
   const [form, setForm] = useState(INITIAL)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
+  const [savedVin, setSavedVin] = useState<string | null>(null)
 
   const set = (field: string, value: string | number | boolean | string[]) => setForm(prev => ({ ...prev, [field]: value }))
 
@@ -106,12 +107,18 @@ export default function SellVehicle() {
     if (validateStep()) setStep(s => Math.min(s + 1, STEPS.length - 1))
   }
 
+  // Identify which publication requirements are not yet filled in the form
+  const missingIdentityFields = [
+    !form.chassisNumber && 'Chassis Number',
+    !form.engineNumber && 'Engine Number',
+    !(form.plateNumber || form.tempPlateId) && 'Number Plate or Temporary Import Permit',
+  ].filter(Boolean) as string[]
+
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
       let uploadedImageUrls: string[] = []
-      
-      // Upload listing photos to private media pipeline first if present
+
       if (form.images && form.images.length > 0) {
         try {
           const uploadRes = await uploadVehicleImages(form.vin.toUpperCase(), form.images)
@@ -124,7 +131,7 @@ export default function SellVehicle() {
         }
       }
 
-      await createVehicleListing({
+      const result = await createVehicleListing({
         vin: form.vin.toUpperCase(),
         make: form.make,
         model: form.model,
@@ -140,16 +147,24 @@ export default function SellVehicle() {
         description: form.description,
         location: form.location,
         province: form.province,
-        images: uploadedImageUrls
+        images: uploadedImageUrls,
+        // Phase 4: identity fields sent to backend for completeness gate
+        engine_number: form.engineNumber || undefined,
+        chassis_number: form.chassisNumber || undefined,
+        plate_number: form.plateNumber || undefined,
+        temp_plate_id: form.tempPlateId || undefined,
+        import_status: form.importStatus || undefined,
       })
-      toast.success('Listing submitted! Your vehicle is now live on CarUp.')
-      navigate('/dashboard')
+
+      const returnedVin: string = (result as { vin?: string } | null)?.vin ?? form.vin.toUpperCase()
+      setSavedVin(returnedVin)
+      toast.success('Vehicle saved as draft. Upload ownership documents to publish your listing.')
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : ''
       if (errMsg.includes('already listed')) {
-        toast.error('A vehicle with this VIN is already listed.')
+        toast.error('A vehicle with this VIN is already registered.')
       } else {
-        toast.error('Failed to submit listing. Please try again.')
+        toast.error('Failed to save vehicle. Please try again.')
       }
     } finally {
       setSubmitting(false)
@@ -158,11 +173,29 @@ export default function SellVehicle() {
 
   const vinValid = form.vin.length >= 2 ? validateVin(form.vin) : null
 
+  // Post-save: show completeness panel instead of the form
+  if (savedVin) {
+    return (
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="flex items-start gap-3">
+          <CheckCircle className="w-6 h-6 text-green-600 mt-0.5 shrink-0" />
+          <div>
+            <h1 className="text-2xl font-bold">Draft saved</h1>
+            <p className="text-gray-500">
+              Your vehicle has been registered as a draft. Complete the document requirements below to publish your listing.
+            </p>
+          </div>
+        </div>
+        <VehicleCompletenessPanel vin={savedVin} data-testid="post-save-completeness" />
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">List Your Vehicle</h1>
-        <p className="text-gray-500">Complete the form below to list your vehicle on CarUp Marketplace</p>
+        <h1 className="text-2xl font-bold">Register Your Vehicle</h1>
+        <p className="text-gray-500">Save your vehicle as a draft. You must upload ownership documents before your listing can be published.</p>
       </div>
 
       <StepIndicator step={step} total={STEPS.length} />
@@ -220,9 +253,38 @@ export default function SellVehicle() {
                 <p className="text-xs text-gray-400 mt-1">{form.vin.length}/17 characters</p>
                 {errors.vin && <p className="text-xs text-red-500">{errors.vin}</p>}
               </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Engine Number</label>
+                  <Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value.toUpperCase())} placeholder="e.g. 1GD-789012" className="font-mono" />
+                  <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Chassis Number</label>
+                  <Input value={form.chassisNumber} onChange={e => set('chassisNumber', e.target.value.toUpperCase())} placeholder="e.g. ZW1234567890" className="font-mono" />
+                  <p className="text-xs text-gray-400 mt-1">Required to publish your listing</p>
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Number Plate</label>
+                  <Input value={form.plateNumber} onChange={e => set('plateNumber', e.target.value.toUpperCase())} placeholder="e.g. ABC 1234" className="font-mono" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Temporary Import Permit No.</label>
+                  <Input value={form.tempPlateId} onChange={e => set('tempPlateId', e.target.value.toUpperCase())} placeholder="e.g. TIP-2024-00123" className="font-mono" />
+                  <p className="text-xs text-gray-400 mt-1">If no local plate yet — provide plate or TIP</p>
+                </div>
+              </div>
               <div>
-                <label className="text-sm font-medium mb-1.5 block">Engine Number</label>
-                <Input value={form.engineNumber} onChange={e => set('engineNumber', e.target.value)} placeholder="e.g. 1GD-789012" className="font-mono" />
+                <label className="text-sm font-medium mb-1.5 block">Import Status</label>
+                <Select value={form.importStatus} onValueChange={v => set('importStatus', v)}>
+                  <SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local">Locally registered in Zimbabwe</SelectItem>
+                    <SelectItem value="imported">Imported / Foreign-registered</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </>
           )}
@@ -376,7 +438,7 @@ export default function SellVehicle() {
             </>
           )}
 
-          {/* STEP 3: Review */}
+          {/* STEP 3: Review & Save Draft */}
           {step === 3 && (
             <div className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-4 text-sm">
@@ -384,6 +446,9 @@ export default function SellVehicle() {
                   ['Make & Model', `${form.year} ${form.make} ${form.model}`],
                   ['VIN', form.vin],
                   ['Color', form.color],
+                  ['Engine No.', form.engineNumber || '—'],
+                  ['Chassis No.', form.chassisNumber || '—'],
+                  ['Number Plate', form.plateNumber || form.tempPlateId || '—'],
                   ['Mileage', `${parseInt(form.mileage || '0').toLocaleString()} km`],
                   ['Condition', form.condition],
                   ['Fuel / Trans', `${form.fuelType} / ${form.transmission}`],
@@ -419,8 +484,26 @@ export default function SellVehicle() {
                   </div>
                 </div>
               )}
+
+              {/* Publication requirements notice */}
+              {missingIdentityFields.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm">
+                  <div className="flex items-start gap-2">
+                    <FileWarning className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-semibold text-amber-800 mb-1">Missing identity fields — listing will be saved as draft</p>
+                      <p className="text-amber-700 mb-2">The following fields are required before your listing can be published:</p>
+                      <ul className="list-disc list-inside text-amber-700 space-y-0.5">
+                        {missingIdentityFields.map(f => <li key={f}>{f}</li>)}
+                      </ul>
+                      <p className="text-amber-600 mt-2">You can add them now or after saving the draft. You must also upload an ownership/registration document.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
-                <p className="font-semibold mb-1">By submitting, you confirm:</p>
+                <p className="font-semibold mb-1">By saving, you confirm:</p>
                 <p>✓ You are the legal owner or authorised seller</p>
                 <p>✓ All information provided is accurate</p>
                 <p>✓ The vehicle complies with CarUp listing standards</p>
@@ -439,7 +522,7 @@ export default function SellVehicle() {
               </Button>
             ) : (
               <Button className="bg-orange-500 hover:bg-orange-600 min-w-36" onClick={handleSubmit} disabled={submitting} data-testid="submit-vehicle-button">
-                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Submitting...</> : 'Submit Listing'}
+                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : 'Save as Draft'}
               </Button>
             )}
           </div>

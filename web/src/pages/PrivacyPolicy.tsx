@@ -67,7 +67,7 @@ export default function PrivacyPolicy() {
   // Gutu AI consent toggles state
   const [consents, setConsents] = useState({
     ocrScan: true,
-    blockchainHash: true,
+    auditLedger: true,
     insuranceSharing: false,
     bankValuation: false,
     gutuTraining: true
@@ -168,7 +168,7 @@ export default function PrivacyPolicy() {
     { id: 'intro', label: '1. Preamble & Framework', icon: Shield },
     { id: 'collect', label: '2. Information We Collect', icon: Database },
     { id: 'use', label: '3. How We Use Your Data', icon: Activity },
-    { id: 'blockchain', label: '4. Blockchain & Public Ledger', icon: Globe },
+    { id: 'blockchain', label: '4. Audit Ledger & Public Registry', icon: Globe },
     { id: 'sharing', label: '5. Sharing & Third-Parties', icon: Share2 },
     { id: 'rights', label: '6. Your Rights & Controls', icon: Lock },
     { id: 'retention', label: '7. Data Retention & Deletion', icon: Info },
@@ -500,7 +500,7 @@ export default function PrivacyPolicy() {
 
             <Separator className="bg-white/5" />
 
-            {/* 4. BLOCKCHAIN & PUBLIC REGISTRY DISCLOSURE */}
+            {/* 4. AUDIT LEDGER & PUBLIC REGISTRY DISCLOSURE */}
             <section id="blockchain" className="scroll-mt-28 space-y-6">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-500">
@@ -508,7 +508,7 @@ export default function PrivacyPolicy() {
                 </div>
                 <div>
                   <h2 className="text-xl md:text-2xl font-extrabold text-white tracking-tight">
-                    4. Blockchain & Public Registry Disclosure
+                    4. Audit Ledger &amp; Public Registry Disclosure
                   </h2>
                   <p className="text-xs text-gray-500 font-mono">SECTION_ID: BLOCKCHAIN_TRUST_LEDGER</p>
                 </div>
@@ -583,9 +583,9 @@ export default function PrivacyPolicy() {
                 </p>
               </div>
 
-              <CollapsibleDeepDive title="Can I delete my vehicle's past service history from the public blockchain?">
+              <CollapsibleDeepDive title="Can I delete my vehicle's past service history from the CarUp audit ledger?">
                 <p>
-                  No. Due to the immutable, trust-building architecture of blockchain ledgers, mechanical logs and odometer metrics verified under the PartSentry framework cannot be deleted or altered once they are finalized.
+                  No. Due to the append-only, tamper-evident architecture of the CarUp audit ledger, mechanical logs and odometer metrics verified under the PartSentry framework cannot be deleted or altered once they are finalized.
                 </p>
                 <p>
                   This is necessary to protect subsequent buyers of the vehicle against historical fraud and mileage tampering. This policy perfectly aligns with the Cyber Security and Data Protection Act [Chapter 12:07], which allows for data retention limits to be bypassed when processing is strictly required for historical preservation, market safety, and the prevention of fraud in public commercial transactions.
@@ -707,7 +707,7 @@ export default function PrivacyPolicy() {
 
               <CollapsibleDeepDive title="How do I request a complete dump of my vehicle dossier data?">
                 <p>
-                  To export your vehicle data, navigate to your Owner Dashboard, select "Security Settings" and click "Request Data Dossier". Gutu AI will compile a password-protected zip file containing your complete personal details, ZINARA logs, mechanics work history, and blockchain ledger hashes.
+                  To export your vehicle data, navigate to your Owner Dashboard, select "Security Settings" and click "Request Data Dossier". Gutu AI will compile a password-protected zip file containing your complete personal details, ZINARA logs, mechanics work history, and CarUp audit ledger entries.
                 </p>
                 <p>
                   This report is issued in both human-readable PDF format and machine-readable JSON format, enabling effortless data portability under POTRAZ regulatory guidelines.
@@ -815,9 +815,9 @@ export default function PrivacyPolicy() {
                         Allows historical part updates and odometer metrics to be cryptographically hashed onto the public registry ledger. Disabling this removes real-time marketplace trust verification flags.
                       </span>
                     </div>
-                    <Switch 
-                      checked={consents.blockchainHash}
-                      onCheckedChange={() => handleToggleConsent('blockchainHash', 'PartSentry Ledger Hashing')}
+                    <Switch
+                      checked={consents.auditLedger}
+                      onCheckedChange={() => handleToggleConsent('auditLedger', 'PartSentry Audit Ledger')}
                     />
                   </div>
 

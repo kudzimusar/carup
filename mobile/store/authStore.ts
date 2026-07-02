@@ -87,6 +87,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         token: null,
         isAuthenticated: false,
       });
+      // Clear sensitive in-memory verification state (captured ID document images + OCR PII)
+      // so it cannot persist across a session change. Lazy-imported to avoid an import cycle.
+      try {
+        const { useVerificationStore } = await import('./verificationStore');
+        useVerificationStore.getState().clear();
+      } catch {
+        // best-effort; never block logout on sensitive-state cleanup
+      }
       // Drop any identity-specific governed state back to anonymous defaults.
       await refreshFeatureGovernance();
     } catch (error) {

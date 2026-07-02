@@ -206,7 +206,7 @@ test('Diaspora migration has no destructive statements against existing core tab
 test('Event worker uses environment connection settings and no hard-coded Supabase credentials', () => {
   assert.equal(eventWorker.includes('process.env.DATABASE_URL || process.env.SUPABASE_DB_URL'), true);
   assert.equal(eventWorker.includes('vhmnajoeicasaigiophh'), false);
-  assert.equal(eventWorker.includes('HVYbYVb1x2ErqzH4'), false);
+  assert.equal(eventWorker.includes('[REDACTED-USE-ENV]'), false);
 });
 
 test('Service authorization blocks unrelated users from reading another import order', () => {
