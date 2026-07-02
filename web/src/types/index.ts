@@ -200,6 +200,66 @@ export interface DiasporaComplianceReview {
   created_at?: string;
 }
 
+/** Government-document footprint row (GET /diaspora/import-orders/:id/government-footprint). */
+export interface DiasporaGovernmentDocument {
+  category: string;
+  status: string;
+  requiredForZimbabweReady?: boolean;
+  documentId?: string | null;
+  verifiedAt?: string | null;
+}
+
+/** Sealed diaspora audit row (GET /diaspora/import-orders/:id/audit). Read-only history. */
+export interface DiasporaAuditEntry {
+  id: string;
+  import_order_id?: string | null;
+  action: string;
+  actor_id?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  created_at?: string | null;
+  cryptographic_seal?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** Shipment stage event (GET /diaspora/shipments/:id/timeline). */
+export interface DiasporaShipmentStageEvent {
+  id: string;
+  shipment_id?: string;
+  stage: string;
+  notes?: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
+}
+
+/** Diaspora trade profile (GET /diaspora/trade-profiles/:id) — seller/buyer identity + trust. */
+export interface DiasporaTradeProfile {
+  id: string;
+  user_id?: string | null;
+  tenant_id?: string | null;
+  display_name?: string | null;
+  profile_type?: string | null;
+  verification_status?: string | null;
+  trust_score?: number | null;
+  country?: string | null;
+  created_at?: string | null;
+}
+
+/** Ownership handoff status (GET /diaspora/import-orders/:id/ownership-handoff). */
+export interface DiasporaOwnershipHandoffStatus {
+  handedOff: boolean;
+  vehicleVin?: string | null;
+  evidence?: Array<Record<string, unknown>>;
+}
+
+/** Ownership handoff result (POST /diaspora/import-orders/:id/ownership-handoff). */
+export interface DiasporaOwnershipHandoffResult {
+  idempotentReplay?: boolean;
+  vehicle?: { vin?: string; id?: string; [key: string]: unknown } | null;
+  handedOff?: boolean;
+  [key: string]: unknown;
+}
+
 export interface DiasporaContainerShipment {
   id: string;
   origin_country?: string | null;

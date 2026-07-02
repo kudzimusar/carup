@@ -48,6 +48,11 @@ export default function DiasporaStockManager() {
   const [movementLoading, setMovementLoading] = useState(false)
   const movingRef = useRef(false)
 
+  // publication controls
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [publishMessage, setPublishMessage] = useState('')
+  const [publishError, setPublishError] = useState('')
+
   // supply document form
   const [docNumber, setDocNumber] = useState('')
   const [docTitle, setDocTitle] = useState('')
@@ -99,7 +104,29 @@ export default function DiasporaStockManager() {
   const selectItem = async (item: DiasporaStockItem) => {
     setSelected(item)
     setActionError('')
+    setPublishMessage('')
+    setPublishError('')
     await loadLedger(item.id)
+  }
+
+  const handlePublishToggle = async () => {
+    if (publishBusy || !selected) return
+    setPublishMessage('')
+    setPublishError('')
+    setPublishBusy(true)
+    try {
+      const isPublished = (selected.publication_status || '').toUpperCase() === 'PUBLISHED'
+      const updated = isPublished
+        ? await api.unpublishDiasporaStockItem(selected.id)
+        : await api.publishDiasporaStockItem(selected.id)
+      setSelected(updated)
+      setPublishMessage(isPublished ? 'Stock item unpublished.' : 'Stock item published.')
+      await loadList()
+    } catch (err) {
+      setPublishError(err instanceof Error ? err.message : 'Publication change rejected')
+    } finally {
+      setPublishBusy(false)
+    }
   }
 
   const handleCreate = async () => {
@@ -305,6 +332,28 @@ export default function DiasporaStockManager() {
                 <div className="rounded-md border border-gray-200 p-3"><p className="text-xs uppercase text-gray-500">On hand</p><p className="text-2xl font-semibold" data-testid="diaspora-stock-balance-onhand">{balances.onHand}</p></div>
                 <div className="rounded-md border border-gray-200 p-3"><p className="text-xs uppercase text-gray-500">Reserved</p><p className="text-2xl font-semibold" data-testid="diaspora-stock-balance-reserved">{balances.reserved}</p></div>
                 <div className="rounded-md border border-gray-200 p-3"><p className="text-xs uppercase text-gray-500">Available</p><p className="text-2xl font-semibold" data-testid="diaspora-stock-balance-available">{balances.available}</p></div>
+              </div>
+
+              <div className="mt-4 rounded-md border border-gray-200 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-gray-900">Publication</p>
+                  <Badge variant="outline" data-testid="diaspora-stock-publication-status">
+                    {selected.publication_status || 'PRIVATE'}
+                  </Badge>
+                  {(selected.publication_status || '').toUpperCase() === 'PUBLISHED' ? (
+                    <Button size="sm" variant="outline" onClick={handlePublishToggle} disabled={publishBusy} data-testid="diaspora-stock-unpublish">
+                      {publishBusy ? 'Updating…' : 'Unpublish'}
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={handlePublishToggle} disabled={publishBusy} data-testid="diaspora-stock-publish">
+                      {publishBusy ? 'Updating…' : 'Publish'}
+                    </Button>
+                  )}
+                </div>
+                <p aria-live="polite" className="mt-1 text-sm">
+                  {publishMessage && <span className="font-medium text-green-700" data-testid="diaspora-stock-publish-result">{publishMessage}</span>}
+                  {publishError && <span className="font-medium text-red-700" data-testid="diaspora-stock-publish-error">{publishError}</span>}
+                </p>
               </div>
 
               <div className="mt-4 rounded-md border border-orange-200 bg-orange-50 p-3">

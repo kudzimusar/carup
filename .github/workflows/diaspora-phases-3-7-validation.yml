@@ -99,7 +99,7 @@ jobs:
             sleep 2
           done
 
-      - name: Playwright (Phase 2C + Phases 3-7 + UI-8 subscription + UI-9 safetrade)
+      - name: Playwright (Phase 2C + Phases 3-7 + UI-8 subscription + UI-9 safetrade + passports)
         run: |
           npx playwright test --config web/playwright.config.ts \
             web/e2e/diaspora-workbook-dry-run.spec.ts \
@@ -110,7 +110,8 @@ jobs:
             web/e2e/diaspora-container-marketplace.spec.ts \
             web/e2e/diaspora-drive-connections.spec.ts \
             web/e2e/diaspora-subscription.spec.ts \
-            web/e2e/diaspora-safetrade.spec.ts
+            web/e2e/diaspora-safetrade.spec.ts \
+            web/e2e/diaspora-passports.spec.ts
 
       - name: Upload Playwright report on failure
         if: failure()
