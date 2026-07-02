@@ -412,6 +412,24 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.ai-command-center",
+    "domain": "diaspora",
+    "route": "/diaspora/ai-commands",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.compliance",
     "domain": "diaspora",
     "route": "/admin/diaspora/compliance",
@@ -423,6 +441,78 @@
     "immutableRoles": [
       "admin",
       "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.container-marketplace",
+    "domain": "diaspora",
+    "route": "/diaspora/containers",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.drive-connections",
+    "domain": "diaspora",
+    "route": "/diaspora/drive",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.reverse-rfq",
+    "domain": "diaspora",
+    "route": "/diaspora/rfq",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.stock-manager",
+    "domain": "diaspora",
+    "route": "/diaspora/stock",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
     ],
     "requiresAuth": true,
     "betaCapable": true
