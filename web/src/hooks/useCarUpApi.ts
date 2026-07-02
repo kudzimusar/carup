@@ -27,6 +27,12 @@ import type {
   DiasporaImportOrderPayload,
   DiasporaTradeDocument,
   DiasporaComplianceReview,
+  DiasporaGovernmentDocument,
+  DiasporaAuditEntry,
+  DiasporaShipmentStageEvent,
+  DiasporaTradeProfile,
+  DiasporaOwnershipHandoffStatus,
+  DiasporaOwnershipHandoffResult,
   DiasporaCargoReservation,
   DiasporaCargoReservationPayload,
   DiasporaShipment,
@@ -532,6 +538,90 @@ export function useCarUpApi() {
   const fetchDiasporaComplianceReviews = useCallback(async (): Promise<DiasporaComplianceReview[]> => {
     const response = await request<{ data: DiasporaComplianceReview[] }>('/diaspora/compliance')
     return response.data || []
+  }, [request])
+
+  // --- Final-closure operability + passport reads. Backend stays authoritative on every action;
+  // these controls are convenience — hidden/disabled UI is never the security boundary. ---
+  const fetchDiasporaGovernmentFootprint = useCallback(async (importOrderId: string): Promise<DiasporaGovernmentDocument[]> => {
+    const response = await request<{ data: DiasporaGovernmentDocument[] }>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/government-footprint`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaOrderAudit = useCallback(async (importOrderId: string): Promise<DiasporaAuditEntry[]> => {
+    const response = await request<{ data: DiasporaAuditEntry[] }>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/audit`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaShipmentTimeline = useCallback(async (shipmentId: string): Promise<DiasporaShipmentStageEvent[]> => {
+    const response = await request<{ data: DiasporaShipmentStageEvent[] }>(`/diaspora/shipments/${encodeURIComponent(shipmentId)}/timeline`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaTradeProfile = useCallback(async (id: string): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}`)
+  }, [request])
+
+  const assignDiasporaSeller = useCallback(async (importOrderId: string, payload: { sellerId: string; roleType?: string; notes?: string }): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/assign-seller`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const transitionDiasporaImportOrder = useCallback(async (importOrderId: string, payload: { nextStatus: string; metadata?: Record<string, unknown> }): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/stages`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const createDiasporaComplianceReview = useCallback(async (payload: { importOrderId: string; reviewType?: string; notes?: string }): Promise<DiasporaComplianceReview> => {
+    return request<DiasporaComplianceReview>('/diaspora/compliance', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const approveDiasporaComplianceReview = useCallback(async (id: string, payload: { notes?: string } = {}): Promise<DiasporaComplianceReview> => {
+    return request<DiasporaComplianceReview>(`/diaspora/compliance/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const flagDiasporaComplianceReview = useCallback(async (id: string, payload: { notes?: string } = {}): Promise<DiasporaComplianceReview> => {
+    return request<DiasporaComplianceReview>(`/diaspora/compliance/${encodeURIComponent(id)}/flag`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const linkDiasporaVehicleImportRecord = useCallback(async (importOrderId: string, payload: { vehicle_vin?: string; chassis_number?: string; verification_status?: string; metadata?: Record<string, unknown> }): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/vehicle-import-record`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const completeDiasporaOwnershipHandoff = useCallback(async (importOrderId: string, payload: { idempotencyKey?: string } = {}): Promise<DiasporaOwnershipHandoffResult> => {
+    return request<DiasporaOwnershipHandoffResult>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/ownership-handoff`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchDiasporaOwnershipHandoffStatus = useCallback(async (importOrderId: string): Promise<DiasporaOwnershipHandoffStatus> => {
+    return request<DiasporaOwnershipHandoffStatus>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/ownership-handoff`)
+  }, [request])
+
+  const publishDiasporaStockItem = useCallback(async (id: string): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}/publish`, { method: 'POST' })
+    return response.data
+  }, [request])
+
+  const unpublishDiasporaStockItem = useCallback(async (id: string): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}/unpublish`, { method: 'POST' })
+    return response.data
   }, [request])
 
   // --- Container reservation + shipment tracking (read-path + buyer reservation request) ---
@@ -1502,6 +1592,20 @@ export function useCarUpApi() {
     verifyDiasporaTradeDocument,
     rejectDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,
+    fetchDiasporaGovernmentFootprint,
+    fetchDiasporaOrderAudit,
+    fetchDiasporaShipmentTimeline,
+    fetchDiasporaTradeProfile,
+    assignDiasporaSeller,
+    transitionDiasporaImportOrder,
+    createDiasporaComplianceReview,
+    approveDiasporaComplianceReview,
+    flagDiasporaComplianceReview,
+    linkDiasporaVehicleImportRecord,
+    completeDiasporaOwnershipHandoff,
+    fetchDiasporaOwnershipHandoffStatus,
+    publishDiasporaStockItem,
+    unpublishDiasporaStockItem,
     fetchDiasporaReservations,
     fetchDiasporaShipments,
     fetchDiasporaOpenContainers,
