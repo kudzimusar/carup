@@ -32,4 +32,5 @@ backend/.env
 coverage
 test-results
 playwright-report
+supabase/.temp
 .vercel

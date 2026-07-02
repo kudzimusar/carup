@@ -1,4 +1,5 @@
 import { OcrResult, VerificationOutcomeStatus } from '../store/verificationStore';
+import { resolveApiBaseUrl } from './apiBase';
 
 export interface VerificationSession {
   id: string;
@@ -53,22 +54,24 @@ export class VerificationApiConfigurationError extends Error {
   }
 }
 
+/**
+ * Canonical base resolver. The core logic now lives in utils/apiBase.ts so every
+ * API client shares one validated, localhost-safe resolver. This thin wrapper is
+ * kept so existing imports (marketplaceApi, referralApi) keep working, and it
+ * re-tags the ApiConfigurationError as a VerificationApiConfigurationError to
+ * preserve the original error contract.
+ */
 export function getVerificationApiBaseUrl(
   env: Record<string, string | undefined> = process.env,
-  platformOS: string = typeof navigator !== 'undefined' && navigator.product === 'ReactNative' ? 'native' : 'web'
+  platformOS?: string
 ) {
-  const baseUrl = env.EXPO_PUBLIC_API_URL?.trim();
-  if (!baseUrl) {
-    throw new VerificationApiConfigurationError('EXPO_PUBLIC_API_URL is required for backend verification.');
+  try {
+    return platformOS === undefined ? resolveApiBaseUrl(env) : resolveApiBaseUrl(env, platformOS);
+  } catch (error) {
+    throw new VerificationApiConfigurationError(
+      error instanceof Error ? error.message : 'Failed to resolve the API base URL.'
+    );
   }
-
-  const normalized = baseUrl.replace(/\/+$/, '');
-  const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(normalized);
-  if (isLocalhost && platformOS !== 'web' && env.EXPO_PUBLIC_ALLOW_LOCALHOST_API !== 'true') {
-    throw new VerificationApiConfigurationError('Physical devices cannot reach localhost. Set EXPO_PUBLIC_API_URL to your LAN, ngrok, or deployed backend URL.');
-  }
-
-  return normalized;
 }
 
 async function authHeaders() {

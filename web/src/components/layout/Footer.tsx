@@ -1,39 +1,73 @@
 import { Link } from 'react-router-dom'
 import { Car, Mail, Phone, MapPin, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react'
-import { getPublicFooterItems, getAllRoles, getRoleMetadata, getDashboardRoute } from '@/config/featureRegistry'
+import { resolveFeatureIcon } from '@/config/featureIcons'
+import {
+  getFooterNavigation,
+  getFooterSocial,
+  type SocialLink,
+} from '@/config/navigationManifest'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+
+const SOCIAL_ICON = {
+  facebook: Facebook,
+  twitter: Twitter,
+  instagram: Instagram,
+  linkedin: Linkedin,
+} as const
+
+function SocialButton({ social }: { social: SocialLink }) {
+  const Icon = SOCIAL_ICON[social.platform]
+  const base = 'w-9 h-9 rounded-full flex items-center justify-center transition-colors'
+  // Active + real URL → safe external link. Planned/unconfigured → accessible,
+  // disabled control (NEVER href="#") so screen readers announce its state.
+  if (social.state === 'active' && social.url) {
+    return (
+      <a
+        href={social.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`CarUp on ${social.label}`}
+        className={`${base} bg-gray-800 hover:bg-orange-500 text-gray-300 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)]`}
+        data-testid={`footer-social-${social.platform}`}
+      >
+        <Icon className="w-4 h-4" />
+      </a>
+    )
+  }
+  return (
+    <span
+      role="link"
+      aria-disabled="true"
+      aria-label={`CarUp on ${social.label} — coming soon`}
+      title="Coming soon"
+      data-testid={`footer-social-${social.platform}`}
+      data-planned="true"
+      className={`${base} bg-gray-800/60 text-gray-400 cursor-not-allowed`}
+    >
+      <Icon className="w-4 h-4" />
+    </span>
+  )
+}
 
 export default function Footer() {
-  const getStakeholderLabel = (title: string) => {
-    if (title === 'Car Owner') return 'Car Owners'
-    if (title === 'Dealer') return 'Dealers'
-    if (title === 'Mechanic') return 'Mechanics'
-    if (title === 'Insurance') return 'Insurance'
-    if (title === 'Government') return 'Government'
-    if (title === 'Banker') return 'Bankers'
-    return `${title}s`
-  }
+  const effectiveStates = useFeatureEffectiveStates()
+  const ctx = { environment: import.meta.env.MODE, effectiveStates }
+  const columns: Array<{ title: string; items: ReturnType<typeof getFooterNavigation> }> = [
+    { title: 'Product', items: getFooterNavigation('product', ctx) },
+    { title: 'Company', items: getFooterNavigation('company', ctx) },
+    { title: 'Resources', items: getFooterNavigation('resources', ctx) },
+    { title: 'Stakeholders', items: getFooterNavigation('stakeholders', ctx) },
+  ]
+  const legal = getFooterNavigation('legal', ctx)
+  const social = getFooterSocial()
 
-  const footerLinks = {
-    Product: getPublicFooterItems('Product').map(item => ({ label: item.label, href: item.route })),
-    Company: getPublicFooterItems('Company').map(item => ({ label: item.label, href: item.route })),
-    Resources: getPublicFooterItems('Resources').map(item => ({ label: item.label, href: item.route })),
-    Stakeholders: getAllRoles()
-      .filter(role => role !== 'admin')
-      .map(role => {
-        const metadata = getRoleMetadata(role)
-        return {
-          label: getStakeholderLabel(metadata.title),
-          href: getDashboardRoute(role)
-        }
-      })
-  }
   return (
     <footer className="bg-[hsl(222,47%,8%)] text-gray-300">
       <div className="section-padding mx-auto max-w-[1440px] py-16">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-3 lg:col-span-2">
-            <Link to="/" className="flex items-center gap-2 mb-4">
+            <Link to="/" className="flex items-center gap-2 mb-4" aria-label="CarUp home">
               <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
                 <Car className="w-5 h-5 text-white" />
               </div>
@@ -60,41 +94,53 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Links */}
-          {Object.entries(footerLinks).map(([title, links]) => (
-            <div key={title}>
+          {/* Governed columns */}
+          {columns.map(({ title, items }) => (
+            <nav key={title} aria-label={`Footer ${title}`}>
               <h3 className="font-semibold text-white mb-4 text-sm">{title}</h3>
               <ul className="space-y-2.5">
-                {links.map((link) => (
-                  <li key={link.label}>
+                {items.map(item => {
+                  const Icon = item.icon ? resolveFeatureIcon(item.icon) : null
+                  return (
+                    <li key={item.id}>
+                      <Link
+                        to={item.href}
+                        data-testid={`footer-link-${item.id}`}
+                        className="text-sm text-gray-400 hover:text-orange-400 transition-colors inline-flex items-center gap-1.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)] focus-visible:text-orange-400"
+                      >
+                        {Icon && <Icon className="w-3.5 h-3.5" />}
+                        {item.label}
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </nav>
+          ))}
+        </div>
+
+        {/* Bottom bar: copyright · legal · social */}
+        <div className="mt-12 pt-8 border-t border-gray-700 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-3 text-sm text-gray-400">
+            <p>© 2026 CarUp Zimbabwe. All rights reserved.</p>
+            {legal.length > 0 && (
+              <ul className="flex items-center gap-3" aria-label="Footer Legal">
+                {legal.map(item => (
+                  <li key={item.id}>
                     <Link
-                      to={link.href}
-                      className="text-sm text-gray-400 hover:text-orange-400 transition-colors"
+                      to={item.href}
+                      data-testid={`footer-link-${item.id}`}
+                      className="rounded-sm hover:text-orange-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(222,47%,8%)] focus-visible:text-orange-400"
                     >
-                      {link.label}
+                      {item.label}
                     </Link>
                   </li>
                 ))}
               </ul>
-            </div>
-          ))}
-        </div>
-
-        {/* Bottom */}
-        <div className="mt-12 pt-8 border-t border-gray-700 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-gray-500">
-            © 2026 CarUp Zimbabwe. All rights reserved.
-          </p>
-          <div className="flex items-center gap-4">
-            {[Facebook, Twitter, Instagram, Linkedin].map((Icon, i) => (
-              <a
-                key={i}
-                href="#"
-                className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center hover:bg-orange-500 transition-colors"
-              >
-                <Icon className="w-4 h-4" />
-              </a>
-            ))}
+            )}
+          </div>
+          <div className="flex items-center gap-4" aria-label="CarUp social media">
+            {social.map(s => <SocialButton key={s.id} social={s} />)}
           </div>
         </div>
       </div>

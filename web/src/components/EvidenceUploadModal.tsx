@@ -1,11 +1,36 @@
-import { useState, useRef, type DragEvent, type ChangeEvent } from 'react'
+import { useState, useRef, useEffect, type DragEvent, type ChangeEvent } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2, Upload, X, FileText, Image as ImageIcon, AlertCircle } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import type { TimelineEvent, VehicleEvidence } from '@/types'
+import type {
+  TimelineEvent,
+  VehicleEvidence,
+  EvidenceTaxonomyClass,
+  EvidenceTaxonomySubtype,
+} from '@/types'
+
+// Human-readable labels for the eight life-stage classes (falls back to a
+// title-cased class code if the taxonomy ever adds a new class).
+const evidenceClassLabels: Record<string, string> = {
+  import: 'Import',
+  auction: 'Auction',
+  accident: 'Accident',
+  repair: 'Repair',
+  inspection: 'Inspection',
+  ownership_transfer: 'Ownership Transfer',
+  dealer_listing: 'Dealer Listing',
+  current_condition: 'Current Condition',
+}
+
+const titleCase = (val: string) =>
+  val
+    .split('_')
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ')
 
 const uploadRoleMatrix: Record<string, string[]> = {
   import_photo: ['government', 'admin', 'dealer'],
@@ -54,7 +79,7 @@ export default function EvidenceUploadModal({
   timelineEvents,
   onSuccess
 }: EvidenceUploadModalProps) {
-  const { uploadEvidence, user } = useCarUpApi()
+  const { uploadEvidence, fetchEvidenceTaxonomy, user } = useCarUpApi()
   const [loading, setLoading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
@@ -64,6 +89,43 @@ export default function EvidenceUploadModal({
   const [linkedEventId, setLinkedEventId] = useState<string>('')
   const [notes, setNotes] = useState('')
   const [capturedAt, setCapturedAt] = useState('')
+
+  // Vehicle Life Evidence Taxonomy (M1) — all optional, layered on top of the
+  // still-required legacy evidence_type above.
+  const [taxonomyClasses, setTaxonomyClasses] = useState<EvidenceTaxonomyClass[]>([])
+  const [legacyTypeToClass, setLegacyTypeToClass] = useState<Record<string, string>>({})
+  const [evidenceClass, setEvidenceClass] = useState<string>('')
+  const [evidenceSubtype, setEvidenceSubtype] = useState<string>('')
+  const [eventDate, setEventDate] = useState('')
+  const [odometerValue, setOdometerValue] = useState('')
+  const [odometerUnit, setOdometerUnit] = useState<string>('km')
+  const [componentTags, setComponentTags] = useState('')
+
+  // Load the taxonomy once the modal opens (cheap, public, cached by the browser).
+  useEffect(() => {
+    if (!isOpen || taxonomyClasses.length > 0) return
+    let cancelled = false
+    fetchEvidenceTaxonomy()
+      .then((data) => {
+        if (cancelled) return
+        setTaxonomyClasses(data.classes || [])
+        setLegacyTypeToClass(data.legacy_type_to_class || {})
+      })
+      .catch((err) => console.error('Error fetching evidence taxonomy:', err))
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, taxonomyClasses.length, fetchEvidenceTaxonomy])
+
+  // The class to display: an explicitly chosen class wins; otherwise derive from
+  // the legacy evidence_type via the taxonomy's legacy map (display-only default).
+  const effectiveClass = evidenceClass || (evidenceType ? legacyTypeToClass[evidenceType] || '' : '')
+  const subtypesForClass: EvidenceTaxonomySubtype[] =
+    taxonomyClasses.find((c) => c.evidence_class === effectiveClass)?.subtypes ?? []
+  const selectedSubtype = subtypesForClass.find((s) => s.subtype_code === evidenceSubtype)
+  // Only surface mileage / components when the chosen subtype declares support.
+  const showMileage = selectedSubtype?.requires_mileage ?? false
+  const showComponents = selectedSubtype?.supports_components ?? false
 
   // File states
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -84,6 +146,12 @@ export default function EvidenceUploadModal({
     setLinkedEventId('')
     setNotes('')
     setCapturedAt('')
+    setEvidenceClass('')
+    setEvidenceSubtype('')
+    setEventDate('')
+    setOdometerValue('')
+    setOdometerUnit('km')
+    setComponentTags('')
     setSelectedFile(null)
     setFileBase64(null)
     setUploadError(null)
@@ -175,6 +243,26 @@ export default function EvidenceUploadModal({
         payload.linked_registry_event_id = linkedEventId
       }
 
+      // Vehicle Life Evidence Taxonomy + provenance (M1) — optional fields.
+      // Send the explicitly chosen class, or fall back to the legacy-derived one
+      // so M1 records always carry a life-stage class when the form can determine it.
+      if (effectiveClass) payload.evidence_class = effectiveClass
+      if (evidenceSubtype) payload.evidence_subtype = evidenceSubtype
+      if (eventDate) payload.event_date = eventDate
+      if (showMileage && odometerValue) {
+        const parsed = Number(odometerValue)
+        if (!Number.isNaN(parsed)) {
+          payload.odometer_value = parsed
+          payload.odometer_unit = odometerUnit
+        }
+      }
+      if (showComponents && componentTags.trim()) {
+        payload.component_tags = componentTags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      }
+
       const response = await uploadEvidence(vin, payload)
       onSuccess(response)
       handleReset()
@@ -222,6 +310,108 @@ export default function EvidenceUploadModal({
               ))}
             </select>
           </div>
+
+          {/* Life stage (evidence_class) + dependent subtype — optional taxonomy (M1) */}
+          {taxonomyClasses.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="evidence-class" className="font-medium text-gray-700">Life stage (Optional)</Label>
+                <select
+                  id="evidence-class"
+                  className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  value={effectiveClass}
+                  onChange={(e) => {
+                    setEvidenceClass(e.target.value)
+                    setEvidenceSubtype('')
+                  }}
+                >
+                  <option value="">-- Auto / from category --</option>
+                  {taxonomyClasses.map((cls) => (
+                    <option key={cls.evidence_class} value={cls.evidence_class}>
+                      {evidenceClassLabels[cls.evidence_class] || titleCase(cls.evidence_class)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="evidence-subtype" className="font-medium text-gray-700">Detail / subtype (Optional)</Label>
+                <select
+                  id="evidence-subtype"
+                  className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  value={evidenceSubtype}
+                  onChange={(e) => setEvidenceSubtype(e.target.value)}
+                  disabled={subtypesForClass.length === 0}
+                >
+                  <option value="">{subtypesForClass.length === 0 ? '-- Select a life stage first --' : '-- Select subtype --'}</option>
+                  {subtypesForClass.map((sub) => (
+                    <option key={sub.subtype_code} value={sub.subtype_code}>
+                      {sub.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Event date — optional; the date the documented event actually occurred */}
+          {taxonomyClasses.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="event-date" className="font-medium text-gray-700">Event date (Optional)</Label>
+              <input
+                id="event-date"
+                type="date"
+                className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+              />
+              <p className="text-xs text-gray-400">When this life-stage event actually happened (may differ from the capture date).</p>
+            </div>
+          )}
+
+          {/* Odometer mileage — only when the chosen subtype requires it */}
+          {showMileage && (
+            <div className="space-y-2">
+              <Label htmlFor="odometer-value" className="font-medium text-gray-700">Mileage (Optional)</Label>
+              <div className="flex gap-2">
+                <input
+                  id="odometer-value"
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  placeholder="e.g. 85000"
+                  className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  value={odometerValue}
+                  onChange={(e) => setOdometerValue(e.target.value)}
+                />
+                <select
+                  aria-label="Mileage unit"
+                  className="flex h-10 w-24 shrink-0 rounded-md border border-gray-200 bg-white px-2 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  value={odometerUnit}
+                  onChange={(e) => setOdometerUnit(e.target.value)}
+                >
+                  <option value="km">km</option>
+                  <option value="mi">mi</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Component tags — only when the chosen subtype supports components */}
+          {showComponents && (
+            <div className="space-y-2">
+              <Label htmlFor="component-tags" className="font-medium text-gray-700">Affected components (Optional)</Label>
+              <input
+                id="component-tags"
+                type="text"
+                placeholder="e.g. front_bumper, left_door, hood"
+                className="flex h-10 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                value={componentTags}
+                onChange={(e) => setComponentTags(e.target.value)}
+              />
+              <p className="text-xs text-gray-400">Comma-separated list of the vehicle components this evidence relates to.</p>
+            </div>
+          )}
 
           {/* Drag & Drop File Upload */}
           <div className="space-y-2">

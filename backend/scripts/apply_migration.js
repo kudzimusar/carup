@@ -9,11 +9,11 @@ const __dirname = path.dirname(__filename);
 const { Client } = pg;
 
 const client = new Client({
-  connectionString: 'postgresql://postgres:HVYbYVb1x2ErqzH4@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres' // Trying standard connection string. Actually the user provided this one: postgresql://postgres:HVYbYVb1x2ErqzH4@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres
+  connectionString: (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL) // Trying standard connection string. Actually the user provided this one: postgresql://postgres:[REDACTED-USE-ENV]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres
 });
 
 const clientReal = new Client({
-    connectionString: 'postgresql://postgres:HVYbYVb1x2ErqzH4@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres'
+    connectionString: (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL)
 })
 
 async function runMigration() {

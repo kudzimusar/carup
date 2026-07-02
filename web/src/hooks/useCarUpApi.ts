@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -11,6 +11,23 @@ import type {
   ApiMutationResponse,
   VehiclePassport,
   VehicleEvidence,
+  EvidenceTaxonomyResponse,
+  EvidenceSourcesResponse,
+  TemporalFindingsResponse,
+  DisclosureConflictsResponse,
+  VehicleDocumentExtractionsResponse,
+  ExtractionReviewDecisionPayload,
+  VehicleDocumentExtraction,
+  VehicleCompleteness,
+  SourceCoverageEntry,
+  TrustDecision,
+  GovernanceTaskType,
+  GovernanceReviewQueueResponse,
+  GovernanceDecisionPayload,
+  GovernanceDecisionResponse,
+  VehicleDisputesResponse,
+  SubmitDisputePayload,
+  DisputeMutationResponse,
   TimelineEvent,
   MarketplaceListingsResponse,
   MarketplaceListingDetail,
@@ -67,7 +84,12 @@ import type {
   DiasporaDriveStatus,
   DiasporaDriveAuthUrl,
   DiasporaDriveFile,
-  DiasporaDriveConnection
+  DiasporaDriveConnection,
+  VehicleHistoryReportData,
+  ReportVersionResponse,
+  ReportShareLinkResponse,
+  SharedReportResponse,
+  SharedReportResult
 } from '@/types'
 import type {
   ReferralCampaignFilters,
@@ -329,6 +351,171 @@ export function useCarUpApi() {
 
   const fetchVehicleEvidence = useCallback(async (vin: string): Promise<VehicleEvidence[]> => {
     return request<VehicleEvidence[]>(`/vehicles/${encodeURIComponent(vin)}/evidence`)
+  }, [request])
+
+  // ── Vehicle Life Evidence Taxonomy (M1): public discovery endpoints ──
+  // GET /api/evidence/taxonomy — the eight life-stage classes, their subtypes,
+  // and the legacy evidence_type → class map, used to drive upload forms and
+  // to derive a life-stage class for legacy evidence records.
+  const fetchEvidenceTaxonomy = useCallback(async (): Promise<EvidenceTaxonomyResponse> => {
+    return request<EvidenceTaxonomyResponse>('/evidence/taxonomy')
+  }, [request])
+
+  // GET /api/evidence/sources — public-safe source registry.
+  const fetchEvidenceSources = useCallback(async (): Promise<EvidenceSourcesResponse> => {
+    return request<EvidenceSourcesResponse>('/evidence/sources')
+  }, [request])
+
+  // ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──
+  // GET /api/vehicles/:vin/temporal-findings — component-change findings across the
+  // vehicle's life. For buyers the backend returns only reviewer-CONFIRMED findings
+  // in a public-safe shape (backend/routes/intelligenceRoutes.js); empty is expected
+  // and correct for most buyer-facing vehicles.
+  const fetchTemporalFindings = useCallback(async (vin: string): Promise<TemporalFindingsResponse> => {
+    return request<TemporalFindingsResponse>(`/vehicles/${encodeURIComponent(vin)}/temporal-findings`)
+  }, [request])
+
+  // GET /api/vehicles/:vin/disclosure-conflicts — disclosure claims compared against
+  // evidence. Buyers see only reviewer-CONFIRMED conflicts in a neutral public-safe
+  // shape; empty is expected and correct for most buyer-facing vehicles.
+  const fetchDisclosureConflicts = useCallback(async (vin: string): Promise<DisclosureConflictsResponse> => {
+    return request<DisclosureConflictsResponse>(`/vehicles/${encodeURIComponent(vin)}/disclosure-conflicts`)
+  }, [request])
+
+  // ── OCR document extractions (Phase 12): admin/reviewer surface ──
+  // GET /api/vehicles/:vin/extractions — per-field OCR results with match_status + per-field
+  // confidence + review_status. Privileged roles only (backend enforces).
+  const fetchVehicleExtractions = useCallback(async (
+    vin: string,
+    opts?: { evidenceId?: string; matchStatus?: string; pendingOnly?: boolean },
+  ): Promise<VehicleDocumentExtractionsResponse> => {
+    const qs = new URLSearchParams()
+    if (opts?.evidenceId) qs.set('evidence_id', opts.evidenceId)
+    if (opts?.matchStatus) qs.set('match_status', opts.matchStatus)
+    if (opts?.pendingOnly) qs.set('pending_only', 'true')
+    const q = qs.toString() ? `?${qs.toString()}` : ''
+    return request<VehicleDocumentExtractionsResponse>(`/vehicles/${encodeURIComponent(vin)}/extractions${q}`)
+  }, [request])
+
+  // PATCH /api/vehicles/:vin/extractions/:id/review — reviewer decision. Only review_status +
+  // mismatch_reason change; the extracted content stays immutable (no overwrite of the original).
+  const reviewVehicleExtraction = useCallback(async (
+    vin: string,
+    extractionId: string,
+    payload: ExtractionReviewDecisionPayload,
+  ): Promise<{ extraction: VehicleDocumentExtraction }> => {
+    return request<{ extraction: VehicleDocumentExtraction }>(`/vehicles/${encodeURIComponent(vin)}/extractions/${encodeURIComponent(extractionId)}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  }, [request])
+
+  // ── WS2/WS10 — Source coverage + unified trust decision (buyer-safe) ──────────
+  const fetchVehicleSourceCoverage = useCallback(async (vin: string): Promise<{ coverage: SourceCoverageEntry[] }> => {
+    return request<{ coverage: SourceCoverageEntry[] }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/sources/coverage`)
+  }, [request])
+
+  const fetchVehicleTrustDecision = useCallback(async (vin: string): Promise<{ decision: TrustDecision }> => {
+    return request<{ decision: TrustDecision }>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/trust-decision`)
+  }, [request])
+
+  // ── WS-A fraud queue + WS-B dealer compliance (admin/reviewer) ────────────────
+  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: unknown[] }> => {
+    const qs = new URLSearchParams(filters as Record<string, string>).toString()
+    return request<{ cases: unknown[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
+  }, [request])
+  const fetchFraudCase = useCallback(async (id: string): Promise<{ case: unknown }> =>
+    request<{ case: unknown }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
+  const resolveFraudCase = useCallback(async (id: string, body: { resolution: string; reason: string }): Promise<unknown> =>
+    request(`/fraud/cases/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+  const evaluateVehicleFraud = useCallback(async (vin: string): Promise<unknown> =>
+    request(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/fraud/evaluate`, { method: 'POST' }), [request])
+  const fetchDealers = useCallback(async (): Promise<{ dealers: unknown[] }> =>
+    request<{ dealers: unknown[] }>(`/admin/dealers`), [request])
+  const fetchDealer = useCallback(async (id: string): Promise<{ dealer: unknown }> =>
+    request<{ dealer: unknown }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
+  const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<unknown> =>
+    request(`/admin/dealers/${encodeURIComponent(id)}/decision`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
+  const fetchMyDealerProfile = useCallback(async (): Promise<{ profile: unknown }> =>
+    request<{ profile: unknown }>(`/dealer/profile`), [request])
+  const saveMyDealerProfile = useCallback(async (body: Record<string, unknown>): Promise<unknown> =>
+    request(`/dealer/profile`, { method: 'POST', body: JSON.stringify(body) }), [request])
+
+  // ── Phase 4 — Publication completeness gate ──────────────────────────────────
+  // GET /api/vehicles/:vin/completeness — deterministic requirements evaluator.
+  // Returns blocking gaps, advisory gaps, completeness %, and publication_status.
+  // Requires owner/dealer/admin/reviewer role (enforced on the server).
+  const fetchVehicleCompleteness = useCallback(async (vin: string): Promise<VehicleCompleteness> => {
+    return request<VehicleCompleteness>(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/completeness`)
+  }, [request])
+
+  // ── Vehicle History Report (M4): buyer-facing report + owner version/share ──
+  // GET /api/vehicles/:vin/report — assembled public-safe report. Audience is
+  // derived server-side from role (optionalAuth); buyers receive only verified,
+  // public-safe evidence and reviewer-confirmed findings. Missing data is reported
+  // explicitly via `limitations` and never presented as a clean history.
+  const fetchVehicleReport = useCallback(async (vin: string): Promise<VehicleHistoryReportData> => {
+    return request<VehicleHistoryReportData>(`/vehicles/${encodeURIComponent(vin)}/report`)
+  }, [request])
+
+  // POST /api/vehicles/:vin/report/versions — snapshot an immutable version
+  // (owner/dealer/admin/government, backend role-gated).
+  const generateReportVersion = useCallback(async (vin: string): Promise<ReportVersionResponse> => {
+    return request<ReportVersionResponse>(`/vehicles/${encodeURIComponent(vin)}/report/versions`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    })
+  }, [request])
+
+  // POST /api/report-versions/:id/share — create an expiring share link
+  // (owner/dealer/admin/government, backend role-gated).
+  const createReportShareLink = useCallback(async (versionId: string, ttlSeconds?: number): Promise<ReportShareLinkResponse> => {
+    return request<ReportShareLinkResponse>(`/report-versions/${encodeURIComponent(versionId)}/share`, {
+      method: 'POST',
+      body: JSON.stringify(ttlSeconds ? { ttl_seconds: ttlSeconds } : {})
+    })
+  }, [request])
+
+  // GET /api/reports/shared/:token — PUBLIC, no auth. Resolved with a plain fetch
+  // (not the auth/CSRF `request` helper) so the HTTP status is preserved: 410 for
+  // expired/revoked links, 404 for missing tokens. Returns a discriminated result
+  // the page renders distinct friendly states from.
+  const fetchSharedReport = useCallback(async (token: string): Promise<SharedReportResult> => {
+    try {
+      const res = await fetch(`${BASE_URL}/reports/shared/${encodeURIComponent(token)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      if (res.ok) {
+        const data = (await res.json()) as SharedReportResponse
+        return { status: 'ok', data }
+      }
+      const body = await res.json().catch(() => ({}))
+      const message = extractApiErrorMessage(body)
+      if (res.status === 410) return { status: 'gone', reason: message || 'This shared report has expired or been revoked.' }
+      if (res.status === 404) return { status: 'not_found' }
+      return { status: 'error', message: message || `Unable to load shared report (status ${res.status}).` }
+    } catch (err) {
+      return { status: 'error', message: err instanceof Error ? err.message : 'Unable to load shared report.' }
+    }
+  }, [])
+
+  // --- Milestone 5: governance, disputes & corrections ---
+  const fetchReviewQueue = useCallback(async (taskType?: GovernanceTaskType): Promise<GovernanceReviewQueueResponse> => {
+    const query = taskType ? `?taskType=${encodeURIComponent(taskType)}` : ''
+    return request<GovernanceReviewQueueResponse>(`/governance/review-queue${query}`)
+  }, [request])
+
+  const submitGovernanceDecision = useCallback(async (payload: GovernanceDecisionPayload): Promise<GovernanceDecisionResponse> => {
+    return request<GovernanceDecisionResponse>('/governance/decisions', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchVehicleDisputes = useCallback(async (vin: string): Promise<VehicleDisputesResponse> => {
+    return request<VehicleDisputesResponse>(`/vehicles/${encodeURIComponent(vin)}/disputes`)
+  }, [request])
+
+  const submitDispute = useCallback(async (payload: SubmitDisputePayload): Promise<DisputeMutationResponse> => {
+    return request<DisputeMutationResponse>('/governance/disputes', { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
 
   const approveEvidence = useCallback(async (vin: string, evidenceId: string, notes: string, trustScoreImpact = 3): Promise<{ success: boolean; evidence: VehicleEvidence }> => {
@@ -1059,6 +1246,21 @@ export function useCarUpApi() {
     visibility_level?: string;
     linked_registry_event_id?: string;
     verification_notes?: string;
+    // Vehicle Life Evidence Taxonomy + provenance (M1) — all optional; the
+    // backend still requires the legacy evidence_type above.
+    evidence_class?: string;
+    evidence_subtype?: string;
+    event_date?: string;
+    event_date_precision?: 'day' | 'month' | 'year' | 'unknown';
+    capture_country?: string;
+    odometer_value?: number;
+    odometer_unit?: string;
+    component_tags?: string[] | string;
+    declared_condition?: string;
+    source_code?: string;
+    source_record_id?: string;
+    evidence_set_id?: string;
+    retention_class?: string;
   }): Promise<VehicleEvidence> => {
     return request<VehicleEvidence>(`/vehicles/${vin}/evidence/upload`, {
       method: 'POST',
@@ -1270,6 +1472,32 @@ export function useCarUpApi() {
     revokeTrustFactRequest,
     fetchTrustAuditTrail,
     fetchVehicleEvidence,
+    fetchEvidenceTaxonomy,
+    fetchEvidenceSources,
+    fetchTemporalFindings,
+    fetchDisclosureConflicts,
+    fetchVehicleExtractions,
+    reviewVehicleExtraction,
+    fetchVehicleCompleteness,
+    fetchVehicleSourceCoverage,
+    fetchVehicleTrustDecision,
+    fetchFraudCases,
+    fetchFraudCase,
+    resolveFraudCase,
+    evaluateVehicleFraud,
+    fetchDealers,
+    fetchDealer,
+    recordDealerDecision,
+    fetchMyDealerProfile,
+    saveMyDealerProfile,
+    fetchVehicleReport,
+    generateReportVersion,
+    createReportShareLink,
+    fetchSharedReport,
+    fetchReviewQueue,
+    submitGovernanceDecision,
+    fetchVehicleDisputes,
+    submitDispute,
     approveEvidence,
     rejectEvidence,
     lookupVehiclePassport,
