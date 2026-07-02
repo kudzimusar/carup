@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 // Load env variables
 dotenv.config();
 
-const connectionString = process.env.SUPABASE_DB_URL || 'postgresql://postgres.vhmnajoeicasaigiophh:[ROTATED-SEE-CR1]@aws-1-ap-south-1.pooler.supabase.com:5432/postgres';
+const connectionString = process.env.SUPABASE_DB_URL || (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
 
 const client = new pg.Client({
   connectionString,

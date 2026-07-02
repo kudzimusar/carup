@@ -4,8 +4,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
 import { getMarketplaceListingDetail, createMarketplaceInquiry, type MobileListingDetail } from '../../utils/marketplaceApi';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 
-export default function VehicleDetailScreen() {
+function VehicleDetailScreenInner() {
   const router = useRouter();
   const { vin } = useLocalSearchParams();
   const token = useAuthStore((state) => state.token);
@@ -196,5 +197,20 @@ export default function VehicleDetailScreen() {
         </Pressable>
       </View>
     </View>
+  );
+}
+
+/**
+ * Marketplace-protected route boundary (Milestone C). A deep link / direct nav to
+ * `/vehicle/[vin]` is gated by the SAME governed decision as the Marketplace
+ * surface (product.marketplace). When Marketplace is disabled / accessible:false
+ * the boundary renders the safe state instead of the detail screen. The native
+ * screen exists, so hasNativeScreen is true.
+ */
+export default function VehicleDetailScreen() {
+  return (
+    <NativeFeatureBoundary route="/vehicle/[vin]" featureId="product.marketplace" hasNativeScreen>
+      <VehicleDetailScreenInner />
+    </NativeFeatureBoundary>
   );
 }

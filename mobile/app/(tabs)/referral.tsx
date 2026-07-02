@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Share, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../../store/authStore';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import {
   getReferralWallet,
   validateReferralCode,
@@ -37,7 +38,7 @@ function money(amount?: number, currency?: string | null): string {
   return `${currency ? `${currency} ` : '$'}${amount.toLocaleString()}`;
 }
 
-export default function ReferralScreen() {
+function ReferralScreenInner() {
   const user = useAuthStore((s) => s.user);
 
   const [loading, setLoading] = useState(true);
@@ -267,5 +268,18 @@ export default function ReferralScreen() {
       )}
       {disputeMsg && <Text className="text-slate-600 text-xs mb-4">{disputeMsg}</Text>}
     </ScrollView>
+  );
+}
+
+/**
+ * Owner-protected route boundary (Milestone C). Refer & Earn is governed by
+ * owner.referrals (owner-only, requiresAuth). A deep link / direct nav is gated
+ * by the SAME governed decision that hides the tab for non-owners.
+ */
+export default function ReferralScreen() {
+  return (
+    <NativeFeatureBoundary route="/dashboard/referrals" featureId="owner.referrals">
+      <ReferralScreenInner />
+    </NativeFeatureBoundary>
   );
 }

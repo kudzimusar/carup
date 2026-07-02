@@ -2,8 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
-const hasEnv = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
-const skipReason = hasEnv ? false : 'Skipping QA blockers test because Supabase env vars are not set';
+// These are LIVE-Supabase smoke checks (they assert a real query does not 500). Mere PRESENCE
+// of env vars is not enough: db/supabase.js requires SUPABASE_URL + SERVICE_ROLE_KEY to import,
+// so CI/test runners set placeholder values — which previously fooled this guard into running
+// against a non-existent DB. Run only against REAL infra (explicit opt-in, or a non-local /
+// non-"test" URL + key). Otherwise skip. This masks nothing: the checks still run wherever a
+// live Supabase is configured (e.g. locally with real creds, or RUN_SUPABASE_SMOKE=true).
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const liveSupabase = process.env.RUN_SUPABASE_SMOKE === 'true'
+  || (Boolean(supabaseUrl) && Boolean(supabaseKey)
+      && !/localhost|127\.0\.0\.1|test/i.test(supabaseUrl)
+      && !/^test[-_]?/i.test(supabaseKey));
+const skipReason = liveSupabase
+  ? false
+  : 'Skipping QA backend-blockers smoke test: no live Supabase configured (set RUN_SUPABASE_SMOKE=true with real creds).';
 
 let server;
 let port;

@@ -3,7 +3,7 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Users, Brain, ShieldAlert, ArrowRight, Landmark, Building2 } from 'lucide-react'
+import { Users, Brain, ShieldAlert, ArrowRight, Landmark, Building2, FileCheck2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -229,6 +229,9 @@ export default function AdminDashboard() {
                 { label: 'User Management', href: '/admin/users', icon: Users },
                 { label: 'AI Monitoring', href: '/admin/ai', icon: Brain },
                 { label: 'Moderation', href: '/admin/moderation', icon: ShieldAlert },
+                { label: 'Fraud Queue', href: '/admin/fraud-queue', icon: ShieldAlert },
+                { label: 'Dealer Compliance', href: '/admin/dealer-compliance', icon: Building2 },
+                { label: 'Evidence Review', href: '/admin/evidence', icon: FileCheck2 },
               ].map((link) => (
                 <Link key={link.label} to={link.href} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
                   <link.icon className="w-4 h-4 text-orange-500" />

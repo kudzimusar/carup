@@ -77,3 +77,76 @@ test('non-positive manual reward override is rejected before wallet mutation', a
   await assert.rejects(() => localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'quote_accepted', reward_amount: 0, referred_user_id: 'buyer-amount' }, operatorActor), ValidationError);
   assert.equal((await repository.list(REFERRAL_TABLES.walletTransactions)).length, 0);
 });
+
+test('reward credits the lead code owner even when a different referral_code is supplied at qualification (attribution cannot be redirected)', async () => {
+  const { repository, localMarketplace } = createHarness();
+  // The lead is driven by the real owner's code; a second (attacker) code exists.
+  const realBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'real-owner', code: 'phase4-real-owner' }, operatorActor);
+  const attackerBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'attacker-owner', code: 'phase4-attacker' }, operatorActor);
+  const lead = await localMarketplace.createLead({ flow_type: 'buy_vehicle', referral_code: realBundle.code.code, session_id: 'attribution-redirect', contact: { user_id: 'buyer-x' } }, buyerActor);
+  // Attempt to redirect the credit by passing the attacker's code at qualification time.
+  const result = await localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'order_paid', referral_code: attackerBundle.code.code, referred_user_id: 'buyer-x' }, operatorActor);
+  assert.equal(result.reward_created, true);
+  const wallets = await repository.list(REFERRAL_TABLES.walletTransactions);
+  assert.equal(wallets.length, 1);
+  // The reward MUST belong to the owner of the code that drove the lead.
+  assert.equal(wallets[0].user_id, 'real-owner');
+  assert.notEqual(wallets[0].user_id, 'attacker-owner');
+});
+
+test('attribution precedence: stored lead code_id resolves the authoritative owner when metadata.referral_code is absent', async () => {
+  const { repository, localMarketplace } = createHarness();
+  const realBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-codeid', code: 'prec-codeid' }, operatorActor);
+  const attackerBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-attacker', code: 'prec-attacker-1' }, operatorActor);
+  const lead = await localMarketplace.createLead({ flow_type: 'buy_vehicle', referral_code: realBundle.code.code, session_id: 'prec-codeid', contact: { user_id: 'buyer-codeid' } }, buyerActor);
+  // Simulate a lead whose metadata lost the referral_code/attribution but still has code_id.
+  const leadEvent = await repository.findOne(REFERRAL_TABLES.events, { id: lead.event_id });
+  const md = { ...leadEvent.metadata }; delete md.referral_code; delete md.attribution;
+  await repository.updateById(REFERRAL_TABLES.events, lead.event_id, { metadata: md });
+  const result = await localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'order_paid', referral_code: attackerBundle.code.code, referred_user_id: 'buyer-codeid' }, operatorActor);
+  assert.equal(result.reward_created, true);
+  const wallets = await repository.list(REFERRAL_TABLES.walletTransactions);
+  assert.equal(wallets.length, 1);
+  assert.equal(wallets[0].user_id, 'owner-codeid'); // resolved via code_id, not the caller code
+});
+
+test('attribution precedence: a caller-supplied code is accepted only when the lead has NO stored attribution', async () => {
+  const { repository, localMarketplace } = createHarness();
+  const lateBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-late', code: 'prec-late' }, operatorActor);
+  const realBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-real', code: 'prec-real' }, operatorActor);
+  const lead = await localMarketplace.createLead({ flow_type: 'buy_vehicle', referral_code: realBundle.code.code, session_id: 'prec-late', contact: { user_id: 'buyer-late' } }, buyerActor);
+  // Strip ALL stored attribution from the lead (no code_id, no metadata code/attribution).
+  const leadEvent = await repository.findOne(REFERRAL_TABLES.events, { id: lead.event_id });
+  const md = { ...leadEvent.metadata }; delete md.referral_code; delete md.attribution;
+  await repository.updateById(REFERRAL_TABLES.events, lead.event_id, { code_id: null, metadata: md });
+  // With no stored attribution, a caller code legitimately attributes the (previously orphan) lead.
+  const result = await localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'order_paid', referral_code: lateBundle.code.code, referred_user_id: 'buyer-late' }, operatorActor);
+  assert.equal(result.reward_created, true);
+  const wallets = await repository.list(REFERRAL_TABLES.walletTransactions);
+  assert.equal(wallets.length, 1);
+  assert.equal(wallets[0].user_id, 'owner-late');
+});
+
+test('attribution precedence: duplicate qualification cannot mint a second reward even after a code-substitution attempt', async () => {
+  const { repository, localMarketplace } = createHarness();
+  const realBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-dup2', code: 'prec-dup-real' }, operatorActor);
+  const attackerBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-dup-attacker', code: 'prec-dup-attacker' }, operatorActor);
+  const lead = await localMarketplace.createLead({ flow_type: 'buy_vehicle', referral_code: realBundle.code.code, session_id: 'prec-dup', contact: { user_id: 'buyer-dup2' } }, buyerActor);
+  const first = await localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'order_paid', referral_code: attackerBundle.code.code, referred_user_id: 'buyer-dup2' }, operatorActor);
+  assert.equal(first.reward_created, true);
+  await assert.rejects(() => localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'order_paid', referral_code: attackerBundle.code.code, referred_user_id: 'buyer-dup2' }, operatorActor), ValidationError);
+  const wallets = await repository.list(REFERRAL_TABLES.walletTransactions);
+  assert.equal(wallets.length, 1);
+  assert.equal(wallets[0].user_id, 'owner-dup2'); // single reward, to the authoritative owner
+});
+
+test('attribution precedence: self-referral is judged against the authoritative lead owner and a caller code cannot bypass it', async () => {
+  const { repository, localMarketplace } = createHarness();
+  const realBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-self2', code: 'prec-self-real' }, { ...operatorActor, actor_user_id: 'owner-self2' });
+  const attackerBundle = await localMarketplace.createReferralBundle({ flow_type: 'buy_vehicle', owner_user_id: 'owner-other', code: 'prec-self-attacker' }, operatorActor);
+  const lead = await localMarketplace.createLead({ flow_type: 'buy_vehicle', referral_code: realBundle.code.code, session_id: 'prec-self', contact: { user_id: 'owner-self2' } }, buyerActor);
+  // The referred user IS the authoritative (lead) owner -> self-referral; passing a different
+  // caller code must NOT let it slip past the guard.
+  await assert.rejects(() => localMarketplace.qualifyLead({ lead_event_id: lead.event_id, milestone: 'order_paid', referred_user_id: 'owner-self2', referral_code: attackerBundle.code.code }, operatorActor), ForbiddenError);
+  assert.equal((await repository.list(REFERRAL_TABLES.walletTransactions)).length, 0);
+});
