@@ -40,7 +40,6 @@ export function SourceCoveragePanel({ vin, initialData }: { vin: string; initial
   useEffect(() => {
     if (initialData) return
     let cancelled = false
-    setLoading(true)
     fetchVehicleSourceCoverage(vin)
       .then((r) => { if (!cancelled) setData(r.coverage || []) })
       .catch(() => { if (!cancelled) setData([]) })

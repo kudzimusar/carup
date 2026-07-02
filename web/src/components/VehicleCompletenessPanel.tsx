@@ -81,8 +81,6 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
   useEffect(() => {
     if (initialData) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
     fetchVehicleCompleteness(vin)
       .then(result => { if (!cancelled) setData(result) })
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load') })

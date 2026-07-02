@@ -393,25 +393,25 @@ export function useCarUpApi() {
   }, [request])
 
   // ── WS-A fraud queue + WS-B dealer compliance (admin/reviewer) ────────────────
-  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: any[] }> => {
+  const fetchFraudCases = useCallback(async (filters?: { status?: string; severity?: string }): Promise<{ cases: unknown[] }> => {
     const qs = new URLSearchParams(filters as Record<string, string>).toString()
-    return request<{ cases: any[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
+    return request<{ cases: unknown[] }>(`/fraud/cases${qs ? `?${qs}` : ''}`)
   }, [request])
-  const fetchFraudCase = useCallback(async (id: string): Promise<{ case: any }> =>
-    request<{ case: any }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
-  const resolveFraudCase = useCallback(async (id: string, body: { resolution: string; reason: string }): Promise<any> =>
+  const fetchFraudCase = useCallback(async (id: string): Promise<{ case: unknown }> =>
+    request<{ case: unknown }>(`/fraud/cases/${encodeURIComponent(id)}`), [request])
+  const resolveFraudCase = useCallback(async (id: string, body: { resolution: string; reason: string }): Promise<unknown> =>
     request(`/fraud/cases/${encodeURIComponent(id)}/resolve`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
-  const evaluateVehicleFraud = useCallback(async (vin: string): Promise<any> =>
+  const evaluateVehicleFraud = useCallback(async (vin: string): Promise<unknown> =>
     request(`/vehicles/${encodeURIComponent(vin.toUpperCase())}/fraud/evaluate`, { method: 'POST' }), [request])
-  const fetchDealers = useCallback(async (): Promise<{ dealers: any[] }> =>
-    request<{ dealers: any[] }>(`/admin/dealers`), [request])
-  const fetchDealer = useCallback(async (id: string): Promise<{ dealer: any }> =>
-    request<{ dealer: any }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
-  const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<any> =>
+  const fetchDealers = useCallback(async (): Promise<{ dealers: unknown[] }> =>
+    request<{ dealers: unknown[] }>(`/admin/dealers`), [request])
+  const fetchDealer = useCallback(async (id: string): Promise<{ dealer: unknown }> =>
+    request<{ dealer: unknown }>(`/admin/dealers/${encodeURIComponent(id)}`), [request])
+  const recordDealerDecision = useCallback(async (id: string, body: { decision: string; requirement_key?: string; reason?: string }): Promise<unknown> =>
     request(`/admin/dealers/${encodeURIComponent(id)}/decision`, { method: 'PATCH', body: JSON.stringify(body) }), [request])
-  const fetchMyDealerProfile = useCallback(async (): Promise<{ profile: any }> =>
-    request<{ profile: any }>(`/dealer/profile`), [request])
-  const saveMyDealerProfile = useCallback(async (body: Record<string, unknown>): Promise<any> =>
+  const fetchMyDealerProfile = useCallback(async (): Promise<{ profile: unknown }> =>
+    request<{ profile: unknown }>(`/dealer/profile`), [request])
+  const saveMyDealerProfile = useCallback(async (body: Record<string, unknown>): Promise<unknown> =>
     request(`/dealer/profile`, { method: 'POST', body: JSON.stringify(body) }), [request])
 
   // ── Phase 4 — Publication completeness gate ──────────────────────────────────

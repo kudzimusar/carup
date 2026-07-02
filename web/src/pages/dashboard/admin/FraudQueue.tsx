@@ -61,12 +61,21 @@ export default function FraudQueue() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetchFraudCases({ status: 'open' }); setCases(r.cases || []) }
+    try { const r = await fetchFraudCases({ status: 'open' }); setCases((r.cases || []) as FraudCase[]) }
     catch (err) { toast.error(getErrorMessage(err)) }
     finally { setLoading(false) }
   }, [fetchFraudCases])
 
-  useEffect(() => { load() }, [load])
+  // Initial load: fetch without a synchronous set-state-in-effect (loading starts true;
+  // state is set only in the async continuation). load() is reused for event-driven refresh.
+  useEffect(() => {
+    let cancelled = false
+    fetchFraudCases({ status: 'open' })
+      .then((r) => { if (!cancelled) setCases((r.cases || []) as FraudCase[]) })
+      .catch((err) => { if (!cancelled) toast.error(getErrorMessage(err)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [fetchFraudCases])
 
   const onResolve = async (id: string, resolution: string) => {
     setBusy(id)
