@@ -33,7 +33,34 @@ export const STOCK_EXPORT_READINESS = Object.freeze([
   'ON_HOLD',
 ]);
 
-export const STOCK_PUBLICATION_STATUSES = Object.freeze(['PRIVATE', 'PUBLISHED', 'ARCHIVED']);
+// Stock publication lifecycle. PRIVATE doubles as the draft state (items are created PRIVATE).
+export const STOCK_PUBLICATION_STATUSES = Object.freeze({
+  PRIVATE: 'PRIVATE',
+  PUBLISHED: 'PUBLISHED',
+  UNPUBLISHED: 'UNPUBLISHED',
+});
+
+// Stock publication state machine: source -> allowed targets.
+export const STOCK_PUBLICATION_TRANSITIONS = Object.freeze({
+  PRIVATE: [STOCK_PUBLICATION_STATUSES.PUBLISHED],
+  PUBLISHED: [STOCK_PUBLICATION_STATUSES.UNPUBLISHED],
+  UNPUBLISHED: [STOCK_PUBLICATION_STATUSES.PUBLISHED],
+});
+
+// Fields a stock item must have populated before it may be published (unit_price must also be > 0).
+export const STOCK_ITEM_REQUIRED_FOR_PUBLISH = Object.freeze([
+  'part_name',
+  'condition',
+  'unit_price',
+  'currency',
+]);
+
+// At least one of these compatibility fields is required for publication.
+export const STOCK_ITEM_COMPATIBILITY_FIELDS = Object.freeze([
+  'vehicle_make',
+  'part_number',
+  'oem_number',
+]);
 
 export const STOCK_VERIFICATION_STATUSES = Object.freeze([
   'UNVERIFIED',

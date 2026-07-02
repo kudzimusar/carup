@@ -9,6 +9,8 @@ import {
   listStockItems,
   getStockItem,
   updateStockItem,
+  publishStockItem,
+  unpublishStockItem,
   reserveStock,
   releaseReservation,
 } from '../services/diaspora/diasporaStockService.js';
@@ -46,6 +48,16 @@ router.get('/stock/:id', sellerAuth, asyncHandler(async (req, res) => {
 
 router.patch('/stock/:id', sellerAuth, asyncHandler(async (req, res) => {
   const data = await updateStockItem(req.params.id, req.body, req.userContext, { req });
+  res.json({ data });
+}));
+
+router.post('/stock/:id/publish', sellerAuth, asyncHandler(async (req, res) => {
+  const data = await publishStockItem(req.params.id, req.body, req.userContext, { req });
+  res.json({ data });
+}));
+
+router.post('/stock/:id/unpublish', sellerAuth, asyncHandler(async (req, res) => {
+  const data = await unpublishStockItem(req.params.id, req.body, req.userContext, { req });
   res.json({ data });
 }));
 
