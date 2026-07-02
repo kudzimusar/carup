@@ -1,6 +1,6 @@
 import pg from 'pg';
 const { Client } = pg;
-const client = new Client({ connectionString: 'postgresql://postgres:[ROTATED-SEE-CR1]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres' });
+const client = new Client({ connectionString: (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL) });
 async function run() {
   await client.connect();
   const res = await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'");

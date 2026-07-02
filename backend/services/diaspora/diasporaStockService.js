@@ -9,6 +9,12 @@ import {
   STOCK_CONDITIONS,
   STOCK_EXPORT_READINESS,
   STOCK_ITEM_EDITABLE_FIELDS,
+  STOCK_ITEM_PROTECTED_FIELDS,
+  STOCK_ITEM_REQUIRED_FOR_PUBLISH,
+  STOCK_ITEM_COMPATIBILITY_FIELDS,
+  STOCK_PUBLICATION_STATUSES,
+  STOCK_PUBLICATION_TRANSITIONS,
+  SUPPLY_DOCUMENT_STATUSES,
 } from '../../constants/diaspora/diasporaStockConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
@@ -22,6 +28,30 @@ function assertOwnership(item, context) {
   const owns = [item.created_by, item.updated_by].some((c) => normalizeId(c) === context.id);
   const sameTenant = item.tenant_id && context.tenantId && normalizeId(item.tenant_id) === context.tenantId;
   if (!owns && !sameTenant) throw new ForbiddenError('You do not have access to this stock item');
+}
+
+/**
+ * Publication is stricter than read access: only the creating seller or a trusted platform
+ * reviewer/admin (server-derived platformRole — never a client-supplied role) may change
+ * publication state, and the creator must belong to the item's tenant when both are set.
+ */
+function assertCanChangePublication(item, context) {
+  if (isPlatformAdmin(context) || isPlatformReviewer(context)) return;
+  const isCreator = normalizeId(item.created_by) === context.id;
+  if (!isCreator) {
+    throw new ForbiddenError('Only the creating seller or a reviewer/admin may change stock publication');
+  }
+  const crossTenant = item.tenant_id && context.tenantId && normalizeId(item.tenant_id) !== context.tenantId;
+  if (crossTenant) {
+    throw new ForbiddenError('You do not have access to this stock item');
+  }
+}
+
+function assertPublicationTransition(current, next) {
+  const allowed = STOCK_PUBLICATION_TRANSITIONS[current] || [];
+  if (!allowed.includes(next)) {
+    throw new ValidationError(`Cannot transition stock publication from ${current} to ${next}`);
+  }
 }
 
 export async function createStockItem(payload = {}, userContext = {}, options = {}) {
@@ -149,6 +179,11 @@ export async function updateStockItem(id, payload = {}, userContext = {}, option
       throw new ValidationError('Stock quantity cannot be set directly. Use a ledger movement instead.');
     }
   }
+  for (const key of STOCK_ITEM_PROTECTED_FIELDS) {
+    if (key in payload) {
+      throw new ValidationError(`${key} is protected and cannot be set directly. Use the dedicated lifecycle endpoint instead.`);
+    }
+  }
   if (payload.condition && !STOCK_CONDITIONS.includes(payload.condition)) {
     throw new ValidationError(`Invalid condition. Allowed: ${STOCK_CONDITIONS.join(', ')}`);
   }
@@ -175,6 +210,130 @@ export async function updateStockItem(id, payload = {}, userContext = {}, option
     req,
   });
   return { ...data, balances: deriveBalances(data) };
+}
+
+/**
+ * Publish a stock item so it becomes visible to demand/supply matching. Gated on required fields,
+ * ledger availability (read from the stored row — never client input), and the linked supply
+ * document (when present) being published/verified. Only publication_status changes; quantities
+ * are never written here. Idempotent: re-publishing a PUBLISHED item replays without a new audit.
+ */
+export async function publishStockItem(id, payload = {}, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const { req = null } = options;
+
+  const previous = await getStockItem(id, context, options); // existence + not-deleted + read access
+  assertCanChangePublication(previous, context);
+
+  if (previous.publication_status === STOCK_PUBLICATION_STATUSES.PUBLISHED) {
+    return { ...previous, idempotentReplay: true };
+  }
+
+  assertPublicationTransition(previous.publication_status, STOCK_PUBLICATION_STATUSES.PUBLISHED);
+
+  // Required-field gate (unit_price must be a positive number, everything else non-empty).
+  const missing = STOCK_ITEM_REQUIRED_FOR_PUBLISH.filter((field) => {
+    if (field === 'unit_price') return !(Number(previous.unit_price) > 0);
+    return !previous[field] || !String(previous[field]).trim();
+  });
+  const hasCompatibility = STOCK_ITEM_COMPATIBILITY_FIELDS.some(
+    (field) => previous[field] && String(previous[field]).trim(),
+  );
+  if (!hasCompatibility) {
+    missing.push(`one of ${STOCK_ITEM_COMPATIBILITY_FIELDS.join('/')}`);
+  }
+  if (missing.length) {
+    throw new ValidationError(`Cannot publish: missing required fields ${missing.join(', ')}`, { missing });
+  }
+
+  // Ledger consistency: availability comes from the stored row, never recomputed from client input.
+  const balances = deriveBalances(previous);
+  if (!(balances.available > 0)) {
+    throw new ValidationError('Cannot publish stock with zero available quantity. Add stock through the ledger first.');
+  }
+
+  // Supply-document gate: a linked document must itself be published (or verified) before the
+  // stock that references it can go public.
+  if (previous.supply_document_id) {
+    const { data: doc } = await client
+      .from('diaspora_supply_documents')
+      .select('*')
+      .eq('id', previous.supply_document_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    const docVerified = String(doc?.verification_status || '').toUpperCase() === 'VERIFIED';
+    if (doc && doc.status !== SUPPLY_DOCUMENT_STATUSES.PUBLISHED && !docVerified) {
+      throw new ValidationError(`Cannot publish: linked supply document is ${doc.status}, not PUBLISHED`);
+    }
+  }
+
+  const { data, error } = await client
+    .from(STORAGE)
+    .update({
+      publication_status: STOCK_PUBLICATION_STATUSES.PUBLISHED,
+      updated_by: context.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new ValidationError(`Failed to publish stock item: ${error.message}`);
+
+  await appendAudit(client, {
+    actorId: context.id,
+    tenantId: data.tenant_id,
+    action: 'STOCK_ITEM_PUBLISHED',
+    resourceType: 'diaspora_stock_item',
+    resourceId: id,
+    previousState: previous,
+    newState: data,
+    req,
+  });
+  return { ...data, balances: deriveBalances(data), idempotentReplay: false };
+}
+
+/**
+ * Withdraw a published stock item from matching (PUBLISHED -> UNPUBLISHED). Same authority rules
+ * as publishing; idempotent on already-UNPUBLISHED items.
+ */
+export async function unpublishStockItem(id, payload = {}, userContext = {}, options = {}) {
+  const context = requireUserContext(userContext);
+  const client = await resolveClient(options);
+  const { req = null } = options;
+
+  const previous = await getStockItem(id, context, options);
+  assertCanChangePublication(previous, context);
+
+  if (previous.publication_status === STOCK_PUBLICATION_STATUSES.UNPUBLISHED) {
+    return { ...previous, idempotentReplay: true };
+  }
+
+  assertPublicationTransition(previous.publication_status, STOCK_PUBLICATION_STATUSES.UNPUBLISHED);
+
+  const { data, error } = await client
+    .from(STORAGE)
+    .update({
+      publication_status: STOCK_PUBLICATION_STATUSES.UNPUBLISHED,
+      updated_by: context.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new ValidationError(`Failed to unpublish stock item: ${error.message}`);
+
+  await appendAudit(client, {
+    actorId: context.id,
+    tenantId: data.tenant_id,
+    action: 'STOCK_ITEM_UNPUBLISHED',
+    resourceType: 'diaspora_stock_item',
+    resourceId: id,
+    previousState: previous,
+    newState: data,
+    req,
+  });
+  return { ...data, balances: deriveBalances(data), idempotentReplay: false };
 }
 
 export async function reserveStock(id, payload = {}, userContext = {}, options = {}) {

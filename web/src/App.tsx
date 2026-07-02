@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
-import { useState, createContext, useContext, useEffect } from 'react'
+import { useState, createContext, useContext, useEffect, lazy, Suspense } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './context/AuthContext'
 import { WifiOff } from 'lucide-react'
@@ -8,6 +8,10 @@ import type { AuthUser, Notification } from '@shared/types'
 // Layout
 import MainLayout from './components/layout/MainLayout'
 import DashboardLayout from './components/layout/DashboardLayout'
+import { FeatureGovernanceLoader } from './context/FeatureGovernanceContext'
+import { NotFoundPage } from './components/routing/FeatureStatePages'
+import { AuthBootstrapLoading } from './components/routing/RegistryRouteBoundary'
+import LazyRouteBoundary from './components/routing/LazyRouteBoundary'
 
 // Public Pages
 import Landing from './pages/Landing'
@@ -16,6 +20,7 @@ import MarketplaceCompare from './pages/MarketplaceCompare'
 import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
 import VehicleDetail from './pages/VehicleDetail'
 import VehicleSearch from './pages/VehicleSearch'
+import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
@@ -101,11 +106,34 @@ import ComplianceReports from './pages/dashboard/government/ComplianceReports'
 
 // Admin Dashboard
 import AdminDashboard from './pages/dashboard/admin/AdminDashboard'
+// Feature Governance Console is route-level lazy-loaded (Milestone D): it is a
+// heavy admin-only surface, so it ships as a SEPARATE chunk fetched on demand
+// rather than bloating the main entry bundle. The single dynamic import below is
+// reused both by `lazy()` and by `preloadFeatureGovernanceConsole()` so the
+// chunk is requested at most once.
+const importFeatureGovernanceConsole = () =>
+  import('./pages/dashboard/admin/FeatureGovernanceConsole')
+const FeatureGovernanceConsole = lazy(importFeatureGovernanceConsole)
+
+/**
+ * Warm the Feature Governance Console chunk so an admin's first navigation to
+ * /admin/features is instant. No-op for non-admins (gated by the caller). Safe
+ * to call repeatedly — the dynamic import is memoized by the bundler.
+ */
+export function preloadFeatureGovernanceConsole() {
+  importFeatureGovernanceConsole().catch(() => {
+    /* Preload is best-effort; a failure here is harmless — the real navigation
+       (with Suspense + LazyRouteBoundary) handles errors and retries. */
+  })
+}
 import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import FraudQueue from './pages/dashboard/admin/FraudQueue'
+import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
+import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
 import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
 import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
 import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
@@ -158,6 +186,26 @@ export default function App() {
     }
   }, [])
 
+  // Warm the Feature Governance Console chunk on idle — but ONLY for an
+  // authenticated admin (no-op for everyone else, so non-admins never fetch it).
+  // This just preloads the bundle; it does not bypass the route guard, which
+  // still re-evaluates auth/role when /admin/features is actually visited.
+  useEffect(() => {
+    if (!isAuthenticated || user?.role !== 'admin') return
+    const ric =
+      (window as unknown as { requestIdleCallback?: (cb: () => void) => number })
+        .requestIdleCallback
+    if (typeof ric === 'function') {
+      const id = ric(() => preloadFeatureGovernanceConsole())
+      const cic =
+        (window as unknown as { cancelIdleCallback?: (id: number) => void })
+          .cancelIdleCallback
+      return () => { if (typeof cic === 'function') cic(id) }
+    }
+    const timer = setTimeout(() => preloadFeatureGovernanceConsole(), 2000)
+    return () => clearTimeout(timer)
+  }, [isAuthenticated, user?.role])
+
   return (
     <AppContext.Provider value={{
       user,
@@ -175,6 +223,7 @@ export default function App() {
       )}
       <Toaster position="top-right" />
       <ScrollToTop />
+      <FeatureGovernanceLoader>
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
@@ -186,6 +235,7 @@ export default function App() {
           <Route path="/marketplace/listing/:id" element={<VehicleDetail />} />
           <Route path="/marketplace/:id" element={<VehicleDetail />} />
           <Route path="/search" element={<VehicleSearch />} />
+          <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
@@ -291,11 +341,31 @@ export default function App() {
         {/* Admin Dashboard */}
         <Route element={<DashboardLayout role="admin" />}>
           <Route path="/admin" element={<AdminDashboard />} />
+          {/* Lazy-loaded admin console. The admin guard lives in the parent
+              <DashboardLayout role="admin"> route, which only renders <Outlet/>
+              (this element) AFTER the auth/role gate passes — so authorization
+              still runs before any console content can be fetched/shown. The
+              LazyRouteBoundary catches chunk-load failures with a retry; the
+              Suspense fallback shows the accessible bootstrap loader meanwhile. */}
+          <Route
+            path="/admin/features"
+            element={
+              <LazyRouteBoundary>
+                <Suspense fallback={<AuthBootstrapLoading />}>
+                  <FeatureGovernanceConsole />
+                </Suspense>
+              </LazyRouteBoundary>
+            }
+          />
           <Route path="/admin/users" element={<UserManagement />} />
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/fraud-queue" element={<FraudQueue />} />
+          <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
+          <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
+          <Route path="/government/governance-review" element={<GovernanceReviewQueue />} />
           <Route path="/admin/referrals" element={<ReferralCampaigns />} />
           <Route path="/admin/referrals/codes" element={<ReferralCodes />} />
           <Route path="/admin/referrals/local-leads" element={<ReferralLocalLeads />} />
@@ -303,7 +373,11 @@ export default function App() {
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
         </Route>
+
+        {/* Catch-all — unknown routes render the not-found page (previously blank) */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </FeatureGovernanceLoader>
     </AppContext.Provider>
   )
 }

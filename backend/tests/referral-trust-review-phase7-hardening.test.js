@@ -102,3 +102,34 @@ test('review list and audit export limits reject invalid values', async () => {
   await assert.rejects(() => trustReview.exportAuditTrail({ limit: 0 }, trustActor), ValidationError);
   await assert.rejects(() => trustReview.exportAuditTrail({ limit: 1001 }, trustActor), ValidationError);
 });
+
+test('audit export does not recursively embed events (no metadata bloat) across repeated exports', async () => {
+  const { repository, referralService, trustReview } = createHarness();
+  for (let i = 0; i < 6; i += 1) {
+    await referralService.recordReferralEvent({ event_type: 'referral.code_validated', code_id: `code-${i}`, metadata: { i, note: 'x'.repeat(50) } }, operatorActor);
+  }
+  const first = await trustReview.exportAuditTrail({ limit: 100 }, operatorActor);
+  const second = await trustReview.exportAuditTrail({ limit: 100 }, operatorActor);
+  // The recorded audit-export events must store ONLY a summary (no events array) —
+  // embedding the full list previously caused exponential, recursive bloat.
+  const exportEvents = await repository.list(REFERRAL_TABLES.events, { event_type: TRUST_EVENT_TYPES.AUDIT_EXPORT_CREATED });
+  assert.equal(exportEvents.length >= 2, true);
+  for (const e of exportEvents) {
+    assert.equal(Array.isArray(e.metadata?.events), false);
+    assert.equal(typeof e.metadata?.checksum, 'string');
+    assert.equal(typeof e.metadata?.count, 'number');
+  }
+  // Per-event records are compact: a metadata checksum, never the raw metadata.
+  assert.equal(first.export.events.every((r) => typeof r.metadata_checksum === 'string' && r.metadata === undefined), true);
+  assert.equal(typeof first.export.checksum, 'string');
+  assert.equal(typeof second.export.checksum, 'string');
+});
+
+test('audit export handles an empty result with a stable checksum', async () => {
+  const { trustReview } = createHarness();
+  const empty = await trustReview.exportAuditTrail({ limit: 100, event_type: 'nonexistent.event.type' }, operatorActor);
+  assert.equal(empty.export.count, 0);
+  assert.equal(Array.isArray(empty.export.events), true);
+  assert.equal(empty.export.events.length, 0);
+  assert.equal(typeof empty.export.checksum, 'string');
+});

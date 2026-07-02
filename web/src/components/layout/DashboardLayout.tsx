@@ -1,35 +1,14 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import {
   Car,
-  LayoutDashboard,
-  Gauge,
-  Wrench,
-  Shield,
-  FileText,
-  Heart,
-  MessageSquare,
   Bell,
   Settings,
   LogOut,
   Menu,
   X,
-  Users,
-  BarChart3,
-  Tag,
-  ClipboardList,
-  BookOpen,
-  AlertTriangle,
-  Search,
-  CheckCircle,
-  ShieldAlert,
-  Brain,
-  UserCog,
   Store,
-  MapPin,
-  Building2,
-  CreditCard,
-  ShieldCheck
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -39,50 +18,30 @@ import {
   getDashboardRoute,
   getRoleMetadata,
   getAllRoles,
-  canRoleAccessRoute,
-  type LucideIconName,
+  resolveFeatureVisibility,
   type FeatureRegistryItem,
+  type NavigationContext,
 } from '@/config/featureRegistry'
+import { resolveFeatureIcon } from '@/config/featureIcons'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { evaluateRouteAccess } from '@/lib/routeAccess'
+import {
+  AuthBootstrapLoading,
+  RegistryRouteBoundary,
+} from '@/components/routing/RegistryRouteBoundary'
+import { FeaturePlannedPage, FeatureDisabledPage } from '@/components/routing/FeatureStatePages'
 import type { UserRole } from '@shared/types'
 
-/** Maps LucideIconName strings from the registry to actual icon components */
-const ICON_MAP: Record<LucideIconName, React.ElementType> = {
-  LayoutDashboard,
-  Car,
-  FileText,
-  Wrench,
-  Shield,
-  Gauge,
-  ClipboardList,
-  Tag,
-  Heart,
-  MessageSquare,
-  Users,
-  BarChart3,
-  BookOpen,
-  AlertTriangle,
-  Search,
-  CheckCircle,
-  ShieldAlert,
-  Brain,
-  UserCog,
-  MapPin,
-  Building2,
-  Settings,
-  CreditCard,
-  ShieldCheck,
-}
-
-/** Resolves a FeatureRegistryItem to its icon component */
+/** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
 function resolveIcon(item: FeatureRegistryItem): React.ElementType {
-  return ICON_MAP[item.icon] || FileText
+  return resolveFeatureIcon(item.icon)
 }
 
 export default function DashboardLayout({ role }: { role: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, switchRole } = useAuth()
+  const { user, switchRole, loading } = useAuth()
 
   const handleRoleChange = async (newRole: string) => {
     try {
@@ -90,20 +49,41 @@ export default function DashboardLayout({ role }: { role: string }) {
       navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
+      toast.error('Could not switch portal role. Please try again.')
     }
   }
 
   const registryItems = getDashboardItems(role as UserRole)
   const roleInfo = getRoleMetadata(role as UserRole)
+  const effectiveStates = useFeatureEffectiveStates()
 
-  if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />
+  // Filter the sidebar through the SAME shared effective-visibility logic the
+  // route boundary uses, so disabled / hidden / tenant-denied / role-denied
+  // items never render in the primary nav (sidebar visibility ⇄ direct access).
+  const sidebarContext: NavigationContext = {
+    isAuthenticated: !!user,
+    role: (user?.role as UserRole) ?? null,
+    environment: import.meta.env.MODE,
+    effectiveStates,
   }
+  const visibleItems = registryItems
+    .map((item) => ({ item, vis: resolveFeatureVisibility(item, sidebarContext) }))
+    .filter(({ vis }) => vis.visible)
 
-  // Centralized route guard: verify that the user's current role matches the dashboard layout and has access to this route
-  if (user.role !== role || !canRoleAccessRoute(user.role as UserRole, location.pathname)) {
-    return <Navigate to={getDashboardRoute(user.role as UserRole)} replace />
-  }
+  // Centralized, lifecycle-aware route boundary — the SAME decision navigation
+  // uses (loading gate → auth → role → planned/disabled/deprecated). Backend
+  // authorization remains authoritative.
+  const decision = evaluateRouteAccess({
+    route: location.pathname,
+    isBootstrapping: loading,
+    isAuthenticated: !!user,
+    role: (user?.role as UserRole) ?? null,
+    effectiveStates,
+  })
+  if (decision.kind === 'loading') return <AuthBootstrapLoading />
+  if (decision.kind === 'redirect') return <Navigate to={decision.to} replace />
+  if (decision.kind === 'planned') return <FeaturePlannedPage />
+  if (decision.kind === 'disabled') return <FeatureDisabledPage />
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -136,8 +116,9 @@ export default function DashboardLayout({ role }: { role: string }) {
             size="icon"
             className="lg:hidden"
             onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar menu"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </Button>
         </div>
 
@@ -151,12 +132,14 @@ export default function DashboardLayout({ role }: { role: string }) {
             />
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm truncate">{user?.name || 'User'}</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">Active portal</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`w-2 h-2 rounded-full ${roleInfo.color}`} />
+                <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
                 <select
                   value={role}
                   onChange={(e) => handleRoleChange(e.target.value)}
-                  className="text-xs text-gray-500 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
+                  aria-label="Switch active portal role"
+                  className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
                 >
                   {getAllRoles().map((r) => (
                     <option key={r} value={r}>{getRoleMetadata(r).title}</option>
@@ -169,7 +152,7 @@ export default function DashboardLayout({ role }: { role: string }) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {registryItems.map((item) => {
+          {visibleItems.map(({ item, vis }) => {
             const isActive = location.pathname === item.route
             const navIdMap: Record<string, string> = {
               'Overview': 'nav-dashboard',
@@ -189,15 +172,19 @@ export default function DashboardLayout({ role }: { role: string }) {
                 key={item.id}
                 to={item.route}
                 onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-orange-50 text-orange-700'
+                    ? 'bg-orange-50 text-orange-700 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-r before:bg-orange-500'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }`}
                 data-testid={navIdMap[item.label]}
               >
-                <IconComponent className={`w-4.5 h-4.5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} />
+                <IconComponent className={`w-5 h-5 ${isActive ? 'text-orange-500' : 'text-gray-400'}`} aria-hidden="true" />
                 <span className="flex-1">{item.label}</span>
+                {vis.beta && (
+                  <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700">Beta</Badge>
+                )}
                 {item.badge && (
                   <Badge variant={isActive ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
                     {item.badge}
@@ -214,7 +201,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             to="/settings"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
           >
-            <Settings className="w-4.5 h-4.5 text-gray-400" />
+            <Settings className="w-5 h-5 text-gray-400" />
             Settings
           </Link>
           <Link
@@ -226,7 +213,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50"
             data-testid="logout-button"
           >
-            <LogOut className="w-4.5 h-4.5" />
+            <LogOut className="w-5 h-5" />
             Sign Out
           </Link>
         </div>
@@ -241,8 +228,10 @@ export default function DashboardLayout({ role }: { role: string }) {
             size="icon"
             className="lg:hidden mr-2"
             onClick={() => setSidebarOpen(true)}
+            aria-label="Open sidebar menu"
+            aria-expanded={sidebarOpen}
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5" aria-hidden="true" />
           </Button>
 
           <div className="flex-1" />
@@ -262,9 +251,11 @@ export default function DashboardLayout({ role }: { role: string }) {
           </div>
         </header>
 
-        {/* Page Content */}
+        {/* Page Content — boundary shows a beta notice above beta features */}
         <main className="p-4 lg:p-6">
-          <Outlet />
+          <RegistryRouteBoundary>
+            <Outlet />
+          </RegistryRouteBoundary>
         </main>
       </div>
     </div>

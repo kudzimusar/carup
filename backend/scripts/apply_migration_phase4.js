@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 const { Client } = pg;
 
 const clientReal = new Client({
-    connectionString: 'postgresql://postgres:[ROTATED-SEE-CR1]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres'
+    connectionString: (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL)
 })
 
 async function runMigration() {
