@@ -34,6 +34,7 @@ import {
   createDispute,
   listDisputes,
   addEvidence,
+  listEvidence,
   resolveDispute,
 } from '../services/diaspora/safetrade/diasporaSafeTradeDisputeService.js';
 import { getSharedSandboxPaymentProvider } from '../services/diaspora/safetrade/safeTradePaymentProvider.js';
@@ -280,6 +281,15 @@ router.post('/safetrade/disputes/:id/evidence', auth, asyncHandler(async (req, r
     req,
   });
   res.status(201).json(data);
+}));
+
+// GET /safetrade/disputes/:id/evidence — read the dispute evidence timeline with SERVER-SIDE privacy
+// redaction (ST-4B). listEvidence() denies non-participant/non-privileged callers (403), returns all
+// rows to reviewers/admins, and for an ordinary participant filters out REVIEWERS_ONLY and other
+// authors' AUTHOR_ONLY rows using the server-derived identity. The server is the privacy boundary; the
+// client visibleEvidence() filter is defense-in-depth only. No storage paths/PII are added here.
+router.get('/safetrade/disputes/:id/evidence', auth, asyncHandler(async (req, res) => {
+  res.json({ data: await listEvidence(undefined, { disputeId: req.params.id, userContext: req.userContext }) });
 }));
 
 // POST /safetrade/disputes/:id/resolve — reviewer/admin terminal resolution (sandbox refund/release).

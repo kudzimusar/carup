@@ -46,11 +46,14 @@ const REVIEWER_ACTIONS = [
   { actionKey: 'evaluate-release', labelKey: 'a', permitted: true, disabledReasonCode: null, confirmationRequired: true, reviewerRequired: true, sandboxOnly: false, requiredEvidenceCategories: [] },
   { actionKey: 'approve-release', labelKey: 'a', permitted: false, disabledReasonCode: 'NEEDS_EVALUATION', confirmationRequired: true, reviewerRequired: true, sandboxOnly: true, requiredEvidenceCategories: [] },
 ]
-const DISPUTES = [{ id: 'd1', transaction_id: TXN.id, milestone_id: null, category: 'NOT_AS_DESCRIBED', reason: 'Item differs from the listing.', status: 'OPEN', hold_placed: true,
-  evidence: [
-    { id: 'pub', dispute_id: 'd1', evidence_type: 'STATEMENT', visibility: 'PARTICIPANTS', author_id: 'seller-2', statement: 'Public statement.' },
-    { id: 'secret', dispute_id: 'd1', evidence_type: 'NOTE', visibility: 'REVIEWERS_ONLY', author_id: 'reviewer-1', statement: 'SECRET-REVIEWER-ONLY' },
-  ] }]
+const DISPUTES = [{ id: 'd1', transaction_id: TXN.id, milestone_id: null, category: 'NOT_AS_DESCRIBED', reason: 'Item differs from the listing.', status: 'OPEN', hold_placed: true }]
+// ST-4B: evidence is now read from the server-redacted GET /disputes/:id/evidence endpoint. This mock
+// returns BOTH rows (as if unredacted) so the CLIENT visibleEvidence() defense-in-depth filter remains
+// under test; server-side redaction is covered by the backend listEvidence tests.
+const DISPUTE_EVIDENCE = [
+  { id: 'pub', dispute_id: 'd1', evidence_type: 'STATEMENT', visibility: 'PARTICIPANTS', author_id: 'seller-2', statement: 'Public statement.' },
+  { id: 'secret', dispute_id: 'd1', evidence_type: 'NOTE', visibility: 'REVIEWERS_ONLY', author_id: 'reviewer-1', statement: 'SECRET-REVIEWER-ONLY' },
+]
 
 async function mockDetail(page: Page, actions: unknown, opts: { caseStatus?: number; eligibility?: unknown; caseBody?: unknown } = {}) {
   await page.route('**/api/diaspora/safetrade', (r) => fulfillJson(r, { data: [TXN], pagination: { limit: 50, offset: 0 } }))
@@ -59,6 +62,8 @@ async function mockDetail(page: Page, actions: unknown, opts: { caseStatus?: num
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/eligibility', (r) => fulfillJson(r, opts.eligibility ?? ELIGIBILITY))
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/milestones', (r) => fulfillJson(r, { data: MILESTONES }))
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111/disputes', (r) => fulfillJson(r, { data: DISPUTES }))
+  // ST-4B: the component now reads evidence from the server-redacted per-dispute endpoint.
+  await page.route('**/api/diaspora/safetrade/disputes/d1/evidence', (r) => fulfillJson(r, { data: DISPUTE_EVIDENCE }))
   // GET /:id returns the transaction DIRECTLY (not wrapped) — match the backend + the hook.
   const errBody = opts.caseBody ?? { success: false, error: { code: 'INSUFFICIENT_PERMISSIONS', message: 'You do not have access to this SafeTrade case' } }
   await page.route('**/api/diaspora/safetrade/st-aaaaaaaa-1111', (r) => fulfillJson(r, opts.caseStatus ? errBody : TXN, opts.caseStatus || 200))

@@ -1034,6 +1034,14 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  // ST-4B: read the server-redacted dispute evidence timeline. The backend (listEvidence) is the privacy
+  // boundary — it denies non-participants (403) and strips REVIEWERS_ONLY / others' AUTHOR_ONLY rows for
+  // ordinary participants. Returns [] on the (fail-closed) empty case.
+  const getSafeTradeDisputeEvidence = useCallback(async (disputeId: string): Promise<SafeTradeDisputeEvidence[]> => {
+    const response = await request<{ data: SafeTradeDisputeEvidence[] }>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/evidence`)
+    return response.data || []
+  }, [request])
+
   const resolveSafeTradeDispute = useCallback(async (disputeId: string, payload: { resolution: string; milestoneId?: string; evaluationId?: string; notes?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeResolveResponse> => {
     const { idempotencyKey, ...body } = payload
     return request<SafeTradeDisputeResolveResponse>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/resolve`, {
@@ -1578,6 +1586,7 @@ export function useCarUpApi() {
     cancelSafeTrade,
     openSafeTradeDispute,
     addSafeTradeDisputeEvidence,
+    getSafeTradeDisputeEvidence,
     resolveSafeTradeDispute,
     reportStolen,
     checkStolen,
