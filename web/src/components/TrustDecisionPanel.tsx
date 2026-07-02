@@ -52,7 +52,6 @@ export function TrustDecisionPanel({ vin, initialData }: { vin: string; initialD
   useEffect(() => {
     if (initialData) return
     let cancelled = false
-    setLoading(true)
     fetchVehicleTrustDecision(vin)
       .then((r) => { if (!cancelled) setData(r.decision) })
       .catch(() => { if (!cancelled) setData(null) })

@@ -77,11 +77,19 @@ export default function DealerCompliance() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { const r = await fetchDealers(); setDealers(r.dealers || []) }
+    try { const r = await fetchDealers(); setDealers((r.dealers || []) as DealerProfile[]) }
     catch (err) { toast.error(getErrorMessage(err)) }
     finally { setLoading(false) }
   }, [fetchDealers])
-  useEffect(() => { load() }, [load])
+  // Initial load without a synchronous set-state-in-effect (loading starts true).
+  useEffect(() => {
+    let cancelled = false
+    fetchDealers()
+      .then((r) => { if (!cancelled) setDealers((r.dealers || []) as DealerProfile[]) })
+      .catch((err) => { if (!cancelled) toast.error(getErrorMessage(err)) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [fetchDealers])
 
   const onDecision = async (id: string, decision: string) => {
     setBusy(id)

@@ -156,7 +156,7 @@ export default function SellVehicle() {
         import_status: form.importStatus || undefined,
       })
 
-      const returnedVin: string = (result as any)?.vin ?? form.vin.toUpperCase()
+      const returnedVin: string = (result as { vin?: string } | null)?.vin ?? form.vin.toUpperCase()
       setSavedVin(returnedVin)
       toast.success('Vehicle saved as draft. Upload ownership documents to publish your listing.')
     } catch (err: unknown) {
