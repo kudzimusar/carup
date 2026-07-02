@@ -5,7 +5,7 @@
  * statement, date) — never storage paths, raw internal ids or private PII. All action availability
  * comes from the server-derived available-actions; the backend stays authoritative.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ShieldAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,16 +42,37 @@ export function SafeTradeDisputes({ transactionId, disputes, actions, viewerId =
   const [openReason, setOpenReason] = useState('')
   const [evidenceText, setEvidenceText] = useState<Record<string, string>>({})
   const [resolution, setResolution] = useState<Record<string, string>>({})
+  const [evidenceByDispute, setEvidenceByDispute] = useState<Record<string, SafeTradeDisputeEvidence[]>>({})
+  const [refreshTick, setRefreshTick] = useState(0)
   const liveRef = useRef<HTMLParagraphElement>(null)
 
   const canOpen = actionPermitted(actions, 'open-dispute')
   const canAddEvidence = actionPermitted(actions, 'add-evidence')
   const canResolve = actionPermitted(actions, 'resolve-dispute')
 
+  // ST-4B: load the SERVER-redacted evidence timeline per dispute. The backend is the privacy boundary;
+  // visibleEvidence() below is defense-in-depth. Depend on stable primitives (the dispute-id set +
+  // refreshTick), not the fresh `api` object, to avoid a re-render loop.
+  const disputeIdsKey = disputes.map((d) => d.id).join(',')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const entries = await Promise.all(
+        disputes.map(async (d) => {
+          try { return [d.id, await api.getSafeTradeDisputeEvidence(d.id)] as const }
+          catch { return [d.id, [] as SafeTradeDisputeEvidence[]] as const }
+        }),
+      )
+      if (!cancelled) setEvidenceByDispute(Object.fromEntries(entries))
+    })()
+    return () => { cancelled = true }
+  }, [disputeIdsKey, refreshTick])
+
   async function run(fn: () => Promise<unknown>, success: string) {
     if (busy) return
     setBusy(true); setMsg(null)
-    try { await fn(); setMsg(success); await onDone() }
+    try { await fn(); setMsg(success); setRefreshTick((t) => t + 1); await onDone() }
     catch (e) {
       // apiClient throws message-only Errors — classify by message content, not a non-existent `.code`.
       setMsg(classifyActionError(e).message)
@@ -91,7 +112,8 @@ export function SafeTradeDisputes({ transactionId, disputes, actions, viewerId =
         ) : (
           <ul className="space-y-3" data-testid={`${testId}-list`}>
             {disputes.map((d) => {
-              const evidence = visibleEvidence(((d as { evidence?: SafeTradeDisputeEvidence[] }).evidence) || [], { id: viewerId, isReviewer })
+              // Server already redacted these rows; visibleEvidence() is defense-in-depth (fail-closed).
+              const evidence = visibleEvidence(evidenceByDispute[d.id] || [], { id: viewerId, isReviewer })
               return (
                 <li key={d.id} className="rounded-md border border-slate-200 p-3" data-testid={`${testId}-dispute-${d.id}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">

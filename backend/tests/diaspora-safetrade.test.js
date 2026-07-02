@@ -1016,3 +1016,60 @@ test('ROUTE: payment-webhook rejects a bad signature (401) and is idempotent for
     await new Promise((r) => server.close(r));
   }
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// ST-4B: dispute-evidence READ redaction (listEvidence). The server is the privacy boundary — a
+// non-participant is denied; a participant sees PARTICIPANTS + only their OWN AUTHOR_ONLY rows, never
+// REVIEWERS_ONLY or another author's AUTHOR_ONLY; reviewers/admins see everything.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Seed a dispute with four evidence rows spanning every visibility/author combination.
+function seedDisputeEvidence(client) {
+  client._rows('diaspora_safetrade_disputes').push({
+    id: 'disp-1', tenant_id: 'tenant-A', transaction_id: 'st-1', status: 'UNDER_REVIEW',
+    category: 'OTHER', raised_by_role: 'BUYER', deleted_at: null, created_at: FIXED_TS,
+  });
+  const rows = client._rows('diaspora_safetrade_dispute_evidence');
+  rows.push(
+    { id: 'ev-part', tenant_id: 'tenant-A', dispute_id: 'disp-1', transaction_id: 'st-1', visibility: 'PARTICIPANTS', author_id: 'buyer-1', author_role: 'BUYER', evidence_type: 'STATEMENT', statement: 'shared', deleted_at: null, created_at: FIXED_TS },
+    { id: 'ev-rev', tenant_id: 'tenant-A', dispute_id: 'disp-1', transaction_id: 'st-1', visibility: 'REVIEWERS_ONLY', author_id: 'rev-1', author_role: 'REVIEWER', evidence_type: 'STATEMENT', statement: 'reviewers eyes only', deleted_at: null, created_at: FIXED_TS },
+    { id: 'ev-ao-buyer', tenant_id: 'tenant-A', dispute_id: 'disp-1', transaction_id: 'st-1', visibility: 'AUTHOR_ONLY', author_id: 'buyer-1', author_role: 'BUYER', evidence_type: 'STATEMENT', statement: 'buyer private', deleted_at: null, created_at: FIXED_TS },
+    { id: 'ev-ao-seller', tenant_id: 'tenant-A', dispute_id: 'disp-1', transaction_id: 'st-1', visibility: 'AUTHOR_ONLY', author_id: 'seller-1', author_role: 'SELLER', evidence_type: 'STATEMENT', statement: 'seller private', deleted_at: null, created_at: FIXED_TS },
+  );
+}
+
+const evidenceIds = (rows) => rows.map((r) => r.id).sort();
+
+test('ST-4B: reviewer sees ALL dispute evidence (including REVIEWERS_ONLY and every AUTHOR_ONLY)', async () => {
+  const client = freshClient(eligibleSeed());
+  seedTxn(client, { txnStatus: 'DISPUTED' });
+  seedDisputeEvidence(client);
+  const rows = await disputeService.listEvidence(client, { disputeId: 'disp-1', userContext: reviewer });
+  assert.deepEqual(evidenceIds(rows), ['ev-ao-buyer', 'ev-ao-seller', 'ev-part', 'ev-rev']);
+});
+
+test('ST-4B: buyer participant sees PARTICIPANTS + own AUTHOR_ONLY, never REVIEWERS_ONLY or seller AUTHOR_ONLY', async () => {
+  const client = freshClient(eligibleSeed());
+  seedTxn(client, { txnStatus: 'DISPUTED' });
+  seedDisputeEvidence(client);
+  const rows = await disputeService.listEvidence(client, { disputeId: 'disp-1', userContext: buyer });
+  assert.deepEqual(evidenceIds(rows), ['ev-ao-buyer', 'ev-part']);
+});
+
+test('ST-4B: seller participant sees PARTICIPANTS + own AUTHOR_ONLY, never buyer AUTHOR_ONLY or REVIEWERS_ONLY', async () => {
+  const client = freshClient(eligibleSeed());
+  seedTxn(client, { txnStatus: 'DISPUTED' });
+  seedDisputeEvidence(client);
+  const rows = await disputeService.listEvidence(client, { disputeId: 'disp-1', userContext: seller });
+  assert.deepEqual(evidenceIds(rows), ['ev-ao-seller', 'ev-part']);
+});
+
+test('ST-4B: an unrelated/cross-tenant outsider is DENIED reading dispute evidence (ForbiddenError)', async () => {
+  const client = freshClient(eligibleSeed());
+  seedTxn(client, { txnStatus: 'DISPUTED' });
+  seedDisputeEvidence(client);
+  await assert.rejects(
+    () => disputeService.listEvidence(client, { disputeId: 'disp-1', userContext: outsider }),
+    (err) => /access to this SafeTrade transaction/i.test(err.message),
+  );
+});
