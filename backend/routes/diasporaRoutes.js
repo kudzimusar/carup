@@ -10,6 +10,7 @@ import diasporaDriveRouter from './diasporaDriveRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
+import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
 import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
@@ -103,6 +104,18 @@ router.post('/import-orders/:id/payment-milestones', auth, asyncHandler(async (r
 
 router.post('/import-orders/:id/vehicle-import-record', reviewerAuth, asyncHandler(async (req, res) => {
   res.status(201).json(await linkVehicleImportRecord(req.params.id, req.body, req.userContext, req));
+}));
+
+// Cross-border ownership handoff — links a ZIMBABWE_READY order + VERIFIED vehicle_import_record into
+// the canonical CarUp vehicle identity and appends the immutable per-VIN timeline event. The SERVICE is
+// the authority boundary (platform admin/reviewer or the order's tenant admin; idempotent; VIN-conflict
+// safe); reviewerAuth here is the coarse route filter only. GET is participant-readable status.
+router.post('/import-orders/:id/ownership-handoff', reviewerAuth, asyncHandler(async (req, res) => {
+  res.json(await completeOwnershipHandoff(req.params.id, req.body || {}, req.userContext, { req }));
+}));
+
+router.get('/import-orders/:id/ownership-handoff', auth, asyncHandler(async (req, res) => {
+  res.json(await getOwnershipHandoffStatus(req.params.id, req.userContext, { req }));
 }));
 
 router.get('/import-orders/:id/government-footprint', auth, asyncHandler(async (req, res) => {
