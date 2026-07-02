@@ -162,6 +162,30 @@ Resolved Cloudflare Worker Codex review findings after commit `bf3e0a5`:
 - Worker inbound forwarding now sends `cf-access-client-id` and `cf-access-client-secret` headers when configured, so backend optional `CLOUDFLARE_ACCESS_CLIENT_ID` / `CLOUDFLARE_ACCESS_CLIENT_SECRET` verification works alongside the HMAC timestamp/nonce/body-hash signature.
 - Added Worker regressions for missing `send_email` binding rejection and Access service-token header forwarding.
 
+## Issue #108 Correction Evidence
+
+Resolved in commit `cac56e4` (`fix(communication): resolve issue #108 — admin reply queue schema, atomicity, idempotency, and UI`) on branch `fix/issue-108-agent8-admin-reply-queue`:
+
+- Removed `message_content` from communication notification queue writes and delivery reads; `notification_queue.message` is the canonical body field.
+- Made admin reply creation compensating-atomic: outbound message insertion and `notification_queue` enqueue succeed together, or the inserted message is deleted and the touched thread fields are restored.
+- Added `client_message_id` idempotency for admin replies. Repeated submissions return the original message/notification with `duplicate: true` and do not create duplicate rows.
+- Preserved legacy `BIGSERIAL` queue compatibility by relying on the database default for queue IDs and testing with numeric queue IDs.
+- Updated the admin Communication Command Center to disable Reply while submitting, show Sending/Queued/Sent/Delivered/Failed states, preserve drafts on failure, display backend request/correlation IDs, and prevent double-click sends.
+- Updated the outbox worker connection contract to prefer serverless-safe pooler URLs (`EVENT_WORKER_DATABASE_URL`, `SUPABASE_POOLER_DB_URL`, `SUPABASE_TRANSACTION_POOLER_URL`) and to skip one-second interval polling inside Vercel/serverless request instances unless explicitly enabled by worker env.
+
+Issue #108 validation:
+
+- `/usr/bin/env -u SUPABASE_URL -u SUPABASE_SERVICE_ROLE_KEY node --test backend/tests/communication-engine.test.js` - 47 passed, including successful Telegram admin reply queueing against a strict migrated queue schema, queue failure rollback/no orphan message, duplicate `client_message_id` idempotency, Telegram queue payload fields, existing Meta GET/raw-body signature regressions, legacy BIGSERIAL enqueue, adapter exception retry/dead-letter handling, and WhatsApp/Telegram communication coverage.
+- `node --test backend/tests/diaspora-workflow.test.js` - 27 passed, including the event worker pooler/serverless env assertion.
+- `npm run build --workspace=web` - passed; existing Vite chunk-size warning remains.
+- `npx playwright test tests/agents/08-whatsapp-telegram.spec.ts` - 6 passed across Chromium and Mobile Chrome with local Vite server binding.
+- `git diff --check` - passed.
+- `rg -n "message_content" backend/services/communication backend/routes web/src/pages/dashboard/admin web/src/hooks web/src/lib -S` - no matches after the delivery fallback cleanup.
+
+Not run to completion:
+
+- `npm test --workspace=backend` failed locally at Supabase seeding validation with `TypeError: fetch failed`. A network-escalated rerun was rejected by the sandbox reviewer because the suite could mutate an unverified live Supabase target. No production credentials or production Supabase state were modified.
+
 ## Tests Run And Results
 
 Passing:
