@@ -382,7 +382,7 @@ export class ReferralImportCampaignService {
         attribution: validation?.valid ? validation.attribution : null,
         referral_code: validation?.valid ? validation.code.code : referralCode,
         coupon: coupon ? { applied: coupon.applied, discount_amount: coupon.discount_amount || 0, reason: coupon.reason || null } : null,
-        waitlisted: [IMPORT_CAPACITY_STATUSES.FULL, IMPORT_CAPACITY_STATUSES.CLOSED].includes(effectiveCapacityStatus),
+        waitlisted: input.waitlisted === true || [IMPORT_CAPACITY_STATUSES.FULL, IMPORT_CAPACITY_STATUSES.CLOSED].includes(effectiveCapacityStatus),
         next_steps: buildImportNextSteps(intent.flow_type, effectiveCapacityStatus),
       },
     }, actor);
@@ -396,7 +396,9 @@ export class ReferralImportCampaignService {
       const code = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { id: leadEvent.code_id });
       if (code?.owner_user_id) return code.owner_user_id;
     }
-    const referralCode = normalizeReferralCode(input.referral_code || metadata.referral_code || '');
+    // Lead-first: the lead's own persisted code wins over any code supplied at
+    // qualification time, so a caller cannot redirect the credited owner.
+    const referralCode = normalizeReferralCode(metadata.referral_code || input.referral_code || '');
     if (referralCode) {
       const code = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { code: referralCode });
       if (code?.owner_user_id) return code.owner_user_id;

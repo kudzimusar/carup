@@ -480,7 +480,11 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.json({ success: true, ...wallet });
   }));
 
-  router.post('/wallets/transactions', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
+  // Direct wallet-credit creation is a privileged money operation: admin-only,
+  // matching the status-transition route below. Reward credits for referral
+  // milestones flow through the qualify endpoints (which derive the owner from the
+  // lead's persisted attribution), not this manual route.
+  router.post('/wallets/transactions', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const transaction = await referralService.createWalletTransaction(req.body, createActor(req, ACTOR_TYPES.ADMIN));
     res.status(201).json({ success: true, transaction });
   }));

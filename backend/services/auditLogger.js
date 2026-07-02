@@ -90,24 +90,108 @@ function normalizeTrustAuditEvent(event) {
   };
 }
 
-async function writeLegacyOrganizationAudit(client, event, trustEvent) {
-  const req = event.req;
-  const userId = trustEvent.actor_user_id || 'system';
-  let orgId = event.organization_id || event.organizationId || req?.headers?.['x-tenant-id'] || req?.userContext?.tenantId;
+// Bounded, process-local throttle so a steady stream of legitimately-skipped
+// legacy writes produces at most one structured warning per reason per window
+// (no PII) instead of spamming logs — and, crucially, never a repeated database
+// 409. The previous behaviour inserted fake `user_id='system'` / `org_id='org_croco'`
+// rows that violate organization_audit_logs' FKs to users(id)/organizations(id),
+// producing recurring `organization_audit_logs_user_id_fkey` 409s in production.
+const LEGACY_SKIP_WARN_WINDOW_MS = 5 * 60 * 1000;
+const _legacySkipWarnAt = new Map();
+function warnLegacySkipBounded(reason) {
+  try {
+    const now = Date.now();
+    const last = _legacySkipWarnAt.get(reason) || 0;
+    if (now - last >= LEGACY_SKIP_WARN_WINDOW_MS) {
+      _legacySkipWarnAt.set(reason, now);
+      // Structured, bounded, no PII / tokens / credentials.
+      console.warn(JSON.stringify({
+        level: 'warn',
+        msg: 'legacy organization_audit_logs write skipped (no FK-backed identity)',
+        reason,
+      }));
+    }
+  } catch { /* logging must never throw into an audit path */ }
+}
 
-  if (!orgId && userId && userId !== 'system') {
+/**
+ * Resolve an organization id for the actor that is GUARANTEED FK-valid.
+ *
+ * A row in `organization_users` references both `users(id)` and `organizations(id)`,
+ * so a membership row proves the (user_id, organization_id) pair satisfies both
+ * `organization_audit_logs` foreign keys. We therefore only ever attribute the
+ * legacy audit to an org the actor is actually a member of — never a fabricated id.
+ *
+ * Tenant correctness: when an explicit `candidateOrgId` (request/session tenant) is
+ * supplied, the result is that org if the actor is a member of it, otherwise null —
+ * there is NO fallback to a different organization. Only when no explicit tenant is
+ * supplied do we fall back to a single verified membership.
+ * Returns null when no FK-backed, tenant-correct membership exists (caller skips).
+ */
+async function resolveLegacyOrganizationId(client, userId, candidateOrgId) {
+  try {
+    if (candidateOrgId) {
+      // Explicit request/session tenant: attribute the legacy audit ONLY to that
+      // org, and only when the actor is genuinely a member of it. If the actor is
+      // NOT a member of the explicit tenant, return null and skip the legacy write
+      // — never silently re-attribute the record to a different organization the
+      // user happens to belong to. That would be FK-valid but tenant-INCORRECT,
+      // mis-filing one tenant's action under another. The explicit tenant is
+      // authoritative; there is no cross-org fallback when it is supplied.
+      const { data } = await client
+        .from('organization_users')
+        .select('organization_id')
+        .eq('user_id', userId)
+        .eq('organization_id', candidateOrgId)
+        .maybeSingle();
+      return data?.organization_id || null;
+    }
+    // No explicit tenant on the request/session: fall back to a single verified
+    // membership solely to attribute this optional legacy mirror.
     const { data } = await client
       .from('organization_users')
       .select('organization_id')
       .eq('user_id', userId)
+      .limit(1)
       .maybeSingle();
-    if (data?.organization_id) {
-      orgId = data.organization_id;
-    }
+    return data?.organization_id || null;
+  } catch {
+    // A lookup failure must not fabricate an identity — skip the legacy write.
+    return null;
+  }
+}
+
+/**
+ * Best-effort, FK-SAFE legacy `organization_audit_logs` compatibility write.
+ *
+ * The primary `trust_audit_events` row is authoritative; this legacy mirror is
+ * optional. It is written ONLY with an actor `user_id` that is a real user and an
+ * `organization_id` the actor genuinely belongs to (validated via
+ * `organization_users`), so it can never violate the table's FKs. When no
+ * FK-backed identity exists it is skipped cleanly (structured, bounded warning)
+ * rather than inserting a fake `system`/`org_croco` row — eliminating the recurring
+ * 409s while leaving the foreign keys intact. Returns `{ skipped, reason }` on a
+ * clean skip, otherwise the Supabase insert result `{ error }`.
+ */
+async function writeLegacyOrganizationAudit(client, event, trustEvent) {
+  const req = event.req;
+
+  // 1. Require a REAL actor user — never the fake 'system' sentinel (FK to users).
+  const userId = trustEvent.actor_user_id;
+  if (!userId) {
+    warnLegacySkipBounded('no_actor_user');
+    return { skipped: true, reason: 'no_actor_user' };
   }
 
+  // 2. Resolve an org the actor is a verified member of — never the fake
+  //    'org_croco' sentinel (FK to organizations). A membership row also confirms
+  //    `userId` exists in users.
+  const candidateOrgId = event.organization_id || event.organizationId
+    || requestHeader(req, 'x-tenant-id') || req?.userContext?.tenantId || null;
+  const orgId = await resolveLegacyOrganizationId(client, userId, candidateOrgId);
   if (!orgId) {
-    orgId = 'org_croco';
+    warnLegacySkipBounded('no_fk_backed_org');
+    return { skipped: true, reason: 'no_fk_backed_org' };
   }
 
   const detailsObj = {
@@ -154,11 +238,21 @@ export async function logAuditEvent(clientOrEvent, maybeEvent) {
       });
 
     if (!error) {
+      // Authoritative write succeeded. The legacy mirror is best-effort and now
+      // FK-SAFE: it writes only with a real actor + member org, else skips cleanly
+      // (no fabricated identity, no recurring 409). Fire-and-forget, non-blocking.
       writeLegacyOrganizationAudit(client, event, trustEvent).catch(() => {});
       return { success: true, event: trustEvent };
     }
 
+    // Primary (authoritative) trust_audit_events write failed — try the optional
+    // legacy mirror as a fallback.
     const legacyResult = await writeLegacyOrganizationAudit(client, event, trustEvent);
+    if (legacyResult.skipped) {
+      // No FK-backed legacy identity to fall back to, and the authoritative write
+      // failed — report the real (primary) failure honestly; do not fabricate one.
+      return { success: false, error: error.message, legacySkipped: true, legacySkipReason: legacyResult.reason, event: trustEvent };
+    }
     if (!legacyResult.error) {
       return { success: true, warning: error.message, event: trustEvent };
     }

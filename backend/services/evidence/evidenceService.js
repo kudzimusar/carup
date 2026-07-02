@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
 import { analyzeEvidenceImage } from '../ai/aiVisionProvider.js';
+import { resolveClassification } from './evidenceTaxonomy.js';
+import { computePerceptualHash } from './perceptualHash.js';
+import { recordProvenanceEvent } from './provenanceService.js';
 
 export const evidenceTypes = [
   'import_photo',
@@ -95,6 +98,16 @@ export function checksumForBuffer(fileBuffer) {
   return crypto.createHash('sha256').update(fileBuffer).digest('hex');
 }
 
+function normalizeComponentTags(input) {
+  if (Array.isArray(input)) return input.map((t) => String(t).trim()).filter(Boolean);
+  if (typeof input === 'string' && input.trim()) {
+    return input.split(',').map((t) => t.trim()).filter(Boolean);
+  }
+  return null;
+}
+
+const EVENT_DATE_PRECISIONS = ['day', 'month', 'year', 'unknown'];
+
 export function validateEvidenceUploadPayload(payload, { requireVehicleId = false } = {}) {
   const vehicleId = payload.vehicle_id || payload.vehicleId || payload.vin;
   const evidenceType = normalizeEvidenceType(payload.evidence_type || payload.evidenceType);
@@ -118,13 +131,110 @@ export function validateEvidenceUploadPayload(payload, { requireVehicleId = fals
     throw new Error('Evidence upload requires either file or file_url');
   }
 
+  // Milestone 1: layer the eight life-stage classes above the legacy evidence_type.
+  // The legacy type keeps driving role authorization + storage; class/subtype enrich it
+  // and may be explicitly refined by the uploader (master plan §4).
+  const classification = resolveClassification({
+    evidence_class: payload.evidence_class || payload.evidenceClass,
+    evidence_subtype: payload.evidence_subtype || payload.evidenceSubtype,
+    evidence_type: evidenceType,
+  });
+  if (!classification.ok) {
+    throw new Error(classification.errors.join('; '));
+  }
+
+  const eventDatePrecision = payload.event_date_precision || payload.eventDatePrecision || 'day';
+  if (!EVENT_DATE_PRECISIONS.includes(eventDatePrecision)) {
+    throw new Error(`Invalid event_date_precision: ${eventDatePrecision}`);
+  }
+
+  const rawOdometer = payload.odometer_value ?? payload.odometerValue;
+  const odometerValue = rawOdometer === undefined || rawOdometer === null || rawOdometer === ''
+    ? null
+    : Number(rawOdometer);
+  if (odometerValue !== null && Number.isNaN(odometerValue)) {
+    throw new Error('odometer_value must be numeric');
+  }
+
   return {
     vehicleId,
     eventType,
     evidenceType,
+    evidenceClass: classification.evidence_class,
+    evidenceSubtype: classification.evidence_subtype,
+    eventDate: payload.event_date || payload.eventDate || null,
+    eventDatePrecision,
+    captureCountry: payload.capture_country || payload.captureCountry || null,
+    odometerValue,
+    odometerUnit: payload.odometer_unit || payload.odometerUnit || null,
+    componentTags: normalizeComponentTags(payload.component_tags || payload.componentTags),
+    declaredCondition: payload.declared_condition || payload.declaredCondition || null,
+    sourceCode: payload.source_code || payload.sourceCode || null,
+    sourceId: payload.source_id || payload.sourceId || null,
+    sourceRecordId: payload.source_record_id || payload.sourceRecordId || null,
+    evidenceSetId: payload.evidence_set_id || payload.evidenceSetId || null,
+    retentionClass: payload.retention_class || payload.retentionClass || 'standard',
     linkedRegistryEventId: payload.linked_registry_event_id || payload.linkedRegistryEventId || payload.timelineEventId || null,
     metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {}
   };
+}
+
+/**
+ * Build the Milestone 1 taxonomy + provenance columns for an evidence insert.
+ * Computes the perceptual hash from the file buffer when available (master plan §5.3).
+ */
+export function buildEvidenceProvenanceColumns(normalized, { fileBuffer, mimeType, checksum, resolvedSourceId } = {}) {
+  let perceptualHash = null;
+  if (fileBuffer) {
+    const ph = computePerceptualHash(fileBuffer, mimeType);
+    perceptualHash = ph.supported ? ph.hash : null;
+  }
+  return {
+    evidence_class: normalized.evidenceClass,
+    evidence_subtype: normalized.evidenceSubtype,
+    event_date: normalized.eventDate,
+    event_date_precision: normalized.eventDatePrecision,
+    capture_country: normalized.captureCountry,
+    odometer_value: normalized.odometerValue,
+    odometer_unit: normalized.odometerUnit,
+    component_tags: normalized.componentTags,
+    declared_condition: normalized.declaredCondition,
+    source_id: resolvedSourceId || normalized.sourceId || null,
+    source_record_id: normalized.sourceRecordId,
+    received_at: new Date().toISOString(),
+    perceptual_hash: perceptualHash,
+    checksum_algorithm: checksum ? 'sha256' : null,
+    evidence_set_id: normalized.evidenceSetId,
+    retention_class: normalized.retentionClass || 'standard',
+  };
+}
+
+/**
+ * Best-effort chain-of-custody write for an upload. Never throws — provenance failures
+ * must not block evidence capture (it is recorded, not gating).
+ */
+export async function recordEvidenceUploadProvenance(client, { evidence, req, eventType = 'uploaded' }) {
+  try {
+    await recordProvenanceEvent(client, {
+      evidenceId: evidence.id,
+      vin: evidence.vin,
+      eventType,
+      actorUserId: req?.userContext?.id || null,
+      actorRole: req?.userContext?.role || null,
+      actorType: 'user',
+      sourceRoute: req?.originalUrl || req?.path || null,
+      requestId: req?.requestId || req?.headers?.['x-request-id'] || null,
+      ipAddress: req?.ip || null,
+      details: {
+        evidence_class: evidence.evidence_class || null,
+        evidence_subtype: evidence.evidence_subtype || null,
+        source_id: evidence.source_id || null,
+        checksum: evidence.checksum || null,
+      },
+    });
+  } catch (err) {
+    console.warn('[Provenance] failed to record upload event:', err.message);
+  }
 }
 
 export function buildAiReadyMetadata({

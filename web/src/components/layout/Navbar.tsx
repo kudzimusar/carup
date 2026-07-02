@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,8 +12,6 @@ import {
 import { Badge } from '@/components/ui/badge'
 import {
   Car,
-  Menu,
-  X,
   ShoppingCart,
   Bell,
   LayoutDashboard,
@@ -20,136 +19,29 @@ import {
   Settings,
   ChevronDown,
   Shield,
-  Wrench,
-  Building2,
   MessageSquare,
   Package,
   MoreHorizontal
 } from 'lucide-react'
+import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { resolveCoverageNavHref } from '@/lib/marketplaceParams'
-import { getDashboardRoute, getRoleMetadata, getAllRoles, getPublicNavigationItems } from '@/config/featureRegistry'
+import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
+import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
+import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
+import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { trackNav } from '@/lib/navigationAnalytics'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
-interface MenuItem {
-  label: string
-  href: string
-}
-
-interface MenuSection {
-  title: string
-  items: MenuItem[]
-}
-
-const buyMenu: MenuSection[] = [
-  {
-    title: 'Vehicles',
-    items: [
-      { label: 'Shop All Cars', href: '/marketplace' },
-      { label: 'Brand New Cars', href: '/marketplace' },
-      { label: 'Recently Imported', href: '/marketplace' },
-      { label: 'Locally Used', href: '/marketplace' },
-      { label: 'Second Hand Cars', href: '/marketplace' },
-      { label: 'Dealer Verified Cars', href: '/marketplace?tag=dealer_verified' },
-      { label: 'Passport Verified Cars', href: '/marketplace' },
-    ],
-  },
-  {
-    title: 'Popular Categories',
-    items: [
-      { label: 'SUVs', href: '/marketplace' },
-      { label: 'Pickups', href: '/marketplace' },
-      { label: 'Hatchbacks', href: '/marketplace' },
-      { label: 'Sedans', href: '/marketplace' },
-      { label: 'Toyota', href: '/marketplace' },
-      { label: 'Honda', href: '/marketplace' },
-      { label: 'Mazda', href: '/marketplace' },
-      { label: 'Under $5,000', href: '/marketplace?maxPrice=5000' },
-      { label: 'Under $10,000', href: '/marketplace?maxPrice=10000' },
-    ],
-  },
-  {
-    title: 'Buyer Tools',
-    items: [
-      { label: 'Verify Before You Buy', href: '/search' },
-      { label: 'View Vehicle Passport', href: '/search' },
-      { label: 'Highest Trust Listings', href: '/marketplace?sort=trust' },
-      { label: 'PartSentry Checked Vehicles', href: '/marketplace' },
-    ],
-  },
-  {
-    title: 'Trust Guide',
-    items: [
-      { label: 'Brand New vs Imported vs Locally Used', href: '/marketplace' },
-      { label: 'How to check a vehicle Passport before paying', href: '/search' },
-    ],
-  },
-]
-
-const partsMenu: MenuSection[] = [
-  {
-    title: 'Buy Parts',
-    items: [
-      { label: 'Browse Car Parts', href: '/marketplace/parts' },
-      { label: 'Verified Parts', href: '/marketplace/parts' },
-      { label: 'Engines', href: '/marketplace/parts' },
-      { label: 'Gearboxes', href: '/marketplace/parts' },
-      { label: 'ECUs', href: '/marketplace/parts' },
-      { label: 'Body Panels', href: '/marketplace/parts' },
-      { label: 'Lights', href: '/marketplace/parts' },
-      { label: 'Tyres & Wheels', href: '/marketplace/parts' },
-      { label: 'Batteries', href: '/marketplace/parts' },
-      { label: 'Accessories', href: '/marketplace/parts' },
-    ],
-  },
-  {
-    title: 'Sell Parts',
-    items: [
-      { label: 'Sell a Part', href: '/register' },
-      { label: 'List Accessories', href: '/register' },
-      { label: 'Garage Parts Inventory', href: '/marketplace/parts' },
-      { label: 'Mechanic Parts Catalog', href: '/marketplace/parts' },
-    ],
-  },
-  {
-    title: 'PartSentry',
-    items: [
-      { label: 'Verify Part Origin', href: '/search' },
-      { label: 'Check Repair History', href: '/search' },
-      { label: 'Report Stolen Part', href: '/search' },
-      { label: 'Link Part to Vehicle Passport', href: '/search' },
-      { label: 'Mechanic Work Orders', href: '/register' },
-    ],
-  },
-  {
-    title: 'Parts Trust Guide',
-    items: [
-      { label: 'How PartSentry protects parts buyers', href: '/search' },
-      { label: 'Why verified parts matter for used cars', href: '/marketplace' },
-    ],
-  },
-]
-
-const moreMenu: MenuSection[] = [
-  {
-    title: 'More',
-    items: [
-      { label: 'Insurance', href: '/insurance' },
-      { label: 'Pricing', href: '/pricing' },
-      { label: 'Diaspora Trade', href: '/diaspora' },
-      { label: 'How It Works', href: '/' },
-      { label: 'Trust & Safety', href: '/trust' },
-      { label: 'Help', href: '/help' },
-      { label: 'Contact', href: '/contact' },
-      { label: 'Blog', href: '/blog' },
-    ],
-  },
-]
-
+/**
+ * Desktop mega-menu — registry-driven. Active/beta items render as links;
+ * planned items render as muted, non-navigating "Soon" entries (truthful, no
+ * working filter promised). Hidden/disabled/deprecated items are excluded by
+ * the selector before reaching this component.
+ */
 function CommerceMenu({
   label,
   icon: Icon,
@@ -159,36 +51,55 @@ function CommerceMenu({
 }: {
   label: string
   icon: typeof ShoppingCart
-  sections: MenuSection[]
+  sections: ResolvedNavSection[]
   testId: string
   menuTestId: string
 }) {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => { if (open) trackNav({ event_type: 'navigation_surface_opened', surface: 'mega_menu', node_id: menuTestId }) }}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
-          className="gap-1 px-3 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+          className="gap-1 px-3 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 data-[state=open]:bg-orange-50 data-[state=open]:text-orange-700"
           data-testid={testId}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className="h-4 w-4" aria-hidden="true" />
           {label}
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-3 w-3 transition-transform duration-200" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[760px] max-w-[calc(100vw-2rem)] p-5" data-testid={menuTestId}>
-        <div className="grid gap-5 md:grid-cols-4">
+      <DropdownMenuContent align="start" sideOffset={8} className="w-[760px] max-w-[calc(100vw-2rem)] p-5" data-testid={menuTestId}>
+        <div className="grid gap-x-6 gap-y-5 md:grid-cols-4">
           {sections.map(section => (
-            <div key={section.title}>
-              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">{section.title}</p>
-              <div className="space-y-1">
-                {section.items.map(item => (
-                  <DropdownMenuItem key={`${section.title}-${item.label}`} asChild>
-                    <Link to={item.href} className="cursor-pointer rounded-md px-2 py-1.5 text-sm">
-                      {item.label}
+            <div key={section.title} className="min-w-0">
+              <p className="mb-2 pb-1.5 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-400">{section.title}</p>
+              <div className="space-y-0.5">
+                {section.items.map(item => item.active ? (
+                  <DropdownMenuItem key={item.id} asChild>
+                    <Link
+                      to={item.href}
+                      data-testid={`navitem-${item.id}`}
+                      title={item.description}
+                      onClick={() => trackNav({ event_type: 'navigation_item_selected', surface: 'mega_menu', feature_id: item.id, node_id: item.id, destination_route_pattern: item.href })}
+                      className="flex min-h-[34px] items-center justify-between gap-2 cursor-pointer rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors hover:bg-orange-50 hover:text-orange-700 focus-visible:bg-orange-50 focus-visible:text-orange-700"
+                    >
+                      <span className="truncate">{item.label}</span>
+                      {item.beta && <Badge className="shrink-0 bg-blue-100 text-blue-700 text-[10px]">Beta</Badge>}
                     </Link>
                   </DropdownMenuItem>
+                ) : (
+                  <div
+                    key={item.id}
+                    data-testid={`navitem-${item.id}`}
+                    data-planned="true"
+                    aria-disabled="true"
+                    title={item.description ?? 'Coming soon'}
+                    className="flex min-h-[34px] items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-400 cursor-not-allowed select-none"
+                  >
+                    <span className="truncate">{item.label}</span>
+                    <Badge variant="outline" className="shrink-0 border-gray-200 bg-transparent text-[10px] font-semibold uppercase tracking-wide text-gray-400">Soon</Badge>
+                  </div>
                 ))}
               </div>
             </div>
@@ -200,7 +111,6 @@ function CommerceMenu({
 }
 
 export default function Navbar() {
-  const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
@@ -212,84 +122,27 @@ export default function Navbar() {
     fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
     return () => { cancelled = true }
   }, [fetchMarketplaceNavCoverage])
-  // Data-driven Buy menu: a coverage-gated link (e.g. Locally Used) activates its category deep-link
-  // ONLY when live coverage says active; otherwise it stays the deferred /marketplace href.
-  const resolvedBuyMenu = buyMenu.map(section => ({
-    ...section,
-    items: section.items.map(item => ({ ...item, href: resolveCoverageNavHref(item.label, item.href, navCoverage) })),
-  }))
   const unreadCount = notifications.filter(n => !n.read).length
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
-  const evidencePath = user ? '/dashboard/garage' : '/register'
 
-  const verifyMenu: MenuSection[] = [
-    {
-      title: 'Vehicle Verification',
-      items: [
-        { label: 'Verify by Plate', href: '/search' },
-        { label: 'Verify by VIN', href: '/search' },
-        { label: 'Verify by Chassis', href: '/search' },
-        { label: 'Open Vehicle Passport', href: '/search' },
-      ],
-    },
-    {
-      title: 'Trust Checks',
-      items: [
-        { label: 'Ownership Privacy Summary', href: '/search' },
-        { label: 'Evidence Timeline', href: user ? '/dashboard/garage' : '/search' },
-        { label: 'ZIMRA / Duty Signals', href: '/search' },
-        { label: 'CID / Theft Signals', href: '/search' },
-        { label: 'Odometer / Mileage Signals', href: '/search' },
-      ],
-    },
-    {
-      title: 'PartSentry Verification',
-      items: [
-        { label: 'Check Part History', href: '/search' },
-        { label: 'Check Repair Logs', href: '/search' },
-        { label: 'Check Swapped Parts', href: '/search' },
-        { label: 'Check Stolen/Suspicious Parts', href: '/search' },
-      ],
-    },
-  ]
-
-  const sellMenu: MenuSection[] = [
-    {
-      title: 'Sell Vehicles',
-      items: [
-        { label: 'Sell Your Car', href: sellerPath },
-        { label: 'Create Vehicle Passport', href: user ? '/dashboard/garage' : '/register' },
-        { label: 'Dealer Listing', href: user ? '/dealer/inventory' : '/register' },
-        { label: 'Sell as Private Owner', href: sellerPath },
-      ],
-    },
-    {
-      title: 'Seller Tools',
-      items: [
-        { label: 'Start with Plate / VIN', href: sellerPath },
-        { label: 'Upload Vehicle Evidence', href: evidencePath },
-        { label: 'Add Service History', href: user ? '/dashboard/service-history' : '/register' },
-        { label: 'SafePay / Reservation Ready', href: user ? '/dashboard/listings' : '/register' },
-      ],
-    },
-    {
-      title: 'Sell Parts & Accessories',
-      items: [
-        { label: 'Sell Car Parts', href: '/register' },
-        { label: 'Sell Accessories', href: '/register' },
-        { label: 'Mechanic / Garage Parts Listing', href: '/garages' },
-      ],
-    },
-    {
-      title: 'Seller Guide',
-      items: [
-        { label: 'How to sell with a verified Passport', href: '/register' },
-        { label: 'How PartSentry protects honest sellers', href: '/search' },
-      ],
-    },
-  ]
+  // Registry-driven mega-menus. Coverage gating, lifecycle visibility and
+  // auth/role-aware destinations are resolved by the navigation manifest — no
+  // hardcoded menu arrays remain in this component.
+  const effectiveStates = useFeatureEffectiveStates()
+  const navContext: NavigationContext = {
+    isAuthenticated: !!user,
+    role: (user?.role as UserRole) ?? null,
+    environment: import.meta.env.MODE,
+    coverage: (navCoverage as MarketplaceCoverageResponse | null) ?? null,
+    effectiveStates,
+  }
+  const buyMenu = getDesktopMegaMenu('navbar-mega-buy', navContext)
+  const sellMenu = getDesktopMegaMenu('navbar-mega-sell', navContext)
+  const verifyMenu = getDesktopMegaMenu('navbar-mega-verify', navContext)
+  const partsMenu = getDesktopMegaMenu('navbar-mega-parts', navContext)
+  const moreMenu = getDesktopMegaMenu('navbar-more', navContext)
 
   const handleRoleChange = async (newRole: string) => {
     try {
@@ -297,6 +150,7 @@ export default function Navbar() {
       navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
+      toast.error('Could not switch portal role. Please try again.')
     }
   }
 
@@ -316,11 +170,11 @@ export default function Navbar() {
 
           {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1" data-testid="public-primary-nav">
-            <CommerceMenu label="Buy" icon={ShoppingCart} sections={resolvedBuyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
+            <CommerceMenu label="Buy" icon={ShoppingCart} sections={buyMenu} testId="nav-buy" menuTestId="nav-buy-menu" />
             <CommerceMenu label="Sell" icon={Car} sections={sellMenu} testId="nav-sell" menuTestId="nav-sell-menu" />
             <CommerceMenu label="Verify" icon={Shield} sections={verifyMenu} testId="nav-verify" menuTestId="nav-verify-menu" />
             <CommerceMenu label="Parts" icon={Package} sections={partsMenu} testId="nav-parts" menuTestId="nav-parts-menu" />
-            {getPublicNavigationItems().map((link) => {
+            {getVisiblePublicNavigationItems(navContext).map((link) => {
               const testId = `nav-${link.label.toLowerCase()}`
               return (
                 <Link
@@ -345,8 +199,8 @@ export default function Navbar() {
             {/* Currency Selector */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="hidden md:flex gap-1 text-xs">
-                  {currency} <ChevronDown className="w-3 h-3" />
+                <Button variant="ghost" size="sm" className="hidden md:flex gap-1 text-xs" aria-label={`Currency: ${currency}. Change currency`}>
+                  {currency} <ChevronDown className="w-3 h-3" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -361,10 +215,15 @@ export default function Navbar() {
             {/* Notifications */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
-                  <Bell className="w-5 h-5" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative"
+                  aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+                >
+                  <Bell className="w-5 h-5" aria-hidden="true" />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-500 text-[10px]">
+                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-500 text-[10px]" aria-hidden="true">
                       {unreadCount}
                     </Badge>
                   )}
@@ -394,10 +253,10 @@ export default function Navbar() {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2">
+                  <Button variant="ghost" size="sm" className="gap-2" aria-label={`Account menu for ${user.name}`}>
                     <img src={user.avatar} alt="" className="w-7 h-7 rounded-full object-cover" />
                     <span className="hidden md:inline text-sm">{user.name.split(' ')[0]}</span>
-                    <ChevronDown className="w-3 h-3" />
+                    <ChevronDown className="w-3 h-3" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
@@ -455,88 +314,11 @@ export default function Navbar() {
               </div>
             )}
 
-            {/* Mobile Menu */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden"
-              data-testid="mobile-menu-button"
-              aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={mobileOpen}
-              onClick={() => setMobileOpen(!mobileOpen)}
-            >
-              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </Button>
+            {/* Mobile Menu — registry-driven drawer with focus trap (Milestone 4) */}
+            <MobileNavDrawer />
           </div>
         </div>
       </div>
-
-      {/* Mobile Nav */}
-      {mobileOpen && (
-        <div className="lg:hidden border-t bg-white">
-          <div className="section-padding py-4 space-y-1">
-            {[
-              { label: 'Buy', href: '/marketplace', icon: ShoppingCart },
-              { label: 'Sell', href: sellerPath, icon: Car },
-              { label: 'Verify', href: '/search', icon: Shield },
-              { label: 'Parts', href: '/marketplace/parts', icon: Package },
-              { label: 'Dealers', href: '/dealers', icon: Building2 },
-              { label: 'Garages & Services', href: '/marketplace/services', icon: Wrench },
-            ].map((link) => (
-              <Link
-                key={`${link.label}-${link.href}`}
-                to={link.href}
-                onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${
-                  location.pathname === link.href
-                    ? 'bg-orange-50 text-orange-700'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                <link.icon className="w-4 h-4" />
-                {link.label}
-              </Link>
-            ))}
-            <div className="border-t pt-2">
-              <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">More</p>
-              {moreMenu[0].items.map(link => (
-                <Link
-                  key={link.label}
-                  to={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </div>
-            <div className="pt-2 border-t mt-2">
-              {user ? (
-                <>
-                  <Link to={activeDashboardPath} onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-600">
-                    <LayoutDashboard className="w-4 h-4" /> Dashboard
-                  </Link>
-                  <button onClick={() => {
-                    logout()
-                    window.location.href = '/'
-                  }} className="flex items-center gap-3 px-3 py-2.5 text-sm text-red-600 w-full" data-testid="logout-button">
-                    <LogOut className="w-4 h-4" /> Sign Out
-                  </button>
-                </>
-              ) : (
-                <div className="flex gap-2 px-3">
-                  <Button variant="outline" size="sm" className="flex-1" asChild>
-                    <Link to="/login" onClick={() => setMobileOpen(false)}>Sign In</Link>
-                  </Button>
-                  <Button size="sm" className="flex-1 bg-orange-500 hover:bg-orange-600" asChild>
-                    <Link to={sellerPath} onClick={() => setMobileOpen(false)}>Sell Your Car</Link>
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   )
 }

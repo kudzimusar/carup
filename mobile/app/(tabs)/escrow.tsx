@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text, Pressable, ActivityIndicator, FlatList, RefreshControl } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../store/authStore';
+import { apiUrl } from '../../utils/apiBase';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 
 interface EscrowTransaction {
   id: string;
@@ -18,7 +20,7 @@ interface EscrowTransaction {
   created_at: string;
 }
 
-export default function EscrowDashboardScreen() {
+function EscrowDashboardScreenInner() {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
@@ -27,7 +29,7 @@ export default function EscrowDashboardScreen() {
   const { data: escrows = [], isLoading, error, refetch } = useQuery<EscrowTransaction[]>({
     queryKey: ['escrows'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:5001/api/safepay/list', {
+      const response = await fetch(apiUrl('/api/safepay/list'), {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'x-session-token': token } : {}),
@@ -43,7 +45,7 @@ export default function EscrowDashboardScreen() {
   // Advance escrow milestones mutation
   const updateEscrowMutation = useMutation({
     mutationFn: async ({ id, status, details }: { id: string; status: string; details?: string }) => {
-      const response = await fetch(`http://localhost:5001/api/safepay/${id}/update`, {
+      const response = await fetch(apiUrl(`/api/safepay/${id}/update`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -269,5 +271,20 @@ export default function EscrowDashboardScreen() {
         />
       )}
     </View>
+  );
+}
+
+/**
+ * Owner-protected route boundary (Milestone C). SafePay/escrow is a DRAWER-only
+ * surface governed by owner.listings (owner-only, requiresAuth). A deep link /
+ * direct nav is gated by the SAME governed decision the drawer uses to surface
+ * it: anonymous → sign-in, wrong-role → own dashboard, disabled/hidden → safe
+ * state screen.
+ */
+export default function EscrowDashboardScreen() {
+  return (
+    <NativeFeatureBoundary route="/dashboard/listings" featureId="owner.listings">
+      <EscrowDashboardScreenInner />
+    </NativeFeatureBoundary>
   );
 }

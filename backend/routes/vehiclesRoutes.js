@@ -20,8 +20,12 @@ import {
   reviewRoles,
   verificationStatuses,
   validateEvidenceUploadPayload,
-  runAiAnalysis
+  buildEvidenceProvenanceColumns,
+  recordEvidenceUploadProvenance,
+  runAiAnalysis,
 } from '../services/evidence/evidenceService.js';
+import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
+import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import {
   isVehicleQuarantinedStatus,
   isVehicleRestoredToMarketplaceStatus,
@@ -219,6 +223,32 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     vehicle
   });
 
+  // WS-G: stamp the client idempotency key so a retried offline upload (same key) is
+  // deduped after an app restart via the Supabase-metadata fallback. Accept it from the
+  // standard header conventions OR the body, so any client convention dedupes correctly.
+  const clientIdempotencyKey =
+    req.headers['idempotency-key'] || req.headers['x-idempotency-key'] ||
+    req.body.idempotency_key || req.body.idempotencyKey || null;
+  if (clientIdempotencyKey) metadata.idempotency_key = clientIdempotencyKey;
+
+  // Milestone 1: resolve the source registry entry (best-effort) and compute the
+  // taxonomy + provenance columns (perceptual hash, event date, odometer, etc.).
+  let resolvedSourceId = normalized.sourceId || null;
+  if (!resolvedSourceId && normalized.sourceCode) {
+    try {
+      const source = await getSourceByCode(supabase, normalized.sourceCode);
+      if (source) resolvedSourceId = source.id;
+    } catch (err) {
+      console.warn('[Source Registry] lookup failed:', err.message);
+    }
+  }
+  const provenanceColumns = buildEvidenceProvenanceColumns(normalized, {
+    fileBuffer,
+    mimeType,
+    checksum,
+    resolvedSourceId,
+  });
+
   const insertData = {
     vehicle_id: vin,
     vin,
@@ -248,25 +278,37 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     verification_notes: req.body.verification_notes || req.body.verificationNotes || null,
     trust_score_impact: 0,
     trust_impact: 0,
+    ...provenanceColumns,
     metadata
   };
 
-  const { data: inserted, error: insertError } = await supabase
-    .from('vehicle_evidence')
-    .insert(insertData)
-    .select('*')
-    .single();
+  // WS-G: server-side upload idempotency. The same idempotency key never creates a
+  // duplicate evidence row or provenance event; a retry returns the original.
+  const { evidenceId, deduped } = await withUploadIdempotency(
+    clientIdempotencyKey,
+    vin,
+    async () => {
+      const { data: inserted, error: insertError } = await supabase
+        .from('vehicle_evidence')
+        .insert(insertData)
+        .select('*')
+        .single();
+      if (insertError) throw new DatabaseError(insertError.message);
 
-  if (insertError) {
-    throw new DatabaseError(insertError.message);
-  }
+      // Milestone 1: record the immutable chain-of-custody "uploaded" event (best-effort).
+      await recordEvidenceUploadProvenance(supabase, { evidence: inserted, req, eventType: 'uploaded' });
 
-  // Trigger AI analysis asynchronously (non-blocking)
-  runAiAnalysis(inserted.id, fileBuffer, mimeType, normalized.evidenceType, normalized.metadata).catch(err => {
-    console.error('[AI Analysis Hook Error] Failed to launch background worker:', err.message);
-  });
+      // Trigger AI analysis asynchronously (non-blocking)
+      runAiAnalysis(inserted.id, fileBuffer, mimeType, normalized.evidenceType, normalized.metadata).catch(err => {
+        console.error('[AI Analysis Hook Error] Failed to launch background worker:', err.message);
+      });
+      return inserted;
+    },
+    { supabase },
+  );
 
-  return normalizeEvidenceRecord(inserted);
+  const { data: record } = await supabase.from('vehicle_evidence').select('*').eq('id', evidenceId).single();
+  return normalizeEvidenceRecord(record || { id: evidenceId, vin, _deduped: deduped });
 }
 
 // POST: Upload Evidence

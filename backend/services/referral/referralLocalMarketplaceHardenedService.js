@@ -70,7 +70,9 @@ export class ReferralLocalMarketplaceHardenedService extends ReferralLocalMarket
       const code = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { id: leadEvent.code_id });
       if (code?.owner_user_id) return code.owner_user_id;
     }
-    const referralCode = normalizeReferralCode(input.referral_code || metadata.referral_code || '');
+    // Lead-first so the preflight self-referral/duplicate guards resolve the same
+    // owner that the base service credits.
+    const referralCode = normalizeReferralCode(metadata.referral_code || input.referral_code || '');
     if (referralCode) {
       const code = await this.referralService.repository.findOne(REFERRAL_TABLES.codes, { code: referralCode });
       if (code?.owner_user_id) return code.owner_user_id;

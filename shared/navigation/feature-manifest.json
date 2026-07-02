@@ -1,0 +1,1210 @@
+[
+  {
+    "id": "admin.ai",
+    "domain": "admin",
+    "route": "/admin/ai",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.evidence",
+    "domain": "evidence",
+    "route": "/admin/evidence",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.features",
+    "domain": "admin",
+    "route": "/admin/features",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.moderation",
+    "domain": "admin",
+    "route": "/admin/moderation",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.overview",
+    "domain": "admin",
+    "route": "/admin",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.referral-codes",
+    "domain": "referral",
+    "route": "/admin/referrals/codes",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.referral-import-routes",
+    "domain": "referral",
+    "route": "/admin/referrals/import-routes",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.referral-local-leads",
+    "domain": "referral",
+    "route": "/admin/referrals/local-leads",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.referral-marketing",
+    "domain": "referral",
+    "route": "/admin/referrals/marketing",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.referral-trust",
+    "domain": "referral",
+    "route": "/admin/referrals/trust",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.referrals",
+    "domain": "referral",
+    "route": "/admin/referrals",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.trust-review",
+    "domain": "trust",
+    "route": "/admin/trust-review",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.users",
+    "domain": "admin",
+    "route": "/admin/users",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "auth.kyc",
+    "domain": "admin",
+    "route": "/kyc",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "auth.login",
+    "domain": "admin",
+    "route": "/login",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "auth.register",
+    "domain": "admin",
+    "route": "/register",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "auth.verify-otp",
+    "domain": "admin",
+    "route": "/verify-otp",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "bank.applications",
+    "domain": "finance",
+    "route": "/bank/applications",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "bank"
+    ],
+    "immutableRoles": [
+      "bank"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "bank.collateral",
+    "domain": "finance",
+    "route": "/bank/collateral",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "bank"
+    ],
+    "immutableRoles": [
+      "bank"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "bank.overview",
+    "domain": "finance",
+    "route": "/bank",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "bank"
+    ],
+    "immutableRoles": [
+      "bank"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "bank.risk",
+    "domain": "finance",
+    "route": "/bank/risk",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "bank"
+    ],
+    "immutableRoles": [
+      "bank"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "company.about",
+    "domain": "info",
+    "route": "/about",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "company.blog",
+    "domain": "info",
+    "route": "/blog",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "company.careers",
+    "domain": "info",
+    "route": "/careers",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "company.contact",
+    "domain": "info",
+    "route": "/contact",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "company.press",
+    "domain": "info",
+    "route": "/press",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.analytics",
+    "domain": "commerce",
+    "route": "/dealer/analytics",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.evidence",
+    "domain": "evidence",
+    "route": "/dealer/evidence",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.inventory",
+    "domain": "commerce",
+    "route": "/dealer/inventory",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.leads",
+    "domain": "commerce",
+    "route": "/dealer/leads",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.overview",
+    "domain": "commerce",
+    "route": "/dealer",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "dealer.promotions",
+    "domain": "commerce",
+    "route": "/dealer/promotions",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "dealer"
+    ],
+    "immutableRoles": [
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.ai-command-center",
+    "domain": "diaspora",
+    "route": "/diaspora/ai-commands",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.compliance",
+    "domain": "diaspora",
+    "route": "/admin/diaspora/compliance",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.container-marketplace",
+    "domain": "diaspora",
+    "route": "/diaspora/containers",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.drive-connections",
+    "domain": "diaspora",
+    "route": "/diaspora/drive",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.reverse-rfq",
+    "domain": "diaspora",
+    "route": "/diaspora/rfq",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.safetrade",
+    "domain": "diaspora",
+    "route": "/diaspora/safetrade",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.stock-manager",
+    "domain": "diaspora",
+    "route": "/diaspora/stock",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.subscription",
+    "domain": "diaspora",
+    "route": "/diaspora/subscription",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.workbook-dry-run",
+    "domain": "diaspora",
+    "route": "/admin/diaspora/workbooks/new",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.workbook-operator-console",
+    "domain": "diaspora",
+    "route": "/admin/diaspora/workbooks",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "government.compliance",
+    "domain": "government",
+    "route": "/government/compliance",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "government"
+    ],
+    "immutableRoles": [
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "government.evidence",
+    "domain": "evidence",
+    "route": "/government/evidence",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "government"
+    ],
+    "immutableRoles": [
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "government.overview",
+    "domain": "government",
+    "route": "/government",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "government"
+    ],
+    "immutableRoles": [
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "government.registry",
+    "domain": "government",
+    "route": "/government/registry",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "government"
+    ],
+    "immutableRoles": [
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "government.trust-review",
+    "domain": "trust",
+    "route": "/government/trust-review",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "government"
+    ],
+    "immutableRoles": [
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "insurance.claims",
+    "domain": "insurance",
+    "route": "/insurance-dash/claims",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "insurance"
+    ],
+    "immutableRoles": [
+      "insurance"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "insurance.fraud",
+    "domain": "insurance",
+    "route": "/insurance-dash/fraud",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "insurance"
+    ],
+    "immutableRoles": [
+      "insurance"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "insurance.overview",
+    "domain": "insurance",
+    "route": "/insurance-dash",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "insurance"
+    ],
+    "immutableRoles": [
+      "insurance"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "insurance.risk",
+    "domain": "insurance",
+    "route": "/insurance-dash/risk",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "insurance"
+    ],
+    "immutableRoles": [
+      "insurance"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "mechanic.customers",
+    "domain": "service",
+    "route": "/mechanic/customers",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "mechanic.overview",
+    "domain": "service",
+    "route": "/mechanic",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "mechanic.parts",
+    "domain": "parts",
+    "route": "/mechanic/parts",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "mechanic.service-logs",
+    "domain": "service",
+    "route": "/mechanic/service-logs",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "mechanic.work-orders",
+    "domain": "service",
+    "route": "/mechanic/work-orders",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "mechanic"
+    ],
+    "immutableRoles": [
+      "mechanic"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.ai",
+    "domain": "commerce",
+    "route": "/dashboard/ai",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.evidence-vault",
+    "domain": "evidence",
+    "route": "/dashboard/garage",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.garage",
+    "domain": "commerce",
+    "route": "/dashboard/garage",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.garage-detail",
+    "domain": "commerce",
+    "route": "/dashboard/garage/:id",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.import-detail",
+    "domain": "diaspora",
+    "route": "/diaspora/imports/:id",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.import-documents",
+    "domain": "diaspora",
+    "route": "/diaspora/imports/:id/documents",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.import-orders",
+    "domain": "diaspora",
+    "route": "/diaspora/imports",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.import-shipment",
+    "domain": "diaspora",
+    "route": "/diaspora/imports/:id/shipment",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.insurance",
+    "domain": "insurance",
+    "route": "/dashboard/insurance",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.listings",
+    "domain": "safepay",
+    "route": "/dashboard/listings",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.overview",
+    "domain": "commerce",
+    "route": "/dashboard",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.partsentry",
+    "domain": "parts",
+    "route": "/dashboard/partsentry",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.referrals",
+    "domain": "referral",
+    "route": "/dashboard/referrals",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.saved",
+    "domain": "commerce",
+    "route": "/dashboard/saved",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.sell-vehicle",
+    "domain": "commerce",
+    "route": "/dashboard/sell-vehicle",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.service-history",
+    "domain": "service",
+    "route": "/dashboard/service-history",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.start-import",
+    "domain": "diaspora",
+    "route": "/diaspora/imports/new",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "product.dealers",
+    "domain": "commerce",
+    "route": "/dealers",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.diaspora",
+    "domain": "diaspora",
+    "route": "/diaspora",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.garages",
+    "domain": "commerce",
+    "route": "/garages",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.insurance",
+    "domain": "insurance",
+    "route": "/insurance",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.marketplace",
+    "domain": "commerce",
+    "route": "/marketplace",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.marketplace-parts",
+    "domain": "parts",
+    "route": "/marketplace/parts",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.marketplace-services",
+    "domain": "service",
+    "route": "/marketplace/services",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.pricing",
+    "domain": "commerce",
+    "route": "/pricing",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.verify",
+    "domain": "trust",
+    "route": "/search",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "public.home",
+    "domain": "commerce",
+    "route": "/",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "public.vehicle-detail",
+    "domain": "commerce",
+    "route": "/marketplace/:id",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "resources.api-docs",
+    "domain": "info",
+    "route": "/api-docs",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "resources.help",
+    "domain": "info",
+    "route": "/help",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "resources.privacy",
+    "domain": "info",
+    "route": "/privacy",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "resources.terms",
+    "domain": "info",
+    "route": "/terms",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "resources.trust",
+    "domain": "trust",
+    "route": "/trust",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "shared.settings",
+    "domain": "info",
+    "route": "/settings",
+    "defaultLifecycle": "planned",
+    "defaultRoles": [
+      "admin",
+      "bank",
+      "dealer",
+      "government",
+      "insurance",
+      "mechanic",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "bank",
+      "dealer",
+      "government",
+      "insurance",
+      "mechanic",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  }
+]
