@@ -120,16 +120,16 @@ test.describe('Feature Registry & Navigation Map', () => {
       }
 
       // Expected dashboard-sidebar item counts per role.
-      // Reconciled 2026-06-21 to the live registry (Navigation Blueprint M1/M2):
-      // owner/government/admin counts had drifted on main as referral + diaspora
-      // admin/government tools were added after this assertion was first written.
-      expect(result.roleItemCounts['owner']).toBe(12);
-      expect(result.roleItemCounts['dealer']).toBe(6);
+      // Reconciled 2026-07-03 to the live registry after the Vehicle Trust OS production
+      // cutover merged into main (WS-A/B fraud queue + dealer compliance console, trust-network
+      // buyer/dealer surfaces, etc.) and the Diaspora Trade OS Final Closure merged its base:
+      // owner/dealer/government/admin counts drifted again as those tools were registered.
+      expect(result.roleItemCounts['owner']).toBe(15);
+      expect(result.roleItemCounts['dealer']).toBe(11);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
-      expect(result.roleItemCounts['government']).toBe(8);
-      // admin gained the new 'Feature Governance' (admin.features) sidebar item (M7).
-      expect(result.roleItemCounts['admin']).toBe(16);
+      expect(result.roleItemCounts['government']).toBe(10);
+      expect(result.roleItemCounts['admin']).toBe(21);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
