@@ -68,6 +68,8 @@ const MIGRATIONS = [
   '20260626180000_escrow_trust_sessions.sql',
   // Full Activation — shared provider platform
   '20260703120000_provider_platform.sql',
+  // Full Activation — private storage buckets (PGlite-safe no-op)
+  '20260703190000_provider_storage.sql',
 ];
 
 function extractUpSection(filepath) {
