@@ -68,6 +68,16 @@ const MIGRATIONS = [
   '20260626180000_escrow_trust_sessions.sql',
   // Full Activation — shared provider platform
   '20260703120000_provider_platform.sql',
+  // Full Activation — government source activation (config + append-only batch imports)
+  '20260703130000_government_source_activation.sql',
+  // Full Activation — licensed insurer provider (onboarding + execution)
+  '20260703140000_insurance_provider.sql',
+  // Full Activation — regulated lender (finance) provider workflow
+  '20260703150000_finance_provider.sql',
+  // Full Activation — regulated real-money escrow provider extension
+  '20260703160000_escrow_provider.sql',
+  // Full Activation — native mobile device certification ledger
+  '20260703170000_mobile_certification.sql',
   // Full Activation — private storage buckets (PGlite-safe no-op)
   '20260703190000_provider_storage.sql',
 ];

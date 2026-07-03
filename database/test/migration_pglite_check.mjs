@@ -50,6 +50,16 @@ const NEW_MIGRATIONS = [
   '20260626180000_escrow_trust_sessions.sql',
   // Full Activation — shared provider platform
   '20260703120000_provider_platform.sql',
+  // Full Activation — government source activation (config + append-only batch imports)
+  '20260703130000_government_source_activation.sql',
+  // Full Activation — licensed insurer provider (onboarding + execution)
+  '20260703140000_insurance_provider.sql',
+  // Full Activation — regulated lender (finance) provider workflow
+  '20260703150000_finance_provider.sql',
+  // Full Activation — regulated real-money escrow provider extension
+  '20260703160000_escrow_provider.sql',
+  // Full Activation — native mobile device certification ledger
+  '20260703170000_mobile_certification.sql',
   // Full Activation — private storage buckets (PGlite-safe no-op)
   '20260703190000_provider_storage.sql',
 ];
@@ -365,6 +375,67 @@ results.catalog.partner_requests_immutable = await checkImmutable(
    SELECT id,'corr-1','GET','/api/partner/v1/ping',200 FROM partner_clients WHERE key_hash='HASHV1'`,
   `UPDATE partner_api_requests SET status_code=500 WHERE correlation_id='corr-1'`,
   `DELETE FROM partner_api_requests WHERE correlation_id='corr-1'`
+);
+
+// government_source_batch_imports (Full Activation) — append-only signed-file import ledger
+results.catalog.gov_batch_imports_immutable = await checkImmutable(
+  'government_source_batch_imports',
+  `INSERT INTO provider_registry(provider_key,capability_type,display_name)
+     VALUES ('zimra','government_source','ZIMRA') ON CONFLICT DO NOTHING;
+   INSERT INTO government_source_batch_imports(provider_id,source_key,file_ref,status)
+     SELECT id,'zimra','gov-imports/zimra/f.csv','pending' FROM provider_registry
+     WHERE provider_key='zimra' AND capability_type='government_source'
+     ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE government_source_batch_imports SET status='imported' WHERE file_ref='gov-imports/zimra/f.csv'`,
+  `DELETE FROM government_source_batch_imports WHERE file_ref='gov-imports/zimra/f.csv'`
+);
+
+// insurance_provider_decisions (Full Activation) — append-only insurer outcome ledger
+results.catalog.insurance_decisions_immutable = await checkImmutable(
+  'insurance_provider_decisions',
+  `INSERT INTO provider_registry(id,provider_key,capability_type,display_name)
+     VALUES ('a0000000-0000-0000-0000-0000000000ff','insurer_x','insurance','Insurer X') ON CONFLICT DO NOTHING;
+   INSERT INTO insurer_profiles(id,provider_id,legal_name)
+     VALUES ('b0000000-0000-0000-0000-0000000000ff','a0000000-0000-0000-0000-0000000000ff','Insurer X') ON CONFLICT DO NOTHING;
+   INSERT INTO insurance_provider_decisions(insurer_provider_id,vin,outcome)
+     VALUES ('b0000000-0000-0000-0000-0000000000ff','V1','eligible')`,
+  `UPDATE insurance_provider_decisions SET outcome='declined' WHERE vin='V1' AND outcome='eligible'`,
+  `DELETE FROM insurance_provider_decisions WHERE vin='V1' AND outcome='eligible'`
+);
+
+// finance_provider_decisions (Full Activation) — append-only lender decision ledger
+results.catalog.finance_decisions_immutable = await checkImmutable(
+  'finance_provider_decisions',
+  `INSERT INTO provider_registry(provider_key,capability_type,display_name)
+     VALUES ('lender_x','finance','Lender X') ON CONFLICT DO NOTHING;
+   INSERT INTO finance_provider_decisions(lender_provider_id,vin,outcome,decision_inputs_snapshot)
+     SELECT id,'V1','potentially_eligible','{"identity_status":"complete"}'::jsonb
+     FROM provider_registry WHERE provider_key='lender_x' AND capability_type='finance'
+     ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE finance_provider_decisions SET outcome='declined' WHERE vin='V1' AND outcome='potentially_eligible'`,
+  `DELETE FROM finance_provider_decisions WHERE vin='V1' AND outcome='potentially_eligible'`
+);
+
+// escrow_reconciliation_ledger (Full Activation) — append-only money reconciliation history
+results.catalog.escrow_recon_ledger_immutable = await checkImmutable(
+  'escrow_reconciliation_ledger',
+  `INSERT INTO provider_registry(id,provider_key,capability_type,display_name)
+     VALUES ('e1111111-1111-1111-1111-111111111111','escrow_y','escrow','Escrow Y') ON CONFLICT DO NOTHING;
+   INSERT INTO escrow_reconciliation_ledger(provider_id,external_txn_ref,internal_amount_cents,external_amount_cents,matched)
+     VALUES ('e1111111-1111-1111-1111-111111111111','X1',5000,5000,true)`,
+  `UPDATE escrow_reconciliation_ledger SET matched=false WHERE external_txn_ref='X1'`,
+  `DELETE FROM escrow_reconciliation_ledger WHERE external_txn_ref='X1'`
+);
+
+// mobile_certification_results (Full Activation) — append-only device-certification evidence
+results.catalog.mobile_cert_results_immutable = await checkImmutable(
+  'mobile_certification_results',
+  `INSERT INTO mobile_certification_runs(id,platform,device_model,os_version,build_type,status)
+     VALUES ('c2222222-2222-2222-2222-222222222222','android','Pixel 6a','Android 14','release','running');
+   INSERT INTO mobile_certification_results(run_id,check_key,result)
+     VALUES ('c2222222-2222-2222-2222-222222222222','offline_queue_persist_restart','pass')`,
+  `UPDATE mobile_certification_results SET result='fail' WHERE check_key='offline_queue_persist_restart'`,
+  `DELETE FROM mobile_certification_results WHERE check_key='offline_queue_persist_restart'`
 );
 
 // 4. Down in reverse order
