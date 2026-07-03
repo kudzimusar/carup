@@ -74,6 +74,12 @@ import dealerRouter from './routes/dealerRoutes.js';
 import eligibilityRouter from './routes/eligibilityRoutes.js';
 import escrowTrustRouter from './routes/escrowTrustRoutes.js';
 import providerPlatformRouter from './routes/providerPlatformRoutes.js';
+// Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
+import governmentActivationRouter from './routes/governmentActivationRoutes.js';
+import insurerRouter from './routes/insurerRoutes.js';
+import lenderRouter from './routes/lenderRoutes.js';
+import escrowProviderRouter from './routes/escrowProviderRoutes.js';
+import mobileCertificationRouter from './routes/mobileCertificationRoutes.js';
 import intelligenceRouter from './routes/intelligenceRoutes.js';
 import reportRouter from './routes/reportRoutes.js';
 import governanceRouter from './routes/governanceRoutes.js';
@@ -215,6 +221,12 @@ app.use(dealerRouter);
 app.use(eligibilityRouter);
 app.use(escrowTrustRouter);
 app.use(providerPlatformRouter);
+// Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
+app.use(governmentActivationRouter);
+app.use(insurerRouter);
+app.use(lenderRouter);
+app.use(escrowProviderRouter);
+app.use(mobileCertificationRouter);
 app.use(intelligenceRouter);
 app.use(reportRouter);
 app.use(governanceRouter);
