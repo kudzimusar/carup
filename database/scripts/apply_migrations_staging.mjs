@@ -66,6 +66,8 @@ const MIGRATIONS = [
   '20260626150000_dealer_compliance.sql',
   '20260626160000_eligibility_framework.sql',
   '20260626180000_escrow_trust_sessions.sql',
+  // Full Activation — shared provider platform
+  '20260703120000_provider_platform.sql',
 ];
 
 function extractUpSection(filepath) {
