@@ -48,6 +48,8 @@ const NEW_MIGRATIONS = [
   '20260626160000_eligibility_framework.sql',
   // WS-F — trust-gated escrow lifecycle
   '20260626180000_escrow_trust_sessions.sql',
+  // Full Activation — shared provider platform
+  '20260703120000_provider_platform.sql',
 ];
 
 function splitMigration(file) {
