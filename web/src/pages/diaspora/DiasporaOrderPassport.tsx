@@ -21,6 +21,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import { classifyActionError } from '@/components/diaspora/safetrade/safeTradeHelpers'
 import type {
   DiasporaImportOrder,
@@ -396,6 +397,17 @@ export default function DiasporaOrderPassport() {
             Milestones record payment progress reported by the trade parties. CarUp does not hold, receive or guarantee funds.
           </p>
         </PassportSection>
+
+        {/* 6b — Record a milestone (shared card; totals, remaining balance vs accepted quote/budget,
+            confirm step, per-submit idempotency; backend enforces authz + cumulative cap) */}
+        <PaymentMilestonesCard
+          orderId={order.id}
+          milestones={milestones}
+          quotes={quotes}
+          budgetAmount={order.budget_amount}
+          budgetCurrency={order.budget_currency}
+          onRefresh={load}
+        />
 
         {/* 7 — Cargo reservation */}
         <PassportSection title="Cargo reservation" testId="order-passport-reservations">

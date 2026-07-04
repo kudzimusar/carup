@@ -113,20 +113,54 @@ router.post('/workbook/xlsx/export', auth, asyncHandler(async (req, res) => {
 // extra header columns to the always-redacted PII/storage set. Same download headers as the
 // template.xlsx route. Auth-gated by the shared `authorizeRole()` filter; the service is the
 // authority boundary that enforces cross-tenant isolation.
+function sendDbExport(res, templateType, { buffer, meta }) {
+  const filename = `diaspora-${String(templateType || 'export')}-db-export.xlsx`;
+  res.setHeader('Content-Type', XLSX_UPLOAD_MIME);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', buffer.length);
+  // Integrity + audit correlation: the same checksum is the WORKBOOK_DB_EXPORTED audit resourceId.
+  res.setHeader('X-Export-Checksum', meta.checksum);
+  res.setHeader('X-Export-Total-Rows', String(meta.totalRows));
+  res.end(buffer);
+}
+
 router.get('/workbook/xlsx/db-export', auth, asyncHandler(async (req, res) => {
   const templateType = req.query.type || req.query.templateType;
   const redactFields = typeof req.query.redact === 'string'
     ? req.query.redact.split(',').map((field) => field.trim()).filter(Boolean)
     : [];
-  const buffer = await exportWorkbookFromDatabase(templateType, req.userContext, {
+  const filters = {};
+  if (typeof req.query.createdFrom === 'string' && req.query.createdFrom) filters.createdFrom = req.query.createdFrom;
+  if (typeof req.query.createdTo === 'string' && req.query.createdTo) filters.createdTo = req.query.createdTo;
+  const result = await exportWorkbookFromDatabase(templateType, req.userContext, {
     redactFields,
+    filters,
     now: new Date().toISOString(),
+    req,
   });
-  const filename = `diaspora-${String(templateType || 'export')}-db-export.xlsx`;
-  res.setHeader('Content-Type', XLSX_UPLOAD_MIME);
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Content-Length', buffer.length);
-  res.end(buffer);
+  sendDbExport(res, templateType, result);
+}));
+
+// POST /workbook/xlsx/export-from-db -> { templateType, filters?, redactFields? } -> .xlsx buffer.
+//
+// The trusted database-sourced export route (plan §C). The body may carry the template type, SAFE
+// date filters, and a redaction profile — NEVER data rows; a body containing `rows` is rejected
+// outright so this route can never regress into the caller-row export it coexists with. Every
+// export is audited (WORKBOOK_DB_EXPORTED, checksum as resourceId) by the service.
+router.post('/workbook/xlsx/export-from-db', auth, asyncHandler(async (req, res) => {
+  const { templateType, filters, redactFields, rows } = req.body || {};
+  if (rows !== undefined) {
+    throw new ValidationError('This endpoint is database-sourced and does not accept data rows.', {
+      code: 'ROWS_NOT_ACCEPTED',
+    });
+  }
+  const result = await exportWorkbookFromDatabase(templateType, req.userContext, {
+    redactFields: Array.isArray(redactFields) ? redactFields : [],
+    filters: filters || {},
+    now: new Date().toISOString(),
+    req,
+  });
+  sendDbExport(res, templateType, result);
 }));
 
 export default router;

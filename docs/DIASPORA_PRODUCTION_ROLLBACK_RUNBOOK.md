@@ -29,6 +29,14 @@
    release runbook Part B step 1, then re-apply only verified migrations.
 5. Run Supabase advisors; confirm no high-severity regression.
 
+**Migrations WITHOUT a usable Down block** are classified in
+[`database/rollbacks/diaspora/README.md`](../database/rollbacks/diaspora/README.md) (forward-fix-only /
+reversible-with-data-loss / feature-disable + backup restore), each with BEFORE/AFTER verification
+queries and — where safe — a guarded compensating script. The security-containment migrations
+(`20260619201406`, `20260620232827`, H7 grants) deliberately have **no** destructive rollback: reversing
+them would re-open revoked access. **None of these scripts have been rehearsed on staging (EB-1)** —
+rehearse before any production use.
+
 ## Money/escrow safety (Phase 9)
 Never auto-release, auto-refund, or auto-capture during rollback. All payment state stays held;
 resolve via the dispute/manual-review path. Real-money actions remain disabled unless EB-4 active.

@@ -15,7 +15,7 @@ import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js'
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
-import { createTradeProfile, listTradeProfiles, getTradeProfile, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
+import { createTradeProfile, listTradeProfiles, getTradeProfile, getOwnTradeProfiles, submitTradeProfileForReview, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
 import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
 import { createCargoReservation, listCargoReservations, updateReservationStatus } from '../services/diaspora/diasporaReservationService.js';
@@ -157,8 +157,11 @@ router.post('/trade-profiles', auth, asyncHandler(async (req, res) => {
   res.status(201).json(await createTradeProfile(req.body, req.userContext, req));
 }));
 
+// /me MUST be registered before /:id, or Express matches 'me' as an :id.
+router.get('/trade-profiles/me', auth, asyncHandler(async (req, res) => res.json({ data: await getOwnTradeProfiles(req.userContext) })));
 router.get('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeProfile(req.params.id, req.userContext))));
 router.patch('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await updateTradeProfile(req.params.id, req.body, req.userContext, req))));
+router.post('/trade-profiles/:id/submit-review', auth, asyncHandler(async (req, res) => res.json(await submitTradeProfileForReview(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-profiles/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeProfile(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-profiles/:id/suspend', reviewerAuth, asyncHandler(async (req, res) => res.json(await suspendTradeProfile(req.params.id, req.body, req.userContext, req))));
 

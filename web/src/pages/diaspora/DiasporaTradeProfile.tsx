@@ -64,6 +64,11 @@ export default function DiasporaTradeProfile() {
   const [formError, setFormError] = useState('')
   const [formResult, setFormResult] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
+  // Optimistic-concurrency token captured when editing starts; sent as expected_updated_at so a
+  // concurrent change (e.g. a reviewer verifying while you edit) surfaces as a conflict, not a
+  // silent overwrite.
+  const [editingUpdatedAt, setEditingUpdatedAt] = useState<string | null>(null)
+  const [submittingReviewId, setSubmittingReviewId] = useState<string | null>(null)
 
   // reviewer queue
   const [queue, setQueue] = useState<DiasporaTradeProfile[]>([])
@@ -77,15 +82,14 @@ export default function DiasporaTradeProfile() {
     setLoading(true)
     setLoadError('')
     try {
-      // Non-privileged callers receive only their own profile(s) from this endpoint by design.
-      const data = await api.listDiasporaTradeProfiles()
-      setOwn(isReviewer ? data.filter(p => (p.user_id || '') === (user?.id || '')) : data)
+      // /trade-profiles/me returns only the caller's own profiles regardless of privilege.
+      setOwn(await api.fetchOwnDiasporaTradeProfiles())
     } catch (err) {
       setLoadError(errText(err, 'Unable to load your trade profile'))
     } finally {
       setLoading(false)
     }
-  }, [api, isAuthenticated, isReviewer, user?.id])
+  }, [api, isAuthenticated])
 
   const loadQueue = useCallback(async () => {
     if (!isReviewer) return
@@ -108,6 +112,7 @@ export default function DiasporaTradeProfile() {
 
   const startEdit = (profile: DiasporaTradeProfile) => {
     setEditingId(profile.id)
+    setEditingUpdatedAt(profile.updated_at || null)
     setRoleType((profile.role_type || 'buyer').toLowerCase())
     setCountry(profile.country || '')
     setCity(profile.city || '')
@@ -118,6 +123,7 @@ export default function DiasporaTradeProfile() {
 
   const resetForm = () => {
     setEditingId(null)
+    setEditingUpdatedAt(null)
     setRoleType('buyer')
     setCountry('')
     setCity('')
@@ -139,6 +145,7 @@ export default function DiasporaTradeProfile() {
           country: country.trim(),
           city: city.trim(),
           organization_id: org.trim() || null,
+          expected_updated_at: editingUpdatedAt,
         })
         setFormResult('Profile updated.')
       } else {
@@ -154,9 +161,34 @@ export default function DiasporaTradeProfile() {
       resetForm()
       await loadOwn()
     } catch (err) {
-      setFormError(errText(err, 'Could not save profile'))
+      const message = errText(err, 'Could not save profile')
+      // Stale-edit conflict: the profile changed since this edit began (e.g. reviewer action).
+      // Reload the fresh state so the user re-edits against it rather than overwriting blind.
+      if (/stale|changed since|conflict/i.test(message)) {
+        setFormError('This profile changed while you were editing. It has been reloaded — please re-apply your changes.')
+        resetForm()
+        await loadOwn()
+      } else {
+        setFormError(message)
+      }
     } finally {
       setSaving(false)
+    }
+  }
+
+  const submitForReview = async (id: string) => {
+    if (submittingReviewId) return
+    setSubmittingReviewId(id)
+    setFormError('')
+    setFormResult('')
+    try {
+      await api.submitDiasporaTradeProfileForReview(id)
+      setFormResult('Profile submitted for review.')
+      await loadOwn()
+    } catch (err) {
+      setFormError(errText(err, 'Could not submit for review'))
+    } finally {
+      setSubmittingReviewId(null)
     }
   }
 
@@ -208,6 +240,18 @@ export default function DiasporaTradeProfile() {
                 <span className="font-medium text-gray-900">{(p.role_type || 'buyer')} · {p.city || '—'}, {p.country || '—'}</span>
                 <span className="flex items-center gap-2">
                   <Badge variant={statusVariant(p.verification_status)}>{p.verification_status || 'PENDING_REVIEW'}</Badge>
+                  {String(p.verification_status || '').toUpperCase() === 'REJECTED' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={submittingReviewId === p.id}
+                      onClick={() => submitForReview(p.id)}
+                      data-testid="diaspora-trade-profile-submit-review"
+                    >
+                      {submittingReviewId === p.id ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                      Resubmit for review
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={() => startEdit(p)} data-testid="diaspora-trade-profile-edit">Edit</Button>
                 </span>
               </li>

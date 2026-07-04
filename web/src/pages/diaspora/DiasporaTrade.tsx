@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
 
 const requiredDocuments = [
@@ -905,13 +906,6 @@ function truncateMessage(err: unknown, fallback: string) {
   return message.length > 200 ? `${message.slice(0, 200)}…` : message
 }
 
-// Per-submit idempotency key so a retried/double-clicked milestone submission cannot create a
-// duplicate financial reference record (backend de-dupes on (import_order_id, idempotency_key)).
-function genMilestoneKey() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `pm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-}
-
 // Privileged-only operational shortcuts on the import detail page. Backend authorization is the
 // real boundary (403s surface below); this section is convenience for reviewers/admins.
 function ReviewerActionsCard({ orderId, onRefresh }: { orderId: string; onRefresh: () => Promise<void> }) {
@@ -1051,173 +1045,6 @@ function ReviewerActionsCard({ orderId, onRefresh }: { orderId: string; onRefres
   )
 }
 
-const MILESTONE_TYPE_OPTIONS = [
-  { value: 'DEPOSIT', label: 'Deposit' },
-  { value: 'BALANCE_DUE', label: 'Balance due' },
-  { value: 'SHIPPING_FEE', label: 'Shipping fee' },
-  { value: 'CUSTOMS_DUTY', label: 'Customs duty' },
-  { value: 'FINAL_PAYMENT', label: 'Final payment' },
-  { value: 'OTHER', label: 'Other' },
-]
-
-function humanizeMilestone(value?: string | null) {
-  if (!value) return '—'
-  return value.toLowerCase().split('_').map(part => (part ? part[0].toUpperCase() + part.slice(1) : part)).join(' ')
-}
-
-/**
- * Payment-milestone recording UI. A milestone is a NON-CUSTODIAL reference record — the buyer/seller
- * declaring an off-platform payment step happened or is due. CarUp never moves money here. Any user
- * with access to the order (owner/participant/tenant-admin/reviewer) may record one; the backend is
- * the authority boundary. Submissions carry a per-submit idempotency key so a double-click cannot
- * create a duplicate financial record.
- */
-function PaymentMilestonesCard({ order, onRefresh }: { order: DiasporaImportOrder; onRefresh: () => Promise<void> }) {
-  const { addDiasporaPaymentMilestone } = useCarUpApi()
-  const milestones = order.diaspora_payment_milestones || []
-  const [open, setOpen] = useState(false)
-  const [milestoneType, setMilestoneType] = useState('DEPOSIT')
-  const [amount, setAmount] = useState('')
-  const [currency, setCurrency] = useState(order.budget_currency || 'USD')
-  const [reference, setReference] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState('')
-  const [actionError, setActionError] = useState('')
-
-  const submit = async () => {
-    if (busy) return
-    const numericAmount = Number(amount)
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      setActionError('Enter a positive amount.')
-      return
-    }
-    setBusy(true)
-    setResult('')
-    setActionError('')
-    try {
-      await addDiasporaPaymentMilestone(order.id, {
-        milestone_type: milestoneType,
-        amount: numericAmount,
-        currency: currency.trim() || 'USD',
-        external_reference: reference.trim() || undefined,
-        idempotency_key: genMilestoneKey(),
-      })
-      setResult('Milestone recorded (reference only — no payment was processed).')
-      setAmount('')
-      setReference('')
-      await onRefresh()
-    } catch (err) {
-      setActionError(truncateMessage(err, 'Could not record milestone'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white" data-testid="diaspora-order-payment-milestones">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-        onClick={() => setOpen(prev => !prev)}
-        aria-expanded={open}
-        data-testid="diaspora-milestones-toggle"
-      >
-        <span className="flex items-center gap-2 text-base font-semibold text-gray-900">
-          <ClipboardCheck className="h-4 w-4 text-orange-600" /> Payment milestones
-          {milestones.length > 0 && <Badge variant="secondary">{milestones.length}</Badge>}
-        </span>
-        <span className="text-sm text-orange-600">{open ? 'Hide' : 'Show'}</span>
-      </button>
-      {open && (
-        <div className="space-y-4 border-t border-gray-100 px-4 py-4">
-          <Alert className="border-blue-200 bg-blue-50" data-testid="diaspora-milestones-noncustodial-notice">
-            <ShieldCheck className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-800">
-              Milestones are a record only. CarUp does not hold, transfer, or process any funds for
-              these payments — arrange and settle them directly with your counterparty.
-            </AlertDescription>
-          </Alert>
-
-          {milestones.length > 0 ? (
-            <ul className="divide-y divide-gray-100 rounded-md border border-gray-100" data-testid="diaspora-milestones-list">
-              {milestones.map(m => (
-                <li key={m.id} className="flex items-center justify-between px-3 py-2 text-sm" data-testid="diaspora-milestone-row">
-                  <span className="font-medium text-gray-900">{humanizeMilestone(m.milestone_type)}</span>
-                  <span className="text-gray-600">{m.currency} {m.amount}</span>
-                  <Badge variant="outline">{m.status}</Badge>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-gray-500" data-testid="diaspora-milestones-empty">No payment milestones recorded yet.</p>
-          )}
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <label className="text-sm text-gray-700">
-              Milestone type
-              <select
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                value={milestoneType}
-                onChange={event => setMilestoneType(event.target.value)}
-                data-testid="diaspora-milestone-type"
-              >
-                {MILESTONE_TYPE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
-            </label>
-            <label className="text-sm text-gray-700">
-              Amount
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={amount}
-                onChange={event => setAmount(event.target.value)}
-                className="mt-1"
-                data-testid="diaspora-milestone-amount"
-              />
-            </label>
-            <label className="text-sm text-gray-700">
-              Currency
-              <Input
-                value={currency}
-                onChange={event => setCurrency(event.target.value)}
-                className="mt-1"
-                maxLength={3}
-                data-testid="diaspora-milestone-currency"
-              />
-            </label>
-            <label className="text-sm text-gray-700">
-              Reference (optional)
-              <Input
-                value={reference}
-                onChange={event => setReference(event.target.value)}
-                className="mt-1"
-                placeholder="e.g. bank transfer id"
-                data-testid="diaspora-milestone-reference"
-              />
-            </label>
-          </div>
-
-          <Button
-            size="sm"
-            disabled={busy || !amount.trim()}
-            onClick={submit}
-            data-testid="diaspora-milestone-submit"
-          >
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-            Record milestone
-          </Button>
-
-          <p aria-live="polite" className="text-sm">
-            {result && <span className="font-medium text-green-700" data-testid="diaspora-milestone-result">{result}</span>}
-            {actionError && <span className="font-medium text-red-700" data-testid="diaspora-milestone-error">{actionError}</span>}
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function DiasporaImportDetail() {
   const { id } = useParams()
   const { order, loading, error, reload } = useDiasporaOrder(id)
@@ -1242,7 +1069,14 @@ export function DiasporaImportDetail() {
                 <Link to={`/diaspora/imports/${order.id}/shipment`}>Shipment</Link>
               </Button>
             </div>
-            <PaymentMilestonesCard order={order} onRefresh={reload} />
+            <PaymentMilestonesCard
+              orderId={order.id}
+              milestones={order.diaspora_payment_milestones || []}
+              quotes={order.diaspora_import_quotes || []}
+              budgetAmount={order.budget_amount}
+              budgetCurrency={order.budget_currency}
+              onRefresh={reload}
+            />
             <ReviewerActionsCard orderId={order.id} onRefresh={reload} />
           </div>
         )}
