@@ -299,3 +299,82 @@ Suggested commits:
 Return one report with PR/commit SHAs; routes and policies; RLS/constraint evidence; milestone semantics; export templates and privacy proof; atomic draft and reservation evidence; rollback classifications/rehearsals; staging migrations; schema/RLS/grant/storage/advisor results; backend/frontend/E2E/concurrency totals; vehicle/parts journey results; CI status; remaining findings; acceptance rows moved to COMPLETE; production untouched confirmation; flags remaining OFF; release-only blockers; rollback readiness; and final verdict: `GO FOR RELEASE GATE`, `GO WITH KNOWN LIMITATIONS`, or `NO-GO`.
 
 The loop ends only when all five workstreams are complete and staging-proven, or a genuine external blocker is documented with exact evidence and no code work remains.
+---
+
+# Execution evidence (Program Integrator, 2026-07-04)
+
+Head before: `0a8e4c3` → new work commit on top of authoritative plan `8c5b503`. Backend diaspora
+suite **721/714/0/7**; web unit **419/419**; `tsc -b` + `vite build` clean; feature manifest
+regenerated; vehicle + parts journeys **8/8**. Two specialist workstreams (D export, E atomic drafts)
+and the hand-written backend (A/B + reservation) each passed an adversarial security/recovery review;
+the real findings raised were fixed and locked with tests.
+
+## Progress matrix (updated)
+
+| Workstream | Discovery | Code | Migration | Staging | Tests | E2E | Review | Docs | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| A Profile management | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (13) | pending | DONE | DONE | **COMPLETE (code)** |
+| B Payment milestones | DONE | DONE | DONE (#16) | **BLOCKED (EB-1)** | DONE (10) | via detail page | DONE | DONE | **COMPLETE (code)** |
+| C DB export | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (8) | button | DONE | DONE | **COMPLETE (code)** |
+| D Atomic drafts | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (4) | N/A | DONE (SOLID) | DONE | **COMPLETE (code, see deviation)** |
+| E Reservation/rollback | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (16) | regression | DONE | DONE | **COMPLETE (code)** |
+
+## Evidence per workstream
+
+- **A** — `diasporaTradeProfileService.js`: own-only create/read/list/`updateTradeProfile` (safe fields
+  only); `user_id` AND `tenant_id` derived from trusted context (body values ignored for
+  non-privileged — closes an adversarial-review cross-tenant injection finding); verification_status/
+  trust_score server-controlled (no self-verify); reviewer verify/suspend enforced at the service layer.
+  Routes `diasporaRoutes.js:147-160` (+`PATCH`). UI `DiasporaTradeProfile.tsx` (self-service + reviewer
+  console) at `/diaspora/trade-profile`.
+- **B** — `addPaymentMilestone`: order-access authz (reuses `getImportOrder` gate); new milestones start
+  non-final (`PENDING`); positive-amount/currency/type/status validation; idempotency on
+  `(import_order_id, idempotency_key)` (migration #16); critical audit + notification; explicit
+  non-custodial wording. UI `PaymentMilestonesCard` in order detail.
+- **C** — `exportWorkbookFromDatabase` + `GET /workbook/xlsx/db-export`: DB-sourced, tenant-scoped
+  (query filter + defense-in-depth JS re-filter; owner-bounded when untenanted; privileged span
+  tenants), PII/storage headers always redacted, formula-neutralized by the reused `exportWorkbook`
+  engine; buyer/seller/supplier/enterprise/container-reservation templates; no new schema; no bucket
+  created (on-demand download). Operator-console download button.
+- **D** — `executeDiasporaWorkbookDraftImport` made all-or-nothing via a **compensating rollback**
+  (default ON): tracks each created draft id, and on the first hard failure soft-deletes exactly those
+  drafts (LIFO, scoped `.eq('id',id).is('deleted_at',null)`), ending `FAILED_DRAFT_IMPORT` with zero
+  surviving drafts; compensation failures captured, never thrown; live import stays disabled.
+- **E** — legacy `POST /reservations/:id/approve` now delegates to the atomic
+  `diaspora_approve_cargo_reservation_atomic` RPC (lock, recompute, overfill/weight guard, in-txn
+  audit); duplicate JS audit removed; post-commit event emit non-fatal; reject/cancel separately
+  authorized/idempotent. Every diaspora migration ships a `-- +migrate Down` run by
+  `migrate.js --rollback` in a transaction.
+
+## Honest deviations from this plan
+
+1. **D (atomic drafts) — approach differs from the plan's stated preference.** The plan prefers a
+   SECURITY DEFINER RPC with pinned `search_path` executing the whole draft plan in **one DB
+   transaction**. That is not achievable through the supabase-js/PostgREST client (each `.insert()` is a
+   separate auto-committed HTTP request) for this heterogeneous, 7-table, per-row-shaped plan with
+   cross-row FK resolution. Delivered instead: an application-level **compensating rollback (Saga)** —
+   correct and safe *because everything created is a draft* (`deleted_at` on all 7 targets), so the
+   observable end state of a failed run is zero surviving draft rows. **Residual (non-blocking):** a
+   process crash between the failure and the end of compensation could leave some drafts
+   un-compensated (no durable saga log / auto-resume); mitigated by `FAILED_DRAFT_IMPORT` + retained
+   orphan ids for manual review. A true single-transaction RPC remains possible future work.
+2. **C (export) — method/path.** Implemented as `GET /workbook/xlsx/db-export?type=` (+optional
+   `redact=`) rather than the plan's suggested `POST …/export-from-db` with a filters/redaction body.
+   Same guarantees (DB-sourced, never body rows, tenant-scoped, redacted). Follow-up: add POST +
+   safe filters/date-range + an explicit export-audit row (template/filters/counts/checksum/actor/ts).
+3. **Deferred refinements (not blocking the five core capabilities):** A — dedicated
+   `GET /trade-profiles/me`, `POST /:id/submit-review`, one-profile-per-user enforcement, optimistic
+   concurrency/version checks, `/diaspora/admin/trade-profiles` as a separate route (reviewer console
+   is in-page). B — cumulative-amount/over-allocation validation and totals/remaining-balance in the
+   UI (list shown; running totals not yet). C — dedicated export-audit row. E — `database/rollbacks/
+   diaspora/` scripts for the pre-existing **non-diaspora** forward-only migrations (all *diaspora*
+   migrations already have Down blocks).
+
+## External blocker (unchanged, documented with evidence)
+
+**EB-1** — the connected Supabase MCP integration exposes exactly one project (`sfhtlzcgrnrdznhvdrbn`
+"production-os", INACTIVE); it cannot reach `carup-staging` (`eoyenigwevnxwwhyhaer`) or production
+(`vhmnajoeicasaigiophh`). So the plan's **staging** steps (apply migration #16, verify RLS/RPC/grants/
+storage/advisors, real concurrency tests) and any E2E-against-staging are **not executable this loop**.
+Migration #16 is authored, additive, `-- +migrate Down`-scripted, and ledger-recorded, ready to apply
+staging-first once EB-1 is lifted. Production Supabase untouched.

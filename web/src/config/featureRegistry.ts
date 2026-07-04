@@ -793,6 +793,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Tag',
   },
   {
+    id: 'diaspora.trade-profile',
+    label: 'Trade Profile',
+    route: '/diaspora/trade-profile',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'UserCog',
+  },
+  {
     id: 'diaspora.reverse-rfq',
     label: 'Reverse RFQ',
     route: '/diaspora/rfq',

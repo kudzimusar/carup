@@ -15,7 +15,7 @@ import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js'
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
-import { createTradeProfile, listTradeProfiles, getTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
+import { createTradeProfile, listTradeProfiles, getTradeProfile, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
 import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
 import { createCargoReservation, listCargoReservations, updateReservationStatus } from '../services/diaspora/diasporaReservationService.js';
@@ -119,6 +119,9 @@ router.get('/import-orders/:id/audit', auth, asyncHandler(async (req, res) => {
   res.json({ data: await listDiasporaAudit({ importOrderId: req.params.id, limit: Number(req.query.limit || 100) }) });
 }));
 
+// Payment milestone — a non-custodial reference record, not a payment API. `auth` is the coarse
+// route filter; addPaymentMilestone reuses getImportOrder's own access gate (owner/participant/
+// tenant-admin/reviewer) as the authority boundary, same convention as ownership-handoff above.
 router.post('/import-orders/:id/payment-milestones', auth, asyncHandler(async (req, res) => {
   res.status(201).json(await addPaymentMilestone(req.params.id, req.body, req.userContext, req));
 }));
@@ -143,16 +146,19 @@ router.get('/import-orders/:id/government-footprint', auth, asyncHandler(async (
   res.json({ data: await getGovernmentFootprint(req.params.id) });
 }));
 
-// Trade Profiles
+// Trade Profiles — self-service for buyers/sellers/suppliers (own profile only); reviewerAuth-gated
+// verify/suspend is the coarse route filter, the service itself is the authority boundary (mirrors
+// the ownership-handoff route convention above).
 router.get('/trade-profiles', auth, asyncHandler(async (req, res) => {
-  res.json({ data: await listTradeProfiles({ roleType: req.query.roleType, verificationStatus: req.query.verificationStatus, country: req.query.country, ...pagination(req) }) });
+  res.json({ data: await listTradeProfiles({ roleType: req.query.roleType, verificationStatus: req.query.verificationStatus, country: req.query.country, ...pagination(req) }, req.userContext) });
 }));
 
 router.post('/trade-profiles', auth, asyncHandler(async (req, res) => {
   res.status(201).json(await createTradeProfile(req.body, req.userContext, req));
 }));
 
-router.get('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeProfile(req.params.id))));
+router.get('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeProfile(req.params.id, req.userContext))));
+router.patch('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await updateTradeProfile(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-profiles/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeProfile(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-profiles/:id/suspend', reviewerAuth, asyncHandler(async (req, res) => res.json(await suspendTradeProfile(req.params.id, req.body, req.userContext, req))));
 

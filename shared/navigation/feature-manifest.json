@@ -556,6 +556,26 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.trade-profile",
+    "domain": "diaspora",
+    "route": "/diaspora/trade-profile",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.workbook-dry-run",
     "domain": "diaspora",
     "route": "/admin/diaspora/workbooks/new",

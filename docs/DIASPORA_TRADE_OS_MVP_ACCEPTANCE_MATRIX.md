@@ -16,11 +16,19 @@
 
 | Status | Count | Rows |
 |---|---|---|
-| COMPLETE | **34** | 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 36, 37, 38, 40 |
-| PARTIAL | **5** | 1, 2, 11, 35, 39 |
+| COMPLETE | **39** | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 35, 36, 37, 38, 39, 40 |
+| PARTIAL | **0** | — |
 | MISSING | **0** | — |
 | DEFERRED FOR MVP | **1** | 34 |
 | EXTERNAL ACTIVATION REQUIRED | **0** | — (external boundaries EB-1…EB-5 gate *deployment*, tracked in the evidence columns) |
+
+> **Final Completion Loop update (2026-07-04):** rows 1, 2, 11, 35, 39 moved **PARTIAL → COMPLETE** — the
+> five remaining original capabilities were implemented with real code + tests (self-service trade-profile
+> UI + authz hardening; seller/supplier + reviewer verify/suspend console; payment-milestone create UI +
+> backend authz/idempotency/validation/notification/non-custodial; tenant-scoped DB-sourced XLSX export;
+> atomic workbook draft execution + legacy reservation-approval on the atomic capacity RPC). Backend
+> regression 721/714/0/7; web 419/419; tsc+build clean. Deployment columns remain BLOCKED (EB-1) /
+> NOT APPLIED (EB-5).
 | **Total** | **40** | |
 
 Previous revision miscounted its own row assignments (its lists actually covered all 40: 26/12/1/1); this
@@ -30,8 +38,8 @@ revision recounts and reflects the closure work: rows 5, 20, 21, 23, 24, 25, 26,
 
 | # | Capability | Status | Code evidence | Local test | Staging | Prod |
 |---|---|---|---|---|---|---|
-| 1 | Buyer trade profile | PARTIAL | `diasporaRoutes.js:134,142`; `diasporaTradeProfileService.js`; `diaspora_trade_profiles` (013). No management UI (accepted — not on the required journeys; profile read feeds Stock Passport) | `diaspora-workflow`, `diaspora-supabase-integration` | BLOCKED (EB-1) | NOT APPLIED (EB-5) |
-| 2 | Seller/supplier trade profile | PARTIAL | as row 1 + verify/suspend `diasporaRoutes.js:143-144` (reviewer) | same | BLOCKED | NOT APPLIED |
+| 1 | Buyer trade profile | COMPLETE | self-service: `diasporaTradeProfileService.js` (own-only create/read/list/`updateTradeProfile`; no self-set of verification_status/trust_score; tenant_id derived from context, not body); routes `diasporaRoutes.js:147-160` (+`PATCH /trade-profiles/:id`); UI `web/src/pages/diaspora/DiasporaTradeProfile.tsx` (App.tsx + featureRegistry) | `diaspora-trade-profile` (13) | BLOCKED (EB-1) | NOT APPLIED (EB-5) |
+| 2 | Seller/supplier trade profile | COMPLETE | as row 1 (shared table via role_type) + reviewer verify/suspend enforced at the **service** layer (`verifyTradeProfile`/`suspendTradeProfile`, not just route filter) + reviewer console in the same page | `diaspora-trade-profile` (13) | BLOCKED | NOT APPLIED |
 | 3 | Vehicle import request | COMPLETE | `diasporaRoutes.js:82` / `diasporaBuyerOrderRoutes.js:34`; `createImportOrder`/`createBuyerOrder`; `diaspora_import_orders` + UI `NewDiasporaImportOrder` | `diaspora-rfq`, `diaspora-workflow`, **journey 30** | BLOCKED | NOT APPLIED |
 | 4 | Parts request | COMPLETE | `diasporaBuyerOrderRoutes.js:34` (order_type=parts); UI `DiasporaReverseRfq` | `diaspora-rfq`, e2e reverse-rfq, **journey 31** | BLOCKED | NOT APPLIED |
 | 5 | Seller stock (publish lifecycle) | **COMPLETE** | create `diasporaStockRoutes.js:37`; **publish/unpublish `diasporaStockRoutes.js` POST /stock/:id/publish|unpublish → `publishStockItem`/`unpublishStockItem` (`diasporaStockService.js:221,300`)**; PRIVATE→PUBLISHED→UNPUBLISHED transitions; required-field + available-quantity + supply-doc gates; idempotent; audit `STOCK_ITEM_PUBLISHED`; UI publish/unpublish in `DiasporaStockManager` | **`diaspora-stock-publication` (12)**, `diaspora-stock`, **journey 31** | BLOCKED | NOT APPLIED |
@@ -40,7 +48,7 @@ revision recounts and reflects the closure work: rows 5, 20, 21, 23, 24, 25, 26,
 | 8 | Seller quotation | COMPLETE | `diasporaBuyerOrderRoutes.js:54` `createQuote`; UI ReverseRfq | `diaspora-rfq`, **journeys 30/31** | BLOCKED | NOT APPLIED |
 | 9 | Quote acceptance (atomic) | COMPLETE | `diasporaBuyerOrderRoutes.js:49` → RPC `diaspora_accept_quote_atomic`; UI ReverseRfq | `diaspora-rfq:104-184`, **journeys 30/31** | BLOCKED | NOT APPLIED |
 | 10 | Stock reservation (ledger) | COMPLETE | `diasporaStockRoutes.js:62,57` → RPC `diaspora_append_stock_movement_atomic`; UI StockManager | `diaspora-stock`, H1, **journey 31** | BLOCKED | NOT APPLIED |
-| 11 | Payment milestones | PARTIAL | `diasporaRoutes.js:121,283` `addPaymentMilestone`; read-only display in Order Passport §6; no create UI (accepted — not on required journey lists) | `diaspora-workflow`, `diaspora-supabase-integration` | BLOCKED | NOT APPLIED |
+| 11 | Payment milestones | COMPLETE | `addPaymentMilestone` now enforces order-access authz (reuses `getImportOrder` gate), idempotency ((import_order_id, idempotency_key), migration `20260704090000`), validation (`validatePaymentMilestonePayload`: type/amount/status), audit + notification, non-custodial wording; create UI `PaymentMilestonesCard` in import detail (`DiasporaTrade.tsx`) with per-submit idempotency key | `diaspora-payment-milestone` (10) | BLOCKED | NOT APPLIED |
 
 ## B. Documents, logistics, compliance, identity
 
@@ -74,11 +82,11 @@ revision recounts and reflects the closure work: rows 5, 20, 21, 23, 24, 25, 26,
 | 32 | XLSX parser | COMPLETE | `parseWorkbook` (exceljs, limits enforced) | `diaspora-workbook-xlsx:175` | BLOCKED | NOT APPLIED |
 | 33 | Workbook dry-run | COMPLETE | `validateDiasporaWorkbookDryRun` (`wroteToDatabase:false`); UI states "Live trade-table writes remain disabled" | `diaspora-workbook:296,565` | BLOCKED | NOT APPLIED |
 | 34 | Confirmed import / truthful deferral | **DEFERRED FOR MVP** | `importDiasporaWorkbook` throws by design; `execute-drafts` = draft-only staging (no domain services, no atomic rollback). **Classification B (Dry-Run MVP) retained at closure** | `diaspora-workbook:630` asserts reject | BLOCKED | NOT APPLIED |
-| 35 | Workbook export | PARTIAL | `exportWorkbook` renders caller rows (injection-neutralized); DB-sourced export deferred | `diaspora-workbook-xlsx` | BLOCKED | NOT APPLIED |
+| 35 | Workbook export | COMPLETE | `exportWorkbookFromDatabase` (`diasporaWorkbookDbExportService.js`) + `GET /workbook/xlsx/db-export` build the workbook FROM the DB, tenant-scoped (query filter + defense-in-depth JS re-filter; privileged span tenants), PII/storage headers always redacted; reuses the `exportWorkbook` engine; UI export button on operator console | `diaspora-workbook-db-export` (8), `diaspora-workbook-xlsx` (24) | BLOCKED | NOT APPLIED |
 | 36 | Tenant isolation | COMPLETE | RLS (013/014/phase1b helpers) + server-derived tenant (`authMiddleware.js:88-100`) | isolation suites + cross-tenant denials in publication/handoff tests | BLOCKED | NOT APPLIED |
 | 37 | Role authorization | COMPLETE | `authorizeRole()` server-side on every mutation; services enforce finer boundaries (publish = creator/reviewer; handoff = reviewer/tenant-admin) | authz suites + new tests | BLOCKED | NOT APPLIED |
 | 38 | Idempotency | COMPLETE | unique keys + RPC `IDEMPOTENCY_CONFLICT`; publication + handoff idempotent replays | stock/safetrade/publication/handoff tests | BLOCKED | NOT APPLIED |
-| 39 | Rollback/recovery | PARTIAL | atomic SECURITY DEFINER RPCs for money/state; handoff validates-before-write; workbook draft executor still non-atomic; several migrations forward-only | safetrade/stock rollback tests | BLOCKED | NOT APPLIED |
+| 39 | Rollback/recovery | COMPLETE | atomic SECURITY DEFINER RPCs for money/state; workbook draft execution now all-or-nothing via compensating rollback (`executeDiasporaWorkbookDraftImport`, default ON — a failed run leaves zero surviving draft rows); legacy reservation-approval routed through `diaspora_approve_cargo_reservation_atomic` (was a read-then-write race with no capacity check); every diaspora migration ships a `-- +migrate Down` run by `migrate.js --rollback` in a txn | `diaspora-workbook-atomic-execution` (4), `diaspora-reservation-auth` (16), safetrade/stock rollback | BLOCKED | NOT APPLIED |
 | 40 | SafeTrade sandbox assurance | COMPLETE | typed-403 `EXTERNAL_ACTIVATION_REQUIRED`; empty approved-provider allowlist; DB CHECK `live_payment=false`; UI-9 + ST-4B server-redacted evidence read | `diaspora-safetrade` (55) + authz (22) + available-actions (19) | BLOCKED | NOT APPLIED |
 
 ## P1 release-blocker adjudication (closure directive §2)

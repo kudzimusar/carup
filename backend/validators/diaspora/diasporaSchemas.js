@@ -20,8 +20,11 @@ export function validateImportOrderPayload(payload) {
   return payload;
 }
 
+// user_id is intentionally NOT required here: self-service callers create their own profile and the
+// server derives user_id from the authenticated context (diasporaTradeProfileService.createTradeProfile);
+// only a platform admin/reviewer may supply a different user_id to seed a profile on someone's behalf.
 export function validateTradeProfilePayload(payload) {
-  requireFields(payload, ['user_id', 'country', 'city', 'role_type']);
+  requireFields(payload, ['country', 'city', 'role_type']);
   validateEnum(payload.role_type, ['buyer', 'seller', 'exporter', 'agent', 'dealer', 'company', 'coordinator'], 'role_type');
   return payload;
 }
@@ -54,5 +57,22 @@ export function validateReservationPayload(payload) {
 
 export function validateShipmentPayload(payload) {
   requireFields(payload, ['import_order_id']);
+  return payload;
+}
+
+// A payment milestone is a non-custodial reference record (the buyer/seller declaring that an
+// off-platform payment step happened or is due) — CarUp never moves money for this legacy path.
+// See diaspora_safetrade_milestones for the fail-closed sandbox-only escrow overlay, a separate
+// system with its own atomic RPC.
+export function validatePaymentMilestonePayload(payload) {
+  requireFields(payload, ['milestone_type', 'amount']);
+  validateEnum(payload.milestone_type, ['DEPOSIT', 'BALANCE_DUE', 'SHIPPING_FEE', 'CUSTOMS_DUTY', 'FINAL_PAYMENT', 'OTHER'], 'milestone_type');
+  const amount = Number(payload.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new ValidationError('amount must be a positive number', { amount: payload.amount });
+  }
+  if (payload.status) {
+    validateEnum(payload.status, ['PENDING', 'CONFIRMED', 'FAILED', 'WAIVED', 'CANCELLED'], 'status');
+  }
   return payload;
 }

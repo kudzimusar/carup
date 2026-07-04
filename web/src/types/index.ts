@@ -132,6 +132,7 @@ export interface DiasporaImportOrder {
   updated_at?: string;
   metadata?: Record<string, unknown>;
   diaspora_trade_documents?: DiasporaTradeDocument[];
+  diaspora_payment_milestones?: DiasporaPaymentMilestone[];
 }
 
 export interface DiasporaImportOrderPayload {
@@ -237,12 +238,66 @@ export interface DiasporaTradeProfile {
   id: string;
   user_id?: string | null;
   tenant_id?: string | null;
+  organization_id?: string | null;
   display_name?: string | null;
   profile_type?: string | null;
+  role_type?: string | null;
   verification_status?: string | null;
   trust_score?: number | null;
+  completed_shipments_count?: number | null;
+  dispute_count?: number | null;
+  rating_average?: number | null;
   country?: string | null;
+  city?: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** Create payload for a trade profile. Self-service callers omit user_id (server derives it) and
+ * cannot set verification_status/trust_score — those are reviewer-only. */
+export interface DiasporaTradeProfileInput {
+  role_type: string;
+  country: string;
+  city: string;
+  organization_id?: string | null;
+  user_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** Self-service editable subset (non-authoritative fields only). */
+export interface DiasporaTradeProfileUpdate {
+  country?: string;
+  city?: string;
+  organization_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** A non-custodial payment milestone reference record — CarUp never moves money for this. */
+export interface DiasporaPaymentMilestone {
+  id: string;
+  import_order_id: string;
+  tenant_id?: string | null;
+  milestone_type: string;
+  amount: number;
+  currency: string;
+  due_date?: string | null;
+  status: string;
+  external_reference?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+/** Create payload for a payment milestone. */
+export interface DiasporaPaymentMilestoneInput {
+  milestone_type: string;
+  amount: number;
+  currency?: string;
+  due_date?: string | null;
+  external_reference?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 /** Ownership handoff status (GET /diaspora/import-orders/:id/ownership-handoff). */

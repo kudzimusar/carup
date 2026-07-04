@@ -1,7 +1,7 @@
 import { supabase } from '../../db/supabase.js';
 import { IMPORT_ORDER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
-import { validateImportOrderPayload } from '../../validators/diaspora/diasporaSchemas.js';
+import { validateImportOrderPayload, validatePaymentMilestonePayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { notifyDiasporaMilestone } from './diasporaNotificationService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
@@ -209,9 +209,31 @@ export async function addQuote(importOrderId, payload, userContext = {}, req = n
   return { order: updatedOrder, quote };
 }
 
+/**
+ * A payment milestone is a non-custodial reference record — the buyer/seller declaring that an
+ * off-platform payment step happened or is due. CarUp never moves money here (see
+ * diaspora_safetrade_milestones for the separate, fail-closed sandbox-only escrow overlay).
+ *
+ * Authorization now reuses getImportOrder's own access gate (order owner, assigned participant,
+ * tenant admin, or platform admin/reviewer) — previously ANY authenticated user could add a
+ * milestone to ANY order regardless of access. Idempotent on (import_order_id, idempotency_key)
+ * when a key is supplied, so a retried submit cannot create a duplicate financial record.
+ */
 export async function addPaymentMilestone(importOrderId, payload, userContext = {}, req = null) {
-  const { data: order, error: orderError } = await supabase.from('diaspora_import_orders').select('*').eq('id', importOrderId).single();
-  if (orderError || !order) throw new NotFoundError('Diaspora import order not found');
+  validatePaymentMilestonePayload(payload);
+  const order = await getImportOrder(importOrderId, userContext);
+
+  if (payload.idempotency_key) {
+    const { data: existing, error: existingError } = await supabase
+      .from('diaspora_payment_milestones')
+      .select('*')
+      .eq('import_order_id', importOrderId)
+      .eq('idempotency_key', payload.idempotency_key)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (existingError) throw new DatabaseError(existingError.message);
+    if (existing) return existing;
+  }
 
   const { data, error } = await supabase
     .from('diaspora_payment_milestones')
@@ -224,6 +246,7 @@ export async function addPaymentMilestone(importOrderId, payload, userContext = 
       due_date: payload.due_date || null,
       status: payload.status || 'PENDING',
       external_reference: payload.external_reference || null,
+      idempotency_key: payload.idempotency_key || null,
       metadata: payload.metadata || {},
       created_by: userContext?.id,
       updated_by: userContext?.id,
@@ -233,6 +256,14 @@ export async function addPaymentMilestone(importOrderId, payload, userContext = 
   if (error) throw new DatabaseError(error.message);
 
   await writeDiasporaAudit({ importOrderId, tenantId: order.tenant_id, actorId: userContext?.id, action: 'PAYMENT_MILESTONE_CREATED', resourceType: 'diaspora_payment_milestone', resourceId: data.id, newState: data, req });
+  await notifyDiasporaMilestone({
+    eventType: 'DIASPORA_PAYMENT_MILESTONE_CREATED',
+    importOrder: order,
+    actorId: userContext?.id,
+    title: 'Payment milestone recorded',
+    message: `A ${data.milestone_type.toLowerCase().replace(/_/g, ' ')} milestone of ${data.currency} ${data.amount} has been recorded for your import order. This is a reference record only — CarUp does not process this payment.`,
+    metadata: { milestoneId: data.id, milestoneType: data.milestone_type, amount: data.amount, currency: data.currency },
+  });
   return data;
 }
 

@@ -22,6 +22,7 @@ const express = (await import('express')).default;
 const diasporaRouter = (await import('../routes/diasporaRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
+const { approveCargoReservationAtomic } = await import('./helpers/diasporaRpcReference.js');
 
 // ---------------------------------------------------------------------------
 // Mutable fixture DB
@@ -115,9 +116,30 @@ function resolve_(state) {
 let server;
 let baseUrl;
 
+let rpcSeq = 0;
+function nextId(prefix) { return `${prefix}-${++rpcSeq}`; }
+function rpcTable(name) {
+  if (name === 'diaspora_cargo_reservations') return Object.values(db.reservations);
+  if (name === 'diaspora_container_shipments') return Object.values(db.containers);
+  if (name === 'diaspora_import_audit_log') return (db.auditLog ||= []);
+  return [];
+}
+async function rpc(fnName, params) {
+  if (fnName !== 'diaspora_approve_cargo_reservation_atomic') {
+    return { data: null, error: { message: `unmocked rpc: ${fnName}` } };
+  }
+  try {
+    const result = approveCargoReservationAtomic(params, { table: rpcTable, nextId, faults: {} });
+    return { data: result, error: null };
+  } catch (err) {
+    return { data: null, error: { message: err.message } };
+  }
+}
+
 before(async () => {
   resetDb();
   Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: (t) => makeBuilder(t) });
+  Object.defineProperty(supabase, 'rpc', { configurable: true, writable: true, value: rpc });
 
   const app = express();
   app.use(express.json());
@@ -207,6 +229,21 @@ test('a trusted reviewer can approve a requested reservation (200)', async () =>
 test('a trusted reviewer can reject a requested reservation (200)', async () => {
   const { status } = await req('POST', '/api/diaspora/reservations/res-1/reject', { userId: 'reviewer-1' });
   assert.equal(status, 200);
+});
+
+// --- Approval capacity enforcement (H3 atomic RPC replaces the former unconditional legacy update,
+// which had NO capacity check at all — any volume was silently accepted regardless of container
+// total) -----------------------------------------------------------------------------------------
+
+test('approval is rejected once it would overfill the container (200 then 400, not silently accepted)', async () => {
+  const first = await req('POST', '/api/diaspora/reservations/res-1/approve', { userId: 'reviewer-1' });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.reservation_status, 'APPROVED');
+  // cont-open total_capacity_volume=20; res-1 already consumed 5 (15 remaining).
+  db.reservations['res-2'] = { id: 'res-2', import_order_id: 'order-1', tenant_id: 'tenantA', buyer_id: 'buyer-1', created_by: 'buyer-1', container_id: 'cont-open', estimated_volume: 20, reservation_status: 'REQUESTED' };
+  const second = await req('POST', '/api/diaspora/reservations/res-2/approve', { userId: 'reviewer-1' });
+  assert.equal(second.status, 400);
+  assert.match(second.body.error?.message || second.body.error || '', /overfill/i);
 });
 
 // --- Tenant scoping ---------------------------------------------------------

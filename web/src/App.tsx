@@ -52,6 +52,7 @@ import DiasporaStockPassport from './pages/diaspora/DiasporaStockPassport'
 import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
 import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
+import DiasporaTradeProfile from './pages/diaspora/DiasporaTradeProfile'
 import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
 import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
 import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
@@ -258,6 +259,7 @@ export default function App() {
           <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
           <Route path="/diaspora/imports/:id/passport" element={<DiasporaOrderPassport />} />
           <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
+          <Route path="/diaspora/trade-profile" element={<DiasporaTradeProfile />} />
           <Route path="/diaspora/stock/:id/passport" element={<DiasporaStockPassport />} />
           <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
           <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
