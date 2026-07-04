@@ -25,6 +25,7 @@ import {
   parseWorkbook,
   exportWorkbook,
 } from '../services/diaspora/workbook/diasporaWorkbookXlsxService.js';
+import { exportWorkbookFromDatabase } from '../services/diaspora/workbook/diasporaWorkbookDbExportService.js';
 import { runAndPersistDiasporaWorkbookDryRun } from '../services/diaspora/diasporaWorkbookSyncService.js';
 
 const router = express.Router();
@@ -98,6 +99,30 @@ router.post('/workbook/xlsx/export', auth, asyncHandler(async (req, res) => {
     context: { now: new Date().toISOString() },
   });
   const filename = `diaspora-${String(templateType || 'export')}-export.xlsx`;
+  res.setHeader('Content-Type', XLSX_UPLOAD_MIME);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', buffer.length);
+  res.end(buffer);
+}));
+
+// GET /workbook/xlsx/db-export?type=<templateType> -> tenant-scoped, DATABASE-sourced .xlsx.
+//
+// Unlike POST /workbook/xlsx/export (which serializes rows supplied verbatim in the request body),
+// this endpoint builds the workbook FROM THE DATABASE and applies tenant/ownership authorization on
+// every sheet. The request body is never a data source here. `?redact=COL1,COL2` optionally adds
+// extra header columns to the always-redacted PII/storage set. Same download headers as the
+// template.xlsx route. Auth-gated by the shared `authorizeRole()` filter; the service is the
+// authority boundary that enforces cross-tenant isolation.
+router.get('/workbook/xlsx/db-export', auth, asyncHandler(async (req, res) => {
+  const templateType = req.query.type || req.query.templateType;
+  const redactFields = typeof req.query.redact === 'string'
+    ? req.query.redact.split(',').map((field) => field.trim()).filter(Boolean)
+    : [];
+  const buffer = await exportWorkbookFromDatabase(templateType, req.userContext, {
+    redactFields,
+    now: new Date().toISOString(),
+  });
+  const filename = `diaspora-${String(templateType || 'export')}-db-export.xlsx`;
   res.setHeader('Content-Type', XLSX_UPLOAD_MIME);
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', buffer.length);

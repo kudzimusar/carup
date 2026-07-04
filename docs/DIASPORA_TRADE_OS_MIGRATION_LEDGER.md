@@ -30,6 +30,7 @@
 | 13 | `20260621130000_diaspora_phase9_safetrade.sql` | Phase 9 | Escrow/assurance overlay; fail-closed money (CHECK `live_payment=false`, provider∈sandbox/fake) | 3 tables (`diaspora_safetrade_transactions/_milestones/_release_evaluations`); RPCs `diaspora_safetrade_transition_atomic`, `_record_milestone_atomic` | RLS Y (3) · grants Y · search_path Y | **Y** | `1cfbc7271867` | BLOCKED | NOT APPLIED |
 | 14 | `20260621131000_diaspora_phase9_safetrade_disputes.sql` | Phase 9 (Stage B) | Disputes + append-only evidence + delivery confirmations (records only) | 3 tables (`diaspora_safetrade_disputes/_dispute_evidence/_delivery_confirmations`) | RLS Y (3) · grants Y (evidence append-only) | **Y** | `9f8b0cb06f5d` | BLOCKED | NOT APPLIED |
 | 15 | `20260621140000_diaspora_phase10_trade_graph.sql` | Phase 10 | Event-sourced rebuildable graph projection (nodes/edges from `domain_events`+audit); admin rebuild | 7 tables (`trade_graph_*`); RPCs `trade_graph_record_checkpoint`, `_request_rebuild` | RLS Y (7) · grants Y · search_path Y | **Y** | `b23a2dadf006` | BLOCKED | NOT APPLIED |
+| 16 | `20260704090000_diaspora_payment_milestone_idempotency.sql` | Final completion (W3) | Additive idempotency key on payment milestones so retried creations de-duplicate | alters `diaspora_payment_milestones` (+`idempotency_key`, partial unique index on `(import_order_id, idempotency_key)`) | additive only | **Y** | `1f1fc891fd05` | BLOCKED (EB-1) | NOT APPLIED (EB-5) |
 
 ## Dependency chain
 

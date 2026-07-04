@@ -57,6 +57,18 @@ Activation order (all gated by `DIASPORA_TRADE_GRAPH`, default OFF):
 AI-ready reads expose **redacted** context only (PII tokenized/redacted, participant ids pseudonymized);
 do not enable AI graph insights (`DIASPORA_AI_GRAPH_INSIGHTS`) until redaction is re-verified on prod data.
 
+## Final Completion Loop additions (2026-07-04)
+
+- **Migration `20260704090000_diaspora_payment_milestone_idempotency.sql` (ledger #16)** is purely
+  **additive** (one nullable column + one partial unique index on `diaspora_payment_milestones`) with a
+  clean `-- +migrate Down`. Apply in recorded ledger order — staging first (EB-1,
+  `eoyenigwevnxwwhyhaer`), then production (EB-5). No data backfill, no downtime, no feature flag.
+- **No other migration** was added by this loop — W4 (DB-sourced XLSX export) and W5a (atomic workbook
+  draft execution via compensating rollback) are **pure code**, no schema change.
+- **Rollback:** all Final Completion changes are code-level or additive-migration; `migrate.js --rollback`
+  reverses #16 in a transaction. The workbook draft executor's own compensating rollback (REC-1) needs no
+  operator action — it self-heals a failed draft run to zero partial state.
+
 ## Promotion order (§80)
 local/test → CI → staging DB → staging FE/BE → closed pilot → production migration → production
 deploy → smoke → monitored rollout → rollback if any gate fails (see rollback runbook).

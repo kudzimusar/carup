@@ -48,6 +48,10 @@ import type {
   DiasporaAuditEntry,
   DiasporaShipmentStageEvent,
   DiasporaTradeProfile,
+  DiasporaTradeProfileInput,
+  DiasporaTradeProfileUpdate,
+  DiasporaPaymentMilestone,
+  DiasporaPaymentMilestoneInput,
   DiasporaOwnershipHandoffStatus,
   DiasporaOwnershipHandoffResult,
   DiasporaCargoReservation,
@@ -747,6 +751,87 @@ export function useCarUpApi() {
   const fetchDiasporaTradeProfile = useCallback(async (id: string): Promise<DiasporaTradeProfile> => {
     return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}`)
   }, [request])
+
+  const listDiasporaTradeProfiles = useCallback(async (filters: { roleType?: string; verificationStatus?: string; country?: string } = {}): Promise<DiasporaTradeProfile[]> => {
+    const params = new URLSearchParams()
+    if (filters.roleType) params.set('roleType', filters.roleType)
+    if (filters.verificationStatus) params.set('verificationStatus', filters.verificationStatus)
+    if (filters.country) params.set('country', filters.country)
+    const qs = params.toString()
+    const response = await request<{ data: DiasporaTradeProfile[] }>(`/diaspora/trade-profiles${qs ? `?${qs}` : ''}`)
+    return response.data || []
+  }, [request])
+
+  const createDiasporaTradeProfile = useCallback(async (payload: DiasporaTradeProfileInput): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>('/diaspora/trade-profiles', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const updateDiasporaTradeProfile = useCallback(async (id: string, payload: DiasporaTradeProfileUpdate): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const verifyDiasporaTradeProfile = useCallback(async (id: string, payload: { trust_score?: number; notes?: string } = {}): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}/verify`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const suspendDiasporaTradeProfile = useCallback(async (id: string, payload: { reason?: string; notes?: string } = {}): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const addDiasporaPaymentMilestone = useCallback(async (importOrderId: string, payload: DiasporaPaymentMilestoneInput): Promise<DiasporaPaymentMilestone> => {
+    return request<DiasporaPaymentMilestone>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/payment-milestones`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  // Tenant-scoped, DATABASE-sourced workbook export. Streams a binary .xlsx from the backend (built
+  // from live DB rows the caller is allowed to see) and triggers a browser download. Uses a raw
+  // fetch (not the JSON `request` helper) because the response is a binary blob, not JSON.
+  const downloadDiasporaWorkbookDbExport = useCallback(async (templateType: string): Promise<void> => {
+    const headers: Record<string, string> = {}
+    if (token) headers['x-session-token'] = token
+    if (user?.id) headers['x-user-id'] = user.id
+    if (user?.role) headers['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) headers['x-tenant-id'] = user.active_tenant_id
+
+    const res = await fetch(`${BASE_URL}/diaspora/workbook/xlsx/db-export?type=${encodeURIComponent(templateType)}`, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      let message = `Export failed (${res.status})`
+      try {
+        const body = await res.json()
+        message = extractApiErrorMessage(body) || message
+      } catch {
+        // non-JSON error body; keep the status message
+      }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `diaspora-${templateType}-db-export.xlsx`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }, [token, user])
 
   const assignDiasporaSeller = useCallback(async (importOrderId: string, payload: { sellerId: string; roleType?: string; notes?: string }): Promise<DiasporaImportOrder> => {
     return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/assign-seller`, {
@@ -1824,6 +1909,13 @@ export function useCarUpApi() {
     fetchDiasporaOrderAudit,
     fetchDiasporaShipmentTimeline,
     fetchDiasporaTradeProfile,
+    listDiasporaTradeProfiles,
+    createDiasporaTradeProfile,
+    updateDiasporaTradeProfile,
+    verifyDiasporaTradeProfile,
+    suspendDiasporaTradeProfile,
+    addDiasporaPaymentMilestone,
+    downloadDiasporaWorkbookDbExport,
     assignDiasporaSeller,
     transitionDiasporaImportOrder,
     createDiasporaComplianceReview,
