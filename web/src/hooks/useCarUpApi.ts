@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import type { 
   User, 
   Vehicle, 
@@ -752,6 +752,18 @@ export function useCarUpApi() {
     return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}`)
   }, [request])
 
+  const fetchOwnDiasporaTradeProfiles = useCallback(async (): Promise<DiasporaTradeProfile[]> => {
+    const response = await request<{ data: DiasporaTradeProfile[] }>('/diaspora/trade-profiles/me')
+    return response.data || []
+  }, [request])
+
+  const submitDiasporaTradeProfileForReview = useCallback(async (id: string, payload: { notes?: string } = {}): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}/submit-review`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
   const listDiasporaTradeProfiles = useCallback(async (filters: { roleType?: string; verificationStatus?: string; country?: string } = {}): Promise<DiasporaTradeProfile[]> => {
     const params = new URLSearchParams()
     if (filters.roleType) params.set('roleType', filters.roleType)
@@ -799,18 +811,22 @@ export function useCarUpApi() {
 
   // Tenant-scoped, DATABASE-sourced workbook export. Streams a binary .xlsx from the backend (built
   // from live DB rows the caller is allowed to see) and triggers a browser download. Uses a raw
-  // fetch (not the JSON `request` helper) because the response is a binary blob, not JSON.
-  const downloadDiasporaWorkbookDbExport = useCallback(async (templateType: string): Promise<void> => {
-    const headers: Record<string, string> = {}
-    if (token) headers['x-session-token'] = token
-    if (user?.id) headers['x-user-id'] = user.id
-    if (user?.role) headers['x-stakeholder-role'] = user.role
-    if (user?.active_tenant_id) headers['x-tenant-id'] = user.active_tenant_id
+  // fetch (not the JSON `request` helper) because the response is a binary blob, not JSON, but
+  // fetches a CSRF token the same way apiRequest does for unsafe methods. The request body carries
+  // templateType + optional safe filters — NEVER data rows.
+  const downloadDiasporaWorkbookDbExport = useCallback(async (templateType: string, filters: { createdFrom?: string; createdTo?: string } = {}): Promise<void> => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+    const csrfToken = await fetchCsrfToken(BASE_URL, authHeaders)
 
-    const res = await fetch(`${BASE_URL}/diaspora/workbook/xlsx/db-export?type=${encodeURIComponent(templateType)}`, {
-      method: 'GET',
-      headers,
+    const res = await fetch(`${BASE_URL}/diaspora/workbook/xlsx/export-from-db`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'content-type': 'application/json', 'x-csrf-token': csrfToken },
       credentials: 'include',
+      body: JSON.stringify({ templateType, filters }),
     })
     if (!res.ok) {
       let message = `Export failed (${res.status})`
@@ -1909,6 +1925,8 @@ export function useCarUpApi() {
     fetchDiasporaOrderAudit,
     fetchDiasporaShipmentTimeline,
     fetchDiasporaTradeProfile,
+    fetchOwnDiasporaTradeProfiles,
+    submitDiasporaTradeProfileForReview,
     listDiasporaTradeProfiles,
     createDiasporaTradeProfile,
     updateDiasporaTradeProfile,

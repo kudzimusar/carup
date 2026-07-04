@@ -142,3 +142,163 @@ test('a reviewer can verify then suspend a profile, both audited', async () => {
   const suspended = await svc.suspendTradeProfile(profile.id, { reason: 'fraud report' }, reviewer);
   assert.equal(suspended.verification_status, 'SUSPENDED');
 });
+
+// ---------------------------------------------------------------------------
+// Phase 8-10 refinements: /me listing, submit-for-review, duplicate rule,
+// optimistic concurrency, metadata sanitization, suspension reason.
+// ---------------------------------------------------------------------------
+
+test('getOwnTradeProfiles returns only the caller\'s own profiles, even for a privileged reviewer', async () => {
+  useClient();
+  const mine = await svc.createTradeProfile(BASE, buyer);
+  await svc.createTradeProfile(BASE, otherBuyer);
+  const reviewerOwn = await svc.createTradeProfile({ ...BASE, role_type: 'agent' }, reviewer);
+
+  const buyerProfiles = await svc.getOwnTradeProfiles(buyer);
+  assert.equal(buyerProfiles.length, 1);
+  assert.equal(buyerProfiles[0].id, mine.id);
+
+  // Privilege does not widen /me — a reviewer's own list is still just their own profiles.
+  const reviewerProfiles = await svc.getOwnTradeProfiles(reviewer);
+  assert.equal(reviewerProfiles.length, 1);
+  assert.equal(reviewerProfiles[0].id, reviewerOwn.id);
+});
+
+test('submitTradeProfileForReview: owner resubmits a REJECTED profile — PENDING_REVIEW, server-stamped, metadata preserved, audited', async () => {
+  const client = useClient();
+  const rejected = await svc.createTradeProfile(
+    { ...BASE, user_id: 'buyer-1', verification_status: 'REJECTED', metadata: { businessName: 'Legit Trading' } },
+    reviewer,
+  );
+  const resubmitted = await svc.submitTradeProfileForReview(rejected.id, {}, buyer);
+  assert.equal(resubmitted.verification_status, 'PENDING_REVIEW');
+  assert.ok(resubmitted.metadata.reviewRequestedAt, 'reviewRequestedAt must be stamped by the server');
+  assert.ok(!Number.isNaN(new Date(resubmitted.metadata.reviewRequestedAt).getTime()));
+  assert.equal(resubmitted.metadata.businessName, 'Legit Trading', 'other metadata must be preserved');
+  const audits = client._rows('diaspora_import_audit_log').filter((a) => a.action === 'TRADE_PROFILE_REVIEW_REQUESTED');
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].resource_id, rejected.id);
+});
+
+test('submitTradeProfileForReview fails closed on SUSPENDED (403) and rejects VERIFIED (400)', async () => {
+  useClient();
+  const suspended = await svc.createTradeProfile({ ...BASE, user_id: 'buyer-1', verification_status: 'SUSPENDED' }, reviewer);
+  await assert.rejects(() => svc.submitTradeProfileForReview(suspended.id, {}, buyer), (err) => {
+    assert.equal(err.statusCode, 403);
+    assert.match(err.message, /suspended/i);
+    return true;
+  });
+
+  const verified = await svc.createTradeProfile({ ...BASE, role_type: 'seller', user_id: 'buyer-1', verification_status: 'VERIFIED' }, reviewer);
+  await assert.rejects(() => svc.submitTradeProfileForReview(verified.id, {}, buyer), (err) => {
+    assert.equal(err.statusCode, 400);
+    assert.match(err.message, /already verified/i);
+    return true;
+  });
+});
+
+test('a non-owner cannot submit someone else\'s profile for review', async () => {
+  useClient();
+  const rejected = await svc.createTradeProfile({ ...BASE, user_id: 'buyer-1', verification_status: 'REJECTED' }, reviewer);
+  await assert.rejects(() => svc.submitTradeProfileForReview(rejected.id, {}, otherBuyer), /profile owner/i);
+});
+
+test('a duplicate (user, role, country) profile is rejected by the pre-check with DUPLICATE_TRADE_PROFILE', async () => {
+  useClient();
+  await svc.createTradeProfile(BASE, buyer);
+  await assert.rejects(() => svc.createTradeProfile({ ...BASE, city: 'Nagoya' }, buyer), (err) => {
+    assert.equal(err.code, 'DUPLICATE_TRADE_PROFILE');
+    assert.equal(err.statusCode, 400);
+    assert.match(err.message, /already exists/i);
+    return true;
+  });
+  // A different country (or role) is NOT a duplicate.
+  const other = await svc.createTradeProfile({ ...BASE, country: 'United Kingdom' }, buyer);
+  assert.equal(other.country, 'United Kingdom');
+});
+
+test('a raced DB unique-violation (23505) is translated to the same friendly DUPLICATE_TRADE_PROFILE error', async () => {
+  const client = useClient();
+  const realFrom = client.from;
+  // Simulate the race: the pre-check sees no duplicate (table is empty), but the INSERT hits the
+  // DB unique constraint because a concurrent request won.
+  Object.defineProperty(supabase, 'from', {
+    configurable: true,
+    writable: true,
+    value: (table) => {
+      const chain = realFrom(table);
+      if (table === 'diaspora_trade_profiles') {
+        chain.insert = () => ({
+          select() { return this; },
+          single() { return this; },
+          then(resolve, reject) {
+            return Promise.resolve({
+              data: null,
+              error: { message: 'duplicate key value violates unique constraint "diaspora_trade_profiles_user_id_role_type_country_key"', code: '23505' },
+            }).then(resolve, reject);
+          },
+        });
+      }
+      return chain;
+    },
+  });
+  await assert.rejects(() => svc.createTradeProfile(BASE, buyer), (err) => {
+    assert.equal(err.code, 'DUPLICATE_TRADE_PROFILE');
+    assert.equal(err.statusCode, 400);
+    return true;
+  });
+});
+
+test('updateTradeProfile optimistic concurrency: stale expected_updated_at rejected with PROFILE_STALE, matching value accepted', async () => {
+  useClient();
+  const profile = await svc.createTradeProfile(BASE, buyer);
+  const first = await svc.updateTradeProfile(profile.id, { city: 'Osaka' }, buyer);
+  assert.ok(first.updated_at);
+
+  await assert.rejects(
+    () => svc.updateTradeProfile(profile.id, { city: 'Kobe', expected_updated_at: new Date(2020, 0, 1).toISOString() }, buyer),
+    (err) => {
+      assert.equal(err.code, 'PROFILE_STALE');
+      assert.equal(err.statusCode, 400);
+      return true;
+    },
+  );
+
+  const second = await svc.updateTradeProfile(profile.id, { city: 'Kobe', expected_updated_at: first.updated_at }, buyer);
+  assert.equal(second.city, 'Kobe');
+  assert.equal(second.expected_updated_at, undefined, 'expected_updated_at is a check, never a written column');
+});
+
+test('privilege-bearing metadata keys are stripped for a buyer on create AND update, but kept for a reviewer', async () => {
+  useClient();
+  const dirty = {
+    verification: { forged: true },
+    suspension: { forged: true },
+    reviewRequestedAt: '2020-01-01T00:00:00.000Z',
+    businessName: 'Legit Trading',
+  };
+  const created = await svc.createTradeProfile({ ...BASE, metadata: dirty }, buyer);
+  assert.equal(created.metadata.verification, undefined);
+  assert.equal(created.metadata.suspension, undefined);
+  assert.equal(created.metadata.reviewRequestedAt, undefined);
+  assert.equal(created.metadata.businessName, 'Legit Trading');
+
+  const updated = await svc.updateTradeProfile(created.id, { metadata: dirty }, buyer);
+  assert.equal(updated.metadata.verification, undefined);
+  assert.equal(updated.metadata.suspension, undefined);
+  assert.equal(updated.metadata.reviewRequestedAt, undefined);
+  assert.equal(updated.metadata.businessName, 'Legit Trading');
+
+  const seeded = await svc.createTradeProfile({ ...BASE, user_id: 'buyer-2', metadata: { verification: { approvedBy: 'rev-1' } } }, reviewer);
+  assert.deepEqual(seeded.metadata.verification, { approvedBy: 'rev-1' });
+});
+
+test('suspendTradeProfile requires a non-empty reason; with a reason it suspends and records it', async () => {
+  useClient();
+  const profile = await svc.createTradeProfile(BASE, buyer);
+  await assert.rejects(() => svc.suspendTradeProfile(profile.id, {}, reviewer), /reason is required/i);
+  await assert.rejects(() => svc.suspendTradeProfile(profile.id, { reason: '   ' }, reviewer), /reason is required/i);
+  const suspended = await svc.suspendTradeProfile(profile.id, { reason: 'documents forged' }, reviewer);
+  assert.equal(suspended.verification_status, 'SUSPENDED');
+  assert.equal(suspended.metadata.suspension.reason, 'documents forged');
+});

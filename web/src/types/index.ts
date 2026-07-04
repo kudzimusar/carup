@@ -133,6 +133,17 @@ export interface DiasporaImportOrder {
   metadata?: Record<string, unknown>;
   diaspora_trade_documents?: DiasporaTradeDocument[];
   diaspora_payment_milestones?: DiasporaPaymentMilestone[];
+  diaspora_import_quotes?: DiasporaImportOrderQuoteSummary[];
+}
+
+/** Embedded quote summary on getImportOrder responses (used for the milestone cap display). */
+export interface DiasporaImportOrderQuoteSummary {
+  id: string;
+  seller_id?: string | null;
+  status?: string | null;
+  quote_amount?: number | string | null;
+  quote_currency?: string | null;
+  created_at?: string | null;
 }
 
 export interface DiasporaImportOrderPayload {
@@ -265,12 +276,14 @@ export interface DiasporaTradeProfileInput {
   metadata?: Record<string, unknown> | null;
 }
 
-/** Self-service editable subset (non-authoritative fields only). */
+/** Self-service editable subset (non-authoritative fields only). expected_updated_at is the
+ * optimistic-concurrency token — the server rejects the update if the row changed since read. */
 export interface DiasporaTradeProfileUpdate {
   country?: string;
   city?: string;
   organization_id?: string | null;
   metadata?: Record<string, unknown> | null;
+  expected_updated_at?: string | null;
 }
 
 /** A non-custodial payment milestone reference record — CarUp never moves money for this. */

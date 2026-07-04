@@ -17,8 +17,10 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
 const { createMockSupabase } = await import('./helpers/mockSupabase.js');
+const { supabase } = await import('../db/supabase.js');
 const { exportWorkbookFromDatabase } = await import('../services/diaspora/workbook/diasporaWorkbookDbExportService.js');
 const { parseWorkbook } = await import('../services/diaspora/workbook/diasporaWorkbookXlsxService.js');
+const { sha256Checksum } = await import('../services/diaspora/workbook/diasporaWorkbookUploadSecurity.js');
 const { ValidationError, UnauthorizedError } = await import('../utils/errors.js');
 
 const TEMPLATE_TYPE = 'enterprise';
@@ -59,10 +61,14 @@ function seededClient() {
 }
 
 async function exportAndParse(templateType, caller, client, options = {}) {
-  const buffer = await exportWorkbookFromDatabase(templateType, caller, { supabaseClient: client, ...options });
-  assert.equal(Buffer.isBuffer(buffer), true, 'export must return a Buffer');
+  // Route the audit write (which uses the global supabase client) into the same in-memory mock so
+  // the WORKBOOK_DB_EXPORTED row is assertable and no real network call is attempted.
+  Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: client.from });
+  const { buffer, meta } = await exportWorkbookFromDatabase(templateType, caller, { supabaseClient: client, ...options });
+  assert.equal(Buffer.isBuffer(buffer), true, 'export must return { buffer } with a Buffer');
+  assert.ok(meta && typeof meta === 'object', 'export must return { meta }');
   const parsed = await parseWorkbook(buffer, { templateType });
-  return { buffer, parsed };
+  return { buffer, meta, parsed };
 }
 
 function ids(rows, key) {
@@ -195,4 +201,83 @@ test('unknown template type and missing user context are rejected', async () => 
     () => exportWorkbookFromDatabase(TEMPLATE_TYPE, {}, { supabaseClient: seededClient() }),
     UnauthorizedError,
   );
+});
+
+// 9. meta is trustworthy: checksum is the sha256 of the exact returned buffer; counts are correct.
+test('meta carries an accurate checksum and per-sheet row counts', async () => {
+  const { buffer, meta } = await exportAndParse(TEMPLATE_TYPE, adminCaller, seededClient());
+  assert.equal(meta.checksum, sha256Checksum(buffer));
+  assert.equal(meta.rowCounts.TRADE_PROFILES, 2);
+  assert.equal(meta.rowCounts.DIASPORA_IMPORT_ORDERS, 2);
+  assert.equal(meta.rowCounts.TRADE_DOCUMENTS, 2);
+  assert.equal(meta.totalRows, Object.values(meta.rowCounts).reduce((sum, n) => sum + n, 0));
+  assert.equal(meta.templateType, TEMPLATE_TYPE);
+  assert.ok(Array.isArray(meta.redactedHeaders) && meta.redactedHeaders.includes('STORAGE_PATH'));
+});
+
+// 10. createdFrom/createdTo safe filters bound the export window (query + JS re-application).
+test('createdFrom/createdTo filters bound the exported rows', async () => {
+  const client = seededClient();
+  const profiles = client._rows('diaspora_trade_profiles');
+  profiles.find((row) => row.id === 'TP-A').created_at = '2026-01-10T00:00:00.000Z';
+  profiles.find((row) => row.id === 'TP-B').created_at = '2026-06-10T00:00:00.000Z';
+
+  const { parsed, meta } = await exportAndParse(TEMPLATE_TYPE, adminCaller, client, {
+    filters: { createdFrom: '2026-01-01T00:00:00.000Z', createdTo: '2026-02-01T00:00:00.000Z' },
+  });
+  assert.deepEqual(ids(parsed.sheets.TRADE_PROFILES, 'TRADE_PROFILE_ID'), ['TP-A']);
+  assert.equal(meta.filters.createdFrom, '2026-01-01T00:00:00.000Z');
+});
+
+// 11. Invalid filters are rejected loudly — unknown keys (row-shaped payloads), bad dates, inverted range.
+test('invalid export filters are rejected with INVALID_EXPORT_FILTER', async () => {
+  const cases = [
+    { rows: [{ evil: true }] },                                  // row-shaped payload key
+    { createdFrom: 'not-a-date' },                               // unparseable date
+    { createdFrom: '2026-06-01', createdTo: '2026-01-01' },      // inverted range
+  ];
+  for (const filters of cases) {
+    await assert.rejects(
+      () => exportWorkbookFromDatabase(TEMPLATE_TYPE, adminCaller, { supabaseClient: seededClient(), filters }),
+      (err) => err instanceof ValidationError && err.details?.code === 'INVALID_EXPORT_FILTER',
+    );
+  }
+});
+
+// 12. The per-sheet row ceiling fails loudly instead of silently truncating.
+test('row ceiling exceeded rejects with EXPORT_ROW_LIMIT_EXCEEDED', async () => {
+  const client = seededClient();
+  await assert.rejects(
+    () => exportWorkbookFromDatabase(TEMPLATE_TYPE, adminCaller, { supabaseClient: client, maxRowsPerSheet: 1 }),
+    (err) => err instanceof ValidationError && err.details?.code === 'EXPORT_ROW_LIMIT_EXCEEDED' && err.details?.limit === 1,
+  );
+});
+
+// 13. Every export writes a WORKBOOK_DB_EXPORTED audit row with facts only — never row data/PII.
+test('export writes an audit row with template/filter/count facts and no PII', async () => {
+  const client = seededClient();
+  const { meta } = await exportAndParse(TEMPLATE_TYPE, tenantACaller, client);
+
+  const auditRows = client._rows('diaspora_import_audit_log').filter((row) => row.action === 'WORKBOOK_DB_EXPORTED');
+  assert.equal(auditRows.length, 1);
+  const audit = auditRows[0];
+  assert.equal(audit.resource_type, 'diaspora_workbook_export');
+  assert.equal(audit.resource_id, meta.checksum);
+  const auditBlob = JSON.stringify(audit);
+  for (const secret of [SECRET_STORAGE_PATH, SECRET_DRIVE_ID, SECRET_ID_NUMBER, 'Tokyo']) {
+    assert.equal(auditBlob.includes(secret), false, `audit leaked: ${secret}`);
+  }
+});
+
+// 14. An audit-sink failure must not fail an already-authorized, already-built export.
+test('audit write failure does not fail the export', async () => {
+  const client = seededClient();
+  const failingFrom = (table) => {
+    if (table === 'diaspora_import_audit_log') throw new Error('audit sink down');
+    return client.from(table);
+  };
+  Object.defineProperty(supabase, 'from', { configurable: true, writable: true, value: failingFrom });
+  const { buffer, meta } = await exportWorkbookFromDatabase(TEMPLATE_TYPE, tenantACaller, { supabaseClient: client });
+  assert.equal(Buffer.isBuffer(buffer), true);
+  assert.ok(meta.checksum);
 });

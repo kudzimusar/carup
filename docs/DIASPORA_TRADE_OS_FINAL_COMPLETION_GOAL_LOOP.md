@@ -309,6 +309,11 @@ regenerated; vehicle + parts journeys **8/8**. Two specialist workstreams (D exp
 and the hand-written backend (A/B + reservation) each passed an adversarial security/recovery review;
 the real findings raised were fixed and locked with tests.
 
+**Gap-closure pass (2026-07-04, same loop):** every remaining executable deviation closed — see the
+updated items 2–3 under "Honest deviations". Backend diaspora suite after gap closure:
+**748/741/0/7** (A 22/22, B 22/22, C 14/14); web tsc/build clean, vitest 419/419, zero new lint debt;
+`node --check`, `git diff --check`, and a diff secret-scan all clean.
+
 ## Progress matrix (updated)
 
 | Workstream | Discovery | Code | Migration | Staging | Tests | E2E | Review | Docs | Status |
@@ -358,17 +363,32 @@ the real findings raised were fixed and locked with tests.
    process crash between the failure and the end of compensation could leave some drafts
    un-compensated (no durable saga log / auto-resume); mitigated by `FAILED_DRAFT_IMPORT` + retained
    orphan ids for manual review. A true single-transaction RPC remains possible future work.
-2. **C (export) — method/path.** Implemented as `GET /workbook/xlsx/db-export?type=` (+optional
-   `redact=`) rather than the plan's suggested `POST …/export-from-db` with a filters/redaction body.
-   Same guarantees (DB-sourced, never body rows, tenant-scoped, redacted). Follow-up: add POST +
-   safe filters/date-range + an explicit export-audit row (template/filters/counts/checksum/actor/ts).
-3. **Deferred refinements (not blocking the five core capabilities):** A — dedicated
-   `GET /trade-profiles/me`, `POST /:id/submit-review`, one-profile-per-user enforcement, optimistic
-   concurrency/version checks, `/diaspora/admin/trade-profiles` as a separate route (reviewer console
-   is in-page). B — cumulative-amount/over-allocation validation and totals/remaining-balance in the
-   UI (list shown; running totals not yet). C — dedicated export-audit row. E — `database/rollbacks/
-   diaspora/` scripts for the pre-existing **non-diaspora** forward-only migrations (all *diaspora*
-   migrations already have Down blocks).
+2. **C (export) — CLOSED (gap-closure pass, 2026-07-04).** `POST /workbook/xlsx/export-from-db` now
+   exists ({templateType, filters, redactFields} — a body containing `rows` is rejected with
+   `ROWS_NOT_ACCEPTED`); safe `createdFrom`/`createdTo` filters (validated, query + JS re-applied);
+   per-sheet row ceiling `EXPORT_ROW_LIMIT_EXCEEDED` (no silent truncation); every export writes a
+   `WORKBOOK_DB_EXPORTED` audit row (checksum as resourceId; facts only, never row data/PII, audit
+   failure never fails the built export); service returns `{buffer, meta}` with sha256 checksum +
+   per-sheet counts, surfaced as `X-Export-Checksum`/`X-Export-Total-Rows` headers. GET route kept,
+   upgraded to the same engine. 14/14 tests.
+3. **A/B/E refinements — CLOSED (gap-closure pass, 2026-07-04).**
+   A — `GET /trade-profiles/me` + `POST /:id/submit-review` (fail-closed on SUSPENDED, audited);
+   duplicate (user, role, country) friendly 400 `DUPLICATE_TRADE_PROFILE` (pre-check + 23505 race
+   translation — DB already had the unique index); optimistic concurrency via `expected_updated_at`
+   (400 `PROFILE_STALE`); client-metadata sanitization (verification/suspension/reviewRequestedAt
+   stripped for non-privileged); suspension now requires an explicit reason. 22/22 tests. UI: /me,
+   resubmit-for-review button, stale-conflict reload.
+   B — non-privileged callers can only create `PENDING` milestones (403 `MILESTONE_STATUS_FORBIDDEN`);
+   cumulative-amount cap vs the ACCEPTED quote else order budget (400 `MILESTONE_OVER_ALLOCATION`,
+   CANCELLED/WAIVED excluded, mixed-currency skips recorded as an explicit metadata note, replay runs
+   before the cap so idempotent retries never trip it). 22/22 tests. UI: shared `PaymentMilestonesCard`
+   (totals + remaining-vs-cap + confirm step) on BOTH the order detail page and the Order Passport.
+   E — `database/rollbacks/diaspora/` created: classification README + guarded data-loss script for
+   phase1b + verification-only scripts for the three security-containment migrations (destructive
+   rollback deliberately withheld — it would re-open revoked access) + forward-fix-only marker for 014;
+   rollback runbook points at it. **Not rehearsed on staging (EB-1) — static review only, stated as such.**
+   Remaining minor deferrals: `/diaspora/admin/trade-profiles` as a separate route (reviewer console
+   is in-page) and a verified-role-change transition flow (role_type is create-only for self-service).
 
 ## External blocker (unchanged, documented with evidence)
 
