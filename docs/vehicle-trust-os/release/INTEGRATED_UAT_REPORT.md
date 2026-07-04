@@ -33,7 +33,7 @@ shared provider control-plane over one in-memory Supabase mock. **Result: 15/15 
 
 | Suite | Result |
 |---|---|
-| **Backend `node --test backend/tests/`** | **1249 tests · 1241 pass · 0 fail · 8 skipped** |
+| **Backend `node --test backend/tests/`** | **1256 tests · 1248 pass · 0 fail · 8 skipped** |
 | Government activation | 31 / 31 |
 | Insurance provider | 19 / 19 |
 | Finance (lender) provider | 20 / 20 |
@@ -41,6 +41,7 @@ shared provider control-plane over one in-memory Supabase mock. **Result: 15/15 
 | Mobile certification (backend) | 10 / 10 |
 | Provider platform | 15 / 15 |
 | Provider platform routes + reconciliation | 8 / 8 |
+| Provider load/resilience (concurrency, circuit breaker, outage, dead-letter) | 7 / 7 |
 | Integrated 15-step journey | 1 / 1 (15/15 properties) |
 | **Mobile (tsx) offline-resilience** | 7 / 7 |
 | **Mobile (tsx) large-and-edgecases** | 7 / 7 |
