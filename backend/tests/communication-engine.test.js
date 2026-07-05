@@ -1726,6 +1726,9 @@ test('provider smoke-test endpoint requires admin or worker secret and runs the 
     assert.equal(ok.body.ok, true);
     assert.equal(ok.body.delivery.provider_message_id, 'wamid.ROUTE_SMOKE_1');
     assert.equal(metaFetch.calls.length, 1);
+    // Provider correctness at the route boundary: real Graph API URL + E.164 recipient.
+    assert.equal(metaFetch.calls[0].url, 'https://graph.facebook.com/v20.0/pnid-1/messages');
+    assert.equal(JSON.parse(metaFetch.calls[0].options.body).to, '818081201356');
   } finally {
     if (previousSecret === undefined) delete process.env.COMMUNICATION_WORKER_SECRET;
     else process.env.COMMUNICATION_WORKER_SECRET = previousSecret;
@@ -1761,4 +1764,19 @@ test('provider smoke test does not report success when the real provider accepts
   assert.equal(metaFetch.calls.length, 1);
   assert.equal(result.ok, false);
   assert.equal(result.delivery.provider_message_id, null);
+});
+
+test('provider smoke test returns provider_not_configured when the real adapter lacks credentials', async () => {
+  const metaFetch = jsonFetchRecorder({ status: 200, body: { messages: [{ id: 'wamid.SHOULD_NOT_SEND' }] } });
+  // Real adapter (mode: 'real') but no CARUP_META_* env → available: false.
+  const unconfigured = new MetaWhatsAppAdapter({ env: {}, fetchImpl: metaFetch });
+  const services = createHarness({ adapter: unconfigured });
+
+  await assert.rejects(
+    () => sendProviderSmokeTest({ services, channel: 'whatsapp', to: '818081201356' }),
+    (error) => error.statusCode === 424 && error.code === 'provider_not_configured',
+  );
+  // No provider call and no queue rows when credentials are missing.
+  assert.equal(metaFetch.calls.length, 0);
+  assert.equal((await services.repository.list('notification_queue')).length, 0);
 });
