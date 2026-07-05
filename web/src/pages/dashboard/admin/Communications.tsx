@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CommandCenterNav } from '@/features/communications/admin/CommandCenterNav'
 import { COMMAND_CENTER_SECTIONS, type CommandCenterSection } from '@/features/communications/admin/commandCenterSections'
 import {
@@ -167,6 +167,7 @@ export default function AdminCommunications() {
   // active section (defaulting to inbox, incl. the /inbox/:threadId deep-link form).
   const routeParams = useParams<{ section?: string; threadId?: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
   const basePath = location.pathname.includes('/dashboard/admin/communications') ? '/dashboard/admin/communications' : '/admin/communications'
   const section: CommandCenterSection = (COMMAND_CENTER_SECTIONS as readonly string[]).includes(routeParams.section || '')
     ? (routeParams.section as CommandCenterSection)
@@ -895,6 +896,7 @@ export default function AdminCommunications() {
               onCancel={(id) => runRecoveryAction(`cancel-${id}`, () => cancelCommunicationDeadLetter(id, 'admin_cancelled'))}
               onRequeue={(id, dest) => runRecoveryAction(`requeue-${id}`, () => requeueCommunicationDeadLetter(id, { to: dest }))}
               onBulkRetry={runBulkRetry}
+              onOpenThread={(id) => navigate(`${basePath}/inbox/${id}`)}
             />
 
             {/* Worker & SLA health */}
@@ -931,6 +933,7 @@ export default function AdminCommunications() {
               onCancel={(id) => runRecoveryAction(`cancel-${id}`, () => cancelCommunicationDeadLetter(id, 'admin_cancelled'))}
               onRequeue={(id, dest) => runRecoveryAction(`requeue-${id}`, () => requeueCommunicationDeadLetter(id, { to: dest }))}
               onBulkRetry={runBulkRetry}
+              onOpenThread={(id) => navigate(`${basePath}/inbox/${id}`)}
             />
             <aside className="space-y-5">
               {workerHealth && (

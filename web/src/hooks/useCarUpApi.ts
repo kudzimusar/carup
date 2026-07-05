@@ -221,6 +221,19 @@ type CommunicationProviderTelemetry = {
   queue?: { queued?: number; retry_scheduled?: number; dead_letter?: number }
   credentials?: { complete?: boolean; missing?: string[] }
 }
+type CommunicationSlaPolicy = {
+  id?: string
+  name?: string
+  tenant_id?: string | null
+  channel?: string | null
+  priority?: string | null
+  first_response_minutes?: number | null
+  next_response_minutes?: number | null
+  resolution_minutes?: number | null
+  business_timezone?: string | null
+  business_hours?: Record<string, unknown> | null
+  active?: boolean
+}
 type CommunicationChannelIdentity = {
   id?: string
   user_id?: string | null
@@ -1000,6 +1013,15 @@ export function useCarUpApi() {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/audit`, { method: 'GET' })
   }, [request])
 
+  const fetchCommunicationAudit = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ events: CommunicationAuditEvent[] }> => {
+    const query = filters ? referralQuery(filters) : ''
+    return request(`/admin/communications/audit${query}`, { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationSlaPolicies = useCallback(async (): Promise<{ policies: CommunicationSlaPolicy[] }> => {
+    return request('/admin/communications/sla/policies', { method: 'GET' })
+  }, [request])
+
   const adminReplyCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/reply`, { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
@@ -1349,6 +1371,8 @@ export function useCarUpApi() {
     fetchAdminCommunicationThread,
     markAdminCommunicationThreadRead,
     fetchAdminCommunicationThreadAudit,
+    fetchCommunicationAudit,
+    fetchCommunicationSlaPolicies,
     adminReplyCommunicationThread,
     assignCommunicationThread,
     escalateCommunicationThread,

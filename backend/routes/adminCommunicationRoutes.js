@@ -643,7 +643,26 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       staleAfterSeconds: Number(process.env.COMMUNICATION_STALE_LOCK_SECONDS || 900),
       queuedThresholdSeconds: Number(process.env.COMMUNICATION_QUEUED_ALERT_SECONDS || 300),
     });
-    return res.json({ categories, counts });
+    // Recovery inspection (P1.11): attach each item's delivery-attempt history (provider request/
+    // message ids, error details, retry timing), retryability, and thread id for navigation.
+    const ids = rows.map((n) => String(n.id));
+    const attempts = ids.length
+      ? await services.repository.list('message_delivery_attempts', { notification_id: ids }, { order: { column: 'started_at', ascending: true } }).catch(() => [])
+      : [];
+    const enrich = (n) => ({
+      ...n,
+      thread_id: n.thread_id ?? null,
+      retryable: Number(n.attempt_count || 0) < Number(n.max_attempts || 5),
+      next_attempt_at: n.next_attempt_at ?? null,
+      attempts: attempts.filter((a) => String(a.notification_id) === String(n.id)).map((a) => ({
+        id: a.id, attempt_number: a.attempt_number, provider: a.provider, channel: a.channel, status: a.status,
+        provider_request_id: a.provider_request_id, provider_message_id: a.provider_message_id,
+        error_code: a.error_code, error_message: a.error_message, started_at: a.started_at, completed_at: a.completed_at, next_retry_at: a.next_retry_at,
+      })),
+    });
+    const enriched = {};
+    for (const [key, list] of Object.entries(categories)) enriched[key] = list.map(enrich);
+    return res.json({ categories: enriched, counts });
   }));
 
   // Guarded bulk retry (item 11): retries many notifications by id, tenant-scoped per id, capped, with
@@ -750,6 +769,26 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
         attempts_table: 'public.message_delivery_attempts',
       },
     });
+  }));
+
+  // Global audit search (P1.10): locate + inspect audit events across threads without needing an
+  // in-memory thread selection. Tenant-scoped (fail-closed); optional event_type / thread_id filters.
+  router.get('/api/admin/communications/audit', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
+    const filters = { ...scope };
+    if (req.query.event_type) filters.event_type = String(req.query.event_type);
+    if (req.query.thread_id) filters.thread_id = String(req.query.thread_id);
+    const events = await services.repository.list('communication_audit_events', filters, { order: { column: 'created_at', ascending: false }, limit: Math.min(Number(req.query.limit || 200), 500) }).catch(() => []);
+    return res.json({ events });
+  }));
+
+  // Tenant SLA policies (P1.10 settings, read-only surface). Tenant-scoped (fail-closed).
+  router.get('/api/admin/communications/sla/policies', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
+    const policies = await services.repository.list('communication_sla_policies', { ...scope }, { limit: 100 }).catch(() => []);
+    return res.json({ policies });
   }));
 
   // Per-channel provider operations telemetry (item 12 / P1.4): live adapter mode + webhook
