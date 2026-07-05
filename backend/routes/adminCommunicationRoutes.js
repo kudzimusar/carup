@@ -4,6 +4,7 @@ import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { normalizeChannel } from '../services/communication/communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
+import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -462,7 +463,26 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       services.repository.list('message_participants', { thread_id: thread.id }),
       services.repository.list('communication_escalations', { thread_id: thread.id }),
     ]);
-    return res.json({ thread, messages, participants, escalations });
+    // Enrich the conversation for the context/ops rail + timeline technical drawer (items 6/7):
+    // the requester + linked channel identities, recent delivery attempts, and the user's comm prefs.
+    const identityIds = [...new Set(participants.map((p) => p.external_identity_id).filter(Boolean))];
+    const messageIds = messages.map((m) => m.id).filter(Boolean);
+    const [identities, deliveryAttempts, preferences, linkedIdentities] = await Promise.all([
+      identityIds.length ? services.repository.list('channel_identities', { id: identityIds }) : Promise.resolve([]),
+      messageIds.length ? services.repository.list('message_delivery_attempts', { message_id: messageIds }, { order: { column: 'started_at', ascending: true } }) : Promise.resolve([]),
+      thread.primary_user_id ? services.repository.list('communication_preferences', { user_id: thread.primary_user_id }, { limit: 1 }) : Promise.resolve([]),
+      thread.primary_user_id ? services.repository.list('channel_identities', { user_id: thread.primary_user_id }) : Promise.resolve([]),
+    ]);
+    return res.json({
+      thread,
+      messages,
+      participants,
+      escalations,
+      identities,
+      linked_identities: linkedIdentities,
+      delivery_attempts: deliveryAttempts,
+      preferences: preferences[0] || null,
+    });
   }));
 
   // Thread audit trail (plan §8). Tenant-scoped; newest first.
@@ -595,6 +615,73 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       tenant_id: notification.tenant_id ?? null, thread_id: notification.thread_id ?? null, notification_id: notification.id,
       event_type: COMMUNICATION_AUDIT_EVENTS.CANCELLED, actor_type: actor.actor_type, actor_id: actor.actor_id,
       channel: notification.channel ?? null, summary: `Dead-letter cancelled (${reason})`,
+    });
+    return res.json({ notification: result });
+  }));
+
+  // Full recovery view (item 11): categorised queue health (queued too long, stale processing locks,
+  // retry scheduled, failed, dead letter, cancelled), tenant-scoped.
+  router.get('/api/admin/communications/recovery', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const scope = tenantListFilter(req);
+    const statuses = ['queued', 'processing', 'retry_scheduled', 'failed', 'dead_letter', 'cancelled'];
+    const rows = (await Promise.all(statuses.map((status) =>
+      services.repository.list('notification_queue', { status, ...scope }, { order: { column: 'updated_at' }, limit: 500 })))).flat();
+    const { categories, counts } = categorizeRecovery(rows, {
+      now: Date.now(),
+      staleAfterSeconds: Number(process.env.COMMUNICATION_STALE_LOCK_SECONDS || 900),
+      queuedThresholdSeconds: Number(process.env.COMMUNICATION_QUEUED_ALERT_SECONDS || 300),
+    });
+    return res.json({ categories, counts });
+  }));
+
+  // Guarded bulk retry (item 11): retries many notifications by id, tenant-scoped per id, capped, with
+  // partial-failure reporting. Never a blanket "retry everything" — the caller supplies explicit ids.
+  router.post('/api/admin/communications/recovery/bulk-retry', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+    if (!ids.length) return res.status(400).json({ error: 'Provide a non-empty ids array.' });
+    if (ids.length > 100) return res.status(400).json({ error: 'Bulk retry is capped at 100 notifications per request.' });
+    const ctx = resolveThreadQueryContext(req);
+    const actor = auditActorFromContext(req.userContext || {});
+    const results = [];
+    for (const id of ids) {
+      const notification = await services.repository.findOne('notification_queue', { id });
+      const sameTenant = Boolean(ctx.tenantId) && String(notification?.tenant_id || '') === String(ctx.tenantId);
+      if (!notification || (!ctx.isPlatform && !sameTenant)) { results.push({ id, ok: false, error: 'not_found_or_forbidden' }); continue; }
+      try {
+        await services.deliveryWorker.retryDeadLetter(notification.id, {});
+        await logCommunicationAuditEvent(services.repository, {
+          tenant_id: notification.tenant_id ?? null, thread_id: notification.thread_id ?? null, notification_id: notification.id,
+          event_type: COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, actor_type: actor.actor_type, actor_id: actor.actor_id,
+          channel: notification.channel ?? null, summary: 'Bulk retry requested',
+        });
+        results.push({ id, ok: true });
+      } catch (error) {
+        results.push({ id, ok: false, error: error.message });
+      }
+    }
+    const retried = results.filter((r) => r.ok).length;
+    return res.json({ retried, failed: results.length - retried, total: results.length, results });
+  }));
+
+  // Safe requeue with a corrected destination/template/channel (item 11). Merges the correction into
+  // the notification payload rather than replacing it, then requeues. Tenant-scoped + audited.
+  router.post('/api/admin/communications/dead-letter/:id/requeue', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const notification = await loadNotificationForRequest(services, req, res);
+    if (!notification) return undefined;
+    const patch = {};
+    if (req.body?.channel) patch.channel = String(req.body.channel);
+    if (req.body?.template_key) patch.template_key = String(req.body.template_key);
+    if (req.body?.to || req.body?.recipient || req.body?.corrected_destination) {
+      const corrected = req.body.to || req.body.recipient || req.body.corrected_destination;
+      patch.payload = { ...(notification.payload || {}), corrected_destination: corrected, to: corrected };
+    }
+    const result = await services.deliveryWorker.retryDeadLetter(notification.id, patch);
+    const actor = auditActorFromContext(req.userContext || {});
+    await logCommunicationAuditEvent(services.repository, {
+      tenant_id: notification.tenant_id ?? null, thread_id: notification.thread_id ?? null, notification_id: notification.id,
+      event_type: COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, actor_type: actor.actor_type, actor_id: actor.actor_id,
+      channel: patch.channel || notification.channel || null, summary: 'Requeued with corrected destination/template',
+      metadata: { channel: patch.channel || null, template_key: patch.template_key || null },
     });
     return res.json({ notification: result });
   }));
