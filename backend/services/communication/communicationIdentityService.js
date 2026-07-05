@@ -1,4 +1,5 @@
 import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 export class CommunicationIdentityService {
   constructor({ repository }) {
@@ -68,11 +69,18 @@ export class CommunicationIdentityService {
     if (!proof.verified && !proof.authenticated && !proof.adminApproved) {
       throw new Error('Unsafe identity merge rejected: verified proof or admin approval is required.');
     }
-    return this.repository.updateById('channel_identities', identityId, {
+    const linked = await this.repository.updateById('channel_identities', identityId, {
       user_id: userId,
       verified: true,
       metadata: { ...(identity.metadata || {}), link_proof: proof },
     });
+    await logCommunicationAuditEvent(this.repository, {
+      tenant_id: identity.tenant_id ?? null, event_type: COMMUNICATION_AUDIT_EVENTS.IDENTITY_LINKED,
+      actor_type: proof.adminApproved ? 'admin' : 'system', channel: identity.channel ?? null,
+      summary: `Channel identity linked to user ${String(userId).slice(0, 8)}`,
+      metadata: { identity_id: identityId, channel: identity.channel ?? null, proof: { verified: Boolean(proof.verified), authenticated: Boolean(proof.authenticated), admin_approved: Boolean(proof.adminApproved) } },
+    });
+    return linked;
   }
 }
 

@@ -1,4 +1,5 @@
 import { CHANNELS, normalizeChannel, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 const DEFAULT_PREFS = Object.freeze({
   transactional_enabled: true,
@@ -42,8 +43,26 @@ export class CommunicationPreferenceService {
       preferred_channel: normalizeChannel(patch.preferred_channel) || patch.preferred_channel || existing?.preferred_channel || DEFAULT_PREFS.preferred_channel,
       updated_at: nowIso(),
     };
-    if (existing) return this.repository.updateById('communication_preferences', existing.id, row);
-    return this.repository.insert('communication_preferences', row);
+    const saved = existing
+      ? await this.repository.updateById('communication_preferences', existing.id, row)
+      : await this.repository.insert('communication_preferences', row);
+
+    // Audit preference change, and separately consent change when a consent field moved (item 2).
+    await logCommunicationAuditEvent(this.repository, {
+      tenant_id: tenantId ?? null, event_type: COMMUNICATION_AUDIT_EVENTS.PREFERENCE_CHANGED,
+      actor_type: 'customer', actor_id: userId, summary: 'Communication preferences updated',
+      metadata: { changed: Object.keys(allowedPatch), preferred_channel: row.preferred_channel },
+    });
+    const consentChanged = ['consent_status', 'consent_source', 'consent_version', 'consented_at', 'marketing_enabled']
+      .some((k) => Object.prototype.hasOwnProperty.call(patch, k));
+    if (consentChanged) {
+      await logCommunicationAuditEvent(this.repository, {
+        tenant_id: tenantId ?? null, event_type: COMMUNICATION_AUDIT_EVENTS.CONSENT_CHANGED,
+        actor_type: 'customer', actor_id: userId, summary: 'Consent/marketing preference changed',
+        metadata: { consent_status: patch.consent_status ?? null, marketing_enabled: patch.marketing_enabled ?? null, consent_version: patch.consent_version ?? null },
+      });
+    }
+    return saved;
   }
 
   isChannelAllowed(prefs, channel, { transactional = true, urgent = false } = {}) {

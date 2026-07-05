@@ -1,11 +1,27 @@
 import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
 import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 export class CommunicationDeliveryWorker {
   constructor({ repository, adapterRegistry = null, workerId = 'communication-worker' } = {}) {
     this.repository = repository;
     this.adapterRegistry = adapterRegistry || createDefaultAdapterRegistry();
     this.workerId = workerId;
+  }
+
+  // Shared fail-soft audit for a notification lifecycle transition (item 2).
+  auditNotification(notification, eventType, extra = {}) {
+    return logCommunicationAuditEvent(this.repository, {
+      tenant_id: notification.tenant_id ?? null,
+      thread_id: notification.thread_id ?? null,
+      message_id: notification.message_id ?? null,
+      notification_id: notification.id,
+      channel: notification.channel ?? null,
+      actor_type: 'worker',
+      actor_id: this.workerId,
+      event_type: eventType,
+      ...extra,
+    });
   }
 
   async processDueNotifications({ limit = 10 } = {}) {
@@ -42,6 +58,7 @@ export class CommunicationDeliveryWorker {
         attempt_count: attemptNumber,
       });
     }
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.QUEUE_CLAIMED, { summary: `Queue claimed (attempt ${attemptNumber})`, metadata: { attempt: attemptNumber, already_claimed: alreadyClaimed } });
 
     const startedAt = nowIso();
     let result;
@@ -87,6 +104,11 @@ export class CommunicationDeliveryWorker {
       started_at: startedAt,
       completed_at: nowIso(),
     });
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DELIVERY_ATTEMPT, {
+      summary: `Delivery attempt ${attemptNumber} → ${result.accepted ? 'accepted' : 'failed'}`,
+      correlation_id: result.providerMessageId || result.providerRequestId || null,
+      metadata: { attempt: attemptNumber, provider: adapter.provider || channel, accepted: Boolean(result.accepted), error_code: result.errorCode || null, provider_message_id: result.providerMessageId || null },
+    });
 
     if (result.accepted) {
       await this.repository.updateById('notification_queue', notification.id, {
@@ -106,6 +128,11 @@ export class CommunicationDeliveryWorker {
           provider_message_id: result.providerMessageId || null,
         });
       }
+      const receiptState = result.providerStatus === 'delivered' ? 'delivered' : 'sent';
+      await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DELIVERY_RECEIPT, {
+        summary: `Provider ${receiptState}`, correlation_id: result.providerMessageId || null,
+        metadata: { state: receiptState, provider_message_id: result.providerMessageId || null },
+      });
       return { notificationId: notification.id, status: 'sent', event: COMMUNICATION_EVENTS.MESSAGE_SENT };
     }
 
@@ -119,6 +146,9 @@ export class CommunicationDeliveryWorker {
         last_error_message: result.errorMessage || 'Retryable delivery failure',
         locked_at: null,
         locked_by: null,
+      });
+      await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, {
+        summary: `Retry scheduled for ${nextRetryAt}`, metadata: { attempt: attemptNumber, next_retry_at: nextRetryAt, error_code: result.errorCode || null },
       });
       return { notificationId: notification.id, status: 'retry_scheduled', nextRetryAt };
     }
@@ -153,6 +183,10 @@ export class CommunicationDeliveryWorker {
         failed_at: nowIso(),
       });
     }
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DEAD_LETTERED, {
+      summary: `Dead-lettered (${result.errorCode || 'delivery_failed'})`,
+      metadata: { error_code: result.errorCode || 'delivery_failed', error_message: result.errorMessage || null },
+    });
     return { notificationId: notification.id, status: 'dead_letter', event: COMMUNICATION_EVENTS.NOTIFICATION_DEAD_LETTERED };
   }
 
