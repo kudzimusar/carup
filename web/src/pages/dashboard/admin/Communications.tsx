@@ -32,6 +32,8 @@ type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminComm
 type WorkerHealth = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationWorkerHealth']>>
 type SmokeResult = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['sendCommunicationProviderSmokeTest']>>
 type ThreadCounts = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['counts']>
+type ThreadPage = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['page']>
+const PAGE_LIMIT = '100'
 type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
 type SlaLevel = 'none' | 'ok' | 'due' | 'breach'
 
@@ -160,6 +162,8 @@ export default function AdminCommunications() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [filter, setFilter] = useState<string>(() => searchParams.get('filter') || 'awaiting_human')
   const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [teamPick, setTeamPick] = useState('')
@@ -210,10 +214,10 @@ export default function AdminCommunications() {
   const fetchDashboard = useCallback(async () => {
     // Fetch a wide window (no status filter) so tab counts + filtering are computed client-side.
     // Track a thread-fetch failure separately so we can surface it instead of showing an empty inbox.
-    let threadRes: { threads: ThreadSummary[]; counts?: ThreadCounts } = { threads: [] }
+    let threadRes: { threads: ThreadSummary[]; counts?: ThreadCounts; page?: ThreadPage } = { threads: [] }
     let threadsFailed = false
     try {
-      threadRes = await fetchAdminCommunicationThreads({ limit: '300' })
+      threadRes = await fetchAdminCommunicationThreads({ limit: PAGE_LIMIT })
     } catch {
       threadsFailed = true
     }
@@ -230,6 +234,7 @@ export default function AdminCommunications() {
     if (!threadsFailed) {
       setThreads(threadRes.threads || [])
       setServerCounts(threadRes.counts ?? null)
+      setNextCursor(threadRes.page?.next_cursor ?? null)
     }
     setDeadLetters(deadRes.notifications || [])
     setMetrics(metricRes || {})
@@ -238,6 +243,25 @@ export default function AdminCommunications() {
   const refreshWorkerHealth = useCallback(async () => {
     fetchCommunicationWorkerHealth().then(setWorkerHealth).catch(() => null)
   }, [fetchCommunicationWorkerHealth])
+
+  // Cursor pagination: append the next server page (dedup by id) without disturbing selection/draft.
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const res = await fetchAdminCommunicationThreads({ limit: PAGE_LIMIT, cursor: nextCursor })
+      setThreads((prev) => {
+        const seen = new Set(prev.map((t) => t.id))
+        return [...prev, ...(res.threads || []).filter((t) => !seen.has(t.id))]
+      })
+      setNextCursor(res.page?.next_cursor ?? null)
+      if (res.counts) setServerCounts(res.counts)
+    } catch {
+      /* keep the already-loaded threads on failure */
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [nextCursor, loadingMore, fetchAdminCommunicationThreads])
 
   // Initial load
   useEffect(() => {
@@ -498,9 +522,6 @@ export default function AdminCommunications() {
                 </div>
               ) : (
                 <ScrollArea className="h-[560px]">
-                  {threads.length >= 300 && (
-                    <p className="px-3 py-2 text-[11px] text-amber-600 bg-amber-50 border-b">Showing the 300 most recently active threads. Use search to narrow.</p>
-                  )}
                   {visibleThreads.map((thread) => {
                     const sla = threadSla(thread)
                     return (
@@ -521,6 +542,14 @@ export default function AdminCommunications() {
                       />
                     )
                   })}
+                  {nextCursor && (
+                    <div className="p-3 text-center border-t">
+                      <Button size="sm" variant="outline" className="w-full gap-1" onClick={loadMore} disabled={loadingMore}>
+                        {loadingMore ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
+                        {loadingMore ? 'Loading…' : 'Load more'}
+                      </Button>
+                    </div>
+                  )}
                 </ScrollArea>
               )}
             </CardContent>
