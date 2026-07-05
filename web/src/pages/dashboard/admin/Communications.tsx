@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { channelLabel } from '@/features/communications/channelRegistry'
+import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
@@ -165,6 +166,9 @@ export default function AdminCommunications() {
   const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkNote, setBulkNote] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>(() => searchParams.get('filter') || 'awaiting_human')
   const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [teamPick, setTeamPick] = useState('')
@@ -264,6 +268,16 @@ export default function AdminCommunications() {
     }
   }, [nextCursor, loadingMore, fetchAdminCommunicationThreads])
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+    setBulkNote(null)
+  }, [])
+  const clearSelection = useCallback(() => { setSelectedIds(new Set()); setBulkNote(null) }, [])
+
   // Initial load
   useEffect(() => {
     let mounted = true
@@ -342,6 +356,25 @@ export default function AdminCommunications() {
     Promise.resolve().then(() => { if (!cancelled) void openThread({ id: threadId } as ThreadSummary) })
     return () => { cancelled = true }
   }, [searchParams, openThread])
+
+  // Bulk actions fan out per-thread (no bulk endpoint) and report partial failures.
+  const runBulk = useCallback(async (label: string, fn: (id: string) => Promise<unknown>) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    setBulkBusy(true)
+    setBulkNote(null)
+    let ok = 0
+    let failed = 0
+    for (const id of ids) {
+      try { await fn(id); ok += 1 } catch { failed += 1 }
+    }
+    setBulkBusy(false)
+    setBulkNote(`${label} ${ok}${failed ? ` · ${failed} failed` : ''}`)
+    setSelectedIds(new Set())
+    await load()
+    const cur = selectedRef.current
+    if (cur) await openThread(cur)
+  }, [selectedIds, load, openThread])
 
   async function sendReply() {
     if (!selected || !reply.trim() || replyStatus === 'sending') return
@@ -506,6 +539,14 @@ export default function AdminCommunications() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
+              <BulkActionBar
+                count={selectedIds.size}
+                busy={bulkBusy}
+                resultNote={bulkNote}
+                onAssignToMe={() => runBulk('Assigned', (id) => assignCommunicationThread(id, { assigned_admin_id: user?.id }))}
+                onResolve={() => runBulk('Resolved', (id) => resolveCommunicationThread(id, 'Resolved from admin command center (bulk).'))}
+                onClear={clearSelection}
+              />
               {loadError ? (
                 <div className="p-6 text-center text-sm">
                   <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-red-400" />
@@ -555,6 +596,8 @@ export default function AdminCommunications() {
                         timeLabel={relativeTime(thread.last_message_at || thread.updated_at)}
                         selected={selected?.id === thread.id}
                         onSelect={() => openThread(thread)}
+                        checked={selectedIds.has(thread.id)}
+                        onToggle={() => toggleSelect(thread.id)}
                       />
                     )
                   })}
