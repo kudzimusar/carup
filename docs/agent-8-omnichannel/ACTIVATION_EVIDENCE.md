@@ -195,3 +195,91 @@ Security and performance advisors were run after migration.
 - No Agent 8 migrations were applied to the production `CarUp` Supabase project.
 - PR #100 remains open and unmerged.
 - No mobile app release was performed.
+
+---
+
+# PR #111 — Command Center staging activation attempt (2026-07-06)
+
+Activation of the three additive **Command Center** migrations + staging deploy + UAT for PR #111. This run
+did **not** merge, did **not** touch production, and — because staging was not reachable from this
+environment — mutated nothing anywhere.
+
+- **Branch:** `fix/issue-110-agent8-telegram-auto-delivery`
+- **Head (verified checked out):** `bc65d4975c6bbf08bd5085b9fdf25301f39cae09`
+- **Base (integration, not merged):** `feature/agent-8-omnichannel-communication-engine`
+- **Intended staging Supabase:** `carup-staging` = `eoyenigwevnxwwhyhaer` (production CarUp `vhmnajoeicasaigiophh` — untouched)
+
+## Phase A — workspace + target safety ✅
+
+- `git status --short` clean · branch `fix/issue-110-agent8-telegram-auto-delivery` · HEAD `bc65d4975c6bbf08bd5085b9fdf25301f39cae09` (exact required) · `git fetch origin` ok · `git log -1` = `bc65d49 docs(communication): update Command Center evidence …`.
+- Migration SHA-256 (identical to committed head; `git diff --stat HEAD` empty):
+  - `20260705150000_communication_inbox_projection.sql` → `895f8fb113724222e463a33cb70f6e6186226aebe88338a5e01c3e2313e685df`
+  - `20260705170000_communication_audit_events.sql` → `72a94a4710a33aa79b83adea05a2c53fcbeb8b72f572e28e3ab41ffe6d0552eb`
+  - `20260705180000_communication_sla.sql` → `fdccf7b63203ba1008fed8fdac599f6331c7fbadf768415dcb15f2def63ee019`
+
+## BLOCKER — staging Supabase `eoyenigwevnxwwhyhaer` not reachable from this environment
+
+Preflight (no secret values printed):
+
+| Access path | State |
+|-------------|-------|
+| `SUPABASE_DB_URL` / `STAGING_SUPABASE_DB_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `DATABASE_URL` | all **unset** |
+| `psql` | **not installed** |
+| `supabase` CLI (authenticated) | logged in, but account holds only 4 **unrelated** apps (Driving Practice App, JKC Devotion App, 1‑100 Kids Counting App, Paid Refer 2.0 DB) — **`eoyenigwevnxwwhyhaer` absent** |
+| Supabase **MCP** connector (authenticated) | reachable account holds only `sfhtlzcgrnrdznhvdrbn` **"production-os"** — a **different product's production**, off-limits, not CarUp staging |
+
+Per the operating rules (staging-only; never production; confirm exactly `eoyenigwevnxwwhyhaer` before touching),
+**no migration was applied and no reachable project was touched.** A prior run (PR #100, 2026-06-25 above) reached
+this staging project with operator-held credentials that are **not present in this session**.
+
+## Phases B / C / D — apply + verify migrations ⛔ BLOCKED (no staging DB access)
+
+Not attempted (blocker above). The identical Up/Down SQL is **proven to apply + roll back cleanly on real
+Postgres** in the `communication-postgres` CI job (9/9) — so application risk is low; the gap is credentialed access.
+
+## Phases E / F — backend + web staging deploy ⛔ BLOCKED (prerequisite + target-safety)
+
+Vercel CLI **is** authenticated (`kudzimusar`, team **`pay-pass-project`** — the named scope), so the deploy path
+is reachable. Deliberately not performed: it is downstream of the blocked migrations (deploying the
+schema-dependent backend without them yields a misleading fallback-mode staging), and confirming the staging
+Vercel project's Supabase env points at `eoyenigwevnxwwhyhaer` (Rule 10) cannot be done here without inspecting
+secrets.
+
+## Phases G / H / I / J — running-app verification + live WhatsApp/Telegram/recovery UAT ⛔ BLOCKED
+
+Depend on E/F (a live deployment) and, for H/I, a **physical device + registered staging test number** — none
+present here. Operator/device-gated.
+
+## Phase K — runnable regression subset ✅
+
+| Gate | Result |
+|------|--------|
+| `git diff --check` | clean |
+| Web `tsc -p web/tsconfig.app.json --noEmit` | clean |
+| Web unit (`vitest`) | **427 / 427** |
+| Communication unit (`node --test`) | **116 / 116** |
+| Communication Command Center CI @ `bc65d49` (incl. real-DB `communication-postgres` 9/9, not skipped) | ✅ success |
+| Referral Engine CI @ `bc65d49` (Web TS + prod `vite build`) | ✅ success |
+
+## Exact operator action to complete activation
+
+1. From an environment with staging access to `eoyenigwevnxwwhyhaer` (operator `SUPABASE_DB_URL`, or `supabase`
+   login/MCP scoped to that project), apply the three migrations in timestamp order, `ON_ERROR_STOP=1`, stopping
+   on any failure — then verify per Phases B/C/D (all covered by the passing `communication-postgres` CI job):
+   ```bash
+   psql "$STAGING_SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/20260705150000_communication_inbox_projection.sql
+   psql "$STAGING_SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/20260705170000_communication_audit_events.sql
+   psql "$STAGING_SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/20260705180000_communication_sla.sql
+   ```
+2. Deploy head `bc65d49` to `carup-backend-staging` (scope `pay-pass-project`, env `preview`) + the web staging
+   project; confirm `GET /api/communications/health` shows real `meta_whatsapp_cloud_api` + `telegram_bot_api`
+   adapters and no missing config.
+3. Run live-backend Playwright/axe against the staging URLs, then the WhatsApp/Telegram/recovery on-device UAT.
+
+Rollback (reverse order; each ships a `-- +migrate Down`): sla → audit_events → inbox_projection.
+
+## Production Safety (this attempt)
+
+- No migrations applied anywhere; staging `eoyenigwevnxwwhyhaer` was not reachable and was not mutated.
+- Production CarUp (`vhmnajoeicasaigiophh`) and the unrelated `production-os` project were not touched.
+- No deploy, no merge of PR #111/#100, no `main` change, no webhook/secret change. No secret values printed.
