@@ -225,20 +225,40 @@ export class CommunicationRepository {
     const nextCursor = hasMore && last
       ? encodeCursor([last.last_message_at || last.created_at || '', String(last.id)])
       : null;
+    // The DB does the heavy filter/sort/paginate over the whole set; enrich only the RETURNED PAGE
+    // (≤200 rows) with per-agent unread (P1.7) + registered-user identity fallback (P1.8) via the same
+    // tested projection, so the view's team-based unread is replaced by the acting agent's own count.
+    const threads = await this.enrichPage(rows, ctx);
     const counts = await this.threadCounts(params, ctx);
     return {
-      threads: rows,
-      page: { sort: 'newest', mode: 'db_keyset', limit: effectiveLimit, returned: rows.length, has_more: hasMore, next_cursor: nextCursor },
+      threads,
+      page: { sort: 'newest', mode: 'db_keyset', limit: effectiveLimit, returned: threads.length, has_more: hasMore, next_cursor: nextCursor },
       counts,
     };
   }
 
+  // Re-project just the returned page through the pure projection so per-agent unread + the
+  // registered-user identity fallback are applied consistently with the window/memory path.
+  async enrichPage(rows, ctx) {
+    if (!rows.length) return rows;
+    const ids = rows.map((r) => r.id);
+    const [participants, messages] = await Promise.all([
+      this.list('message_participants', { thread_id: ids }),
+      this.list('messages', { thread_id: ids }),
+    ]);
+    const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
+    const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
+    const userIds = [...new Set(rows.map((r) => r.primary_user_id).filter(Boolean))];
+    const users = userIds.length ? await this.list('users', { id: userIds }).catch(() => []) : [];
+    return projectInboxThreads(rows, { participants, identities, messages, users }, { agentId: ctx.userId ?? null });
+  }
+
   async searchThreadsViaWindow(params, ctx, p) {
-    const projected = await this.projectThreadWindow();
+    const projected = await this.projectThreadWindow(ctx);
     return runQuery(scopeThreads(projected, ctx), params, ctx, p);
   }
 
-  async projectThreadWindow() {
+  async projectThreadWindow(ctx = {}) {
     const windowSize = Math.min(Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000), 2000);
     const threadRows = await this.list('message_threads', {}, { order: { column: 'updated_at' }, limit: windowSize });
     if (!threadRows.length) return [];
@@ -249,7 +269,11 @@ export class CommunicationRepository {
     ]);
     const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
     const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
-    return projectInboxThreads(threadRows, { participants, identities, messages });
+    // Registered-user identity fallback (P1.8): resolve threads with no requester channel identity to
+    // their CarUp user profile via primary_user_id.
+    const userIds = [...new Set(threadRows.map((t) => t.primary_user_id).filter(Boolean))];
+    const users = userIds.length ? await this.list('users', { id: userIds }).catch(() => []) : [];
+    return projectInboxThreads(threadRows, { participants, identities, messages, users }, { agentId: ctx.userId ?? null });
   }
 
   async threadCounts(params = {}, ctx = {}) {
@@ -263,7 +287,7 @@ export class CommunicationRepository {
       return data || {};
     } catch (error) {
       if (!isMissingFunctionError(error)) throw error;
-      const projected = await this.projectThreadWindow();
+      const projected = await this.projectThreadWindow(ctx);
       return computeCounts(scopeThreads(projected, ctx), { userId: ctx.userId, now: ctx.now ?? Date.now() });
     }
   }
@@ -463,22 +487,23 @@ export class MemoryCommunicationRepository {
 
   // JS mirror of the projection view + RPC (same code path the real repo falls back to), so tests
   // exercise the identity projection, tenant scoping, keyset pagination, and counts end to end.
-  projectAll() {
+  projectAll(ctx = {}) {
     return projectInboxThreads(this.rows('message_threads'), {
       participants: this.rows('message_participants'),
       identities: this.rows('channel_identities'),
       messages: this.rows('messages'),
-    });
+      users: this.rows('users'),
+    }, { agentId: ctx.userId ?? null });
   }
 
   async searchThreads(params = {}, ctx = {}) {
     const p = normalizeSearchParams(params);
-    const scoped = scopeThreads(this.projectAll(), ctx);
+    const scoped = scopeThreads(this.projectAll(ctx), ctx);
     return runQuery(scoped, params, ctx, p);
   }
 
   async threadCounts(params = {}, ctx = {}) {
-    const scoped = scopeThreads(this.projectAll(), ctx);
+    const scoped = scopeThreads(this.projectAll(ctx), ctx);
     return computeCounts(scoped, { userId: ctx.userId, now: ctx.now ?? Date.now() });
   }
 }
