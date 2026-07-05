@@ -3,7 +3,7 @@ import { useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { CommandCenterNav } from '@/features/communications/admin/CommandCenterNav'
 import { COMMAND_CENTER_SECTIONS, type CommandCenterSection } from '@/features/communications/admin/commandCenterSections'
 import {
-  AlertTriangle, Inbox as InboxIcon, Loader2, MessageSquare, PauseCircle, PlayCircle, RefreshCcw, Search,
+  AlertTriangle, ChevronLeft, Inbox as InboxIcon, Loader2, MessageSquare, PauseCircle, PlayCircle, RefreshCcw, Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -172,6 +172,7 @@ export default function AdminCommunications() {
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [showAuditTechnical, setShowAuditTechnical] = useState(false)
   const [showTimelineTechnical, setShowTimelineTechnical] = useState(false)
+  const [showMobileDetails, setShowMobileDetails] = useState(false)
   const [identities, setIdentities] = useState<ContextIdentity[]>([])
   const [linkedIdentities, setLinkedIdentities] = useState<ContextIdentity[]>([])
   const [deliveryAttempts, setDeliveryAttempts] = useState<DeliveryAttempt[]>([])
@@ -385,6 +386,7 @@ export default function AdminCommunications() {
     const sameThread = selectedRef.current?.id === thread.id
     setSelected(thread)
     if (!sameThread) {
+      setShowMobileDetails(false)
       setMessages([])
       setAuditEvents([])
       setIdentities([])
@@ -571,9 +573,9 @@ export default function AdminCommunications() {
         />
 
         {isInboxLike && (
-        <div className="grid lg:grid-cols-[340px_1fr_300px] gap-5 items-start">
-          {/* ── Inbox ── */}
-          <Card className="border-0 card-shadow">
+        <div className="grid grid-cols-1 lg:grid-cols-[340px_1fr_320px] gap-5 items-start">
+          {/* ── Inbox ── (mobile master-detail: hidden once a thread is open; always shown on desktop) */}
+          <Card className={`border-0 card-shadow ${selected ? 'hidden lg:block' : 'block'}`} data-testid="inbox-pane">
             <CardHeader className="pb-3 space-y-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2"><InboxIcon className="w-4 h-4" /> Inbox</CardTitle>
@@ -685,8 +687,8 @@ export default function AdminCommunications() {
             </CardContent>
           </Card>
 
-          {/* ── Conversation + audited reply + handoff ── */}
-          <Card className="border-0 card-shadow min-h-[620px]">
+          {/* ── Conversation + audited reply + handoff ── (mobile: shown only when a thread is open) */}
+          <Card className={`border-0 card-shadow min-h-[620px] ${selected ? 'block' : 'hidden lg:block'}`} data-testid="conversation-pane">
             {!selected ? (
               <div className="flex flex-col items-center justify-center h-[620px] text-center px-6">
                 <MessageSquare className="w-10 h-10 text-gray-300 mb-3" />
@@ -695,6 +697,15 @@ export default function AdminCommunications() {
               </div>
             ) : (
               <>
+                {/* Mobile/tablet nav: back to inbox + a details drawer toggle (hidden on desktop). */}
+                <div className="flex items-center justify-between gap-2 px-4 pt-3 lg:hidden">
+                  <Button size="sm" variant="ghost" className="h-8 gap-1" onClick={() => { setSelected(null); setShowMobileDetails(false) }} data-testid="mobile-back">
+                    <ChevronLeft className="w-4 h-4" aria-hidden /> Inbox
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8" aria-pressed={showMobileDetails} onClick={() => setShowMobileDetails((v) => !v)} data-testid="mobile-details-toggle">
+                    {showMobileDetails ? 'Hide details' : 'Details'}
+                  </Button>
+                </div>
                 <ConversationHeader
                   channel={selected.primary_channel}
                   title={threadTitle(selected)}
@@ -767,19 +778,21 @@ export default function AdminCommunications() {
                     )}
                   </ScrollArea>
 
-                  {/* Audited reply composer */}
-                  <ReplyComposer
-                    channel={selected.primary_channel}
-                    reply={reply}
-                    onReplyChange={setReply}
-                    internalNote={internalNote}
-                    onInternalNoteChange={setInternalNote}
-                    status={replyStatus}
-                    error={replyError}
-                    correlationId={replyCorrelationId}
-                    idempotencyKey={replyClientMessageId}
-                    onSend={sendReply}
-                  />
+                  {/* Audited reply composer — sticks to the bottom so it never covers the timeline. */}
+                  <div className="sticky bottom-0 bg-white pt-2 -mx-1 px-1 z-10" data-testid="reply-composer-sticky">
+                    <ReplyComposer
+                      channel={selected.primary_channel}
+                      reply={reply}
+                      onReplyChange={setReply}
+                      internalNote={internalNote}
+                      onInternalNoteChange={setInternalNote}
+                      status={replyStatus}
+                      error={replyError}
+                      correlationId={replyCorrelationId}
+                      idempotencyKey={replyClientMessageId}
+                      onSend={sendReply}
+                    />
+                  </div>
 
                   <Separator />
 
@@ -799,8 +812,8 @@ export default function AdminCommunications() {
             )}
           </Card>
 
-          {/* ── Ops / context rail ── */}
-          <aside className="space-y-5" data-testid="ops-rail">
+          {/* ── Ops / context rail ── (mobile: a details drawer toggled from the conversation) */}
+          <aside className={`space-y-5 ${showMobileDetails ? 'block' : 'hidden'} lg:block`} data-testid="ops-rail">
             {/* Customer identity + context + SLA + consent for the selected thread (item 7) */}
             {selected && (
               <ContextRail
