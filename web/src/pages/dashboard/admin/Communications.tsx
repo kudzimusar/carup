@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
+import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
@@ -721,6 +722,9 @@ export default function AdminCommunications() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Per-channel provider health (registry-driven; future channels shown as Planned) */}
+            <ProviderHealthPanel adapters={workerHealth?.adapters} />
 
             {/* Provider smoke test */}
             <Card className="border-0 card-shadow">
