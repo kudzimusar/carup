@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { channelLabel } from '@/features/communications/channelRegistry'
 import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
+import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
@@ -172,6 +173,7 @@ export default function AdminCommunications() {
   const [filter, setFilter] = useState<string>(() => searchParams.get('filter') || 'awaiting_human')
   const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [teamPick, setTeamPick] = useState('')
+  const [channelFilter, setChannelFilter] = useState<string | null>(null)
 
   const [reply, setReply] = useState('')
   const [internalNote, setInternalNote] = useState(false)
@@ -208,13 +210,24 @@ export default function AdminCommunications() {
     return c
   }, [threads, serverCounts])
 
+  const channelCounts = useMemo(() => {
+    if (serverCounts?.by_channel) return serverCounts.by_channel
+    const c: Record<string, number> = {}
+    for (const t of threads) {
+      const ch = String(t.primary_channel || '').toLowerCase()
+      if (ch) c[ch] = (c[ch] || 0) + 1
+    }
+    return c
+  }, [serverCounts, threads])
+
   const visibleThreads = useMemo(() => {
-    const byFilter = filter === 'all' ? threads : threads.filter((t) => String(t.status) === filter)
+    let rows = filter === 'all' ? threads : threads.filter((t) => String(t.status) === filter)
+    if (channelFilter) rows = rows.filter((t) => String(t.primary_channel || '').toLowerCase() === channelFilter)
     const q = search.trim().toLowerCase()
-    if (!q) return byFilter
-    return byFilter.filter((t) => [t.thread_type, t.thread_key, t.id, threadRef(t), t.assigned_team]
+    if (!q) return rows
+    return rows.filter((t) => [t.thread_type, t.thread_key, t.id, threadRef(t), t.assigned_team]
       .filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
-  }, [threads, filter, search])
+  }, [threads, filter, search, channelFilter])
 
   const fetchDashboard = useCallback(async () => {
     // Fetch a wide window (no status filter) so tab counts + filtering are computed client-side.
@@ -537,6 +550,7 @@ export default function AdminCommunications() {
                 <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search type, ref, team…" aria-label="Search threads" className="pl-8 h-9" />
               </div>
+              <ChannelFilterBar counts={channelCounts} active={channelFilter} onSelect={setChannelFilter} />
             </CardHeader>
             <CardContent className="p-0">
               <BulkActionBar
