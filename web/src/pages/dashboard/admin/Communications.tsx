@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, Inbox as InboxIcon, Loader2,
-  MessageSquare, RefreshCcw, Search, Send, ShieldAlert, XCircle,
+  AlertTriangle, Inbox as InboxIcon, Loader2, MessageSquare, RefreshCcw, Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { Switch } from '@/components/ui/switch'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ChannelIcon } from '@/features/communications/ChannelIcon'
-import { channelLabel } from '@/features/communications/channelRegistry'
 import { priorityVariant, threadRef, threadSla, threadTitle } from '@/features/communications/threadPresentation'
 import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
@@ -22,11 +17,11 @@ import { CommandCenterHeader } from '@/features/communications/admin/CommandCent
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryRecoveryPanel } from '@/features/communications/admin/DeliveryRecoveryPanel'
-import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { HandoffBar } from '@/features/communications/admin/HandoffBar'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
 import { ProviderSmokeTestPanel } from '@/features/communications/admin/ProviderSmokeTestPanel'
+import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
 import { WorkerHealthPanel } from '@/features/communications/admin/WorkerHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
@@ -85,11 +80,6 @@ function prettyLabel(t?: string | null): string {
 
 function hasQueuedOrProcessing(msgs: MessageSummary[]) {
   return msgs.some((m) => m.direction === 'outbound' && ['queued', 'processing', 'retry_scheduled'].includes(String(m.status || '')))
-}
-
-// Delegates to the shared DeliveryStateBadge so every surface uses one label/tone source.
-function deliveryBadge(status?: string) {
-  return <DeliveryStateBadge status={status} />
 }
 
 
@@ -591,55 +581,18 @@ export default function AdminCommunications() {
                   </ScrollArea>
 
                   {/* Audited reply composer */}
-                  <div className="space-y-2">
-                    <div className="text-xs">
-                      {internalNote ? (
-                        <span className="flex items-center gap-1 text-amber-700 font-medium">
-                          <ShieldAlert className="w-3.5 h-3.5" aria-hidden /> Internal note · saved to the thread, not sent to the customer
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-gray-600">
-                          Reply via <ChannelIcon channel={selected.primary_channel} size={14} decorative /> <strong>{channelLabel(selected.primary_channel)}</strong> to the customer
-                        </span>
-                      )}
-                    </div>
-                    <Textarea
-                      value={reply}
-                      onChange={(e) => setReply(e.target.value)}
-                      placeholder={internalNote ? 'Write an internal note (not sent to the user)…' : 'Write a user-visible reply…'}
-                      disabled={replyStatus === 'sending'}
-                      className={internalNote ? 'border-amber-300 focus-visible:ring-amber-300' : ''}
-                      rows={3}
-                    />
-                    <div className="flex flex-wrap items-center gap-3">
-                      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                        <Switch checked={internalNote} onCheckedChange={setInternalNote} aria-label="Internal note (not sent to the user)" />
-                        Internal note
-                      </label>
-                      <Button onClick={sendReply} className="gap-2" disabled={!reply.trim() || replyStatus === 'sending'}>
-                        {replyStatus === 'sending' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                        {replyStatus === 'sending' ? 'Sending…' : internalNote ? 'Add internal note' : 'Send reply'}
-                      </Button>
-                      {replyStatus !== 'idle' && replyStatus !== 'failed' && replyStatus !== 'sending' && (
-                        <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                          Reply {deliveryBadge(replyStatus === 'delivered' ? 'delivered' : replyStatus)}
-                        </span>
-                      )}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="ml-auto text-[10px] text-gray-300 font-mono cursor-default hidden sm:block">idem {replyClientMessageId.slice(0, 8)}</span>
-                        </TooltipTrigger>
-                        <TooltipContent>Idempotency key — resubmitting the same key will not double-send.</TooltipContent>
-                      </Tooltip>
-                    </div>
-                    {replyError && (
-                      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                        <p className="flex items-center gap-1"><XCircle className="w-4 h-4" /> {replyError}</p>
-                        {replyCorrelationId && <p className="mt-1 text-xs font-mono">Correlation ID: {replyCorrelationId}</p>}
-                        <p className="mt-1 text-xs text-red-500">Your draft was preserved — press Send to retry.</p>
-                      </div>
-                    )}
-                  </div>
+                  <ReplyComposer
+                    channel={selected.primary_channel}
+                    reply={reply}
+                    onReplyChange={setReply}
+                    internalNote={internalNote}
+                    onInternalNoteChange={setInternalNote}
+                    status={replyStatus}
+                    error={replyError}
+                    correlationId={replyCorrelationId}
+                    idempotencyKey={replyClientMessageId}
+                    onSend={sendReply}
+                  />
 
                   <Separator />
 
