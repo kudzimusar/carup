@@ -181,10 +181,12 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
   // deliverNotification ignores scheduling and sends immediately regardless of deferUntil.
   const deliveryResult = await services.deliveryWorker.deliverNotification(notification, { alreadyClaimed: false });
 
+  // message_delivery_attempts has no created_at column — order by started_at (the real schema
+  // timestamp) so the newest attempt is first. Ordering by created_at errors on live Postgres.
   const attempts = await services.repository.list(
     'message_delivery_attempts',
     { notification_id: String(notification.id) },
-    { order: { column: 'created_at', ascending: false }, limit: 5 },
+    { order: { column: 'started_at', ascending: false }, limit: 5 },
   );
   const latestAttempt = attempts[0] || null;
   const finalNotification = (await services.repository.findOne('notification_queue', { id: notification.id })) || notification;
