@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Bell, CheckCircle2, Clock, Inbox as InboxIcon, Loader2, Mail, MessageCircle,
-  MessageSquare, Phone, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle, Zap,
+  AlertTriangle, CheckCircle2, Clock, Inbox as InboxIcon, Loader2, MessageCircle,
+  MessageSquare, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle, Zap,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,10 +12,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['threads'][number]
@@ -24,6 +24,7 @@ type DeadLetterNotification = Awaited<ReturnType<ReturnType<typeof useCarUpApi>[
 type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationMetrics']>>
 type WorkerHealth = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationWorkerHealth']>>
 type SmokeResult = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['sendCommunicationProviderSmokeTest']>>
+type ThreadCounts = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['counts']>
 type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
 type SlaLevel = 'none' | 'ok' | 'due' | 'breach'
 
@@ -39,11 +40,6 @@ const FILTERS = [
 ] as const
 
 const TEAMS = ['support', 'finance', 'safepay', 'trust_safety', 'marketplace'] as const
-
-const CHANNEL_ICONS: Record<string, LucideIcon> = {
-  whatsapp: MessageCircle, telegram: Send, email: Mail, sms: Phone,
-  in_app: Bell, web_chat: MessageSquare, mobile_chat: MessageSquare,
-}
 
 function newClientMessageId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -90,10 +86,6 @@ function threadRef(thread?: ThreadSummary | null): string {
   return thread.marketplace_listing_id || thread.escrow_id || thread.financing_application_id
     || (thread.subject_id ? `${thread.subject_type || 'ref'}:${thread.subject_id}` : '')
     || (thread.thread_key ? String(thread.thread_key).slice(0, 14) : String(thread.id).slice(0, 8))
-}
-
-function channelIcon(channel?: string): LucideIcon {
-  return CHANNEL_ICONS[String(channel || '').toLowerCase()] || MessageSquare
 }
 
 function priorityVariant(p?: string): 'destructive' | 'secondary' | 'outline' {
@@ -172,6 +164,7 @@ export default function AdminCommunications() {
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
   const [filter, setFilter] = useState<string>('awaiting_human')
   const [search, setSearch] = useState('')
   const [teamPick, setTeamPick] = useState('')
@@ -194,9 +187,14 @@ export default function AdminCommunications() {
   const openTokenRef = useRef(0)
   useEffect(() => { selectedRef.current = selected }, [selected])
 
-  // Tab counts + filtered/searched view are derived client-side from a single load,
-  // so switching filters is instant and every tab shows its live count.
+  // Tab badge counts prefer the server's whole-window counts (accurate beyond the fetched page);
+  // fall back to client-side counts over the loaded threads when the server counts are absent.
   const counts = useMemo(() => {
+    if (serverCounts) {
+      const c: Record<string, number> = { all: serverCounts.total }
+      for (const f of FILTERS) if (f.value !== 'all') c[f.value] = serverCounts.by_workflow?.[f.value] ?? 0
+      return c
+    }
     const c: Record<string, number> = { all: threads.length }
     for (const f of FILTERS) if (f.value !== 'all') c[f.value] = 0
     for (const t of threads) {
@@ -204,7 +202,7 @@ export default function AdminCommunications() {
       if (s in c) c[s] += 1
     }
     return c
-  }, [threads])
+  }, [threads, serverCounts])
 
   const visibleThreads = useMemo(() => {
     const byFilter = filter === 'all' ? threads : threads.filter((t) => String(t.status) === filter)
@@ -217,7 +215,7 @@ export default function AdminCommunications() {
   const fetchDashboard = useCallback(async () => {
     // Fetch a wide window (no status filter) so tab counts + filtering are computed client-side.
     // Track a thread-fetch failure separately so we can surface it instead of showing an empty inbox.
-    let threadRes: { threads: ThreadSummary[] } = { threads: [] }
+    let threadRes: { threads: ThreadSummary[]; counts?: ThreadCounts } = { threads: [] }
     let threadsFailed = false
     try {
       threadRes = await fetchAdminCommunicationThreads({ limit: '300' })
@@ -234,7 +232,10 @@ export default function AdminCommunications() {
   const load = useCallback(async () => {
     const { threadRes, deadRes, metricRes, threadsFailed } = await fetchDashboard()
     setLoadError(threadsFailed ? 'Could not load threads — press Refresh to retry.' : null)
-    if (!threadsFailed) setThreads(threadRes.threads || [])
+    if (!threadsFailed) {
+      setThreads(threadRes.threads || [])
+      setServerCounts(threadRes.counts ?? null)
+    }
     setDeadLetters(deadRes.notifications || [])
     setMetrics(metricRes || {})
   }, [fetchDashboard])
@@ -483,7 +484,6 @@ export default function AdminCommunications() {
                     <p className="px-3 py-2 text-[11px] text-amber-600 bg-amber-50 border-b">Showing the 300 most recently active threads. Use search to narrow.</p>
                   )}
                   {visibleThreads.map((thread) => {
-                    const Icon = channelIcon(thread.primary_channel)
                     const sla = threadSla(thread)
                     const isSelected = selected?.id === thread.id
                     return (
@@ -493,9 +493,9 @@ export default function AdminCommunications() {
                         className={`w-full text-left p-3 border-b hover:bg-gray-50 transition-colors ${isSelected ? 'bg-orange-50 border-l-2 border-l-orange-500' : ''}`}
                       >
                         <div className="flex items-start gap-3">
-                          <Avatar className="w-8 h-8 shrink-0">
-                            <AvatarFallback className="bg-orange-100 text-orange-600"><Icon className="w-4 h-4" /></AvatarFallback>
-                          </Avatar>
+                          <span className="w-8 h-8 shrink-0 rounded-full bg-gray-100 flex items-center justify-center">
+                            <ChannelIcon channel={thread.primary_channel} size={16} />
+                          </span>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-2">
                               <p className="font-semibold text-sm truncate">{threadTitle(thread)}</p>
@@ -535,7 +535,7 @@ export default function AdminCommunications() {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
                       <CardTitle className="text-lg flex items-center gap-2">
-                        {(() => { const Icon = channelIcon(selected.primary_channel); return <Icon className="w-4 h-4 text-orange-500" /> })()}
+                        <ChannelIcon channel={selected.primary_channel} size={18} />
                         {threadTitle(selected)}
                       </CardTitle>
                       <p className="text-xs text-gray-400 font-mono mt-1 truncate">{threadRef(selected)}</p>
