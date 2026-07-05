@@ -36,7 +36,8 @@ import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAudi
 import { SLA_STATES, computeSlaState, pausePatch, resumePatch } from '../services/communication/communicationSla.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
-const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
+const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext, resolveListScope } = await import('../routes/adminCommunicationRoutes.js');
+const supabaseLiveSchemaSql = readFileSync(new URL('../../database/migrations/supabase_schema.sql', import.meta.url), 'utf8');
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
@@ -2402,6 +2403,65 @@ test('audit actor mapping distinguishes worker, platform admin, and tenant agent
   assert.equal(auditActorFromContext({ platformRole: 'super_admin', id: 'a' }).actor_type, 'admin');
   assert.equal(auditActorFromContext({ platformRole: 'support', id: 'u' }).actor_type, 'agent');
   assert.equal(auditActorFromContext({}).actor_type, 'agent');
+});
+
+test('audit notification_id is TEXT and holds a legacy numeric queue id (P0.1)', () => {
+  // Schema-tied: the audit column MUST be TEXT (not UUID) to hold the live BIGSERIAL notification_queue
+  // .id and the TEXT message_delivery_attempts.notification_id.
+  assert.match(auditMigrationSql, /notification_id TEXT/);
+  assert.equal(/notification_id UUID/i.test(auditMigrationSql), false, 'audit notification_id must not be UUID');
+
+  // Cross-check the ACTUAL live schema types this column has to be compatible with.
+  const nq = supabaseLiveSchemaSql.match(/CREATE TABLE IF NOT EXISTS notification_queue \(([\s\S]*?)\n\);/i);
+  assert.ok(nq && /id\s+BIGSERIAL/i.test(nq[1]), 'live notification_queue.id is BIGSERIAL (bigint)');
+  assert.match(migrationSql, /notification_id TEXT NOT NULL/); // message_delivery_attempts.notification_id is TEXT
+});
+
+test('audit writer normalizes a numeric notification id to a string, preserving null (P0.1)', async () => {
+  const repo = new MemoryCommunicationRepository();
+  const row = await logCommunicationAuditEvent(repo, { event_type: COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, notification_id: 8 });
+  assert.strictEqual(row.notification_id, '8'); // legacy numeric id → TEXT-safe string
+  const nullRow = await logCommunicationAuditEvent(repo, { event_type: COMMUNICATION_AUDIT_EVENTS.RESOLVED, notification_id: null });
+  assert.strictEqual(nullRow.notification_id, null);
+  const undefRow = await logCommunicationAuditEvent(repo, { event_type: COMMUNICATION_AUDIT_EVENTS.RESOLVED });
+  assert.strictEqual(undefRow.notification_id, null);
+});
+
+test('resolveListScope fails closed: platform=all, tenant=own, tenant-less non-platform=403 (P0.3)', () => {
+  const fakeRes = () => ({ statusCode: 200, body: null, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } });
+  assert.deepEqual(resolveListScope({ userContext: { platformRole: 'platform_admin' } }, fakeRes()), {});
+  assert.deepEqual(resolveListScope({ userContext: { platformRole: 'support', tenantId: 'tenantA' } }, fakeRes()), { tenant_id: 'tenantA' });
+  // Tenant-less non-platform → 403 + null (never {tenant_id: null}, which would match platform rows).
+  const res = fakeRes();
+  assert.strictEqual(resolveListScope({ userContext: { platformRole: 'support', tenantId: null } }, res), null);
+  assert.equal(res.statusCode, 403);
+});
+
+test('smoke-test audit event is linked to the created thread/message/notification (P0.2)', async () => {
+  const previousSecret = process.env.COMMUNICATION_WORKER_SECRET;
+  process.env.COMMUNICATION_WORKER_SECRET = 'smoke-audit-secret';
+  try {
+    const metaFetch = jsonFetchRecorder({ status: 200, body: { messages: [{ id: 'wamid.AUDIT_LINK' }] } });
+    const realWhatsApp = new MetaWhatsAppAdapter({ env: { CARUP_META_ACCESS_TOKEN: 't', CARUP_META_PHONE_NUMBER_ID: 'p' }, fetchImpl: metaFetch });
+    const services = createHarness({ adapter: realWhatsApp });
+    const router = createAdminCommunicationRouter({ services });
+    const path = '/api/admin/communications/test/provider-smoke';
+    const ok = await invokeRouter(router, {
+      method: 'POST', url: path, originalUrl: path,
+      headers: { 'x-communication-worker-secret': 'smoke-audit-secret' }, query: {},
+      body: { channel: 'whatsapp', to: '263771234567', message: 'audit link test' },
+    });
+    assert.equal(ok.statusCode, 200);
+    const audits = await services.repository.list('communication_audit_events', { event_type: 'smoke_test' });
+    assert.equal(audits.length, 1, 'one smoke-test audit event recorded');
+    assert.equal(audits[0].thread_id, ok.body.thread_id, 'audit thread_id links to the created thread (not null)');
+    assert.ok(audits[0].thread_id, 'thread_id is not null');
+    assert.equal(audits[0].message_id, ok.body.message_id);
+    assert.equal(audits[0].notification_id, String(ok.body.notification_id));
+  } finally {
+    if (previousSecret === undefined) delete process.env.COMMUNICATION_WORKER_SECRET;
+    else process.env.COMMUNICATION_WORKER_SECRET = previousSecret;
+  }
 });
 
 test('communication audit migration adds an additive append-only table with indexes + RLS', () => {

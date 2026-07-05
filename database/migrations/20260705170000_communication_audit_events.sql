@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS communication_audit_events (
   tenant_id TEXT,
   thread_id UUID,
   message_id UUID,
-  notification_id UUID,
+  -- TEXT (not UUID): the live notification_queue.id is BIGSERIAL and message_delivery_attempts
+  -- .notification_id is TEXT, so a UUID column could not hold a legacy numeric queue id (e.g. 8).
+  notification_id TEXT,
   event_type TEXT NOT NULL,
   actor_type TEXT NOT NULL DEFAULT 'system'
     CHECK (actor_type IN ('agent','admin','system','worker','ai','customer','platform')),

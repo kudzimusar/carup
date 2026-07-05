@@ -46,13 +46,18 @@ export async function loadThreadForRequest(services, req, res) {
   return thread;
 }
 
-// A repository filter fragment that scopes list() results to the caller's tenant (item 14). Platform
-// admins get no filter (all tenants); everyone else is confined to their own tenant_id (a tenant-less
-// caller sees only tenant-less/platform rows). Prevents cross-tenant PII/aggregate leakage on the
-// dead-letter list, metrics, and worker-health endpoints.
-function tenantListFilter(req) {
+// Resolve the tenant scope for a list endpoint, FAIL-CLOSED (item 14). Platform admins get no filter
+// (all tenants). A tenant-scoped caller is confined to its own tenant_id. A non-platform caller with
+// NO resolvable tenant is rejected with 403 — it must never fall through to `tenant_id IS NULL`, which
+// would expose tenant-less/platform rows. Returns the filter fragment, or null after sending the 403.
+export function resolveListScope(req, res) {
   const ctx = resolveThreadQueryContext(req);
-  return ctx.isPlatform ? {} : { tenant_id: ctx.tenantId ?? null };
+  if (ctx.isPlatform) return {};
+  if (!ctx.tenantId) {
+    res.status(403).json({ error: 'Forbidden. A tenant context is required for this resource.' });
+    return null;
+  }
+  return { tenant_id: ctx.tenantId };
 }
 
 // Load a queued/dead-letter notification by id and enforce the same tenant scoping as threads
@@ -588,8 +593,10 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   }));
 
   router.get('/api/admin/communications/dead-letter', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    // Tenant-scoped: notification_queue rows carry recipient PII (phone/email/handle) + message text.
-    res.json({ notifications: await services.repository.list('notification_queue', { status: 'dead_letter', ...tenantListFilter(req) }, { order: { column: 'updated_at' } }) });
+    // Tenant-scoped (fail-closed): notification_queue rows carry recipient PII + message text.
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
+    return res.json({ notifications: await services.repository.list('notification_queue', { status: 'dead_letter', ...scope }, { order: { column: 'updated_at' } }) });
   }));
 
   router.post('/api/admin/communications/dead-letter/:id/retry', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
@@ -622,7 +629,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   // Full recovery view (item 11): categorised queue health (queued too long, stale processing locks,
   // retry scheduled, failed, dead letter, cancelled), tenant-scoped.
   router.get('/api/admin/communications/recovery', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const scope = tenantListFilter(req);
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
     const statuses = ['queued', 'processing', 'retry_scheduled', 'failed', 'dead_letter', 'cancelled'];
     const rows = (await Promise.all(statuses.map((status) =>
       services.repository.list('notification_queue', { status, ...scope }, { order: { column: 'updated_at' }, limit: 500 })))).flat();
@@ -689,9 +697,10 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   router.get('/api/admin/communications/worker/health', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const slaThresholdSeconds = Number(process.env.COMMUNICATION_SLA_SECONDS || 60);
     const now = Date.now();
-    // Queue-depth stats are tenant-scoped so a tenant operator sees only their own backlog; global
-    // scheduler/adapter facts below are platform infrastructure and remain as-is.
-    const scope = tenantListFilter(req);
+    // Queue-depth stats are tenant-scoped (fail-closed) so a tenant operator sees only their own
+    // backlog; global scheduler/adapter facts below are platform infrastructure and remain as-is.
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
     const [queued, processing, retryScheduled, deadLetter] = await Promise.all([
       services.repository.list('notification_queue', { status: 'queued', ...scope }, { limit: 500 }),
       services.repository.list('notification_queue', { status: 'processing', ...scope }, { limit: 100 }),
@@ -757,13 +766,17 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       const actor = auditActorFromContext(req.userContext || {});
       await logCommunicationAuditEvent(services.repository, {
         tenant_id: req.userContext?.tenantId ?? null,
-        thread_id: result?.thread?.id ?? null,
+        // sendProviderSmokeTest returns a flat { thread_id, message_id, notification_id }, not a
+        // nested thread object — link the audit event to the created thread/message/notification.
+        thread_id: result?.thread_id ?? null,
+        message_id: result?.message_id ?? null,
+        notification_id: result?.notification_id ?? null,
         event_type: COMMUNICATION_AUDIT_EVENTS.SMOKE_TEST,
         actor_type: actor.actor_type, actor_id: actor.actor_id,
         channel: req.body?.channel || 'whatsapp',
         summary: `Provider smoke test → ${result.ok ? 'delivered' : 'failed'}`,
         correlation_id: result?.delivery?.provider_message_id || null,
-        metadata: { ok: Boolean(result.ok), provider: result?.delivery?.provider || null },
+        metadata: { ok: Boolean(result.ok), provider: result?.provider || null },
       });
       return res.status(result.ok ? 200 : 502).json(result);
     } catch (error) {
@@ -778,9 +791,10 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   }));
 
   router.get('/api/admin/communications/metrics', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    // Tenant-scoped so a tenant operator's header stats reflect only their own volume. NOTE: these are
-    // still computed in JS over a bounded list; at very large scale prefer the counts RPC/DB aggregates.
-    const scope = tenantListFilter(req);
+    // Tenant-scoped (fail-closed) so a tenant operator's header stats reflect only their own volume.
+    // NOTE: still computed in JS over a bounded list; at very large scale prefer the counts RPC.
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
     const [threads, deadLetters, webhooks] = await Promise.all([
       services.repository.list('message_threads', { ...scope }),
       services.repository.list('notification_queue', { status: 'dead_letter', ...scope }),
