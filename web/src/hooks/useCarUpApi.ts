@@ -166,6 +166,25 @@ type CommunicationMutationResponse = {
   [key: string]: unknown
 }
 type CommunicationMetricsResponse = Record<string, number | string | null | undefined>
+type CommunicationThreadCounts = {
+  total: number
+  all_active: number
+  unassigned: number
+  mine: number
+  needs_human: number
+  sla_breach: number
+  failed_risk: number
+  by_workflow: Record<string, number>
+  by_channel: Record<string, number>
+}
+type CommunicationThreadPage = {
+  sort: string
+  limit: number
+  returned: number
+  matched: number
+  has_more: boolean
+  next_cursor: string | null
+}
 
 export function useCarUpApi() {
   const { user, token } = useAuth()
@@ -864,7 +883,7 @@ export function useCarUpApi() {
     return request('/communications/share', { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
 
-  const fetchAdminCommunicationThreads = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ threads: CommunicationThreadSummary[] }> => {
+  const fetchAdminCommunicationThreads = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ threads: CommunicationThreadSummary[]; page?: CommunicationThreadPage; counts?: CommunicationThreadCounts }> => {
     const query = filters ? referralQuery(filters) : ''
     return request(`/admin/communications/threads${query}`, { method: 'GET' })
   }, [request])
