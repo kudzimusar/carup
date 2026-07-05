@@ -128,6 +128,8 @@ type CommunicationThreadSummary = {
   subject_type?: string | null
   subject_id?: string | null
   sla_due_at?: string | null
+  sla_paused_at?: string | null
+  sla_pause_reason?: string | null
   last_message_at?: string | null
   updated_at?: string | null
   created_at?: string | null
@@ -957,6 +959,14 @@ export function useCarUpApi() {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) })
   }, [request])
 
+  const pauseCommunicationThreadSla = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/sla/pause`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const resumeCommunicationThreadSla = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/sla/resume`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
   const fetchCommunicationDeadLetters = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
     return request('/admin/communications/dead-letter', { method: 'GET' })
   }, [request])
@@ -1267,6 +1277,8 @@ export function useCarUpApi() {
     escalateCommunicationThread,
     resolveCommunicationThread,
     reopenCommunicationThread,
+    pauseCommunicationThreadSla,
+    resumeCommunicationThreadSla,
     fetchCommunicationDeadLetters,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,

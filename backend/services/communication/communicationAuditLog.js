@@ -23,6 +23,8 @@ export const COMMUNICATION_AUDIT_EVENTS = Object.freeze({
   RESOLVED: 'resolved',
   REOPENED: 'reopened',
   PRIORITY_CHANGED: 'priority_changed',
+  SLA_PAUSED: 'sla_paused',
+  SLA_RESUMED: 'sla_resumed',
   IDENTITY_LINKED: 'identity_linked',
   PREFERENCE_CHANGED: 'preference_changed',
   CONSENT_CHANGED: 'consent_changed',

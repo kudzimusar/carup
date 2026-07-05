@@ -548,6 +548,25 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     return res.json({ thread: updated });
   }));
 
+  // SLA pause/resume (item 10). Pausing freezes the SLA clock with a reason; resuming pushes every
+  // due-at forward by the paused duration so paused time is not counted against the SLA.
+  router.post('/api/admin/communications/threads/:id/sla/pause', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    const reason = req.body?.reason || 'paused';
+    const updated = await services.threadService.pauseSla(thread.id, reason);
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.SLA_PAUSED, { summary: `SLA paused (${reason})`, metadata: { reason } });
+    return res.json({ thread: updated });
+  }));
+
+  router.post('/api/admin/communications/threads/:id/sla/resume', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    const updated = await services.threadService.resumeSla(thread.id);
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.SLA_RESUMED, { summary: 'SLA resumed' });
+    return res.json({ thread: updated });
+  }));
+
   router.get('/api/admin/communications/dead-letter', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     // Tenant-scoped: notification_queue rows carry recipient PII (phone/email/handle) + message text.
     res.json({ notifications: await services.repository.list('notification_queue', { status: 'dead_letter', ...tenantListFilter(req) }, { order: { column: 'updated_at' } }) });

@@ -33,6 +33,7 @@ import {
 import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SORT_KEYS } from '../services/communication/communicationThreadQuery.js';
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
+import { SLA_STATES, computeSlaState, pausePatch, resumePatch } from '../services/communication/communicationSla.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
 
@@ -50,6 +51,7 @@ const backendVercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', im
 const supabaseCronMigrationSql = readFileSync(new URL('../../database/migrations/20260626120000_communication_supabase_cron.sql', import.meta.url), 'utf8');
 const inboxProjectionMigrationSql = readFileSync(new URL('../../database/migrations/20260705150000_communication_inbox_projection.sql', import.meta.url), 'utf8');
 const auditMigrationSql = readFileSync(new URL('../../database/migrations/20260705170000_communication_audit_events.sql', import.meta.url), 'utf8');
+const slaMigrationSql = readFileSync(new URL('../../database/migrations/20260705180000_communication_sla.sql', import.meta.url), 'utf8');
 
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
@@ -2110,6 +2112,19 @@ test('repository.searchThreads searches projected identity + latest-message + pr
   assert.deepEqual((await repo.searchThreads({ search: '263••••1234', include_terminal: true }, ctx)).threads.map((t) => t.id), ['TA1']);
 });
 
+test('repository.searchThreads search also matches thread reference fields (parity with the RPC ILIKE set)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [
+      threadRow({ id: 'REF1', tenant_id: 'tenantA', status: 'awaiting_human', subject_type: 'order', subject_id: 'ORD-4242', thread_type: 'marketplace_inquiry' }),
+      threadRow({ id: 'REF2', tenant_id: 'tenantA', status: 'awaiting_human', subject_type: 'order', subject_id: 'ORD-9999' }),
+    ],
+  });
+  const ctx = { userId: 'a', isPlatform: true, now: QUERY_NOW };
+  // subject_id / thread_type are in BOTH the window SEARCH_FIELDS and the RPC ILIKE list (kept in sync).
+  assert.deepEqual((await repo.searchThreads({ search: 'ORD-4242', include_terminal: true }, ctx)).threads.map((t) => t.id), ['REF1']);
+  assert.deepEqual((await repo.searchThreads({ search: 'marketplace_inquiry', include_terminal: true }, ctx)).threads.map((t) => t.id), ['REF1']);
+});
+
 test('repository.searchThreads paginates a projected 1000+ set with stable keyset cursors', async () => {
   const N = 1050;
   const base = Date.parse('2026-07-05T00:00:00.000Z');
@@ -2259,6 +2274,78 @@ test('projection tie-breaks deterministically on equal timestamps and sorts miss
   assert.equal(nullRow.identity_display_name, 'Real', 'a missing joined_at sorts LAST (matches SQL NULLS LAST)');
 });
 
+// ── SLA state machine + pause/resume (item 10) ──────────────────────────────────────────────────
+
+test('SLA state machine classifies healthy / due soon / breached / paused / not applicable', () => {
+  const now = Date.parse('2026-07-05T12:00:00.000Z');
+  assert.equal(computeSlaState({ status: 'awaiting_human', sla_due_at: '2026-07-05T14:00:00.000Z' }, now).state, SLA_STATES.HEALTHY);
+  assert.equal(computeSlaState({ status: 'awaiting_human', sla_due_at: '2026-07-05T12:10:00.000Z' }, now).state, SLA_STATES.DUE_SOON);
+  assert.equal(computeSlaState({ status: 'awaiting_human', sla_due_at: '2026-07-05T11:00:00.000Z' }, now).state, SLA_STATES.BREACHED);
+  assert.equal(computeSlaState({ status: 'resolved', sla_due_at: '2026-07-05T11:00:00.000Z' }, now).state, SLA_STATES.NOT_APPLICABLE);
+  assert.equal(computeSlaState({ status: 'awaiting_human' }, now).state, SLA_STATES.NOT_APPLICABLE);
+  // Paused overrides everything, even a would-be breach.
+  assert.equal(computeSlaState({ status: 'awaiting_human', sla_due_at: '2026-07-05T11:00:00.000Z', sla_paused_at: '2026-07-05T10:00:00.000Z' }, now).state, SLA_STATES.PAUSED);
+  // The most urgent unmet target wins: an unmet first-response is chosen over a later resolution.
+  const multi = computeSlaState({ status: 'awaiting_human', first_response_due_at: '2026-07-05T12:05:00.000Z', resolution_due_at: '2026-07-05T18:00:00.000Z' }, now);
+  assert.equal(multi.kind, 'first_response');
+  assert.equal(multi.state, SLA_STATES.DUE_SOON);
+  // Once first response is met, it drops out and resolution drives the state.
+  const met = computeSlaState({ status: 'awaiting_human', first_response_due_at: '2026-07-05T12:05:00.000Z', first_response_at: '2026-07-05T11:00:00.000Z', resolution_due_at: '2026-07-05T18:00:00.000Z' }, now);
+  assert.equal(met.kind, 'resolution');
+});
+
+test('SLA pause/resume patches freeze then shift the due-at targets by the paused duration', () => {
+  const thread = {
+    sla_due_at: '2026-07-05T12:00:00.000Z',
+    first_response_due_at: '2026-07-05T11:00:00.000Z',
+    resolution_due_at: '2026-07-05T18:00:00.000Z',
+    sla_paused_seconds: 0,
+  };
+  const pausedAt = Date.parse('2026-07-05T10:00:00.000Z');
+  const pPatch = pausePatch(thread, 'waiting_on_customer', new Date(pausedAt).toISOString());
+  assert.equal(pPatch.sla_pause_reason, 'waiting_on_customer');
+  assert.ok(pPatch.sla_paused_at);
+  // Idempotent: pausing an already-paused thread is a no-op patch.
+  assert.deepEqual(pausePatch({ ...thread, sla_paused_at: pPatch.sla_paused_at }, 'x'), {});
+
+  // Resume 30 minutes later → every due-at shifts forward by 30 minutes; paused seconds accrue.
+  const resumeNow = pausedAt + 30 * 60 * 1000;
+  const rPatch = resumePatch({ ...thread, sla_paused_at: pPatch.sla_paused_at }, resumeNow);
+  assert.equal(rPatch.sla_paused_at, null);
+  assert.equal(rPatch.sla_pause_reason, null);
+  assert.equal(rPatch.sla_paused_seconds, 1800);
+  assert.equal(rPatch.sla_due_at, '2026-07-05T12:30:00.000Z');
+  assert.equal(rPatch.first_response_due_at, '2026-07-05T11:30:00.000Z');
+  assert.equal(rPatch.resolution_due_at, '2026-07-05T18:30:00.000Z');
+  // Idempotent: resuming a non-paused thread is a no-op patch.
+  assert.deepEqual(resumePatch(thread, resumeNow), {});
+});
+
+test('threadService pauses and resumes the SLA clock via the memory repository', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [threadRow({ id: 'S', tenant_id: 'tenantA', status: 'awaiting_human', sla_due_at: '2999-01-01T00:00:00.000Z', sla_paused_seconds: 0 })],
+  });
+  const service = new CommunicationThreadService({ repository: repo });
+  const paused = await service.pauseSla('S', 'waiting_on_customer');
+  assert.ok(paused.sla_paused_at);
+  assert.equal(paused.sla_pause_reason, 'waiting_on_customer');
+  const resumed = await service.resumeSla('S', Date.parse(paused.sla_paused_at) + 60000);
+  assert.equal(resumed.sla_paused_at, null);
+  assert.ok(Number(resumed.sla_paused_seconds) >= 60);
+});
+
+test('communication SLA migration is additive (ADD COLUMN IF NOT EXISTS) + adds a policy table', () => {
+  for (const col of ['first_response_due_at', 'next_response_due_at', 'resolution_due_at', 'sla_paused_at', 'sla_pause_reason', 'sla_paused_seconds', 'sla_business_timezone']) {
+    assert.match(slaMigrationSql, new RegExp(`ADD COLUMN IF NOT EXISTS ${col}\\b`), `must add ${col}`);
+  }
+  assert.match(slaMigrationSql, /CREATE TABLE IF NOT EXISTS communication_sla_policies/);
+  assert.match(slaMigrationSql, /ENABLE ROW LEVEL SECURITY/);
+  // Additive: no DROP/retype of message_threads in the Up section.
+  const up = slaMigrationSql.split('-- +migrate Down')[0];
+  assert.equal(/DROP TABLE/i.test(up), false);
+  assert.equal(/ALTER TABLE message_threads DROP/i.test(up), false);
+});
+
 // ── Communication audit trail (item 8) ────────────────────────────────────────────────────────
 
 test('communication audit log appends events, coerces bad actor types, and is fail-soft', async () => {
@@ -2368,6 +2455,10 @@ test('inbox projection migration adds the view, search/count RPCs, indexes, and 
   // Deterministic tie-breaks in the projection laterals (parity with the JS mirror).
   assert.match(inboxProjectionMigrationSql, /ORDER BY p\.joined_at ASC NULLS LAST, p\.id ASC/);
   assert.match(inboxProjectionMigrationSql, /ORDER BY m\.created_at DESC, m\.id DESC/);
+  // Search field parity with the window engine's SEARCH_FIELDS (incl. the UUID id cast).
+  for (const field of [/v\.thread_type\s+ILIKE/, /v\.id::text\s+ILIKE/, /v\.subject_type\s+ILIKE/, /v\.subject_id\s+ILIKE/]) {
+    assert.match(inboxProjectionMigrationSql, field, `RPC search must include ${field}`);
+  }
   assert.match(inboxProjectionMigrationSql, /SECURITY DEFINER/);
   // Aggregate counts RPC.
   assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE FUNCTION communication_thread_counts\(/);

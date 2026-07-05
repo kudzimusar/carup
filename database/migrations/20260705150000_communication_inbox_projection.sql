@@ -102,12 +102,19 @@ AS $$
       OR (p_sla = 'due_soon' AND v.sla_due_at IS NOT NULL AND v.sla_due_at >= now() AND v.sla_due_at < now() + interval '15 minutes')
       OR (p_sla = 'healthy'  AND v.sla_due_at IS NOT NULL AND v.sla_due_at >= now() + interval '15 minutes')
     ))
+    -- Search field set is kept in exact sync with the window engine's SEARCH_FIELDS
+    -- (communicationThreadQuery.js) so the RPC and window paths return identical matches. v.id is a
+    -- UUID and must be cast for ILIKE.
     AND (p_search IS NULL OR p_search = '' OR (
       v.identity_display_name       ILIKE '%' || p_search || '%'
       OR v.identity_address         ILIKE '%' || p_search || '%'
       OR v.identity_external_id     ILIKE '%' || p_search || '%'
       OR v.latest_message_text      ILIKE '%' || p_search || '%'
       OR v.thread_key               ILIKE '%' || p_search || '%'
+      OR v.thread_type              ILIKE '%' || p_search || '%'
+      OR v.id::text                 ILIKE '%' || p_search || '%'
+      OR v.subject_type             ILIKE '%' || p_search || '%'
+      OR v.subject_id               ILIKE '%' || p_search || '%'
       OR v.marketplace_listing_id   ILIKE '%' || p_search || '%'
       OR v.escrow_id                ILIKE '%' || p_search || '%'
       OR v.financing_application_id ILIKE '%' || p_search || '%'

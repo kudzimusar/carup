@@ -4,7 +4,7 @@
 
 import { titleCase } from './communicationFormatting'
 
-export type SlaLevel = 'none' | 'ok' | 'due' | 'breach'
+export type SlaLevel = 'none' | 'ok' | 'due' | 'breach' | 'paused'
 
 export interface ThreadLike {
   id?: string
@@ -21,6 +21,8 @@ export interface ThreadLike {
   escrow_id?: string | null
   financing_application_id?: string | null
   sla_due_at?: string | null
+  sla_paused_at?: string | null
+  sla_pause_reason?: string | null
   // Identity-first projection (communication_inbox_threads).
   identity_display_name?: string | null
   identity_address?: string | null
@@ -70,8 +72,11 @@ export function priorityVariant(p?: string | null): 'destructive' | 'secondary' 
 }
 
 export function threadSla(thread?: ThreadLike | null, now: number = Date.now()): { level: SlaLevel; label: string } {
+  if (['resolved', 'closed', 'spam'].includes(String(thread?.status))) return { level: 'none', label: '' }
+  // Paused freezes the clock and overrides any would-be due/breach (item 10).
+  if (thread?.sla_paused_at) return { level: 'paused', label: 'SLA paused' }
   const due = thread?.sla_due_at
-  if (!due || ['resolved', 'closed', 'spam'].includes(String(thread?.status))) return { level: 'none', label: '' }
+  if (!due) return { level: 'none', label: '' }
   const dueTime = new Date(due).getTime()
   if (Number.isNaN(dueTime)) return { level: 'none', label: '' }
   const diffMs = dueTime - now
