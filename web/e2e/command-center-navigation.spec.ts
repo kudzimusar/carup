@@ -20,6 +20,10 @@ test('section tabs navigate to deep-linkable surfaces', async ({ page }) => {
   await page.locator('[data-testid="section-providers"]').click()
   await expect(page).toHaveURL(/\/providers$/)
   await expect(page.locator('[data-testid="section-view-providers"]')).toBeVisible()
+  // Per-channel operations telemetry (P1.4): live mode + missing-credential names surfaced.
+  await expect(page.locator('[data-testid="provider-telemetry"]')).toBeVisible()
+  await expect(page.getByText('Fake — no live send')).toBeVisible()
+  await expect(page.getByText('CARUP_TELEGRAM_BOT_TOKEN')).toBeVisible()
 
   await page.locator('[data-testid="section-settings"]').click()
   await expect(page).toHaveURL(/\/settings$/)

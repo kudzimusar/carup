@@ -210,6 +210,17 @@ type CommunicationThreadPage = {
   next_cursor: string | null
   mode?: string
 }
+type CommunicationProviderTelemetry = {
+  channel: string
+  provider?: string | null
+  mode?: string | null
+  available?: boolean
+  webhook?: { path?: string | null; configured?: boolean; latest_inbound_at?: string | null; last_signature_valid?: boolean | null }
+  outbound?: { latest_success_at?: string | null; latest_success_provider_message_id?: string | null }
+  latest_error?: { at?: string | null; code?: string | null; message?: string | null } | null
+  queue?: { queued?: number; retry_scheduled?: number; dead_letter?: number }
+  credentials?: { complete?: boolean; missing?: string[] }
+}
 type CommunicationChannelIdentity = {
   id?: string
   user_id?: string | null
@@ -1077,6 +1088,10 @@ export function useCarUpApi() {
     return request('/admin/communications/worker/health', { method: 'GET' })
   }, [request])
 
+  const fetchCommunicationProviders = useCallback(async (): Promise<{ channels: CommunicationProviderTelemetry[]; worker?: { stale_locks?: number; scheduler?: Record<string, unknown> } }> => {
+    return request('/admin/communications/providers', { method: 'GET' })
+  }, [request])
+
   // Provider smoke test: sends one real message through the Communication Engine's queue +
   // delivery-worker path. Admin-authed; refuses fake adapters server-side (ok:false / error).
   const sendCommunicationProviderSmokeTest = useCallback(async (payload: {
@@ -1349,6 +1364,7 @@ export function useCarUpApi() {
     requeueCommunicationDeadLetter,
     fetchAdminCommunicationMetrics,
     fetchCommunicationWorkerHealth,
+    fetchCommunicationProviders,
     sendCommunicationProviderSmokeTest,
     fetchAdminUsers,
     fetchAdminTelemetry,
