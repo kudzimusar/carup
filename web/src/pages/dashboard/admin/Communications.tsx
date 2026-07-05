@@ -32,6 +32,12 @@ import { RecoveryView } from '@/features/communications/admin/RecoveryView'
 import type { RecoveryNotification } from '@/features/communications/admin/RecoveryView'
 import { MessageTechnicalDetails } from '@/features/communications/admin/MessageTechnicalDetails'
 import { VirtualList } from '@/features/communications/admin/VirtualList'
+import { QueueOverview } from '@/features/communications/admin/QueueOverview'
+import { SlaWorklist } from '@/features/communications/admin/SlaWorklist'
+import type { SlaWorklistThread } from '@/features/communications/admin/SlaWorklist'
+import { AuditSearch } from '@/features/communications/admin/AuditSearch'
+import { SettingsView } from '@/features/communications/admin/SettingsView'
+import type { SettingsSlaPolicy } from '@/features/communications/admin/SettingsView'
 import { DeliveryAttemptList } from '@/features/communications/admin/DeliveryAttemptList'
 import type { DeliveryAttempt } from '@/features/communications/admin/DeliveryAttemptList'
 import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
@@ -144,6 +150,8 @@ export default function AdminCommunications() {
     fetchAdminCommunicationThread,
     markAdminCommunicationThreadRead,
     fetchAdminCommunicationThreadAudit,
+    fetchCommunicationAudit,
+    fetchCommunicationSlaPolicies,
     fetchCommunicationWorkerHealth,
     fetchCommunicationProviders,
     sendCommunicationProviderSmokeTest,
@@ -172,7 +180,9 @@ export default function AdminCommunications() {
   const section: CommandCenterSection = (COMMAND_CENTER_SECTIONS as readonly string[]).includes(routeParams.section || '')
     ? (routeParams.section as CommandCenterSection)
     : 'inbox'
-  const isInboxLike = section === 'inbox' || section === 'queues' || section === 'sla'
+  // Only the inbox uses the triage layout; queues/sla/recovery/audit/providers/settings are dedicated
+  // operational workspaces (P1.10) — a section is never a mere alias of the inbox.
+  const isInboxLike = section === 'inbox'
   const [selected, setSelected] = useState<ThreadSummary | null>(null)
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
@@ -189,6 +199,10 @@ export default function AdminCommunications() {
   const [metrics, setMetrics] = useState<Metrics>({})
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
   const [providers, setProviders] = useState<{ channels: ProviderTelemetry[]; staleLocks: number }>({ channels: [], staleLocks: 0 })
+  const [slaThreads, setSlaThreads] = useState<SlaWorklistThread[]>([])
+  const [auditSearchEvents, setAuditSearchEvents] = useState<AuditEvent[]>([])
+  const [auditSearchType, setAuditSearchType] = useState('')
+  const [slaPolicies, setSlaPolicies] = useState<SettingsSlaPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
@@ -359,6 +373,31 @@ export default function AdminCommunications() {
       .then((r) => setProviders({ channels: r.channels || [], staleLocks: Number(r.worker?.stale_locks ?? 0) }))
       .catch(() => undefined)
   }, [section, fetchCommunicationProviders])
+
+  // SLA worklist (P1.10): threads sorted by SLA urgency, fetched when the SLA surface is active.
+  useEffect(() => {
+    if (section !== 'sla') return
+    fetchAdminCommunicationThreads({ sort: 'sla', include_terminal: 'false', limit: '100' })
+      .then((r) => setSlaThreads((r.threads || []).map((t): SlaWorklistThread => {
+        const sla = threadSla(t)
+        return { id: t.id, title: threadTitle(t), channel: t.primary_channel, reference: threadRef(t), slaLabel: sla.label, slaState: slaLevelToState(sla.level) }
+      })))
+      .catch(() => undefined)
+  }, [section, fetchAdminCommunicationThreads])
+
+  // Global audit search (P1.10) — refetched on the event-type filter.
+  useEffect(() => {
+    if (section !== 'audit') return
+    fetchCommunicationAudit(auditSearchType ? { event_type: auditSearchType } : undefined)
+      .then((r) => setAuditSearchEvents(r.events || []))
+      .catch(() => undefined)
+  }, [section, auditSearchType, fetchCommunicationAudit])
+
+  // Read-only SLA policies for the Settings surface (P1.10).
+  useEffect(() => {
+    if (section !== 'settings') return
+    fetchCommunicationSlaPolicies().then((r) => setSlaPolicies(r.policies || [])).catch(() => undefined)
+  }, [section, fetchCommunicationSlaPolicies])
 
   // Persist filter / search / selected thread to the URL so the inbox is deep-linkable and
   // survives refresh (replace, not push, to avoid history spam).
@@ -962,35 +1001,45 @@ export default function AdminCommunications() {
         )}
 
         {/* ── Audit section (item 5/8): the selected thread's full audit trail ── */}
-        {section === 'audit' && (
-          <div className="max-w-3xl" data-testid="section-view-audit">
-            {selected ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-gray-600">Audit trail — {threadTitle(selected)}</p>
-                  <Button size="sm" variant="ghost" className="h-7 text-xs" aria-pressed={showAuditTechnical} onClick={() => setShowAuditTechnical((v) => !v)}>
-                    {showAuditTechnical ? 'Hide technical' : 'Show technical'}
-                  </Button>
-                </div>
-                <AuditDrawer events={auditEvents} showTechnical={showAuditTechnical} />
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-10">Open a thread from the Inbox to view its audit trail.</p>
-            )}
+        {/* ── Queues workspace (P1.10): backlog overview ── */}
+        {section === 'queues' && (
+          <div data-testid="section-view-queues">
+            <QueueOverview basePath={basePath} queues={FILTERS.map((f) => ({ value: f.value, label: f.label, count: counts[f.value] ?? 0 }))} />
           </div>
         )}
 
-        {/* ── Settings section (item 5) ── */}
+        {/* ── SLA workspace (P1.10): SLA worklist/overview ── */}
+        {section === 'sla' && (
+          <div data-testid="section-view-sla">
+            <SlaWorklist
+              threads={slaThreads}
+              counts={{ breached: serverCounts?.sla_breach ?? 0 }}
+              onOpen={(id) => navigate(`${basePath}/inbox/${id}`)}
+            />
+          </div>
+        )}
+
+        {/* ── Audit workspace (P1.10): GLOBAL audit search — no thread selection required ── */}
+        {section === 'audit' && (
+          <div className="max-w-3xl" data-testid="section-view-audit">
+            <AuditSearch
+              events={auditSearchEvents}
+              eventType={auditSearchType}
+              onEventTypeChange={setAuditSearchType}
+              onOpenThread={(id) => navigate(`${basePath}/inbox/${id}`)}
+            />
+          </div>
+        )}
+
+        {/* ── Settings workspace (P1.10): read-only routing/SLA/channel reference ── */}
         {section === 'settings' && (
-          <div className="max-w-2xl" data-testid="section-view-settings">
-            <Card className="border-0 card-shadow">
-              <CardHeader className="pb-3"><CardTitle className="text-lg">Command Center settings</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm text-gray-600">
-                <p>Poll cadence: idle {IDLE_POLL_INTERVAL_MS / 1000}s · in-flight {DELIVERY_POLL_INTERVAL_MS / 1000}s.</p>
-                <p>Default queue: {prettyLabel(DEFAULT_QUEUE)}. SLA, consent, and per-channel preferences are shown per conversation in the context rail.</p>
-                <p className="text-xs text-gray-400">Tenant-scoped: you only see and act on your own tenant&apos;s conversations.</p>
-              </CardContent>
-            </Card>
+          <div className="max-w-3xl" data-testid="section-view-settings">
+            <SettingsView
+              policies={slaPolicies}
+              idlePollSeconds={IDLE_POLL_INTERVAL_MS / 1000}
+              deliveryPollSeconds={DELIVERY_POLL_INTERVAL_MS / 1000}
+              defaultQueue={DEFAULT_QUEUE}
+            />
           </div>
         )}
       </div>

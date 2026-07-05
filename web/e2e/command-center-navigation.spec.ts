@@ -28,6 +28,26 @@ test('section tabs navigate to deep-linkable surfaces', async ({ page }) => {
   await page.locator('[data-testid="section-settings"]').click()
   await expect(page).toHaveURL(/\/settings$/)
   await expect(page.locator('[data-testid="section-view-settings"]')).toBeVisible()
+  await expect(page.locator('[data-testid="settings-sla-policies"]')).toBeVisible()
+  await expect(page.getByText('Read only')).toBeVisible()
+})
+
+test('queues / sla / audit are real workspaces, not inbox aliases (P1.10)', async ({ page }) => {
+  await page.goto('/admin/communications')
+
+  await page.locator('[data-testid="section-queues"]').click()
+  await expect(page.locator('[data-testid="queue-overview"]')).toBeVisible()
+  await expect(page.locator('[data-testid="queue-card-awaiting_human"]')).toBeVisible()
+
+  await page.locator('[data-testid="section-sla"]').click()
+  await expect(page.locator('[data-testid="sla-worklist"]')).toBeVisible()
+
+  await page.locator('[data-testid="section-audit"]').click()
+  // Global audit search works with NO thread selected.
+  await expect(page.locator('[data-testid="audit-search"]')).toBeVisible()
+  await expect(page.getByText('Reply sent to customer')).toBeVisible()
+  await page.locator('[data-testid="audit-search-row"]').first().getByRole('button', { name: /open thread/i }).click()
+  await expect(page.locator('[data-testid="conversation-pane"]')).toBeVisible()
 })
 
 test('a directly-loaded section route renders that surface after a refresh', async ({ page }) => {

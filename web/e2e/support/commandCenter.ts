@@ -102,6 +102,18 @@ export async function mockCommandCenterApi(page: Page, opts: MockOptions = {}) {
       worker: { stale_locks: 0, scheduler: {} },
     })
 
+    // Global audit search (P1.10)
+    if (path.endsWith('/audit') && !path.includes('/threads/')) return json(route, {
+      events: [
+        { id: 'ev1', event_type: 'reply_sent', actor_type: 'admin', actor_id: 'admin-e2e', thread_id: threads[0]?.id, summary: 'Reply sent to customer', created_at: '2026-07-05T10:00:00.000Z' },
+        { id: 'ev2', event_type: 'escalated', actor_type: 'admin', actor_id: 'admin-e2e', thread_id: threads[1]?.id, summary: 'Escalated to support', created_at: '2026-07-05T09:00:00.000Z' },
+      ],
+    })
+    // SLA policies (P1.10 settings)
+    if (path.endsWith('/sla/policies')) return json(route, {
+      policies: [{ id: 'pol', name: 'Default WhatsApp', channel: 'whatsapp', priority: 'high', first_response_minutes: 15, resolution_minutes: 240, business_timezone: 'Africa/Harare', active: true }],
+    })
+
     // Recovery
     if (path.endsWith('/recovery')) return json(route, recovery)
     if (path.endsWith('/recovery/bulk-retry')) return json(route, { retried: 1, failed: 0, total: 1, results: [{ id: 'x', ok: true }] })
