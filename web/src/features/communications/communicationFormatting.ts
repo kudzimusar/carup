@@ -166,6 +166,11 @@ export function relativeTime(iso?: string | null, now: number = Date.now()): str
   return `${Math.round(s / (7 * 86400))}w ago`
 }
 
+export function ageSeconds(iso?: string | null, now: number = Date.now()): number | null {
+  if (!isValidDate(iso)) return null
+  return Math.round((now - new Date(iso as string).getTime()) / 1000)
+}
+
 function safeTimeZone(timeZone?: string): string | undefined {
   if (!timeZone) return undefined
   try {

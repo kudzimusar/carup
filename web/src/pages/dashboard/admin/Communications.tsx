@@ -17,6 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
+import { MessageBubble } from '@/features/communications/admin/MessageBubble'
+import { dayGroup } from '@/features/communications/communicationFormatting'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['threads'][number]
@@ -64,13 +66,6 @@ function relativeTime(iso?: string | null): string {
   if (s < 3600) return `${Math.round(s / 60)}m ago`
   if (s < 86400) return `${Math.round(s / 3600)}h ago`
   return `${Math.round(s / 86400)}d ago`
-}
-
-function ageSeconds(iso?: string | null): number | null {
-  if (!iso) return null
-  const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return null
-  return Math.round((Date.now() - t) / 1000)
 }
 
 function prettyLabel(t?: string | null): string {
@@ -556,46 +551,15 @@ export default function AdminCommunications() {
                       <p className="text-sm text-gray-400 text-center py-8">No messages in this thread yet.</p>
                     ) : (
                       <div className="space-y-3">
-                        {messages.map((message) => {
-                          const dir = String(message.direction)
-                          const isOutbound = dir === 'outbound'
-                          const isInternal = dir === 'internal'
-                          const ageSec = isOutbound ? ageSeconds(message.created_at) : null
-                          const slaBreach = isOutbound && ['queued', 'processing'].includes(String(message.status || '')) && ageSec != null && ageSec > 60
-                          if (isInternal) {
-                            return (
-                              <div key={message.id} className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> Internal note · not sent to user</span>
-                                  <span className="text-[10px] text-gray-400">{relativeTime(message.created_at)}</span>
-                                </div>
-                                <p className="text-sm mt-1 whitespace-pre-wrap">{message.content_text}</p>
-                              </div>
-                            )
+                        {messages.flatMap((message, i) => {
+                          const day = dayGroup(message.created_at)
+                          const prevDay = i > 0 ? dayGroup(messages[i - 1].created_at) : ''
+                          const nodes = []
+                          if (day && day !== prevDay) {
+                            nodes.push(<div key={`sep-${message.id}`} className="text-center text-[10px] uppercase tracking-wide text-gray-400 py-1">{day}</div>)
                           }
-                          return (
-                            <div key={message.id} className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`max-w-[82%] rounded-lg p-3 ${isOutbound ? 'bg-orange-50 border border-orange-100' : 'bg-white border'}`}>
-                                <div className="flex items-center justify-between gap-3 flex-wrap">
-                                  <span className="text-[10px] uppercase tracking-wide text-gray-400">{dir} · {message.channel}</span>
-                                  <span className="text-[10px] text-gray-400">{relativeTime(message.created_at)}</span>
-                                </div>
-                                <p className="text-sm mt-1 whitespace-pre-wrap">{message.content_text}</p>
-                                {isOutbound && (
-                                  <div className="flex items-center gap-1.5 mt-2">
-                                    {deliveryBadge(message.status)}
-                                    {slaBreach && <Badge variant="destructive" className="text-[10px] gap-1"><AlertTriangle className="w-3 h-3" />{ageSec}s · past SLA</Badge>}
-                                    {message.provider_message_id && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild><span className="text-[10px] text-gray-400 font-mono truncate max-w-[120px] cursor-default">{message.provider_message_id}</span></TooltipTrigger>
-                                        <TooltipContent>Provider message id (audit)</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )
+                          nodes.push(<MessageBubble key={message.id} message={message} slaThresholdSeconds={60} />)
+                          return nodes
                         })}
                       </div>
                     )}

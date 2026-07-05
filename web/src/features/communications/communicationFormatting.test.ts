@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  dayGroup, deliveryLabel, deliveryTone, effectiveDeliveryState, formatExactDateTime,
+  ageSeconds, dayGroup, deliveryLabel, deliveryTone, effectiveDeliveryState, formatExactDateTime,
   identityLabel, isValidDate, looksLikeUuid, maskEmail, maskPhone, relativeTime, workflowLabel,
 } from './communicationFormatting'
 
@@ -87,5 +87,12 @@ describe('dates never render Invalid Date', () => {
     expect(relativeTime('2026-07-05T11:30:00.000Z', now)).toBe('30m ago')
     expect(relativeTime('2026-07-05T09:00:00.000Z', now)).toBe('3h ago')
     expect(relativeTime('2026-07-03T12:00:00.000Z', now)).toBe('2d ago')
+  })
+
+  it('computes age in seconds and guards invalid input', () => {
+    const now = new Date('2026-07-05T12:00:00.000Z').getTime()
+    expect(ageSeconds('2026-07-05T11:59:00.000Z', now)).toBe(60)
+    expect(ageSeconds('garbage', now)).toBeNull()
+    expect(ageSeconds(null, now)).toBeNull()
   })
 })
