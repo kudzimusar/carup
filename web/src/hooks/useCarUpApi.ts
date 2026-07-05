@@ -941,7 +941,7 @@ export function useCarUpApi() {
       sla_breaching: number
     }
     telegram: { channel: string; provider: string; mode: string; available: boolean; missing?: string[] } | null
-    adapters: Array<{ channel: string; provider: string; mode: string; available: boolean }>
+    adapters: Array<{ channel: string; provider: string; mode: string; available: boolean; missing?: string[] }>
     scheduler: {
       scheduler_type: string
       pg_cron_available: boolean
