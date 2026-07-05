@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { parseChannelPayload } from '../referral/referralChannelPayloadParsers.js';
 import { buildDedupeKey, normalizeChannel, redactPayload, stableHash, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { ForbiddenError, ValidationError } from '../../utils/errors.js';
 
 const DEFAULT_CLOUDFLARE_SIGNATURE_TOLERANCE_SECONDS = 300;
@@ -312,6 +313,16 @@ export class CommunicationWebhookService {
         failed_at: receipt.status === 'failed' ? nowIso() : null,
       });
     }
+    // Audit the provider receipt (item 2). Resolve thread/tenant context from the notification.
+    const notification = notificationId ? await this.repository.findOne('notification_queue', { id: notificationId }).catch(() => null) : null;
+    await logCommunicationAuditEvent(this.repository, {
+      tenant_id: notification?.tenant_id ?? null, thread_id: notification?.thread_id ?? null,
+      message_id: messageId ?? null, notification_id: notificationId ?? null,
+      event_type: COMMUNICATION_AUDIT_EVENTS.DELIVERY_RECEIPT, actor_type: 'system',
+      channel: notification?.channel ?? receipt.channel ?? null,
+      summary: `Provider receipt: ${receipt.status}`, correlation_id: receipt.providerMessageId || null,
+      metadata: { status: receipt.status, raw_status: receipt.rawStatus ?? null, error_code: receipt.errorCode ?? null },
+    });
     return { notificationId, messageId, providerMessageId: receipt.providerMessageId, status: receipt.status };
   }
 
@@ -404,6 +415,11 @@ export class CommunicationWebhookService {
         attempt_count: Number(existing.attempt_count || 0) + 1,
         processed_at: nowIso(),
       });
+      await logCommunicationAuditEvent(this.repository, {
+        tenant_id: existing.tenant_id ?? null, event_type: COMMUNICATION_AUDIT_EVENTS.WEBHOOK_PROCESSED,
+        actor_type: 'system', channel: normalized, summary: 'Inbound webhook duplicate (deduped)',
+        correlation_id: actor.correlation_id || null, metadata: { result: 'duplicate', provider },
+      });
       return { success: true, duplicate: true, webhook_log_id: existing.id, count: 0, results: [] };
     }
 
@@ -429,6 +445,11 @@ export class CommunicationWebhookService {
         error_code: 'invalid_signature',
         error_message: 'Webhook signature or shared secret validation failed.',
         processed_at: nowIso(),
+      });
+      await logCommunicationAuditEvent(this.repository, {
+        event_type: COMMUNICATION_AUDIT_EVENTS.WEBHOOK_PROCESSED, actor_type: 'system', channel: normalized,
+        summary: 'Inbound webhook rejected (invalid signature)', correlation_id: actor.correlation_id || null,
+        metadata: { result: 'rejected', provider, error_code: 'invalid_signature' },
       });
       throw new ForbiddenError('Webhook verification failed.');
     }
@@ -472,6 +493,11 @@ export class CommunicationWebhookService {
         message_count: results.length,
         processed_at: nowIso(),
       });
+      await logCommunicationAuditEvent(this.repository, {
+        event_type: COMMUNICATION_AUDIT_EVENTS.WEBHOOK_PROCESSED, actor_type: 'system', channel: normalized,
+        summary: `Inbound webhook processed (${results.length} message${results.length === 1 ? '' : 's'})`,
+        correlation_id: actor.correlation_id || null, metadata: { result: 'processed', provider, message_count: results.length },
+      });
       return { success: true, duplicate: false, webhook_log_id: log.id, count: results.length, receipt_count: receiptResults.length, results, receipts: receiptResults };
     } catch (error) {
       await this.repository.updateById('webhook_logs', log.id, {
@@ -479,6 +505,11 @@ export class CommunicationWebhookService {
         error_code: error.code || 'processing_failed',
         error_message: error.message,
         processed_at: nowIso(),
+      });
+      await logCommunicationAuditEvent(this.repository, {
+        event_type: COMMUNICATION_AUDIT_EVENTS.WEBHOOK_PROCESSED, actor_type: 'system', channel: normalized,
+        summary: `Inbound webhook failed (${error.code || 'processing_failed'})`,
+        correlation_id: actor.correlation_id || null, metadata: { result: 'failed', provider, error_code: error.code || 'processing_failed' },
       });
       throw error;
     }

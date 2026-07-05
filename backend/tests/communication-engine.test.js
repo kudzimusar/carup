@@ -2323,6 +2323,54 @@ test('projection tie-breaks deterministically on equal timestamps and sorts miss
   assert.equal(nullRow.identity_display_name, 'Real', 'a missing joined_at sorts LAST (matches SQL NULLS LAST)');
 });
 
+test('engine-wide audit: inbound → classify → queue-claim → attempt → receipt emits ordered events (item 2)', async () => {
+  const services = createHarness(); // fake in_app adapter accepts by default
+  const inbound = await services.inboundService.ingest({
+    channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api', text: 'Is the Prado still available?',
+    from: '263771234567', providerMessageId: 'wamid.LIFECYCLE',
+  }, { surface: 'whatsapp' });
+  const threadId = inbound.thread.id;
+
+  const { notification } = await services.notificationService.queueNotification({
+    recipientUserId: inbound.identity.user_id || 'user-x',
+    thread: inbound.thread,
+    notificationType: 'admin_reply',
+    channel: 'in_app',
+    templateKey: 'admin_reply_v1',
+    variables: {},
+    dedupeParts: ['lifecycle', threadId],
+  });
+  await services.deliveryWorker.deliverNotification(notification);
+
+  // Audit events are stored in emission (insertion) order by the memory repo.
+  const events = (await services.repository.list('communication_audit_events', {}))
+    .filter((e) => e.thread_id === threadId || e.notification_id === String(notification.id));
+  const types = events.map((e) => e.event_type);
+  for (const expected of ['inbound_received', 'ai_classified', 'queue_claimed', 'delivery_attempt', 'delivery_receipt']) {
+    assert.ok(types.includes(expected), `lifecycle must emit ${expected} (got ${types.join(', ')})`);
+  }
+  // Ordering across the lifecycle.
+  assert.ok(types.indexOf('inbound_received') < types.indexOf('ai_classified'), 'inbound before classification');
+  assert.ok(types.indexOf('ai_classified') < types.indexOf('queue_claimed'), 'classification before queue claim');
+  assert.ok(types.indexOf('queue_claimed') < types.indexOf('delivery_attempt'), 'claim before attempt');
+  assert.ok(types.indexOf('delivery_attempt') < types.indexOf('delivery_receipt'), 'attempt before receipt');
+  // The events are linked to the thread / notification (not orphaned).
+  assert.ok(events.find((e) => e.event_type === 'inbound_received').thread_id, 'inbound audit linked to thread');
+  assert.equal(events.find((e) => e.event_type === 'delivery_attempt').notification_id, String(notification.id));
+});
+
+test('identity, preference and consent changes emit audit events (item 2)', async () => {
+  const services = createHarness();
+  const identity = await services.identityService.resolveOrCreateIdentity({ channel: 'whatsapp', address: '263771234567', tenant_id: 'tenantA' });
+  await services.identityService.linkIdentityToUser(identity.id, 'user-42', { verified: true });
+  await services.preferenceService.updatePreferences('user-42', { whatsapp_enabled: true, consent_status: 'granted', consent_version: 'v2' }, 'tenantA');
+  const events = await services.repository.list('communication_audit_events', {});
+  const types = events.map((e) => e.event_type);
+  assert.ok(types.includes('identity_linked'));
+  assert.ok(types.includes('preference_changed'));
+  assert.ok(types.includes('consent_changed')); // consent field moved
+});
+
 // ── Provider operations telemetry (P1.4) ────────────────────────────────────────────────────────
 
 test('provider telemetry joins adapter health with webhooks, attempts and queue per channel', () => {

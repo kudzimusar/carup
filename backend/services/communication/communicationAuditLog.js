@@ -7,6 +7,7 @@
 
 export const COMMUNICATION_AUDIT_EVENTS = Object.freeze({
   INBOUND_RECEIVED: 'inbound_received',
+  WEBHOOK_PROCESSED: 'webhook_processed',
   AI_CLASSIFIED: 'ai_classified',
   AI_DRAFTED: 'ai_drafted',
   ASSIGNED: 'assigned',
@@ -29,6 +30,7 @@ export const COMMUNICATION_AUDIT_EVENTS = Object.freeze({
   PREFERENCE_CHANGED: 'preference_changed',
   CONSENT_CHANGED: 'consent_changed',
   MARKED_READ: 'marked_read',
+  FEEDBACK_RECEIVED: 'feedback_received',
   SMOKE_TEST: 'smoke_test',
 });
 

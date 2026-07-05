@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -117,15 +118,30 @@ export function createCommunicationRouter({ services = createCommunicationServic
   router.post('/api/communications/threads/:id/feedback', authorizeRole([]), asyncHandler(async (req, res) => {
     const thread = await services.repository.findOne('message_threads', { id: req.params.id });
     if (!thread || thread.primary_user_id !== req.userContext.id) return res.status(404).json({ error: 'Thread not found.' });
-    await services.threadService.recordMessage(thread, {
+    const message = await services.threadService.recordMessage(thread, {
       direction: 'inbound',
       sender_user_id: req.userContext.id,
       channel: 'in_app',
       content_text: req.body?.feedback || req.body?.message || '',
       content_json: { rating: req.body?.rating || null, feedback_type: 'user_feedback' },
     });
-    if (thread.status === 'resolved' && req.body?.reopen !== false) await services.threadService.reopenThread(thread.id, 'user_feedback');
-    res.status(201).json({ success: true });
+    const reopened = thread.status === 'resolved' && req.body?.reopen !== false;
+    if (reopened) await services.threadService.reopenThread(thread.id, 'user_feedback');
+    // Audit customer feedback (+ reopen when material).
+    await logCommunicationAuditEvent(services.repository, {
+      tenant_id: thread.tenant_id ?? null, thread_id: thread.id, message_id: message?.id ?? null,
+      event_type: COMMUNICATION_AUDIT_EVENTS.FEEDBACK_RECEIVED,
+      actor_type: 'customer', actor_id: req.userContext.id, channel: 'in_app',
+      summary: `Customer feedback${req.body?.rating ? ` (rating ${req.body.rating})` : ''}`, metadata: { rating: req.body?.rating ?? null },
+    });
+    if (reopened) {
+      await logCommunicationAuditEvent(services.repository, {
+        tenant_id: thread.tenant_id ?? null, thread_id: thread.id,
+        event_type: COMMUNICATION_AUDIT_EVENTS.REOPENED, actor_type: 'customer', actor_id: req.userContext.id,
+        summary: 'Reopened by customer feedback',
+      });
+    }
+    return res.status(201).json({ success: true });
   }));
 
   router.get('/api/communications/notifications', authorizeRole([]), asyncHandler(async (req, res) => {

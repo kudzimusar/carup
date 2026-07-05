@@ -3,6 +3,7 @@ import { ReferralChannelGatewayService } from '../referral/referralChannelGatewa
 import { ReferralEngineService } from '../referral/referralEngineService.js';
 import { CommunicationAiService } from './communicationAiService.js';
 import { COMMUNICATION_EVENTS, normalizeChannel, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 export class CommunicationInboundService {
   constructor({
@@ -160,6 +161,24 @@ export class CommunicationInboundService {
         variables: { topic: classification.intent, reference: thread.id },
         priority: 'normal',
         dedupeParts: ['ack', thread.id, message.id, channel],
+      });
+    }
+
+    // Lifecycle audit (fail-soft): inbound receipt → AI classification → AI draft (item 2).
+    const auditBase = { tenant_id: thread.tenant_id ?? null, thread_id: thread.id, message_id: message.id, channel };
+    await logCommunicationAuditEvent(this.repository, {
+      ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.INBOUND_RECEIVED, actor_type: 'customer',
+      actor_id: identity.user_id || null, correlation_id: message.provider_message_id || null, summary: 'Inbound message received',
+    });
+    await logCommunicationAuditEvent(this.repository, {
+      ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_CLASSIFIED, actor_type: 'ai',
+      summary: `AI classified as ${classification.intent || 'unknown'}`,
+      metadata: { intent: classification.intent ?? null, handoff_required: Boolean(classification.handoffRequired || aiAnswer.handoffRequired) },
+    });
+    if (aiAnswer && (aiAnswer.reply || aiAnswer.draft)) {
+      await logCommunicationAuditEvent(this.repository, {
+        ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_DRAFTED, actor_type: 'ai',
+        summary: aiAnswer.handoffRequired ? 'AI drafted a reply (pending human)' : 'AI drafted a reply',
       });
     }
 
