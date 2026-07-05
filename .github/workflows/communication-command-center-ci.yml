@@ -70,7 +70,8 @@ jobs:
           echo "postgres did not become ready"; exit 1
       - name: Command Center Postgres integration gate (must run, not skip)
         run: |
-          set -e
+          # pipefail so node's exit code (not tee's) governs the step — a failing suite must fail CI.
+          set -eo pipefail
           node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it.log
-          # Fail if the suite was skipped (credential gate not satisfied) — the reviewer requires it to RUN.
+          # Also fail if the suite was SKIPPED (credential gate not satisfied) — the reviewer requires it to RUN.
           if grep -qE "# skipped 1" /tmp/it.log; then echo "::error::integration suite was SKIPPED — DB gate not satisfied"; exit 1; fi
