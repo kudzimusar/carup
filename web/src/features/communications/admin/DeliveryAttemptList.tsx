@@ -13,6 +13,7 @@ import { deliveryLabel, formatExactDateTime, relativeTime, titleCase } from '../
 
 export interface DeliveryAttempt {
   id: string
+  message_id?: string | null
   attempt_number?: number
   provider?: string | null
   channel?: string | null
