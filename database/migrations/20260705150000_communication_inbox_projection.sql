@@ -39,14 +39,14 @@ LEFT JOIN LATERAL (
   SELECT p.external_identity_id, p.last_read_at
   FROM message_participants p
   WHERE p.thread_id = t.id AND p.role = 'requester'
-  ORDER BY p.joined_at ASC NULLS LAST
+  ORDER BY p.joined_at ASC NULLS LAST, p.id ASC   -- deterministic tie-break on equal/absent joined_at
   LIMIT 1
 ) rp ON true
 LEFT JOIN channel_identities ci ON ci.id = rp.external_identity_id
 LEFT JOIN LATERAL (
   SELECT m.content_text, m.direction, m.created_at, m.status, m.provider_message_id
   FROM messages m WHERE m.thread_id = t.id
-  ORDER BY m.created_at DESC
+  ORDER BY m.created_at DESC, m.id DESC           -- deterministic tie-break on equal created_at
   LIMIT 1
 ) lm ON true
 -- Agent-side read marker: the most recent time ANY agent/assignee (role <> requester) read the
@@ -77,6 +77,7 @@ CREATE OR REPLACE FUNCTION search_communication_threads(
   p_team TEXT DEFAULT NULL,
   p_sla TEXT DEFAULT NULL,
   p_unassigned BOOLEAN DEFAULT FALSE,
+  p_assigned_only BOOLEAN DEFAULT FALSE,
   p_failed_only BOOLEAN DEFAULT FALSE,
   p_include_terminal BOOLEAN DEFAULT TRUE,
   p_cursor_ts TIMESTAMPTZ DEFAULT NULL,
@@ -94,6 +95,7 @@ AS $$
     AND (p_assignee IS NULL OR v.assigned_admin_id = p_assignee)
     AND (p_team IS NULL OR v.assigned_team = p_team)
     AND (NOT p_unassigned OR (v.assigned_admin_id IS NULL AND v.assigned_team IS NULL))
+    AND (NOT p_assigned_only OR (v.assigned_admin_id IS NOT NULL OR v.assigned_team IS NOT NULL))
     AND (NOT p_failed_only OR v.failed_outbound_count > 0)
     AND (p_sla IS NULL OR (
       (p_sla = 'breach'    AND v.sla_due_at IS NOT NULL AND v.sla_due_at < now() AND lower(v.status) NOT IN ('resolved','closed','spam'))
@@ -113,9 +115,11 @@ AS $$
       OR v.assigned_admin_id        ILIKE '%' || p_search || '%'
       OR v.latest_provider_message_id ILIKE '%' || p_search || '%'
     ))
+    -- Keyset: v.id is UUID; the cursor id arrives as TEXT and must be cast (there is no uuid < text
+    -- operator, so an uncast comparison fails to create the function and rolls back the migration).
     AND (p_cursor_ts IS NULL OR (
       COALESCE(v.last_message_at, v.created_at) < p_cursor_ts
-      OR (COALESCE(v.last_message_at, v.created_at) = p_cursor_ts AND v.id < p_cursor_id)
+      OR (COALESCE(v.last_message_at, v.created_at) = p_cursor_ts AND v.id < p_cursor_id::uuid)
     ))
   ORDER BY COALESCE(v.last_message_at, v.created_at) DESC, v.id DESC
   LIMIT LEAST(GREATEST(COALESCE(p_limit, 50), 1), 200);
@@ -153,10 +157,10 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) FROM anon;
-REVOKE EXECUTE ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) FROM authenticated;
-GRANT EXECUTE ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) TO service_role;
+REVOKE ALL ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) FROM anon;
+REVOKE EXECUTE ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) FROM authenticated;
+GRANT EXECUTE ON FUNCTION search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER) TO service_role;
 
 REVOKE ALL ON FUNCTION communication_thread_counts(TEXT, BOOLEAN, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION communication_thread_counts(TEXT, BOOLEAN, TEXT) FROM anon;
@@ -164,7 +168,7 @@ REVOKE EXECUTE ON FUNCTION communication_thread_counts(TEXT, BOOLEAN, TEXT) FROM
 GRANT EXECUTE ON FUNCTION communication_thread_counts(TEXT, BOOLEAN, TEXT) TO service_role;
 
 -- +migrate Down
-DROP FUNCTION IF EXISTS search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER);
+DROP FUNCTION IF EXISTS search_communication_threads(TEXT, BOOLEAN, TEXT, TEXT[], TEXT[], TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN, BOOLEAN, BOOLEAN, TIMESTAMPTZ, TEXT, INTEGER);
 DROP FUNCTION IF EXISTS communication_thread_counts(TEXT, BOOLEAN, TEXT);
 DROP VIEW IF EXISTS communication_inbox_threads;
 DROP INDEX IF EXISTS idx_message_threads_tenant_lastmsg;

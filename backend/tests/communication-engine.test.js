@@ -34,7 +34,7 @@ import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SOR
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
-const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
+const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
@@ -2174,6 +2174,91 @@ test('admin thread endpoints are tenant-scoped: cross-tenant load returns 404, o
   assert.equal(resolveThreadQueryContext({ userContext: { platformRole: 'support', tenantId: 'tenantA' } }).isPlatform, false);
 });
 
+test('dead-letter/recovery actions are tenant-scoped by notification id (item 14)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    notification_queue: [
+      { id: 'N-A', tenant_id: 'tenantA', status: 'dead_letter', channel: 'whatsapp' },
+      { id: 'N-B', tenant_id: 'tenantB', status: 'dead_letter', channel: 'sms' },
+    ],
+  });
+  const services = { repository: repo };
+  const fakeRes = () => ({ statusCode: 200, body: null, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } });
+
+  // tenantA operator cannot act on tenantB's dead-letter notification → 404.
+  const blockedRes = fakeRes();
+  const blocked = await loadNotificationForRequest(services, { params: { id: 'N-B' }, userContext: { id: 'u', platformRole: 'support', tenantId: 'tenantA' } }, blockedRes);
+  assert.equal(blocked, null);
+  assert.equal(blockedRes.statusCode, 404);
+  // Own tenant + platform admin both succeed.
+  assert.equal((await loadNotificationForRequest(services, { params: { id: 'N-A' }, userContext: { id: 'u', platformRole: 'support', tenantId: 'tenantA' } }, fakeRes()))?.id, 'N-A');
+  assert.equal((await loadNotificationForRequest(services, { params: { id: 'N-B' }, userContext: { id: 'p', platformRole: 'platform_admin' } }, fakeRes()))?.id, 'N-B');
+});
+
+// ── Regression tests for the adversarial-review findings (items 2/3) ─────────────────────────────
+
+function fakeRpcRepository(rpcHandler) {
+  return new CommunicationRepository({ client: { rpc: async (name, args) => rpcHandler(name, args) } });
+}
+
+test('RPC search clamps the page size to the DB 200-row cap so has_more never strands rows', async () => {
+  const seen = [];
+  const repo = fakeRpcRepository((name, args) => {
+    seen.push({ name, args });
+    if (name === 'communication_thread_counts') return { data: {}, error: null };
+    // The SQL LIMIT hard-caps at 200 no matter what p_limit is requested.
+    const rows = Array.from({ length: 200 }, (_, i) => ({
+      id: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}`,
+      last_message_at: `2026-07-05T00:${String(i % 60).padStart(2, '0')}:00.000Z`,
+      created_at: '2026-07-05T00:00:00.000Z', tenant_id: 'tenantA',
+    }));
+    return { data: rows, error: null };
+  });
+  const result = await repo.searchThreads({ sort: 'newest', limit: 300 }, { isPlatform: true, userId: 'a' });
+  const call = seen.find((c) => c.name === 'search_communication_threads');
+  assert.equal(call.args.p_limit, 200, 'requested limit 300 is clamped to the DB cap');
+  assert.equal(result.page.limit, 200);
+  assert.equal(result.page.has_more, true, 'a full 200-row page reports more results');
+  assert.ok(result.page.next_cursor, 'and emits a next_cursor so page 2 is reachable');
+  // The assigned-only queue param is forwarded to the RPC (parity with the window engine).
+  const seen2 = [];
+  const repo2 = fakeRpcRepository((name, args) => { seen2.push({ name, args }); return { data: name === 'communication_thread_counts' ? {} : [], error: null }; });
+  await repo2.searchThreads({ sort: 'newest', assigned: 'assigned' }, { isPlatform: true });
+  assert.equal(seen2.find((c) => c.name === 'search_communication_threads').args.p_assigned_only, true);
+});
+
+test('RPC search surfaces real SQL errors instead of masking them as a missing function', async () => {
+  // A genuine column error (42703, message contains "does not exist") must NOT be swallowed as a
+  // missing-RPC fallback — it has to surface so the schema fault is visible.
+  const repo = fakeRpcRepository(() => ({ data: null, error: { code: '42703', message: 'column "failed_outbound_count" does not exist' } }));
+  await assert.rejects(() => repo.searchThreads({ sort: 'newest', limit: 50 }, { isPlatform: true }), /thread search failed/);
+});
+
+test('projection tie-breaks deterministically on equal timestamps and sorts missing joined_at last', () => {
+  const row = projectInboxThread(threadRow({ id: 'tie' }), {
+    participants: [
+      { id: 'p-b', thread_id: 'tie', role: 'requester', external_identity_id: 'idB', joined_at: '2026-07-01T00:00:00.000Z' },
+      { id: 'p-a', thread_id: 'tie', role: 'requester', external_identity_id: 'idA', joined_at: '2026-07-01T00:00:00.000Z' },
+    ],
+    identities: [{ id: 'idA', display_name: 'A' }, { id: 'idB', display_name: 'B' }],
+    messages: [
+      { id: 'm-1', thread_id: 'tie', direction: 'inbound', content_text: 'first', created_at: '2026-07-05T10:00:00.000Z' },
+      { id: 'm-2', thread_id: 'tie', direction: 'inbound', content_text: 'second', created_at: '2026-07-05T10:00:00.000Z' },
+    ],
+  });
+  assert.equal(row.identity_display_name, 'A', 'equal joined_at → lowest id requester wins (matches SQL id ASC)');
+  assert.equal(row.latest_message_text, 'second', 'equal created_at → highest id message wins (matches SQL id DESC)');
+
+  const nullRow = projectInboxThread(threadRow({ id: 'nl' }), {
+    participants: [
+      { id: 'p-null', thread_id: 'nl', role: 'requester', external_identity_id: 'idNull', joined_at: null },
+      { id: 'p-real', thread_id: 'nl', role: 'requester', external_identity_id: 'idReal', joined_at: '2026-07-02T00:00:00.000Z' },
+    ],
+    identities: [{ id: 'idNull', display_name: 'Null' }, { id: 'idReal', display_name: 'Real' }],
+    messages: [],
+  });
+  assert.equal(nullRow.identity_display_name, 'Real', 'a missing joined_at sorts LAST (matches SQL NULLS LAST)');
+});
+
 // ── Communication audit trail (item 8) ────────────────────────────────────────────────────────
 
 test('communication audit log appends events, coerces bad actor types, and is fail-soft', async () => {
@@ -2220,6 +2305,50 @@ test('communication audit migration adds an additive append-only table with inde
   assert.equal(/ALTER TABLE (?!communication_audit_events)/i.test(up), false);
 });
 
+test('repository.searchThreads failed_only queue returns only threads with failed outbound delivery', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [
+      threadRow({ id: 'OK', tenant_id: 'tenantA', status: 'awaiting_human' }),
+      threadRow({ id: 'FAIL', tenant_id: 'tenantA', status: 'awaiting_human' }),
+    ],
+    messages: [
+      { id: 'ok1', thread_id: 'OK', direction: 'outbound', content_text: 'delivered', created_at: '2026-07-05T09:00:00.000Z', status: 'delivered' },
+      { id: 'f1', thread_id: 'FAIL', direction: 'outbound', content_text: 'boom', created_at: '2026-07-05T09:00:00.000Z', status: 'dead_letter' },
+    ],
+  });
+  const ctx = { userId: 'a', isPlatform: true, now: QUERY_NOW };
+  const failed = await repo.searchThreads({ failed_only: true, include_terminal: true }, ctx);
+  assert.deepEqual(failed.threads.map((t) => t.id), ['FAIL']);
+  // And the failed-risk count reflects it.
+  const counts = await repo.threadCounts({}, ctx);
+  assert.equal(counts.failed_risk, 1);
+});
+
+test('repository.searchThreads keyset pagination is stable when EVERY thread shares one timestamp', async () => {
+  // All rows have an identical last_message_at → the id tie-break in the cursor is the only thing
+  // preventing dupes/gaps. Regression for the review finding that ties were never exercised.
+  const N = 25;
+  const sameTs = '2026-07-05T10:00:00.000Z';
+  const seed = { message_threads: [] };
+  for (let i = 0; i < N; i += 1) {
+    seed.message_threads.push(threadRow({ id: `EQ-${String(i).padStart(3, '0')}`, tenant_id: 'tenantA', status: 'awaiting_human', last_message_at: sameTs, created_at: sameTs }));
+  }
+  const repo = new MemoryCommunicationRepository(seed);
+  const ctx = { userId: 'a', isPlatform: true, now: QUERY_NOW };
+  const seen = [];
+  let cursor;
+  let pages = 0;
+  for (;;) {
+    const page = await repo.searchThreads({ include_terminal: true, limit: 7, cursor }, ctx);
+    seen.push(...page.threads.map((t) => t.id));
+    cursor = page.page.next_cursor;
+    pages += 1;
+    if (!cursor || pages > 20) break;
+  }
+  assert.equal(seen.length, N, 'every thread returned exactly once despite identical timestamps');
+  assert.equal(new Set(seen).size, N, 'no duplicates across pages at the tie boundary');
+});
+
 test('inbox projection migration adds the view, search/count RPCs, indexes, and least-privilege grants', () => {
   // View + identity/latest-message/unread projection columns.
   assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE VIEW communication_inbox_threads/);
@@ -2230,10 +2359,15 @@ test('inbox projection migration adds the view, search/count RPCs, indexes, and 
   assert.match(inboxProjectionMigrationSql, /last_read_at/);
   // Server-side search + keyset RPC with tenant scoping and the queue filter params.
   assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE FUNCTION search_communication_threads\(/);
-  for (const param of ['p_tenant_id', 'p_is_platform', 'p_search', 'p_status', 'p_channel', 'p_unassigned', 'p_failed_only', 'p_cursor_ts', 'p_cursor_id', 'p_limit']) {
+  for (const param of ['p_tenant_id', 'p_is_platform', 'p_search', 'p_status', 'p_channel', 'p_unassigned', 'p_assigned_only', 'p_failed_only', 'p_cursor_ts', 'p_cursor_id', 'p_limit']) {
     assert.match(inboxProjectionMigrationSql, new RegExp(`${param}\\b`), `search RPC must accept ${param}`);
   }
   assert.match(inboxProjectionMigrationSql, /ORDER BY COALESCE\(v\.last_message_at, v\.created_at\) DESC, v\.id DESC/);
+  // Keyset id is a UUID; the text cursor param MUST be cast (uuid < text has no operator).
+  assert.match(inboxProjectionMigrationSql, /v\.id < p_cursor_id::uuid/);
+  // Deterministic tie-breaks in the projection laterals (parity with the JS mirror).
+  assert.match(inboxProjectionMigrationSql, /ORDER BY p\.joined_at ASC NULLS LAST, p\.id ASC/);
+  assert.match(inboxProjectionMigrationSql, /ORDER BY m\.created_at DESC, m\.id DESC/);
   assert.match(inboxProjectionMigrationSql, /SECURITY DEFINER/);
   // Aggregate counts RPC.
   assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE FUNCTION communication_thread_counts\(/);

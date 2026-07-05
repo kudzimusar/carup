@@ -6,15 +6,38 @@
 
 const OUTBOUND_FAILED = new Set(['failed', 'dead_letter', 'retry_scheduled']);
 
+// Epoch ms for an ISO timestamp (NaN-safe). Comparing epochs — not raw strings — makes ordering
+// correct even if a timestamp ever carries a non-UTC offset (matches Postgres temporal semantics).
+function ts(value) {
+  const n = value ? Date.parse(value) : NaN;
+  return Number.isNaN(n) ? null : n;
+}
+
+// Earliest-joined requester wins, matching the SQL view's `ORDER BY joined_at ASC NULLS LAST, id ASC`:
+// a missing joined_at sorts LAST, and id breaks ties deterministically.
 function requesterParticipant(participants) {
   const requesters = participants.filter((p) => p.role === 'requester');
-  requesters.sort((a, b) => String(a.joined_at || '').localeCompare(String(b.joined_at || '')));
+  requesters.sort((a, b) => {
+    const ta = ts(a.joined_at);
+    const tb = ts(b.joined_at);
+    if (ta !== tb) {
+      if (ta === null) return 1;      // NULLS LAST
+      if (tb === null) return -1;
+      return ta - tb;
+    }
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
   return requesters[0] || null;
 }
 
+// Newest message wins, matching the SQL view's `ORDER BY created_at DESC, id DESC`.
 function latestMessage(messages) {
   if (!messages.length) return null;
-  return [...messages].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+  return [...messages].sort((a, b) => {
+    const diff = (ts(b.created_at) ?? -Infinity) - (ts(a.created_at) ?? -Infinity);
+    if (diff !== 0) return diff;
+    return String(b.id || '').localeCompare(String(a.id || ''));
+  })[0];
 }
 
 /**
@@ -35,15 +58,18 @@ export function projectInboxThread(thread, { participants = [], identities = [],
   // Agent-side read marker: latest last_read_at across non-requester (agent/assignee) participants.
   // Unread-for-the-team = inbound messages after that (all inbound if no agent has read). The
   // requester participant's last_read_at is the customer's receipt and does not clear the badge.
-  const agentLastRead = threadParticipants
-    .filter((p) => p.role !== 'requester' && p.last_read_at)
-    .map((p) => String(p.last_read_at))
-    .sort()
-    .pop() || null;
+  const agentReadTimes = threadParticipants
+    .filter((p) => p.role !== 'requester')
+    .map((p) => ts(p.last_read_at))
+    .filter((t) => t !== null);
+  const agentLastRead = agentReadTimes.length ? Math.max(...agentReadTimes) : null;
 
-  const unread = threadMessages.filter((m) =>
-    String(m.direction || '').toLowerCase() === 'inbound'
-    && (!agentLastRead || String(m.created_at || '') > agentLastRead)).length;
+  const unread = threadMessages.filter((m) => {
+    if (String(m.direction || '').toLowerCase() !== 'inbound') return false;
+    if (agentLastRead === null) return true;
+    const created = ts(m.created_at);
+    return created !== null && created > agentLastRead;
+  }).length;
 
   const failedOutbound = threadMessages.filter((m) =>
     String(m.direction || '').toLowerCase() === 'outbound'

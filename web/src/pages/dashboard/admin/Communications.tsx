@@ -150,6 +150,7 @@ export default function AdminCommunications() {
   const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [listLoading, setListLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkNote, setBulkNote] = useState<string | null>(null)
@@ -191,6 +192,12 @@ export default function AdminCommunications() {
     return fetchAdminCommunicationThreads({ ...queryParams, ...extra })
   }, [fetchAdminCommunicationThreads, queryParams])
 
+  // Identity of the active query. loadMore captures this and drops its result if the query changed
+  // mid-flight, so a slow "Load more" can never append the previous queue's rows into a new queue.
+  const queryKey = useMemo(() => JSON.stringify(queryParams), [queryParams])
+  const queryKeyRef = useRef(queryKey)
+  useEffect(() => { queryKeyRef.current = queryKey }, [queryKey])
+
   // Tab badge counts come from the server's whole-result aggregates (accurate beyond the fetched
   // page). Fallback (server counts absent): only the active queue's loaded size is known.
   const counts = useMemo(() => {
@@ -216,11 +223,18 @@ export default function AdminCommunications() {
     fetchCommunicationWorkerHealth().then(setWorkerHealth).catch(() => null)
   }, [fetchCommunicationWorkerHealth])
 
+  // Keep the currently-open thread's unread badge cleared even when a fresh page arrives before the
+  // fire-and-forget mark-read has committed server-side (avoids a transient badge flicker).
+  const clearSelectedUnread = useCallback((rows: ThreadSummary[]) => {
+    const id = selectedRef.current?.id
+    return id ? rows.map((t) => (t.id === id ? { ...t, unread_count: 0 } : t)) : rows
+  }, [])
+
   // Full refresh (Refresh button + after mutations): re-run the current query + ops panels.
   const load = useCallback(async () => {
     await Promise.all([
       fetchThreadPage().then((res) => {
-        setThreads(res.threads || [])
+        setThreads(clearSelectedUnread(res.threads || []))
         setServerCounts(res.counts ?? null)
         setNextCursor(res.page?.next_cursor ?? null)
         setLoadError(null)
@@ -228,14 +242,18 @@ export default function AdminCommunications() {
       fetchCommunicationDeadLetters().then((r) => setDeadLetters(r.notifications || [])).catch(() => undefined),
       fetchAdminCommunicationMetrics().then((r) => setMetrics(r || {})).catch(() => undefined),
     ])
-  }, [fetchThreadPage, fetchCommunicationDeadLetters, fetchAdminCommunicationMetrics])
+  }, [fetchThreadPage, clearSelectedUnread, fetchCommunicationDeadLetters, fetchAdminCommunicationMetrics])
 
   // Cursor pagination: append the next server page (dedup by id) without disturbing selection/draft.
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return
+    const startKey = queryKeyRef.current
     setLoadingMore(true)
     try {
       const res = await fetchThreadPage({ cursor: nextCursor })
+      // The query (queue/search/channel) changed while this page was in flight — drop it so we never
+      // append another queue's rows or overwrite the new query's cursor.
+      if (queryKeyRef.current !== startKey) return
       setThreads((prev) => {
         const seen = new Set(prev.map((t) => t.id))
         return [...prev, ...(res.threads || []).filter((t) => !seen.has(t.id))]
@@ -264,21 +282,22 @@ export default function AdminCommunications() {
   useEffect(() => {
     let active = true
     void (async () => {
+      setListLoading(true)
       try {
         const res = await fetchThreadPage()
         if (!active) return
-        setThreads(res.threads || [])
+        setThreads(clearSelectedUnread(res.threads || []))
         setServerCounts(res.counts ?? null)
         setNextCursor(res.page?.next_cursor ?? null)
         setLoadError(null)
       } catch {
         if (active) setLoadError('Could not load threads — press Refresh to retry.')
       } finally {
-        if (active) setLoading(false)
+        if (active) { setLoading(false); setListLoading(false) }
       }
     })()
     return () => { active = false }
-  }, [fetchThreadPage])
+  }, [fetchThreadPage, clearSelectedUnread])
 
   // One-time ops panels (dead-letter recovery, metrics, worker health) — independent of the query.
   useEffect(() => {
@@ -483,7 +502,10 @@ export default function AdminCommunications() {
             <CardHeader className="pb-3 space-y-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg flex items-center gap-2"><InboxIcon className="w-4 h-4" /> Inbox</CardTitle>
-                <span className="text-xs text-gray-400">{visibleThreads.length} shown</span>
+                <span className="text-xs text-gray-400 flex items-center gap-1">
+                  {listLoading && <Loader2 className="w-3 h-3 animate-spin" aria-hidden />}
+                  {visibleThreads.length} shown
+                </span>
               </div>
               <div className="flex flex-wrap gap-1" role="group" aria-label="Filter threads by workflow queue">
                 {FILTERS.map((f) => {
