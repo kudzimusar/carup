@@ -13,9 +13,11 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { ChannelIcon } from '../ChannelIcon'
 import { titleCase, relativeTime } from '../communicationFormatting'
+import { DeliveryAttemptList, type DeliveryAttempt } from './DeliveryAttemptList'
 
 export interface RecoveryNotification {
   id: string
+  thread_id?: string | null
   notification_type?: string | null
   channel?: string | null
   status?: string | null
@@ -24,6 +26,8 @@ export interface RecoveryNotification {
   created_at?: string | null
   updated_at?: string | null
   next_attempt_at?: string | null
+  retryable?: boolean
+  attempts?: DeliveryAttempt[]
 }
 
 const CATEGORY_META: Array<{ key: string; label: string; tone: 'destructive' | 'secondary' | 'outline' }> = [
@@ -45,12 +49,15 @@ export interface RecoveryViewProps {
   onCancel: (id: string) => void
   onRequeue: (id: string, correctedDestination: string) => void
   onBulkRetry: (ids: string[]) => void
+  /** Navigate to the associated conversation. */
+  onOpenThread?: (threadId: string) => void
 }
 
-export function RecoveryView({ categories, counts, busyAction, bulkNote, onRetry, onCancel, onRequeue, onBulkRetry }: RecoveryViewProps) {
+export function RecoveryView({ categories, counts, busyAction, bulkNote, onRetry, onCancel, onRequeue, onBulkRetry, onOpenThread }: RecoveryViewProps) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [requeueFor, setRequeueFor] = useState<string | null>(null)
   const [requeueDest, setRequeueDest] = useState('')
+  const [inspectFor, setInspectFor] = useState<string | null>(null)
 
   const toggle = (id: string) => setSelected((prev) => {
     const next = new Set(prev)
@@ -118,9 +125,15 @@ export function RecoveryView({ categories, counts, busyAction, bulkNote, onRetry
                               {item.last_error_code || 'error'}{item.last_error_message ? ` — ${item.last_error_message}` : ''}
                             </p>
                           )}
+                          {/* Retry timing + retryability (P1.11). */}
+                          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-400">
+                            {item.next_attempt_at && <span>Next retry {relativeTime(item.next_attempt_at)}</span>}
+                            {item.retryable === false && <span className="text-amber-600">Max retries reached</span>}
+                            {(item.attempts?.length ?? 0) > 0 && <span>{item.attempts!.length} attempt{item.attempts!.length === 1 ? '' : 's'}</span>}
+                          </div>
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             {canRetry && (
-                              <Button size="sm" variant="outline" className="h-6 gap-1 text-[11px]" onClick={() => onRetry(item.id)} disabled={busyAction === `retry-${item.id}`}>
+                              <Button size="sm" variant="outline" className="h-6 gap-1 text-[11px]" onClick={() => onRetry(item.id)} disabled={busyAction === `retry-${item.id}` || item.retryable === false}>
                                 {busyAction === `retry-${item.id}` ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> : <RefreshCcw className="w-3 h-3" aria-hidden />} Retry
                               </Button>
                             )}
@@ -129,10 +142,23 @@ export function RecoveryView({ categories, counts, busyAction, bulkNote, onRetry
                                 Requeue…
                               </Button>
                             )}
+                            {(item.attempts?.length ?? 0) > 0 && (
+                              <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => setInspectFor(inspectFor === item.id ? null : item.id)} data-testid="recovery-inspect">
+                                {inspectFor === item.id ? 'Hide attempts' : 'Inspect'}
+                              </Button>
+                            )}
+                            {item.thread_id && onOpenThread && (
+                              <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => onOpenThread(item.thread_id!)} data-testid="recovery-open-thread">Open thread</Button>
+                            )}
                             {cat.key !== 'cancelled' && (
                               <Button size="sm" variant="ghost" className="h-6 text-[11px]" onClick={() => onCancel(item.id)} disabled={busyAction === `cancel-${item.id}`}>Cancel</Button>
                             )}
                           </div>
+                          {inspectFor === item.id && (item.attempts?.length ?? 0) > 0 && (
+                            <div className="mt-2" data-testid="recovery-attempts">
+                              <DeliveryAttemptList attempts={item.attempts!} compact />
+                            </div>
+                          )}
                           {requeueFor === item.id && (
                             <div className="flex items-center gap-1.5 mt-2" data-testid="recovery-requeue-form">
                               <Input
