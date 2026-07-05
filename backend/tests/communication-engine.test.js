@@ -35,6 +35,7 @@ import { projectInboxThread, projectInboxThreads } from '../services/communicati
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { SLA_STATES, computeSlaState, pausePatch, resumePatch } from '../services/communication/communicationSla.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
+import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext, resolveListScope } = await import('../routes/adminCommunicationRoutes.js');
 const supabaseLiveSchemaSql = readFileSync(new URL('../../database/migrations/supabase_schema.sql', import.meta.url), 'utf8');
@@ -2319,6 +2320,49 @@ test('projection tie-breaks deterministically on equal timestamps and sorts miss
     messages: [],
   });
   assert.equal(nullRow.identity_display_name, 'Real', 'a missing joined_at sorts LAST (matches SQL NULLS LAST)');
+});
+
+// ── Provider operations telemetry (P1.4) ────────────────────────────────────────────────────────
+
+test('provider telemetry joins adapter health with webhooks, attempts and queue per channel', () => {
+  const adapterHealth = [
+    { channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api', mode: 'real', available: true, webhookPath: '/api/communications/webhooks/meta/whatsapp', missing: [] },
+    { channel: 'telegram', provider: 'telegram_bot_api', mode: 'fake', available: false, missing: ['CARUP_TELEGRAM_BOT_TOKEN'] },
+  ];
+  const data = {
+    now: Date.parse('2026-07-05T12:00:00.000Z'),
+    webhooks: [
+      { channel: 'whatsapp', received_at: '2026-07-05T11:00:00.000Z', signature_valid: true },
+      { channel: 'whatsapp', received_at: '2026-07-05T11:30:00.000Z', signature_valid: true }, // latest
+    ],
+    attempts: [
+      { channel: 'whatsapp', status: 'delivered', completed_at: '2026-07-05T11:31:00.000Z', provider_message_id: 'wamid.OK' },
+      { channel: 'whatsapp', status: 'failed', started_at: '2026-07-05T11:45:00.000Z', error_code: 'invalid_recipient', error_message: 'bad number' },
+    ],
+    notifications: [
+      { channel: 'whatsapp', status: 'queued' },
+      { channel: 'whatsapp', status: 'dead_letter' },
+      { channel: 'telegram', status: 'retry_scheduled' },
+    ],
+  };
+  const out = buildProviderTelemetry(adapterHealth, data);
+  const wa = out.find((c) => c.channel === 'whatsapp');
+  assert.equal(wa.mode, 'real');
+  assert.equal(wa.webhook.configured, true);
+  assert.equal(wa.webhook.latest_inbound_at, '2026-07-05T11:30:00.000Z'); // most recent
+  assert.equal(wa.webhook.last_signature_valid, true);
+  assert.equal(wa.outbound.latest_success_provider_message_id, 'wamid.OK');
+  assert.equal(wa.latest_error.code, 'invalid_recipient');
+  assert.equal(wa.queue.queued, 1);
+  assert.equal(wa.queue.dead_letter, 1);
+  assert.deepEqual(wa.credentials, { complete: true, missing: [] });
+
+  const tg = out.find((c) => c.channel === 'telegram');
+  assert.equal(tg.mode, 'fake');
+  assert.equal(tg.credentials.complete, false);
+  assert.deepEqual(tg.credentials.missing, ['CARUP_TELEGRAM_BOT_TOKEN']); // names only, no values
+  assert.equal(tg.queue.retry_scheduled, 1);
+  assert.equal(tg.outbound.latest_success_at, null);
 });
 
 // ── Delivery recovery categorisation (item 11) ──────────────────────────────────────────────────

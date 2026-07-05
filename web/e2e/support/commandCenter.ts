@@ -93,6 +93,15 @@ export async function mockCommandCenterApi(page: Page, opts: MockOptions = {}) {
     const path = url.pathname
     const method = route.request().method()
 
+    // Providers telemetry (P1.4)
+    if (path.endsWith('/providers')) return json(route, {
+      channels: [
+        { channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api', mode: 'real', available: true, webhook: { configured: true, last_signature_valid: true, latest_inbound_at: '2026-07-05T11:00:00.000Z' }, outbound: { latest_success_at: '2026-07-05T11:30:00.000Z' }, latest_error: null, queue: { queued: 1, retry_scheduled: 0, dead_letter: 0 }, credentials: { complete: true, missing: [] } },
+        { channel: 'telegram', provider: 'telegram_bot_api', mode: 'fake', available: false, webhook: { configured: false }, queue: { queued: 0, retry_scheduled: 0, dead_letter: 0 }, credentials: { complete: false, missing: ['CARUP_TELEGRAM_BOT_TOKEN'] } },
+      ],
+      worker: { stale_locks: 0, scheduler: {} },
+    })
+
     // Recovery
     if (path.endsWith('/recovery')) return json(route, recovery)
     if (path.endsWith('/recovery/bulk-retry')) return json(route, { retried: 1, failed: 0, total: 1, results: [{ id: 'x', ok: true }] })

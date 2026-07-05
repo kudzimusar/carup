@@ -21,6 +21,8 @@ import { ConversationRow } from '@/features/communications/admin/ConversationRow
 import { HandoffBar } from '@/features/communications/admin/HandoffBar'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
+import { ProviderTelemetryPanel } from '@/features/communications/admin/ProviderTelemetryPanel'
+import type { ProviderTelemetry } from '@/features/communications/admin/ProviderTelemetryPanel'
 import { ProviderSmokeTestPanel } from '@/features/communications/admin/ProviderSmokeTestPanel'
 import { AuditDrawer } from '@/features/communications/admin/AuditDrawer'
 import type { AuditEvent } from '@/features/communications/admin/auditPresentation'
@@ -143,6 +145,7 @@ export default function AdminCommunications() {
     markAdminCommunicationThreadRead,
     fetchAdminCommunicationThreadAudit,
     fetchCommunicationWorkerHealth,
+    fetchCommunicationProviders,
     sendCommunicationProviderSmokeTest,
     adminReplyCommunicationThread,
     assignCommunicationThread,
@@ -184,6 +187,7 @@ export default function AdminCommunications() {
   const [recoveryNote, setRecoveryNote] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<Metrics>({})
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
+  const [providers, setProviders] = useState<{ channels: ProviderTelemetry[]; staleLocks: number }>({ channels: [], staleLocks: 0 })
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
@@ -346,6 +350,14 @@ export default function AdminCommunications() {
     fetchAdminCommunicationMetrics().then((r) => setMetrics(r || {})).catch(() => undefined)
     refreshWorkerHealth()
   }, [fetchCommunicationDeadLetters, fetchCommunicationRecovery, fetchAdminCommunicationMetrics, refreshWorkerHealth])
+
+  // Per-channel provider telemetry — fetched when the Providers surface is active (P1.4).
+  useEffect(() => {
+    if (section !== 'providers') return
+    fetchCommunicationProviders()
+      .then((r) => setProviders({ channels: r.channels || [], staleLocks: Number(r.worker?.stale_locks ?? 0) }))
+      .catch(() => undefined)
+  }, [section, fetchCommunicationProviders])
 
   // Persist filter / search / selected thread to the URL so the inbox is deep-linkable and
   // survives refresh (replace, not push, to avoid history spam).
@@ -928,11 +940,12 @@ export default function AdminCommunications() {
           </div>
         )}
 
-        {/* ── Providers section (item 5/12): live provider + worker health + smoke test ── */}
+        {/* ── Providers section (item 5/12): live provider ops telemetry + health + smoke test ── */}
         {section === 'providers' && (
           <div className="grid md:grid-cols-2 gap-5 items-start" data-testid="section-view-providers">
-            <ProviderHealthPanel adapters={workerHealth?.adapters} />
+            <ProviderTelemetryPanel channels={providers.channels} staleLocks={providers.staleLocks} />
             <div className="space-y-5">
+              <ProviderHealthPanel adapters={workerHealth?.adapters} />
               {workerHealth && (
                 <WorkerHealthPanel health={workerHealth} idlePollSeconds={IDLE_POLL_INTERVAL_MS / 1000} deliveryPollSeconds={DELIVERY_POLL_INTERVAL_MS / 1000} />
               )}

@@ -5,6 +5,7 @@ import { createCommunicationServices } from '../services/communication/communica
 import { normalizeChannel } from '../services/communication/communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
+import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -746,6 +747,41 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
         attempts_table: 'public.message_delivery_attempts',
       },
     });
+  }));
+
+  // Per-channel provider operations telemetry (item 12 / P1.4): live adapter mode + webhook
+  // configured/verified + latest inbound webhook + latest successful outbound + latest provider error
+  // + queue/retry/dead-letter counts + credential PRESENCE (no values), plus the worker/scheduler
+  // summary and stale-lock count. Tenant-scoped (fail-closed).
+  router.get('/api/admin/communications/providers', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const scope = resolveListScope(req, res);
+    if (scope === null) return undefined;
+    const registry = services.deliveryWorker?.adapterRegistry || services.adapterRegistry;
+    const adapterHealth = registry?.health?.() || [];
+    const [notifications, webhooks] = await Promise.all([
+      services.repository.list('notification_queue', { ...scope }, { limit: 1000 }),
+      services.repository.list('webhook_logs', { ...scope }, { order: { column: 'received_at' }, limit: 500 }).catch(() => []),
+    ]);
+    // message_delivery_attempts has no tenant_id; scope it via this tenant's notification ids.
+    const notifIds = notifications.map((n) => String(n.id));
+    const attempts = notifIds.length
+      ? await services.repository.list('message_delivery_attempts', { notification_id: notifIds }, { order: { column: 'started_at' }, limit: 1000 }).catch(() => [])
+      : [];
+    const channels = buildProviderTelemetry(adapterHealth, { attempts, webhooks, notifications, now: Date.now() });
+
+    // Scheduler health (fails gracefully when pg_cron is unavailable, e.g. memory repo / local).
+    let scheduler = { scheduler_type: 'supabase_cron', pg_cron_available: false, stale_lock_count: 0 };
+    try {
+      const { data, error } = await services.repository.client.rpc('get_communication_scheduler_health');
+      if (!error && data) scheduler = data;
+    } catch (_err) { /* no pg_cron */ }
+
+    const now = Date.now();
+    const staleSeconds = Number(process.env.COMMUNICATION_STALE_LOCK_SECONDS || 900);
+    const staleLocks = notifications.filter((n) => String(n.status || '').toLowerCase() === 'processing'
+      && n.locked_at && (now - new Date(n.locked_at).getTime()) > staleSeconds * 1000).length;
+
+    return res.json({ channels, worker: { stale_locks: staleLocks, scheduler } });
   }));
 
   // Provider smoke test: send one real message through the Communication Engine's queue +
