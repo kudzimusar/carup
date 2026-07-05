@@ -78,8 +78,16 @@ A logged-in admin can trigger the real send and see the `provider_message_id` �
   `to`, and a real `provider_message_id`; asserts `messages` / `notification_queue(sent)` /
   `message_delivery_attempts(meta_whatsapp_cloud_api)` / `channel_identities` rows;
 - a real provider **rejection (401)** yields `ok: false` with a recorded `failed` attempt (never fake success);
-- endpoint is **not public**: no-auth → 401, wrong secret → 401, valid worker secret → real send;
-- source assertions: route gated by `requireAdminOrWorkerSecret`, `mode !== 'real'` refusal, `timingSafeEqual`.
+- real adapter missing credentials → HTTP 424 `provider_not_configured` (no provider call, no rows);
+- endpoint is **not public**: no-auth → 401, wrong secret → 401, valid worker secret → real send
+  (with route-boundary assertions on the Graph API URL + E.164 recipient);
+- source assertions: route gated by `requireAdminOrWorkerSecret`, fake-adapter refusal (`mode === 'fake'`),
+  constant-time `safeEqual`, and the platform-admin `SMOKE_TEST_ADMIN_ROLES` restriction.
+
+Deferred follow-up (low): a dedicated HTTP-level test of the admin-**session** accept/deny path
+(valid admin session → 200, non-admin → 403) using a stubbed Supabase client. The worker-secret,
+no-auth, and wrong-secret paths are covered here; the session path uses the shared `authorizeRole`
+middleware already tested elsewhere in the suite.
 
 ## Running the live test against staging (`+81 80-8120-1356` / E.164 `818081201356`)
 
