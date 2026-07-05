@@ -1984,11 +1984,11 @@ test('inbox projection derives requester identity, latest message, unread count,
   const thread = threadRow({ id: 't1', tenant_id: 'tenantA', primary_channel: 'whatsapp' });
   const related = {
     participants: [
-      // The requester's last_read_at is the CUSTOMER receipt and must NOT clear the team badge —
-      // it is intentionally later than every message here to prove it is ignored for unread.
+      // The requester's last_read_at is the CUSTOMER receipt and must NOT clear the badge — it is
+      // intentionally later than every message here to prove it is ignored for unread.
       { id: 'p1', thread_id: 't1', role: 'requester', external_identity_id: 'id1', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: '2026-07-05T23:59:00.000Z' },
-      // Agent read marker at 09:30 → only the 10:00 message counts as unread.
-      { id: 'p2', thread_id: 't1', role: 'agent', external_identity_id: null, joined_at: '2026-07-02T00:00:00.000Z', last_read_at: '2026-07-05T09:30:00.000Z' },
+      // The ACTING agent (admin-1) read at 09:30 → only the 10:00 message counts as unread for them.
+      { id: 'p2', thread_id: 't1', role: 'agent', admin_id: 'admin-1', joined_at: '2026-07-02T00:00:00.000Z', last_read_at: '2026-07-05T09:30:00.000Z' },
     ],
     identities: [
       { id: 'id1', display_name: 'Tariro M.', normalized_address: '+263••••1234', external_id: '263771234', verified: true, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api' },
@@ -1999,7 +1999,7 @@ test('inbox projection derives requester identity, latest message, unread count,
       { id: 'm3', thread_id: 't1', direction: 'outbound', content_text: 'Reply attempt', created_at: '2026-07-05T09:15:00.000Z', status: 'failed' },
     ],
   };
-  const row = projectInboxThread(thread, related);
+  const row = projectInboxThread(thread, related, { agentId: 'admin-1' });
   assert.equal(row.identity_display_name, 'Tariro M.');
   assert.equal(row.identity_address, '+263••••1234');
   assert.equal(row.identity_verified, true);
@@ -2007,8 +2007,47 @@ test('inbox projection derives requester identity, latest message, unread count,
   assert.equal(row.latest_message_text, 'Hello? any update?');       // newest by created_at
   assert.equal(row.latest_message_direction, 'inbound');
   assert.equal(row.latest_provider_message_id, 'wamid.NEW');
-  assert.equal(row.unread_count, 1);                                  // only m2 is after the AGENT read marker
+  assert.equal(row.unread_count, 1);                                  // only m2 is after admin-1's read marker
   assert.equal(row.failed_outbound_count, 1);                         // m3 failed
+});
+
+test('per-agent unread: one agent reading does not clear another agent\'s unread (P1.7)', () => {
+  const thread = threadRow({ id: 'PA', tenant_id: 'tenantA' });
+  const related = {
+    participants: [
+      { id: 'rq', thread_id: 'PA', role: 'requester', external_identity_id: 'ci', joined_at: '2026-07-01T00:00:00.000Z' },
+      // Agent A read at 10:30 (after both inbound messages); Agent B has never read.
+      { id: 'pa', thread_id: 'PA', role: 'agent', admin_id: 'agent-A', joined_at: '2026-07-02T00:00:00.000Z', last_read_at: '2026-07-05T10:30:00.000Z' },
+    ],
+    identities: [{ id: 'ci', display_name: 'Tariro M.', channel: 'whatsapp' }],
+    messages: [
+      { id: 'm1', thread_id: 'PA', direction: 'inbound', content_text: 'one', created_at: '2026-07-05T09:00:00.000Z', status: 'received' },
+      { id: 'm2', thread_id: 'PA', direction: 'inbound', content_text: 'two', created_at: '2026-07-05T10:00:00.000Z', status: 'received' },
+    ],
+  };
+  // Agent A read everything → 0 unread for A.
+  assert.equal(projectInboxThread(thread, related, { agentId: 'agent-A' }).unread_count, 0);
+  // Agent B never read → both inbound still unread for B (A reading did NOT clear B's badge).
+  assert.equal(projectInboxThread(thread, related, { agentId: 'agent-B' }).unread_count, 2);
+  // Team-level "unhandled" signal is 0 because SOMEONE (A) has seen the latest.
+  assert.equal(projectInboxThread(thread, related, { agentId: 'agent-B' }).team_unread_count, 0);
+});
+
+test('registered-user identity fallback: primary_user_id resolves to the profile name (P1.8)', () => {
+  const thread = threadRow({ id: 'RU', tenant_id: 'tenantA', primary_user_id: 'user-42', primary_channel: 'in_app' });
+  const related = {
+    // No requester external identity — the customer is a registered CarUp user.
+    participants: [{ id: 'rq', thread_id: 'RU', role: 'requester', external_identity_id: null, user_id: 'user-42', joined_at: '2026-07-01T00:00:00.000Z' }],
+    identities: [],
+    messages: [{ id: 'm1', thread_id: 'RU', direction: 'inbound', content_text: 'hi', created_at: '2026-07-05T09:00:00.000Z' }],
+    users: [{ id: 'user-42', name: 'Rudo Chikafu', email: 'rudo@example.com' }],
+  };
+  const row = projectInboxThread(thread, related, { agentId: 'admin-x' });
+  assert.equal(row.identity_display_name, 'Rudo Chikafu');   // never Support/Complaint/General
+  assert.equal(row.identity_user_id, 'user-42');
+  // Email-only fallback when the profile has no name.
+  const emailOnly = projectInboxThread(thread, { ...related, users: [{ id: 'user-42', email: 'rudo@example.com' }] }, {});
+  assert.equal(emailOnly.identity_display_name, 'rudo@example.com');
 });
 
 test('inbox unread uses the agent read marker; markRead advances it and clears the badge (item 9)', async () => {
@@ -2214,7 +2253,13 @@ test('dead-letter/recovery actions are tenant-scoped by notification id (item 14
 // ── Regression tests for the adversarial-review findings (items 2/3) ─────────────────────────────
 
 function fakeRpcRepository(rpcHandler) {
-  return new CommunicationRepository({ client: { rpc: async (name, args) => rpcHandler(name, args) } });
+  // A minimal chainable that resolves to no rows, so per-page enrichment (enrichPage → list) runs
+  // without a real DB. rpcHandler drives the search/count RPCs.
+  const emptyQuery = () => {
+    const q = { select: () => q, in: () => q, eq: () => q, is: () => q, order: () => q, limit: () => q, then: (resolve) => resolve({ data: [], error: null }) };
+    return q;
+  };
+  return new CommunicationRepository({ client: { rpc: async (name, args) => rpcHandler(name, args), from: () => emptyQuery() } });
 }
 
 test('RPC search clamps the page size to the DB 200-row cap so has_more never strands rows', async () => {
