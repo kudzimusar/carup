@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { channelLabel } from '@/features/communications/channelRegistry'
+import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
@@ -502,35 +503,22 @@ export default function AdminCommunications() {
                   )}
                   {visibleThreads.map((thread) => {
                     const sla = threadSla(thread)
-                    const isSelected = selected?.id === thread.id
                     return (
-                      <button
+                      <ConversationRow
                         key={thread.id}
-                        onClick={() => openThread(thread)}
-                        className={`w-full text-left p-3 border-b hover:bg-gray-50 transition-colors ${isSelected ? 'bg-orange-50 border-l-2 border-l-orange-500' : ''}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="w-8 h-8 shrink-0 rounded-full bg-gray-100 flex items-center justify-center">
-                            <ChannelIcon channel={thread.primary_channel} size={16} />
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="font-semibold text-sm truncate">{threadTitle(thread)}</p>
-                              <Badge variant={priorityVariant(thread.priority)} className="text-[10px] shrink-0 capitalize">{thread.priority}</Badge>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-0.5 truncate font-mono">{threadRef(thread)}</p>
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              <Badge variant="outline" className="text-[10px] capitalize">{prettyLabel(thread.status)}</Badge>
-                              {!thread.assigned_admin_id && !thread.assigned_team && (
-                                <span className="text-[10px] text-amber-600 font-medium">Unassigned</span>
-                              )}
-                              {sla.level === 'breach' && <span className="text-[10px] text-red-600 font-medium flex items-center gap-0.5"><AlertTriangle className="w-3 h-3" />{sla.label}</span>}
-                              {sla.level === 'due' && <span className="text-[10px] text-amber-600 font-medium">{sla.label}</span>}
-                              <span className="text-[10px] text-gray-400 ml-auto">{relativeTime(thread.last_message_at || thread.updated_at)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </button>
+                        channel={thread.primary_channel}
+                        title={threadTitle(thread)}
+                        reference={threadRef(thread)}
+                        statusLabel={prettyLabel(thread.status)}
+                        priority={thread.priority}
+                        priorityVariant={priorityVariant(thread.priority)}
+                        unassigned={!thread.assigned_admin_id && !thread.assigned_team}
+                        slaLabel={sla.label}
+                        slaLevel={sla.level}
+                        timeLabel={relativeTime(thread.last_message_at || thread.updated_at)}
+                        selected={selected?.id === thread.id}
+                        onSelect={() => openThread(thread)}
+                      />
                     )
                   })}
                 </ScrollArea>
