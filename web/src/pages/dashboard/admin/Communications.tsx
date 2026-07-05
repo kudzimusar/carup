@@ -29,6 +29,7 @@ import type { ContextIdentity, ContextRef, ContextReassignment } from '@/feature
 import { RecoveryView } from '@/features/communications/admin/RecoveryView'
 import type { RecoveryNotification } from '@/features/communications/admin/RecoveryView'
 import { MessageTechnicalDetails } from '@/features/communications/admin/MessageTechnicalDetails'
+import { VirtualList } from '@/features/communications/admin/VirtualList'
 import { DeliveryAttemptList } from '@/features/communications/admin/DeliveryAttemptList'
 import type { DeliveryAttempt } from '@/features/communications/admin/DeliveryAttemptList'
 import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
@@ -47,6 +48,7 @@ type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'faile
 
 const DELIVERY_POLL_INTERVAL_MS = 5_000   // while a reply is queued/processing
 const IDLE_POLL_INTERVAL_MS = 30_000      // background refresh cadence
+const INBOX_ROW_HEIGHT = 112              // fixed row height for the virtualized inbox (bounded DOM)
 
 // Operational workflow queues (docs §5). Default is All active; awaiting_ai is discoverable as
 // "AI handling" so no one needs to know a hidden technical status. Counts prefer server aggregates.
@@ -634,11 +636,13 @@ export default function AdminCommunications() {
                   No threads match this filter.
                 </div>
               ) : (
-                <ScrollArea
-                  className="h-[560px] focus:outline-none"
-                  tabIndex={0}
-                  role="group"
-                  aria-label="Thread inbox — use up and down arrows to navigate"
+                <VirtualList
+                  items={visibleThreads}
+                  itemHeight={INBOX_ROW_HEIGHT}
+                  height={560}
+                  ariaLabel="Thread inbox — use up and down arrows to navigate"
+                  getKey={(thread) => thread.id}
+                  scrollToIndex={selected ? visibleThreads.findIndex((t) => t.id === selected.id) : null}
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
                     e.preventDefault()
@@ -649,12 +653,10 @@ export default function AdminCommunications() {
                       : Math.max(0, idx < 0 ? 0 : idx - 1)
                     void openThread(visibleThreads[nextIdx])
                   }}
-                >
-                  {visibleThreads.map((thread) => {
+                  renderItem={(thread) => {
                     const sla = threadSla(thread)
                     return (
                       <ConversationRow
-                        key={thread.id}
                         channel={thread.primary_channel}
                         title={threadTitle(thread)}
                         reference={threadRef(thread)}
@@ -673,16 +675,16 @@ export default function AdminCommunications() {
                         onToggle={() => toggleSelect(thread.id)}
                       />
                     )
-                  })}
-                  {nextCursor && (
+                  }}
+                  footer={nextCursor ? (
                     <div className="p-3 text-center border-t">
-                      <Button size="sm" variant="outline" className="w-full gap-1" onClick={loadMore} disabled={loadingMore}>
+                      <Button size="sm" variant="outline" className="w-full gap-1" onClick={loadMore} disabled={loadingMore} data-testid="load-more">
                         {loadingMore ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
                         {loadingMore ? 'Loading…' : 'Load more'}
                       </Button>
                     </div>
-                  )}
-                </ScrollArea>
+                  ) : null}
+                />
               )}
             </CardContent>
           </Card>
@@ -762,7 +764,15 @@ export default function AdminCommunications() {
                           if (day && day !== prevDay) {
                             nodes.push(<div key={`sep-${message.id}`} className="text-center text-[10px] uppercase tracking-wide text-gray-400 py-1">{day}</div>)
                           }
-                          nodes.push(<MessageBubble key={message.id} message={message} slaThresholdSeconds={60} />)
+                          nodes.push(
+                            <MessageBubble
+                              key={message.id}
+                              message={message}
+                              slaThresholdSeconds={60}
+                              timeZone={preferences?.timezone || undefined}
+                              senderLabel={message.direction === 'inbound' ? threadTitle(selected) : (message.direction === 'outbound' ? 'Agent' : undefined)}
+                            />,
+                          )
                           if (showTimelineTechnical) {
                             const msgAttempts = deliveryAttempts.filter((a) => a.message_id === message.id)
                             nodes.push(

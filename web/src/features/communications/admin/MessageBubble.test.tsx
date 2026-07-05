@@ -5,18 +5,27 @@ import { MessageBubble } from './MessageBubble'
 const NOW = Date.parse('2026-07-05T12:00:00.000Z')
 
 describe('MessageBubble', () => {
-  it('renders an outbound message with delivery state and provider id', () => {
+  it('shows visible channel/label, direction, sender, exact date+time, delivery state; hides raw ids (P1.5)', () => {
     const html = renderToStaticMarkup(
       <MessageBubble
         message={{ id: 'm1', direction: 'outbound', channel: 'whatsapp', status: 'delivered', content_text: 'Hi there', created_at: '2026-07-05T11:59:00.000Z', provider_message_id: 'wamid.ABC' }}
+        senderLabel="Agent Tino"
+        timeZone="UTC"
         now={NOW}
       />,
     )
-    expect(html).toContain('outbound')
     expect(html).toContain('Hi there')
-    expect(html).toContain('Delivered')
-    expect(html).toContain('wamid.ABC')
+    expect(html).toContain('WhatsApp')                 // friendly channel label
+    expect(html).toContain('data-channel="whatsapp"')  // branded channel icon
+    expect(html).toContain('Outbound')                 // visible direction
+    expect(html).toContain('Agent Tino')               // sender identity
+    expect(html).toContain('Delivered')                // delivery state
+    expect(html).toContain('data-testid="message-stamp"')
+    expect(html).toContain('<time')                    // exact date/time visible (not hover-only)
+    expect(html).toMatch(/2026|Jul/)                   // human-readable calendar date is rendered
     expect(html).toContain('data-direction="outbound"')
+    // Raw provider id belongs to the technical drawer, NOT the normal bubble.
+    expect(html).not.toContain('wamid.ABC')
   })
 
   it('marks an internal note as not sent to the user', () => {
