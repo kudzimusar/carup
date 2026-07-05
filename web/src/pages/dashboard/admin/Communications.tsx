@@ -21,6 +21,8 @@ import { HandoffBar } from '@/features/communications/admin/HandoffBar'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
 import { ProviderSmokeTestPanel } from '@/features/communications/admin/ProviderSmokeTestPanel'
+import { AuditDrawer } from '@/features/communications/admin/AuditDrawer'
+import type { AuditEvent } from '@/features/communications/admin/auditPresentation'
 import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
 import { WorkerHealthPanel } from '@/features/communications/admin/WorkerHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
@@ -123,6 +125,7 @@ export default function AdminCommunications() {
     fetchAdminCommunicationMetrics,
     fetchAdminCommunicationThread,
     markAdminCommunicationThreadRead,
+    fetchAdminCommunicationThreadAudit,
     fetchCommunicationWorkerHealth,
     sendCommunicationProviderSmokeTest,
     adminReplyCommunicationThread,
@@ -137,6 +140,8 @@ export default function AdminCommunications() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [selected, setSelected] = useState<ThreadSummary | null>(null)
   const [messages, setMessages] = useState<MessageSummary[]>([])
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
+  const [showAuditTechnical, setShowAuditTechnical] = useState(false)
   const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
   const [metrics, setMetrics] = useState<Metrics>({})
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
@@ -324,25 +329,30 @@ export default function AdminCommunications() {
     setSelected(thread)
     if (!sameThread) {
       setMessages([])
+      setAuditEvents([])
       setReplyStatus('idle')
       setReplyError(null)
       setReplyCorrelationId(null)
       setInternalNote(false)
     }
-    const detail = await fetchAdminCommunicationThread(thread.id).catch(() => null)
+    const [detail, audit] = await Promise.all([
+      fetchAdminCommunicationThread(thread.id).catch(() => null),
+      fetchAdminCommunicationThreadAudit(thread.id).catch(() => ({ events: [] as AuditEvent[] })),
+    ])
     // Ignore a stale response if a newer openThread started while this fetch was in flight.
     if (openTokenRef.current !== token) return
     if (detail) {
       setSelected(detail.thread)
       setMessages(detail.messages || [])
     }
+    setAuditEvents(audit.events || [])
     // Mark the thread read for this agent and optimistically clear its unread badge in the list
     // (item 9). Fire-and-forget — a failure just leaves the badge until the next refresh.
     if (Number(thread.unread_count ?? 0) > 0) {
       setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, unread_count: 0 } : t)))
       void markAdminCommunicationThreadRead(thread.id).catch(() => undefined)
     }
-  }, [fetchAdminCommunicationThread, markAdminCommunicationThreadRead])
+  }, [fetchAdminCommunicationThread, fetchAdminCommunicationThreadAudit, markAdminCommunicationThreadRead])
 
   // Open a deep-linked thread (?thread=<id>) once on mount so shared links land on the conversation.
   const deepLinkedRef = useRef(false)
@@ -656,6 +666,25 @@ export default function AdminCommunications() {
 
           {/* ── Ops rail ── */}
           <aside className="space-y-5">
+            {/* Audit trail for the selected thread (visible timeline + technical drawer) */}
+            {selected && (
+              <div className="space-y-2">
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    aria-pressed={showAuditTechnical}
+                    onClick={() => setShowAuditTechnical((v) => !v)}
+                    data-testid="audit-technical-toggle"
+                  >
+                    {showAuditTechnical ? 'Hide technical' : 'Show technical'}
+                  </Button>
+                </div>
+                <AuditDrawer events={auditEvents} showTechnical={showAuditTechnical} />
+              </div>
+            )}
+
             {/* Delivery recovery */}
             <DeliveryRecoveryPanel
               items={deadLetters}

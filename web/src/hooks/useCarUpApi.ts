@@ -208,6 +208,20 @@ type CommunicationThreadPage = {
   next_cursor: string | null
   mode?: string
 }
+type CommunicationAuditEvent = {
+  id: string
+  event_type: string
+  actor_type?: string | null
+  actor_id?: string | null
+  channel?: string | null
+  summary?: string | null
+  correlation_id?: string | null
+  thread_id?: string | null
+  message_id?: string | null
+  notification_id?: string | null
+  metadata?: Record<string, unknown> | null
+  created_at?: string | null
+}
 
 export function useCarUpApi() {
   const { user, token } = useAuth()
@@ -919,6 +933,10 @@ export function useCarUpApi() {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
   }, [request])
 
+  const fetchAdminCommunicationThreadAudit = useCallback(async (id: string): Promise<{ events: CommunicationAuditEvent[] }> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/audit`, { method: 'GET' })
+  }, [request])
+
   const adminReplyCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/reply`, { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
@@ -1243,6 +1261,7 @@ export function useCarUpApi() {
     fetchAdminCommunicationThreads,
     fetchAdminCommunicationThread,
     markAdminCommunicationThreadRead,
+    fetchAdminCommunicationThreadAudit,
     adminReplyCommunicationThread,
     assignCommunicationThread,
     escalateCommunicationThread,

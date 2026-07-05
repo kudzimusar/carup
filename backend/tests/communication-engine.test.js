@@ -32,6 +32,7 @@ import {
 } from '../services/communication/adapters/providerAdapters.js';
 import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SORT_KEYS } from '../services/communication/communicationThreadQuery.js';
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
+import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
 
@@ -48,6 +49,7 @@ const cloudflareWorkerFile = readFileSync(new URL('../../cloudflare/carup-commun
 const backendVercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const supabaseCronMigrationSql = readFileSync(new URL('../../database/migrations/20260626120000_communication_supabase_cron.sql', import.meta.url), 'utf8');
 const inboxProjectionMigrationSql = readFileSync(new URL('../../database/migrations/20260705150000_communication_inbox_projection.sql', import.meta.url), 'utf8');
+const auditMigrationSql = readFileSync(new URL('../../database/migrations/20260705170000_communication_audit_events.sql', import.meta.url), 'utf8');
 
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
@@ -2170,6 +2172,52 @@ test('admin thread endpoints are tenant-scoped: cross-tenant load returns 404, o
   assert.equal(resolveThreadQueryContext({ userContext: { actor: 'worker_secret' } }).isPlatform, true);
   assert.equal(resolveThreadQueryContext({ userContext: { platformRole: 'super_admin' } }).isPlatform, true);
   assert.equal(resolveThreadQueryContext({ userContext: { platformRole: 'support', tenantId: 'tenantA' } }).isPlatform, false);
+});
+
+// ── Communication audit trail (item 8) ────────────────────────────────────────────────────────
+
+test('communication audit log appends events, coerces bad actor types, and is fail-soft', async () => {
+  const repo = new MemoryCommunicationRepository();
+  const row = await logCommunicationAuditEvent(repo, {
+    tenant_id: 'tenantA', thread_id: 'T1', message_id: 'M1', event_type: COMMUNICATION_AUDIT_EVENTS.REPLY_SENT,
+    actor_type: 'admin', actor_id: 'admin-1', channel: 'whatsapp', summary: 'Reply sent',
+    correlation_id: 'c1', metadata: { provider_message_id: 'wamid.X' },
+  });
+  assert.equal(row.event_type, 'reply_sent');
+  assert.equal(row.tenant_id, 'tenantA');
+  const stored = await repo.list('communication_audit_events', { thread_id: 'T1' });
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].metadata.provider_message_id, 'wamid.X');
+
+  // Missing event_type → null, no insert.
+  assert.equal(await logCommunicationAuditEvent(repo, { thread_id: 'T1' }), null);
+  // Unknown actor_type is coerced to 'system' (matches the CHECK constraint).
+  const coerced = await logCommunicationAuditEvent(repo, { event_type: 'x', actor_type: 'hacker' });
+  assert.equal(coerced.actor_type, 'system');
+  // Fail-soft: a throwing repository must NOT propagate (audit can never break the mutation).
+  const boom = { insert: async () => { throw new Error('db down'); } };
+  assert.equal(await logCommunicationAuditEvent(boom, { event_type: 'reply_sent' }), null);
+});
+
+test('audit actor mapping distinguishes worker, platform admin, and tenant agent', () => {
+  assert.deepEqual(auditActorFromContext({ actor: 'worker_secret', id: 'w' }), { actor_type: 'worker', actor_id: 'w' });
+  assert.equal(auditActorFromContext({ platformRole: 'super_admin', id: 'a' }).actor_type, 'admin');
+  assert.equal(auditActorFromContext({ platformRole: 'support', id: 'u' }).actor_type, 'agent');
+  assert.equal(auditActorFromContext({}).actor_type, 'agent');
+});
+
+test('communication audit migration adds an additive append-only table with indexes + RLS', () => {
+  assert.match(auditMigrationSql, /CREATE TABLE IF NOT EXISTS communication_audit_events/);
+  for (const col of ['tenant_id', 'thread_id', 'message_id', 'notification_id', 'event_type', 'actor_type', 'correlation_id', 'metadata', 'created_at']) {
+    assert.match(auditMigrationSql, new RegExp(`\\b${col}\\b`), `audit table must have ${col}`);
+  }
+  assert.match(auditMigrationSql, /CREATE INDEX IF NOT EXISTS idx_comm_audit_thread_created/);
+  assert.match(auditMigrationSql, /ENABLE ROW LEVEL SECURITY/);
+  assert.match(auditMigrationSql, /CREATE POLICY "communication_audit_admin_read"/);
+  // Additive: the Up section must not DROP or ALTER any pre-existing table.
+  const up = auditMigrationSql.split('-- +migrate Down')[0];
+  assert.equal(/DROP TABLE/i.test(up), false);
+  assert.equal(/ALTER TABLE (?!communication_audit_events)/i.test(up), false);
 });
 
 test('inbox projection migration adds the view, search/count RPCs, indexes, and least-privilege grants', () => {

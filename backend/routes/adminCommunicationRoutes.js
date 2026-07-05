@@ -3,6 +3,7 @@ import { randomUUID, timingSafeEqual } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { normalizeChannel } from '../services/communication/communicationUtils.js';
+import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -42,6 +43,35 @@ export async function loadThreadForRequest(services, req, res) {
     return null;
   }
   return thread;
+}
+
+// Load a queued/dead-letter notification by id and enforce the same tenant scoping as threads
+// (item 14). Platform admins reach any tenant; tenant callers only their own; cross-tenant → 404.
+async function loadNotificationForRequest(services, req, res) {
+  const notification = await services.repository.findOne('notification_queue', { id: req.params.id });
+  if (!notification) { res.status(404).json({ error: 'Notification not found.' }); return null; }
+  const ctx = resolveThreadQueryContext(req);
+  const sameTenant = Boolean(ctx.tenantId) && String(notification.tenant_id || '') === String(ctx.tenantId);
+  if (!ctx.isPlatform && !sameTenant) {
+    res.status(404).json({ error: 'Notification not found.' });
+    return null;
+  }
+  return notification;
+}
+
+// Append a thread-scoped audit event for the acting user (fail-soft; never throws — see
+// communicationAuditLog.js). Awaiting is safe because the writer swallows its own errors.
+function auditThread(services, req, thread, eventType, extra = {}) {
+  const actor = auditActorFromContext(req.userContext || {});
+  return logCommunicationAuditEvent(services.repository, {
+    tenant_id: thread?.tenant_id ?? null,
+    thread_id: thread?.id ?? null,
+    event_type: eventType,
+    actor_type: actor.actor_type,
+    actor_id: actor.actor_id,
+    channel: thread?.primary_channel ?? null,
+    ...extra,
+  });
 }
 
 function safeEqual(a = '', b = '') {
@@ -426,10 +456,28 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     return res.json({ thread, messages, participants, escalations });
   }));
 
+  // Thread audit trail (plan §8). Tenant-scoped; newest first.
+  router.get('/api/admin/communications/threads/:id/audit', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    const events = await services.repository.list('communication_audit_events', { thread_id: thread.id }, { order: { column: 'created_at', ascending: false }, limit: Math.min(Number(req.query.limit || 200), 500) });
+    return res.json({ events });
+  }));
+
   router.post('/api/admin/communications/threads/:id/reply', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
     const { message, notification, duplicate } = await recordAdminThreadReply({ services, thread, actor: req.userContext, body: req.body });
+    if (!duplicate) {
+      const internal = Boolean(req.body?.internal);
+      await auditThread(services, req, thread, internal ? COMMUNICATION_AUDIT_EVENTS.INTERNAL_NOTE : COMMUNICATION_AUDIT_EVENTS.REPLY_SENT, {
+        message_id: message?.id ?? null,
+        notification_id: notification?.id ?? null,
+        channel: req.body?.channel || thread.primary_channel || null,
+        correlation_id: req.body?.client_message_id || null,
+        summary: internal ? 'Internal note added' : 'Reply sent to customer',
+      });
+    }
     return res.status(duplicate ? 200 : 201).json({ message, notification, duplicate: Boolean(duplicate) });
   }));
 
@@ -439,37 +487,56 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
     const participant = await services.threadService.markRead(thread.id, req.userContext);
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.MARKED_READ, { summary: 'Thread marked read' });
     return res.json({ ok: true, thread_id: thread.id, last_read_at: participant?.last_read_at ?? null });
   }));
 
   router.patch('/api/admin/communications/threads/:id/assignment', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
-    return res.json({ thread: await services.threadService.assignThread(thread.id, { adminId: req.body?.assigned_admin_id || null, team: req.body?.assigned_team || null, actor: req.userContext }) });
+    const wasAssigned = Boolean(thread.assigned_admin_id || thread.assigned_team);
+    const updated = await services.threadService.assignThread(thread.id, { adminId: req.body?.assigned_admin_id || null, team: req.body?.assigned_team || null, actor: req.userContext });
+    await auditThread(services, req, thread, wasAssigned ? COMMUNICATION_AUDIT_EVENTS.REASSIGNED : COMMUNICATION_AUDIT_EVENTS.ASSIGNED, {
+      summary: `Assigned to ${req.body?.assigned_admin_id ? `admin ${String(req.body.assigned_admin_id).slice(0, 8)}` : (req.body?.assigned_team || 'unassigned')}`,
+      metadata: { assigned_admin_id: req.body?.assigned_admin_id || null, assigned_team: req.body?.assigned_team || null },
+    });
+    return res.json({ thread: updated });
   }));
 
   router.patch('/api/admin/communications/threads/:id/priority', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
-    return res.json({ thread: await services.repository.updateById('message_threads', thread.id, { priority: req.body?.priority || 'normal' }) });
+    const priority = req.body?.priority || 'normal';
+    const updated = await services.repository.updateById('message_threads', thread.id, { priority });
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.PRIORITY_CHANGED, { summary: `Priority set to ${priority}`, metadata: { from: thread.priority || null, to: priority } });
+    return res.json({ thread: updated });
   }));
 
   router.post('/api/admin/communications/threads/:id/escalate', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
-    return res.json({ thread: await services.threadService.escalateThread(thread.id, req.body?.reason_code || 'admin_escalation', { severity: req.body?.severity || 'high', source: 'admin', team: req.body?.assigned_team || null, adminId: req.userContext.id }) });
+    const reason = req.body?.reason_code || 'admin_escalation';
+    const updated = await services.threadService.escalateThread(thread.id, reason, { severity: req.body?.severity || 'high', source: 'admin', team: req.body?.assigned_team || null, adminId: req.userContext.id });
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.ESCALATED, { summary: `Escalated (${reason})`, metadata: { reason_code: reason, severity: req.body?.severity || 'high' } });
+    return res.json({ thread: updated });
   }));
 
   router.post('/api/admin/communications/threads/:id/resolve', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
-    return res.json({ thread: await services.threadService.resolveThread(thread.id, req.body?.summary || 'Resolved by admin.', req.userContext) });
+    const summary = req.body?.summary || 'Resolved by admin.';
+    const updated = await services.threadService.resolveThread(thread.id, summary, req.userContext);
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.RESOLVED, { summary });
+    return res.json({ thread: updated });
   }));
 
   router.post('/api/admin/communications/threads/:id/reopen', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
-    return res.json({ thread: await services.threadService.reopenThread(thread.id, req.body?.reason || 'admin_reopen') });
+    const reason = req.body?.reason || 'admin_reopen';
+    const updated = await services.threadService.reopenThread(thread.id, reason);
+    await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.REOPENED, { summary: `Reopened (${reason})` });
+    return res.json({ thread: updated });
   }));
 
   router.get('/api/admin/communications/dead-letter', authorizeRole(ADMIN_ROLES), asyncHandler(async (_req, res) => {
@@ -477,11 +544,30 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   }));
 
   router.post('/api/admin/communications/dead-letter/:id/retry', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ notification: await services.deliveryWorker.retryDeadLetter(req.params.id, { channel: req.body?.channel || undefined }) });
+    const notification = await loadNotificationForRequest(services, req, res);
+    if (!notification) return undefined;
+    const result = await services.deliveryWorker.retryDeadLetter(notification.id, { channel: req.body?.channel || undefined });
+    const actor = auditActorFromContext(req.userContext || {});
+    await logCommunicationAuditEvent(services.repository, {
+      tenant_id: notification.tenant_id ?? null, thread_id: notification.thread_id ?? null, notification_id: notification.id,
+      event_type: COMMUNICATION_AUDIT_EVENTS.RETRY_SCHEDULED, actor_type: actor.actor_type, actor_id: actor.actor_id,
+      channel: notification.channel ?? null, summary: 'Dead-letter retry requested',
+    });
+    return res.json({ notification: result });
   }));
 
   router.post('/api/admin/communications/dead-letter/:id/cancel', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ notification: await services.deliveryWorker.cancelDeadLetter(req.params.id, req.body?.reason || 'admin_cancelled') });
+    const notification = await loadNotificationForRequest(services, req, res);
+    if (!notification) return undefined;
+    const reason = req.body?.reason || 'admin_cancelled';
+    const result = await services.deliveryWorker.cancelDeadLetter(notification.id, reason);
+    const actor = auditActorFromContext(req.userContext || {});
+    await logCommunicationAuditEvent(services.repository, {
+      tenant_id: notification.tenant_id ?? null, thread_id: notification.thread_id ?? null, notification_id: notification.id,
+      event_type: COMMUNICATION_AUDIT_EVENTS.CANCELLED, actor_type: actor.actor_type, actor_id: actor.actor_id,
+      channel: notification.channel ?? null, summary: `Dead-letter cancelled (${reason})`,
+    });
+    return res.json({ notification: result });
   }));
 
   router.get('/api/admin/communications/worker/health', authorizeRole(ADMIN_ROLES), asyncHandler(async (_req, res) => {
@@ -549,6 +635,17 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       });
       // ok:false means the row was created but the provider rejected/failed — surface as 502,
       // never as success. Fake-adapter/config errors throw above with their own status codes.
+      const actor = auditActorFromContext(req.userContext || {});
+      await logCommunicationAuditEvent(services.repository, {
+        tenant_id: req.userContext?.tenantId ?? null,
+        thread_id: result?.thread?.id ?? null,
+        event_type: COMMUNICATION_AUDIT_EVENTS.SMOKE_TEST,
+        actor_type: actor.actor_type, actor_id: actor.actor_id,
+        channel: req.body?.channel || 'whatsapp',
+        summary: `Provider smoke test → ${result.ok ? 'delivered' : 'failed'}`,
+        correlation_id: result?.delivery?.provider_message_id || null,
+        metadata: { ok: Boolean(result.ok), provider: result?.delivery?.provider || null },
+      });
       return res.status(result.ok ? 200 : 502).json(result);
     } catch (error) {
       const statusCode = error.statusCode || 500;

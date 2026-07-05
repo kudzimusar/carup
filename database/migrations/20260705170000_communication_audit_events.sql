@@ -1,0 +1,43 @@
+-- +migrate Up
+-- Communication audit trail. The existing auditLogger writes vehicle/trust-shaped rows
+-- (trust_audit_events / organization_audit_logs) that cannot express communication events, so this
+-- adds a dedicated, additive append-only table + indexes + RLS. No existing table is altered.
+-- (Command Center plan §8; issue #107.) Every material communication mutation writes one row here:
+-- inbound receipt, AI classification/draft, assignment, reassignment, escalation, reply, internal
+-- note, queue claim, delivery attempt, delivery receipt, retry/cancel/dead-letter, resolve/reopen,
+-- identity linking, preference/consent change, mark-read, and provider smoke tests.
+
+CREATE TABLE IF NOT EXISTS communication_audit_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id TEXT,
+  thread_id UUID,
+  message_id UUID,
+  notification_id UUID,
+  event_type TEXT NOT NULL,
+  actor_type TEXT NOT NULL DEFAULT 'system'
+    CHECK (actor_type IN ('agent','admin','system','worker','ai','customer','platform')),
+  actor_id TEXT,
+  channel TEXT,
+  summary TEXT,
+  correlation_id TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_comm_audit_thread_created ON communication_audit_events (thread_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comm_audit_tenant_created ON communication_audit_events (tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comm_audit_event_type ON communication_audit_events (event_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comm_audit_correlation ON communication_audit_events (correlation_id);
+
+-- RLS: append/read is done by the backend service_role (which bypasses RLS). Admin/support roles may
+-- read via authenticated policies; no anon access and no client writes (append-only from the server).
+ALTER TABLE communication_audit_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "communication_audit_admin_read" ON communication_audit_events;
+CREATE POLICY "communication_audit_admin_read" ON communication_audit_events
+  FOR SELECT
+  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','platform_admin','super_admin','support','finance','trust_manager','compliance_manager','marketplace_manager'));
+
+-- +migrate Down
+DROP POLICY IF EXISTS "communication_audit_admin_read" ON communication_audit_events;
+DROP TABLE IF EXISTS communication_audit_events;
