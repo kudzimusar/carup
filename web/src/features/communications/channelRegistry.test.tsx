@@ -53,8 +53,10 @@ describe('channelRegistry', () => {
 
   it('supports a decorative icon with no redundant label', () => {
     const html = renderToStaticMarkup(<ChannelIcon channel="telegram" decorative />)
+    // The wrapper is aria-hidden (hiding the whole subtree) and carries no redundant aria-label.
     expect(html).toContain('aria-hidden="true"')
-    expect(html).not.toContain('role="img"')
+    expect(html).not.toContain('aria-label')
+    expect(html).toContain('data-channel="telegram"')
   })
 
   it('exposes helper label accessors', () => {

@@ -5,15 +5,16 @@
 // consistently across inbox, filters, timeline, health, recovery, and audit without rewriting
 // pages (see docs/agent-8-omnichannel/ENTERPRISE_COMMUNICATION_COMMAND_CENTER_GOAL_LOOP.md §6).
 //
-// Icons: Lucide provides real brand marks for Instagram/Facebook/X and distinct semantic glyphs
-// for the rest. The `icon` field is swappable for react-icons/si brand SVGs once that dependency
-// is approved, without touching call sites. Rendered accessibly by <ChannelIcon> (ChannelIcon.tsx).
+// Icons: recognizable official-style brand marks via react-icons/si for WhatsApp, Telegram,
+// Facebook Messenger, Instagram, LINE, and X; Lucide semantic glyphs for the generic/app channels.
+// Rendered accessibly (label + non-colour meaning) by <ChannelIcon> (ChannelIcon.tsx).
 
-import type { LucideIcon } from 'lucide-react'
-import {
-  Bell, BellRing, Facebook, Globe, Instagram, Mail, MessageCircle, MessageCircleMore,
-  MessageSquareText, Send, Smartphone, Twitter,
-} from 'lucide-react'
+import type { ComponentType } from 'react'
+import { Bell, BellRing, Globe, Mail, MessageSquareText, Smartphone } from 'lucide-react'
+import { SiInstagram, SiLine, SiMessenger, SiTelegram, SiWhatsapp, SiX } from 'react-icons/si'
+
+// Both lucide-react and react-icons components satisfy this minimal shape.
+export type ChannelIconComponent = ComponentType<{ size?: number | string; className?: string; 'aria-hidden'?: boolean }>
 
 export type ChannelKey =
   | 'whatsapp' | 'telegram' | 'facebook' | 'instagram' | 'line' | 'x'
@@ -37,7 +38,7 @@ export interface ChannelDefinition {
   label: string
   shortLabel: string
   providerLabel: string
-  icon: LucideIcon
+  icon: ChannelIconComponent
   brandColor: string
   identityFormat: IdentityFormat
   capabilities: ChannelCapabilities
@@ -53,37 +54,37 @@ const CAP = (o: Partial<ChannelCapabilities>): ChannelCapabilities => ({
 export const CHANNELS: Record<ChannelKey, ChannelDefinition> = {
   whatsapp: {
     key: 'whatsapp', label: 'WhatsApp', shortLabel: 'WhatsApp', providerLabel: 'meta_whatsapp_cloud_api',
-    icon: MessageCircle, brandColor: '#25D366', identityFormat: 'phone',
+    icon: SiWhatsapp, brandColor: '#25D366', identityFormat: 'phone',
     capabilities: CAP({ inbound: true, outbound: true, templates: true, media: true }),
     webhookPath: '/api/communications/webhooks/meta/whatsapp', supportsDiagnostics: true, availability: 'available',
   },
   telegram: {
     key: 'telegram', label: 'Telegram', shortLabel: 'Telegram', providerLabel: 'telegram_bot_api',
-    icon: Send, brandColor: '#229ED9', identityFormat: 'chat_id',
+    icon: SiTelegram, brandColor: '#229ED9', identityFormat: 'chat_id',
     capabilities: CAP({ inbound: true, outbound: true, media: true }),
     webhookPath: '/api/communications/webhooks/telegram/telegram', supportsDiagnostics: true, availability: 'available',
   },
   facebook: {
     key: 'facebook', label: 'Facebook Messenger', shortLabel: 'Messenger', providerLabel: 'meta_messenger',
-    icon: Facebook, brandColor: '#0866FF', identityFormat: 'handle',
+    icon: SiMessenger, brandColor: '#0866FF', identityFormat: 'handle',
     capabilities: CAP({ inbound: true, outbound: true, media: true }),
     webhookPath: '/api/communications/webhooks/meta/facebook', supportsDiagnostics: true, availability: 'available',
   },
   instagram: {
     key: 'instagram', label: 'Instagram', shortLabel: 'Instagram', providerLabel: 'meta_instagram_messaging',
-    icon: Instagram, brandColor: '#E4405F', identityFormat: 'handle',
+    icon: SiInstagram, brandColor: '#E4405F', identityFormat: 'handle',
     capabilities: CAP({ inbound: true, outbound: true, media: true }),
     webhookPath: '/api/communications/webhooks/meta/instagram', supportsDiagnostics: true, availability: 'available',
   },
   line: {
     key: 'line', label: 'LINE', shortLabel: 'LINE', providerLabel: 'line_messaging_api',
-    icon: MessageCircleMore, brandColor: '#06C755', identityFormat: 'handle',
+    icon: SiLine, brandColor: '#06C755', identityFormat: 'handle',
     capabilities: CAP({ inbound: true, outbound: true, media: true }),
     webhookPath: '/api/communications/webhooks/line/line', supportsDiagnostics: true, availability: 'planned',
   },
   x: {
     key: 'x', label: 'X', shortLabel: 'X', providerLabel: 'x_dm_api',
-    icon: Twitter, brandColor: '#000000', identityFormat: 'handle',
+    icon: SiX, brandColor: '#000000', identityFormat: 'handle',
     capabilities: CAP({ inbound: true, outbound: true }),
     webhookPath: '/api/communications/webhooks/x/dm', supportsDiagnostics: true, availability: 'planned',
   },

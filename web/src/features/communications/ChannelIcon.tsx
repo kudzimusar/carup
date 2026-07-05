@@ -29,7 +29,8 @@ export function ChannelIcon({ channel, size = 16, className, title, decorative =
       aria-hidden={decorative ? true : undefined}
       data-channel={def.key}
     >
-      <Icon width={size} height={size} aria-hidden />
+      <Icon size={size} aria-hidden />
+
     </span>
   )
 }
