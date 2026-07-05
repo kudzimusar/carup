@@ -30,6 +30,7 @@ import {
   createDefaultAdapterRegistry,
   assertRealTelegramAdapter,
 } from '../services/communication/adapters/providerAdapters.js';
+import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SORT_KEYS } from '../services/communication/communicationThreadQuery.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter } = await import('../routes/adminCommunicationRoutes.js');
 
@@ -1833,4 +1834,107 @@ test('provider smoke test returns provider_not_configured when the real adapter 
   // No provider call and no queue rows when credentials are missing.
   assert.equal(metaFetch.calls.length, 0);
   assert.equal((await services.repository.list('notification_queue')).length, 0);
+});
+
+// ── Command Center thread query engine (Phase 4: server-side filter/search/sort/paginate/count) ──
+
+function threadRow(over = {}) {
+  return {
+    id: 't', status: 'open', priority: 'normal', primary_channel: 'whatsapp',
+    assigned_admin_id: null, assigned_team: null, thread_type: 'support',
+    sla_due_at: null, metadata: {},
+    last_message_at: '2026-07-05T10:00:00.000Z', updated_at: '2026-07-05T10:00:00.000Z',
+    created_at: '2026-07-01T00:00:00.000Z', ...over,
+  };
+}
+
+const QUERY_NOW = Date.parse('2026-07-05T12:00:00.000Z');
+const QUERY_ROWS = [
+  threadRow({ id: 't-open', status: 'awaiting_human', priority: 'high', primary_channel: 'whatsapp', last_message_at: '2026-07-05T10:00:00.000Z', updated_at: '2026-07-05T10:00:00.000Z' }),
+  threadRow({ id: 't-assigned', status: 'assigned', priority: 'normal', primary_channel: 'telegram', assigned_admin_id: 'admin-1', marketplace_listing_id: 'LST-9', last_message_at: '2026-07-05T09:00:00.000Z', updated_at: '2026-07-05T09:00:00.000Z' }),
+  threadRow({ id: 't-breach', status: 'escalated', priority: 'urgent', primary_channel: 'whatsapp', sla_due_at: '2026-07-05T11:00:00.000Z', last_message_at: '2026-07-05T11:00:00.000Z', updated_at: '2026-07-05T11:00:00.000Z' }),
+  threadRow({ id: 't-resolved', status: 'resolved', priority: 'normal', primary_channel: 'email', last_message_at: '2026-07-05T08:00:00.000Z', updated_at: '2026-07-05T08:00:00.000Z' }),
+  threadRow({ id: 't-mine', status: 'open', priority: 'normal', primary_channel: 'sms', assigned_admin_id: 'admin-me', last_message_at: '2026-07-05T07:00:00.000Z', updated_at: '2026-07-05T07:00:00.000Z' }),
+];
+
+const ids = (result) => result.threads.map((t) => t.id);
+
+test('thread query engine relies only on columns present in the real message_threads migration', () => {
+  const block = migrationSql.match(/CREATE TABLE IF NOT EXISTS message_threads\s*\(([\s\S]*?)\n\);/i);
+  assert.ok(block, 'migration must define message_threads');
+  const columns = block[1].split('\n').map((l) => l.trim().split(/\s+/)[0]).filter((c) => /^[a-z_]+$/.test(c));
+  for (const col of ['last_message_at', 'updated_at', 'sla_due_at', 'priority', 'status', 'primary_channel', 'assigned_admin_id', 'assigned_team', 'thread_type']) {
+    assert.ok(columns.includes(col), `message_threads must have ${col} for the query engine`);
+  }
+});
+
+test('thread query filters by status, channel, assignment, sla, and search', () => {
+  assert.deepEqual(ids(buildThreadQuery(QUERY_ROWS, { status: 'awaiting_human' }, { now: QUERY_NOW })), ['t-open']);
+  assert.deepEqual(ids(buildThreadQuery(QUERY_ROWS, { channel: 'telegram' }, { now: QUERY_NOW })), ['t-assigned']);
+  assert.deepEqual(
+    ids(buildThreadQuery(QUERY_ROWS, { assigned: 'unassigned' }, { now: QUERY_NOW })).sort(),
+    ['t-breach', 't-open'],
+  );
+  assert.deepEqual(ids(buildThreadQuery(QUERY_ROWS, { assigned: 'mine' }, { userId: 'admin-me', now: QUERY_NOW })), ['t-mine']);
+  assert.deepEqual(ids(buildThreadQuery(QUERY_ROWS, { sla: 'breach' }, { now: QUERY_NOW })), ['t-breach']);
+  assert.deepEqual(ids(buildThreadQuery(QUERY_ROWS, { search: 'lst-9', include_terminal: true }, { now: QUERY_NOW })), ['t-assigned']);
+});
+
+test('thread query excludes terminal statuses by default and includes them on request', () => {
+  const active = buildThreadQuery(QUERY_ROWS, {}, { now: QUERY_NOW });
+  assert.equal(active.threads.some((t) => t.id === 't-resolved'), false);
+  const withTerminal = buildThreadQuery(QUERY_ROWS, { include_terminal: true }, { now: QUERY_NOW });
+  assert.equal(withTerminal.threads.some((t) => t.id === 't-resolved'), true);
+  // An explicit status filter can still surface a terminal thread.
+  assert.deepEqual(ids(buildThreadQuery(QUERY_ROWS, { status: 'resolved' }, { now: QUERY_NOW })), ['t-resolved']);
+});
+
+test('thread query sorts by newest, oldest waiting, and priority', () => {
+  assert.deepEqual(
+    ids(buildThreadQuery(QUERY_ROWS, { sort: 'newest', include_terminal: true, limit: 10 }, { now: QUERY_NOW })),
+    ['t-breach', 't-open', 't-assigned', 't-resolved', 't-mine'],
+  );
+  assert.deepEqual(
+    ids(buildThreadQuery(QUERY_ROWS, { sort: 'oldest_waiting', include_terminal: true, limit: 10 }, { now: QUERY_NOW })),
+    ['t-mine', 't-resolved', 't-assigned', 't-open', 't-breach'],
+  );
+  // Priority: urgent, then high, then normals by newest.
+  assert.deepEqual(
+    ids(buildThreadQuery(QUERY_ROWS, { sort: 'priority', include_terminal: true, limit: 10 }, { now: QUERY_NOW })),
+    ['t-breach', 't-open', 't-assigned', 't-resolved', 't-mine'],
+  );
+  assert.ok(THREAD_SORT_KEYS.includes('newest') && THREAD_SORT_KEYS.includes('sla'));
+});
+
+test('thread query paginates with a stable value-based cursor (no dupes or gaps)', () => {
+  const seen = [];
+  let cursor;
+  for (let i = 0; i < 10; i += 1) {
+    const page = buildThreadQuery(QUERY_ROWS, { sort: 'newest', include_terminal: true, limit: 2, cursor }, { now: QUERY_NOW });
+    seen.push(...ids(page));
+    cursor = page.page.next_cursor;
+    if (!cursor) break;
+  }
+  assert.deepEqual(seen, ['t-breach', 't-open', 't-assigned', 't-resolved', 't-mine']);
+  assert.equal(new Set(seen).size, seen.length, 'no duplicate rows across pages');
+  // An unparseable cursor is treated as no cursor (first page), never a crash.
+  const bad = buildThreadQuery(QUERY_ROWS, { sort: 'newest', include_terminal: true, limit: 2, cursor: 'not-a-cursor' }, { now: QUERY_NOW });
+  assert.deepEqual(ids(bad), ['t-breach', 't-open']);
+  assert.equal(decodeCursor(encodeCursor(['x', 'y'])).length, 2);
+});
+
+test('thread query counts are computed across the whole set independent of the page', () => {
+  const result = buildThreadQuery(QUERY_ROWS, { limit: 1 }, { userId: 'admin-me', now: QUERY_NOW });
+  assert.equal(result.threads.length, 1, 'page is bounded by limit');
+  const c = result.counts;
+  assert.equal(c.total, 5);
+  assert.equal(c.all_active, 4);        // excludes t-resolved
+  assert.equal(c.unassigned, 2);        // t-open, t-breach
+  assert.equal(c.mine, 1);              // t-mine
+  assert.equal(c.needs_human, 1);       // t-open
+  assert.equal(c.sla_breach, 1);        // t-breach
+  assert.equal(c.by_channel.whatsapp, 2);
+  assert.equal(c.by_workflow.resolved, 1);
+  // computeCounts is exported and consistent when called directly.
+  assert.equal(computeCounts(QUERY_ROWS, { now: QUERY_NOW }).total, 5);
 });

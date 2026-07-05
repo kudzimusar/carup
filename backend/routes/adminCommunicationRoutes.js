@@ -3,6 +3,7 @@ import { randomUUID, timingSafeEqual } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { normalizeChannel } from '../services/communication/communicationUtils.js';
+import { buildThreadQuery } from '../services/communication/communicationThreadQuery.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -363,12 +364,25 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   const router = express.Router();
 
   router.get('/api/admin/communications/threads', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const filters = {};
-    if (req.query.status) filters.status = req.query.status;
-    if (req.query.priority) filters.priority = req.query.priority;
-    if (req.query.assigned_admin_id) filters.assigned_admin_id = req.query.assigned_admin_id;
-    const threads = await services.repository.list('message_threads', filters, { order: { column: 'updated_at' }, limit: Number(req.query.limit || 100) });
-    res.json({ threads });
+    // Bounded recent window (by updated_at, always populated) → server-side filter/search/sort/
+    // keyset-paginate/count in the pure query engine. Backward compatible: `threads` is still an
+    // array; `page` (cursor) and `counts` are additive. Existing callers that pass only `limit`
+    // continue to receive up to that many threads.
+    const windowSize = Math.min(Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000), 2000);
+    const rows = await services.repository.list('message_threads', {}, { order: { column: 'updated_at' }, limit: windowSize });
+    const result = buildThreadQuery(rows, {
+      search: req.query.search,
+      status: req.query.status,
+      channel: req.query.channel,
+      priority: req.query.priority,
+      assigned: req.query.assigned || (req.query.assigned_admin_id ? String(req.query.assigned_admin_id) : undefined),
+      sla: req.query.sla,
+      include_terminal: req.query.include_terminal === undefined ? true : req.query.include_terminal === 'true',
+      sort: req.query.sort,
+      cursor: req.query.cursor,
+      limit: req.query.limit,
+    }, { userId: req.userContext?.id, now: Date.now() });
+    res.json({ threads: result.threads, page: result.page, counts: result.counts });
   }));
 
   router.get('/api/admin/communications/threads/:id', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
