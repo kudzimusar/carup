@@ -21,11 +21,27 @@ const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin'])
 // not a tenant-elevated effective role) see every tenant; everyone else is confined to their own
 // tenant. A worker-secret caller acts as platform for diagnostics. A caller with neither platform
 // role nor a resolvable tenant sees nothing (the repository fails closed).
-function resolveThreadQueryContext(req) {
+export function resolveThreadQueryContext(req) {
   const uc = req.userContext || {};
   const platformRole = uc.platformRole || uc.baseRole || uc.role || null;
   const isPlatform = uc.actor === 'worker_secret' || PLATFORM_ADMIN_ROLES.has(platformRole);
   return { userId: uc.id, tenantId: uc.tenantId || null, isPlatform, now: Date.now() };
+}
+
+// Load a thread by id and enforce tenant scoping (item 14). Platform admins reach any tenant; a
+// tenant-scoped caller only reaches its own tenant's threads. Cross-tenant (and orphan, tenant-less
+// callers) get an indistinguishable 404 so thread existence cannot be enumerated across tenants.
+// Returns the thread, or null after already sending the 404 response. Exported for unit testing.
+export async function loadThreadForRequest(services, req, res) {
+  const thread = await services.repository.findOne('message_threads', { id: req.params.id });
+  if (!thread) { res.status(404).json({ error: 'Thread not found.' }); return null; }
+  const ctx = resolveThreadQueryContext(req);
+  const sameTenant = Boolean(ctx.tenantId) && String(thread.tenant_id || '') === String(ctx.tenantId);
+  if (!ctx.isPlatform && !sameTenant) {
+    res.status(404).json({ error: 'Thread not found.' });
+    return null;
+  }
+  return thread;
 }
 
 function safeEqual(a = '', b = '') {
@@ -400,41 +416,60 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   }));
 
   router.get('/api/admin/communications/threads/:id', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const thread = await services.repository.findOne('message_threads', { id: req.params.id });
-    if (!thread) return res.status(404).json({ error: 'Thread not found.' });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
     const [messages, participants, escalations] = await Promise.all([
       services.repository.list('messages', { thread_id: thread.id }, { order: { column: 'created_at', ascending: true } }),
       services.repository.list('message_participants', { thread_id: thread.id }),
       services.repository.list('communication_escalations', { thread_id: thread.id }),
     ]);
-    res.json({ thread, messages, participants, escalations });
+    return res.json({ thread, messages, participants, escalations });
   }));
 
   router.post('/api/admin/communications/threads/:id/reply', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    const thread = await services.repository.findOne('message_threads', { id: req.params.id });
-    if (!thread) return res.status(404).json({ error: 'Thread not found.' });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
     const { message, notification, duplicate } = await recordAdminThreadReply({ services, thread, actor: req.userContext, body: req.body });
-    res.status(duplicate ? 200 : 201).json({ message, notification, duplicate: Boolean(duplicate) });
+    return res.status(duplicate ? 200 : 201).json({ message, notification, duplicate: Boolean(duplicate) });
+  }));
+
+  // Mark the thread read for the acting agent — advances the team read marker and clears the unread
+  // badge (item 9). Tenant-scoped like every other thread mutation.
+  router.post('/api/admin/communications/threads/:id/read', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    const participant = await services.threadService.markRead(thread.id, req.userContext);
+    return res.json({ ok: true, thread_id: thread.id, last_read_at: participant?.last_read_at ?? null });
   }));
 
   router.patch('/api/admin/communications/threads/:id/assignment', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ thread: await services.threadService.assignThread(req.params.id, { adminId: req.body?.assigned_admin_id || null, team: req.body?.assigned_team || null, actor: req.userContext }) });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    return res.json({ thread: await services.threadService.assignThread(thread.id, { adminId: req.body?.assigned_admin_id || null, team: req.body?.assigned_team || null, actor: req.userContext }) });
   }));
 
   router.patch('/api/admin/communications/threads/:id/priority', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ thread: await services.repository.updateById('message_threads', req.params.id, { priority: req.body?.priority || 'normal' }) });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    return res.json({ thread: await services.repository.updateById('message_threads', thread.id, { priority: req.body?.priority || 'normal' }) });
   }));
 
   router.post('/api/admin/communications/threads/:id/escalate', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ thread: await services.threadService.escalateThread(req.params.id, req.body?.reason_code || 'admin_escalation', { severity: req.body?.severity || 'high', source: 'admin', team: req.body?.assigned_team || null, adminId: req.userContext.id }) });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    return res.json({ thread: await services.threadService.escalateThread(thread.id, req.body?.reason_code || 'admin_escalation', { severity: req.body?.severity || 'high', source: 'admin', team: req.body?.assigned_team || null, adminId: req.userContext.id }) });
   }));
 
   router.post('/api/admin/communications/threads/:id/resolve', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ thread: await services.threadService.resolveThread(req.params.id, req.body?.summary || 'Resolved by admin.', req.userContext) });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    return res.json({ thread: await services.threadService.resolveThread(thread.id, req.body?.summary || 'Resolved by admin.', req.userContext) });
   }));
 
   router.post('/api/admin/communications/threads/:id/reopen', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
-    res.json({ thread: await services.threadService.reopenThread(req.params.id, req.body?.reason || 'admin_reopen') });
+    const thread = await loadThreadForRequest(services, req, res);
+    if (!thread) return undefined;
+    return res.json({ thread: await services.threadService.reopenThread(thread.id, req.body?.reason || 'admin_reopen') });
   }));
 
   router.get('/api/admin/communications/dead-letter', authorizeRole(ADMIN_ROLES), asyncHandler(async (_req, res) => {
