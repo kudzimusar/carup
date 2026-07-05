@@ -267,7 +267,11 @@ export default function AdminCommunications() {
     fetchDashboard().then(({ threadRes, deadRes, metricRes, threadsFailed }) => {
       if (!mounted) return
       setLoadError(threadsFailed ? 'Could not load threads — press Refresh to retry.' : null)
-      if (!threadsFailed) setThreads(threadRes.threads || [])
+      if (!threadsFailed) {
+        setThreads(threadRes.threads || [])
+        setServerCounts(threadRes.counts ?? null)
+        setNextCursor(threadRes.page?.next_cursor ?? null)
+      }
       setDeadLetters(deadRes.notifications || [])
       setMetrics(metricRes || {})
       setLoading(false)
@@ -311,13 +315,19 @@ export default function AdminCommunications() {
 
   const openThread = useCallback(async (thread: ThreadSummary) => {
     const token = ++openTokenRef.current
+    // Only reset the composer when switching to a DIFFERENT thread. Re-opening the same thread
+    // (e.g. a handoff/dead-letter refresh) must NOT clear the reply draft or flip the internal-note
+    // toggle — otherwise a drafted internal note could be re-sent to the customer as a public reply.
+    const sameThread = selectedRef.current?.id === thread.id
     setSelected(thread)
-    setMessages([])
-    setReplyStatus('idle')
-    setReplyError(null)
-    setReplyCorrelationId(null)
-    setInternalNote(false)
-    setTeamPick('')
+    if (!sameThread) {
+      setMessages([])
+      setReplyStatus('idle')
+      setReplyError(null)
+      setReplyCorrelationId(null)
+      setInternalNote(false)
+      setTeamPick('')
+    }
     const detail = await fetchAdminCommunicationThread(thread.id).catch(() => null)
     // Ignore a stale response if a newer openThread started while this fetch was in flight.
     if (openTokenRef.current !== token) return
@@ -331,9 +341,11 @@ export default function AdminCommunications() {
   const deepLinkedRef = useRef(false)
   useEffect(() => {
     if (deepLinkedRef.current) return
+    // Mark handled on the first run regardless — otherwise a later URL change (from selecting a
+    // thread, which writes ?thread=<id>) would re-enter this and re-open with a bare {id} stub.
+    deepLinkedRef.current = true
     const threadId = searchParams.get('thread')
     if (!threadId) return
-    deepLinkedRef.current = true
     let cancelled = false
     // Defer out of the effect body so the open (and its state updates) run asynchronously.
     Promise.resolve().then(() => { if (!cancelled) void openThread({ id: threadId } as ThreadSummary) })

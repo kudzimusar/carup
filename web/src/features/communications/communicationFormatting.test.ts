@@ -24,6 +24,7 @@ describe('workflow vs delivery separation', () => {
     expect(effectiveDeliveryState('', false)).toBe('queued')
     expect(effectiveDeliveryState('pending', false)).toBe('queued')
     expect(effectiveDeliveryState('sent', true)).toBe('sent')
+    expect(effectiveDeliveryState('sent', false)).toBe('queued') // a bare DB 'sent' is not real delivery
     expect(effectiveDeliveryState('received')).toBe('delivered')
   })
 })
@@ -32,6 +33,9 @@ describe('identity-first labels', () => {
   it('never surfaces a raw UUID as the label', () => {
     expect(looksLikeUuid('11111111-2222-3333-4444-555555555555')).toBe(true)
     expect(identityLabel({ display_name: '11111111-2222-3333-4444-555555555555', normalized_address: '+818081201356' }))
+      .toBe(maskPhone('+818081201356'))
+    // Even a VERIFIED identity whose display_name is a UUID must not show the UUID.
+    expect(identityLabel({ display_name: '11111111-2222-3333-4444-555555555555', verified: true, normalized_address: '+818081201356' }))
       .toBe(maskPhone('+818081201356'))
     expect(identityLabel({ id: '11111111-2222-3333-4444-555555555555' })).toBe('Unknown contact')
   })

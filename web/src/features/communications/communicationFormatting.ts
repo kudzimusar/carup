@@ -72,9 +72,11 @@ export function deliveryTone(status?: string | null): StateTone {
 // being over-reported. `providerAccepted` should reflect a real provider acknowledgement.
 export function effectiveDeliveryState(rawStatus?: string | null, providerAccepted = false): DeliveryState {
   const s = String(rawStatus || '').toLowerCase()
+  // A bare 'sent' without a real provider acknowledgement is really Queued (docs §3: a DB insert
+  // is Queued, never Sent) — so the provider-accepted guard must run before the passthrough.
+  if (s === 'sent' && !providerAccepted) return 'queued'
   if ((DELIVERY_STATES as readonly string[]).includes(s)) return s as DeliveryState
   if (s === 'received') return 'delivered'
-  if (!providerAccepted && (s === '' || s === 'pending')) return 'queued'
   return 'queued'
 }
 
@@ -129,8 +131,9 @@ export function maskEmail(value?: string | null): string {
 export function identityLabel(identity?: IdentityLike | null, fallback = 'Unknown contact'): string {
   if (!identity) return fallback
   const name = identity.display_name?.trim()
+  // A real display name wins (verified or not) — but never surface a UUID as the title, even for
+  // a verified identity whose display_name happens to be a UUID.
   if (name && !looksLikeUuid(name)) return name
-  if (identity.verified && name) return name
 
   const provider = identity.provider_display_name?.trim()
   if (provider && !looksLikeUuid(provider)) return provider
