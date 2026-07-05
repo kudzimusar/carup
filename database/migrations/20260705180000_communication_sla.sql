@@ -58,6 +58,12 @@ CREATE POLICY "communication_sla_policies_tenant_read" ON communication_sla_poli
     AND (select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','support','finance','trust_manager','compliance_manager','marketplace_manager')
   );
 
+-- Table privileges: no anon access; authenticated may SELECT (RLS filters to tenant scope); the backend
+-- service_role manages policies + reads them for SLA computation (and bypasses RLS).
+REVOKE ALL ON communication_sla_policies FROM anon;
+GRANT SELECT ON communication_sla_policies TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON communication_sla_policies TO service_role;
+
 -- +migrate Down
 DROP POLICY IF EXISTS "communication_sla_policies_admin_read" ON communication_sla_policies;
 DROP POLICY IF EXISTS "communication_sla_policies_platform_read" ON communication_sla_policies;
