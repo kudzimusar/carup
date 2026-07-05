@@ -41,3 +41,27 @@ CREATE TABLE IF NOT EXISTS public.users (
   role TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Pre-existing runtime tables the omnichannel engine migration ADDITIVELY extends (ALTER … ADD COLUMN
+-- IF NOT EXISTS). They are created by earlier CarUp migrations in production; the gate re-creates their
+-- live shapes minimally so the base migration applies. notification_queue.id is BIGSERIAL (a numeric
+-- queue id), which is why communication_audit_events.notification_id is TEXT (holds the stringified id).
+CREATE TABLE IF NOT EXISTS public.notification_queue (
+  id BIGSERIAL PRIMARY KEY,
+  recipient_id TEXT,
+  type TEXT,
+  title TEXT,
+  message TEXT,
+  read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.domain_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  tenant_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

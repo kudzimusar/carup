@@ -68,7 +68,7 @@ test('communication Postgres integration', { skip: ENABLED ? false : 'set COMMUN
       await client.query(downSection(readSql(rel))).catch(() => {});
     }
     await client.query(downSection(readSql(BASE_MIGRATION))).catch(() => {});
-    await client.query('DROP TABLE IF EXISTS public.users CASCADE').catch(() => {});
+    await client.query('DROP TABLE IF EXISTS public.users, public.notification_queue, public.domain_events CASCADE').catch(() => {});
     await client.end().catch(() => {});
   });
 
