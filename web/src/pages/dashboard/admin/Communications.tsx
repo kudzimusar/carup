@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, CheckCircle2, Clock, Inbox as InboxIcon, Loader2, MessageCircle,
+  AlertTriangle, CheckCircle2, Clock, Inbox as InboxIcon, Loader2,
   MessageSquare, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle, Zap,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -26,6 +26,8 @@ import { DeliveryRecoveryPanel } from '@/features/communications/admin/DeliveryR
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
+import { ProviderSmokeTestPanel } from '@/features/communications/admin/ProviderSmokeTestPanel'
+import { WorkerHealthPanel } from '@/features/communications/admin/WorkerHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
@@ -34,7 +36,6 @@ type MessageSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAd
 type DeadLetterNotification = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationDeadLetters']>>['notifications'][number]
 type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationMetrics']>>
 type WorkerHealth = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationWorkerHealth']>>
-type SmokeResult = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['sendCommunicationProviderSmokeTest']>>
 type ThreadCounts = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['counts']>
 type ThreadPage = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['page']>
 const PAGE_LIMIT = '100'
@@ -155,9 +156,6 @@ export default function AdminCommunications() {
   const [assignee, setAssignee] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
 
-  const [smokeTo, setSmokeTo] = useState('818081201356')
-  const [smokeBusy, setSmokeBusy] = useState(false)
-  const [smokeResult, setSmokeResult] = useState<SmokeResult | null>(null)
 
   const selectedRef = useRef<ThreadSummary | null>(null)
   const openTokenRef = useRef(0)
@@ -431,21 +429,6 @@ export default function AdminCommunications() {
   const escalate = () => runAction('escalate', () => escalateCommunicationThread(selected!.id, { reason_code: 'admin_escalation', severity: 'high', assigned_team: selected!.assigned_team || 'support' }))
   const resolve = () => runAction('resolve', () => resolveCommunicationThread(selected!.id, 'Resolved from admin command center.'))
 
-  const runSmokeTest = useCallback(async () => {
-    const to = smokeTo.trim()
-    if (!to) return
-    setSmokeBusy(true)
-    setSmokeResult(null)
-    try {
-      const res = await sendCommunicationProviderSmokeTest({ channel: 'whatsapp', to })
-      setSmokeResult(res)
-    } catch (err) {
-      setSmokeResult({ ok: false, error: 'request_failed', message: err instanceof Error ? err.message : 'Request failed' })
-    } finally {
-      setSmokeBusy(false)
-      refreshWorkerHealth()
-    }
-  }, [smokeTo, sendCommunicationProviderSmokeTest, refreshWorkerHealth])
 
   const slaBreaching = workerHealth?.queue?.sla_breaching ?? 0
   const telegramMode = workerHealth?.telegram?.mode ?? null
@@ -749,54 +732,22 @@ export default function AdminCommunications() {
 
             {/* Worker & SLA health */}
             {workerHealth && (
-              <Card className="border-0 card-shadow">
-                <CardHeader className="pb-3"><CardTitle className="text-lg flex items-center gap-2"><Zap className="w-4 h-4" /> Worker &amp; SLA</CardTitle></CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Queue depth</span><strong>{workerHealth.queue.depth}</strong></div>
-                  <div className="flex justify-between"><span className="text-gray-500">SLA breaches</span><strong className={slaBreaching > 0 ? 'text-red-600' : ''}>{slaBreaching}</strong></div>
-                  {workerHealth.queue.oldest_queued_seconds != null && (
-                    <div className="flex justify-between"><span className="text-gray-500">Oldest queued</span><strong>{workerHealth.queue.oldest_queued_seconds}s</strong></div>
-                  )}
-                  <div className="flex justify-between items-center"><span className="text-gray-500">Telegram</span>
-                    <span className={telegramOk ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>{workerHealth.telegram?.provider ?? 'n/a'} ({workerHealth.telegram?.mode ?? '—'})</span>
-                  </div>
-                  <div className="flex justify-between"><span className="text-gray-500">Cron</span><strong className="font-mono text-xs">{workerHealth.scheduler.job_config?.schedule ?? (workerHealth.scheduler.pg_cron_available ? '* * * * *' : 'pending')}</strong></div>
-                  <p className="text-xs text-gray-400 pt-1">Auto-refreshes every {IDLE_POLL_INTERVAL_MS / 1000}s · {DELIVERY_POLL_INTERVAL_MS / 1000}s while delivering.</p>
-                </CardContent>
-              </Card>
+              <WorkerHealthPanel
+                health={workerHealth}
+                idlePollSeconds={IDLE_POLL_INTERVAL_MS / 1000}
+                deliveryPollSeconds={DELIVERY_POLL_INTERVAL_MS / 1000}
+              />
             )}
 
             {/* Per-channel provider health (registry-driven; future channels shown as Planned) */}
             <ProviderHealthPanel adapters={workerHealth?.adapters} />
 
             {/* Provider smoke test */}
-            <Card className="border-0 card-shadow">
-              <CardHeader className="pb-3"><CardTitle className="text-lg flex items-center gap-2"><MessageCircle className="w-4 h-4" /> WhatsApp smoke test</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <p className="text-xs text-gray-500">Sends one real WhatsApp message through the engine. The server refuses fake adapters, so a green result means a real Meta request was made.</p>
-                <Input value={smokeTo} onChange={(e) => setSmokeTo(e.target.value)} placeholder="Recipient E.164 e.g. 818081201356" aria-label="Smoke test recipient phone number in E.164" className="h-9" />
-                <Button size="sm" className="w-full gap-1" disabled={smokeBusy || !smokeTo.trim()} onClick={runSmokeTest}>
-                  {smokeBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                  {smokeBusy ? 'Sending…' : 'Send WhatsApp smoke test'}
-                </Button>
-                {smokeResult && (
-                  <div className={`text-xs rounded p-2 ${smokeResult.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
-                    {smokeResult.ok ? (
-                      <>
-                        <div className="font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Sent via {smokeResult.provider}</div>
-                        <div className="break-all">provider_message_id: {smokeResult.delivery?.provider_message_id}</div>
-                        <div>status: {smokeResult.delivery?.status}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="font-medium flex items-center gap-1"><XCircle className="w-3 h-3" />{smokeResult.error || 'Failed'}</div>
-                        <div className="break-words">{smokeResult.message || smokeResult.delivery?.error_message}</div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ProviderSmokeTestPanel
+              onSend={(payload) => sendCommunicationProviderSmokeTest(payload)}
+              defaultRecipient="818081201356"
+              onDone={refreshWorkerHealth}
+            />
           </aside>
         </div>
       </div>
