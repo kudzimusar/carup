@@ -54,7 +54,9 @@ export async function logCommunicationAuditEvent(repository, event = {}) {
     tenant_id: event.tenant_id ?? null,
     thread_id: event.thread_id ?? null,
     message_id: event.message_id ?? null,
-    notification_id: event.notification_id ?? null,
+    // notification_id is a TEXT column that must hold a legacy BIGSERIAL queue id (e.g. 8) as well
+    // as the TEXT message_delivery_attempts.notification_id — normalize any non-null id to a string.
+    notification_id: event.notification_id == null ? null : String(event.notification_id),
     event_type: event.event_type,
     actor_type: actorType,
     actor_id: event.actor_id ?? null,
