@@ -1923,6 +1923,37 @@ test('thread query paginates with a stable value-based cursor (no dupes or gaps)
   assert.equal(decodeCursor(encodeCursor(['x', 'y'])).length, 2);
 });
 
+test('thread query engine paginates 1000+ threads with stable cursors and no dupes or gaps', () => {
+  const N = 1200;
+  const base = Date.parse('2026-07-05T00:00:00.000Z');
+  const rows = Array.from({ length: N }, (_, i) => threadRow({
+    id: `t-${String(i).padStart(4, '0')}`,
+    status: ['open', 'awaiting_human', 'assigned', 'escalated', 'resolved'][i % 5],
+    primary_channel: ['whatsapp', 'telegram', 'email', 'sms'][i % 4],
+    last_message_at: new Date(base + i * 60000).toISOString(),
+    updated_at: new Date(base + i * 60000).toISOString(),
+  }));
+
+  const seen = [];
+  let cursor;
+  let pages = 0;
+  for (;;) {
+    const page = buildThreadQuery(rows, { sort: 'newest', include_terminal: true, limit: 100, cursor }, { now: QUERY_NOW });
+    seen.push(...page.threads.map((t) => t.id));
+    cursor = page.page.next_cursor;
+    pages += 1;
+    if (!cursor || pages > 100) break;
+  }
+  assert.equal(seen.length, N, 'every thread is returned exactly once across pages');
+  assert.equal(new Set(seen).size, N, 'no duplicate rows across pages');
+  assert.ok(pages >= 12, 'pagination spans many pages at scale');
+
+  const counts = buildThreadQuery(rows, { limit: 1 }, { now: QUERY_NOW }).counts;
+  assert.equal(counts.total, N);
+  assert.equal(counts.by_channel.whatsapp, N / 4);
+  assert.equal(counts.all_active, N - N / 5); // one in five is 'resolved' (terminal)
+});
+
 test('thread query counts are computed across the whole set independent of the page', () => {
   const result = buildThreadQuery(QUERY_ROWS, { limit: 1 }, { userId: 'admin-me', now: QUERY_NOW });
   assert.equal(result.threads.length, 1, 'page is bounded by limit');
