@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, CheckCircle2, Inbox as InboxIcon, Loader2,
-  MessageSquare, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle,
+  AlertTriangle, Inbox as InboxIcon, Loader2,
+  MessageSquare, RefreshCcw, Search, Send, ShieldAlert, XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,7 +12,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { channelLabel } from '@/features/communications/channelRegistry'
@@ -24,6 +23,7 @@ import { ConversationHeader } from '@/features/communications/admin/Conversation
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryRecoveryPanel } from '@/features/communications/admin/DeliveryRecoveryPanel'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
+import { HandoffBar } from '@/features/communications/admin/HandoffBar'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
 import { ProviderSmokeTestPanel } from '@/features/communications/admin/ProviderSmokeTestPanel'
@@ -127,7 +127,6 @@ export default function AdminCommunications() {
   const [bulkNote, setBulkNote] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>(() => searchParams.get('filter') || 'awaiting_human')
   const [search, setSearch] = useState(() => searchParams.get('q') || '')
-  const [teamPick, setTeamPick] = useState('')
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
 
   const [reply, setReply] = useState('')
@@ -136,8 +135,6 @@ export default function AdminCommunications() {
   const [replyError, setReplyError] = useState<string | null>(null)
   const [replyCorrelationId, setReplyCorrelationId] = useState<string | null>(null)
   const [replyClientMessageId, setReplyClientMessageId] = useState(() => newClientMessageId())
-
-  const [assignee, setAssignee] = useState('')
   const [busyAction, setBusyAction] = useState<string | null>(null)
 
 
@@ -308,7 +305,6 @@ export default function AdminCommunications() {
       setReplyError(null)
       setReplyCorrelationId(null)
       setInternalNote(false)
-      setTeamPick('')
     }
     const detail = await fetchAdminCommunicationThread(thread.id).catch(() => null)
     // Ignore a stale response if a newer openThread started while this fetch was in flight.
@@ -408,7 +404,6 @@ export default function AdminCommunications() {
   }, [load])
 
   const assignToMe = () => runAction('assign-me', () => assignCommunicationThread(selected!.id, { assigned_admin_id: user?.id, assigned_team: selected!.assigned_team }))
-  const assignToAdminId = () => runAction('assign-id', () => assignCommunicationThread(selected!.id, { assigned_admin_id: assignee || undefined, assigned_team: selected!.assigned_team || 'support' }))
   const assignToTeam = (team: string) => runAction('assign-team', () => assignCommunicationThread(selected!.id, { assigned_team: team }))
   const escalate = () => runAction('escalate', () => escalateCommunicationThread(selected!.id, { reason_code: 'admin_escalation', severity: 'high', assigned_team: selected!.assigned_team || 'support' }))
   const resolve = () => runAction('resolve', () => resolveCommunicationThread(selected!.id, 'Resolved from admin command center.'))
@@ -649,30 +644,16 @@ export default function AdminCommunications() {
                   <Separator />
 
                   {/* Handoff */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Handoff</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button size="sm" variant="secondary" className="gap-1" onClick={assignToMe} disabled={busyAction === 'assign-me' || !user?.id}>
-                        {busyAction === 'assign-me' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />} Assign to me
-                      </Button>
-                      <Select value={teamPick} onValueChange={(team) => { setTeamPick(team); void assignToTeam(team).finally(() => setTeamPick('')) }}>
-                        <SelectTrigger className="h-9 w-[150px]" aria-label="Assign to team"><SelectValue placeholder="Assign to team…" /></SelectTrigger>
-                        <SelectContent>
-                          {TEAMS.map((t) => <SelectItem key={t} value={t} className="capitalize">{prettyLabel(t)}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Button size="sm" variant="outline" className="gap-1" onClick={escalate} disabled={busyAction === 'escalate'}>
-                        {busyAction === 'escalate' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />} Escalate
-                      </Button>
-                      <Button size="sm" variant="secondary" className="gap-1" onClick={resolve} disabled={busyAction === 'resolve'}>
-                        {busyAction === 'resolve' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Resolve
-                      </Button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="Assign to admin user ID" aria-label="Assign to admin user ID" className="h-9" />
-                      <Button size="sm" variant="outline" onClick={assignToAdminId} disabled={busyAction === 'assign-id' || !assignee.trim()}>Assign</Button>
-                    </div>
-                  </div>
+                  <HandoffBar
+                    teams={TEAMS}
+                    busyAction={busyAction}
+                    canAssignToMe={!!user?.id}
+                    onAssignToMe={assignToMe}
+                    onAssignTeam={assignToTeam}
+                    onAssignAdminId={(id) => runAction('assign-id', () => assignCommunicationThread(selected!.id, { assigned_admin_id: id || undefined, assigned_team: selected!.assigned_team || 'support' }))}
+                    onEscalate={escalate}
+                    onResolve={resolve}
+                  />
                 </CardContent>
               </>
             )}
