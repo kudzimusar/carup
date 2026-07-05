@@ -6,7 +6,6 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -23,6 +22,7 @@ import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
+import { DeliveryRecoveryPanel } from '@/features/communications/admin/DeliveryRecoveryPanel'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
@@ -728,43 +728,12 @@ export default function AdminCommunications() {
           {/* ── Ops rail ── */}
           <aside className="space-y-5">
             {/* Delivery recovery */}
-            <Card className="border-0 card-shadow">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4" /> Delivery recovery
-                  {deadLetters.length > 0 && <Badge variant="destructive" className="ml-auto">{deadLetters.length}</Badge>}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {deadLetters.length === 0 ? (
-                  <div className="text-center py-4 text-sm text-gray-500">
-                    <CheckCircle2 className="w-6 h-6 mx-auto mb-1 text-green-500" />
-                    No failed deliveries.
-                  </div>
-                ) : (
-                  <>
-                    {deadLetters.slice(0, 5).map((item) => (
-                      <div key={item.id} className="rounded-lg border p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-medium text-sm capitalize truncate">{prettyLabel(item.notification_type)}</p>
-                          {item.channel && <Badge variant="outline" className="text-[10px] shrink-0">{item.channel}</Badge>}
-                        </div>
-                        <p className="text-xs text-red-600 mt-0.5 truncate" title={item.last_error_message || item.last_error_code || ''}>
-                          {item.last_error_code || 'delivery_failed'}{item.last_error_message ? ` — ${item.last_error_message}` : ''}
-                        </p>
-                        <div className="flex gap-2 mt-2">
-                          <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => runRecoveryAction(`retry-${item.id}`, () => retryCommunicationDeadLetter(item.id))} disabled={busyAction === `retry-${item.id}`}>
-                            {busyAction === `retry-${item.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />} Retry
-                          </Button>
-                          <Button size="sm" variant="ghost" className="h-7" onClick={() => runRecoveryAction(`cancel-${item.id}`, () => cancelCommunicationDeadLetter(item.id, 'admin_cancelled'))} disabled={busyAction === `cancel-${item.id}`}>Cancel</Button>
-                        </div>
-                      </div>
-                    ))}
-                    {deadLetters.length > 5 && <p className="text-xs text-gray-400 text-center pt-1">+{deadLetters.length - 5} more failed</p>}
-                  </>
-                )}
-              </CardContent>
-            </Card>
+            <DeliveryRecoveryPanel
+              items={deadLetters}
+              busyAction={busyAction}
+              onRetry={(id) => runRecoveryAction(`retry-${id}`, () => retryCommunicationDeadLetter(id))}
+              onCancel={(id) => runRecoveryAction(`cancel-${id}`, () => cancelCommunicationDeadLetter(id, 'admin_cancelled'))}
+            />
 
             {/* Worker & SLA health */}
             {workerHealth && (
