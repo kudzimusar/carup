@@ -637,7 +637,7 @@ export default function AdminCommunications() {
             {/* Provider smoke test */}
             <ProviderSmokeTestPanel
               onSend={(payload) => sendCommunicationProviderSmokeTest(payload)}
-              defaultRecipient="818081201356"
+              environmentLabel={typeof window !== 'undefined' ? window.location.hostname : 'staging'}
               onDone={refreshWorkerHealth}
             />
           </aside>
