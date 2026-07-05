@@ -31,11 +31,19 @@ export function projectInboxThread(thread, { participants = [], identities = [],
     ? identities.find((i) => i.id === rp.external_identity_id) || null
     : null;
   const lm = latestMessage(threadMessages);
-  const lastRead = rp?.last_read_at || null;
+
+  // Agent-side read marker: latest last_read_at across non-requester (agent/assignee) participants.
+  // Unread-for-the-team = inbound messages after that (all inbound if no agent has read). The
+  // requester participant's last_read_at is the customer's receipt and does not clear the badge.
+  const agentLastRead = threadParticipants
+    .filter((p) => p.role !== 'requester' && p.last_read_at)
+    .map((p) => String(p.last_read_at))
+    .sort()
+    .pop() || null;
 
   const unread = threadMessages.filter((m) =>
     String(m.direction || '').toLowerCase() === 'inbound'
-    && (!lastRead || String(m.created_at || '') > String(lastRead))).length;
+    && (!agentLastRead || String(m.created_at || '') > agentLastRead)).length;
 
   const failedOutbound = threadMessages.filter((m) =>
     String(m.direction || '').toLowerCase() === 'outbound'

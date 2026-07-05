@@ -49,11 +49,20 @@ LEFT JOIN LATERAL (
   ORDER BY m.created_at DESC
   LIMIT 1
 ) lm ON true
+-- Agent-side read marker: the most recent time ANY agent/assignee (role <> requester) read the
+-- thread. Unread-for-the-team = inbound messages that arrived after that (or all inbound if no agent
+-- has ever opened it). The requester participant's last_read_at is the CUSTOMER's receipt and must
+-- not drive the team inbox badge.
+LEFT JOIN LATERAL (
+  SELECT MAX(ap.last_read_at) AS agent_last_read
+  FROM message_participants ap
+  WHERE ap.thread_id = t.id AND ap.role <> 'requester'
+) ar ON true
 LEFT JOIN LATERAL (
   SELECT COUNT(*) AS unread_count
   FROM messages m2
   WHERE m2.thread_id = t.id AND lower(m2.direction) = 'inbound'
-    AND (rp.last_read_at IS NULL OR m2.created_at > rp.last_read_at)
+    AND (ar.agent_last_read IS NULL OR m2.created_at > ar.agent_last_read)
 ) u ON true;
 
 -- ── Server-side search + keyset pagination ────────────────────────────────────

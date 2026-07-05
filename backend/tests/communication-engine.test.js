@@ -33,7 +33,7 @@ import {
 import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SORT_KEYS } from '../services/communication/communicationThreadQuery.js';
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
-const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter } = await import('../routes/adminCommunicationRoutes.js');
+const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
@@ -1978,9 +1978,11 @@ test('inbox projection derives requester identity, latest message, unread count,
   const thread = threadRow({ id: 't1', tenant_id: 'tenantA', primary_channel: 'whatsapp' });
   const related = {
     participants: [
-      // Earliest-joined requester wins; its last_read_at drives unread.
-      { id: 'p1', thread_id: 't1', role: 'requester', external_identity_id: 'id1', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: '2026-07-05T09:30:00.000Z' },
-      { id: 'p2', thread_id: 't1', role: 'agent', external_identity_id: null, joined_at: '2026-07-02T00:00:00.000Z' },
+      // The requester's last_read_at is the CUSTOMER receipt and must NOT clear the team badge —
+      // it is intentionally later than every message here to prove it is ignored for unread.
+      { id: 'p1', thread_id: 't1', role: 'requester', external_identity_id: 'id1', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: '2026-07-05T23:59:00.000Z' },
+      // Agent read marker at 09:30 → only the 10:00 message counts as unread.
+      { id: 'p2', thread_id: 't1', role: 'agent', external_identity_id: null, joined_at: '2026-07-02T00:00:00.000Z', last_read_at: '2026-07-05T09:30:00.000Z' },
     ],
     identities: [
       { id: 'id1', display_name: 'Tariro M.', normalized_address: '+263••••1234', external_id: '263771234', verified: true, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api' },
@@ -1999,8 +2001,42 @@ test('inbox projection derives requester identity, latest message, unread count,
   assert.equal(row.latest_message_text, 'Hello? any update?');       // newest by created_at
   assert.equal(row.latest_message_direction, 'inbound');
   assert.equal(row.latest_provider_message_id, 'wamid.NEW');
-  assert.equal(row.unread_count, 1);                                  // only m2 is after last_read_at
+  assert.equal(row.unread_count, 1);                                  // only m2 is after the AGENT read marker
   assert.equal(row.failed_outbound_count, 1);                         // m3 failed
+});
+
+test('inbox unread uses the agent read marker; markRead advances it and clears the badge (item 9)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [threadRow({ id: 'TR', tenant_id: 'tenantA', status: 'awaiting_human' })],
+    message_participants: [
+      { id: 'rq', thread_id: 'TR', role: 'requester', external_identity_id: 'ci', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: null },
+    ],
+    channel_identities: [{ id: 'ci', display_name: 'Tariro M.', normalized_address: '+263••••1234', channel: 'whatsapp' }],
+    // Past-dated so the real-clock read stamp written by markRead sorts strictly after them.
+    messages: [
+      { id: 'i1', thread_id: 'TR', direction: 'inbound', content_text: 'one', created_at: '2020-01-01T09:00:00.000Z', status: 'received' },
+      { id: 'i2', thread_id: 'TR', direction: 'inbound', content_text: 'two', created_at: '2020-01-01T10:00:00.000Z', status: 'received' },
+    ],
+  });
+  const ctx = { userId: 'admin-9', isPlatform: true, now: QUERY_NOW };
+
+  // No agent has read → both inbound messages are unread.
+  const before = await repo.searchThreads({ include_terminal: true }, ctx);
+  assert.equal(before.threads.find((t) => t.id === 'TR').unread_count, 2);
+
+  // markRead adds an agent participant for the actor and stamps last_read_at.
+  const service = new CommunicationThreadService({ repository: repo });
+  const marked = await service.markRead('TR', { id: 'admin-9' });
+  assert.ok(marked && marked.last_read_at, 'markRead returns the stamped agent participant');
+  assert.equal(marked.role, 'agent');
+
+  const after = await repo.searchThreads({ include_terminal: true }, ctx);
+  assert.equal(after.threads.find((t) => t.id === 'TR').unread_count, 0, 'badge cleared after markRead');
+
+  // Idempotent: a second markRead re-stamps the same participant (no duplicate agent row).
+  await service.markRead('TR', { id: 'admin-9' });
+  const agents = (await repo.list('message_participants', { thread_id: 'TR' })).filter((p) => p.role === 'agent');
+  assert.equal(agents.length, 1, 'markRead does not create duplicate agent participants');
 });
 
 test('inbox projection: no requester identity or no messages degrades gracefully (no throw, null fields)', () => {
@@ -2098,6 +2134,42 @@ test('repository.searchThreads paginates a projected 1000+ set with stable keyse
   assert.equal(new Set(seen).size, N, 'no duplicates across pages');
   assert.ok(pages >= 11, 'spans many pages');
   assert.equal(seen[0], 'S-1049', 'newest first');
+});
+
+test('admin thread endpoints are tenant-scoped: cross-tenant load returns 404, own/platform succeed (item 14)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [
+      threadRow({ id: 'T-A', tenant_id: 'tenantA' }),
+      threadRow({ id: 'T-B', tenant_id: 'tenantB' }),
+    ],
+  });
+  const services = { repository: repo };
+  const fakeRes = () => ({ statusCode: 200, body: null, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; } });
+
+  // Platform admin reaches any tenant.
+  const platformThread = await loadThreadForRequest(services, { params: { id: 'T-B' }, userContext: { id: 'p', platformRole: 'platform_admin' } }, fakeRes());
+  assert.equal(platformThread?.id, 'T-B');
+
+  // A tenantA support agent reaching a tenantB thread → indistinguishable 404 (no leak, no thread).
+  const blockedRes = fakeRes();
+  const blocked = await loadThreadForRequest(services, { params: { id: 'T-B' }, userContext: { id: 'u', platformRole: 'support', tenantId: 'tenantA' } }, blockedRes);
+  assert.equal(blocked, null);
+  assert.equal(blockedRes.statusCode, 404);
+
+  // The same agent reaching its OWN tenant's thread succeeds.
+  const ownThread = await loadThreadForRequest(services, { params: { id: 'T-A' }, userContext: { id: 'u', platformRole: 'support', tenantId: 'tenantA' } }, fakeRes());
+  assert.equal(ownThread?.id, 'T-A');
+
+  // A tenant-less, non-platform caller sees nothing (fail closed).
+  const orphanRes = fakeRes();
+  const orphan = await loadThreadForRequest(services, { params: { id: 'T-A' }, userContext: { id: 'x', platformRole: 'support', tenantId: null } }, orphanRes);
+  assert.equal(orphan, null);
+  assert.equal(orphanRes.statusCode, 404);
+
+  // Context resolution: worker-secret actor and platform roles are platform; a tenant support role is not.
+  assert.equal(resolveThreadQueryContext({ userContext: { actor: 'worker_secret' } }).isPlatform, true);
+  assert.equal(resolveThreadQueryContext({ userContext: { platformRole: 'super_admin' } }).isPlatform, true);
+  assert.equal(resolveThreadQueryContext({ userContext: { platformRole: 'support', tenantId: 'tenantA' } }).isPlatform, false);
 });
 
 test('inbox projection migration adds the view, search/count RPCs, indexes, and least-privilege grants', () => {

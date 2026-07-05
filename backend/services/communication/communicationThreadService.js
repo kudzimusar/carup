@@ -178,11 +178,28 @@ export class CommunicationThreadService {
     });
   }
 
+  // Advance the AGENT-side read marker for `actor` on this thread (clears the team inbox unread
+  // badge — see communicationInboxProjection.js). Stamps the actor's existing agent/assignee
+  // participant, or adds one if the actor has never been a participant, so opening a thread as an
+  // admin always marks it read. Never writes the requester participant (that is the customer receipt).
   async markRead(threadId, actor = {}) {
-    const participant = (await this.repository.list('message_participants', { thread_id: threadId }))
-      .find((row) => row.user_id === actor.id || row.admin_id === actor.id);
-    if (!participant) return null;
-    return this.repository.updateById('message_participants', participant.id, { last_read_at: nowIso() });
+    const actorId = actor.id || actor.userId || null;
+    if (!actorId) return null;
+    const participants = await this.repository.list('message_participants', { thread_id: threadId });
+    const existing = participants.find((row) =>
+      row.role !== 'requester' && (row.admin_id === actorId || row.user_id === actorId));
+    const now = nowIso();
+    if (existing) {
+      return this.repository.updateById('message_participants', existing.id, { last_read_at: now });
+    }
+    return this.repository.insert('message_participants', {
+      thread_id: threadId,
+      participant_type: 'agent',
+      admin_id: actorId,
+      role: 'agent',
+      joined_at: now,
+      last_read_at: now,
+    });
   }
 
   async listThreadsForUser(userId) {

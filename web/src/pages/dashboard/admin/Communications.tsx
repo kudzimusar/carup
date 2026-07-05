@@ -122,6 +122,7 @@ export default function AdminCommunications() {
     fetchCommunicationDeadLetters,
     fetchAdminCommunicationMetrics,
     fetchAdminCommunicationThread,
+    markAdminCommunicationThreadRead,
     fetchCommunicationWorkerHealth,
     sendCommunicationProviderSmokeTest,
     adminReplyCommunicationThread,
@@ -335,7 +336,13 @@ export default function AdminCommunications() {
       setSelected(detail.thread)
       setMessages(detail.messages || [])
     }
-  }, [fetchAdminCommunicationThread])
+    // Mark the thread read for this agent and optimistically clear its unread badge in the list
+    // (item 9). Fire-and-forget — a failure just leaves the badge until the next refresh.
+    if (Number(thread.unread_count ?? 0) > 0) {
+      setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, unread_count: 0 } : t)))
+      void markAdminCommunicationThreadRead(thread.id).catch(() => undefined)
+    }
+  }, [fetchAdminCommunicationThread, markAdminCommunicationThreadRead])
 
   // Open a deep-linked thread (?thread=<id>) once on mount so shared links land on the conversation.
   const deepLinkedRef = useRef(false)

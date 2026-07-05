@@ -915,6 +915,10 @@ export function useCarUpApi() {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
   }, [request])
 
+  const markAdminCommunicationThreadRead = useCallback(async (id: string): Promise<{ ok?: boolean; thread_id?: string; last_read_at?: string | null }> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
   const adminReplyCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/reply`, { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
@@ -1238,6 +1242,7 @@ export function useCarUpApi() {
     createCommunicationShare,
     fetchAdminCommunicationThreads,
     fetchAdminCommunicationThread,
+    markAdminCommunicationThreadRead,
     adminReplyCommunicationThread,
     assignCommunicationThread,
     escalateCommunicationThread,
