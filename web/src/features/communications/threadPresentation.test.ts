@@ -62,4 +62,12 @@ describe('threadSla', () => {
     expect(threadSla({ sla_due_at: 'garbage', status: 'open' }, now).level).toBe('none')
     expect(threadSla({ status: 'open' }, now).level).toBe('none')
   })
+
+  it('reports paused and lets it override a would-be breach (item 10)', () => {
+    const paused = threadSla({ sla_due_at: '2026-07-05T11:00:00.000Z', sla_paused_at: '2026-07-05T10:00:00.000Z', status: 'open' }, now)
+    expect(paused.level).toBe('paused')
+    expect(paused.label).toBe('SLA paused')
+    // Terminal still wins over paused.
+    expect(threadSla({ sla_paused_at: '2026-07-05T10:00:00.000Z', status: 'resolved' }, now).level).toBe('none')
+  })
 })

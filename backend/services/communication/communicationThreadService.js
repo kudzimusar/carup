@@ -1,4 +1,5 @@
 import { COMMUNICATION_EVENTS, THREAD_STATUSES, buildDedupeKey, computeSlaDue, nowIso, publicThreadProjection } from './communicationUtils.js';
+import { pausePatch, resumePatch } from './communicationSla.js';
 
 export class CommunicationThreadService {
   constructor({ repository }) {
@@ -200,6 +201,25 @@ export class CommunicationThreadService {
       joined_at: now,
       last_read_at: now,
     });
+  }
+
+  // Pause the SLA clock (records when + why). Idempotent: pausing an already-paused thread is a no-op.
+  async pauseSla(threadId, reason = 'paused') {
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    if (!thread) return null;
+    const patch = pausePatch(thread, reason);
+    if (!Object.keys(patch).length) return thread;
+    return this.repository.updateById('message_threads', threadId, patch);
+  }
+
+  // Resume the SLA clock, pushing all due-at targets forward by the paused duration so time spent
+  // paused does not count against the SLA. Idempotent when not paused.
+  async resumeSla(threadId, now = Date.now()) {
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    if (!thread) return null;
+    const patch = resumePatch(thread, now);
+    if (!Object.keys(patch).length) return thread;
+    return this.repository.updateById('message_threads', threadId, patch);
   }
 
   async listThreadsForUser(userId) {

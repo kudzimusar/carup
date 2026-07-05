@@ -2,7 +2,7 @@
 // Identity + primary channel/provider, workflow status, priority, AI mode, owner/assignment, and
 // SLA at a glance. Presentational — the page passes precomputed display props.
 
-import { AlertTriangle, CheckCircle2, Clock, UserCheck } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, PauseCircle, UserCheck } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { CardHeader, CardTitle } from '@/components/ui/card'
 import { ChannelIcon } from '../ChannelIcon'
@@ -46,6 +46,7 @@ export function ConversationHeader({
         {slaLevel === 'breach' && <span className="flex items-center gap-1 text-red-600 font-medium"><AlertTriangle className="w-3.5 h-3.5" aria-hidden />{slaLabel}</span>}
         {slaLevel === 'due' && <span className="flex items-center gap-1 text-amber-600 font-medium"><Clock className="w-3.5 h-3.5" aria-hidden />{slaLabel}</span>}
         {slaLevel === 'ok' && <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3.5 h-3.5" aria-hidden />{slaLabel}</span>}
+        {slaLevel === 'paused' && <span className="flex items-center gap-1 text-gray-500 font-medium"><PauseCircle className="w-3.5 h-3.5" aria-hidden />{slaLabel || 'SLA paused'}</span>}
       </div>
     </CardHeader>
   )

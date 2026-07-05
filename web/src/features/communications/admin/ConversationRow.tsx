@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ChannelIcon } from '../ChannelIcon'
 
-export type RowSlaLevel = 'none' | 'ok' | 'due' | 'breach'
+export type RowSlaLevel = 'none' | 'ok' | 'due' | 'breach' | 'paused'
 
 export interface ConversationRowProps {
   channel?: string | null
@@ -84,6 +84,7 @@ export function ConversationRow({
                 </span>
               )}
               {slaLevel === 'due' && <span className="text-[10px] text-amber-600 font-medium">{slaLabel}</span>}
+              {slaLevel === 'paused' && <span className="text-[10px] text-gray-500 font-medium">{slaLabel || 'SLA paused'}</span>}
               {timeLabel && <span className="text-[10px] text-gray-400 ml-auto">{timeLabel}</span>}
             </div>
           </div>

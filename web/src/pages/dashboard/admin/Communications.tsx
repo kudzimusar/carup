@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, Inbox as InboxIcon, Loader2, MessageSquare, RefreshCcw, Search,
+  AlertTriangle, Inbox as InboxIcon, Loader2, MessageSquare, PauseCircle, PlayCircle, RefreshCcw, Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -132,6 +132,8 @@ export default function AdminCommunications() {
     assignCommunicationThread,
     escalateCommunicationThread,
     resolveCommunicationThread,
+    pauseCommunicationThreadSla,
+    resumeCommunicationThreadSla,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
   } = useCarUpApi()
@@ -366,8 +368,9 @@ export default function AdminCommunications() {
     }
     setAuditEvents(audit.events || [])
     // Mark the thread read for this agent and optimistically clear its unread badge in the list
-    // (item 9). Fire-and-forget — a failure just leaves the badge until the next refresh.
-    if (Number(thread.unread_count ?? 0) > 0) {
+    // (item 9). Fire-and-forget. Mark when the row is known-unread OR when unread is UNKNOWN — a
+    // deep-linked stub ({id} with no unread_count) must still clear server-side unread for the agent.
+    if (thread.unread_count === undefined || Number(thread.unread_count) > 0) {
       setThreads((prev) => prev.map((t) => (t.id === thread.id ? { ...t, unread_count: 0 } : t)))
       void markAdminCommunicationThreadRead(thread.id).catch(() => undefined)
     }
@@ -465,6 +468,8 @@ export default function AdminCommunications() {
   const assignToTeam = (team: string) => runAction('assign-team', () => assignCommunicationThread(selected!.id, { assigned_team: team }))
   const escalate = () => runAction('escalate', () => escalateCommunicationThread(selected!.id, { reason_code: 'admin_escalation', severity: 'high', assigned_team: selected!.assigned_team || 'support' }))
   const resolve = () => runAction('resolve', () => resolveCommunicationThread(selected!.id, 'Resolved from admin command center.'))
+  const pauseSla = () => runAction('sla-pause', () => pauseCommunicationThreadSla(selected!.id, 'paused_by_admin'))
+  const resumeSla = () => runAction('sla-resume', () => resumeCommunicationThreadSla(selected!.id))
 
 
   const overdue = Number(metrics.overdue_threads ?? 0)
@@ -632,6 +637,22 @@ export default function AdminCommunications() {
                   slaLabel={selectedSla.label}
                   slaLevel={selectedSla.level}
                 />
+
+                {/* SLA pause/resume (item 10). Paused threads freeze the clock with a reason. */}
+                {!['resolved', 'closed', 'spam'].includes(String(selected.status)) && (
+                  <div className="flex items-center gap-2 px-6 pt-3 text-xs" data-testid="sla-control">
+                    {selected.sla_paused_at ? (
+                      <Button size="sm" variant="outline" className="h-7 gap-1" onClick={resumeSla} disabled={busyAction === 'sla-resume'}>
+                        {busyAction === 'sla-resume' ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> : <PlayCircle className="w-3.5 h-3.5" aria-hidden />} Resume SLA
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-7 gap-1" onClick={pauseSla} disabled={busyAction === 'sla-pause'}>
+                        {busyAction === 'sla-pause' ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> : <PauseCircle className="w-3.5 h-3.5" aria-hidden />} Pause SLA
+                      </Button>
+                    )}
+                    {selected.sla_paused_at && <span className="text-gray-500">Paused{selected.sla_pause_reason ? ` · ${prettyLabel(selected.sla_pause_reason)}` : ''}</span>}
+                  </div>
+                )}
 
                 <CardContent className="space-y-4 pt-4">
                   {/* Timeline */}
