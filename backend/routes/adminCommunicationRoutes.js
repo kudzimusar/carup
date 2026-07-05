@@ -1,10 +1,207 @@
 import express from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
+import { normalizeChannel } from '../services/communication/communicationUtils.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// Channels a provider smoke test may target. Restricted to real external providers.
+const SMOKE_TEST_CHANNELS = new Set(['whatsapp', 'telegram', 'sms', 'email', 'facebook', 'instagram', 'push']);
+
+// The smoke test sends to an arbitrary external recipient, so it is restricted to genuine
+// platform admins — not the broader ADMIN_ROLES (which includes tenant-elevatable roles like
+// 'support'/'finance'). Only 'admin'/'platform_admin'/'super_admin' can be an effective role
+// without a matching platform base role, so tenant elevation cannot reach this endpoint.
+const SMOKE_TEST_ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin'];
+
+function safeEqual(a = '', b = '') {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+// Machine-to-machine auth: the communication worker secret (same secret the internal
+// worker endpoint and Supabase pg_cron use). Never logged, compared in constant time.
+function workerSecretValid(req) {
+  const expected = process.env.COMMUNICATION_WORKER_SECRET || process.env.CRON_SECRET;
+  const supplied = req.headers['x-communication-worker-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+  return Boolean(expected && supplied && safeEqual(supplied, expected));
+}
+
+// The smoke-test endpoint is privileged and MUST NOT be public. It accepts either a
+// valid admin session (authorizeRole) OR the worker secret. With neither, authorizeRole
+// returns 401/403 — there is no anonymous path.
+function requireAdminOrWorkerSecret(req, res, next) {
+  if (workerSecretValid(req)) {
+    req.userContext = req.userContext || { id: 'communication-worker', role: 'worker', actor: 'worker_secret' };
+    return next();
+  }
+  return authorizeRole(SMOKE_TEST_ADMIN_ROLES)(req, res, next);
+}
+
+/**
+ * Send a single real-provider "smoke test" through the Communication Engine's own queue +
+ * delivery-worker path (identity → thread → message → notification_queue → deliveryWorker →
+ * provider adapter). It refuses to run against a fake adapter, so a green result always means
+ * a real provider request was made. Returns evidence (ids + provider_message_id) for the
+ * Supabase rows it created. Exported for tests.
+ */
+export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to, message, actor = {}, clientMessageId = null } = {}) {
+  const normalizedChannel = normalizeChannel(channel);
+  if (!normalizedChannel || !SMOKE_TEST_CHANNELS.has(normalizedChannel)) {
+    const err = new Error(`Unsupported smoke-test channel: ${channel}`);
+    err.statusCode = 400;
+    err.code = 'unsupported_channel';
+    throw err;
+  }
+  const recipient = String(to || '').trim();
+  if (!recipient) {
+    const err = new Error('A recipient (to) is required for a provider smoke test.');
+    err.statusCode = 400;
+    err.code = 'recipient_required';
+    throw err;
+  }
+
+  const registry = services.deliveryWorker?.adapterRegistry || services.adapterRegistry;
+  const adapter = registry?.get?.(normalizedChannel);
+  if (!adapter) {
+    const err = new Error(`No adapter registered for channel ${normalizedChannel}.`);
+    err.statusCode = 400;
+    err.code = 'adapter_missing';
+    throw err;
+  }
+
+  const config = adapter.validateConfiguration?.() || {};
+  // Refuse fake-adapter "success". The FakeCommunicationAdapter is the ONLY adapter that reports
+  // mode: 'fake'; real provider adapters report 'real' (Meta/Telegram/Twilio/SendGrid) or a
+  // provider-specific real mode like 'worker'/'rest' (Cloudflare email). Keying the refusal off
+  // the fake sentinel — not `!== 'real'` — avoids wrongly rejecting a configured real adapter.
+  // This is the single most important guard in this endpoint.
+  if (config.mode === 'fake') {
+    const err = new Error(`Refusing smoke test: channel '${normalizedChannel}' is served by a fake adapter (provider=${config.provider || 'unknown'}). A real provider adapter is required — fake-adapter success is not accepted.`);
+    err.statusCode = 409;
+    err.code = 'fake_adapter_refused';
+    err.details = { adapter: { channel: normalizedChannel, provider: config.provider || null, mode: config.mode || null, available: Boolean(config.available) } };
+    throw err;
+  }
+  if (!config.available) {
+    const err = new Error(`Provider for channel '${normalizedChannel}' is not configured: missing ${(config.missing || []).join(', ') || 'credentials'}.`);
+    err.statusCode = 424;
+    err.code = 'provider_not_configured';
+    err.details = { channel: normalizedChannel, provider: config.provider || null, missing: config.missing || [] };
+    throw err;
+  }
+
+  const provider = adapter.provider || config.provider || normalizedChannel;
+  const token = clientMessageId || randomUUID();
+
+  const identity = await services.identityService.resolveOrCreateIdentity({
+    channel: normalizedChannel,
+    provider,
+    external_id: recipient,
+    address: recipient,
+    display_name: 'Provider Smoke Test',
+    metadata: { smoke_test: true },
+  });
+
+  const { thread } = await services.threadService.resolveOrCreateThread({
+    thread_type: 'provider_smoke_test',
+    primary_channel: normalizedChannel,
+    external_identity_id: identity.id,
+    display_name: 'Provider Smoke Test',
+    status: 'open',
+    priority: 'high',
+    metadata: { smoke_test: true, initiated_by: actor.id || actor.userId || 'worker' },
+  });
+
+  const body = String(message || '').trim() || `CarUp provider smoke test (${normalizedChannel}) — ${token}`;
+  const messageRow = await services.threadService.recordMessage(thread, {
+    direction: 'outbound',
+    channel: normalizedChannel,
+    provider,
+    content_text: body,
+    content_json: { smoke_test: true, correlation_token: token },
+    human_approved: true,
+    status: 'queued',
+    client_message_id: token,
+    thread_status: 'awaiting_user',
+  });
+
+  // Defer the queue row's due-time into the future and cap attempts at 1 so the Supabase
+  // pg_cron worker never independently claims this row (it only claims rows that are due) —
+  // this endpoint's synchronous delivery below is the sole send, avoiding a duplicate real
+  // message to the recipient and any background retry loop.
+  const deferUntil = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const { notification } = await services.notificationService.queueExistingMessage({
+    recipientIdentityId: identity.id,
+    thread,
+    message: messageRow,
+    channel: normalizedChannel,
+    provider,
+    notificationType: 'provider_smoke_test',
+    templateKey: 'provider_smoke_test_v1',
+    priority: 'high',
+    humanApproved: true,
+    scheduledAt: deferUntil,
+    nextAttemptAt: deferUntil,
+    maxAttempts: 1,
+    dedupeParts: ['provider_smoke_test', normalizedChannel, recipient, token],
+    payload: {
+      thread_id: thread.id,
+      smoke_test: true,
+      external_identity_id: identity.id,
+      external_id: recipient,
+      phone_number: recipient,
+      to: recipient,
+      address: recipient,
+    },
+  });
+
+  // Deliver synchronously through the SAME delivery worker the cron path uses, so this
+  // exercises the real adapter and records message_delivery_attempts + updates the queue.
+  // deliverNotification ignores scheduling and sends immediately regardless of deferUntil.
+  const deliveryResult = await services.deliveryWorker.deliverNotification(notification, { alreadyClaimed: false });
+
+  const attempts = await services.repository.list(
+    'message_delivery_attempts',
+    { notification_id: String(notification.id) },
+    { order: { column: 'created_at', ascending: false }, limit: 5 },
+  );
+  const latestAttempt = attempts[0] || null;
+  const finalNotification = (await services.repository.findOne('notification_queue', { id: notification.id })) || notification;
+
+  const accepted = deliveryResult?.status === 'sent' && latestAttempt?.status === 'sent' && Boolean(latestAttempt?.provider_message_id);
+
+  return {
+    ok: accepted,
+    channel: normalizedChannel,
+    provider,
+    recipient,
+    adapter: { channel: normalizedChannel, provider: config.provider || provider, mode: config.mode, available: Boolean(config.available) },
+    thread_id: thread.id,
+    message_id: messageRow.id,
+    notification_id: notification.id,
+    correlation_token: token,
+    delivery: {
+      status: finalNotification?.status || null,
+      worker_result: deliveryResult?.status || null,
+      provider: latestAttempt?.provider || provider,
+      provider_message_id: latestAttempt?.provider_message_id || finalNotification?.provider_message_id || null,
+      provider_request_id: latestAttempt?.provider_request_id || null,
+      attempt_number: latestAttempt?.attempt_number || null,
+      error_code: latestAttempt?.error_code || finalNotification?.last_error_code || null,
+      error_message: latestAttempt?.error_message || finalNotification?.last_error_message || null,
+    },
+    inspect: {
+      messages: `SELECT * FROM messages WHERE id = '${messageRow.id}';`,
+      notification_queue: `SELECT * FROM notification_queue WHERE id = '${notification.id}';`,
+      message_delivery_attempts: `SELECT * FROM message_delivery_attempts WHERE notification_id = '${notification.id}';`,
+      webhook_logs: 'Meta delivery/read receipts arrive asynchronously (inbound webhook, provider=meta) after the recipient device acknowledges.',
+    },
+  };
+}
 
 function deliveryPayloadForIdentity(identity = {}) {
   const address = identity.normalized_address || identity.external_id || '';
@@ -253,6 +450,33 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
         attempts_table: 'public.message_delivery_attempts',
       },
     });
+  }));
+
+  // Provider smoke test: send one real message through the Communication Engine's queue +
+  // delivery-worker path to confirm live provider delivery. Admin-authed OR worker-secret;
+  // never public. Refuses fake adapters, so ok:true always means a real provider request.
+  router.post('/api/admin/communications/test/provider-smoke', requireAdminOrWorkerSecret, asyncHandler(async (req, res) => {
+    try {
+      const result = await sendProviderSmokeTest({
+        services,
+        channel: req.body?.channel || 'whatsapp',
+        to: req.body?.to || req.body?.recipient || req.body?.phone_number,
+        message: req.body?.message || req.body?.text,
+        actor: req.userContext || {},
+        clientMessageId: req.body?.client_message_id || req.body?.idempotency_key || null,
+      });
+      // ok:false means the row was created but the provider rejected/failed — surface as 502,
+      // never as success. Fake-adapter/config errors throw above with their own status codes.
+      return res.status(result.ok ? 200 : 502).json(result);
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        ok: false,
+        error: error.code || 'smoke_test_failed',
+        message: error.message,
+        details: error.details || null,
+      });
+    }
   }));
 
   router.get('/api/admin/communications/metrics', authorizeRole(ADMIN_ROLES), asyncHandler(async (_req, res) => {

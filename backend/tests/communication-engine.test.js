@@ -31,7 +31,7 @@ import {
   assertRealTelegramAdapter,
 } from '../services/communication/adapters/providerAdapters.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
-const { recordAdminThreadReply } = await import('../routes/adminCommunicationRoutes.js');
+const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter } = await import('../routes/adminCommunicationRoutes.js');
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
 const providerRuntimeMigrationSql = readFileSync(new URL('../../database/migrations/20260624120000_communication_provider_runtime.sql', import.meta.url), 'utf8');
@@ -1604,4 +1604,161 @@ test('overlapping cron calls do not duplicate Telegram delivery', async () => {
   const attempts = await repository.list('message_delivery_attempts');
   const telegramAttempts = attempts.filter((a) => String(a.notification_id) === String(notification.id));
   assert.equal(telegramAttempts.length, 1, 'exactly one delivery attempt must exist');
+});
+
+// ── Provider smoke test (real-adapter delivery confirmation for issue #110 UAT) ──
+
+test('provider smoke test refuses a fake adapter and creates no delivery', async () => {
+  const services = createHarness({ adapter: new FakeCommunicationAdapter({ channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api' }) });
+  await assert.rejects(
+    () => sendProviderSmokeTest({ services, channel: 'whatsapp', to: '818081201356', message: 'should not send' }),
+    (error) => error.statusCode === 409 && error.code === 'fake_adapter_refused',
+  );
+  // The guard runs before any row creation, so a fake adapter yields no side effects at all.
+  assert.equal((await services.repository.list('notification_queue')).length, 0);
+  assert.equal((await services.repository.list('message_delivery_attempts')).length, 0);
+  assert.equal((await services.repository.list('messages')).length, 0);
+});
+
+test('provider smoke test sends via the real WhatsApp adapter and records a real Meta provider attempt', async () => {
+  const metaFetch = jsonFetchRecorder({ status: 200, body: { messaging_product: 'whatsapp', messages: [{ id: 'wamid.SMOKE_TEST_123' }] } });
+  const realWhatsApp = new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'meta-access-token', CARUP_META_PHONE_NUMBER_ID: 'phone-number-id-1' },
+    fetchImpl: metaFetch,
+  });
+  const services = createHarness({ adapter: realWhatsApp });
+
+  const result = await sendProviderSmokeTest({ services, channel: 'whatsapp', to: '818081201356', message: 'CarUp WhatsApp smoke test' });
+
+  // A green result must reflect a REAL provider request, not a fake short-circuit.
+  assert.equal(result.ok, true);
+  assert.equal(result.provider, 'meta_whatsapp_cloud_api');
+  assert.equal(result.adapter.mode, 'real');
+  assert.equal(result.delivery.provider_message_id, 'wamid.SMOKE_TEST_123');
+  assert.equal(result.delivery.status, 'sent');
+
+  // The real Graph API endpoint was called with the bearer token and the E.164 recipient.
+  assert.equal(metaFetch.calls.length, 1);
+  assert.equal(metaFetch.calls[0].url, 'https://graph.facebook.com/v20.0/phone-number-id-1/messages');
+  assert.equal(metaFetch.calls[0].options.headers.authorization, 'Bearer meta-access-token');
+  const sentBody = JSON.parse(metaFetch.calls[0].options.body);
+  assert.equal(sentBody.messaging_product, 'whatsapp');
+  assert.equal(sentBody.to, '818081201356');
+
+  // Supabase rows: message, notification_queue (sent), message_delivery_attempts (real provider), identity.
+  const messages = await services.repository.list('messages');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].channel, 'whatsapp');
+  assert.equal(messages[0].direction, 'outbound');
+  assert.equal(messages[0].provider_message_id, 'wamid.SMOKE_TEST_123');
+
+  const queue = await services.repository.list('notification_queue');
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].status, 'sent');
+  assert.equal(queue[0].channel, 'whatsapp');
+
+  const deliveryAttempts = await services.repository.list('message_delivery_attempts');
+  assert.equal(deliveryAttempts.length, 1);
+  assert.equal(deliveryAttempts[0].provider, 'meta_whatsapp_cloud_api');
+  assert.equal(deliveryAttempts[0].provider_message_id, 'wamid.SMOKE_TEST_123');
+  assert.equal(deliveryAttempts[0].status, 'sent');
+
+  const identities = await services.repository.list('channel_identities');
+  assert.equal(identities.length, 1);
+  assert.equal(identities[0].channel, 'whatsapp');
+  assert.equal(identities[0].normalized_address, '818081201356');
+});
+
+test('provider smoke test reports failure (never fake success) when the real provider rejects', async () => {
+  const metaFetch = jsonFetchRecorder({ status: 401, body: { error: { message: 'Invalid OAuth access token' } } });
+  const realWhatsApp = new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'bad-token', CARUP_META_PHONE_NUMBER_ID: 'phone-number-id-1' },
+    fetchImpl: metaFetch,
+  });
+  const services = createHarness({ adapter: realWhatsApp });
+
+  const result = await sendProviderSmokeTest({ services, channel: 'whatsapp', to: '818081201356', message: 'bad creds test' });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.delivery.provider_message_id, null);
+  assert.equal(result.delivery.error_code, 'invalid_credentials');
+  // A real HTTP attempt was made (not a fake short-circuit) and a failed attempt is recorded.
+  assert.equal(metaFetch.calls.length, 1);
+  const deliveryAttempts = await services.repository.list('message_delivery_attempts');
+  assert.equal(deliveryAttempts.length, 1);
+  assert.equal(deliveryAttempts[0].status, 'failed');
+});
+
+test('provider smoke-test endpoint requires admin or worker secret and runs the real adapter end-to-end', async () => {
+  const previousSecret = process.env.COMMUNICATION_WORKER_SECRET;
+  process.env.COMMUNICATION_WORKER_SECRET = 'smoke-worker-secret';
+  try {
+    const metaFetch = jsonFetchRecorder({ status: 200, body: { messages: [{ id: 'wamid.ROUTE_SMOKE_1' }] } });
+    const realWhatsApp = new MetaWhatsAppAdapter({
+      env: { CARUP_META_ACCESS_TOKEN: 'meta-access-token', CARUP_META_PHONE_NUMBER_ID: 'pnid-1' },
+      fetchImpl: metaFetch,
+    });
+    const services = createHarness({ adapter: realWhatsApp });
+    const router = createAdminCommunicationRouter({ services });
+    const smokePath = '/api/admin/communications/test/provider-smoke';
+    const call = (headers) => invokeRouter(router, {
+      method: 'POST',
+      url: smokePath,
+      originalUrl: smokePath,
+      headers,
+      query: {},
+      body: { channel: 'whatsapp', to: '818081201356', message: 'routed smoke test' },
+    });
+
+    // No auth → rejected (endpoint is not public).
+    const unauth = await call({});
+    assert.equal(unauth.statusCode, 401);
+    assert.equal(metaFetch.calls.length, 0, 'no provider call without auth');
+
+    // Wrong worker secret → rejected.
+    const wrong = await call({ 'x-communication-worker-secret': 'nope' });
+    assert.equal(wrong.statusCode, 401);
+    assert.equal(metaFetch.calls.length, 0, 'no provider call with a wrong secret');
+
+    // Valid worker secret → real send with a real provider_message_id.
+    const ok = await call({ 'x-communication-worker-secret': 'smoke-worker-secret' });
+    assert.equal(ok.statusCode, 200);
+    assert.equal(ok.body.ok, true);
+    assert.equal(ok.body.delivery.provider_message_id, 'wamid.ROUTE_SMOKE_1');
+    assert.equal(metaFetch.calls.length, 1);
+  } finally {
+    if (previousSecret === undefined) delete process.env.COMMUNICATION_WORKER_SECRET;
+    else process.env.COMMUNICATION_WORKER_SECRET = previousSecret;
+  }
+});
+
+test('provider smoke-test endpoint is registered, protected, and refuses fake adapters (source)', () => {
+  assert.ok(adminCommunicationRouteFile.includes('/api/admin/communications/test/provider-smoke'), 'smoke-test route must be registered');
+  assert.ok(adminCommunicationRouteFile.includes('requireAdminOrWorkerSecret'), 'smoke-test route must be gated by the admin-or-worker-secret guard');
+  assert.ok(adminCommunicationRouteFile.includes("config.mode === 'fake'"), 'must refuse fake adapters (keyed off the fake sentinel, not !== real)');
+  assert.ok(adminCommunicationRouteFile.includes('fake_adapter_refused'), 'must expose an explicit fake-adapter refusal code');
+  assert.ok(adminCommunicationRouteFile.includes('COMMUNICATION_WORKER_SECRET'), 'worker-secret auth must be supported');
+  assert.ok(adminCommunicationRouteFile.includes('timingSafeEqual'), 'secret comparison must be constant-time');
+  // The worker-secret comparison must actually route through the constant-time helper.
+  assert.match(adminCommunicationRouteFile, /return Boolean\(expected && supplied && safeEqual\(/, 'workerSecretValid must use the constant-time safeEqual helper');
+  // The admin path must be restricted to genuine platform admins (not tenant-elevatable roles).
+  assert.ok(adminCommunicationRouteFile.includes('SMOKE_TEST_ADMIN_ROLES'), 'admin path must use the tightened platform-admin role set');
+  assert.match(adminCommunicationRouteFile, /router\.post\(\s*'\/api\/admin\/communications\/test\/provider-smoke',\s*requireAdminOrWorkerSecret/);
+});
+
+test('provider smoke test does not report success when the real provider accepts without a message id', async () => {
+  // Meta occasionally returns HTTP 200 with no messages[] entry — accepted, but no wamid.
+  const metaFetch = jsonFetchRecorder({ status: 200, body: { messaging_product: 'whatsapp', messages: [] } });
+  const realWhatsApp = new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'meta-access-token', CARUP_META_PHONE_NUMBER_ID: 'phone-number-id-1' },
+    fetchImpl: metaFetch,
+  });
+  const services = createHarness({ adapter: realWhatsApp });
+
+  const result = await sendProviderSmokeTest({ services, channel: 'whatsapp', to: '818081201356', message: 'no-id case' });
+
+  // A real request was made, but without a provider_message_id we must NOT claim success.
+  assert.equal(metaFetch.calls.length, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.delivery.provider_message_id, null);
 });
