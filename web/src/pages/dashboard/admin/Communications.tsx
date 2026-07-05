@@ -13,6 +13,7 @@ type MessageSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAd
 type DeadLetterNotification = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationDeadLetters']>>['notifications'][number]
 type Metrics = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationMetrics']>>
 type WorkerHealth = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationWorkerHealth']>>
+type SmokeResult = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['sendCommunicationProviderSmokeTest']>>
 type StatCard = { label: string; value: string | number; icon: LucideIcon }
 type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
 
@@ -59,6 +60,7 @@ export default function AdminCommunications() {
     fetchAdminCommunicationMetrics,
     fetchAdminCommunicationThread,
     fetchCommunicationWorkerHealth,
+    sendCommunicationProviderSmokeTest,
     adminReplyCommunicationThread,
     assignCommunicationThread,
     escalateCommunicationThread,
@@ -73,6 +75,9 @@ export default function AdminCommunications() {
   const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
   const [metrics, setMetrics] = useState<Metrics>({})
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
+  const [smokeTo, setSmokeTo] = useState('818081201356')
+  const [smokeBusy, setSmokeBusy] = useState(false)
+  const [smokeResult, setSmokeResult] = useState<SmokeResult | null>(null)
   const [reply, setReply] = useState('')
   const [replyStatus, setReplyStatus] = useState<ReplyStatus>('idle')
   const [replyError, setReplyError] = useState<string | null>(null)
@@ -104,6 +109,22 @@ export default function AdminCommunications() {
   const refreshWorkerHealth = useCallback(async () => {
     fetchCommunicationWorkerHealth().then(setWorkerHealth).catch(() => null)
   }, [fetchCommunicationWorkerHealth])
+
+  const runSmokeTest = useCallback(async () => {
+    const to = smokeTo.trim()
+    if (!to) return
+    setSmokeBusy(true)
+    setSmokeResult(null)
+    try {
+      const res = await sendCommunicationProviderSmokeTest({ channel: 'whatsapp', to })
+      setSmokeResult(res)
+    } catch (err) {
+      setSmokeResult({ ok: false, error: 'request_failed', message: err instanceof Error ? err.message : 'Request failed' })
+    } finally {
+      setSmokeBusy(false)
+      refreshWorkerHealth()
+    }
+  }, [smokeTo, sendCommunicationProviderSmokeTest, refreshWorkerHealth])
 
   // Initial load
   useEffect(() => {
@@ -384,6 +405,34 @@ export default function AdminCommunications() {
               </CardContent>
             </Card>
           )}
+
+          <Card className="border-0 card-shadow">
+            <CardHeader className="pb-3"><CardTitle className="text-lg">WhatsApp provider smoke test</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p className="text-xs text-gray-500">Sends one real WhatsApp message through the Communication Engine. The server refuses fake adapters, so a green result means a real Meta provider request was made.</p>
+              <Input value={smokeTo} onChange={(e) => setSmokeTo(e.target.value)} placeholder="Recipient E.164 e.g. 818081201356" />
+              <Button size="sm" className="w-full gap-1" disabled={smokeBusy || !smokeTo.trim()} onClick={runSmokeTest}>
+                {smokeBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                {smokeBusy ? 'Sending…' : 'Send WhatsApp smoke test'}
+              </Button>
+              {smokeResult && (
+                <div className={`text-xs rounded p-2 ${smokeResult.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
+                  {smokeResult.ok ? (
+                    <>
+                      <div className="font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />Sent via {smokeResult.provider}</div>
+                      <div className="break-all">provider_message_id: {smokeResult.delivery?.provider_message_id}</div>
+                      <div>status: {smokeResult.delivery?.status}</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-medium flex items-center gap-1"><XCircle className="w-3 h-3" />{smokeResult.error || 'Failed'}</div>
+                      <div className="break-words">{smokeResult.message || smokeResult.delivery?.error_message}</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </aside>
       </div>
     </div>

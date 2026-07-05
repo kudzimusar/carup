@@ -926,6 +926,41 @@ export function useCarUpApi() {
     return request('/admin/communications/worker/health', { method: 'GET' })
   }, [request])
 
+  // Provider smoke test: sends one real message through the Communication Engine's queue +
+  // delivery-worker path. Admin-authed; refuses fake adapters server-side (ok:false / error).
+  const sendCommunicationProviderSmokeTest = useCallback(async (payload: {
+    channel?: string
+    to: string
+    message?: string
+    client_message_id?: string
+  }): Promise<{
+    ok: boolean
+    error?: string
+    message?: string
+    channel?: string
+    provider?: string
+    recipient?: string
+    adapter?: { channel: string; provider: string; mode: string; available: boolean }
+    thread_id?: string
+    message_id?: string
+    notification_id?: string
+    correlation_token?: string
+    delivery?: {
+      status: string | null
+      worker_result: string | null
+      provider: string
+      provider_message_id: string | null
+      provider_request_id: string | null
+      attempt_number: number | null
+      error_code: string | null
+      error_message: string | null
+    }
+    details?: unknown
+    inspect?: Record<string, string>
+  }> => {
+    return request('/admin/communications/test/provider-smoke', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
   const fetchAdminUsers = useCallback(async (): Promise<User[]> => {
     return request<User[]>('/users/management', { method: 'GET' })
   }, [request])
@@ -1156,6 +1191,7 @@ export function useCarUpApi() {
     cancelCommunicationDeadLetter,
     fetchAdminCommunicationMetrics,
     fetchCommunicationWorkerHealth,
+    sendCommunicationProviderSmokeTest,
     fetchAdminUsers,
     fetchAdminTelemetry,
   
