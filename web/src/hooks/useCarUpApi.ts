@@ -147,6 +147,7 @@ type CommunicationThreadSummary = {
   latest_message_status?: string | null
   latest_provider_message_id?: string | null
   unread_count?: number
+  team_unread_count?: number
   failed_outbound_count?: number
 }
 
