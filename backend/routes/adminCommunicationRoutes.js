@@ -117,14 +117,20 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
     metadata: { smoke_test: true },
   });
 
+  // thread_type must be one of the values allowed by the message_threads_thread_type_check
+  // constraint (support/marketplace_inquiry/referral/escrow/finance/import/container/
+  // trust_safety/feedback/complaint/account/general) — 'support' is the operational fit. The
+  // smoke-test identity lives in metadata/content_json, NOT in thread_type. A dedicated
+  // thread_key keeps smoke tests isolated from any real 'support' thread for this recipient.
   const { thread } = await services.threadService.resolveOrCreateThread({
-    thread_type: 'provider_smoke_test',
+    thread_type: 'support',
+    thread_key: `smoke_test:${normalizedChannel}:${recipient}`,
     primary_channel: normalizedChannel,
     external_identity_id: identity.id,
     display_name: 'Provider Smoke Test',
     status: 'open',
     priority: 'high',
-    metadata: { smoke_test: true, initiated_by: actor.id || actor.userId || 'worker' },
+    metadata: { smoke_test: true, intent: 'provider_smoke_test', initiated_by: actor.id || actor.userId || 'worker' },
   });
 
   const body = String(message || '').trim() || `CarUp provider smoke test (${normalizedChannel}) — ${token}`;
