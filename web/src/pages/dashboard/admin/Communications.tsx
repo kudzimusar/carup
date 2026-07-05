@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle, CheckCircle2, Clock, Inbox as InboxIcon, Loader2, MessageCircle,
   MessageSquare, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle, Zap,
@@ -147,6 +148,7 @@ export default function AdminCommunications() {
   } = useCarUpApi()
 
   const [threads, setThreads] = useState<ThreadSummary[]>([])
+  const [searchParams, setSearchParams] = useSearchParams()
   const [selected, setSelected] = useState<ThreadSummary | null>(null)
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
@@ -155,8 +157,8 @@ export default function AdminCommunications() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [serverCounts, setServerCounts] = useState<ThreadCounts | null>(null)
-  const [filter, setFilter] = useState<string>('awaiting_human')
-  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<string>(() => searchParams.get('filter') || 'awaiting_human')
+  const [search, setSearch] = useState(() => searchParams.get('q') || '')
   const [teamPick, setTeamPick] = useState('')
 
   const [reply, setReply] = useState('')
@@ -249,6 +251,16 @@ export default function AdminCommunications() {
     return () => { mounted = false }
   }, [fetchDashboard, refreshWorkerHealth])
 
+  // Persist filter / search / selected thread to the URL so the inbox is deep-linkable and
+  // survives refresh (replace, not push, to avoid history spam).
+  useEffect(() => {
+    const next = new URLSearchParams()
+    if (filter && filter !== 'awaiting_human') next.set('filter', filter)
+    if (search.trim()) next.set('q', search.trim())
+    if (selected?.id) next.set('thread', selected.id)
+    setSearchParams(next, { replace: true })
+  }, [filter, search, selected?.id, setSearchParams])
+
   // Auto-refresh: poll fast while a reply is in-flight, slowly otherwise.
   useEffect(() => {
     let active = true
@@ -289,6 +301,19 @@ export default function AdminCommunications() {
       setMessages(detail.messages || [])
     }
   }, [fetchAdminCommunicationThread])
+
+  // Open a deep-linked thread (?thread=<id>) once on mount so shared links land on the conversation.
+  const deepLinkedRef = useRef(false)
+  useEffect(() => {
+    if (deepLinkedRef.current) return
+    const threadId = searchParams.get('thread')
+    if (!threadId) return
+    deepLinkedRef.current = true
+    let cancelled = false
+    // Defer out of the effect body so the open (and its state updates) run asynchronously.
+    Promise.resolve().then(() => { if (!cancelled) void openThread({ id: threadId } as ThreadSummary) })
+    return () => { cancelled = true }
+  }, [searchParams, openThread])
 
   async function sendReply() {
     if (!selected || !reply.trim() || replyStatus === 'sending') return
