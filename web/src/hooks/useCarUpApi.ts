@@ -210,6 +210,47 @@ type CommunicationThreadPage = {
   next_cursor: string | null
   mode?: string
 }
+type CommunicationChannelIdentity = {
+  id?: string
+  user_id?: string | null
+  display_name?: string | null
+  normalized_address?: string | null
+  external_id?: string | null
+  channel?: string | null
+  provider?: string | null
+  verified?: boolean | null
+  consent_status?: string | null
+}
+type CommunicationDeliveryAttempt = {
+  id: string
+  attempt_number?: number
+  provider?: string | null
+  channel?: string | null
+  message_id?: string | null
+  provider_request_id?: string | null
+  provider_message_id?: string | null
+  status?: string | null
+  error_code?: string | null
+  error_message?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  next_retry_at?: string | null
+}
+type CommunicationPreferencesRow = {
+  preferred_channel?: string | null
+  timezone?: string | null
+  language?: string | null
+  consent_status?: string | null
+  consent_version?: string | null
+  consented_at?: string | null
+  whatsapp_enabled?: boolean
+  telegram_enabled?: boolean
+  email_enabled?: boolean
+  sms_enabled?: boolean
+  push_enabled?: boolean
+  in_app_enabled?: boolean
+  marketing_enabled?: boolean
+}
 type CommunicationAuditEvent = {
   id: string
   event_type: string
@@ -927,7 +968,16 @@ export function useCarUpApi() {
     return request(`/admin/communications/threads${query}`, { method: 'GET' })
   }, [request])
 
-  const fetchAdminCommunicationThread = useCallback(async (id: string): Promise<{ thread: CommunicationThreadSummary; messages: CommunicationMessageSummary[]; participants: unknown[]; escalations: unknown[] }> => {
+  const fetchAdminCommunicationThread = useCallback(async (id: string): Promise<{
+    thread: CommunicationThreadSummary
+    messages: CommunicationMessageSummary[]
+    participants: unknown[]
+    escalations: unknown[]
+    identities?: CommunicationChannelIdentity[]
+    linked_identities?: CommunicationChannelIdentity[]
+    delivery_attempts?: CommunicationDeliveryAttempt[]
+    preferences?: CommunicationPreferencesRow | null
+  }> => {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
   }, [request])
 
@@ -977,6 +1027,18 @@ export function useCarUpApi() {
 
   const cancelCommunicationDeadLetter = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
     return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const fetchCommunicationRecovery = useCallback(async (): Promise<{ categories: Record<string, CommunicationNotificationSummary[]>; counts: Record<string, number> }> => {
+    return request('/admin/communications/recovery', { method: 'GET' })
+  }, [request])
+
+  const bulkRetryCommunicationRecovery = useCallback(async (ids: string[]): Promise<{ retried: number; failed: number; total: number; results: Array<{ id: string; ok: boolean; error?: string }> }> => {
+    return request('/admin/communications/recovery/bulk-retry', { method: 'POST', body: JSON.stringify({ ids }) })
+  }, [request])
+
+  const requeueCommunicationDeadLetter = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/requeue`, { method: 'POST', body: JSON.stringify(payload) })
   }, [request])
 
   const fetchAdminCommunicationMetrics = useCallback(async (): Promise<CommunicationMetricsResponse> => {
@@ -1282,6 +1344,9 @@ export function useCarUpApi() {
     fetchCommunicationDeadLetters,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
+    fetchCommunicationRecovery,
+    bulkRetryCommunicationRecovery,
+    requeueCommunicationDeadLetter,
     fetchAdminCommunicationMetrics,
     fetchCommunicationWorkerHealth,
     sendCommunicationProviderSmokeTest,
