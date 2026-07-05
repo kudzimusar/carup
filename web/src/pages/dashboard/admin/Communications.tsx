@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { channelLabel } from '@/features/communications/channelRegistry'
+import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
@@ -580,28 +581,18 @@ export default function AdminCommunications() {
               </div>
             ) : (
               <>
-                <CardHeader className="pb-3 border-b">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div className="min-w-0">
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <ChannelIcon channel={selected.primary_channel} size={18} />
-                        {threadTitle(selected)}
-                      </CardTitle>
-                      <p className="text-xs text-gray-400 font-mono mt-1 truncate">{threadRef(selected)}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                      <Badge variant="outline" className="capitalize">{prettyLabel(selected.status)}</Badge>
-                      <Badge variant={priorityVariant(selected.priority)} className="capitalize">{selected.priority}</Badge>
-                      {selected.ai_mode && <Badge variant="secondary" className="capitalize">AI: {selected.ai_mode}</Badge>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2 text-xs flex-wrap">
-                    <span className="flex items-center gap-1 text-gray-500"><UserCheck className="w-3.5 h-3.5" /> {assignedLabel}</span>
-                    {selectedSla.level === 'breach' && <span className="flex items-center gap-1 text-red-600 font-medium"><AlertTriangle className="w-3.5 h-3.5" />{selectedSla.label}</span>}
-                    {selectedSla.level === 'due' && <span className="flex items-center gap-1 text-amber-600 font-medium"><Clock className="w-3.5 h-3.5" />{selectedSla.label}</span>}
-                    {selectedSla.level === 'ok' && <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3.5 h-3.5" />{selectedSla.label}</span>}
-                  </div>
-                </CardHeader>
+                <ConversationHeader
+                  channel={selected.primary_channel}
+                  title={threadTitle(selected)}
+                  reference={threadRef(selected)}
+                  statusLabel={prettyLabel(selected.status)}
+                  priority={selected.priority}
+                  priorityVariant={priorityVariant(selected.priority)}
+                  aiMode={selected.ai_mode}
+                  assignedLabel={assignedLabel}
+                  slaLabel={selectedSla.label}
+                  slaLevel={selectedSla.level}
+                />
 
                 <CardContent className="space-y-4 pt-4">
                   {/* Timeline */}
