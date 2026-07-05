@@ -25,7 +25,8 @@ CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
-  SELECT NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub';
+  -- `->> 'sub'` yields text; the declared return type is uuid, so cast (NULL sub → NULL uuid).
+  SELECT (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid;
 $$;
 
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
