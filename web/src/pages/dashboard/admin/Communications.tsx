@@ -550,7 +550,7 @@ export default function AdminCommunications() {
                 <ScrollArea
                   className="h-[560px] focus:outline-none"
                   tabIndex={0}
-                  role="listbox"
+                  role="group"
                   aria-label="Thread inbox — use up and down arrows to navigate"
                   onKeyDown={(e) => {
                     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return

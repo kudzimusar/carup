@@ -38,7 +38,7 @@ export function ConversationRow({
     <div className={`flex items-stretch border-b ${selected ? 'bg-orange-50 border-l-2 border-l-orange-500' : ''}`}>
       {onToggle && (
         <div className="flex items-center pl-2.5">
-          <Checkbox checked={!!checked} onCheckedChange={() => onToggle()} aria-label={`Select ${title}`} />
+          <Checkbox checked={!!checked} onCheckedChange={() => onToggle()} aria-label={`Select thread: ${title}${reference ? ` (${reference})` : ''}`} />
         </div>
       )}
       <button

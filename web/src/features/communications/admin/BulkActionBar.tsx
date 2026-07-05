@@ -30,7 +30,7 @@ export function BulkActionBar({ count, busy = false, resultNote, onAssignToMe, o
           <CheckCircle2 className="w-3.5 h-3.5" aria-hidden /> Resolve
         </Button>
       )}
-      {resultNote && <span className="text-xs text-gray-500">{resultNote}</span>}
+      <span className="text-xs text-gray-500" aria-live="polite" role="status">{busy ? 'Working…' : resultNote}</span>
       <Button size="sm" variant="ghost" className="h-7 gap-1 ml-auto" onClick={onClear}>
         <X className="w-3.5 h-3.5" aria-hidden /> Clear
       </Button>
