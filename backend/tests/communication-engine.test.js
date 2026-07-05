@@ -34,6 +34,7 @@ import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SOR
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { SLA_STATES, computeSlaState, pausePatch, resumePatch } from '../services/communication/communicationSla.js';
+import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext } = await import('../routes/adminCommunicationRoutes.js');
 
@@ -2272,6 +2273,31 @@ test('projection tie-breaks deterministically on equal timestamps and sorts miss
     messages: [],
   });
   assert.equal(nullRow.identity_display_name, 'Real', 'a missing joined_at sorts LAST (matches SQL NULLS LAST)');
+});
+
+// ── Delivery recovery categorisation (item 11) ──────────────────────────────────────────────────
+
+test('recovery categorises queue rows into queued-too-long / stale / retry / failed / dead-letter / cancelled', () => {
+  const now = Date.parse('2026-07-05T12:00:00.000Z');
+  const rows = [
+    { id: 'q-fresh', status: 'queued', created_at: '2026-07-05T11:59:00.000Z' },                       // 1m — not too long
+    { id: 'q-old', status: 'queued', created_at: '2026-07-05T11:00:00.000Z' },                         // 60m — too long
+    { id: 'p-fresh', status: 'processing', locked_at: '2026-07-05T11:59:00.000Z' },                    // 1m lock — healthy
+    { id: 'p-stale', status: 'processing', locked_at: '2026-07-05T11:00:00.000Z' },                    // 60m lock — stale
+    { id: 'r1', status: 'retry_scheduled' },
+    { id: 'f1', status: 'failed' },
+    { id: 'd1', status: 'dead_letter' },
+    { id: 'c1', status: 'cancelled' },
+  ];
+  const { categories, counts } = categorizeRecovery(rows, { now, staleAfterSeconds: 900, queuedThresholdSeconds: 300 });
+  assert.deepEqual(categories.queued_too_long.map((r) => r.id), ['q-old']);
+  assert.deepEqual(categories.stale_processing.map((r) => r.id), ['p-stale']);
+  assert.deepEqual(categories.retry_scheduled.map((r) => r.id), ['r1']);
+  assert.deepEqual(categories.failed.map((r) => r.id), ['f1']);
+  assert.deepEqual(categories.dead_letter.map((r) => r.id), ['d1']);
+  assert.deepEqual(categories.cancelled.map((r) => r.id), ['c1']);
+  assert.equal(counts.total, 6);            // q-fresh + p-fresh are healthy, excluded
+  assert.equal(counts.queued_too_long, 1);
 });
 
 // ── SLA state machine + pause/resume (item 10) ──────────────────────────────────────────────────
