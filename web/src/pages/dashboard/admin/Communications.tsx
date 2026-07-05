@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, CheckCircle2, Clock, Inbox as InboxIcon, Loader2,
-  MessageSquare, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle, Zap,
+  AlertTriangle, CheckCircle2, Inbox as InboxIcon, Loader2,
+  MessageSquare, RefreshCcw, Search, Send, ShieldAlert, UserCheck, XCircle,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -20,6 +19,7 @@ import { channelLabel } from '@/features/communications/channelRegistry'
 import { priorityVariant, threadRef, threadSla, threadTitle } from '@/features/communications/threadPresentation'
 import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
+import { CommandCenterHeader } from '@/features/communications/admin/CommandCenterHeader'
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
 import { DeliveryRecoveryPanel } from '@/features/communications/admin/DeliveryRecoveryPanel'
@@ -92,22 +92,6 @@ function deliveryBadge(status?: string) {
   return <DeliveryStateBadge status={status} />
 }
 
-function StatPill({ label, value, tone = 'default', icon: Icon }: { label: string; value: string | number; tone?: 'default' | 'danger' | 'good' | 'muted'; icon?: LucideIcon }) {
-  const toneClass = tone === 'danger'
-    ? 'border-red-200 bg-red-50 text-red-700'
-    : tone === 'good'
-      ? 'border-green-200 bg-green-50 text-green-700'
-      : tone === 'muted'
-        ? 'border-gray-200 bg-gray-50 text-gray-500'
-        : 'border-gray-200 bg-white text-gray-700'
-  return (
-    <div className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 ${toneClass}`}>
-      {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
-      <span className="text-xs">{label}</span>
-      <span className="text-sm font-semibold tabular-nums">{value}</span>
-    </div>
-  )
-}
 
 export default function AdminCommunications() {
   const {
@@ -430,9 +414,6 @@ export default function AdminCommunications() {
   const resolve = () => runAction('resolve', () => resolveCommunicationThread(selected!.id, 'Resolved from admin command center.'))
 
 
-  const slaBreaching = workerHealth?.queue?.sla_breaching ?? 0
-  const telegramMode = workerHealth?.telegram?.mode ?? null
-  const telegramOk = workerHealth?.telegram?.available === true && telegramMode === 'real'
   const overdue = Number(metrics.overdue_threads ?? 0)
   const unassigned = Number(metrics.unassigned_threads ?? 0)
   const deadLetterCount = Number(metrics.dead_letter_count ?? deadLetters.length)
@@ -454,36 +435,13 @@ export default function AdminCommunications() {
         </div>
 
         {/* Operations strip: queue + SLA + provider health at a glance */}
-        <div className="flex flex-wrap items-center gap-2">
-          <StatPill label="Open" value={Number(metrics.open_threads ?? threads.filter((t) => !['resolved', 'closed', 'spam'].includes(String(t.status))).length)} icon={MessageSquare} />
-          <StatPill label="Unassigned" value={unassigned} tone={unassigned > 0 ? 'default' : 'muted'} icon={UserCheck} />
-          <StatPill label="Overdue" value={overdue} tone={overdue > 0 ? 'danger' : 'good'} icon={AlertTriangle} />
-          <StatPill label="Dead-letter" value={deadLetterCount} tone={deadLetterCount > 0 ? 'danger' : 'good'} icon={ShieldAlert} />
-          <Separator orientation="vertical" className="h-6 mx-1 hidden sm:block" />
-          {workerHealth ? (
-            <>
-              <StatPill label="Queue" value={workerHealth.queue.depth} tone="muted" icon={Zap} />
-              {workerHealth.queue.oldest_queued_seconds != null && (
-                <StatPill label="Oldest" value={`${workerHealth.queue.oldest_queued_seconds}s`} tone={workerHealth.queue.oldest_queued_seconds > (workerHealth.queue.sla_threshold_seconds ?? 60) ? 'danger' : 'muted'} icon={Clock} />
-              )}
-              <StatPill label={`SLA breach (${workerHealth.queue.sla_threshold_seconds ?? 60}s)`} value={slaBreaching} tone={slaBreaching > 0 ? 'danger' : 'good'} icon={AlertTriangle} />
-              <div className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs ${telegramOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-600'}`}>
-                {telegramOk ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
-                Telegram <strong>{telegramOk ? 'real' : telegramMode ?? 'unknown'}</strong>
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-500">
-                    <Clock className="w-3.5 h-3.5" /> Cron {workerHealth.scheduler.job_config?.schedule ?? (workerHealth.scheduler.pg_cron_available ? '* * * * *' : 'pending')}
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>Supabase pg_cron drives worker delivery. {workerHealth.scheduler.pg_cron_available ? 'Extension active.' : 'pg_cron not yet enabled.'}</TooltipContent>
-              </Tooltip>
-            </>
-          ) : (
-            <Skeleton className="h-8 w-48 rounded-lg" />
-          )}
-        </div>
+        <CommandCenterHeader
+          openCount={Number(metrics.open_threads ?? threads.filter((t) => !['resolved', 'closed', 'spam'].includes(String(t.status))).length)}
+          unassigned={unassigned}
+          overdue={overdue}
+          deadLetterCount={deadLetterCount}
+          health={workerHealth}
+        />
 
         <div className="grid lg:grid-cols-[340px_1fr_300px] gap-5 items-start">
           {/* ── Inbox ── */}
