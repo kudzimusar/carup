@@ -31,15 +31,33 @@ CREATE INDEX IF NOT EXISTS idx_comm_audit_tenant_created ON communication_audit_
 CREATE INDEX IF NOT EXISTS idx_comm_audit_event_type ON communication_audit_events (event_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comm_audit_correlation ON communication_audit_events (correlation_id);
 
--- RLS: append/read is done by the backend service_role (which bypasses RLS). Admin/support roles may
--- read via authenticated policies; no anon access and no client writes (append-only from the server).
+-- RLS (hardened, #6): the backend service_role does all append/read (bypasses RLS) and the app layer
+-- (resolveListScope) enforces tenant scope. The old policy authorized on ROLE NAME ONLY — a support
+-- user in tenant A could read tenant B's audit trail. These policies are tenant-aware defense-in-depth
+-- for any DIRECT client and deliberately have NO role-only wildcard:
+--   • platform operators (platform_admin/super_admin) inspect globally — explicit + SEPARATE policy;
+--   • a tenant-bound role reads ONLY rows whose tenant_id equals its own app_metadata.tenant_id claim;
+--   • anon, tenantless roles, and cross-tenant reads are denied (platform/tenant-null rows are never
+--     visible to a tenant role, and a caller with no tenant claim matches nothing → fail-closed).
 ALTER TABLE communication_audit_events ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "communication_audit_admin_read" ON communication_audit_events;
-CREATE POLICY "communication_audit_admin_read" ON communication_audit_events
+DROP POLICY IF EXISTS "communication_audit_admin_read" ON communication_audit_events;  -- remove role-only leak
+DROP POLICY IF EXISTS "communication_audit_platform_read" ON communication_audit_events;
+CREATE POLICY "communication_audit_platform_read" ON communication_audit_events
   FOR SELECT
-  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','platform_admin','super_admin','support','finance','trust_manager','compliance_manager','marketplace_manager'));
+  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('platform_admin','super_admin'));
+
+DROP POLICY IF EXISTS "communication_audit_tenant_read" ON communication_audit_events;
+CREATE POLICY "communication_audit_tenant_read" ON communication_audit_events
+  FOR SELECT
+  USING (
+    tenant_id IS NOT NULL
+    AND tenant_id = (select auth.jwt() -> 'app_metadata' ->> 'tenant_id')
+    AND (select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','support','finance','trust_manager','compliance_manager','marketplace_manager')
+  );
 
 -- +migrate Down
 DROP POLICY IF EXISTS "communication_audit_admin_read" ON communication_audit_events;
+DROP POLICY IF EXISTS "communication_audit_platform_read" ON communication_audit_events;
+DROP POLICY IF EXISTS "communication_audit_tenant_read" ON communication_audit_events;
 DROP TABLE IF EXISTS communication_audit_events;

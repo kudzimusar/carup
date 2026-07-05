@@ -38,14 +38,30 @@ CREATE TABLE IF NOT EXISTS communication_sla_policies (
 
 CREATE INDEX IF NOT EXISTS idx_comm_sla_policies_tenant ON communication_sla_policies (tenant_id, active);
 
+-- RLS (hardened, #6): identical model to communication_audit_events. The backend service_role selects
+-- policies for SLA computation (bypasses RLS); these tenant-aware policies guard any DIRECT client and
+-- carry NO role-only wildcard. Global (tenant_id NULL) default policies are visible only to platform
+-- operators here — the backend still reads them for every tenant's threads via service_role.
 ALTER TABLE communication_sla_policies ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "communication_sla_policies_admin_read" ON communication_sla_policies;
-CREATE POLICY "communication_sla_policies_admin_read" ON communication_sla_policies
+DROP POLICY IF EXISTS "communication_sla_policies_admin_read" ON communication_sla_policies;  -- remove role-only leak
+DROP POLICY IF EXISTS "communication_sla_policies_platform_read" ON communication_sla_policies;
+CREATE POLICY "communication_sla_policies_platform_read" ON communication_sla_policies
   FOR SELECT
-  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','platform_admin','super_admin','support','finance','trust_manager','compliance_manager','marketplace_manager'));
+  USING ((select auth.jwt() -> 'app_metadata' ->> 'role') IN ('platform_admin','super_admin'));
+
+DROP POLICY IF EXISTS "communication_sla_policies_tenant_read" ON communication_sla_policies;
+CREATE POLICY "communication_sla_policies_tenant_read" ON communication_sla_policies
+  FOR SELECT
+  USING (
+    tenant_id IS NOT NULL
+    AND tenant_id = (select auth.jwt() -> 'app_metadata' ->> 'tenant_id')
+    AND (select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','support','finance','trust_manager','compliance_manager','marketplace_manager')
+  );
 
 -- +migrate Down
 DROP POLICY IF EXISTS "communication_sla_policies_admin_read" ON communication_sla_policies;
+DROP POLICY IF EXISTS "communication_sla_policies_platform_read" ON communication_sla_policies;
+DROP POLICY IF EXISTS "communication_sla_policies_tenant_read" ON communication_sla_policies;
 DROP TABLE IF EXISTS communication_sla_policies;
 DROP INDEX IF EXISTS idx_message_threads_first_response_due;
 DROP INDEX IF EXISTS idx_message_threads_resolution_due;

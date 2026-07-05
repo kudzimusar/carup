@@ -2686,6 +2686,11 @@ test('communication SLA migration is additive (ADD COLUMN IF NOT EXISTS) + adds 
   }
   assert.match(slaMigrationSql, /CREATE TABLE IF NOT EXISTS communication_sla_policies/);
   assert.match(slaMigrationSql, /ENABLE ROW LEVEL SECURITY/);
+  // Hardened RLS (#6): explicit + separate platform-admin policy, tenant-membership policy, and NO
+  // role-only wildcard (the old admin_read policy is removed).
+  assert.match(slaMigrationSql, /CREATE POLICY "communication_sla_policies_platform_read"[\s\S]*?IN \('platform_admin','super_admin'\)/);
+  assert.match(slaMigrationSql, /CREATE POLICY "communication_sla_policies_tenant_read"[\s\S]*?tenant_id = \(select auth\.jwt\(\) -> 'app_metadata' ->> 'tenant_id'\)/);
+  assert.doesNotMatch(slaMigrationSql, /CREATE POLICY "communication_sla_policies_admin_read"/);
   // Additive: no DROP/retype of message_threads in the Up section.
   const up = slaMigrationSql.split('-- +migrate Down')[0];
   assert.equal(/DROP TABLE/i.test(up), false);
@@ -2790,7 +2795,11 @@ test('communication audit migration adds an additive append-only table with inde
   }
   assert.match(auditMigrationSql, /CREATE INDEX IF NOT EXISTS idx_comm_audit_thread_created/);
   assert.match(auditMigrationSql, /ENABLE ROW LEVEL SECURITY/);
-  assert.match(auditMigrationSql, /CREATE POLICY "communication_audit_admin_read"/);
+  // Hardened RLS (#6): explicit + separate platform-admin policy, a tenant-membership policy, and NO
+  // role-only wildcard (the leaky admin_read policy is removed).
+  assert.match(auditMigrationSql, /CREATE POLICY "communication_audit_platform_read"[\s\S]*?IN \('platform_admin','super_admin'\)/);
+  assert.match(auditMigrationSql, /CREATE POLICY "communication_audit_tenant_read"[\s\S]*?tenant_id = \(select auth\.jwt\(\) -> 'app_metadata' ->> 'tenant_id'\)/);
+  assert.doesNotMatch(auditMigrationSql, /CREATE POLICY "communication_audit_admin_read"/);
   // Additive: the Up section must not DROP or ALTER any pre-existing table.
   const up = auditMigrationSql.split('-- +migrate Down')[0];
   assert.equal(/DROP TABLE/i.test(up), false);
