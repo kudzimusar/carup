@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
 import { channelLabel } from '@/features/communications/channelRegistry'
+import { priorityVariant, threadRef, threadSla, threadTitle } from '@/features/communications/threadPresentation'
 import { BulkActionBar } from '@/features/communications/admin/BulkActionBar'
 import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterBar'
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
@@ -38,7 +39,6 @@ type ThreadCounts = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi
 type ThreadPage = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['page']>
 const PAGE_LIMIT = '100'
 type ReplyStatus = 'idle' | 'sending' | 'queued' | 'sent' | 'delivered' | 'failed'
-type SlaLevel = 'none' | 'ok' | 'due' | 'breach'
 
 const DELIVERY_POLL_INTERVAL_MS = 5_000   // while a reply is queued/processing
 const IDLE_POLL_INTERVAL_MS = 30_000      // background refresh cadence
@@ -80,36 +80,6 @@ function relativeTime(iso?: string | null): string {
 function prettyLabel(t?: string | null): string {
   if (!t) return ''
   return t.replaceAll('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function threadTitle(thread?: ThreadSummary | null): string {
-  return prettyLabel(thread?.thread_type) || 'Conversation'
-}
-
-function threadRef(thread?: ThreadSummary | null): string {
-  if (!thread) return ''
-  return thread.marketplace_listing_id || thread.escrow_id || thread.financing_application_id
-    || (thread.subject_id ? `${thread.subject_type || 'ref'}:${thread.subject_id}` : '')
-    || (thread.thread_key ? String(thread.thread_key).slice(0, 14) : String(thread.id).slice(0, 8))
-}
-
-function priorityVariant(p?: string): 'destructive' | 'secondary' | 'outline' {
-  const s = String(p || '').toLowerCase()
-  if (s === 'urgent' || s === 'high') return 'destructive'
-  if (s === 'low') return 'outline'
-  return 'secondary'
-}
-
-function threadSla(thread?: ThreadSummary | null): { level: SlaLevel; label: string } {
-  const due = thread?.sla_due_at
-  if (!due || ['resolved', 'closed', 'spam'].includes(String(thread?.status))) return { level: 'none', label: '' }
-  const dueTime = new Date(due).getTime()
-  if (Number.isNaN(dueTime)) return { level: 'none', label: '' }
-  const diffMs = dueTime - Date.now()
-  const mins = Math.max(0, Math.round(Math.abs(diffMs) / 60000))
-  if (diffMs < 0) return { level: 'breach', label: `SLA overdue ${mins}m` }
-  if (diffMs < 15 * 60000) return { level: 'due', label: `SLA due in ${mins}m` }
-  return { level: 'ok', label: `SLA in ${mins}m` }
 }
 
 function hasQueuedOrProcessing(msgs: MessageSummary[]) {
