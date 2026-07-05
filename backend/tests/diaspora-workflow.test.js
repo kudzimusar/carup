@@ -209,7 +209,7 @@ test('Event worker uses environment connection settings and no hard-coded Supaba
   assert.equal(eventWorker.includes('process.env.SUPABASE_TRANSACTION_POOLER_URL'), true);
   assert.equal(eventWorker.includes('EVENT_WORKER_INTERVAL_ENABLED'), true);
   assert.equal(eventWorker.includes('vhmnajoeicasaigiophh'), false);
-  assert.equal(eventWorker.includes('HVYbYVb1x2ErqzH4'), false);
+  assert.equal(eventWorker.includes('[REDACTED-USE-ENV]'), false);
 });
 
 test('Service authorization blocks unrelated users from reading another import order', () => {

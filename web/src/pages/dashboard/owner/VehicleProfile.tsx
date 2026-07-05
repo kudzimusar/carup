@@ -12,15 +12,25 @@ import {
 } from 'lucide-react'
 
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import type { VehiclePassport, InsuranceRecord, VehicleEvidence } from '@/types'
+import type {
+  VehiclePassport,
+  InsuranceRecord,
+  VehicleEvidence,
+  EvidenceTaxonomyResponse,
+  EvidenceSource,
+} from '@/types'
 import EvidenceUploadModal from '@/components/EvidenceUploadModal'
+import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 
 export default function VehicleProfile() {
   const { id } = useParams()
-  const { fetchVehiclePassport, fetchVehicleEvidence } = useCarUpApi()
+  const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  // Vehicle Life Evidence Taxonomy (M1): drives the life-stage timeline grouping.
+  const [evidenceTaxonomy, setEvidenceTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
+  const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[]>([])
 
   const loadEvidence = useCallback(() => {
     if (!id) return
@@ -41,6 +51,16 @@ export default function VehicleProfile() {
     
     loadEvidence()
   }, [fetchVehiclePassport, id, loadEvidence])
+
+  useEffect(() => {
+    let mounted = true
+    Promise.allSettled([fetchEvidenceTaxonomy(), fetchEvidenceSources()]).then(([tax, src]) => {
+      if (!mounted) return
+      if (tax.status === 'fulfilled') setEvidenceTaxonomy(tax.value)
+      if (src.status === 'fulfilled') setEvidenceSources(src.value.sources || [])
+    })
+    return () => { mounted = false }
+  }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
   if (!passportData) {
     return (
@@ -276,6 +296,18 @@ export default function VehicleProfile() {
                       <Upload className="w-4 h-4" /> Upload Evidence
                     </Button>
                   </div>
+
+                  {/* Vehicle life-stage timeline (M1): groups this owner's evidence by the eight life stages. */}
+                  {evidenceList.length > 0 && (
+                    <div className="pb-2">
+                      <h4 className="font-semibold text-sm text-gray-800 mb-3">Vehicle Life Timeline</h4>
+                      <VehicleLifeStageTimeline
+                        evidence={evidenceList}
+                        taxonomy={evidenceTaxonomy}
+                        sources={evidenceSources}
+                      />
+                    </div>
+                  )}
 
                   {evidenceList.length === 0 ? (
                     <div className="flex flex-col items-center justify-center p-8 bg-gray-50 border-2 border-dashed rounded-lg border-gray-200">

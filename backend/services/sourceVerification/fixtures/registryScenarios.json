@@ -1,0 +1,146 @@
+{
+  "_comment": "SANDBOX fixtures ONLY. Synthetic, provider-compatible registry responses for staging + automated tests. These are NOT live government data. Scenario is selected deterministically from the queried VIN so the golden journey and UAT can exercise each path: a VIN containing MISMATCH/UNAVAIL/STOLEN/RISK/NORECORD selects that scenario; any other VIN is treated as a clean match.",
+  "zimra": {
+    "match": {
+      "result": "match",
+      "confidence": 0.86,
+      "identity_fields": {
+        "customs_ref_number": "ZIMRA-CE-SANDBOX-44021",
+        "import_date": "2024-03-11",
+        "port_of_entry": "Beitbridge",
+        "declared_make": "Toyota",
+        "declared_model": "Hilux",
+        "declared_year": 2018,
+        "duty_status": "paid"
+      }
+    },
+    "mismatch": {
+      "result": "mismatch",
+      "confidence": 0.71,
+      "mismatch_flags": ["declared_year_differs", "duty_status_partial"],
+      "identity_fields": {
+        "customs_ref_number": "ZIMRA-CE-SANDBOX-44099",
+        "import_date": "2024-03-11",
+        "port_of_entry": "Beitbridge",
+        "declared_year": 2016,
+        "duty_status": "partial"
+      }
+    },
+    "high_risk": {
+      "result": "high_risk",
+      "confidence": 0.8,
+      "mismatch_flags": ["duty_unpaid", "customs_record_flagged"],
+      "identity_fields": { "duty_status": "unpaid", "customs_flag": "under_investigation" }
+    },
+    "no_record": { "result": "no_record", "confidence": 0.2, "identity_fields": {} }
+  },
+  "cvr": {
+    "match": {
+      "result": "match",
+      "confidence": 0.9,
+      "identity_fields": {
+        "registration_number": "ADZ-SANDBOX-1182",
+        "registration_status": "Current",
+        "registered_make": "Toyota",
+        "registered_model": "Hilux",
+        "registered_year": 2018,
+        "ownership_verified": true,
+        "logbook_serial": "CVR-LB-SANDBOX-77310"
+      }
+    },
+    "mismatch": {
+      "result": "mismatch",
+      "confidence": 0.68,
+      "mismatch_flags": ["registered_model_differs"],
+      "identity_fields": {
+        "registration_number": "ADZ-SANDBOX-1182",
+        "registration_status": "Current",
+        "registered_model": "Fortuner",
+        "ownership_verified": true
+      }
+    },
+    "high_risk": {
+      "result": "high_risk",
+      "confidence": 0.82,
+      "mismatch_flags": ["registration_cancelled", "ownership_dispute"],
+      "identity_fields": { "registration_status": "Cancelled" }
+    },
+    "no_record": { "result": "no_record", "confidence": 0.15, "identity_fields": {} }
+  },
+  "zinara": {
+    "match": {
+      "result": "match",
+      "confidence": 0.78,
+      "identity_fields": {
+        "plate_number": "ADZ-SANDBOX-1182",
+        "licence_status": "Current",
+        "licence_expiry": "2026-09-30",
+        "receipt_number": "ZIN-SANDBOX-55218"
+      }
+    },
+    "mismatch": {
+      "result": "mismatch",
+      "confidence": 0.6,
+      "mismatch_flags": ["plate_differs_from_vehicle"],
+      "identity_fields": { "plate_number": "ADX-SANDBOX-9921", "licence_status": "Current" }
+    },
+    "high_risk": {
+      "result": "high_risk",
+      "confidence": 0.74,
+      "mismatch_flags": ["licence_in_arrears"],
+      "identity_fields": { "licence_status": "Arrears", "licence_expiry": "2025-01-31" }
+    },
+    "no_record": { "result": "no_record", "confidence": 0.2, "identity_fields": {} }
+  },
+  "vid": {
+    "match": {
+      "result": "match",
+      "confidence": 0.83,
+      "identity_fields": {
+        "inspection_status": "Passed",
+        "inspection_date": "2025-11-04",
+        "certificate_serial": "VID-SANDBOX-30144",
+        "expiry_date": "2026-11-04"
+      }
+    },
+    "mismatch": {
+      "result": "mismatch",
+      "confidence": 0.64,
+      "mismatch_flags": ["odometer_differs_from_listing"],
+      "identity_fields": { "inspection_status": "Roadworthy_Conditional", "odometer_reading": 142000 }
+    },
+    "high_risk": {
+      "result": "high_risk",
+      "confidence": 0.79,
+      "mismatch_flags": ["failed_unroadworthy"],
+      "identity_fields": { "inspection_status": "Failed_Unroadworthy" }
+    },
+    "no_record": { "result": "no_record", "confidence": 0.18, "identity_fields": {} }
+  },
+  "cid": {
+    "match": {
+      "result": "match",
+      "confidence": 0.88,
+      "identity_fields": {
+        "clearance_ref_number": "CID-SANDBOX-88017",
+        "stolen_check_status": "Cleared",
+        "chassis_verified": true,
+        "engine_number_verified": true,
+        "interpol_queried": true
+      }
+    },
+    "mismatch": {
+      "result": "mismatch",
+      "confidence": 0.66,
+      "mismatch_flags": ["engine_number_unverified"],
+      "identity_fields": { "stolen_check_status": "Cleared", "engine_number_verified": false }
+    },
+    "high_risk": {
+      "result": "high_risk",
+      "confidence": 0.95,
+      "mismatch_flags": ["flagged_stolen", "immediate_escalation"],
+      "identity_fields": { "stolen_check_status": "Flagged_Stolen", "case_reference": "CID-CASE-SANDBOX-2207" }
+    },
+    "no_record": { "result": "no_record", "confidence": 0.2, "identity_fields": {} }
+  }
+}

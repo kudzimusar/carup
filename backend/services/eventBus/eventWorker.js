@@ -14,6 +14,11 @@ const connectionString = process.env.EVENT_WORKER_DATABASE_URL
   || process.env.DATABASE_URL
   || process.env.SUPABASE_DB_URL;
 
+// Maximum delivery attempts before an outbox event is moved to the dead-letter
+// state. Centralized so the poller's selection filter and the failure
+// transition agree on the threshold.
+export const MAX_OUTBOX_ATTEMPTS = 5;
+
 if (!connectionString) {
   console.warn('⚠️ Event worker database URL missing. Set EVENT_WORKER_DATABASE_URL, SUPABASE_POOLER_DB_URL, SUPABASE_TRANSACTION_POOLER_URL, DATABASE_URL, or SUPABASE_DB_URL to enable transactional outbox polling.');
 }
@@ -105,19 +110,19 @@ class EventWorker {
       // Select oldest pending events, locking rows to prevent multi-worker concurrency collisons
       const selectQuery = `
         SELECT * FROM domain_events
-        WHERE status = 'pending' AND attempts < 5
+        WHERE status = 'pending' AND attempts < $1
         ORDER BY created_at ASC
         LIMIT 10
         FOR UPDATE SKIP LOCKED;
       `;
-      const res = await client.query(selectQuery);
+      const res = await client.query(selectQuery, [MAX_OUTBOX_ATTEMPTS]);
       const events = res.rows;
 
       // Query total pending outbox backlog count
       const backlogRes = await client.query(`
         SELECT COUNT(*) as count FROM domain_events
-        WHERE status = 'pending' AND attempts < 5;
-      `);
+        WHERE status = 'pending' AND attempts < $1;
+      `, [MAX_OUTBOX_ATTEMPTS]);
       const backlogCount = parseInt(backlogRes.rows[0].count, 10);
       metricsHub.recordOutboxBatch(backlogCount);
 
@@ -194,26 +199,87 @@ class EventWorker {
         error: err
       });
       
-      const isPermanentlyFailed = nextAttempts >= 5;
-      const nextStatus = isPermanentlyFailed ? 'failed' : 'pending';
-      
+      // Events that exhaust their delivery budget are moved to a terminal
+      // 'dead_letter' state (rather than the generic 'failed') so they can be
+      // inspected and explicitly replayed via reprocessDeadLetters().
+      const isDeadLettered = nextAttempts >= MAX_OUTBOX_ATTEMPTS;
+      const nextStatus = isDeadLettered ? 'dead_letter' : 'pending';
+
       const updateFailedQuery = `
         UPDATE domain_events
-        SET status = $1, attempts = $2, error_log = $3
+        SET status = $1,
+            attempts = $2,
+            error_log = $3,
+            dead_lettered_at = ${isDeadLettered ? 'NOW()' : 'NULL'}
         WHERE id = $4;
       `;
       await client.query(updateFailedQuery, [nextStatus, nextAttempts, err.stack || err.message, event.id]);
-      
+
       metricsHub.recordOutboxFailure(event.event_type, nextAttempts);
 
-      if (isPermanentlyFailed) {
-        logger.error('QUEUE', `Event ID ${event.id} permanently failed after 5 attempts.`);
+      if (isDeadLettered) {
+        logger.error('QUEUE', `Event ID ${event.id} moved to dead_letter after ${nextAttempts} attempts.`);
         Sentry.captureException(err, {
           eventType: event.event_type,
           eventId: event.id,
-          attempts: nextAttempts
+          attempts: nextAttempts,
+          status: 'dead_letter'
         });
       }
+    }
+  }
+
+  /**
+   * Replay / reprocess dead-lettered outbox events.
+   *
+   * Resets matching `dead_letter` rows back to `pending` and zeroes their
+   * attempt counter so the regular poller picks them up again. Intended for
+   * operator-driven recovery after the underlying defect is fixed.
+   *
+   * @param {object} [opts]
+   * @param {string[]} [opts.ids]        - specific domain_events ids to replay.
+   *                                        When omitted, all dead-lettered rows
+   *                                        are replayed.
+   * @param {string}   [opts.eventType]  - optional filter by event_type.
+   * @returns {Promise<{ replayed: number, ids: string[] }>}
+   */
+  async reprocessDeadLetters({ ids = null, eventType = null } = {}) {
+    if (!this.pool) {
+      console.warn('⚠️ reprocessDeadLetters skipped because DATABASE_URL/SUPABASE_DB_URL is not configured.');
+      return { replayed: 0, ids: [] };
+    }
+
+    const client = await this.pool.connect();
+    try {
+      const conditions = [`status = 'dead_letter'`];
+      const params = [];
+      if (Array.isArray(ids) && ids.length > 0) {
+        params.push(ids);
+        conditions.push(`id = ANY($${params.length})`);
+      }
+      if (eventType) {
+        params.push(eventType);
+        conditions.push(`event_type = $${params.length}`);
+      }
+
+      const replayQuery = `
+        UPDATE domain_events
+        SET status = 'pending',
+            attempts = 0,
+            error_log = NULL,
+            dead_lettered_at = NULL
+        WHERE ${conditions.join(' AND ')}
+        RETURNING id;
+      `;
+      const result = await client.query(replayQuery, params);
+      const replayedIds = result.rows.map((r) => r.id);
+      logger.info('QUEUE', `Replayed ${replayedIds.length} dead-lettered outbox event(s).`, {
+        count: replayedIds.length,
+        eventType: eventType || 'all'
+      });
+      return { replayed: replayedIds.length, ids: replayedIds };
+    } finally {
+      client.release();
     }
   }
 }

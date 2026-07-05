@@ -103,9 +103,8 @@ function getFuelType(vehicle: Vehicle) {
   return vehicle.fuel_type || vehicle.fuelType || 'Petrol'
 }
 
-function isVerifiedVehicle(vehicle: Vehicle) {
-  return Boolean(vehicle.police_verified || vehicle.isVerified || vehicle.plate_verified_at)
-}
+// Phase 5: removed broad isVerifiedVehicle helper — plate verification and police checks
+// are separate source-specific signals; they must not produce a generic "Verified" claim.
 
 function getVehicleEvidenceCount(vehicle: Vehicle) {
   const candidate = vehicle as Vehicle & {
@@ -134,7 +133,8 @@ function hasPartSentrySignal(vehicle: Vehicle) {
 }
 
 function hasVerifiedParts(vehicle: Vehicle) {
-  return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.blockchainHash || part.type === 'OEM'))
+  // blockchainHash removed: part authenticity is tracked by CarUp audit ledger, not a public blockchain
+  return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.type === 'OEM'))
 }
 
 function isDealerListing(vehicle: Vehicle) {
@@ -144,7 +144,8 @@ function isDealerListing(vehicle: Vehicle) {
 
 function getSellerLabel(vehicle: Vehicle) {
   if (isDealerListing(vehicle)) {
-    return vehicle.tenant?.name || vehicle.sellerName || 'Verified dealer'
+    // 'Verified dealer' removed: dealer registration does not equal full verification
+    return vehicle.tenant?.name || vehicle.sellerName || 'CarUp Dealer'
   }
   return 'Private seller'
 }
@@ -158,10 +159,13 @@ function getVehicleLabels(vehicle: Vehicle) {
 
   if (condition === 'new' || conditionCategory === 'brand_new') labels.push('Brand New')
   if (condition === 'used' || conditionCategory === 'second_hand') labels.push('Second Hand')
-  if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Dealer Verified')
-  if (isDealerListing(vehicle) && isVerifiedVehicle(vehicle)) labels.push('Dealer Verified')
-  if (isVerifiedVehicle(vehicle)) labels.push('Verified')
-  if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Passport Verified')
+  // Phase 5: Broad 'Verified' and 'Dealer Verified' replaced with source-specific claims.
+  // 'Certified Pre-Owned' is a dealer-certified condition, not a CarUp verification claim.
+  if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Certified Pre-Owned')
+  // Source-specific trust signals (plate and police are separate, not whole-vehicle verification)
+  if ((vehicle as Vehicle & { plate_verified_at?: string }).plate_verified_at) labels.push('Plate Confirmed')
+  if ((vehicle as Vehicle & { police_verified?: boolean }).police_verified) labels.push('Police Checked')
+  if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Evidence Reviewed')
   if ((vehicle as Vehicle & { duty_paid?: boolean }).duty_paid) labels.push('Duty Cleared')
   if (importSource || conditionCategory === 'recently_imported') labels.push('Recently Imported', 'Fresh Import')
   if (registrationCountry === 'zimbabwe' || conditionCategory === 'locally_used') labels.push('Locally Used')
@@ -969,8 +973,11 @@ export default function Marketplace() {
               const primaryImage = vehicle.images?.[0] || vehicle.primary_image_url || null
               const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
               const vehicleLabels = getVehicleLabels(vehicle)
-              const cardLabels = vehicleLabels.filter(label => label !== 'Verified').slice(0, 4)
+              const cardLabels = vehicleLabels.slice(0, 4)
               const trustScore = getTrustScore(vehicle)
+              // Insufficient evidence: trust score below threshold means we show a caution indicator,
+              // not suppress the listing — buyers see conservative signal, not a false positive.
+              const hasInsufficientEvidence = trustScore > 0 && trustScore < 30
               const passportHref = `/marketplace/${encodeURIComponent(vehicle.vin || vehicle.id || '')}`
               const plateStatus = vehicle.plate_number
                 ? vehicle.plate_verified_at ? 'Plate verified' : 'Plate on file'
@@ -991,12 +998,17 @@ export default function Marketplace() {
                         imgClassName="group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute top-3 left-3 flex flex-wrap gap-2">
-                        {isVerifiedVehicle(vehicle) && (
-                          <Badge className="bg-green-500 text-white text-[10px]" data-testid="marketplace-verified-badge">
-                            <CheckCircle className="w-3 h-3 mr-1" /> Verified
+                        {(vehicle as Vehicle & { plate_verified_at?: string }).plate_verified_at && (
+                          <Badge className="bg-green-600 text-white text-[10px]" data-testid="marketplace-plate-confirmed-badge">
+                            <CheckCircle className="w-3 h-3 mr-1" /> Plate Confirmed
                           </Badge>
                         )}
-                        {trustScore > 90 && (
+                        {(vehicle as Vehicle & { police_verified?: boolean }).police_verified && (
+                          <Badge className="bg-blue-700 text-white text-[10px]" data-testid="marketplace-police-checked-badge">
+                            Police Checked
+                          </Badge>
+                        )}
+                        {trustScore >= 75 && (
                           <Badge className="bg-orange-500 text-white text-[10px]">High Trust</Badge>
                         )}
                         {isReserved && (
@@ -1049,11 +1061,15 @@ export default function Marketplace() {
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between mb-1">
                         <h3 className="font-semibold text-sm line-clamp-1">{vehicleName}</h3>
-                        {trustScore > 0 && (
+                        {hasInsufficientEvidence ? (
+                          <Badge variant="outline" className="ml-2 shrink-0 border-amber-300 text-amber-700 text-[10px]" data-testid="marketplace-low-evidence-badge">
+                            Low Evidence
+                          </Badge>
+                        ) : trustScore > 0 ? (
                           <Badge variant="secondary" className="ml-2 shrink-0" data-testid="marketplace-trust-score">
                             Trust {trustScore}
                           </Badge>
-                        )}
+                        ) : null}
                       </div>
                       <p className="text-xl font-bold text-orange-600">${(vehicle.price || 0).toLocaleString()}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">

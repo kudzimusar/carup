@@ -20,6 +20,7 @@ import MarketplaceCompare from './pages/MarketplaceCompare'
 import MarketplaceCategoryPage from './pages/MarketplaceCategoryPage'
 import VehicleDetail from './pages/VehicleDetail'
 import VehicleSearch from './pages/VehicleSearch'
+import SharedReport from './pages/SharedReport'
 import DealerDirectory from './pages/DealerDirectory'
 import GarageDirectory from './pages/GarageDirectory'
 import InsuranceDirectory from './pages/InsuranceDirectory'
@@ -120,7 +121,10 @@ import UserManagement from './pages/dashboard/admin/UserManagement'
 import AIMonitoring from './pages/dashboard/admin/AIMonitoring'
 import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration'
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
+import FraudQueue from './pages/dashboard/admin/FraudQueue'
+import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
+import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
 import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
 import ReferralCodes from './pages/dashboard/admin/ReferralCodes'
 import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
@@ -223,6 +227,7 @@ export default function App() {
           <Route path="/marketplace/listing/:id" element={<VehicleDetail />} />
           <Route path="/marketplace/:id" element={<VehicleDetail />} />
           <Route path="/search" element={<VehicleSearch />} />
+          <Route path="/reports/shared/:token" element={<SharedReport />} />
           <Route path="/dealers" element={<DealerDirectory />} />
           <Route path="/garages" element={<GarageDirectory />} />
           <Route path="/insurance" element={<InsuranceDirectory />} />
@@ -339,7 +344,11 @@ export default function App() {
           <Route path="/admin/ai" element={<AIMonitoring />} />
           <Route path="/admin/moderation" element={<MarketplaceModeration />} />
           <Route path="/admin/evidence" element={<EvidenceReview />} />
+          <Route path="/admin/fraud-queue" element={<FraudQueue />} />
+          <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
+          <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
+          <Route path="/government/governance-review" element={<GovernanceReviewQueue />} />
           <Route path="/admin/referrals" element={<ReferralCampaigns />} />
           <Route path="/admin/referrals/codes" element={<ReferralCodes />} />
           <Route path="/admin/referrals/local-leads" element={<ReferralLocalLeads />} />
