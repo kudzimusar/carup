@@ -2691,6 +2691,7 @@ test('communication SLA migration is additive (ADD COLUMN IF NOT EXISTS) + adds 
   assert.match(slaMigrationSql, /CREATE POLICY "communication_sla_policies_platform_read"[\s\S]*?IN \('platform_admin','super_admin'\)/);
   assert.match(slaMigrationSql, /CREATE POLICY "communication_sla_policies_tenant_read"[\s\S]*?tenant_id = \(select auth\.jwt\(\) -> 'app_metadata' ->> 'tenant_id'\)/);
   assert.doesNotMatch(slaMigrationSql, /CREATE POLICY "communication_sla_policies_admin_read"/);
+  assert.match(slaMigrationSql, /GRANT SELECT ON communication_sla_policies TO authenticated/);
   // Additive: no DROP/retype of message_threads in the Up section.
   const up = slaMigrationSql.split('-- +migrate Down')[0];
   assert.equal(/DROP TABLE/i.test(up), false);
@@ -2800,6 +2801,10 @@ test('communication audit migration adds an additive append-only table with inde
   assert.match(auditMigrationSql, /CREATE POLICY "communication_audit_platform_read"[\s\S]*?IN \('platform_admin','super_admin'\)/);
   assert.match(auditMigrationSql, /CREATE POLICY "communication_audit_tenant_read"[\s\S]*?tenant_id = \(select auth\.jwt\(\) -> 'app_metadata' ->> 'tenant_id'\)/);
   assert.doesNotMatch(auditMigrationSql, /CREATE POLICY "communication_audit_admin_read"/);
+  // Privileges make the tenant policy real (authenticated may SELECT under RLS; no anon; append-only).
+  assert.match(auditMigrationSql, /REVOKE ALL ON communication_audit_events FROM anon/);
+  assert.match(auditMigrationSql, /GRANT SELECT ON communication_audit_events TO authenticated/);
+  assert.doesNotMatch(auditMigrationSql.split('-- +migrate Down')[0], /GRANT[^\n]*(UPDATE|DELETE)[^\n]*communication_audit_events/);
   // Additive: the Up section must not DROP or ALTER any pre-existing table.
   const up = auditMigrationSql.split('-- +migrate Down')[0];
   assert.equal(/DROP TABLE/i.test(up), false);

@@ -56,6 +56,13 @@ CREATE POLICY "communication_audit_tenant_read" ON communication_audit_events
     AND (select auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin','support','finance','trust_manager','compliance_manager','marketplace_manager')
   );
 
+-- Table privileges: no anon access; authenticated may SELECT (RLS above filters to the caller's tenant
+-- / platform scope); the backend service_role appends + reads (and bypasses RLS). Append-only: no
+-- UPDATE/DELETE is granted to anyone (the audit trail is immutable from the API).
+REVOKE ALL ON communication_audit_events FROM anon;
+GRANT SELECT ON communication_audit_events TO authenticated;
+GRANT SELECT, INSERT ON communication_audit_events TO service_role;
+
 -- +migrate Down
 DROP POLICY IF EXISTS "communication_audit_admin_read" ON communication_audit_events;
 DROP POLICY IF EXISTS "communication_audit_platform_read" ON communication_audit_events;
