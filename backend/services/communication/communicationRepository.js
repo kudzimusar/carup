@@ -6,13 +6,20 @@ import {
 } from './communicationThreadQuery.js';
 import { projectInboxThreads } from './communicationInboxProjection.js';
 
-// A Postgres "function does not exist" / PostgREST "no such function" error — used to gracefully fall
-// back to the bounded-window query engine when the projection migration has not been applied yet.
+// The search_communication_threads() RPC hard-caps returned rows at 200 (LEAST(..., 200)). The
+// repository must clamp its effective page size to this so keyset has_more stays correct.
+const RPC_MAX_PAGE = 200;
+
+// A PostgREST "no such function in the schema cache" error — used to gracefully fall back to the
+// bounded-window query engine ONLY when the projection RPC has not been deployed yet. Intentionally
+// narrow: it must NOT match genuine runtime SQL faults (missing column 42703, relation 42P01, or an
+// "operator does not exist" 42883), which must surface rather than silently degrade the endpoint.
 function isMissingFunctionError(error) {
   const code = String(error?.code || '');
   const msg = String(error?.message || '').toLowerCase();
-  return code === '42883' || code === 'PGRST202'
-    || msg.includes('could not find the function') || msg.includes('does not exist');
+  return code === 'PGRST202'
+    || msg.includes('could not find the function')
+    || msg.includes('schema cache');
 }
 
 // Normalise a queue/filter param set into the arguments both query paths share.
@@ -191,6 +198,9 @@ export class CommunicationRepository {
 
   async searchThreadsViaRpc(params, ctx, p) {
     const cursor = decodeCursor(p.cursor);
+    // The RPC hard-caps returned rows at 200 (LEAST(..., 200)); align the effective page size so
+    // has_more never false-negatives for larger requested limits (which would strand later rows).
+    const effectiveLimit = Math.min(p.limit, RPC_MAX_PAGE);
     const { data, error } = await this.client.rpc('search_communication_threads', {
       p_tenant_id: ctx.tenantId ?? null,
       p_is_platform: Boolean(ctx.isPlatform),
@@ -201,15 +211,16 @@ export class CommunicationRepository {
       p_team: p.team,
       p_sla: p.sla,
       p_unassigned: p.assigned === 'unassigned',
+      p_assigned_only: p.assigned === 'assigned',
       p_failed_only: Boolean(params.failed_only) || p.assigned === 'failed',
       p_include_terminal: p.includeTerminal,
       p_cursor_ts: cursor?.[0] ?? null,
       p_cursor_id: cursor?.[1] != null ? String(cursor[1]) : null,
-      p_limit: p.limit,
+      p_limit: effectiveLimit,
     });
     if (error) throw this.toDatabaseError(`thread search failed: ${error.message}`, error);
     const rows = data || [];
-    const hasMore = rows.length >= p.limit;
+    const hasMore = rows.length >= effectiveLimit;
     const last = rows[rows.length - 1];
     const nextCursor = hasMore && last
       ? encodeCursor([last.last_message_at || last.created_at || '', String(last.id)])
@@ -217,7 +228,7 @@ export class CommunicationRepository {
     const counts = await this.threadCounts(params, ctx);
     return {
       threads: rows,
-      page: { sort: 'newest', mode: 'db_keyset', limit: p.limit, returned: rows.length, has_more: hasMore, next_cursor: nextCursor },
+      page: { sort: 'newest', mode: 'db_keyset', limit: effectiveLimit, returned: rows.length, has_more: hasMore, next_cursor: nextCursor },
       counts,
     };
   }
