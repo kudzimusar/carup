@@ -5,7 +5,7 @@ name: Communication Command Center CI
 #   • postgres job: the REQUIRED real-Postgres integration gate (P1.12) against a disposable service
 #     container — applies the actual base + Command Center migrations into the container's own `public`
 #     schema and verifies migrations/audit-id/RPC search+count/registered-user search/per-agent unread/
-#     SLA columns/RLS tenant isolation/rollback. This job must PASS (not skip) for the PR to be green.
+#     SLA columns/RLS tenant isolation/rollback and the follow-up direct-privilege hardening.
 
 on:
   pull_request:
@@ -49,9 +49,6 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
-      # Points the credential-gated integration suite at the disposable service container. Its own
-      # `public` schema is empty + thrown away with the container, so the suite applies real migrations
-      # directly there (the SECURITY DEFINER RPCs pin search_path = public).
       COMMUNICATION_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       NODE_ENV: test
     steps:
@@ -70,8 +67,10 @@ jobs:
           echo "postgres did not become ready"; exit 1
       - name: Command Center Postgres integration gate (must run, not skip)
         run: |
-          # pipefail so node's exit code (not tee's) governs the step — a failing suite must fail CI.
           set -eo pipefail
-          node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it.log
-          # Also fail if the suite was SKIPPED (credential gate not satisfied) — the reviewer requires it to RUN.
-          if grep -qE "# skipped 1" /tmp/it.log; then echo "::error::integration suite was SKIPPED — DB gate not satisfied"; exit 1; fi
+          node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it-main.log
+          node --test backend/tests/integration/communication-privilege-postgres.integration.test.js 2>&1 | tee /tmp/it-privileges.log
+          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log; then
+            echo "::error::integration suite was SKIPPED — DB gate not satisfied"
+            exit 1
+          fi
