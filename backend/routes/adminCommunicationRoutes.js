@@ -38,7 +38,18 @@ function requireAdminOrWorkerSecret(req, res, next) {
     req.userContext = req.userContext || { id: 'communication-worker', role: 'worker', actor: 'worker_secret' };
     return next();
   }
-  return authorizeRole(SMOKE_TEST_ADMIN_ROLES)(req, res, next);
+  // Admin path: authorizeRole resolves the session, then we additionally require the platform
+  // BASE role (not the tenant-elevated effectiveRole) to be a platform admin. authorizeRole only
+  // excludes the literal 'admin' from tenant-role elevation, so a tenant_users row with role
+  // 'super_admin'/'platform_admin' could otherwise elevate into this arbitrary-external-send
+  // endpoint. Gating on platformRole closes that tenant→platform namespace crossing.
+  return authorizeRole(SMOKE_TEST_ADMIN_ROLES)(req, res, () => {
+    const platformRole = req.userContext?.platformRole || req.userContext?.baseRole || null;
+    if (!SMOKE_TEST_ADMIN_ROLES.includes(platformRole)) {
+      return res.status(403).json({ error: 'Forbidden. Provider smoke test requires a platform admin role.' });
+    }
+    return next();
+  });
 }
 
 /**

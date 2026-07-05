@@ -16,9 +16,9 @@ Meta dashboard.
 `POST /api/admin/communications/test/provider-smoke`
 
 Auth (never public — see [adminCommunicationRoutes.js](../../backend/routes/adminCommunicationRoutes.js)):
-- a valid **platform-admin session** (`authorizeRole(['admin','platform_admin','super_admin'])`,
-  i.e. `x-session-token` for a platform admin — tenant-elevatable roles like `support`/`finance`
-  are intentionally excluded because this endpoint sends to an arbitrary external recipient), **or**
+- a valid **platform-admin session** — `authorizeRole(['admin','platform_admin','super_admin'])`
+  **and** the platform *base* role must itself be an admin role, so tenant-scoped role elevation
+  (`x-tenant-id` + `x-stakeholder-role`) cannot reach this arbitrary-external-send endpoint, **or**
 - the **worker secret** header `x-communication-worker-secret: $COMMUNICATION_WORKER_SECRET`
   (or `Authorization: Bearer $COMMUNICATION_WORKER_SECRET`), constant-time compared.
 

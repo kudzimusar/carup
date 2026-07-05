@@ -1744,8 +1744,10 @@ test('provider smoke-test endpoint is registered, protected, and refuses fake ad
   assert.ok(adminCommunicationRouteFile.includes('timingSafeEqual'), 'secret comparison must be constant-time');
   // The worker-secret comparison must actually route through the constant-time helper.
   assert.match(adminCommunicationRouteFile, /return Boolean\(expected && supplied && safeEqual\(/, 'workerSecretValid must use the constant-time safeEqual helper');
-  // The admin path must be restricted to genuine platform admins (not tenant-elevatable roles).
+  // The admin path must be restricted to genuine platform admins (not tenant-elevatable roles),
+  // gating on the platform BASE role so tenant-role elevation cannot reach this endpoint.
   assert.ok(adminCommunicationRouteFile.includes('SMOKE_TEST_ADMIN_ROLES'), 'admin path must use the tightened platform-admin role set');
+  assert.ok(adminCommunicationRouteFile.includes('platformRole'), 'admin path must additionally require the platform base role, not the tenant-elevated effectiveRole');
   assert.match(adminCommunicationRouteFile, /router\.post\(\s*'\/api\/admin\/communications\/test\/provider-smoke',\s*requireAdminOrWorkerSecret/);
 });
 
