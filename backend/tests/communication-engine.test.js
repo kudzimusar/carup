@@ -1669,6 +1669,38 @@ test('provider smoke test sends via the real WhatsApp adapter and records a real
   assert.equal(identities[0].normalized_address, '818081201356');
 });
 
+test('provider smoke test creates a thread whose thread_type satisfies the real migration CHECK constraint', async () => {
+  // Extract the allowed thread_type values straight from the live migration so this test breaks
+  // if the endpoint ever uses a value the message_threads_thread_type_check constraint rejects
+  // (the failure the live staging smoke test hit with thread_type = 'provider_smoke_test').
+  const match = migrationSql.match(/thread_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(thread_type\s+IN\s*\(([^)]+)\)\)/i);
+  assert.ok(match, 'migration must define a thread_type CHECK constraint');
+  const allowedTypes = match[1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
+  assert.ok(allowedTypes.length > 0);
+  assert.equal(allowedTypes.includes('provider_smoke_test'), false, 'guard: provider_smoke_test is NOT an allowed thread_type');
+
+  const metaFetch = jsonFetchRecorder({ status: 200, body: { messages: [{ id: 'wamid.THREAD_TYPE_TEST' }] } });
+  const realWhatsApp = new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'meta-access-token', CARUP_META_PHONE_NUMBER_ID: 'phone-number-id-1' },
+    fetchImpl: metaFetch,
+  });
+  const services = createHarness({ adapter: realWhatsApp });
+
+  const result = await sendProviderSmokeTest({ services, channel: 'whatsapp', to: '818081201356', message: 'thread-type test' });
+  assert.equal(result.ok, true);
+
+  const createdThread = await services.repository.findOne('message_threads', { id: result.thread_id });
+  assert.ok(createdThread, 'smoke test must create a thread');
+  assert.ok(
+    allowedTypes.includes(createdThread.thread_type),
+    `thread_type '${createdThread.thread_type}' must be one of the migration-allowed values: ${allowedTypes.join(', ')}`,
+  );
+  assert.notEqual(createdThread.thread_type, 'provider_smoke_test');
+  // The smoke-test identity is preserved in metadata, not encoded into thread_type.
+  assert.equal(createdThread.metadata?.smoke_test, true);
+  assert.equal(createdThread.metadata?.intent, 'provider_smoke_test');
+});
+
 test('provider smoke test reports failure (never fake success) when the real provider rejects', async () => {
   const metaFetch = jsonFetchRecorder({ status: 401, body: { error: { message: 'Invalid OAuth access token' } } });
   const realWhatsApp = new MetaWhatsAppAdapter({
