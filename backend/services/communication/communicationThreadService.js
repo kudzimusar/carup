@@ -1,5 +1,6 @@
 import { COMMUNICATION_EVENTS, THREAD_STATUSES, buildDedupeKey, computeSlaDue, nowIso, publicThreadProjection } from './communicationUtils.js';
 import { pausePatch, resumePatch } from './communicationSla.js';
+import { selectSlaPolicy, computeSlaDeadlines } from './communicationSlaSchedule.js';
 
 export class CommunicationThreadService {
   constructor({ repository }) {
@@ -220,6 +221,29 @@ export class CommunicationThreadService {
     const patch = resumePatch(thread, now);
     if (!Object.keys(patch).length) return thread;
     return this.repository.updateById('message_threads', threadId, patch);
+  }
+
+  // Apply the matching SLA policy to a thread (P1.9): select by tenant/channel/priority, compute the
+  // first/next/resolution deadlines within the policy's business hours + timezone, and store them.
+  async applySlaPolicy(threadId, { channel = null, priority = null, startIso = null } = {}) {
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    if (!thread) return null;
+    const policies = await this.repository.list('communication_sla_policies', {}).catch(() => []);
+    const policy = selectSlaPolicy(policies, {
+      tenantId: thread.tenant_id ?? null,
+      channel: channel || thread.primary_channel || null,
+      priority: priority || thread.priority || null,
+    });
+    if (!policy) return thread;
+    const deadlines = computeSlaDeadlines(policy, startIso || thread.created_at || nowIso());
+    return this.repository.updateById('message_threads', threadId, {
+      first_response_due_at: deadlines.first_response_due_at,
+      next_response_due_at: deadlines.next_response_due_at,
+      resolution_due_at: deadlines.resolution_due_at,
+      sla_due_at: deadlines.first_response_due_at || deadlines.resolution_due_at || thread.sla_due_at || null,
+      sla_policy_id: deadlines.sla_policy_id,
+      sla_business_timezone: deadlines.sla_business_timezone,
+    });
   }
 
   async listThreadsForUser(userId) {

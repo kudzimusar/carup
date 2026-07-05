@@ -542,7 +542,10 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     const thread = await loadThreadForRequest(services, req, res);
     if (!thread) return undefined;
     const priority = req.body?.priority || 'normal';
-    const updated = await services.repository.updateById('message_threads', thread.id, { priority });
+    await services.repository.updateById('message_threads', thread.id, { priority });
+    // Priority drives SLA policy selection — recompute business-hours deadlines (P1.9). Best-effort.
+    const updated = await services.threadService.applySlaPolicy(thread.id, { priority }).catch(() => null)
+      || await services.repository.findOne('message_threads', { id: thread.id });
     await auditThread(services, req, thread, COMMUNICATION_AUDIT_EVENTS.PRIORITY_CHANGED, { summary: `Priority set to ${priority}`, metadata: { from: thread.priority || null, to: priority } });
     return res.json({ thread: updated });
   }));

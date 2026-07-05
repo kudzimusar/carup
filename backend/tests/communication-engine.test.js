@@ -34,6 +34,7 @@ import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SOR
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { SLA_STATES, computeSlaState, pausePatch, resumePatch } from '../services/communication/communicationSla.js';
+import { addBusinessMinutes, selectSlaPolicy, computeSlaDeadlines } from '../services/communication/communicationSlaSchedule.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
@@ -2391,6 +2392,68 @@ test('recovery categorises queue rows into queued-too-long / stale / retry / fai
 });
 
 // ── SLA state machine + pause/resume (item 10) ──────────────────────────────────────────────────
+
+// ── SLA business-hours engine (P1.9) ────────────────────────────────────────────────────────────
+
+const BH_9_5 = { days: { 1: ['09:00', '17:00'], 2: ['09:00', '17:00'], 3: ['09:00', '17:00'], 4: ['09:00', '17:00'], 5: ['09:00', '17:00'] } }; // Mon–Fri 9–5, closed weekends
+
+test('addBusinessMinutes respects business hours, rolls over evenings and weekends, skips holidays', () => {
+  const tz = 'Africa/Harare'; // fixed +02:00, no DST
+  const iso = (y, mo, d, h, m) => Date.parse(`${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+02:00`);
+  // 30 min within Wednesday business hours: 10:00 → 10:30 local.
+  assert.equal(new Date(addBusinessMinutes(iso(2026, 7, 8, 10, 0), 30, BH_9_5, tz)).toISOString(), new Date(iso(2026, 7, 8, 10, 30)).toISOString());
+  // Start before open (07:00 Wed) → clock starts at 09:00; +120 → 11:00.
+  assert.equal(new Date(addBusinessMinutes(iso(2026, 7, 8, 7, 0), 120, BH_9_5, tz)).toISOString(), new Date(iso(2026, 7, 8, 11, 0)).toISOString());
+  // Evening rollover: Wed 16:30 + 60 business min = 30 min Wed (→17:00) + 30 min Thu (→09:30).
+  assert.equal(new Date(addBusinessMinutes(iso(2026, 7, 8, 16, 30), 60, BH_9_5, tz)).toISOString(), new Date(iso(2026, 7, 9, 9, 30)).toISOString());
+  // Weekend rollover: Friday 16:00 + 120 = 60 min Fri (→17:00) + 60 min Monday (→10:00). (Jul 10 2026 is Fri.)
+  assert.equal(new Date(addBusinessMinutes(iso(2026, 7, 10, 16, 0), 120, BH_9_5, tz)).toISOString(), new Date(iso(2026, 7, 13, 10, 0)).toISOString());
+  // Holiday skip: Thu 2026-07-09 marked holiday → Wed 16:30 + 60 rolls to Friday 09:30.
+  const withHoliday = { ...BH_9_5, holidays: ['2026-07-09'] };
+  assert.equal(new Date(addBusinessMinutes(iso(2026, 7, 8, 16, 30), 60, withHoliday, tz)).toISOString(), new Date(iso(2026, 7, 10, 9, 30)).toISOString());
+});
+
+test('addBusinessMinutes is DST-safe across a spring-forward boundary', () => {
+  // America/New_York springs forward 2026-03-08 02:00 → 03:00 (EST -05:00 → EDT -04:00).
+  // 24/7 hours so we measure a raw span across the transition: 09:00 EST + 120 min wall time.
+  const start = Date.parse('2026-03-08T09:00:00-05:00');
+  const out = addBusinessMinutes(start, 120, null, 'America/New_York'); // 24/7 (no days) → plain minutes
+  assert.equal(new Date(out).toISOString(), new Date(start + 120 * 60000).toISOString());
+  // Business-hours across DST: Sun is closed, so a Saturday-evening start rolls to Monday open at the
+  // NEW offset. Mon 2026-03-09 09:00 EDT = 13:00Z.
+  const bhMonFri = { days: { 1: ['09:00', '17:00'], 6: ['09:00', '12:00'] } }; // Mon + Sat morning
+  const sat = Date.parse('2026-03-07T11:30:00-05:00'); // Sat 11:30 EST, 30 min left before noon close
+  const due = addBusinessMinutes(sat, 60, bhMonFri, 'America/New_York'); // 30 Sat + 30 Mon(09:00→09:30 EDT)
+  assert.equal(new Date(due).toISOString(), '2026-03-09T13:30:00.000Z'); // Mon 09:30 EDT
+});
+
+test('selectSlaPolicy picks the most specific active tenant/channel/priority policy', () => {
+  const policies = [
+    { id: 'global', active: true, tenant_id: null, channel: null, priority: null, first_response_minutes: 60 },
+    { id: 'tenantA', active: true, tenant_id: 'tenantA', channel: null, priority: null, first_response_minutes: 30 },
+    { id: 'tenantA-wa-high', active: true, tenant_id: 'tenantA', channel: 'whatsapp', priority: 'high', first_response_minutes: 10 },
+    { id: 'inactive', active: false, tenant_id: 'tenantA', channel: 'whatsapp', priority: 'high', first_response_minutes: 1 },
+  ];
+  assert.equal(selectSlaPolicy(policies, { tenantId: 'tenantA', channel: 'whatsapp', priority: 'high' }).id, 'tenantA-wa-high');
+  assert.equal(selectSlaPolicy(policies, { tenantId: 'tenantA', channel: 'sms', priority: 'normal' }).id, 'tenantA');
+  assert.equal(selectSlaPolicy(policies, { tenantId: 'tenantB', channel: 'email', priority: 'low' }).id, 'global');
+});
+
+test('threadService.applySlaPolicy selects a policy and writes business-hours deadlines', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [threadRow({ id: 'SLA1', tenant_id: 'tenantA', primary_channel: 'whatsapp', priority: 'high', created_at: '2026-07-08T16:30:00.000+02:00' })],
+    communication_sla_policies: [
+      { id: 'pol', active: true, tenant_id: 'tenantA', channel: 'whatsapp', priority: 'high', first_response_minutes: 60, resolution_minutes: 120, business_timezone: 'Africa/Harare', business_hours: BH_9_5 },
+    ],
+  });
+  const service = new CommunicationThreadService({ repository: repo });
+  const updated = await service.applySlaPolicy('SLA1', {});
+  assert.equal(updated.sla_policy_id, 'pol');
+  assert.equal(updated.sla_business_timezone, 'Africa/Harare');
+  // created_at 16:30 local Wed + 60 business min → Thu 09:30 local (18:30 UTC prev day rolls to 07:30Z Thu).
+  assert.equal(updated.first_response_due_at, '2026-07-09T07:30:00.000Z'); // Thu 09:30 +02:00
+  assert.equal(updated.sla_due_at, updated.first_response_due_at);
+});
 
 test('SLA state machine classifies healthy / due soon / breached / paused / not applicable', () => {
   const now = Date.parse('2026-07-05T12:00:00.000Z');

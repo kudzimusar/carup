@@ -298,7 +298,9 @@ export class MemoryCommunicationRepository {
     this.tables = new Map();
     this.options = options;
     this.numericCounters = new Map();
-    for (const table of [
+    // Seed the canonical communication tables PLUS any additional tables provided in the seed (e.g.
+    // users, communication_sla_policies, communication_audit_events), so callers can seed anything.
+    const canonical = [
       'message_threads',
       'message_participants',
       'messages',
@@ -309,7 +311,8 @@ export class MemoryCommunicationRepository {
       'communication_preferences',
       'communication_escalations',
       'domain_events',
-    ]) {
+    ];
+    for (const table of new Set([...canonical, ...Object.keys(seed)])) {
       this.tables.set(table, [...(seed[table] || [])]);
       const numericIds = (seed[table] || [])
         .map((row) => Number(row.id))
