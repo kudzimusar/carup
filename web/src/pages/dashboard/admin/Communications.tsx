@@ -16,13 +16,19 @@ import { ChannelFilterBar } from '@/features/communications/admin/ChannelFilterB
 import { CommandCenterHeader } from '@/features/communications/admin/CommandCenterHeader'
 import { ConversationHeader } from '@/features/communications/admin/ConversationHeader'
 import { ConversationRow } from '@/features/communications/admin/ConversationRow'
-import { DeliveryRecoveryPanel } from '@/features/communications/admin/DeliveryRecoveryPanel'
 import { HandoffBar } from '@/features/communications/admin/HandoffBar'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
 import { ProviderSmokeTestPanel } from '@/features/communications/admin/ProviderSmokeTestPanel'
 import { AuditDrawer } from '@/features/communications/admin/AuditDrawer'
 import type { AuditEvent } from '@/features/communications/admin/auditPresentation'
+import { ContextRail } from '@/features/communications/admin/ContextRail'
+import type { ContextIdentity, ContextRef, ContextReassignment } from '@/features/communications/admin/ContextRail'
+import { RecoveryView } from '@/features/communications/admin/RecoveryView'
+import type { RecoveryNotification } from '@/features/communications/admin/RecoveryView'
+import { MessageTechnicalDetails } from '@/features/communications/admin/MessageTechnicalDetails'
+import { DeliveryAttemptList } from '@/features/communications/admin/DeliveryAttemptList'
+import type { DeliveryAttempt } from '@/features/communications/admin/DeliveryAttemptList'
 import { ReplyComposer } from '@/features/communications/admin/ReplyComposer'
 import { WorkerHealthPanel } from '@/features/communications/admin/WorkerHealthPanel'
 import { dayGroup } from '@/features/communications/communicationFormatting'
@@ -83,6 +89,12 @@ function queueToParams(queue: string): Record<string, string | undefined> {
 
 const TEAMS = ['support', 'finance', 'safepay', 'trust_safety', 'marketplace'] as const
 
+// Map the inbox SLA badge level to the ContextRail's richer state vocabulary.
+function slaLevelToState(level: string): string {
+  const map: Record<string, string> = { breach: 'breached', due: 'due_soon', ok: 'healthy', paused: 'paused', none: 'not_applicable' }
+  return map[level] || 'not_applicable'
+}
+
 function newClientMessageId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
   return `admin-reply-${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -136,6 +148,9 @@ export default function AdminCommunications() {
     resumeCommunicationThreadSla,
     retryCommunicationDeadLetter,
     cancelCommunicationDeadLetter,
+    fetchCommunicationRecovery,
+    bulkRetryCommunicationRecovery,
+    requeueCommunicationDeadLetter,
   } = useCarUpApi()
 
   const [threads, setThreads] = useState<ThreadSummary[]>([])
@@ -144,7 +159,14 @@ export default function AdminCommunications() {
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
   const [showAuditTechnical, setShowAuditTechnical] = useState(false)
+  const [showTimelineTechnical, setShowTimelineTechnical] = useState(false)
+  const [identities, setIdentities] = useState<ContextIdentity[]>([])
+  const [linkedIdentities, setLinkedIdentities] = useState<ContextIdentity[]>([])
+  const [deliveryAttempts, setDeliveryAttempts] = useState<DeliveryAttempt[]>([])
+  const [preferences, setPreferences] = useState<Parameters<typeof ContextRail>[0]['preferences']>(null)
   const [deadLetters, setDeadLetters] = useState<DeadLetterNotification[]>([])
+  const [recovery, setRecovery] = useState<{ categories: Record<string, RecoveryNotification[]>; counts: Record<string, number> }>({ categories: {}, counts: {} })
+  const [recoveryNote, setRecoveryNote] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<Metrics>({})
   const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
   const [loading, setLoading] = useState(true)
@@ -242,9 +264,10 @@ export default function AdminCommunications() {
         setLoadError(null)
       }).catch(() => setLoadError('Could not load threads — press Refresh to retry.')),
       fetchCommunicationDeadLetters().then((r) => setDeadLetters(r.notifications || [])).catch(() => undefined),
+      fetchCommunicationRecovery().then((r) => setRecovery({ categories: r.categories || {}, counts: r.counts || {} })).catch(() => undefined),
       fetchAdminCommunicationMetrics().then((r) => setMetrics(r || {})).catch(() => undefined),
     ])
-  }, [fetchThreadPage, clearSelectedUnread, fetchCommunicationDeadLetters, fetchAdminCommunicationMetrics])
+  }, [fetchThreadPage, clearSelectedUnread, fetchCommunicationDeadLetters, fetchCommunicationRecovery, fetchAdminCommunicationMetrics])
 
   // Cursor pagination: append the next server page (dedup by id) without disturbing selection/draft.
   const loadMore = useCallback(async () => {
@@ -301,12 +324,13 @@ export default function AdminCommunications() {
     return () => { active = false }
   }, [fetchThreadPage, clearSelectedUnread])
 
-  // One-time ops panels (dead-letter recovery, metrics, worker health) — independent of the query.
+  // One-time ops panels (dead-letter recovery, recovery categories, metrics, worker health) — query-independent.
   useEffect(() => {
     fetchCommunicationDeadLetters().then((r) => setDeadLetters(r.notifications || [])).catch(() => setDeadLetters([]))
+    fetchCommunicationRecovery().then((r) => setRecovery({ categories: r.categories || {}, counts: r.counts || {} })).catch(() => undefined)
     fetchAdminCommunicationMetrics().then((r) => setMetrics(r || {})).catch(() => undefined)
     refreshWorkerHealth()
-  }, [fetchCommunicationDeadLetters, fetchAdminCommunicationMetrics, refreshWorkerHealth])
+  }, [fetchCommunicationDeadLetters, fetchCommunicationRecovery, fetchAdminCommunicationMetrics, refreshWorkerHealth])
 
   // Persist filter / search / selected thread to the URL so the inbox is deep-linkable and
   // survives refresh (replace, not push, to avoid history spam).
@@ -351,6 +375,10 @@ export default function AdminCommunications() {
     if (!sameThread) {
       setMessages([])
       setAuditEvents([])
+      setIdentities([])
+      setLinkedIdentities([])
+      setDeliveryAttempts([])
+      setPreferences(null)
       setReplyStatus('idle')
       setReplyError(null)
       setReplyCorrelationId(null)
@@ -365,6 +393,10 @@ export default function AdminCommunications() {
     if (detail) {
       setSelected(detail.thread)
       setMessages(detail.messages || [])
+      setIdentities((detail.identities || []) as ContextIdentity[])
+      setLinkedIdentities((detail.linked_identities || []) as ContextIdentity[])
+      setDeliveryAttempts((detail.delivery_attempts || []) as DeliveryAttempt[])
+      setPreferences((detail.preferences || null) as Parameters<typeof ContextRail>[0]['preferences'])
     }
     setAuditEvents(audit.events || [])
     // Mark the thread read for this agent and optimistically clear its unread badge in the list
@@ -456,6 +488,7 @@ export default function AdminCommunications() {
   // reset the selected thread's composer (internal-note toggle, reply status).
   const runRecoveryAction = useCallback(async (name: string, fn: () => Promise<unknown>) => {
     setBusyAction(name)
+    setRecoveryNote(null)
     try {
       await fn()
       await load()
@@ -463,6 +496,22 @@ export default function AdminCommunications() {
       setBusyAction(null)
     }
   }, [load])
+
+  // Guarded bulk retry (item 11): acts only on the explicit ids, reports partial failures.
+  const runBulkRetry = useCallback(async (ids: string[]) => {
+    if (!ids.length) return
+    setBusyAction('bulk-retry')
+    setRecoveryNote(null)
+    try {
+      const res = await bulkRetryCommunicationRecovery(ids)
+      setRecoveryNote(`Retried ${res.retried}/${res.total}${res.failed ? ` · ${res.failed} failed` : ''}`)
+      await load()
+    } catch (error) {
+      setRecoveryNote((error as Error).message || 'Bulk retry failed.')
+    } finally {
+      setBusyAction(null)
+    }
+  }, [bulkRetryCommunicationRecovery, load])
 
   const assignToMe = () => runAction('assign-me', () => assignCommunicationThread(selected!.id, { assigned_admin_id: user?.id, assigned_team: selected!.assigned_team }))
   const assignToTeam = (team: string) => runAction('assign-team', () => assignCommunicationThread(selected!.id, { assigned_team: team }))
@@ -655,7 +704,20 @@ export default function AdminCommunications() {
                 )}
 
                 <CardContent className="space-y-4 pt-4">
-                  {/* Timeline */}
+                  {/* Timeline + technical/audit drawer toggle (item 6) */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500">Conversation timeline</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      aria-pressed={showTimelineTechnical}
+                      onClick={() => setShowTimelineTechnical((v) => !v)}
+                      data-testid="timeline-technical-toggle"
+                    >
+                      {showTimelineTechnical ? 'Hide technical' : 'Show technical'}
+                    </Button>
+                  </div>
                   <ScrollArea className="h-[300px] rounded-lg border bg-gray-50/60 p-3">
                     {messages.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-8">No messages in this thread yet.</p>
@@ -669,6 +731,15 @@ export default function AdminCommunications() {
                             nodes.push(<div key={`sep-${message.id}`} className="text-center text-[10px] uppercase tracking-wide text-gray-400 py-1">{day}</div>)
                           }
                           nodes.push(<MessageBubble key={message.id} message={message} slaThresholdSeconds={60} />)
+                          if (showTimelineTechnical) {
+                            const msgAttempts = deliveryAttempts.filter((a) => a.message_id === message.id)
+                            nodes.push(
+                              <div key={`tech-${message.id}`} className="ml-2 pl-2 border-l-2 border-gray-200 space-y-1.5">
+                                <MessageTechnicalDetails message={message as Parameters<typeof MessageTechnicalDetails>[0]['message']} />
+                                {msgAttempts.length > 0 && <DeliveryAttemptList attempts={msgAttempts} compact />}
+                              </div>,
+                            )
+                          }
                           return nodes
                         })}
                       </div>
@@ -707,8 +778,38 @@ export default function AdminCommunications() {
             )}
           </Card>
 
-          {/* ── Ops rail ── */}
-          <aside className="space-y-5">
+          {/* ── Ops / context rail ── */}
+          <aside className="space-y-5" data-testid="ops-rail">
+            {/* Customer identity + context + SLA + consent for the selected thread (item 7) */}
+            {selected && (
+              <ContextRail
+                identity={{
+                  display_name: selected.identity_display_name || identities[0]?.display_name,
+                  normalized_address: selected.identity_address || identities[0]?.normalized_address,
+                  external_id: selected.identity_external_id || identities[0]?.external_id,
+                  channel: selected.identity_channel || identities[0]?.channel || selected.primary_channel,
+                  provider: selected.identity_provider || identities[0]?.provider,
+                  verified: selected.identity_verified ?? identities[0]?.verified,
+                  consent_status: preferences?.consent_status || identities[0]?.consent_status,
+                } as ContextIdentity}
+                linkedIdentities={linkedIdentities}
+                contextRefs={[
+                  selected.marketplace_listing_id ? { label: 'Listing', value: String(selected.marketplace_listing_id) } : null,
+                  selected.escrow_id ? { label: 'Escrow', value: String(selected.escrow_id) } : null,
+                  selected.financing_application_id ? { label: 'Financing', value: String(selected.financing_application_id) } : null,
+                  selected.subject_id ? { label: prettyLabel(selected.subject_type) || 'Reference', value: String(selected.subject_id) } : null,
+                ].filter(Boolean) as ContextRef[]}
+                assignedLabel={assignedLabel}
+                team={selected.assigned_team}
+                reassignmentHistory={auditEvents
+                  .filter((e) => e.event_type === 'assigned' || e.event_type === 'reassigned')
+                  .map((e): ContextReassignment => ({ at: e.created_at, summary: e.summary || prettyLabel(e.event_type), actor: e.actor_id }))}
+                slaLabel={selectedSla.label}
+                slaState={slaLevelToState(selectedSla.level)}
+                preferences={preferences}
+              />
+            )}
+
             {/* Audit trail for the selected thread (visible timeline + technical drawer) */}
             {selected && (
               <div className="space-y-2">
@@ -728,12 +829,16 @@ export default function AdminCommunications() {
               </div>
             )}
 
-            {/* Delivery recovery */}
-            <DeliveryRecoveryPanel
-              items={deadLetters}
+            {/* Full delivery recovery (item 11): categorised, guarded bulk retry + requeue */}
+            <RecoveryView
+              categories={recovery.categories as Record<string, RecoveryNotification[]>}
+              counts={recovery.counts}
               busyAction={busyAction}
+              bulkNote={recoveryNote}
               onRetry={(id) => runRecoveryAction(`retry-${id}`, () => retryCommunicationDeadLetter(id))}
               onCancel={(id) => runRecoveryAction(`cancel-${id}`, () => cancelCommunicationDeadLetter(id, 'admin_cancelled'))}
+              onRequeue={(id, dest) => runRecoveryAction(`requeue-${id}`, () => requeueCommunicationDeadLetter(id, { to: dest }))}
+              onBulkRetry={runBulkRetry}
             />
 
             {/* Worker & SLA health */}
