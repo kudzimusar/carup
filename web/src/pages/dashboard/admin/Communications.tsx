@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
+import { channelLabel } from '@/features/communications/channelRegistry'
 import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { MessageBubble } from '@/features/communications/admin/MessageBubble'
 import { ProviderHealthPanel } from '@/features/communications/admin/ProviderHealthPanel'
@@ -593,6 +594,17 @@ export default function AdminCommunications() {
 
                   {/* Audited reply composer */}
                   <div className="space-y-2">
+                    <div className="text-xs">
+                      {internalNote ? (
+                        <span className="flex items-center gap-1 text-amber-700 font-medium">
+                          <ShieldAlert className="w-3.5 h-3.5" aria-hidden /> Internal note · saved to the thread, not sent to the customer
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-gray-600">
+                          Reply via <ChannelIcon channel={selected.primary_channel} size={14} decorative /> <strong>{channelLabel(selected.primary_channel)}</strong> to the customer
+                        </span>
+                      )}
+                    </div>
                     <Textarea
                       value={reply}
                       onChange={(e) => setReply(e.target.value)}
