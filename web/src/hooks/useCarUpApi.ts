@@ -119,9 +119,16 @@ type CommunicationThreadSummary = {
   primary_channel?: string
   ai_mode?: string
   assigned_team?: string
+  assigned_admin_id?: string | null
   marketplace_listing_id?: string
   escrow_id?: string
   financing_application_id?: string
+  subject_type?: string | null
+  subject_id?: string | null
+  sla_due_at?: string | null
+  last_message_at?: string | null
+  updated_at?: string | null
+  created_at?: string | null
 }
 
 type CommunicationMessageSummary = {
@@ -130,6 +137,10 @@ type CommunicationMessageSummary = {
   channel?: string
   status?: string
   content_text?: string
+  created_at?: string | null
+  sender_user_id?: string | null
+  provider_message_id?: string | null
+  human_approved?: boolean
 }
 
 type CommunicationNotificationSummary = {
@@ -138,8 +149,12 @@ type CommunicationNotificationSummary = {
   title?: string
   message?: string
   status?: string
+  channel?: string
   notification_type?: string
   last_error_code?: string
+  last_error_message?: string
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
