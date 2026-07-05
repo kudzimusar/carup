@@ -63,6 +63,19 @@ import claimsRouter from './routes/claimsRoutes.js';
 // Centralized Routes Imports (Batch 2)
 import adminRouter from './routes/adminRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
+import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
+import ingestionRouter from './routes/ingestionRoutes.js';
+import sourceVerificationRouter from './routes/sourceVerificationRoutes.js';
+import trustDecisionRouter from './routes/trustDecisionRoutes.js';
+import partnerApiRouter from './routes/partnerApiRoutes.js';
+import partnerAdminRouter from './routes/partnerAdminRoutes.js';
+import fraudRouter from './routes/fraudRoutes.js';
+import dealerRouter from './routes/dealerRoutes.js';
+import eligibilityRouter from './routes/eligibilityRoutes.js';
+import escrowTrustRouter from './routes/escrowTrustRoutes.js';
+import intelligenceRouter from './routes/intelligenceRoutes.js';
+import reportRouter from './routes/reportRoutes.js';
+import governanceRouter from './routes/governanceRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
 import communicationRouter from './routes/communicationRoutes.js';
@@ -77,6 +90,7 @@ import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
+import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 
 dotenv.config();
 
@@ -211,6 +225,19 @@ app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
+app.use(evidenceCatalogRouter);
+app.use(ingestionRouter);
+app.use(sourceVerificationRouter);
+app.use(trustDecisionRouter);
+app.use(partnerApiRouter);
+app.use(partnerAdminRouter);
+app.use(fraudRouter);
+app.use(dealerRouter);
+app.use(eligibilityRouter);
+app.use(escrowTrustRouter);
+app.use(intelligenceRouter);
+app.use(reportRouter);
+app.use(governanceRouter);
 app.use(complianceRouter);
 app.use(financeRouter);
 app.use(trustFactRouter);
@@ -1251,9 +1278,14 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// --- VEHICLE LISTING: Create new listing ---
+// --- VEHICLE LISTING: Create new listing (saves as draft) ---
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
-  const { vin, make, model, year, color, mileage, fuel_type, transmission, condition, category, price, currency, description, location, province, images } = req.body;
+  const {
+    vin, make, model, year, color, mileage, fuel_type, transmission, condition, category,
+    price, currency, description, location, province, images,
+    // Phase 4 identity fields
+    engine_number, chassis_number, plate_number, temp_plate_id, import_status,
+  } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
 
   // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
@@ -1272,15 +1304,23 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       vin: candidate.vin, make: candidate.make, model: candidate.model, generation: '', trim: '',
       year: candidate.year, color: color || 'White', mileage: mileage || 0,
       fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
-      import_source: candidate.import_source, duty_paid: false, police_verified: false,
+      import_source: import_status === 'imported' ? 'import' : (candidate.import_source || 'local'),
+      duty_paid: false, police_verified: false,
       status: normalizeVehicleStatus(candidate.status), trust_score: 50, price: candidate.price, currency: currency || 'USD',
-      owner_id: candidate.owner_id,                       // NEW: set owner for private listings
-      tenant_id: candidate.tenant_id,                     // dealer/admin tenant from context
-      current_seller_type: candidate.current_seller_type, // reflect dealer vs private
-      registration_country: candidate.registration_country
+      owner_id: candidate.owner_id,
+      tenant_id: candidate.tenant_id,
+      current_seller_type: candidate.current_seller_type,
+      registration_country: candidate.registration_country,
+      // Phase 4: identity fields — stored for completeness gate evaluation
+      engine_number: engine_number || null,
+      chassis_number: chassis_number || null,
+      plate_number: plate_number || null,
+      temp_plate_id: temp_plate_id || null,
+      // All vehicles start as draft; must upload and verify documents to reach 'publishable'
+      publication_status: 'draft',
     });
     if (insertError) throw insertError;
-    
+
     if (req.userContext.id) {
       await supabase.from('vehicle_ownership_history').insert({
         vin, new_owner_id: req.userContext.id, transfer_date: new Date().toISOString(), transfer_hash: 'INITIAL'
@@ -1301,9 +1341,27 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       }
     }
 
-    res.json({ success: true, vin, message: 'Vehicle listed successfully on CarUp Marketplace' });
+    res.status(201).json({
+      success: true,
+      vin,
+      publication_status: 'draft',
+      message: 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// --- VEHICLE COMPLETENESS: Publication readiness evaluation ---
+app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), async (req, res) => {
+  try {
+    const result = await evaluateCompleteness(req.params.vin);
+    res.json(result);
+  } catch (err) {
+    if (err.message.startsWith('Vehicle not found')) {
+      return res.status(404).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message });
   }
 });
 

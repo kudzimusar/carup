@@ -1,0 +1,111 @@
+name: CI
+
+# PR-gating CI for the Vehicle Life Intelligence program (master plan §12.2).
+# NO automatic production deploy. Production promotion is a separate, manually-approved step.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint · Types · Build · Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_ENV: test
+      # Test-only placeholders so modules that read env do not crash. NEVER real secrets.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so the lint gate can lint the base branch
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      # BLOCKING gate: fail on ANY net-new lint error/warning vs the base branch.
+      # `main` carries historical lint debt, so a plain `eslint .` zero-error gate is impossible;
+      # this compares PR vs base by stable path/rule/severity and fails only on regressions.
+      # No global rule disables, no `|| true`.
+      - name: Lint regression gate (no new errors/warnings vs base)
+        env:
+          LINT_BASE_REF: origin/${{ github.base_ref || 'main' }}
+        run: node scripts/lint-baseline-gate.mjs
+
+      # Everything below runs AFTER the regression gate.
+      - name: Web typecheck
+        run: npx tsc --noEmit --project web/tsconfig.app.json
+
+      - name: Lint inventory (advisory — full-repo debt, non-blocking)
+        run: npm run lint || true
+
+      - name: Web build
+        run: npm run build
+
+      - name: Backend tests (node:test)
+        run: node --test backend/tests/*.test.js
+
+      - name: Migration verification (isolated PGlite Postgres)
+        run: node database/test/migration_pglite_check.mjs
+
+      - name: git diff --check (whitespace / conflict markers)
+        run: git diff --check HEAD~1 HEAD || true
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true   # advisory until a baseline is curated; promote to blocking after triage
+        env:
+          GITLEAKS_ENABLE_SUMMARY: 'true'
+      - name: Fallback grep scan (service-role keys / private keys)
+        run: |
+          set -e
+          if grep -rEn "service_role|-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----|sk-[A-Za-z0-9]{20,}" \
+              --include='*.js' --include='*.ts' --include='*.tsx' --include='*.json' --include='*.sql' \
+              --exclude-dir=node_modules --exclude-dir=dist . ; then
+            echo "::warning::Potential secret-like strings found — review the matches above."
+          else
+            echo "No obvious secret-like strings found."
+          fi
+
+  dependency-audit:
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: npm audit (high+)
+        run: npm audit --audit-level=high || true   # advisory; do not block PRs on transitive advisories
+
+# Branch protection (configure in GitHub repo settings — documented, not auto-applied):
+#   - Require the "validate" job to pass before merge to main.
+#   - Require PR review approval; disallow force-push to main.
+#   - Do NOT enable auto-merge. Production deploy stays a manual, approved action.

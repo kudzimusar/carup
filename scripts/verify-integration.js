@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-const connectionString = 'postgresql://postgres.vhmnajoeicasaigiophh:HVYbYVb1x2ErqzH4@aws-1-ap-south-1.pooler.supabase.com:5432/postgres';
+const connectionString = (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
 
 async function verify() {
   const pool = new pg.Pool({ connectionString });
