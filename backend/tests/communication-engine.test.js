@@ -2035,6 +2035,18 @@ test('per-agent unread: one agent reading does not clear another agent\'s unread
   assert.equal(projectInboxThread(thread, related, { agentId: 'agent-B' }).team_unread_count, 0);
 });
 
+test('registered-user thread is searchable by profile name via searchThreads (memory parity for #3)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [threadRow({ id: 'RU-SRCH', tenant_id: 'tenantA', primary_user_id: 'user-77', status: 'awaiting_human', primary_channel: 'in_app' })],
+    message_participants: [{ id: 'rq', thread_id: 'RU-SRCH', role: 'requester', external_identity_id: null, user_id: 'user-77', joined_at: '2026-07-01T00:00:00.000Z' }],
+    messages: [{ id: 'm', thread_id: 'RU-SRCH', direction: 'inbound', content_text: 'hello', created_at: '2026-07-05T09:00:00.000Z' }],
+    users: [{ id: 'user-77', name: 'Rudo Chikafu', email: 'rudo@example.com' }],
+  });
+  const ctx = { userId: 'admin', isPlatform: true, now: QUERY_NOW };
+  // Found by the registered profile name (the display name falls back to the user profile).
+  assert.deepEqual((await repo.searchThreads({ search: 'Rudo', include_terminal: true }, ctx)).threads.map((t) => t.id), ['RU-SRCH']);
+});
+
 test('registered-user identity fallback: primary_user_id resolves to the profile name (P1.8)', () => {
   const thread = threadRow({ id: 'RU', tenant_id: 'tenantA', primary_user_id: 'user-42', primary_channel: 'in_app' });
   const related = {
@@ -2725,9 +2737,16 @@ test('repository.searchThreads keyset pagination is stable when EVERY thread sha
 test('inbox projection migration adds the view, search/count RPCs, indexes, and least-privilege grants', () => {
   // View + identity/latest-message/unread projection columns.
   assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE VIEW communication_inbox_threads/);
-  for (const col of ['identity_display_name', 'identity_address', 'latest_message_text', 'latest_message_direction', 'unread_count', 'failed_outbound_count']) {
+  for (const col of ['identity_display_name', 'identity_address', 'latest_message_text', 'latest_message_direction', 'team_unread_count', 'failed_outbound_count']) {
     assert.match(inboxProjectionMigrationSql, new RegExp(`AS ${col}\\b`), `view must project ${col}`);
   }
+  // Per-agent unread is a SEPARATE, unambiguous DB contract (#7): the view exposes TEAM unread only
+  // (never the old ambiguous `... AS unread_count`), and the badge answer is computed for a specific
+  // agent by communication_thread_agent_unread().
+  assert.doesNotMatch(inboxProjectionMigrationSql, /u\.unread_count, 0\) AS unread_count\b/, 'view must not expose team unread as an ambiguous unread_count');
+  assert.match(inboxProjectionMigrationSql, /u\.unread_count, 0\) AS team_unread_count/);
+  assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE FUNCTION communication_thread_agent_unread\(/);
+  assert.match(inboxProjectionMigrationSql, /RETURNS TABLE\(thread_id UUID, unread_count BIGINT\)/);
   // Unread derives from last_read_at; no new table needed.
   assert.match(inboxProjectionMigrationSql, /last_read_at/);
   // Server-side search + keyset RPC with tenant scoping and the queue filter params.
@@ -2738,6 +2757,12 @@ test('inbox projection migration adds the view, search/count RPCs, indexes, and 
   assert.match(inboxProjectionMigrationSql, /ORDER BY COALESCE\(v\.last_message_at, v\.created_at\) DESC, v\.id DESC/);
   // Keyset id is a UUID; the text cursor param MUST be cast (uuid < text has no operator).
   assert.match(inboxProjectionMigrationSql, /v\.id < p_cursor_id::uuid/);
+  // Registered-user identity fallback + searchable-not-returned user join (#3).
+  assert.match(inboxProjectionMigrationSql, /LEFT JOIN users usr ON usr\.id = t\.primary_user_id/);
+  assert.match(inboxProjectionMigrationSql, /COALESCE\(ci\.display_name, usr\.name\) AS identity_display_name/);
+  assert.match(inboxProjectionMigrationSql, /LEFT JOIN users u2 ON u2\.id = v\.primary_user_id/);
+  assert.match(inboxProjectionMigrationSql, /u2\.name\s+ILIKE/);
+  assert.match(inboxProjectionMigrationSql, /u2\.email ILIKE/);
   // Deterministic tie-breaks in the projection laterals (parity with the JS mirror).
   assert.match(inboxProjectionMigrationSql, /ORDER BY p\.joined_at ASC NULLS LAST, p\.id ASC/);
   assert.match(inboxProjectionMigrationSql, /ORDER BY m\.created_at DESC, m\.id DESC/);
