@@ -1701,6 +1701,26 @@ test('provider smoke test creates a thread whose thread_type satisfies the real 
   assert.equal(createdThread.metadata?.intent, 'provider_smoke_test');
 });
 
+test('provider smoke test orders message_delivery_attempts by a column that exists in the real migration', () => {
+  // The live table has started_at/completed_at/next_retry_at but NO created_at. Ordering the
+  // attempts query by created_at errored on staging ("column ... created_at does not exist").
+  // Tie the ordering column to the real migration so this cannot silently regress (the memory
+  // repository ignores unknown sort keys, so a behavioural-only test would not catch it).
+  const tableMatch = migrationSql.match(/CREATE TABLE IF NOT EXISTS message_delivery_attempts\s*\(([\s\S]*?)\n\);/i);
+  assert.ok(tableMatch, 'migration must define message_delivery_attempts');
+  const columns = tableMatch[1].split('\n')
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter((col) => /^[a-z_]+$/.test(col));
+  assert.ok(columns.includes('started_at'), 'message_delivery_attempts must have started_at');
+  assert.equal(columns.includes('created_at'), false, 'guard: message_delivery_attempts has NO created_at column');
+
+  const orderMatch = adminCommunicationRouteFile.match(/list\(\s*['"]message_delivery_attempts['"][\s\S]*?order:\s*\{\s*column:\s*['"]([a-z_]+)['"]/);
+  assert.ok(orderMatch, 'smoke-test endpoint must order the message_delivery_attempts query explicitly');
+  const orderColumn = orderMatch[1];
+  assert.notEqual(orderColumn, 'created_at', 'must not order by the non-existent created_at column');
+  assert.ok(columns.includes(orderColumn), `endpoint orders message_delivery_attempts by '${orderColumn}', which must exist in the migration`);
+});
+
 test('provider smoke test reports failure (never fake success) when the real provider rejects', async () => {
   const metaFetch = jsonFetchRecorder({ status: 401, body: { error: { message: 'Invalid OAuth access token' } } });
   const realWhatsApp = new MetaWhatsAppAdapter({
