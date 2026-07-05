@@ -2573,6 +2573,113 @@ test('threadService pauses and resumes the SLA clock via the memory repository',
   assert.ok(Number(resumed.sla_paused_seconds) >= 60);
 });
 
+const SLA_LIFECYCLE_POLICY = {
+  id: 'pol', active: true, tenant_id: 'tenantA', channel: null, priority: null,
+  first_response_minutes: 60, next_response_minutes: 30, resolution_minutes: 240,
+  business_timezone: 'UTC', business_hours: BH_9_5,
+};
+
+test('SLA lifecycle: cold inbound → first response → later inbound → resolve → reopen (#4)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    // 2026-07-08 is a Wednesday; all times land inside Mon–Fri 09:00–17:00 UTC business hours.
+    message_threads: [threadRow({ id: 'L', tenant_id: 'tenantA', status: 'awaiting_human', created_at: '2026-07-08T10:00:00.000Z', first_response_due_at: null, next_response_due_at: null, resolution_due_at: null, first_response_at: null })],
+    communication_sla_policies: [SLA_LIFECYCLE_POLICY],
+  });
+  const svc = new CommunicationThreadService({ repository: repo });
+
+  // 1) Cold customer inbound at Wed 10:00Z sets the full deadline set (first=+60, next=+30, resolution=+240min).
+  const inbound1 = await svc.applySlaOnInbound('L', { inboundIso: '2026-07-08T10:00:00.000Z' });
+  assert.equal(inbound1.first_response_due_at, '2026-07-08T11:00:00.000Z');
+  assert.equal(inbound1.next_response_due_at, '2026-07-08T10:30:00.000Z');
+  assert.equal(inbound1.resolution_due_at, '2026-07-08T14:00:00.000Z');
+  assert.equal(inbound1.sla_policy_id, 'pol');
+
+  // 2) First human outbound at 10:20Z stamps first_response_at and clears the next-response clock.
+  const responded = await svc.stampFirstResponse('L', { outboundIso: '2026-07-08T10:20:00.000Z' });
+  assert.equal(responded.first_response_at, '2026-07-08T10:20:00.000Z');
+  assert.equal(responded.next_response_due_at, null);
+
+  // 3) A later customer inbound at 11:00Z restarts ONLY the next-response clock (+30). first_response_at stays.
+  const inbound2 = await svc.applySlaOnInbound('L', { inboundIso: '2026-07-08T11:00:00.000Z' });
+  assert.equal(inbound2.first_response_at, '2026-07-08T10:20:00.000Z');
+  assert.equal(inbound2.next_response_due_at, '2026-07-08T11:30:00.000Z');
+  assert.equal(inbound2.first_response_due_at, '2026-07-08T11:00:00.000Z'); // still-awaiting? no — kept from cold start
+
+  // 4) Resolve clears every active deadline; first_response_at is retained as history.
+  const resolved = await svc.resolveThread('L', 'done', { id: 'admin' });
+  assert.equal(resolved.first_response_due_at, null);
+  assert.equal(resolved.next_response_due_at, null);
+  assert.equal(resolved.resolution_due_at, null);
+  assert.equal(resolved.sla_due_at, null);
+  assert.equal(resolved.first_response_at, '2026-07-08T10:20:00.000Z');
+
+  // 5) Reopen reapplies the policy from scratch: first_response_at reset, deadlines recomputed (non-null).
+  const reopened = await svc.reopenThread('L', 'user_feedback');
+  assert.equal(reopened.status, 'open');
+  assert.equal(reopened.first_response_at, null);
+  assert.ok(reopened.first_response_due_at, 'reopen recomputes the first-response deadline');
+  assert.ok(reopened.resolution_due_at, 'reopen recomputes the resolution deadline');
+});
+
+test('SLA lifecycle: an inbound while the clock is paused does not move deadlines (#4)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [threadRow({ id: 'P', tenant_id: 'tenantA', status: 'awaiting_human', sla_paused_at: '2026-07-08T10:00:00.000Z', next_response_due_at: '2026-07-08T10:30:00.000Z', first_response_due_at: '2026-07-08T11:00:00.000Z' })],
+    communication_sla_policies: [SLA_LIFECYCLE_POLICY],
+  });
+  const svc = new CommunicationThreadService({ repository: repo });
+  const after = await svc.applySlaOnInbound('P', { inboundIso: '2026-07-08T13:00:00.000Z' });
+  assert.equal(after.next_response_due_at, '2026-07-08T10:30:00.000Z'); // frozen — unchanged
+  assert.equal(after.first_response_due_at, '2026-07-08T11:00:00.000Z');
+});
+
+test('SLA lifecycle: a weekend inbound rolls the first-response deadline into Monday business hours (#4)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    // 2026-07-11 is a Saturday (closed); the next business open is Mon 2026-07-13 09:00Z.
+    message_threads: [threadRow({ id: 'W', tenant_id: 'tenantA', status: 'awaiting_human', first_response_due_at: null, first_response_at: null })],
+    communication_sla_policies: [SLA_LIFECYCLE_POLICY],
+  });
+  const svc = new CommunicationThreadService({ repository: repo });
+  const after = await svc.applySlaOnInbound('W', { inboundIso: '2026-07-11T10:00:00.000Z' });
+  assert.equal(after.first_response_due_at, '2026-07-13T10:00:00.000Z'); // Mon 09:00 + 60 business min
+});
+
+test('SLA lifecycle: deadlines respect DST (spring-forward) in the policy business timezone (#4)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    // Sat 2026-03-07 11:30 EST, 30 min before a Sat-morning close; spring-forward is Sun 2026-03-08.
+    message_threads: [threadRow({ id: 'D', tenant_id: 'tenantA', status: 'awaiting_human', first_response_due_at: null, first_response_at: null })],
+    communication_sla_policies: [{
+      id: 'nydst', active: true, tenant_id: 'tenantA', channel: null, priority: null,
+      first_response_minutes: 60, business_timezone: 'America/New_York',
+      business_hours: { days: { 1: ['09:00', '17:00'], 6: ['09:00', '12:00'] } }, // Mon + Sat morning
+    }],
+  });
+  const svc = new CommunicationThreadService({ repository: repo });
+  const after = await svc.applySlaOnInbound('D', { inboundIso: '2026-03-07T11:30:00.000-05:00' });
+  // 30 min Sat + 30 min Mon (09:00→09:30 EDT, post-DST) → Mon 09:30 EDT = 13:30Z.
+  assert.equal(after.first_response_due_at, '2026-03-09T13:30:00.000Z');
+});
+
+test('SLA lifecycle end-to-end via recordMessage: inbound sets a deadline; a human reply stamps first response (#4)', async () => {
+  const repo = new MemoryCommunicationRepository({
+    message_threads: [threadRow({ id: 'RM', tenant_id: 'tenantA', status: 'awaiting_human', first_response_due_at: null, first_response_at: null })],
+    communication_sla_policies: [SLA_LIFECYCLE_POLICY],
+  });
+  const svc = new CommunicationThreadService({ repository: repo });
+  const thread = await repo.findOne('message_threads', { id: 'RM' });
+  await svc.recordMessage(thread, { direction: 'inbound', channel: 'whatsapp', content_text: 'hi' });
+  const afterInbound = await repo.findOne('message_threads', { id: 'RM' });
+  assert.ok(afterInbound.first_response_due_at, 'inbound through recordMessage sets a first-response deadline');
+  assert.equal(afterInbound.first_response_at, null);
+  // A pure AI auto-reply must NOT stamp the human first response.
+  await svc.recordMessage(afterInbound, { direction: 'outbound', ai_generated: true, human_approved: false, content_text: 'auto' });
+  assert.equal((await repo.findOne('message_threads', { id: 'RM' })).first_response_at, null);
+  // A human reply stamps it and clears the next-response clock.
+  await svc.recordMessage(afterInbound, { direction: 'outbound', ai_generated: false, content_text: 'agent reply' });
+  const afterHuman = await repo.findOne('message_threads', { id: 'RM' });
+  assert.ok(afterHuman.first_response_at, 'human outbound through recordMessage stamps first_response_at');
+  assert.equal(afterHuman.next_response_due_at, null);
+});
+
 test('communication SLA migration is additive (ADD COLUMN IF NOT EXISTS) + adds a policy table', () => {
   for (const col of ['first_response_due_at', 'next_response_due_at', 'resolution_due_at', 'sla_paused_at', 'sla_pause_reason', 'sla_paused_seconds', 'sla_business_timezone']) {
     assert.match(slaMigrationSql, new RegExp(`ADD COLUMN IF NOT EXISTS ${col}\\b`), `must add ${col}`);
