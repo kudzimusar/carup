@@ -432,10 +432,10 @@ export default function AdminCommunications() {
     // Accept both the path form (/inbox/:threadId, item 5) and the ?thread=<id> query alias.
     const threadId = routeParams.threadId || searchParams.get('thread')
     if (!threadId) return
-    let cancelled = false
-    // Defer out of the effect body so the open (and its state updates) run asynchronously.
-    Promise.resolve().then(() => { if (!cancelled) void openThread({ id: threadId } as ThreadSummary) })
-    return () => { cancelled = true }
+    // Defer the open out of the effect body (its setState must not run synchronously here), but with
+    // NO cancel-cleanup: under React StrictMode a cleanup would cancel the only scheduled open, so the
+    // deep link never resolved. openThread's own openToken guard handles staleness on later navigation.
+    void Promise.resolve().then(() => openThread({ id: threadId } as ThreadSummary))
   }, [searchParams, routeParams.threadId, openThread])
 
   // Bulk actions fan out per-thread (no bulk endpoint) and report partial failures.
@@ -546,7 +546,7 @@ export default function AdminCommunications() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="max-w-7xl mx-auto space-y-5">
+      <div className="max-w-7xl mx-auto space-y-5" data-testid="command-center">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
