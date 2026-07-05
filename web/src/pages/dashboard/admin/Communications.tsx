@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChannelIcon } from '@/features/communications/ChannelIcon'
+import { DeliveryStateBadge } from '@/features/communications/admin/DeliveryStateBadge'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchAdminCommunicationThreads']>>['threads'][number]
@@ -111,15 +112,9 @@ function hasQueuedOrProcessing(msgs: MessageSummary[]) {
   return msgs.some((m) => m.direction === 'outbound' && ['queued', 'processing', 'retry_scheduled'].includes(String(m.status || '')))
 }
 
+// Delegates to the shared DeliveryStateBadge so every surface uses one label/tone source.
 function deliveryBadge(status?: string) {
-  const s = String(status || '').toLowerCase()
-  if (s === 'delivered') return <Badge variant="default" className="text-xs gap-1"><CheckCircle2 className="w-3 h-3" />Delivered</Badge>
-  if (s === 'sent') return <Badge variant="secondary" className="text-xs gap-1"><Send className="w-3 h-3" />Sent</Badge>
-  if (s === 'dead_letter' || s === 'failed') return <Badge variant="destructive" className="text-xs gap-1"><XCircle className="w-3 h-3" />Failed</Badge>
-  if (s === 'retry_scheduled') return <Badge variant="outline" className="text-xs gap-1"><RefreshCcw className="w-3 h-3" />Retry scheduled</Badge>
-  if (s === 'processing') return <Badge variant="secondary" className="text-xs gap-1"><Loader2 className="w-3 h-3 animate-spin" />Processing</Badge>
-  if (s === 'queued') return <Badge variant="outline" className="text-xs gap-1"><Clock className="w-3 h-3" />Queued</Badge>
-  return null
+  return <DeliveryStateBadge status={status} />
 }
 
 function StatPill({ label, value, tone = 'default', icon: Icon }: { label: string; value: string | number; tone?: 'default' | 'danger' | 'good' | 'muted'; icon?: LucideIcon }) {
