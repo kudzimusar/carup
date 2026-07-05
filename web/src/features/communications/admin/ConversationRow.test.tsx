@@ -42,4 +42,30 @@ describe('ConversationRow', () => {
     expect(html).toContain('Bare')
     expect(html).not.toContain('Unassigned')
   })
+
+  it('shows a latest-message preview and an unread badge when unread', () => {
+    const html = renderToStaticMarkup(
+      <ConversationRow
+        title="Tariro M."
+        statusLabel="Awaiting Human"
+        preview="Is the Prado still available?"
+        unreadCount={3}
+        onSelect={() => {}}
+      />,
+    )
+    expect(html).toContain('Is the Prado still available?')
+    expect(html).toContain('data-testid="row-preview"')
+    expect(html).toContain('data-testid="row-unread"')
+    expect(html).toContain('aria-label="3 unread"')
+    expect(html).toContain('data-unread="true"')
+    expect(html).toContain('>3<')
+  })
+
+  it('caps the unread badge at 99+ and hides it when read', () => {
+    const many = renderToStaticMarkup(<ConversationRow title="t" statusLabel="Open" unreadCount={250} onSelect={() => {}} />)
+    expect(many).toContain('99+')
+    const read = renderToStaticMarkup(<ConversationRow title="t" statusLabel="Open" unreadCount={0} preview="hi" onSelect={() => {}} />)
+    expect(read).not.toContain('data-testid="row-unread"')
+    expect(read).not.toContain('data-unread="true"')
+  })
 })
