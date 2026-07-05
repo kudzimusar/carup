@@ -346,8 +346,13 @@ export default function App() {
           <Route path="/admin/referrals/import-routes" element={<ReferralImportRoutes />} />
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
+          {/* Command Center nested routes (item 5): section surfaces + path-based thread deep-link. */}
           <Route path="/admin/communications" element={<AdminCommunications />} />
+          <Route path="/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
+          <Route path="/admin/communications/:section" element={<AdminCommunications />} />
           <Route path="/dashboard/admin/communications" element={<AdminCommunications />} />
+          <Route path="/dashboard/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
+          <Route path="/dashboard/admin/communications/:section" element={<AdminCommunications />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

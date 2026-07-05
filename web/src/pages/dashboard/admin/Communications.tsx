@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { CommandCenterNav } from '@/features/communications/admin/CommandCenterNav'
+import { COMMAND_CENTER_SECTIONS, type CommandCenterSection } from '@/features/communications/admin/commandCenterSections'
 import {
   AlertTriangle, Inbox as InboxIcon, Loader2, MessageSquare, PauseCircle, PlayCircle, RefreshCcw, Search,
 } from 'lucide-react'
@@ -155,6 +157,16 @@ export default function AdminCommunications() {
 
   const [threads, setThreads] = useState<ThreadSummary[]>([])
   const [searchParams, setSearchParams] = useSearchParams()
+  // Nested-route section (item 5). The route may be /admin/communications[/:section] or the
+  // /dashboard/... variant; derive the base path so section tabs link correctly, and resolve the
+  // active section (defaulting to inbox, incl. the /inbox/:threadId deep-link form).
+  const routeParams = useParams<{ section?: string; threadId?: string }>()
+  const location = useLocation()
+  const basePath = location.pathname.includes('/dashboard/admin/communications') ? '/dashboard/admin/communications' : '/admin/communications'
+  const section: CommandCenterSection = (COMMAND_CENTER_SECTIONS as readonly string[]).includes(routeParams.section || '')
+    ? (routeParams.section as CommandCenterSection)
+    : 'inbox'
+  const isInboxLike = section === 'inbox' || section === 'queues' || section === 'sla'
   const [selected, setSelected] = useState<ThreadSummary | null>(null)
   const [messages, setMessages] = useState<MessageSummary[]>([])
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([])
@@ -415,13 +427,14 @@ export default function AdminCommunications() {
     // Mark handled on the first run regardless — otherwise a later URL change (from selecting a
     // thread, which writes ?thread=<id>) would re-enter this and re-open with a bare {id} stub.
     deepLinkedRef.current = true
-    const threadId = searchParams.get('thread')
+    // Accept both the path form (/inbox/:threadId, item 5) and the ?thread=<id> query alias.
+    const threadId = routeParams.threadId || searchParams.get('thread')
     if (!threadId) return
     let cancelled = false
     // Defer out of the effect body so the open (and its state updates) run asynchronously.
     Promise.resolve().then(() => { if (!cancelled) void openThread({ id: threadId } as ThreadSummary) })
     return () => { cancelled = true }
-  }, [searchParams, openThread])
+  }, [searchParams, routeParams.threadId, openThread])
 
   // Bulk actions fan out per-thread (no bulk endpoint) and report partial failures.
   const runBulk = useCallback(async (label: string, fn: (id: string) => Promise<unknown>) => {
@@ -550,6 +563,14 @@ export default function AdminCommunications() {
           health={workerHealth}
         />
 
+        {/* Section navigation (item 5): deep-linkable Command Center surfaces. */}
+        <CommandCenterNav
+          basePath={basePath}
+          active={section}
+          badges={{ recovery: recovery.counts?.total || 0, sla: serverCounts?.sla_breach || 0 }}
+        />
+
+        {isInboxLike && (
         <div className="grid lg:grid-cols-[340px_1fr_300px] gap-5 items-start">
           {/* ── Inbox ── */}
           <Card className="border-0 card-shadow">
@@ -861,6 +882,78 @@ export default function AdminCommunications() {
             />
           </aside>
         </div>
+        )}
+
+        {/* ── Recovery section (item 5/11): full-width categorised recovery ── */}
+        {section === 'recovery' && (
+          <div className="grid lg:grid-cols-[1fr_320px] gap-5 items-start" data-testid="section-view-recovery">
+            <RecoveryView
+              categories={recovery.categories as Record<string, RecoveryNotification[]>}
+              counts={recovery.counts}
+              busyAction={busyAction}
+              bulkNote={recoveryNote}
+              onRetry={(id) => runRecoveryAction(`retry-${id}`, () => retryCommunicationDeadLetter(id))}
+              onCancel={(id) => runRecoveryAction(`cancel-${id}`, () => cancelCommunicationDeadLetter(id, 'admin_cancelled'))}
+              onRequeue={(id, dest) => runRecoveryAction(`requeue-${id}`, () => requeueCommunicationDeadLetter(id, { to: dest }))}
+              onBulkRetry={runBulkRetry}
+            />
+            <aside className="space-y-5">
+              {workerHealth && (
+                <WorkerHealthPanel health={workerHealth} idlePollSeconds={IDLE_POLL_INTERVAL_MS / 1000} deliveryPollSeconds={DELIVERY_POLL_INTERVAL_MS / 1000} />
+              )}
+            </aside>
+          </div>
+        )}
+
+        {/* ── Providers section (item 5/12): live provider + worker health + smoke test ── */}
+        {section === 'providers' && (
+          <div className="grid md:grid-cols-2 gap-5 items-start" data-testid="section-view-providers">
+            <ProviderHealthPanel adapters={workerHealth?.adapters} />
+            <div className="space-y-5">
+              {workerHealth && (
+                <WorkerHealthPanel health={workerHealth} idlePollSeconds={IDLE_POLL_INTERVAL_MS / 1000} deliveryPollSeconds={DELIVERY_POLL_INTERVAL_MS / 1000} />
+              )}
+              <ProviderSmokeTestPanel
+                onSend={(payload) => sendCommunicationProviderSmokeTest(payload)}
+                environmentLabel={typeof window !== 'undefined' ? window.location.hostname : 'staging'}
+                onDone={refreshWorkerHealth}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* ── Audit section (item 5/8): the selected thread's full audit trail ── */}
+        {section === 'audit' && (
+          <div className="max-w-3xl" data-testid="section-view-audit">
+            {selected ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-600">Audit trail — {threadTitle(selected)}</p>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" aria-pressed={showAuditTechnical} onClick={() => setShowAuditTechnical((v) => !v)}>
+                    {showAuditTechnical ? 'Hide technical' : 'Show technical'}
+                  </Button>
+                </div>
+                <AuditDrawer events={auditEvents} showTechnical={showAuditTechnical} />
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-10">Open a thread from the Inbox to view its audit trail.</p>
+            )}
+          </div>
+        )}
+
+        {/* ── Settings section (item 5) ── */}
+        {section === 'settings' && (
+          <div className="max-w-2xl" data-testid="section-view-settings">
+            <Card className="border-0 card-shadow">
+              <CardHeader className="pb-3"><CardTitle className="text-lg">Command Center settings</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm text-gray-600">
+                <p>Poll cadence: idle {IDLE_POLL_INTERVAL_MS / 1000}s · in-flight {DELIVERY_POLL_INTERVAL_MS / 1000}s.</p>
+                <p>Default queue: {prettyLabel(DEFAULT_QUEUE)}. SLA, consent, and per-channel preferences are shown per conversation in the context rail.</p>
+                <p className="text-xs text-gray-400">Tenant-scoped: you only see and act on your own tenant&apos;s conversations.</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )
