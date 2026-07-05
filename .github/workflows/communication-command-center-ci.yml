@@ -1,0 +1,76 @@
+name: Communication Command Center CI
+
+# Real CI for the Enterprise Communication Command Center (Agent 8, issues #107/#110).
+#   • unit job: the full communication engine node --test suite (self-mocked, no DB);
+#   • postgres job: the REQUIRED real-Postgres integration gate (P1.12) against a disposable service
+#     container — applies the actual base + Command Center migrations into the container's own `public`
+#     schema and verifies migrations/audit-id/RPC search+count/registered-user search/per-agent unread/
+#     SLA columns/RLS tenant isolation/rollback and the follow-up direct-privilege hardening.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - fix/issue-110-agent8-telegram-auto-delivery
+  workflow_dispatch:
+
+jobs:
+  communication-unit:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: dummy_ci_key_not_a_secret
+      JWT_SECRET: dummy_ci_jwt_secret_not_a_secret
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Communication engine unit suite
+        run: node --test backend/tests/communication-engine.test.js backend/tests/communication-privilege-migration.test.js
+
+  communication-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      COMMUNICATION_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U postgres >/dev/null 2>&1; then echo "postgres ready"; exit 0; fi
+            sleep 2
+          done
+          echo "postgres did not become ready"; exit 1
+      - name: Command Center Postgres integration gate (must run, not skip)
+        run: |
+          set -eo pipefail
+          node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it-main.log
+          node --test backend/tests/integration/communication-privilege-postgres.integration.test.js 2>&1 | tee /tmp/it-privileges.log
+          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log; then
+            echo "::error::integration suite was SKIPPED — DB gate not satisfied"
+            exit 1
+          fi

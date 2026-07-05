@@ -481,8 +481,35 @@ export class ExpoPushAdapter extends HttpCommunicationAdapter {
   }
 }
 
+export function assertRealTelegramAdapter(registry, env = process.env) {
+  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  if (!isRealEnvironment) return;
+  if (env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true') return;
+  if (!envValue(env, 'CARUP_TELEGRAM_BOT_TOKEN')) return;
+
+  const adapter = registry.get('telegram');
+  if (!adapter) {
+    throw new Error('FATAL: CARUP_TELEGRAM_BOT_TOKEN is set but no telegram adapter is registered.');
+  }
+  const health = adapter.validateConfiguration?.() || {};
+  if (health.mode === 'fake') {
+    throw new Error(
+      `FATAL: CARUP_TELEGRAM_BOT_TOKEN is set but the telegram adapter is a fake adapter (mode=fake). ` +
+      `In ${env.NODE_ENV || 'unknown'} environment real provider adapters are required. ` +
+      `Ensure NODE_ENV=production or staging, or set COMMUNICATION_REAL_ADAPTERS=true.`
+    );
+  }
+  if (health.provider && health.provider !== 'telegram_bot_api') {
+    throw new Error(`FATAL: Telegram adapter has unexpected provider "${health.provider}" (expected telegram_bot_api).`);
+  }
+  if (health.available === false) {
+    throw new Error(`FATAL: Telegram adapter is not available in ${env.NODE_ENV} environment. Missing: ${health.missing?.join(', ') || 'unknown'}`);
+  }
+}
+
 export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  const allowFake = env.NODE_ENV !== 'production' || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true';
+  const isRealEnvironment = env.NODE_ENV === 'production' || env.NODE_ENV === 'staging' || env.COMMUNICATION_REAL_ADAPTERS === 'true';
+  const allowFake = !isRealEnvironment || env.COMMUNICATION_FAKE_ADAPTERS_ENABLED === 'true';
   const realOptions = { env, fetchImpl };
   const registry = new Map();
   const put = (channel, adapter) => registry.set(channel, adapter);

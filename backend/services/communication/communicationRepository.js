@@ -1,6 +1,84 @@
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
+import {
+  buildThreadQuery, computeCounts, decodeCursor, encodeCursor, clampLimit, THREAD_SORT_KEYS,
+} from './communicationThreadQuery.js';
+import { projectInboxThreads } from './communicationInboxProjection.js';
+
+// The search_communication_threads() RPC hard-caps returned rows at 200 (LEAST(..., 200)). The
+// repository must clamp its effective page size to this so keyset has_more stays correct.
+const RPC_MAX_PAGE = 200;
+
+// A PostgREST "no such function in the schema cache" error — used to gracefully fall back to the
+// bounded-window query engine ONLY when the projection RPC has not been deployed yet. Intentionally
+// narrow: it must NOT match genuine runtime SQL faults (missing column 42703, relation 42P01, or an
+// "operator does not exist" 42883), which must surface rather than silently degrade the endpoint.
+function isMissingFunctionError(error) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '').toLowerCase();
+  return code === 'PGRST202'
+    || msg.includes('could not find the function')
+    || msg.includes('schema cache');
+}
+
+// Normalise a queue/filter param set into the arguments both query paths share.
+function normalizeSearchParams(params = {}) {
+  const splitCsv = (v) => String(v).split(',').map((s) => s.trim()).filter(Boolean);
+  const includeTerminal = params.include_terminal === undefined
+    ? true
+    : !(params.include_terminal === false || params.include_terminal === 'false');
+  return {
+    search: params.search ? String(params.search) : null,
+    statusList: params.status ? splitCsv(params.status) : null,
+    channelList: params.channel ? splitCsv(params.channel) : null,
+    assigned: params.assigned ? String(params.assigned) : null,
+    team: params.team ? String(params.team) : null,
+    sla: params.sla ? String(params.sla) : null,
+    includeTerminal,
+    sort: THREAD_SORT_KEYS.includes(params.sort) ? params.sort : 'newest',
+    limit: clampLimit(params.limit),
+    cursor: params.cursor || null,
+  };
+}
+
+// Map the `assigned` queue param to a concrete assignee id for the RPC (`mine` → the caller);
+// the pseudo-values unassigned/assigned/failed are handled by dedicated boolean params/filters.
+function resolveAssignee(assigned, ctx) {
+  if (!assigned) return null;
+  if (assigned === 'mine') return ctx.userId ?? null;
+  if (['unassigned', 'assigned', 'failed'].includes(assigned)) return null;
+  return assigned;
+}
+
+// Tenant/platform scoping: platform admins see every tenant; a tenant-scoped caller only ever sees
+// its own tenant, and a caller with no resolvable tenant sees nothing (fail-closed). Item 14.
+function scopeThreads(threads, ctx) {
+  if (ctx.isPlatform) return threads;
+  if (!ctx.tenantId) return [];
+  return threads.filter((t) => String(t.tenant_id || '') === String(ctx.tenantId));
+}
+
+// Run the pure query engine over an already-projected, already-scoped row set (the memory path and
+// the real-repo window fallback share this).
+function runQuery(rows, params, ctx, p) {
+  const result = buildThreadQuery(rows, {
+    search: p.search,
+    status: params.status,
+    channel: params.channel,
+    priority: params.priority,
+    assigned: p.assigned,
+    sla: p.sla,
+    unassigned: p.assigned === 'unassigned',
+    failed_only: Boolean(params.failed_only) || p.assigned === 'failed',
+    include_terminal: p.includeTerminal,
+    sort: p.sort,
+    cursor: p.cursor,
+    limit: p.limit,
+  }, { userId: ctx.userId, now: ctx.now ?? Date.now() });
+  result.page.mode = result.page.mode || 'window';
+  return result;
+}
 
 function createServiceClientFromEnv() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -99,6 +177,120 @@ export class CommunicationRepository {
     if (error) throw new Error(`notification_queue claim failed: ${error.message}`);
     return data || [];
   }
+
+  // Identity-first inbox query. For the default (newest) ordering this executes fully DB-side via the
+  // search_communication_threads() RPC over the communication_inbox_threads projection view (keyset
+  // pagination, tenant scoping, server search/filter/count). Non-default sorts, or a DB where the
+  // projection migration is not yet applied, fall back to the bounded-window engine over a JS
+  // projection so behaviour degrades gracefully rather than breaking.
+  async searchThreads(params = {}, ctx = {}) {
+    const p = normalizeSearchParams(params);
+    if (p.sort === 'newest') {
+      try {
+        return await this.searchThreadsViaRpc(params, ctx, p);
+      } catch (error) {
+        if (!isMissingFunctionError(error)) throw error;
+        // Projection migration not applied yet — degrade to the window engine.
+      }
+    }
+    return this.searchThreadsViaWindow(params, ctx, p);
+  }
+
+  async searchThreadsViaRpc(params, ctx, p) {
+    const cursor = decodeCursor(p.cursor);
+    // The RPC hard-caps returned rows at 200 (LEAST(..., 200)); align the effective page size so
+    // has_more never false-negatives for larger requested limits (which would strand later rows).
+    const effectiveLimit = Math.min(p.limit, RPC_MAX_PAGE);
+    const { data, error } = await this.client.rpc('search_communication_threads', {
+      p_tenant_id: ctx.tenantId ?? null,
+      p_is_platform: Boolean(ctx.isPlatform),
+      p_search: p.search,
+      p_status: p.statusList,
+      p_channel: p.channelList,
+      p_assignee: resolveAssignee(p.assigned, ctx),
+      p_team: p.team,
+      p_sla: p.sla,
+      p_unassigned: p.assigned === 'unassigned',
+      p_assigned_only: p.assigned === 'assigned',
+      p_failed_only: Boolean(params.failed_only) || p.assigned === 'failed',
+      p_include_terminal: p.includeTerminal,
+      p_cursor_ts: cursor?.[0] ?? null,
+      p_cursor_id: cursor?.[1] != null ? String(cursor[1]) : null,
+      p_limit: effectiveLimit,
+    });
+    if (error) throw this.toDatabaseError(`thread search failed: ${error.message}`, error);
+    const rows = data || [];
+    const hasMore = rows.length >= effectiveLimit;
+    const last = rows[rows.length - 1];
+    const nextCursor = hasMore && last
+      ? encodeCursor([last.last_message_at || last.created_at || '', String(last.id)])
+      : null;
+    // The DB does the heavy filter/sort/paginate over the whole set; enrich only the RETURNED PAGE
+    // (≤200 rows) with per-agent unread (P1.7) + registered-user identity fallback (P1.8) via the same
+    // tested projection, so the view's team-based unread is replaced by the acting agent's own count.
+    const threads = await this.enrichPage(rows, ctx);
+    const counts = await this.threadCounts(params, ctx);
+    return {
+      threads,
+      page: { sort: 'newest', mode: 'db_keyset', limit: effectiveLimit, returned: threads.length, has_more: hasMore, next_cursor: nextCursor },
+      counts,
+    };
+  }
+
+  // Re-project just the returned page through the pure projection so per-agent unread + the
+  // registered-user identity fallback are applied consistently with the window/memory path.
+  async enrichPage(rows, ctx) {
+    if (!rows.length) return rows;
+    const ids = rows.map((r) => r.id);
+    const [participants, messages] = await Promise.all([
+      this.list('message_participants', { thread_id: ids }),
+      this.list('messages', { thread_id: ids }),
+    ]);
+    const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
+    const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
+    const userIds = [...new Set(rows.map((r) => r.primary_user_id).filter(Boolean))];
+    const users = userIds.length ? await this.list('users', { id: userIds }).catch(() => []) : [];
+    return projectInboxThreads(rows, { participants, identities, messages, users }, { agentId: ctx.userId ?? null });
+  }
+
+  async searchThreadsViaWindow(params, ctx, p) {
+    const projected = await this.projectThreadWindow(ctx);
+    return runQuery(scopeThreads(projected, ctx), params, ctx, p);
+  }
+
+  async projectThreadWindow(ctx = {}) {
+    const windowSize = Math.min(Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000), 2000);
+    const threadRows = await this.list('message_threads', {}, { order: { column: 'updated_at' }, limit: windowSize });
+    if (!threadRows.length) return [];
+    const ids = threadRows.map((t) => t.id);
+    const [participants, messages] = await Promise.all([
+      this.list('message_participants', { thread_id: ids }),
+      this.list('messages', { thread_id: ids }),
+    ]);
+    const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
+    const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
+    // Registered-user identity fallback (P1.8): resolve threads with no requester channel identity to
+    // their CarUp user profile via primary_user_id.
+    const userIds = [...new Set(threadRows.map((t) => t.primary_user_id).filter(Boolean))];
+    const users = userIds.length ? await this.list('users', { id: userIds }).catch(() => []) : [];
+    return projectInboxThreads(threadRows, { participants, identities, messages, users }, { agentId: ctx.userId ?? null });
+  }
+
+  async threadCounts(params = {}, ctx = {}) {
+    try {
+      const { data, error } = await this.client.rpc('communication_thread_counts', {
+        p_tenant_id: ctx.tenantId ?? null,
+        p_is_platform: Boolean(ctx.isPlatform),
+        p_user_id: ctx.userId ?? null,
+      });
+      if (error) throw this.toDatabaseError(`thread counts failed: ${error.message}`, error);
+      return data || {};
+    } catch (error) {
+      if (!isMissingFunctionError(error)) throw error;
+      const projected = await this.projectThreadWindow(ctx);
+      return computeCounts(scopeThreads(projected, ctx), { userId: ctx.userId, now: ctx.now ?? Date.now() });
+    }
+  }
 }
 
 export class MemoryCommunicationRepository {
@@ -106,7 +298,9 @@ export class MemoryCommunicationRepository {
     this.tables = new Map();
     this.options = options;
     this.numericCounters = new Map();
-    for (const table of [
+    // Seed the canonical communication tables PLUS any additional tables provided in the seed (e.g.
+    // users, communication_sla_policies, communication_audit_events), so callers can seed anything.
+    const canonical = [
       'message_threads',
       'message_participants',
       'messages',
@@ -117,7 +311,8 @@ export class MemoryCommunicationRepository {
       'communication_preferences',
       'communication_escalations',
       'domain_events',
-    ]) {
+    ];
+    for (const table of new Set([...canonical, ...Object.keys(seed)])) {
       this.tables.set(table, [...(seed[table] || [])]);
       const numericIds = (seed[table] || [])
         .map((row) => Number(row.id))
@@ -291,5 +486,27 @@ export class MemoryCommunicationRepository {
       }));
     }
     return claimed;
+  }
+
+  // JS mirror of the projection view + RPC (same code path the real repo falls back to), so tests
+  // exercise the identity projection, tenant scoping, keyset pagination, and counts end to end.
+  projectAll(ctx = {}) {
+    return projectInboxThreads(this.rows('message_threads'), {
+      participants: this.rows('message_participants'),
+      identities: this.rows('channel_identities'),
+      messages: this.rows('messages'),
+      users: this.rows('users'),
+    }, { agentId: ctx.userId ?? null });
+  }
+
+  async searchThreads(params = {}, ctx = {}) {
+    const p = normalizeSearchParams(params);
+    const scoped = scopeThreads(this.projectAll(ctx), ctx);
+    return runQuery(scoped, params, ctx, p);
+  }
+
+  async threadCounts(params = {}, ctx = {}) {
+    const scoped = scopeThreads(this.projectAll(ctx), ctx);
+    return computeCounts(scoped, { userId: ctx.userId, now: ctx.now ?? Date.now() });
   }
 }
