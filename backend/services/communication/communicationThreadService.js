@@ -61,7 +61,11 @@ export class CommunicationThreadService {
         display_name: input.display_name || null,
       });
     }
-    return { thread, created: true };
+    // Apply the SLA policy at creation (#4 — not only on priority change). Best-effort: a thread with
+    // no matching policy keeps the legacy computeSlaDue(priority) response target set above. Refresh
+    // the in-memory thread so callers see the computed deadlines.
+    const withSla = await this.applySlaPolicy(thread.id, { startIso: thread.created_at, preserveFirstResponse: false }).catch(() => null);
+    return { thread: withSla || thread, created: true };
   }
 
   teamForThread(type) {
@@ -126,6 +130,20 @@ export class CommunicationThreadService {
       updated_at: message.created_at,
       status: input.thread_status || thread.status,
     });
+    // SLA lifecycle hooks (#4) — every message funnels through here. Fail-soft: an SLA math error must
+    // never break message recording. Inbound (customer) drives the response clock; a HUMAN outbound
+    // (agent reply or human-approved AI draft, never a pure AI auto-reply) stamps the first response.
+    const dir = input.direction || 'inbound';
+    try {
+      if (dir === 'inbound') {
+        await this.applySlaOnInbound(thread.id, { channel: input.channel || thread.primary_channel || null, inboundIso: message.created_at });
+      } else if (dir === 'outbound' && (input.human_approved === true || input.ai_generated !== true)) {
+        await this.stampFirstResponse(thread.id, { outboundIso: message.created_at });
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(JSON.stringify({ event: 'communication_sla_lifecycle_failed', thread_id: thread.id, direction: dir, error: error?.message }));
+    }
     return message;
   }
 
@@ -166,17 +184,36 @@ export class CommunicationThreadService {
     return this.repository.updateById('message_threads', threadId, {
       status: THREAD_STATUSES.RESOLVED,
       resolved_at: nowIso(),
+      // Stop the SLA clock on resolve (#4): clear the active targets. first_response_at is kept as
+      // history (it records that/when the team first responded); the badge goes not_applicable.
+      first_response_due_at: null,
+      next_response_due_at: null,
+      resolution_due_at: null,
+      sla_due_at: null,
       metadata: { resolution_summary: summary, resolved_by: actor.id || actor.userId || null },
     });
   }
 
   async reopenThread(threadId, reason = 'feedback') {
+    // Reapply the SLA policy from scratch on reopen (#4): a reopened thread is a fresh customer wait,
+    // so the first-response cycle restarts (first_response_at cleared) and all deadlines recompute from
+    // now within business hours. Falls back to the legacy sla_due_at when no policy matches.
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    const reopenIso = nowIso();
+    const policy = thread ? await this.selectPolicyForThread(thread, {}) : null;
+    const deadlines = policy ? computeSlaDeadlines(policy, reopenIso) : {};
     return this.repository.updateById('message_threads', threadId, {
       status: THREAD_STATUSES.OPEN,
       resolved_at: null,
       closed_at: null,
       metadata: { reopened_reason: reason },
-      sla_due_at: computeSlaDue('normal'),
+      first_response_at: null,
+      first_response_due_at: deadlines.first_response_due_at ?? null,
+      next_response_due_at: deadlines.next_response_due_at ?? null,
+      resolution_due_at: deadlines.resolution_due_at ?? null,
+      sla_policy_id: deadlines.sla_policy_id ?? (thread ? thread.sla_policy_id ?? null : null),
+      sla_business_timezone: deadlines.sla_business_timezone ?? (thread ? thread.sla_business_timezone ?? null : null),
+      sla_due_at: deadlines.first_response_due_at || deadlines.resolution_due_at || computeSlaDue('normal'),
     });
   }
 
@@ -223,27 +260,75 @@ export class CommunicationThreadService {
     return this.repository.updateById('message_threads', threadId, patch);
   }
 
-  // Apply the matching SLA policy to a thread (P1.9): select by tenant/channel/priority, compute the
-  // first/next/resolution deadlines within the policy's business hours + timezone, and store them.
-  async applySlaPolicy(threadId, { channel = null, priority = null, startIso = null } = {}) {
-    const thread = await this.repository.findOne('message_threads', { id: threadId });
-    if (!thread) return null;
+  // Resolve the best-matching SLA policy for a thread (tenant/channel/priority). Returns null when
+  // there are no policies (or none match) — every caller treats that as "leave SLA untouched".
+  async selectPolicyForThread(thread, { channel = null, priority = null } = {}) {
     const policies = await this.repository.list('communication_sla_policies', {}).catch(() => []);
-    const policy = selectSlaPolicy(policies, {
+    return selectSlaPolicy(policies, {
       tenantId: thread.tenant_id ?? null,
       channel: channel || thread.primary_channel || null,
       priority: priority || thread.priority || null,
     });
+  }
+
+  // Recompute the SLA deadlines from the matching policy (P1.9 / #4). Used on thread creation and on a
+  // channel/priority/policy change — NOT only on priority change. `preserveFirstResponse` keeps an
+  // already-stamped first response (a recompute must not resurrect a met first-response deadline).
+  async applySlaPolicy(threadId, { channel = null, priority = null, startIso = null, preserveFirstResponse = true } = {}) {
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    if (!thread) return null;
+    const policy = await this.selectPolicyForThread(thread, { channel, priority });
     if (!policy) return thread;
     const deadlines = computeSlaDeadlines(policy, startIso || thread.created_at || nowIso());
-    return this.repository.updateById('message_threads', threadId, {
-      first_response_due_at: deadlines.first_response_due_at,
+    const patch = {
       next_response_due_at: deadlines.next_response_due_at,
       resolution_due_at: deadlines.resolution_due_at,
-      sla_due_at: deadlines.first_response_due_at || deadlines.resolution_due_at || thread.sla_due_at || null,
       sla_policy_id: deadlines.sla_policy_id,
       sla_business_timezone: deadlines.sla_business_timezone,
-    });
+    };
+    if (preserveFirstResponse && thread.first_response_at) {
+      // Already responded: keep the historical first_response_due_at; drive the badge off next/resolution.
+      patch.sla_due_at = deadlines.next_response_due_at || deadlines.resolution_due_at || thread.sla_due_at || null;
+    } else {
+      patch.first_response_due_at = deadlines.first_response_due_at;
+      patch.sla_due_at = deadlines.first_response_due_at || deadlines.resolution_due_at || thread.sla_due_at || null;
+    }
+    return this.repository.updateById('message_threads', threadId, patch);
+  }
+
+  // A customer inbound arrived (#4). Cold thread → set the full deadline set; already-responded thread
+  // → restart the next-response clock (the customer is waiting again); still-awaiting-first-response
+  // thread → keep the first-response clock ticking, refresh next-response. Never touches first_response_at.
+  async applySlaOnInbound(threadId, { channel = null, priority = null, inboundIso = null } = {}) {
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    if (!thread) return null;
+    if (thread.sla_paused_at) return thread; // clock frozen — don't move deadlines while paused
+    const policy = await this.selectPolicyForThread(thread, { channel, priority });
+    if (!policy) return thread;
+    const deadlines = computeSlaDeadlines(policy, inboundIso || nowIso());
+    const patch = { sla_policy_id: deadlines.sla_policy_id, sla_business_timezone: deadlines.sla_business_timezone };
+    if (thread.first_response_at) {
+      patch.next_response_due_at = deadlines.next_response_due_at;
+      patch.sla_due_at = deadlines.next_response_due_at || thread.sla_due_at || null;
+    } else if (!thread.first_response_due_at) {
+      patch.first_response_due_at = deadlines.first_response_due_at;
+      patch.next_response_due_at = deadlines.next_response_due_at;
+      patch.resolution_due_at = deadlines.resolution_due_at;
+      patch.sla_due_at = deadlines.first_response_due_at || deadlines.resolution_due_at || thread.sla_due_at || null;
+    } else {
+      patch.next_response_due_at = deadlines.next_response_due_at;
+    }
+    return this.repository.updateById('message_threads', threadId, patch);
+  }
+
+  // First HUMAN outbound stamps first_response_at (once) and clears the next-response clock — the
+  // customer is no longer waiting until they reply again (#4). AI auto-replies do NOT count.
+  async stampFirstResponse(threadId, { outboundIso = null } = {}) {
+    const thread = await this.repository.findOne('message_threads', { id: threadId });
+    if (!thread) return null;
+    const patch = { next_response_due_at: null };
+    if (!thread.first_response_at) patch.first_response_at = outboundIso || nowIso();
+    return this.repository.updateById('message_threads', threadId, patch);
   }
 
   async listThreadsForUser(userId) {
