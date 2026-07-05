@@ -1,12 +1,33 @@
 import { describe, expect, it } from 'vitest'
-import { priorityVariant, threadRef, threadSla, threadTitle } from './threadPresentation'
+import { priorityVariant, threadPreview, threadRef, threadSla, threadTitle, threadUnreadCount } from './threadPresentation'
 
 describe('threadTitle', () => {
-  it('title-cases the thread type and falls back to Conversation', () => {
+  it('is identity-first: name, then masked address/handle, then type, then Conversation', () => {
+    expect(threadTitle({ identity_display_name: 'Tariro M.', thread_type: 'support' })).toBe('Tariro M.')
+    expect(threadTitle({ identity_address: '+263••••1234', thread_type: 'support' })).toBe('+263••••1234')
+    expect(threadTitle({ identity_external_id: '@tariro', thread_type: 'support' })).toBe('@tariro')
+    // No identity → friendly type (never a raw UUID/thread-key).
     expect(threadTitle({ thread_type: 'marketplace_inquiry' })).toBe('Marketplace Inquiry')
     expect(threadTitle({ thread_type: 'support' })).toBe('Support')
     expect(threadTitle(null)).toBe('Conversation')
     expect(threadTitle({})).toBe('Conversation')
+  })
+})
+
+describe('threadPreview', () => {
+  it('returns a whitespace-collapsed, truncated latest-message preview', () => {
+    expect(threadPreview({ latest_message_text: '  Is the  Prado\nstill available? ' })).toBe('Is the Prado still available?')
+    expect(threadPreview({})).toBe('')
+    expect(threadPreview({ latest_message_text: 'x'.repeat(200) }, 10)).toBe(`${'x'.repeat(9)}…`)
+  })
+})
+
+describe('threadUnreadCount', () => {
+  it('returns a positive integer or 0', () => {
+    expect(threadUnreadCount({ unread_count: 3 })).toBe(3)
+    expect(threadUnreadCount({ unread_count: 0 })).toBe(0)
+    expect(threadUnreadCount({})).toBe(0)
+    expect(threadUnreadCount({ unread_count: -2 })).toBe(0)
   })
 })
 

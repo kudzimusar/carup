@@ -31,6 +31,7 @@ import {
   assertRealTelegramAdapter,
 } from '../services/communication/adapters/providerAdapters.js';
 import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SORT_KEYS } from '../services/communication/communicationThreadQuery.js';
+import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter } = await import('../routes/adminCommunicationRoutes.js');
 
@@ -46,6 +47,7 @@ const eventWorkerFile = readFileSync(new URL('../services/eventBus/eventWorker.j
 const cloudflareWorkerFile = readFileSync(new URL('../../cloudflare/carup-communications-edge/src/index.js', import.meta.url), 'utf8');
 const backendVercelConfig = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
 const supabaseCronMigrationSql = readFileSync(new URL('../../database/migrations/20260626120000_communication_supabase_cron.sql', import.meta.url), 'utf8');
+const inboxProjectionMigrationSql = readFileSync(new URL('../../database/migrations/20260705150000_communication_inbox_projection.sql', import.meta.url), 'utf8');
 
 function createHarness({ adapter = null, referralChannelGateway = null, repository = null } = {}) {
   repository ||= new MemoryCommunicationRepository();
@@ -1968,4 +1970,159 @@ test('thread query counts are computed across the whole set independent of the p
   assert.equal(c.by_workflow.resolved, 1);
   // computeCounts is exported and consistent when called directly.
   assert.equal(computeCounts(QUERY_ROWS, { now: QUERY_NOW }).total, 5);
+});
+
+// ── Identity-first projection + DB-side search (items 2/3) ────────────────────────────────────────
+
+test('inbox projection derives requester identity, latest message, unread count, and delivery risk', () => {
+  const thread = threadRow({ id: 't1', tenant_id: 'tenantA', primary_channel: 'whatsapp' });
+  const related = {
+    participants: [
+      // Earliest-joined requester wins; its last_read_at drives unread.
+      { id: 'p1', thread_id: 't1', role: 'requester', external_identity_id: 'id1', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: '2026-07-05T09:30:00.000Z' },
+      { id: 'p2', thread_id: 't1', role: 'agent', external_identity_id: null, joined_at: '2026-07-02T00:00:00.000Z' },
+    ],
+    identities: [
+      { id: 'id1', display_name: 'Tariro M.', normalized_address: '+263••••1234', external_id: '263771234', verified: true, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api' },
+    ],
+    messages: [
+      { id: 'm1', thread_id: 't1', direction: 'inbound', content_text: 'Is the Prado still available?', created_at: '2026-07-05T09:00:00.000Z', status: 'received' },
+      { id: 'm2', thread_id: 't1', direction: 'inbound', content_text: 'Hello? any update?', created_at: '2026-07-05T10:00:00.000Z', status: 'received', provider_message_id: 'wamid.NEW' },
+      { id: 'm3', thread_id: 't1', direction: 'outbound', content_text: 'Reply attempt', created_at: '2026-07-05T09:15:00.000Z', status: 'failed' },
+    ],
+  };
+  const row = projectInboxThread(thread, related);
+  assert.equal(row.identity_display_name, 'Tariro M.');
+  assert.equal(row.identity_address, '+263••••1234');
+  assert.equal(row.identity_verified, true);
+  assert.equal(row.identity_channel, 'whatsapp');
+  assert.equal(row.latest_message_text, 'Hello? any update?');       // newest by created_at
+  assert.equal(row.latest_message_direction, 'inbound');
+  assert.equal(row.latest_provider_message_id, 'wamid.NEW');
+  assert.equal(row.unread_count, 1);                                  // only m2 is after last_read_at
+  assert.equal(row.failed_outbound_count, 1);                         // m3 failed
+});
+
+test('inbox projection: no requester identity or no messages degrades gracefully (no throw, null fields)', () => {
+  const [row] = projectInboxThreads([threadRow({ id: 'bare', tenant_id: 'tenantA' })], { participants: [], identities: [], messages: [] });
+  assert.equal(row.identity_display_name, null);
+  assert.equal(row.latest_message_text, null);
+  assert.equal(row.unread_count, 0);
+  assert.equal(row.failed_outbound_count, 0);
+});
+
+function seedInboxRepo() {
+  return new MemoryCommunicationRepository({
+    message_threads: [
+      threadRow({ id: 'TA1', tenant_id: 'tenantA', status: 'awaiting_human', primary_channel: 'whatsapp', last_message_at: '2026-07-05T10:00:00.000Z' }),
+      threadRow({ id: 'TA2', tenant_id: 'tenantA', status: 'awaiting_ai', primary_channel: 'telegram', assigned_admin_id: 'admin-me', last_message_at: '2026-07-05T09:00:00.000Z' }),
+      threadRow({ id: 'TB1', tenant_id: 'tenantB', status: 'awaiting_human', primary_channel: 'sms', last_message_at: '2026-07-05T11:00:00.000Z' }),
+    ],
+    message_participants: [
+      { id: 'pa1', thread_id: 'TA1', role: 'requester', external_identity_id: 'idA1', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: null },
+      { id: 'pb1', thread_id: 'TB1', role: 'requester', external_identity_id: 'idB1', joined_at: '2026-07-01T00:00:00.000Z', last_read_at: null },
+    ],
+    channel_identities: [
+      { id: 'idA1', display_name: 'Tariro M.', normalized_address: '+263••••1234', external_id: '263771234', channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api' },
+      { id: 'idB1', display_name: 'Other Tenant User', normalized_address: '+111••••9999', external_id: '111', channel: 'sms', provider: 'twilio' },
+    ],
+    messages: [
+      { id: 'mA1', thread_id: 'TA1', direction: 'inbound', content_text: 'Prado enquiry', created_at: '2026-07-05T10:00:00.000Z', status: 'received', provider_message_id: 'wamid.AAA' },
+      { id: 'mB1', thread_id: 'TB1', direction: 'inbound', content_text: 'Different tenant message', created_at: '2026-07-05T11:00:00.000Z', status: 'received' },
+    ],
+  });
+}
+
+test('repository.searchThreads returns identity-first projected rows with server counts', async () => {
+  const repo = seedInboxRepo();
+  const platformCtx = { userId: 'admin-me', isPlatform: true, now: QUERY_NOW };
+  const result = await repo.searchThreads({ include_terminal: true, sort: 'newest', limit: 50 }, platformCtx);
+  const ta1 = result.threads.find((t) => t.id === 'TA1');
+  assert.ok(ta1, 'TA1 present for platform admin');
+  assert.equal(ta1.identity_display_name, 'Tariro M.');       // projected, not a UUID/thread-key
+  assert.equal(ta1.latest_message_text, 'Prado enquiry');
+  assert.equal(ta1.unread_count, 1);
+  assert.equal(result.counts.all_active, 3);
+  assert.equal(result.counts.awaiting_human, 2);
+  assert.equal(result.counts.awaiting_ai, 1);
+  assert.equal(result.counts.mine, 1);                        // TA2 assigned_admin_id === admin-me
+});
+
+test('repository.searchThreads enforces tenant scoping (a tenant caller never sees another tenant)', async () => {
+  const repo = seedInboxRepo();
+  const tenantACtx = { userId: 'u', isPlatform: false, tenantId: 'tenantA', now: QUERY_NOW };
+  const scoped = await repo.searchThreads({ include_terminal: true, limit: 50 }, tenantACtx);
+  const idsSeen = scoped.threads.map((t) => t.id).sort();
+  assert.deepEqual(idsSeen, ['TA1', 'TA2'], 'only tenantA threads visible');
+  assert.equal(scoped.threads.some((t) => t.id === 'TB1'), false, 'tenantB thread is never leaked');
+  const counts = await repo.threadCounts({}, tenantACtx);
+  assert.equal(counts.all_active, 2, 'counts are tenant-scoped too');
+
+  // A caller with neither platform role nor a tenant sees nothing (fail-closed).
+  const orphan = await repo.searchThreads({ include_terminal: true }, { userId: 'x', isPlatform: false, tenantId: null, now: QUERY_NOW });
+  assert.equal(orphan.threads.length, 0);
+});
+
+test('repository.searchThreads searches projected identity + latest-message + provider fields', async () => {
+  const repo = seedInboxRepo();
+  const ctx = { userId: 'admin-me', isPlatform: true, now: QUERY_NOW };
+  assert.deepEqual((await repo.searchThreads({ search: 'Tariro', include_terminal: true }, ctx)).threads.map((t) => t.id), ['TA1']);
+  assert.deepEqual((await repo.searchThreads({ search: 'Prado enquiry', include_terminal: true }, ctx)).threads.map((t) => t.id), ['TA1']);
+  assert.deepEqual((await repo.searchThreads({ search: 'wamid.AAA', include_terminal: true }, ctx)).threads.map((t) => t.id), ['TA1']);
+  assert.deepEqual((await repo.searchThreads({ search: '263••••1234', include_terminal: true }, ctx)).threads.map((t) => t.id), ['TA1']);
+});
+
+test('repository.searchThreads paginates a projected 1000+ set with stable keyset cursors', async () => {
+  const N = 1050;
+  const base = Date.parse('2026-07-05T00:00:00.000Z');
+  const seed = { message_threads: [], message_participants: [], channel_identities: [], messages: [] };
+  for (let i = 0; i < N; i += 1) {
+    const id = `S-${String(i).padStart(4, '0')}`;
+    seed.message_threads.push(threadRow({ id, tenant_id: 'tenantA', status: 'awaiting_human', last_message_at: new Date(base + i * 60000).toISOString() }));
+    seed.message_participants.push({ id: `p-${id}`, thread_id: id, role: 'requester', external_identity_id: `ci-${id}`, joined_at: '2026-07-01T00:00:00.000Z' });
+    seed.channel_identities.push({ id: `ci-${id}`, display_name: `Customer ${i}`, normalized_address: `+2637${i}`, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api' });
+  }
+  const repo = new MemoryCommunicationRepository(seed);
+  const ctx = { userId: 'admin', isPlatform: true, now: QUERY_NOW };
+  const seen = [];
+  let cursor;
+  let pages = 0;
+  for (;;) {
+    const page = await repo.searchThreads({ include_terminal: true, limit: 100, cursor }, ctx);
+    seen.push(...page.threads.map((t) => t.id));
+    cursor = page.page.next_cursor;
+    pages += 1;
+    if (!cursor || pages > 50) break;
+  }
+  assert.equal(seen.length, N, 'every thread returned exactly once');
+  assert.equal(new Set(seen).size, N, 'no duplicates across pages');
+  assert.ok(pages >= 11, 'spans many pages');
+  assert.equal(seen[0], 'S-1049', 'newest first');
+});
+
+test('inbox projection migration adds the view, search/count RPCs, indexes, and least-privilege grants', () => {
+  // View + identity/latest-message/unread projection columns.
+  assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE VIEW communication_inbox_threads/);
+  for (const col of ['identity_display_name', 'identity_address', 'latest_message_text', 'latest_message_direction', 'unread_count', 'failed_outbound_count']) {
+    assert.match(inboxProjectionMigrationSql, new RegExp(`AS ${col}\\b`), `view must project ${col}`);
+  }
+  // Unread derives from last_read_at; no new table needed.
+  assert.match(inboxProjectionMigrationSql, /last_read_at/);
+  // Server-side search + keyset RPC with tenant scoping and the queue filter params.
+  assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE FUNCTION search_communication_threads\(/);
+  for (const param of ['p_tenant_id', 'p_is_platform', 'p_search', 'p_status', 'p_channel', 'p_unassigned', 'p_failed_only', 'p_cursor_ts', 'p_cursor_id', 'p_limit']) {
+    assert.match(inboxProjectionMigrationSql, new RegExp(`${param}\\b`), `search RPC must accept ${param}`);
+  }
+  assert.match(inboxProjectionMigrationSql, /ORDER BY COALESCE\(v\.last_message_at, v\.created_at\) DESC, v\.id DESC/);
+  assert.match(inboxProjectionMigrationSql, /SECURITY DEFINER/);
+  // Aggregate counts RPC.
+  assert.match(inboxProjectionMigrationSql, /CREATE OR REPLACE FUNCTION communication_thread_counts\(/);
+  // Indexes for the query plan.
+  for (const idx of ['idx_message_threads_tenant_lastmsg', 'idx_messages_thread_created_desc', 'idx_message_participants_thread_requester']) {
+    assert.match(inboxProjectionMigrationSql, new RegExp(`CREATE INDEX IF NOT EXISTS ${idx}`), `must create ${idx}`);
+  }
+  // Least privilege: revoked from anon/authenticated, granted only to service_role. Additive (no DROP TABLE).
+  assert.match(inboxProjectionMigrationSql, /GRANT EXECUTE ON FUNCTION search_communication_threads[\s\S]*TO service_role/);
+  assert.match(inboxProjectionMigrationSql, /REVOKE EXECUTE ON FUNCTION search_communication_threads[\s\S]*FROM anon/);
+  assert.equal(/DROP TABLE/i.test(inboxProjectionMigrationSql.split('-- +migrate Down')[0]), false, 'Up section must not drop tables');
 });

@@ -112,6 +112,7 @@ function referralQuery(filters?: object): string {
 
 type CommunicationThreadSummary = {
   id: string
+  tenant_id?: string | null
   thread_key?: string
   thread_type?: string
   status?: string
@@ -120,6 +121,7 @@ type CommunicationThreadSummary = {
   ai_mode?: string
   assigned_team?: string
   assigned_admin_id?: string | null
+  primary_user_id?: string | null
   marketplace_listing_id?: string
   escrow_id?: string
   financing_application_id?: string
@@ -129,6 +131,21 @@ type CommunicationThreadSummary = {
   last_message_at?: string | null
   updated_at?: string | null
   created_at?: string | null
+  // Identity-first projection (communication_inbox_threads view / RPC). Optional so legacy rows
+  // that predate the projection still type-check.
+  identity_display_name?: string | null
+  identity_address?: string | null
+  identity_external_id?: string | null
+  identity_verified?: boolean | null
+  identity_channel?: string | null
+  identity_provider?: string | null
+  latest_message_text?: string | null
+  latest_message_direction?: string | null
+  latest_message_at?: string | null
+  latest_message_status?: string | null
+  latest_provider_message_id?: string | null
+  unread_count?: number
+  failed_outbound_count?: number
 }
 
 type CommunicationMessageSummary = {
@@ -171,7 +188,12 @@ type CommunicationThreadCounts = {
   all_active: number
   unassigned: number
   mine: number
-  needs_human: number
+  needs_human?: number
+  awaiting_human?: number
+  awaiting_ai?: number
+  awaiting_user?: number
+  escalated?: number
+  resolved?: number
   sla_breach: number
   failed_risk: number
   by_workflow: Record<string, number>
@@ -181,9 +203,10 @@ type CommunicationThreadPage = {
   sort: string
   limit: number
   returned: number
-  matched: number
+  matched?: number
   has_more: boolean
   next_cursor: string | null
+  mode?: string
 }
 
 export function useCarUpApi() {

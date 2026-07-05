@@ -21,10 +21,38 @@ export interface ThreadLike {
   escrow_id?: string | null
   financing_application_id?: string | null
   sla_due_at?: string | null
+  // Identity-first projection (communication_inbox_threads).
+  identity_display_name?: string | null
+  identity_address?: string | null
+  identity_external_id?: string | null
+  identity_verified?: boolean | null
+  latest_message_text?: string | null
+  latest_message_direction?: string | null
+  unread_count?: number | null
 }
 
+// Identity-first thread title: the person's name, else their masked address/handle, else a business
+// reference, else a friendly type — NEVER a raw UUID or opaque thread-key (docs §3).
 export function threadTitle(thread?: ThreadLike | null): string {
-  return titleCase(thread?.thread_type) || 'Conversation'
+  if (!thread) return 'Conversation'
+  const name = String(thread.identity_display_name || '').trim()
+  if (name) return name
+  const address = String(thread.identity_address || thread.identity_external_id || '').trim()
+  if (address) return address
+  return titleCase(thread.thread_type) || 'Conversation'
+}
+
+// Short latest-message preview for the inbox row (single line, whitespace-collapsed).
+export function threadPreview(thread?: ThreadLike | null, max = 120): string {
+  const text = String(thread?.latest_message_text || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+// Unread inbound message count (from message_participants.last_read_at, via the projection).
+export function threadUnreadCount(thread?: ThreadLike | null): number {
+  const n = Number(thread?.unread_count ?? 0)
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 export function threadRef(thread?: ThreadLike | null): string {

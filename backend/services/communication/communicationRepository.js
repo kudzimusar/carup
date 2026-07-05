@@ -1,6 +1,77 @@
 import { randomUUID } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
+import {
+  buildThreadQuery, computeCounts, decodeCursor, encodeCursor, clampLimit, THREAD_SORT_KEYS,
+} from './communicationThreadQuery.js';
+import { projectInboxThreads } from './communicationInboxProjection.js';
+
+// A Postgres "function does not exist" / PostgREST "no such function" error — used to gracefully fall
+// back to the bounded-window query engine when the projection migration has not been applied yet.
+function isMissingFunctionError(error) {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || '').toLowerCase();
+  return code === '42883' || code === 'PGRST202'
+    || msg.includes('could not find the function') || msg.includes('does not exist');
+}
+
+// Normalise a queue/filter param set into the arguments both query paths share.
+function normalizeSearchParams(params = {}) {
+  const splitCsv = (v) => String(v).split(',').map((s) => s.trim()).filter(Boolean);
+  const includeTerminal = params.include_terminal === undefined
+    ? true
+    : !(params.include_terminal === false || params.include_terminal === 'false');
+  return {
+    search: params.search ? String(params.search) : null,
+    statusList: params.status ? splitCsv(params.status) : null,
+    channelList: params.channel ? splitCsv(params.channel) : null,
+    assigned: params.assigned ? String(params.assigned) : null,
+    team: params.team ? String(params.team) : null,
+    sla: params.sla ? String(params.sla) : null,
+    includeTerminal,
+    sort: THREAD_SORT_KEYS.includes(params.sort) ? params.sort : 'newest',
+    limit: clampLimit(params.limit),
+    cursor: params.cursor || null,
+  };
+}
+
+// Map the `assigned` queue param to a concrete assignee id for the RPC (`mine` → the caller);
+// the pseudo-values unassigned/assigned/failed are handled by dedicated boolean params/filters.
+function resolveAssignee(assigned, ctx) {
+  if (!assigned) return null;
+  if (assigned === 'mine') return ctx.userId ?? null;
+  if (['unassigned', 'assigned', 'failed'].includes(assigned)) return null;
+  return assigned;
+}
+
+// Tenant/platform scoping: platform admins see every tenant; a tenant-scoped caller only ever sees
+// its own tenant, and a caller with no resolvable tenant sees nothing (fail-closed). Item 14.
+function scopeThreads(threads, ctx) {
+  if (ctx.isPlatform) return threads;
+  if (!ctx.tenantId) return [];
+  return threads.filter((t) => String(t.tenant_id || '') === String(ctx.tenantId));
+}
+
+// Run the pure query engine over an already-projected, already-scoped row set (the memory path and
+// the real-repo window fallback share this).
+function runQuery(rows, params, ctx, p) {
+  const result = buildThreadQuery(rows, {
+    search: p.search,
+    status: params.status,
+    channel: params.channel,
+    priority: params.priority,
+    assigned: p.assigned,
+    sla: p.sla,
+    unassigned: p.assigned === 'unassigned',
+    failed_only: Boolean(params.failed_only) || p.assigned === 'failed',
+    include_terminal: p.includeTerminal,
+    sort: p.sort,
+    cursor: p.cursor,
+    limit: p.limit,
+  }, { userId: ctx.userId, now: ctx.now ?? Date.now() });
+  result.page.mode = result.page.mode || 'window';
+  return result;
+}
 
 function createServiceClientFromEnv() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -98,6 +169,92 @@ export class CommunicationRepository {
     });
     if (error) throw new Error(`notification_queue claim failed: ${error.message}`);
     return data || [];
+  }
+
+  // Identity-first inbox query. For the default (newest) ordering this executes fully DB-side via the
+  // search_communication_threads() RPC over the communication_inbox_threads projection view (keyset
+  // pagination, tenant scoping, server search/filter/count). Non-default sorts, or a DB where the
+  // projection migration is not yet applied, fall back to the bounded-window engine over a JS
+  // projection so behaviour degrades gracefully rather than breaking.
+  async searchThreads(params = {}, ctx = {}) {
+    const p = normalizeSearchParams(params);
+    if (p.sort === 'newest') {
+      try {
+        return await this.searchThreadsViaRpc(params, ctx, p);
+      } catch (error) {
+        if (!isMissingFunctionError(error)) throw error;
+        // Projection migration not applied yet — degrade to the window engine.
+      }
+    }
+    return this.searchThreadsViaWindow(params, ctx, p);
+  }
+
+  async searchThreadsViaRpc(params, ctx, p) {
+    const cursor = decodeCursor(p.cursor);
+    const { data, error } = await this.client.rpc('search_communication_threads', {
+      p_tenant_id: ctx.tenantId ?? null,
+      p_is_platform: Boolean(ctx.isPlatform),
+      p_search: p.search,
+      p_status: p.statusList,
+      p_channel: p.channelList,
+      p_assignee: resolveAssignee(p.assigned, ctx),
+      p_team: p.team,
+      p_sla: p.sla,
+      p_unassigned: p.assigned === 'unassigned',
+      p_failed_only: Boolean(params.failed_only) || p.assigned === 'failed',
+      p_include_terminal: p.includeTerminal,
+      p_cursor_ts: cursor?.[0] ?? null,
+      p_cursor_id: cursor?.[1] != null ? String(cursor[1]) : null,
+      p_limit: p.limit,
+    });
+    if (error) throw this.toDatabaseError(`thread search failed: ${error.message}`, error);
+    const rows = data || [];
+    const hasMore = rows.length >= p.limit;
+    const last = rows[rows.length - 1];
+    const nextCursor = hasMore && last
+      ? encodeCursor([last.last_message_at || last.created_at || '', String(last.id)])
+      : null;
+    const counts = await this.threadCounts(params, ctx);
+    return {
+      threads: rows,
+      page: { sort: 'newest', mode: 'db_keyset', limit: p.limit, returned: rows.length, has_more: hasMore, next_cursor: nextCursor },
+      counts,
+    };
+  }
+
+  async searchThreadsViaWindow(params, ctx, p) {
+    const projected = await this.projectThreadWindow();
+    return runQuery(scopeThreads(projected, ctx), params, ctx, p);
+  }
+
+  async projectThreadWindow() {
+    const windowSize = Math.min(Number(process.env.COMMUNICATION_THREAD_WINDOW || 1000), 2000);
+    const threadRows = await this.list('message_threads', {}, { order: { column: 'updated_at' }, limit: windowSize });
+    if (!threadRows.length) return [];
+    const ids = threadRows.map((t) => t.id);
+    const [participants, messages] = await Promise.all([
+      this.list('message_participants', { thread_id: ids }),
+      this.list('messages', { thread_id: ids }),
+    ]);
+    const identityIds = [...new Set(participants.map((row) => row.external_identity_id).filter(Boolean))];
+    const identities = identityIds.length ? await this.list('channel_identities', { id: identityIds }) : [];
+    return projectInboxThreads(threadRows, { participants, identities, messages });
+  }
+
+  async threadCounts(params = {}, ctx = {}) {
+    try {
+      const { data, error } = await this.client.rpc('communication_thread_counts', {
+        p_tenant_id: ctx.tenantId ?? null,
+        p_is_platform: Boolean(ctx.isPlatform),
+        p_user_id: ctx.userId ?? null,
+      });
+      if (error) throw this.toDatabaseError(`thread counts failed: ${error.message}`, error);
+      return data || {};
+    } catch (error) {
+      if (!isMissingFunctionError(error)) throw error;
+      const projected = await this.projectThreadWindow();
+      return computeCounts(scopeThreads(projected, ctx), { userId: ctx.userId, now: ctx.now ?? Date.now() });
+    }
   }
 }
 
@@ -291,5 +448,26 @@ export class MemoryCommunicationRepository {
       }));
     }
     return claimed;
+  }
+
+  // JS mirror of the projection view + RPC (same code path the real repo falls back to), so tests
+  // exercise the identity projection, tenant scoping, keyset pagination, and counts end to end.
+  projectAll() {
+    return projectInboxThreads(this.rows('message_threads'), {
+      participants: this.rows('message_participants'),
+      identities: this.rows('channel_identities'),
+      messages: this.rows('messages'),
+    });
+  }
+
+  async searchThreads(params = {}, ctx = {}) {
+    const p = normalizeSearchParams(params);
+    const scoped = scopeThreads(this.projectAll(), ctx);
+    return runQuery(scoped, params, ctx, p);
+  }
+
+  async threadCounts(params = {}, ctx = {}) {
+    const scoped = scopeThreads(this.projectAll(), ctx);
+    return computeCounts(scoped, { userId: ctx.userId, now: ctx.now ?? Date.now() });
   }
 }
