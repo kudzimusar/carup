@@ -5,18 +5,28 @@
 - Branch: `fix/issue-110-agent8-telegram-auto-delivery`
 - PR: #111
 - Base: `feature/agent-8-omnichannel-communication-engine`
-- Evidence head: `004ff684b3ff9365f956156f129e1c750ba9141d`
+- Ready-preview runtime head: `004ff684b3ff9365f956156f129e1c750ba9141d`
+- Current verified branch head: `16a8e7fa5fae6a28f3f77c1cdb9876d14635f3ea`
 - Staging Supabase project: `eoyenigwevnxwwhyhaer`
 - Production resources changed: none
 
+The commits after the Ready-preview runtime head contain documentation, tests and CI workflow changes; they do not change the deployed web or backend application runtime.
+
 ## CI
 
-Both required workflows passed on the current branch:
+Both required workflows passed on the current verified branch head:
 
 - Communication Command Center CI: success
 - Referral Engine CI: success
 
-The required PostgreSQL integration job ran rather than skipping. It verified the Command Center migrations, database RPCs, tenant scoping, registered-user search, per-agent unread, SLA schema, audit ID compatibility, RLS isolation and rollback.
+The communication workflow now runs:
+
+- the communication engine unit suite;
+- a source test for the privilege-hardening migration;
+- the required PostgreSQL Command Center integration suite;
+- a separate real-PostgreSQL verification of the direct table privileges.
+
+The PostgreSQL jobs run rather than skip. Together they verify the Command Center migrations, database RPCs, tenant scoping, registered-user search, per-agent unread, SLA schema, audit ID compatibility, RLS isolation, rollback and direct table permissions.
 
 ## Staging database activation
 
@@ -55,7 +65,7 @@ Current staging snapshot after cleanup:
 
 ## Staging deployments
 
-Vercel reported Ready previews for the PR branch for web and backend staging. The authoritative URLs are recorded by the Vercel bot in PR #111.
+Vercel reported Ready previews for runtime head `004ff684b3ff9365f956156f129e1c750ba9141d` for web and backend staging. The authoritative URLs are recorded by the Vercel bot in PR #111.
 
 This execution environment could not resolve the preview hostnames, so browser-route and visual verification were not claimed from this session.
 
