@@ -521,7 +521,22 @@ export default function AdminCommunications() {
                   No threads match this filter.
                 </div>
               ) : (
-                <ScrollArea className="h-[560px]">
+                <ScrollArea
+                  className="h-[560px] focus:outline-none"
+                  tabIndex={0}
+                  role="listbox"
+                  aria-label="Thread inbox — use up and down arrows to navigate"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+                    e.preventDefault()
+                    if (visibleThreads.length === 0) return
+                    const idx = visibleThreads.findIndex((t) => t.id === selected?.id)
+                    const nextIdx = e.key === 'ArrowDown'
+                      ? Math.min(visibleThreads.length - 1, idx < 0 ? 0 : idx + 1)
+                      : Math.max(0, idx < 0 ? 0 : idx - 1)
+                    void openThread(visibleThreads[nextIdx])
+                  }}
+                >
                   {visibleThreads.map((thread) => {
                     const sla = threadSla(thread)
                     return (
