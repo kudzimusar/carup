@@ -29,6 +29,8 @@ import {
   ExpoPushAdapter,
   createDefaultAdapterRegistry,
   assertRealTelegramAdapter,
+  sanitizeProviderError,
+  trimmedEnvValue,
 } from '../services/communication/adapters/providerAdapters.js';
 import { buildThreadQuery, computeCounts, decodeCursor, encodeCursor, THREAD_SORT_KEYS } from '../services/communication/communicationThreadQuery.js';
 import { projectInboxThread, projectInboxThreads } from '../services/communication/communicationInboxProjection.js';
@@ -38,7 +40,7 @@ import { addBusinessMinutes, selectSlaPolicy, computeSlaDeadlines } from '../ser
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
-const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext, resolveListScope } = await import('../routes/adminCommunicationRoutes.js');
+const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext, resolveListScope, smokeTestBody } = await import('../routes/adminCommunicationRoutes.js');
 const supabaseLiveSchemaSql = readFileSync(new URL('../../database/migrations/supabase_schema.sql', import.meta.url), 'utf8');
 
 const migrationSql = readFileSync(new URL('../../database/migrations/20260623143000_omnichannel_communication_engine.sql', import.meta.url), 'utf8');
@@ -463,6 +465,109 @@ test('real Meta, Telegram, and Expo adapters validate recipient/config and map p
   })).providerMessageId, 'expo-ticket-1');
 
   assert.equal((await new MetaWhatsAppAdapter({ env: {}, fetchImpl: metaFetch }).send({})).errorCode, 'provider_not_configured');
+});
+
+// Sanitized-provider-error observability (WhatsApp diagnosis): the adapter must NOT collapse a Meta
+// 401/403 into a bare 'invalid_credentials' — the real code/subcode/type/message/trace must survive.
+const META_401 = { error: { message: 'Error validating access token: Session has expired.', type: 'OAuthException', code: 190, error_subcode: 463, fbtrace_id: 'AtraceZZZ' } };
+const META_403 = { error: { message: '(#10) Application does not have permission for this action', type: 'OAuthException', code: 10, error_subcode: 2018001, fbtrace_id: 'Btrace111' } };
+
+test('sanitizeProviderError extracts Meta code/subcode/type/message/trace without secrets', () => {
+  const s = sanitizeProviderError(401, META_401);
+  assert.equal(s.provider_http_status, 401);
+  assert.equal(s.provider_error_code, 190);
+  assert.equal(s.provider_error_subcode, 463);
+  assert.equal(s.provider_error_type, 'OAuthException');
+  assert.match(s.provider_error_message, /Session has expired/);
+  assert.equal(s.provider_trace_id, 'AtraceZZZ');
+});
+
+test('Meta 401 preserves sanitized provider details through the adapter (not just invalid_credentials)', async () => {
+  const res = await new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'tok', CARUP_META_PHONE_NUMBER_ID: 'pid' },
+    fetchImpl: jsonFetchRecorder({ status: 401, body: META_401 }),
+  }).send({ recipient: { phoneNumber: '263771234567' }, content: { body: 'x' } });
+  assert.equal(res.accepted, false);
+  assert.equal(res.errorCode, 'invalid_credentials');       // retry-classification retained
+  assert.equal(res.provider_http_status, 401);              // …but the REAL detail is preserved
+  assert.equal(res.provider_error_code, 190);
+  assert.equal(res.provider_error_subcode, 463);
+  assert.equal(res.provider_error_type, 'OAuthException');
+  assert.match(res.errorMessage, /Session has expired/);    // real Meta message, not the generic label
+  assert.equal(res.provider_trace_id, 'AtraceZZZ');
+});
+
+test('Meta 403 preserves sanitized provider details through the adapter', async () => {
+  const res = await new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'tok', CARUP_META_PHONE_NUMBER_ID: 'pid' },
+    fetchImpl: jsonFetchRecorder({ status: 403, body: META_403 }),
+  }).send({ recipient: { phoneNumber: '263771234567' }, content: { body: 'x' } });
+  assert.equal(res.provider_http_status, 403);
+  assert.equal(res.provider_error_code, 10);
+  assert.equal(res.provider_error_subcode, 2018001);
+  assert.equal(res.provider_trace_id, 'Btrace111');
+});
+
+test('smoke-test default body is the diagnostic string, never the UI confirmation-label text', () => {
+  const CONFIRM_LABEL = 'I confirm sending a real message to this recipient.';
+  const def = smokeTestBody('whatsapp', 'corr123', undefined);
+  assert.equal(def, 'CarUp provider smoke test (whatsapp) — corr123');
+  assert.notEqual(def, CONFIRM_LABEL);
+  assert.equal(def.includes('I confirm'), false);
+  // A blank/whitespace message still falls back to the diagnostic default (not the label).
+  assert.equal(smokeTestBody('whatsapp', 'c', '   '), 'CarUp provider smoke test (whatsapp) — c');
+  // An explicit operator message is honoured.
+  assert.equal(smokeTestBody('whatsapp', 'c', 'hello'), 'hello');
+});
+
+test('sanitized provider error never contains tokens, auth headers, or PII keys', () => {
+  const s = sanitizeProviderError(401, META_401);
+  const keys = Object.keys(s);
+  for (const forbidden of ['authorization', 'access_token', 'token', 'bearer', 'phone_number', 'recipient']) {
+    assert.ok(!keys.some((k) => k.toLowerCase().includes(forbidden)), `sanitized error must not expose ${forbidden}`);
+  }
+  const serialized = JSON.stringify(s).toLowerCase();
+  assert.equal(serialized.includes('bearer'), false);
+  assert.equal(serialized.includes('authorization'), false);
+});
+
+test('Meta adapter trims whitespace from the access token and phone-number ID before the request', async () => {
+  const metaFetch = jsonFetchRecorder({ status: 200, body: { messages: [{ id: 'wamid.trim' }] } });
+  await new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: '  tok-with-space\n', CARUP_META_PHONE_NUMBER_ID: '\t 100200300 ' },
+    fetchImpl: metaFetch,
+  }).send({ recipient: { phoneNumber: '263771234567' }, content: { body: 'x' } });
+  // The URL path uses the TRIMMED phone-number id (no whitespace, no %20/%09/%0A encoding of it).
+  assert.equal(metaFetch.calls[0].url, 'https://graph.facebook.com/v20.0/100200300/messages');
+  // The Authorization header uses the TRIMMED token exactly.
+  assert.equal(metaFetch.calls[0].options.headers.authorization, 'Bearer tok-with-space');
+  assert.equal(trimmedEnvValue({ K: '  v \n' }, 'K'), 'v');
+  assert.equal(trimmedEnvValue({ K: '   ' }, 'K'), null);
+});
+
+test('delivery worker persists sanitized provider failure detail in response_metadata (no secrets)', async () => {
+  const adapter = new MetaWhatsAppAdapter({
+    env: { CARUP_META_ACCESS_TOKEN: 'zzsecrettokenzz', CARUP_META_PHONE_NUMBER_ID: 'pid' },
+    fetchImpl: jsonFetchRecorder({ status: 401, body: META_401 }),
+  });
+  const { repository, notificationService, deliveryWorker } = createHarness({ adapter });
+  const { notification } = await notificationService.queueNotification({
+    recipientUserId: 'user-wa', notificationType: 'provider_smoke_test', channel: 'whatsapp',
+    templateKey: 'provider_smoke_test_v1', variables: {}, priority: 'high',
+    payload: { phone_number: '263771234567' }, dedupeParts: ['wa-fail', 'x'],
+  });
+  await deliveryWorker.deliverNotification(notification, { alreadyClaimed: false });
+  const attempt = (await repository.list('message_delivery_attempts', { notification_id: String(notification.id) }))[0];
+  assert.equal(attempt.status, 'failed');
+  assert.equal(attempt.response_metadata.provider_http_status, 401);
+  assert.equal(attempt.response_metadata.provider_error_code, 190);
+  assert.equal(attempt.response_metadata.provider_error_subcode, 463);
+  assert.equal(attempt.response_metadata.provider_trace_id, 'AtraceZZZ');
+  // Never persist the token value / authorization header / raw payload.
+  const meta = JSON.stringify(attempt.response_metadata).toLowerCase();
+  assert.equal(meta.includes('bearer'), false);
+  assert.equal(meta.includes('zzsecrettokenzz'), false);
+  assert.equal(meta.includes('authorization'), false);
 });
 
 test('real Facebook and Instagram adapters send Meta messaging requests with scoped recipient IDs', async () => {

@@ -97,7 +97,17 @@ export class CommunicationDeliveryWorker {
       provider_request_id: result.providerRequestId || null,
       provider_message_id: result.providerMessageId || null,
       request_metadata: { idempotency_key: notification.dedupe_key },
-      response_metadata: { provider_status: result.providerStatus || null },
+      // Preserve sanitized provider failure details (Meta http status/code/subcode/type/message/trace)
+      // for diagnosis. NEVER stores tokens, auth headers, or full provider payloads/PII.
+      response_metadata: {
+        provider_status: result.providerStatus || null,
+        ...(result.provider_http_status != null ? { provider_http_status: result.provider_http_status } : {}),
+        ...(result.provider_error_code != null ? { provider_error_code: result.provider_error_code } : {}),
+        ...(result.provider_error_subcode != null ? { provider_error_subcode: result.provider_error_subcode } : {}),
+        ...(result.provider_error_type != null ? { provider_error_type: result.provider_error_type } : {}),
+        ...(result.provider_error_message != null ? { provider_error_message: result.provider_error_message } : {}),
+        ...(result.provider_trace_id != null ? { provider_trace_id: result.provider_trace_id } : {}),
+      },
       status: result.accepted ? 'sent' : 'failed',
       error_code: result.errorCode || null,
       error_message: result.errorMessage || null,

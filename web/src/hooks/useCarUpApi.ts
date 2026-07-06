@@ -1330,11 +1330,27 @@ export function useCarUpApi() {
       attempt_number: number | null
       error_code: string | null
       error_message: string | null
+      provider_http_status?: number | null
+      provider_error_code?: number | string | null
+      provider_error_subcode?: number | string | null
+      provider_error_type?: string | null
+      provider_error_message?: string | null
+      provider_trace_id?: string | null
     }
     details?: unknown
     inspect?: Record<string, string>
   }> => {
-    return request('/admin/communications/test/provider-smoke', { method: 'POST', body: JSON.stringify(payload) })
+    try {
+      return await request('/admin/communications/test/provider-smoke', { method: 'POST', body: JSON.stringify(payload) })
+    } catch (err) {
+      // A provider rejection returns HTTP 502 WITH a JSON body carrying the sanitized delivery detail.
+      // Surface that body (not a bare "HTTP 502") so the panel shows the real Meta error.
+      const data = (err as { data?: unknown })?.data
+      if (data && typeof data === 'object' && 'ok' in (data as Record<string, unknown>)) {
+        return data as Awaited<ReturnType<typeof sendCommunicationProviderSmokeTest>>
+      }
+      throw err
+    }
   }, [request])
 
   const fetchAdminUsers = useCallback(async (): Promise<User[]> => {
