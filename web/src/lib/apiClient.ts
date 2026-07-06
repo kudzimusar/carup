@@ -233,8 +233,12 @@ export async function apiRequest<T = any>({
       requestId?: string
       correlationId?: string
       code?: string
+      data?: unknown
     }
     failure.status = response.status
+    // Preserve the parsed JSON error body so callers can surface structured server detail (e.g. the
+    // provider-smoke endpoint's sanitized Meta failure) instead of only "HTTP error! status: 502".
+    failure.data = errorData
     if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
     if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
     if (typeof metadata.code === 'string') failure.code = metadata.code

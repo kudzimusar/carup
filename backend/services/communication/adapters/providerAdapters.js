@@ -8,6 +8,16 @@ function envValue(env, key) {
   return value === undefined || value === null || value === '' ? null : String(value);
 }
 
+// Read an env credential and TRIM surrounding whitespace/newlines. A stray trailing newline copied
+// into a Vercel env value silently corrupts a Bearer token or an id, so credentials must be trimmed
+// before use (returns null when empty after trimming).
+export function trimmedEnvValue(env, key) {
+  const value = envValue(env, key);
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
 function firstPresent(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== '') || null;
 }
@@ -110,13 +120,35 @@ function hasCloudflareWorkerConfig(env = {}) {
   return Boolean(envValue(env, 'CLOUDFLARE_EMAIL_WORKER_URL') && envValue(env, 'CLOUDFLARE_EMAIL_WORKER_SECRET'));
 }
 
+// Extract ONLY the non-sensitive provider failure fields from an upstream error body (Meta Graph
+// shape: { error: { message, type, code, error_subcode, fbtrace_id } }). Never returns tokens, auth
+// headers, or the full request payload — just the sanitized diagnostic fields. Values are length-capped.
+export function sanitizeProviderError(status, body) {
+  const err = body && typeof body === 'object' ? body.error || null : null;
+  const cap = (v) => (v == null ? null : String(v).slice(0, 500));
+  return {
+    provider_http_status: Number.isFinite(status) ? status : null,
+    provider_error_code: err && err.code != null ? err.code : null,
+    provider_error_subcode: err && err.error_subcode != null ? err.error_subcode : null,
+    provider_error_type: err && err.type != null ? cap(err.type) : null,
+    provider_error_message: err && err.message != null ? cap(err.message)
+      : (typeof body === 'string' && body ? cap(body) : null),
+    provider_trace_id: err && err.fbtrace_id != null ? cap(err.fbtrace_id) : null,
+  };
+}
+
 function parseProviderError(status, body) {
-  const text = typeof body === 'string' ? body : body?.message || body?.error?.message || body?.errors?.[0]?.message || JSON.stringify(body || {});
-  if (status === 429) return { retryable: true, errorCode: 'rate_limited', errorMessage: text || 'Provider rate limit' };
-  if (status >= 500) return { retryable: true, errorCode: 'provider_5xx', errorMessage: text || 'Provider temporary failure' };
-  if ([401, 403].includes(status)) return { retryable: false, errorCode: 'invalid_credentials', errorMessage: 'Provider authentication failed' };
-  if ([400, 404, 422].includes(status)) return { retryable: false, errorCode: 'provider_rejected', errorMessage: text || 'Provider rejected request' };
-  return { retryable: false, errorCode: 'provider_error', errorMessage: text || `Provider returned HTTP ${status}` };
+  const sanitized = sanitizeProviderError(status, body);
+  // Prefer the provider's OWN message so the real rejection (e.g. Meta code 190/10/100) is never
+  // collapsed into a generic label. errorCode still drives retry classification.
+  const text = sanitized.provider_error_message
+    || (typeof body === 'string' ? body : body?.message || body?.errors?.[0]?.message || JSON.stringify(body || {}));
+  const of = (retryable, errorCode, fallback) => ({ retryable, errorCode, errorMessage: text || fallback, ...sanitized });
+  if (status === 429) return of(true, 'rate_limited', 'Provider rate limit');
+  if (status >= 500) return of(true, 'provider_5xx', 'Provider temporary failure');
+  if ([401, 403].includes(status)) return of(false, 'invalid_credentials', 'Provider authentication failed');
+  if ([400, 404, 422].includes(status)) return of(false, 'provider_rejected', 'Provider rejected request');
+  return of(false, 'provider_error', `Provider returned HTTP ${status}`);
 }
 
 export class HttpCommunicationAdapter {
@@ -367,9 +399,11 @@ export class MetaWhatsAppAdapter extends HttpCommunicationAdapter {
     if (!this.validateConfiguration().available) return this.missingConfigurationResult();
     const to = recipientField(input, 'phoneNumber', 'phone_number', 'phone', 'to', 'address');
     if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'WhatsApp recipient phone number is required.' };
-    const phoneNumberId = envValue(this.env, 'CARUP_META_PHONE_NUMBER_ID');
+    // Trim the token + phone-number ID so accidental leading/trailing whitespace cannot invalidate auth.
+    const phoneNumberId = trimmedEnvValue(this.env, 'CARUP_META_PHONE_NUMBER_ID');
+    const accessToken = trimmedEnvValue(this.env, 'CARUP_META_ACCESS_TOKEN');
     const response = await this.requestJson(`https://graph.facebook.com/v20.0/${encodeURIComponent(phoneNumberId)}/messages`, {
-      headers: jsonHeaders({ authorization: `Bearer ${envValue(this.env, 'CARUP_META_ACCESS_TOKEN')}` }),
+      headers: jsonHeaders({ authorization: `Bearer ${accessToken}` }),
       body: { messaging_product: 'whatsapp', to, type: 'text', text: { preview_url: false, body: textBody(input) } },
     });
     if (!response.ok) return this.providerFailure(response);

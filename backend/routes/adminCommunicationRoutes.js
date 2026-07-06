@@ -6,9 +6,18 @@ import { normalizeChannel } from '../services/communication/communicationUtils.j
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
+import { sanitizeProviderError, trimmedEnvValue, MetaWhatsAppAdapter } from '../services/communication/adapters/providerAdapters.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// The outbound body for a smoke test. Defaults to a self-identifying diagnostic string (NOT the UI's
+// confirmation-checkbox label, which must never be sent as conversation content). A caller-supplied,
+// non-empty message overrides it.
+export function smokeTestBody(channel, correlationToken, message) {
+  const supplied = String(message || '').trim();
+  return supplied || `CarUp provider smoke test (${channel}) — ${correlationToken}`;
+}
 
 // Channels a provider smoke test may target. Restricted to real external providers.
 const SMOKE_TEST_CHANNELS = new Set(['whatsapp', 'telegram', 'sms', 'email', 'facebook', 'instagram', 'push']);
@@ -207,7 +216,7 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
     metadata: { smoke_test: true, intent: 'provider_smoke_test', initiated_by: actor.id || actor.userId || 'worker' },
   });
 
-  const body = String(message || '').trim() || `CarUp provider smoke test (${normalizedChannel}) — ${token}`;
+  const body = smokeTestBody(normalizedChannel, token, message);
   const messageRow = await services.threadService.recordMessage(thread, {
     direction: 'outbound',
     channel: normalizedChannel,
@@ -286,6 +295,14 @@ export async function sendProviderSmokeTest({ services, channel = 'whatsapp', to
       attempt_number: latestAttempt?.attempt_number || null,
       error_code: latestAttempt?.error_code || finalNotification?.last_error_code || null,
       error_message: latestAttempt?.error_message || finalNotification?.last_error_message || null,
+      // Sanitized upstream-provider detail (from response_metadata) so the UI shows the REAL Meta
+      // rejection (code/subcode/type/message/trace) instead of only the generic error_code.
+      provider_http_status: latestAttempt?.response_metadata?.provider_http_status ?? null,
+      provider_error_code: latestAttempt?.response_metadata?.provider_error_code ?? null,
+      provider_error_subcode: latestAttempt?.response_metadata?.provider_error_subcode ?? null,
+      provider_error_type: latestAttempt?.response_metadata?.provider_error_type ?? null,
+      provider_error_message: latestAttempt?.response_metadata?.provider_error_message ?? null,
+      provider_trace_id: latestAttempt?.response_metadata?.provider_trace_id ?? null,
     },
     inspect: {
       messages: `SELECT * FROM messages WHERE id = '${messageRow.id}';`,
@@ -866,6 +883,73 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
         details: error.details || null,
       });
     }
+  }));
+
+  // Read-only Meta WhatsApp credential diagnostic (Phase 3). Verifies the configured token can access
+  // the configured phone-number ID via a read-only Graph GET (sends NO message). Returns ONLY sanitized
+  // fields — never the token, auth header, or full phone number. An optional one-time POST probe (exact
+  // adapter shape) runs only when the read-only lookup succeeds AND { send_probe: true, to } is passed.
+  router.post('/api/admin/communications/test/provider-credential-check', requireAdminOrWorkerSecret, asyncHandler(async (req, res) => {
+    const channel = String(req.body?.channel || 'whatsapp').toLowerCase();
+    if (channel !== 'whatsapp') return res.status(400).json({ ok: false, error: 'Only the whatsapp credential-check is supported.' });
+    const version = 'v20.0';
+    const rawToken = process.env.CARUP_META_ACCESS_TOKEN;
+    const rawPhone = process.env.CARUP_META_PHONE_NUMBER_ID;
+    const token = trimmedEnvValue(process.env, 'CARUP_META_ACCESS_TOKEN');
+    const phoneNumberId = trimmedEnvValue(process.env, 'CARUP_META_PHONE_NUMBER_ID');
+    // Detect (but never expose) accidental surrounding whitespace in the raw env values.
+    const whitespace = {
+      access_token: typeof rawToken === 'string' && rawToken.trim() !== rawToken,
+      phone_number_id: typeof rawPhone === 'string' && rawPhone.trim() !== rawPhone,
+    };
+    const present = { access_token: Boolean(token), phone_number_id: Boolean(phoneNumberId) };
+    if (!token || !phoneNumberId) {
+      return res.status(200).json({ ok: false, channel, version, stage: 'config', present, whitespace, message: 'CARUP_META_ACCESS_TOKEN and/or CARUP_META_PHONE_NUMBER_ID is not set.' });
+    }
+
+    // 1) Read-only lookup of the configured phone-number id.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let readOnly;
+    try {
+      const url = `https://graph.facebook.com/${version}/${encodeURIComponent(phoneNumberId)}?fields=id,verified_name,quality_rating,code_verification_status`;
+      const r = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: controller.signal });
+      const text = await r.text();
+      let parsed = null; try { parsed = JSON.parse(text); } catch { parsed = text; }
+      readOnly = {
+        phone_number_id_accessible: r.ok,
+        http_status: r.status,
+        meta: sanitizeProviderError(r.status, parsed), // code/subcode/type/message/trace (all null on success)
+        verified_name_present: r.ok ? Boolean(parsed && parsed.verified_name) : null,
+      };
+    } catch (error) {
+      readOnly = { phone_number_id_accessible: false, http_status: 0, meta: { provider_error_message: error?.name === 'AbortError' ? 'read-only lookup timed out' : 'read-only lookup network error' } };
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // 2) Optional one-time POST probe via the REAL adapter code path — only if read-only succeeded.
+    let postProbe = null;
+    const to = req.body?.to || req.body?.recipient || req.body?.phone_number;
+    if (readOnly.phone_number_id_accessible && req.body?.send_probe === true && to) {
+      const adapter = new MetaWhatsAppAdapter({ env: process.env });
+      const sent = await adapter.send({ recipient: { phone_number: String(to) }, content: { body: `CarUp backend diagnostic — ${randomUUID().slice(0, 8)}` } });
+      postProbe = {
+        accepted: Boolean(sent.accepted),
+        provider_message_id: sent.providerMessageId || null,
+        error_code: sent.errorCode || null,
+        error_message: sent.errorMessage || null,
+        provider_http_status: sent.provider_http_status ?? null,
+        provider_error_code: sent.provider_error_code ?? null,
+        provider_error_subcode: sent.provider_error_subcode ?? null,
+        provider_error_type: sent.provider_error_type ?? null,
+        provider_error_message: sent.provider_error_message ?? null,
+        provider_trace_id: sent.provider_trace_id ?? null,
+        to_masked: `••••${String(to).slice(-4)}`,
+      };
+    }
+
+    return res.status(200).json({ ok: readOnly.phone_number_id_accessible, channel, version, present, whitespace, read_only: readOnly, post_probe: postProbe });
   }));
 
   router.get('/api/admin/communications/metrics', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {

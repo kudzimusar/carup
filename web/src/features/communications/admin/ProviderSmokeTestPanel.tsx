@@ -14,7 +14,18 @@ export interface SmokeSendResult {
   provider?: string
   error?: string
   message?: string
-  delivery?: { provider_message_id?: string | null; status?: string | null; error_message?: string | null }
+  delivery?: {
+    provider_message_id?: string | null
+    status?: string | null
+    error_code?: string | null
+    error_message?: string | null
+    provider_http_status?: number | null
+    provider_error_code?: number | string | null
+    provider_error_subcode?: number | string | null
+    provider_error_type?: string | null
+    provider_error_message?: string | null
+    provider_trace_id?: string | null
+  }
 }
 
 export interface ProviderSmokeTestPanelProps {
@@ -48,9 +59,9 @@ export function ProviderSmokeTestPanel({ onSend, defaultRecipient = '', environm
   }
 
   return (
-    <Card className="border-0 card-shadow">
-      <CardHeader className="pb-3"><CardTitle className="text-lg flex items-center gap-2"><MessageCircle className="w-4 h-4" aria-hidden /> WhatsApp smoke test</CardTitle></CardHeader>
-      <CardContent className="space-y-2 text-sm">
+    <Card className="border-0 card-shadow overflow-hidden max-w-full min-w-0">
+      <CardHeader className="pb-3"><CardTitle className="text-lg flex items-center gap-2"><MessageCircle className="w-4 h-4 shrink-0" aria-hidden /> WhatsApp smoke test</CardTitle></CardHeader>
+      <CardContent className="space-y-2 text-sm min-w-0">
         <p className="flex items-start gap-1 text-xs text-amber-700">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden />
           Sends a <strong>real</strong> WhatsApp message via <strong>meta_whatsapp_cloud_api</strong> on <strong>{environmentLabel}</strong>. The server refuses fake adapters, so a green result means a real Meta request was made.
@@ -64,23 +75,44 @@ export function ProviderSmokeTestPanel({ onSend, defaultRecipient = '', environm
           {busy ? <Loader2 className="w-3 h-3 animate-spin" aria-hidden /> : <Send className="w-3 h-3" aria-hidden />}
           {busy ? 'Sending…' : 'Send WhatsApp smoke test'}
         </Button>
-        {result && (
-          <div className={`text-xs rounded p-2 ${result.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`} aria-live="polite">
-            {result.ok ? (
-              <>
-                <div className="font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3" aria-hidden />Sent via {result.provider}</div>
-                <div className="break-all">provider_message_id: {result.delivery?.provider_message_id}</div>
-                <div>status: {result.delivery?.status}</div>
-              </>
-            ) : (
-              <>
-                <div className="font-medium flex items-center gap-1"><XCircle className="w-3 h-3" aria-hidden />{result.error || 'Failed'}</div>
-                <div className="break-words">{result.message || result.delivery?.error_message}</div>
-              </>
-            )}
-          </div>
-        )}
+        {result && <SmokeResultView result={result} />}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Result view for a smoke send. On failure it surfaces the SANITIZED upstream provider detail
+ * (Meta http status / code / subcode / type / message / trace) so an operator sees the real Meta
+ * rejection — never only "HTTP error! status: 502". Every value is width-contained (min-w-0 +
+ * overflow-hidden + break-all) so long tokens/messages cannot horizontally overflow the narrow card.
+ */
+export function SmokeResultView({ result }: { result: SmokeSendResult }) {
+  const d = result.delivery
+  return (
+    <div className={`text-xs rounded p-2 min-w-0 max-w-full overflow-hidden ${result.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`} aria-live="polite">
+      {result.ok ? (
+        <>
+          <div className="font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden />Sent via {result.provider}</div>
+          <div className="break-all">provider_message_id: {d?.provider_message_id}</div>
+          <div>status: {d?.status}</div>
+        </>
+      ) : (
+        <>
+          <div className="font-medium flex items-start gap-1">
+            <XCircle className="w-3 h-3 shrink-0 mt-0.5" aria-hidden />
+            <span className="min-w-0 break-words">{d?.provider_error_message || result.message || result.error || 'Provider request failed'}</span>
+          </div>
+          <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-0.5">
+            {d?.provider_http_status != null && (<><dt className="opacity-70">HTTP</dt><dd className="break-all">{d.provider_http_status}</dd></>)}
+            {d?.provider_error_code != null && (<><dt className="opacity-70">code</dt><dd className="break-all">{d.provider_error_code}</dd></>)}
+            {d?.provider_error_subcode != null && (<><dt className="opacity-70">subcode</dt><dd className="break-all">{d.provider_error_subcode}</dd></>)}
+            {d?.provider_error_type && (<><dt className="opacity-70">type</dt><dd className="break-all">{d.provider_error_type}</dd></>)}
+            {d?.error_code && (<><dt className="opacity-70">class</dt><dd className="break-all">{d.error_code}</dd></>)}
+            {d?.provider_trace_id && (<><dt className="opacity-70">trace</dt><dd className="break-all font-mono">{d.provider_trace_id}</dd></>)}
+          </dl>
+        </>
+      )}
+    </div>
   )
 }
