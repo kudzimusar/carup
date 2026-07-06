@@ -207,6 +207,37 @@ type CommunicationMutationResponse = {
   duplicate?: boolean
   [key: string]: unknown
 }
+type ProviderSmokeTestResult = {
+  ok: boolean
+  error?: string
+  message?: string
+  channel?: string
+  provider?: string
+  recipient?: string
+  adapter?: { channel: string; provider: string; mode: string; available: boolean }
+  thread_id?: string
+  message_id?: string
+  notification_id?: string
+  correlation_token?: string
+  delivery?: {
+    status: string | null
+    worker_result: string | null
+    provider: string
+    provider_message_id: string | null
+    provider_request_id: string | null
+    attempt_number: number | null
+    error_code: string | null
+    error_message: string | null
+    provider_http_status?: number | null
+    provider_error_code?: number | string | null
+    provider_error_subcode?: number | string | null
+    provider_error_type?: string | null
+    provider_error_message?: string | null
+    provider_trace_id?: string | null
+  }
+  details?: unknown
+  inspect?: Record<string, string>
+}
 type CommunicationMetricsResponse = Record<string, number | string | null | undefined>
 type CommunicationThreadCounts = {
   total: number
@@ -1309,45 +1340,15 @@ export function useCarUpApi() {
     to: string
     message?: string
     client_message_id?: string
-  }): Promise<{
-    ok: boolean
-    error?: string
-    message?: string
-    channel?: string
-    provider?: string
-    recipient?: string
-    adapter?: { channel: string; provider: string; mode: string; available: boolean }
-    thread_id?: string
-    message_id?: string
-    notification_id?: string
-    correlation_token?: string
-    delivery?: {
-      status: string | null
-      worker_result: string | null
-      provider: string
-      provider_message_id: string | null
-      provider_request_id: string | null
-      attempt_number: number | null
-      error_code: string | null
-      error_message: string | null
-      provider_http_status?: number | null
-      provider_error_code?: number | string | null
-      provider_error_subcode?: number | string | null
-      provider_error_type?: string | null
-      provider_error_message?: string | null
-      provider_trace_id?: string | null
-    }
-    details?: unknown
-    inspect?: Record<string, string>
-  }> => {
+  }): Promise<ProviderSmokeTestResult> => {
     try {
-      return await request('/admin/communications/test/provider-smoke', { method: 'POST', body: JSON.stringify(payload) })
+      return await request<ProviderSmokeTestResult>('/admin/communications/test/provider-smoke', { method: 'POST', body: JSON.stringify(payload) })
     } catch (err) {
       // A provider rejection returns HTTP 502 WITH a JSON body carrying the sanitized delivery detail.
       // Surface that body (not a bare "HTTP 502") so the panel shows the real Meta error.
       const data = (err as { data?: unknown })?.data
       if (data && typeof data === 'object' && 'ok' in (data as Record<string, unknown>)) {
-        return data as Awaited<ReturnType<typeof sendCommunicationProviderSmokeTest>>
+        return data as ProviderSmokeTestResult
       }
       throw err
     }
