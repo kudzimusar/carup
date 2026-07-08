@@ -1089,6 +1089,56 @@ test('Meta WhatsApp malformed POST returns controlled error and diagnostic failu
   assert.equal(recent.body.receipts[0].error_code, 'webhook_processing_failed');
 });
 
+test('recent WhatsApp webhook receipts endpoint accepts worker secret in Preview via bearer or header only', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  const previousWorkerSecret = process.env.COMMUNICATION_WORKER_SECRET;
+  const previousCronSecret = process.env.CRON_SECRET;
+  const previousVercelEnv = process.env.VERCEL_ENV;
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  delete process.env.CRON_SECRET;
+  process.env.VERCEL_ENV = 'preview';
+  try {
+    const adminRouter = createAdminCommunicationRouter({ services: createHarness() });
+
+    const bearerResponse = await invokeRouter(adminRouter, {
+      method: 'GET',
+      url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      headers: { authorization: 'Bearer worker-secret' },
+      query: {},
+    });
+    assert.equal(bearerResponse.statusCode, 200);
+    assert.deepEqual(bearerResponse.body.receipts, []);
+
+    const headerResponse = await invokeRouter(adminRouter, {
+      method: 'GET',
+      url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      headers: { 'x-communication-worker-secret': 'worker-secret' },
+      query: {},
+    });
+    assert.equal(headerResponse.statusCode, 200);
+    assert.deepEqual(headerResponse.body.receipts, []);
+
+    process.env.VERCEL_ENV = 'production';
+    const productionResponse = await invokeRouter(adminRouter, {
+      method: 'GET',
+      url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      headers: { 'x-communication-worker-secret': 'worker-secret' },
+      query: {},
+    });
+    assert.equal(productionResponse.statusCode, 401);
+  } finally {
+    if (previousWorkerSecret === undefined) delete process.env.COMMUNICATION_WORKER_SECRET;
+    else process.env.COMMUNICATION_WORKER_SECRET = previousWorkerSecret;
+    if (previousCronSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previousCronSecret;
+    if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = previousVercelEnv;
+  }
+});
+
 test('user-visible thread message route records inbound message on the authorized target thread', async () => {
   const services = createHarness();
   const thread = (await services.threadService.resolveOrCreateThread({
