@@ -12,7 +12,7 @@ function headerValue(headers = {}, name) {
   return found?.[1];
 }
 
-function isProductionDeployment(env = process.env) {
+export function isProductionDeployment(env = process.env) {
   return env.VERCEL_ENV === 'production'
     || env.CARUP_ENV === 'production'
     || env.CARUP_ENVIRONMENT === 'production'

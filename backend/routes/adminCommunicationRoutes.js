@@ -7,7 +7,7 @@ import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAudi
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
 import { sanitizeProviderError, trimmedEnvValue, MetaWhatsAppAdapter } from '../services/communication/adapters/providerAdapters.js';
-import { recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
+import { isProductionDeployment, recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -106,11 +106,23 @@ function safeEqual(a = '', b = '') {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+function headerValue(headers = {}, name) {
+  const wanted = String(name).toLowerCase();
+  const found = Object.entries(headers || {}).find(([key]) => String(key).toLowerCase() === wanted);
+  return found?.[1];
+}
+
+function bearerToken(req) {
+  const authorization = headerValue(req.headers, 'authorization');
+  const match = String(authorization || '').match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
 // Machine-to-machine auth: the communication worker secret (same secret the internal
 // worker endpoint and Supabase pg_cron use). Never logged, compared in constant time.
 function workerSecretValid(req) {
-  const expected = process.env.COMMUNICATION_WORKER_SECRET || process.env.CRON_SECRET;
-  const supplied = req.headers['x-communication-worker-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
+  const expected = String(process.env.COMMUNICATION_WORKER_SECRET || process.env.CRON_SECRET || '').trim();
+  const supplied = String(headerValue(req.headers, 'x-communication-worker-secret') || bearerToken(req) || '').trim();
   return Boolean(expected && supplied && safeEqual(supplied, expected));
 }
 
@@ -134,6 +146,14 @@ function requireAdminOrWorkerSecret(req, res, next) {
     }
     return next();
   });
+}
+
+function requireDiagnosticAdminOrWorkerSecret(req, res, next) {
+  if (!isProductionDeployment() && workerSecretValid(req)) {
+    req.userContext = req.userContext || { id: 'communication-worker', role: 'worker', actor: 'worker_secret' };
+    return next();
+  }
+  return authorizeRole(ADMIN_ROLES)(req, res, next);
 }
 
 /**
@@ -454,7 +474,7 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
 export function createAdminCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
 
-  router.get('/api/admin/communications/webhooks/meta/whatsapp/recent', requireAdminOrWorkerSecret, asyncHandler(async (_req, res) => {
+  router.get('/api/admin/communications/webhooks/meta/whatsapp/recent', requireDiagnosticAdminOrWorkerSecret, asyncHandler(async (_req, res) => {
     res.json({ receipts: recentMetaWhatsAppWebhookReceipts() });
   }));
 
