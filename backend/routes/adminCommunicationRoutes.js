@@ -7,6 +7,7 @@ import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAudi
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
 import { sanitizeProviderError, trimmedEnvValue, MetaWhatsAppAdapter } from '../services/communication/adapters/providerAdapters.js';
+import { recentMetaWhatsAppWebhookReceipts } from '../services/communication/communicationWebhookDiagnostics.js';
 
 const ADMIN_ROLES = ['admin', 'platform_admin', 'super_admin', 'support', 'finance', 'trust_manager', 'compliance_manager', 'marketplace_manager'];
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -452,6 +453,10 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
 
 export function createAdminCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
+
+  router.get('/api/admin/communications/webhooks/meta/whatsapp/recent', requireAdminOrWorkerSecret, asyncHandler(async (_req, res) => {
+    res.json({ receipts: recentMetaWhatsAppWebhookReceipts() });
+  }));
 
   router.get('/api/admin/communications/threads', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     // Identity-first, DB-side inbox query. The repository executes the search fully server-side via the

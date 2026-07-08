@@ -39,6 +39,7 @@ import { SLA_STATES, computeSlaState, pausePatch, resumePatch } from '../service
 import { addBusinessMinutes, selectSlaPolicy, computeSlaDeadlines } from '../services/communication/communicationSlaSchedule.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
+import { clearMetaWhatsAppWebhookReceiptsForTest } from '../services/communication/communicationWebhookDiagnostics.js';
 const { createCommunicationRouter } = await import('../routes/communicationRoutes.js');
 const { recordAdminThreadReply, sendProviderSmokeTest, createAdminCommunicationRouter, loadThreadForRequest, loadNotificationForRequest, resolveThreadQueryContext, resolveListScope, smokeTestBody } = await import('../routes/adminCommunicationRoutes.js');
 const supabaseLiveSchemaSql = readFileSync(new URL('../../database/migrations/supabase_schema.sql', import.meta.url), 'utf8');
@@ -101,13 +102,37 @@ function createMetaWhatsAppPayload(text = 'hello from WhatsApp') {
       changes: [{
         field: 'messages',
         value: {
+          messaging_product: 'whatsapp',
           metadata: { phone_number_id: 'phone-1' },
+          contacts: [{ profile: { name: 'UAT Sender' }, wa_id: '263771234567' }],
           messages: [{
             id: `wamid.${Buffer.from(text).toString('hex').slice(0, 16)}`,
             from: '263771234567',
             timestamp: '1782240000',
             type: 'text',
             text: { body: text },
+          }],
+        },
+      }],
+    }],
+  };
+}
+
+function createMetaWhatsAppStatusPayload() {
+  return {
+    object: 'whatsapp_business_account',
+    entry: [{
+      id: 'waba-1',
+      changes: [{
+        field: 'messages',
+        value: {
+          messaging_product: 'whatsapp',
+          metadata: { phone_number_id: 'phone-1' },
+          statuses: [{
+            id: 'wamid.status001',
+            status: 'delivered',
+            timestamp: '1782240001',
+            recipient_id: '263771234567',
           }],
         },
       }],
@@ -913,6 +938,155 @@ test('communication Meta GET route returns the challenge as plain text', async (
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers.type, 'text/plain');
   assert.equal(response.body, 'abc123');
+});
+
+test('communication Meta GET route rejects wrong verify token with controlled error', async () => {
+  const { webhookService } = createHarness();
+  webhookService.env.CARUP_META_WEBHOOK_VERIFY_TOKEN = 'verify-token';
+  const router = createCommunicationRouter({ services: { webhookService, adapterRegistry: { health: () => [] } } });
+  await assert.rejects(() => invokeRouter(router, {
+    method: 'GET',
+    url: '/api/communications/webhooks/meta/whatsapp',
+    originalUrl: '/api/communications/webhooks/meta/whatsapp?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=abc123',
+    headers: {},
+    query: {
+      'hub.mode': 'subscribe',
+      'hub.verify_token': 'wrong',
+      'hub.challenge': 'abc123',
+    },
+  }), (error) => error.statusCode === 403 && /Meta webhook verification failed/.test(error.message));
+});
+
+test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp message/thread', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
+  process.env.VERCEL_ENV = 'preview';
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  const services = createHarness();
+  const router = createCommunicationRouter({ services });
+  const adminRouter = createAdminCommunicationRouter({ services });
+  const payload = createMetaWhatsAppPayload('CarUp inbound UAT simulator 001');
+  const response = await invokeRouter(router, {
+    method: 'POST',
+    url: '/api/communications/webhooks/meta/whatsapp',
+    originalUrl: '/api/communications/webhooks/meta/whatsapp',
+    path: '/api/communications/webhooks/meta/whatsapp',
+    requestId: 'req-whatsapp-uat-1',
+    correlationId: 'req-whatsapp-uat-1',
+    headers: {
+      'x-channel-webhook-secret': 'test-channel-secret',
+      'content-type': 'application/json',
+      'user-agent': 'node-test',
+    },
+    query: {},
+    body: payload,
+    rawBody: JSON.stringify(payload),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.success, true);
+  assert.equal(response.body.count, 1);
+  const messages = await services.repository.list('messages');
+  const inbound = messages.find((message) => message.provider_message_id?.startsWith('wamid.'));
+  assert.ok(inbound);
+  assert.equal(inbound.channel, 'whatsapp');
+  assert.equal(inbound.direction, 'inbound');
+  assert.equal(inbound.provider, 'meta_whatsapp_cloud_api');
+  assert.equal(inbound.status, 'received');
+  assert.equal(inbound.content_json.provider_timestamp, '1782240000');
+  assert.equal(inbound.content_json.technical_metadata.message.from, '263771234567');
+  const projected = await services.repository.searchThreads({}, { userId: 'agent-1', isPlatform: true, now: Date.now() });
+  assert.equal(projected.threads[0].primary_channel, 'whatsapp');
+  assert.equal(projected.threads[0].unread_count, 1);
+  assert.equal((await services.repository.list('communication_audit_events')).some((event) => event.event_type === COMMUNICATION_AUDIT_EVENTS.INBOUND_RECEIVED), true);
+
+  const recent = await invokeRouter(adminRouter, {
+    method: 'GET',
+    url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    headers: { authorization: 'Bearer worker-secret' },
+    query: {},
+  });
+  assert.equal(recent.statusCode, 200);
+  assert.equal(recent.body.receipts[0].requestId, 'req-whatsapp-uat-1');
+  assert.equal(recent.body.receipts[0].processing_status, 'processed');
+  assert.equal(recent.body.receipts[0].detected_event_type, 'message');
+  assert.equal(recent.body.receipts[0].message_count, 1);
+  assert.equal(recent.body.receipts[0].sender_wa_id_last4, '4567');
+  assert.equal(recent.body.receipts[0].persisted_message_id, inbound.id);
+  assert.equal(recent.body.receipts[0].thread_id, inbound.thread_id);
+  assert.equal(recent.body.receipts[0].inbound_text_preview, 'CarUp inbound UAT simulator 001');
+});
+
+test('Meta WhatsApp status-only POST is accepted and ignored without message creation', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  const services = createHarness();
+  const router = createCommunicationRouter({ services });
+  const payload = createMetaWhatsAppStatusPayload();
+  const response = await invokeRouter(router, {
+    method: 'POST',
+    url: '/api/communications/webhooks/meta/whatsapp',
+    originalUrl: '/api/communications/webhooks/meta/whatsapp',
+    path: '/api/communications/webhooks/meta/whatsapp',
+    requestId: 'req-whatsapp-status-1',
+    correlationId: 'req-whatsapp-status-1',
+    headers: { 'x-channel-webhook-secret': 'test-channel-secret', 'content-type': 'application/json' },
+    query: {},
+    body: payload,
+    rawBody: JSON.stringify(payload),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.success, true);
+  assert.equal(response.body.count, 0);
+  assert.equal(response.body.receipt_count, 1);
+  assert.equal((await services.repository.list('messages')).length, 0);
+  const adminRouter = createAdminCommunicationRouter({ services });
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  const recent = await invokeRouter(adminRouter, {
+    method: 'GET',
+    url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    headers: { authorization: 'Bearer worker-secret' },
+    query: {},
+  });
+  assert.equal(recent.body.receipts[0].detected_event_type, 'status');
+  assert.equal(recent.body.receipts[0].processing_status, 'ignored');
+  assert.equal(recent.body.receipts[0].status_count, 1);
+});
+
+test('Meta WhatsApp malformed POST returns controlled error and diagnostic failure receipt', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  const services = createHarness();
+  const router = createCommunicationRouter({ services });
+  const payload = createMetaWhatsAppPayload('missing sender');
+  delete payload.entry[0].changes[0].value.messages[0].from;
+  const response = await invokeRouter(router, {
+    method: 'POST',
+    url: '/api/communications/webhooks/meta/whatsapp',
+    originalUrl: '/api/communications/webhooks/meta/whatsapp',
+    path: '/api/communications/webhooks/meta/whatsapp',
+    requestId: 'req-whatsapp-bad-1',
+    correlationId: 'req-whatsapp-bad-1',
+    headers: { 'x-channel-webhook-secret': 'test-channel-secret', 'content-type': 'application/json' },
+    query: {},
+    body: payload,
+    rawBody: JSON.stringify(payload),
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.body.success, false);
+  assert.match(response.body.message, /external sender/);
+
+  const adminRouter = createAdminCommunicationRouter({ services });
+  const recent = await invokeRouter(adminRouter, {
+    method: 'GET',
+    url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    headers: { authorization: 'Bearer worker-secret' },
+    query: {},
+  });
+  assert.equal(recent.body.receipts[0].processing_status, 'failed');
+  assert.equal(recent.body.receipts[0].error_code, 'webhook_processing_failed');
 });
 
 test('user-visible thread message route records inbound message on the authorized target thread', async () => {

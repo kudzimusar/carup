@@ -138,6 +138,8 @@ export class CommunicationInboundService {
       content_text: text,
       content_json: {
         canonical_event: COMMUNICATION_EVENTS.MESSAGE_RECEIVED,
+        provider_timestamp: input.providerTimestamp || input.provider_timestamp || null,
+        technical_metadata: input.metadata || {},
         referral: referralResult,
         classification,
       },
