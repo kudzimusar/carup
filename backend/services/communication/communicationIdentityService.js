@@ -15,6 +15,52 @@ export class CommunicationIdentityService {
     return raw;
   }
 
+  identityFilters({ tenantId = null, channel, provider, externalId }) {
+    return {
+      tenant_id: tenantId,
+      channel,
+      provider,
+      external_id: externalId,
+    };
+  }
+
+  identityPatch(existing = {}, input = {}) {
+    const patch = {
+      last_seen_at: nowIso(),
+      display_name: input.display_name || existing.display_name,
+      metadata: { ...(existing.metadata || {}), ...(input.metadata || {}) },
+    };
+    const consent = input.consent_status || input.consent?.status || null;
+    if (consent && consent !== 'unknown') patch.consent_status = consent;
+    if (input.user_id && (existing.user_id === input.user_id || input.verified === true || input.authenticated === true)) {
+      patch.user_id = input.user_id;
+      patch.verified = Boolean(existing.verified || input.verified || input.authenticated);
+    }
+    return patch;
+  }
+
+  async updateExistingIdentity(existing, input = {}) {
+    return this.repository.updateById('channel_identities', existing.id, this.identityPatch(existing, input));
+  }
+
+  async findIdentityByUniqueKey({ tenant_id: tenantId = null, channel, provider, external_id: externalId }) {
+    const exact = await this.repository.findOne('channel_identities', {
+      tenant_id: tenantId,
+      channel,
+      provider,
+      external_id: externalId,
+    });
+    if (exact) return exact;
+
+    const tenantKey = tenantId || 'platform';
+    const matches = await this.repository.list('channel_identities', {
+      channel,
+      provider,
+      external_id: externalId,
+    }, { limit: 25 });
+    return matches.find((identity) => (identity.tenant_id || 'platform') === tenantKey) || null;
+  }
+
   async resolveOrCreateIdentity(input = {}) {
     const channel = normalizeChannel(input.channel);
     if (!channel) throw new Error('Unsupported communication channel.');
@@ -23,44 +69,38 @@ export class CommunicationIdentityService {
     if (!externalId) throw new Error('external_id is required for channel identity.');
 
     const tenantId = input.tenant_id || null;
-    const existing = await this.repository.findOne('channel_identities', {
-      tenant_id: tenantId,
-      channel,
-      provider,
-      external_id: externalId,
-    });
+    const filters = this.identityFilters({ tenantId, channel, provider, externalId });
+    const existing = await this.findIdentityByUniqueKey(filters);
 
     if (existing) {
-      const patch = {
-        last_seen_at: nowIso(),
-        display_name: input.display_name || existing.display_name,
-        metadata: { ...(existing.metadata || {}), ...(input.metadata || {}) },
-      };
-      if (input.user_id && (existing.user_id === input.user_id || input.verified === true || input.authenticated === true)) {
-        patch.user_id = input.user_id;
-        patch.verified = Boolean(existing.verified || input.verified || input.authenticated);
-      }
-      return this.repository.updateById('channel_identities', existing.id, patch);
+      return this.updateExistingIdentity(existing, input);
     }
 
-    return this.repository.insert('channel_identities', {
-      tenant_id: tenantId,
-      user_id: input.user_id || null,
-      channel,
-      provider,
-      external_id: externalId,
-      normalized_address: this.normalizeAddress(channel, input.address || externalId),
-      display_name: input.display_name || null,
-      verified: Boolean(input.verified || input.authenticated),
-      consent_status: input.consent_status || 'unknown',
-      first_seen_at: nowIso(),
-      last_seen_at: nowIso(),
-      metadata: {
-        provenance: input.user_id ? 'authenticated_or_signed_context' : 'provider_inbound',
-        identity_key: buildDedupeKey([tenantId || 'platform', channel, provider, externalId]),
-        ...(input.metadata || {}),
-      },
-    });
+    try {
+      return await this.repository.insert('channel_identities', {
+        tenant_id: tenantId,
+        user_id: input.user_id || null,
+        channel,
+        provider,
+        external_id: externalId,
+        normalized_address: this.normalizeAddress(channel, input.address || externalId),
+        display_name: input.display_name || null,
+        verified: Boolean(input.verified || input.authenticated),
+        consent_status: input.consent_status || input.consent?.status || 'unknown',
+        first_seen_at: nowIso(),
+        last_seen_at: nowIso(),
+        metadata: {
+          provenance: input.user_id ? 'authenticated_or_signed_context' : 'provider_inbound',
+          identity_key: buildDedupeKey([tenantId || 'platform', channel, provider, externalId]),
+          ...(input.metadata || {}),
+        },
+      });
+    } catch (error) {
+      if (error.code !== '23505') throw error;
+      const racedIdentity = await this.findIdentityByUniqueKey(filters);
+      if (!racedIdentity) throw error;
+      return this.updateExistingIdentity(racedIdentity, input);
+    }
   }
 
   async linkIdentityToUser(identityId, userId, proof = {}) {
@@ -83,4 +123,3 @@ export class CommunicationIdentityService {
     return linked;
   }
 }
-

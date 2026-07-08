@@ -128,32 +128,49 @@ export class CommunicationInboundService {
       display_name: identity.display_name || null,
     });
 
-    const message = await this.threadService.recordMessage(thread, {
-      direction: 'inbound',
-      sender_participant_id: participant.id,
-      sender_user_id: identity.user_id || null,
-      channel,
-      provider,
-      provider_message_id: input.providerMessageId || input.provider_message_id || input.message_id || null,
-      content_text: text,
-      content_json: {
-        canonical_event: COMMUNICATION_EVENTS.MESSAGE_RECEIVED,
-        provider_timestamp: input.providerTimestamp || input.provider_timestamp || null,
-        technical_metadata: input.metadata || {},
-        referral: referralResult,
-        classification,
-      },
-      status: 'received',
-      thread_status: classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai',
-    });
+    const providerMessageId = input.providerMessageId || input.provider_message_id || input.message_id || null;
+    const findExistingProviderMessage = async () => {
+      if (!providerMessageId) return null;
+      const matches = await this.repository.list('messages', { provider, provider_message_id: providerMessageId }, { limit: 1 });
+      return matches[0] || null;
+    };
+    let message = await findExistingProviderMessage();
+    let duplicateMessage = Boolean(message);
+    if (!message) {
+      try {
+        message = await this.threadService.recordMessage(thread, {
+          direction: 'inbound',
+          sender_participant_id: participant.id,
+          sender_user_id: identity.user_id || null,
+          channel,
+          provider,
+          provider_message_id: providerMessageId,
+          content_text: text,
+          content_json: {
+            canonical_event: COMMUNICATION_EVENTS.MESSAGE_RECEIVED,
+            provider_timestamp: input.providerTimestamp || input.provider_timestamp || null,
+            technical_metadata: input.metadata || {},
+            referral: referralResult,
+            classification,
+          },
+          status: 'received',
+          thread_status: classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai',
+        });
+      } catch (error) {
+        if (error.code !== '23505' || !providerMessageId) throw error;
+        message = await findExistingProviderMessage();
+        if (!message) throw error;
+        duplicateMessage = true;
+      }
+    }
 
-    if (classification.handoffRequired || aiAnswer.handoffRequired) {
+    if (!duplicateMessage && (classification.handoffRequired || aiAnswer.handoffRequired)) {
       await this.threadService.escalateThread(thread.id, classification.intent || 'human_request', {
         severity: priority === 'high' ? 'high' : 'normal',
         source: 'ai_policy',
         team: this.threadService.teamForThread(thread.thread_type || threadType),
       });
-    } else if (this.notificationService && (identity.user_id || input.user_id)) {
+    } else if (!duplicateMessage && this.notificationService && (identity.user_id || input.user_id)) {
       await this.notificationService.queueNotification({
         recipientUserId: identity.user_id || input.user_id,
         thread,
@@ -186,7 +203,7 @@ export class CommunicationInboundService {
 
     return {
       success: true,
-      duplicate: false,
+      duplicate: duplicateMessage,
       created_thread: created,
       thread,
       message,
