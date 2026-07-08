@@ -473,14 +473,18 @@ export class CommunicationWebhookService {
         results.push(await this.handleCloudflareEmailWebhook(body, actor));
       } else {
         const parsed = parseChannelPayload(normalized, body);
+        const inboundProvider = String(provider || '').toLowerCase() === 'meta' && normalized === 'whatsapp'
+          ? 'meta_whatsapp_cloud_api'
+          : provider;
         for (const message of parsed) {
           results.push(await this.inboundService.ingest({
             channel: normalized,
-            provider,
+            provider: inboundProvider,
             text: message.text,
             externalSenderId: message.sender_id,
             externalConversationId: message.conversation_id,
             providerMessageId: message.message_id,
+            providerTimestamp: message.provider_timestamp || null,
             referralCode: message.referral_code,
             source: message.source,
             metadata: message.payload,

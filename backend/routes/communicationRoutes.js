@@ -4,6 +4,11 @@ import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
+import {
+  finalizeMetaWhatsAppWebhookReceipt,
+  persistencePatchFromWebhookResult,
+  recordMetaWhatsAppWebhookReceipt,
+} from '../services/communication/communicationWebhookDiagnostics.js';
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -210,13 +215,36 @@ export function createCommunicationRouter({ services = createCommunicationServic
   }));
 
   router.post('/api/communications/webhooks/:provider/:channel', asyncHandler(async (req, res) => {
-    const result = await services.webhookService.handleWebhook(req.params.provider, req.params.channel, req.body || {}, {
-      headers: req.headers,
-      query: req.query,
-      actor: actorFromReq(req),
-      rawBody: req.rawBody || '',
-    });
-    res.status(200).json(result);
+    const isMetaWhatsApp = req.params.provider === 'meta' && normalizeChannel(req.params.channel) === 'whatsapp';
+    const receipt = isMetaWhatsApp
+      ? recordMetaWhatsAppWebhookReceipt({ req, body: req.body || {} })
+      : null;
+    try {
+      const result = await services.webhookService.handleWebhook(req.params.provider, req.params.channel, req.body || {}, {
+        headers: req.headers,
+        query: req.query,
+        actor: actorFromReq(req),
+        rawBody: req.rawBody || '',
+      });
+      if (receipt) {
+        finalizeMetaWhatsAppWebhookReceipt(receipt.requestId, persistencePatchFromWebhookResult(result, receipt.detected_event_type));
+      }
+      return res.status(200).json(result);
+    } catch (error) {
+      if (receipt) {
+        finalizeMetaWhatsAppWebhookReceipt(receipt.requestId, {
+          processing_status: 'failed',
+          error_code: error.code || (error.statusCode === 403 ? 'webhook_forbidden' : 'webhook_processing_failed'),
+          error_message: error.message,
+        });
+      }
+      const statusCode = error.statusCode || (/requires|unsupported|malformed|invalid/i.test(error.message || '') ? 400 : 500);
+      return res.status(statusCode).json({
+        success: false,
+        error: error.code || (statusCode === 403 ? 'webhook_forbidden' : 'webhook_processing_failed'),
+        message: error.message,
+      });
+    }
   }));
 
   return router;
