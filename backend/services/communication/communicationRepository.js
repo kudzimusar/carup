@@ -401,6 +401,29 @@ export class MemoryCommunicationRepository {
       err.code = '23505';
       throw err;
     }
+    if (table === 'channel_identities') {
+      const tenantKey = record.tenant_id || 'platform';
+      const providerKey = record.provider || 'default';
+      const duplicate = this.rows(table).some((r) => (
+        (r.tenant_id || 'platform') === tenantKey
+        && r.channel === record.channel
+        && (r.provider || 'default') === providerKey
+        && r.external_id === record.external_id
+      ));
+      if (duplicate) {
+        const err = new Error('duplicate key value violates unique constraint "idx_channel_identities_unique"');
+        err.code = '23505';
+        throw err;
+      }
+    }
+    if (table === 'messages' && record.provider_message_id) {
+      const duplicate = this.rows(table).some((r) => r.provider === record.provider && r.provider_message_id === record.provider_message_id);
+      if (duplicate) {
+        const err = new Error('duplicate key value violates unique constraint "idx_messages_provider_message"');
+        err.code = '23505';
+        throw err;
+      }
+    }
     this.rows(table).push(record);
     return record;
   }

@@ -995,6 +995,10 @@ test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp mes
   assert.equal(inbound.status, 'received');
   assert.equal(inbound.content_json.provider_timestamp, '1782240000');
   assert.equal(inbound.content_json.technical_metadata.message.from, '263771234567');
+  const identities = await services.repository.list('channel_identities');
+  assert.equal(identities.length, 1);
+  assert.equal(identities[0].channel, 'whatsapp');
+  assert.equal(identities[0].provider, 'meta_whatsapp_cloud_api');
   const projected = await services.repository.searchThreads({}, { userId: 'agent-1', isPlatform: true, now: Date.now() });
   assert.equal(projected.threads[0].primary_channel, 'whatsapp');
   assert.equal(projected.threads[0].unread_count, 1);
@@ -1016,6 +1020,190 @@ test('Meta WhatsApp POST route records receipt and persists inbound WhatsApp mes
   assert.equal(recent.body.receipts[0].persisted_message_id, inbound.id);
   assert.equal(recent.body.receipts[0].thread_id, inbound.thread_id);
   assert.equal(recent.body.receipts[0].inbound_text_preview, 'CarUp inbound UAT simulator 001');
+});
+
+test('Meta WhatsApp inbound from same sender reuses identity and stores new messages', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  const services = createHarness();
+  const first = createMetaWhatsAppPayload('Real phone message 001');
+  first.entry[0].id = 'real-waba-entry-1';
+  first.entry[0].changes[0].value.metadata = {
+    display_phone_number: '263771000000',
+    phone_number_id: 'real-phone-number-id',
+  };
+  const second = createMetaWhatsAppPayload('Real phone message 002');
+  second.entry[0].id = 'real-waba-entry-1';
+  second.entry[0].changes[0].value.metadata = {
+    display_phone_number: '263771000000',
+    phone_number_id: 'real-phone-number-id',
+  };
+  second.entry[0].changes[0].value.messages[0].id = 'wamid.real-phone-message-002';
+
+  const firstResult = await services.webhookService.handleWebhook('meta', 'whatsapp', first, {
+    headers: { 'x-channel-webhook-secret': 'test-channel-secret', 'user-agent': 'facebookexternalua' },
+    rawBody: JSON.stringify(first),
+    actor: { actor_tenant_id: 'platform' },
+  });
+  const secondResult = await services.webhookService.handleWebhook('meta', 'whatsapp', second, {
+    headers: { 'x-channel-webhook-secret': 'test-channel-secret', 'user-agent': 'facebookexternalua' },
+    rawBody: JSON.stringify(second),
+    actor: { actor_tenant_id: 'platform' },
+  });
+
+  assert.equal(firstResult.success, true);
+  assert.equal(secondResult.success, true);
+  assert.equal(firstResult.count, 1);
+  assert.equal(secondResult.count, 1);
+  const identities = await services.repository.list('channel_identities');
+  assert.equal(identities.length, 1);
+  assert.equal(identities[0].external_id, '263771234567');
+  assert.equal(identities[0].channel, 'whatsapp');
+  assert.equal(identities[0].provider, 'meta_whatsapp_cloud_api');
+  const messages = await services.repository.list('messages');
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages.map((message) => message.content_text).sort(), ['Real phone message 001', 'Real phone message 002']);
+  assert.equal(messages.every((message) => message.provider === 'meta_whatsapp_cloud_api'), true);
+});
+
+test('Meta WhatsApp duplicate provider message id is idempotent and does not create duplicate messages', async () => {
+  const services = createHarness();
+  const payload = createMetaWhatsAppPayload('Duplicate wamid retry');
+  const first = await services.webhookService.handleWebhook('meta', 'whatsapp', payload, {
+    headers: { 'x-channel-webhook-secret': 'test-channel-secret' },
+    rawBody: JSON.stringify(payload),
+    actor: { actor_tenant_id: 'platform' },
+  });
+  const retry = await services.webhookService.handleWebhook('meta', 'whatsapp', payload, {
+    headers: { 'x-channel-webhook-secret': 'test-channel-secret' },
+    rawBody: JSON.stringify(payload),
+    actor: { actor_tenant_id: 'platform' },
+  });
+
+  assert.equal(first.success, true);
+  assert.equal(first.count, 1);
+  assert.equal(retry.success, true);
+  assert.equal(retry.duplicate, true);
+  assert.equal(retry.count, 0);
+  const inboundMessages = (await services.repository.list('messages')).filter((message) => (
+    message.direction === 'inbound' && message.provider === 'meta_whatsapp_cloud_api'
+  ));
+  assert.equal(inboundMessages.length, 1);
+  assert.equal((await services.repository.list('channel_identities')).length, 1);
+});
+
+test('Meta WhatsApp duplicate channel identity race is recovered and receipt is processed', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  process.env.CARUP_COMMUNICATION_WEBHOOK_UAT_DIAGNOSTICS = 'true';
+  process.env.VERCEL_ENV = 'preview';
+  process.env.COMMUNICATION_WORKER_SECRET = 'worker-secret';
+  class RaceyIdentityRepository extends MemoryCommunicationRepository {
+    constructor(seed) {
+      super(seed);
+      this.hideIdentityOnce = true;
+      this.hideIdentityListOnce = true;
+    }
+
+    async findOne(table, filters = {}) {
+      if (
+        table === 'channel_identities'
+        && this.hideIdentityOnce
+        && filters.channel === 'whatsapp'
+        && filters.provider === 'meta_whatsapp_cloud_api'
+        && filters.external_id === '263771234567'
+      ) {
+        this.hideIdentityOnce = false;
+        return null;
+      }
+      return super.findOne(table, filters);
+    }
+
+    async list(table, filters = {}, options = {}) {
+      if (
+        table === 'channel_identities'
+        && this.hideIdentityListOnce
+        && filters.channel === 'whatsapp'
+        && filters.provider === 'meta_whatsapp_cloud_api'
+        && filters.external_id === '263771234567'
+      ) {
+        this.hideIdentityListOnce = false;
+        return [];
+      }
+      return super.list(table, filters, options);
+    }
+  }
+
+  const repository = new RaceyIdentityRepository({
+    channel_identities: [{
+      id: '11111111-1111-4111-8111-111111111111',
+      tenant_id: null,
+      user_id: 'linked-user-1',
+      channel: 'whatsapp',
+      provider: 'meta_whatsapp_cloud_api',
+      external_id: '263771234567',
+      normalized_address: '263771234567',
+      display_name: 'Existing WhatsApp User',
+      verified: true,
+      consent_status: 'opted_in',
+      first_seen_at: '2026-07-01T00:00:00.000Z',
+      last_seen_at: '2026-07-01T00:00:00.000Z',
+      metadata: { provenance: 'provider_inbound', existing: true },
+    }],
+  });
+  const services = createHarness({ repository });
+  const router = createCommunicationRouter({ services });
+  const adminRouter = createAdminCommunicationRouter({ services });
+  const payload = createMetaWhatsAppPayload('Real phone message after identity exists');
+  payload.entry[0].id = '123456789012345';
+  payload.entry[0].changes[0].value.metadata = {
+    display_phone_number: '263771000000',
+    phone_number_id: '109876543210',
+  };
+
+  const response = await invokeRouter(router, {
+    method: 'POST',
+    url: '/api/communications/webhooks/meta/whatsapp',
+    originalUrl: '/api/communications/webhooks/meta/whatsapp',
+    path: '/api/communications/webhooks/meta/whatsapp',
+    requestId: 'req-whatsapp-racey-identity',
+    correlationId: 'req-whatsapp-racey-identity',
+    headers: {
+      'x-channel-webhook-secret': 'test-channel-secret',
+      'content-type': 'application/json',
+      'user-agent': 'facebookexternalua',
+      'x-hub-signature-256': 'sha256=present',
+    },
+    query: {},
+    body: payload,
+    rawBody: JSON.stringify(payload),
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.success, true);
+  assert.equal(response.body.count, 1);
+  const identities = await services.repository.list('channel_identities');
+  assert.equal(identities.length, 1);
+  assert.equal(identities[0].id, '11111111-1111-4111-8111-111111111111');
+  assert.equal(identities[0].user_id, 'linked-user-1');
+  assert.equal(identities[0].consent_status, 'opted_in');
+  assert.equal(identities[0].verified, true);
+  const inboundMessages = (await services.repository.list('messages')).filter((message) => (
+    message.direction === 'inbound' && message.provider === 'meta_whatsapp_cloud_api'
+  ));
+  assert.equal(inboundMessages.length, 1);
+
+  const recent = await invokeRouter(adminRouter, {
+    method: 'GET',
+    url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+    headers: { authorization: 'Bearer worker-secret' },
+    query: {},
+  });
+  assert.equal(recent.statusCode, 200);
+  assert.equal(recent.body.receipts[0].processing_status, 'processed');
+  assert.equal(recent.body.receipts[0].error_code, null);
+  assert.equal(recent.body.receipts[0].persisted_message_id, response.body.results[0].message.id);
+  assert.equal(recent.body.receipts[0].thread_id, response.body.results[0].thread.id);
+  assert.equal(recent.body.receipts[0].x_hub_sig_256, 'present');
+  assert.equal(recent.body.receipts[0].sender_wa_id_last4, '4567');
 });
 
 test('Meta WhatsApp status-only POST is accepted and ignored without message creation', async () => {
