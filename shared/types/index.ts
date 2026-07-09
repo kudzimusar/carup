@@ -149,3 +149,4 @@ export interface ServiceRecord {
 
 // Marketplace v1 canonical contracts (trust/verification/pricing/inquiry/referral).
 export * from './marketplace';
+export * from './communication';
