@@ -9,7 +9,7 @@
  *
  * Native screen reality (only these exist; see milestone brief):
  *   (tabs)/index, (tabs)/garage, (tabs)/escrow, (tabs)/marketplace,
- *   (tabs)/referral, vehicle/[vin], (auth)/*.
+ *   (tabs)/referral, (tabs)/communications, vehicle/[vin], (auth)/*.
  * There are NO native dealer/mechanic/insurance/government/bank work areas and
  * NO native /search screen — so none are declared here.
  */
@@ -65,8 +65,17 @@ export const NATIVE_NAV: NativeNavEntry[] = [
     featureId: 'owner.referrals',
     label: 'Referrals',
     iconName: 'Gift',
-    placement: 'tab',
+    placement: 'drawer',
     order: 40,
+  },
+  {
+    id: 'native.communications',
+    expoRoute: '/(tabs)/communications',
+    featureId: 'owner.communications',
+    label: 'Messages',
+    iconName: 'MessageSquare',
+    placement: 'tab',
+    order: 45,
   },
   {
     // SafePay area. There is no dedicated registered "escrow" feature, so it is
@@ -176,10 +185,12 @@ export function getNativeDrawer(ctx: NativeNavContext): ResolvedNativeEntry[] {
 }
 
 /**
- * The 5 real Expo Router screen names that the native `(tabs)/_layout` declares,
+ * The 6 real Expo Router screen names that the native `(tabs)/_layout` declares,
  * mapped to the manifest entry that owns each. `escrow` IS declared (the screen
  * exists) but is a DRAWER entry — it is never a tab, so it is always hidden in
- * the tab bar (`href: null` in the layout). Milestone C surfaces it via a drawer.
+ * the tab bar (`href: null` in the layout). `referral` is also drawer-placed so
+ * owner can keep Messages visible while preserving the native 5-slot cap with
+ * the More tab. Milestone C surfaces both through the governed drawer.
  */
 const TAB_SCREEN_ENTRY_IDS: { name: string; entryId: string }[] = [
   { name: 'index', entryId: 'native.dashboard' },
@@ -187,6 +198,7 @@ const TAB_SCREEN_ENTRY_IDS: { name: string; entryId: string }[] = [
   { name: 'escrow', entryId: 'native.escrow' },
   { name: 'marketplace', entryId: 'native.marketplace' },
   { name: 'referral', entryId: 'native.referral' },
+  { name: 'communications', entryId: 'native.communications' },
 ];
 
 /** One row of the resolved tab-bar plan — pure, RN-runtime-free. */

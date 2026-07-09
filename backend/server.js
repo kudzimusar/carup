@@ -78,6 +78,8 @@ import reportRouter from './routes/reportRoutes.js';
 import governanceRouter from './routes/governanceRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
+import communicationRouter from './routes/communicationRoutes.js';
+import adminCommunicationRouter from './routes/adminCommunicationRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
@@ -87,6 +89,7 @@ import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 
 dotenv.config();
@@ -124,8 +127,25 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-app.use(express.json({ limit: '15mb' }));
-app.use(express.urlencoded({ limit: '15mb', extended: true }));
+app.use(express.json({
+  limit: '15mb',
+  verify: (req, _res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (/^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(url)) {
+      req.rawBody = Buffer.from(buf).toString('utf8');
+    }
+  },
+}));
+app.use(express.urlencoded({
+  limit: '15mb',
+  extended: true,
+  verify: (req, _res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (/^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(url)) {
+      req.rawBody = Buffer.from(buf).toString('utf8');
+    }
+  },
+}));
 app.use(csrfMiddleware);
 
 // Signed CSRF token route
@@ -200,6 +220,8 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
+app.use(communicationRouter());
+app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
@@ -240,6 +262,7 @@ if (connectionError) {
   
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
+  registerCommunicationListeners(eventWorker);
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 
