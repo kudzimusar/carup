@@ -33,7 +33,7 @@ shared provider control-plane over one in-memory Supabase mock. **Result: 15/15 
 
 | Suite | Result |
 |---|---|
-| **Backend `node --test backend/tests/`** | **1256 tests · 1248 pass · 0 fail · 8 skipped** |
+| **Backend `node --test backend/tests/`** | **1267 tests · 1258 pass · 8 skipped** (the lone "fail" in a full run is the untouched `evidence-ai-fraud.test.js` IPC flake — passes 5/5 in isolation) |
 | Government activation | 31 / 31 |
 | Insurance provider | 19 / 19 |
 | Finance (lender) provider | 20 / 20 |
@@ -41,21 +41,45 @@ shared provider control-plane over one in-memory Supabase mock. **Result: 15/15 
 | Mobile certification (backend) | 10 / 10 |
 | Provider platform | 15 / 15 |
 | Provider platform routes + reconciliation | 8 / 8 |
-| Provider load/resilience (concurrency, circuit breaker, outage, dead-letter) | 7 / 7 |
+| Provider load/resilience (concurrency, circuit recovery, outage, dead-letter, cross-provider, replay) | 11 / 11 |
+| Lender routes object-level authorization | 5 / 5 |
+| Webhook security wiring (CSRF bypass + raw-body capture) | 3 / 3 |
 | Integrated 15-step journey | 1 / 1 (15/15 properties) |
 | **Mobile (tsx) offline-resilience** | 7 / 7 |
 | **Mobile (tsx) large-and-edgecases** | 7 / 7 |
-| **PGlite migration harness** (Up/Down/re-Up) | 23 / 23 / 23 |
+| **PGlite migration harness** (Up/Down/re-Up, invariant-gated) | 24 / 24 / 24 |
 | Mobile certification standalone migration harness | 14 / 14 assertions |
 | **Web build** (`tsc -b && vite build`) | ✅ green (2618 modules) |
 | Secret scan (51 Full Activation files) | ✅ clean |
 
 **Note (transparency):** one intermittent Node test-runner IPC artifact ("Unable to deserialize
-cloned data") was observed once on `evidence-ai-fraud.test.js` in a full-suite run; the file is
+cloned data") was observed on `evidence-ai-fraud.test.js` in a full-suite run; the file is
 **untouched by this cycle**, has **zero Full Activation dependencies**, and passes 5/5 in isolation.
-It is runner noise, not a defect. `npm run lint` (web `eslint .`) has **179 pre-existing baseline
-errors** that fail identically on `main` (0 web files changed this cycle) — pre-existing tech debt,
-not a Full Activation defect; the web app still **builds green**.
+It is runner noise, not a defect.
+
+## 2b. Adversarial re-verification & hardening pass
+
+A 27-agent adversarial re-verification (10 audit dimensions × 2-lens verify) re-ran every suite
+from scratch and hunted for defects the happy-path testing masked. It **confirmed 9 real defects
+introduced by this program** — all now fixed with regression tests, staging updated, production
+untouched. **0 confirmed defects remain.**
+
+| # | Sev | Defect | Fix | Guard |
+|---|---|---|---|---|
+| F1 | P1 | `csrfMiddleware` blocked all 5 signed provider webhooks (403 in prod before HMAC) | added insurer/lender/escrow-provider/escrow-trust/eligibility to the bypass list | `webhook-security-middleware.test.js` |
+| F2 | P1 | circuit breaker latched open permanently (shed + kill-switch rows counted; no recovery) | half-open probe after cooldown; gate/shed rows excluded from the window | `provider-resilience.test.js` (recovery + no-latch) |
+| F3 | P1 | any `owner`-role user could read any VIN's private lender decisions / erase any consent | bound to actual vehicle/consent ownership | `lender-routes-authz.test.js` (5) |
+| F4 | P2 | global `express.json` consumed the body → webhook HMAC checked a re-serialized body | capture `req.rawBody` for `/webhook` paths in the global parser | `webhook-security-middleware.test.js` |
+| F5 | P2 | idempotent replay of a retry-then-success returned the intermediate timeout | claim the key on the TERMINAL attempt | `provider-resilience.test.js` (replay) |
+| F6 | P2 | cross-capability idempotency-key collision (global UNIQUE) | migration → `UNIQUE(provider_id, idempotency_key)` + per-provider dedupe (staging-verified) | `provider-resilience.test.js` (cross-provider) |
+| F7 | P2 | `dealer-routes.test.js` unconditional `JSON.parse` of a non-JSON error body flaked the file | guarded parse | file no longer flakes |
+| F8 | P2 | PGlite harness recorded immutability assertions but never failed on them | invariant gate flips overall PASS + exit code; `tables_after_down` extended to all 22 FA tables | gate proof (forced-fail → exit 1) |
+| F9 | P3 | escrow-trust webhook reused the `finance_sandbox` HMAC secret | own `ESCROW_TRUST_WEBHOOK_SECRET` | `escrow-trust.test.js` |
+
+Everything else the audit surfaced was refuted, pre-existing baseline (unchanged from `main`), or
+by-design fail-closed behavior. `npm run lint` (web `eslint .`): the branch had introduced 31 new
+errors from **earlier** program cycles (0 from the provider-activation work) — these were fixed in
+this hardening pass (see the web-lint delta below); the web app builds green throughout.
 
 ## 3. Device matrix (mobile certification — HONEST)
 
