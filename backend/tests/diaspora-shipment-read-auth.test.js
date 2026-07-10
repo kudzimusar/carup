@@ -92,8 +92,8 @@ function resolve_(state) {
     case 'users':
       return db.users[filters.id] ? ok(db.users[filters.id]) : missing('no user');
     case 'tenant_users':
-      return db.tenantUsers[`${filters.tenant_id}|${filters.user_id}`] 
-        ? ok(db.tenantUsers[`${filters.tenant_id}|${filters.user_id}`]) 
+      return db.tenantUsers[`${filters.tenant_id}|${filters.user_id}`]
+        ? ok(db.tenantUsers[`${filters.tenant_id}|${filters.user_id}`])
         : missing('no membership');
     case 'diaspora_import_orders':
       return db.orders[filters.id] ? ok(db.orders[filters.id]) : missing('order not found');
