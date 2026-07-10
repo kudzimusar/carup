@@ -55,7 +55,10 @@ for (const tab of TABS) {
   });
 
   test(`${tab}: no hardcoded localhost / loopback / raw IP host`, () => {
-    assert.ok(!/localhost|127\.0\.0\.1|0\.0\.0\.0|http:\/\/\d{1,3}(\.\d{1,3}){3}/.test(src), `${tab} has no hardcoded host`);
+    // Match hosts in URL or quoted-string form only, so prose in comments
+    // (e.g. "…instead of the legacy localhost /api/vehicles array") is exempt.
+    const hardcodedHost = /https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(\.\d{1,3}){3})|['"`](localhost|127\.0\.0\.1|0\.0\.0\.0)['"`:]/;
+    assert.ok(!hardcodedHost.test(src), `${tab} has no hardcoded host`);
   });
 
   test(`${tab}: every fetch sends the ngrok-skip-browser-warning header`, () => {
