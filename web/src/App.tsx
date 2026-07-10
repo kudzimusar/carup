@@ -110,7 +110,7 @@ const FeatureGovernanceConsole = lazy(importFeatureGovernanceConsole)
  * /admin/features is instant. No-op for non-admins (gated by the caller). Safe
  * to call repeatedly — the dynamic import is memoized by the bundler.
  */
-export function preloadFeatureGovernanceConsole() {
+function preloadFeatureGovernanceConsole() {
   importFeatureGovernanceConsole().catch(() => {
     /* Preload is best-effort; a failure here is harmless — the real navigation
        (with Suspense + LazyRouteBoundary) handles errors and retries. */

@@ -23,7 +23,7 @@ import {
   type NavigationContext,
 } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
-import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { evaluateRouteAccess } from '@/lib/routeAccess'
 import {
   AuthBootstrapLoading,

@@ -6,9 +6,22 @@ const BASE = 'https://api.test/api'
 const ENDPOINT = `${BASE}/analytics/navigation`
 const CSRF_URL = `${BASE}/security/csrf-token`
 
+interface PostBody {
+  schemaVersion: number
+  events: Array<Record<string, unknown>>
+}
+
 interface PostCapture {
-  body: any
+  body: PostBody
   headers: Record<string, string>
+}
+
+/** A single recorded `fetch` invocation: `[url, init?]`. */
+type FetchCall = [string, RequestInit?]
+
+/** Read a `vi.fn()`-backed fetch mock's recorded calls without an `any` cast. */
+function fetchCalls(fn: typeof fetch): FetchCall[] {
+  return (fn as unknown as { mock: { calls: FetchCall[] } }).mock.calls
 }
 
 /**
@@ -161,7 +174,7 @@ describe('NavigationAnalytics (web client)', () => {
     // Exactly two POST attempts (initial + one retry); call count is bounded.
     expect(posts).toHaveLength(2)
     // GET (re-fetched after resetCsrfTokenCache) + POST per attempt = bounded total.
-    const postCalls = (fetchImpl as any).mock.calls.filter((c: any[]) => c[0] === ENDPOINT)
+    const postCalls = fetchCalls(fetchImpl).filter((c) => c[0] === ENDPOINT)
     expect(postCalls.length).toBe(2)
     expect(client.pendingCount).toBe(0) // dropped after exhausting the bounded retry
   })
@@ -176,7 +189,7 @@ describe('NavigationAnalytics (web client)', () => {
 
   it('transport rejection drops the batch and never throws', async () => {
     const posts: PostCapture[] = []
-    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+    const fetchImpl = vi.fn(async (url: string) => {
       if (url === CSRF_URL) {
         return new Response(JSON.stringify({ csrfToken: 'tok' }), { status: 200 })
       }
@@ -223,8 +236,8 @@ describe('NavigationAnalytics (web client)', () => {
     expect(beaconPost.headers['x-csrf-token']).toBe('tok')
     expect(beaconPost.headers['x-session-token']).toBe('sess')
     // It used the keepalive fetch path, not sendBeacon (which can't carry headers).
-    const lastCall = (fetchImpl as any).mock.calls.at(-1)
-    expect(lastCall[1].keepalive).toBe(true)
+    const lastCall = fetchCalls(fetchImpl).at(-1)
+    expect(lastCall?.[1]?.keepalive).toBe(true)
     expect(client.pendingCount).toBe(0)
   })
 
@@ -247,10 +260,10 @@ describe('NavigationAnalytics (web client)', () => {
 
     // Identity changes (e.g. role switch / re-login) → cached token is not reusable.
     setAuth({ 'x-session-token': 'sess-B', 'x-user-id': 'u' })
-    const callsBefore = (fetchImpl as any).mock.calls.length
+    const callsBefore = fetchCalls(fetchImpl).length
     client.track({ event_type: 'navigation_tab_selected', surface: 'bottom_tabs', node_id: 'home' })
     client.flushBeacon()
-    expect((fetchImpl as any).mock.calls.length).toBe(callsBefore) // no new request
+    expect(fetchCalls(fetchImpl).length).toBe(callsBefore) // no new request
     expect(client.pendingCount).toBe(0)
   })
 

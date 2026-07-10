@@ -77,9 +77,11 @@ untouched. **0 confirmed defects remain.**
 | F9 | P3 | escrow-trust webhook reused the `finance_sandbox` HMAC secret | own `ESCROW_TRUST_WEBHOOK_SECRET` | `escrow-trust.test.js` |
 
 Everything else the audit surfaced was refuted, pre-existing baseline (unchanged from `main`), or
-by-design fail-closed behavior. `npm run lint` (web `eslint .`): the branch had introduced 31 new
-errors from **earlier** program cycles (0 from the provider-activation work) — these were fixed in
-this hardening pass (see the web-lint delta below); the web app builds green throughout.
+by-design fail-closed behavior. **Web lint (F10):** the branch had introduced 31 new eslint errors
+from **earlier** program cycles (0 from the provider-activation work). All 31 are now fixed —
+branch lint is back to exactly the `main` baseline (179 → **148 errors**, delta 0), typecheck
+(`tsc -b`) green, production build green, and the 61 unit tests covering the touched components
+all pass (behavior preserved).
 
 ## 3. Device matrix (mobile certification — HONEST)
 
