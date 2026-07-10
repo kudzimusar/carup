@@ -125,6 +125,16 @@ function createMockClient() {
 const owner = { id: 'owner-1', userId: 'owner-1', role: 'owner', tenantId: null };
 const image = 'data:image/jpeg;base64,' + Buffer.from('not-a-real-document').toString('base64');
 
+// A buffer that passes Workstream C evidence validation (valid JPEG magic,
+// non-trivial size) so the OCR-decision path is exercised. Distinct fill per
+// call avoids false duplicate detection.
+let __imgSeq = 0;
+function validImage() {
+  const buf = Buffer.alloc(3000, (__imgSeq++ % 200) + 30);
+  buf[0] = 0xff; buf[1] = 0xd8; buf[2] = 0xff;
+  return buf;
+}
+
 test('creates verification session and writes audit event', async () => {
   const client = createMockClient();
   const session = await createVerificationSession(client, owner, {
@@ -172,7 +182,7 @@ test('submit requires all requested sides before OCR', async () => {
   await assert.rejects(() => submitVerificationSession(client, owner, session.id), /back document/);
 });
 
-test('submit runs OCR from private storage and records verified status without raw image response', async () => {
+test('submit runs OCR but NEVER auto-verifies — routes to manual review (fail closed)', async () => {
   const client = createMockClient();
   const session = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
   await uploadVerificationSessionImage(client, owner, session.id, 'front', { image }, {
@@ -184,7 +194,7 @@ test('submit runs OCR from private storage and records verified status without r
 
   const result = await submitVerificationSession(client, owner, session.id, {
     storage: {
-      downloadFromStorage: async () => ({ buffer: Buffer.from('stored-private-bytes'), mimeType: 'image/jpeg' }),
+      downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/jpeg' }),
     },
     ocr: {
       extractDocumentData: async (_docType, dataUri) => {
@@ -208,13 +218,57 @@ test('submit runs OCR from private storage and records verified status without r
     },
   });
 
-  assert.equal(result.status, 'verified');
+  // P0: even a clean, high-confidence OCR result must NOT auto-verify. Verified
+  // is reachable only through admin review of the actual evidence.
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /manual review/i);
+  // Sanitization still holds: extracted fields surface, private notes stripped.
   assert.equal(result.ocr_result.first_name, 'Ruvimbo');
   assert.equal(result.ocr_result.additional_fields.expiry, '2030-05-18');
   assert.equal(result.ocr_result.additional_fields.private_note, undefined);
   assert.equal(Object.hasOwn(result, 'front_storage_path'), false);
   assert.equal(client.data.ocr_documents[0].file_path, client.data.verification_sessions[0].front_storage_path);
   assert.ok(client.data.trust_audit_events.some(event => event.event_type === 'VERIFICATION_OCR_COMPLETED'));
+});
+
+test('P0: a non-document with HALLUCINATED high-confidence identity fields cannot become verified (cup scenario)', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  // Simulates the real failure mode: a cup image is sent to an OCR provider
+  // which hallucinates a plausible Zimbabwe ID with high confidence.
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.98,
+      first_name: 'Tafadzwa',
+      last_name: 'Moyo',
+      national_id_number: '63-123456-A-77',
+      country: 'Zimbabwe',
+    },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+});
+
+test('P0: OCR provider failure surfaces NO identity fields (no seeded fallback)', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  const result = await submitVerificationSession(client, owner, session.id, {
+    storage: { downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/jpeg' }) },
+    ocr: { extractDocumentData: async () => ({ success: false, error: 'AI_OCR_EXTRACTION_FAILED' }) },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.ok(['ocr_failed', 'pending_manual_review'].includes(result.status));
+  // No seeded identity must appear on a failed extraction.
+  const ocr = result.ocr_result || {};
+  assert.equal(ocr.first_name, undefined);
+  assert.equal(ocr.national_id_number, undefined);
 });
 
 test('OCR failure marks session ocr_failed and remains fetchable as sanitized status', async () => {
@@ -229,7 +283,7 @@ test('OCR failure marks session ocr_failed and remains fetchable as sanitized st
 
   const result = await submitVerificationSession(client, owner, session.id, {
     storage: {
-      downloadFromStorage: async () => ({ buffer: Buffer.from('stored-private-bytes'), mimeType: 'image/jpeg' }),
+      downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/jpeg' }),
     },
     ocr: {
       extractDocumentData: async () => {
@@ -272,7 +326,7 @@ async function createUploadedSession(client) {
 function submitWithOcr(client, sessionId, ocrResult) {
   return submitVerificationSession(client, owner, sessionId, {
     storage: {
-      downloadFromStorage: async () => ({ buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]), mimeType: 'image/png' }),
+      downloadFromStorage: async () => ({ buffer: validImage(), mimeType: 'image/png' }),
     },
     ocr: { extractDocumentData: async () => ocrResult },
   });
@@ -290,7 +344,8 @@ test('blank/1x1 image (OCR success with zero confidence, no fields) cannot becom
 
   assert.notEqual(result.status, 'verified');
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+  assert.equal(result.extraction_trust_status, 'no_fields');
+  assert.match(result.failure_reason, /requires manual review/);
 });
 
 test('high confidence without extracted identity fields cannot become verified', async () => {
@@ -304,7 +359,9 @@ test('high confidence without extracted identity fields cannot become verified',
   });
 
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /identity fields required/);
+  assert.equal(result.extraction_trust_status, 'untrusted');
+  assert.equal(result.primary_reason_code, 'REQUIRED_FIELDS_MISSING');
+  assert.match(result.failure_reason, /requires manual review/);
 });
 
 test('identity fields with low confidence cannot become verified', async () => {
@@ -323,7 +380,81 @@ test('identity fields with low confidence cannot become verified', async () => {
   });
 
   assert.equal(result.status, 'pending_manual_review');
-  assert.match(result.failure_reason, /below the 0.75 verification threshold/);
+  // Has identity fields but identity binding is indeterminate (no account user)
+  assert.equal(result.extraction_trust_status, 'partially_trusted');
+  assert.equal(result.primary_reason_code, null);
+  assert.notEqual(result.failure_reason, null);
+});
+
+test('P0/C: a non-image / tiny front (cup-as-blank, screenshot) fails closed before OCR', async () => {
+  const client = createMockClient();
+  const session = await createUploadedSession(client);
+
+  let ocrCalled = false;
+  const result = await submitVerificationSession(client, owner, session.id, {
+    storage: {
+      // 12-byte non-image buffer — fails Workstream C validation.
+      downloadFromStorage: async () => ({ buffer: Buffer.from('not an image'), mimeType: 'image/jpeg' }),
+    },
+    ocr: {
+      extractDocumentData: async () => { ocrCalled = true; return { success: true, extractedData: { confidenceScore: 0.99, first_name: 'X', last_name: 'Y', national_id_number: 'Z' } }; },
+    },
+  });
+
+  assert.equal(ocrCalled, false); // OCR must not run on invalid evidence
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /too small|not a supported/);
+  // No identity fields populated from a non-document.
+  assert.ok(!result.ocr_result || result.ocr_result.first_name === undefined);
+});
+
+test('F: account/document identity MISMATCH is surfaced (and never auto-verifies)', async () => {
+  const client = createMockClient();
+  client.data.users = [{ id: 'owner-1', name: 'Phase7B Tester' }];
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.98,
+      first_name: 'Tafadzwa',
+      last_name: 'Moyo',
+      national_id_number: '63-123456-A-77',
+      country: 'Zimbabwe',
+    },
+  });
+
+  assert.notEqual(result.status, 'verified');
+  assert.equal(result.status, 'pending_manual_review');
+  assert.match(result.failure_reason, /Identity mismatch/i);
+  assert.match(result.review_notes, /MISMATCH/);
+  assert.match(result.review_notes, /Phase7B Tester/);
+  assert.match(result.review_notes, /Tafadzwa Moyo/);
+  const ocrEvent = client.data.trust_audit_events.find(e => e.event_type === 'VERIFICATION_OCR_COMPLETED');
+  assert.equal(ocrEvent.new_value.identity_binding, 'mismatch');
+});
+
+test('F: matching account/document identity is NOT flagged as a mismatch', async () => {
+  const client = createMockClient();
+  client.data.users = [{ id: 'owner-1', name: 'Ruvimbo Chigumba' }];
+  const session = await createUploadedSession(client);
+
+  const result = await submitWithOcr(client, session.id, {
+    success: true,
+    ocrDocumentId: 'ocr-1',
+    extractedData: {
+      confidenceScore: 0.98,
+      first_name: 'Ruvimbo',
+      last_name: 'Chigumba',
+      national_id_number: 'ZN0943248',
+    },
+  });
+
+  assert.equal(result.status, 'pending_manual_review');
+  assert.doesNotMatch(result.failure_reason, /Identity mismatch/i);
+  assert.doesNotMatch(result.review_notes, /MISMATCH/);
 });
 
 test('evaluateOcrEvidence unit cases', async () => {

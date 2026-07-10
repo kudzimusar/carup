@@ -5,11 +5,16 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
   const apiKey = process.env.GEMINI_API_KEY;
   
   if (!apiKey) {
-    if (process.env.ALLOW_OCR_MOCK !== 'true') {
-      throw new Error('FATAL: Gemini API key is missing and ALLOW_OCR_MOCK is disabled.');
+    // SECURITY (P0): mock provider responses must NEVER run in a real runtime.
+    // Seeded/simulated payloads previously leaked into live identity
+    // verification. Mock is permitted ONLY under NODE_ENV=test with an explicit
+    // flag; otherwise fail closed so the caller records an honest OCR failure.
+    const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
+    if (!mockAllowed) {
+      throw new Error('OCR provider unavailable: Gemini API key missing and mock OCR is only permitted under NODE_ENV=test with ALLOW_OCR_MOCK=true.');
     }
     // Return high-fidelity mock operational intelligence responses matching the prompts
-    console.log('Using simulated Gemini reasoning framework...');
+    console.log('Using simulated Gemini reasoning framework... (TEST MODE ONLY)');
     
     if (jsonMode) {
       const lowerPrompt = userPrompt.toLowerCase();

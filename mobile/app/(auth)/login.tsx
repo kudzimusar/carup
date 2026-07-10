@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,7 +13,7 @@ type LoginFormValues = z.infer<typeof LoginSchema>;
 const inputStyle = {
   backgroundColor: '#F8FAFC',
   borderWidth: 1,
-  borderColor: '#E2E8F0',
+  borderColor: '#CBD5E1',
   color: '#0F172A',
   padding: 16,
   borderRadius: 12,
@@ -21,20 +21,11 @@ const inputStyle = {
   height: 52,
 };
 
-const fieldLabelStyle = {
-  fontSize: 12,
-  fontWeight: '600' as const,
+const labelStyle = {
+  fontSize: 13,
+  fontWeight: '700' as const,
   color: '#334155',
-  textTransform: 'uppercase' as const,
-  letterSpacing: 1,
-  marginBottom: 8,
-};
-
-const errorTextStyle = {
-  color: '#EF4444',
-  fontSize: 12,
-  marginTop: 4,
-  fontWeight: '500' as const,
+  marginBottom: 6,
 };
 
 export default function LoginScreen() {
@@ -96,108 +87,110 @@ export default function LoginScreen() {
     }
   };
 
+  // Radically simple, top-aligned, single-column layout. No vertical centering,
+  // no fixed bottom bar, no footer — the submit button is in the same scroll
+  // flow directly below the password so it is always visible on iPhone.
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={{ flex: 1, backgroundColor: '#FFFFFF' }}
     >
-      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingVertical: 48, justifyContent: 'center' }}>
-        {/* Header Block */}
-        <View style={{ marginBottom: 40, alignItems: 'center' }}>
-          <Text style={{ fontSize: 30, fontWeight: '700', color: '#0F172A', letterSpacing: -0.5 }}>CarUp OS</Text>
-          <Text style={{ fontSize: 14, color: '#64748B', marginTop: 8, textAlign: 'center' }}>
-            Log in to manage your multi-tenant automotive ecosystem and escrow ledgers.
-          </Text>
-        </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 64, paddingBottom: 64 }}
+      >
+        {/* Title */}
+        <Text style={{ fontSize: 26, fontWeight: '800', color: '#0F172A', marginBottom: 24 }}>
+          Sign in to CarUp
+        </Text>
 
-        {/* Form Body */}
-        <View>
-          {serverError && (
-            <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 }}>
-              <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '600', textAlign: 'center' }}>{serverError}</Text>
-            </View>
+        {/* Error banner (if any) */}
+        {serverError && (
+          <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FECACA', marginBottom: 20 }}>
+            <Text style={{ color: '#DC2626', fontSize: 13, fontWeight: '600' }} testID="login-server-error">{serverError}</Text>
+          </View>
+        )}
+
+        {/* Email label + field */}
+        <Text style={labelStyle}>Email</Text>
+        <Controller
+          control={control}
+          name="email"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextInput
+              style={inputStyle}
+              placeholder="phase7b.tester@carup.dev"
+              placeholderTextColor="#94a3b8"
+              onBlur={onBlur}
+              onChangeText={onChange}
+              value={value}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID="login-email"
+            />
           )}
+        />
+        {errors.email && <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{errors.email.message}</Text>}
 
-          {/* Email Block */}
-          <View>
-            <Text style={fieldLabelStyle}>Email Address</Text>
-            <Controller
-              control={control}
-              name="email"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={inputStyle}
-                  placeholder="Enter email address"
-                  placeholderTextColor="#94a3b8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  testID="login-email"
-                />
-              )}
+        {/* Password label + field */}
+        <Text style={[labelStyle, { marginTop: 16 }]}>Password</Text>
+        <Controller
+          control={control}
+          name="password"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextInput
+              style={inputStyle}
+              placeholder="Enter password"
+              placeholderTextColor="#94a3b8"
+              onBlur={onBlur}
+              onChangeText={onChange}
+              value={value}
+              secureTextEntry
+              autoCapitalize="none"
+              testID="login-password"
             />
-            {errors.email && (
-              <Text style={errorTextStyle}>{errors.email.message}</Text>
-            )}
-          </View>
+          )}
+        />
+        {errors.password && <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{errors.password.message}</Text>}
 
-          {/* Password Block */}
-          <View style={{ marginTop: 16 }}>
-            <Text style={fieldLabelStyle}>Password</Text>
-            <Controller
-              control={control}
-              name="password"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <TextInput
-                  style={inputStyle}
-                  placeholder="Enter password"
-                  placeholderTextColor="#94a3b8"
-                  onBlur={onBlur}
-                  onChangeText={onChange}
-                  value={value}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  testID="login-password"
-                />
-              )}
-            />
-            {errors.password && (
-              <Text style={errorTextStyle}>{errors.password.message}</Text>
-            )}
-          </View>
+        {/* Visible marker text directly above the button */}
+        <Text style={{ color: '#0F172A', fontSize: 13, fontWeight: '800', marginTop: 24, marginBottom: 8 }} testID="login-visible-marker">
+          VISIBLE LOGIN BUTTON BELOW
+        </Text>
 
-          {/* Premium Login Button - 48px Target Area */}
-          <Pressable
-            onPress={handleSubmit(onSubmit)}
-            disabled={isSubmitting}
-            testID="login-submit"
-            style={({ pressed }) => ({
-              width: '100%',
-              backgroundColor: '#0F172A',
-              borderRadius: 12,
-              height: 56,
-              marginTop: 32,
-              justifyContent: 'center',
-              alignItems: 'center',
-              opacity: isSubmitting ? 0.7 : pressed ? 0.85 : 1,
-            })}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#ffffff" />
-            ) : (
-              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '600' }}>Sign In</Text>
-            )}
-          </Pressable>
-        </View>
-
-        {/* Footer info */}
-        <View style={{ marginTop: 48, alignItems: 'center' }}>
-          <Text style={{ fontSize: 12, color: '#94A3B8' }}>
-            Secure bank-escrow platform compliance enabled
-          </Text>
-        </View>
+        {/* Visible submit CTA — directly below the password, in the same flow.
+            Orange background, white text, minHeight 64, full width, solid border,
+            never opacity 0. Rendered unconditionally (only the inner label swaps
+            to a spinner while submitting). */}
+        <TouchableOpacity
+          onPress={handleSubmit(onSubmit)}
+          disabled={isSubmitting}
+          activeOpacity={0.85}
+          testID="login-submit"
+          accessibilityRole="button"
+          accessibilityLabel="Sign In"
+          style={{
+            width: '100%',
+            minHeight: 64,
+            backgroundColor: '#F97316',
+            borderRadius: 12,
+            borderWidth: 2,
+            borderColor: '#C2410C',
+            justifyContent: 'center',
+            alignItems: 'center',
+            paddingVertical: 12,
+          }}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={{ color: '#FFFFFF', fontSize: 18, fontWeight: '800', letterSpacing: 0.5 }}>
+              SIGN IN — VISIBLE CTA
+            </Text>
+          )}
+        </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
