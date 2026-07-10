@@ -63,6 +63,18 @@ post-decision state BEFORE the idempotency lookup. Fixed in `d8bed39`
 retry returns 200 with the same decision id and `idempotent_replay: true`
 (session `040d68c6-b092-45b6-b4d3-7bda2599d139`).
 
+## Resubmission-loop completion (live, 2026-07-11)
+
+Session `0fc62cc2-6ed8-4786-99e4-52cba8ebdda3`: submit → admin `request_resubmission`
+(BLURRY, applicant message) → applicant sees `retry_requested` + reason → re-upload
+front/selfie → resubmit 200 → back to `reviewer_action_required`. **DB truth:**
+`version` advanced 1→2 (optimistic concurrency intact; the API deliberately
+sanitizes `version` out of responses), 1 decision row, complete audit chain:
+`IMAGE_UPLOADED ×2 → REVIEW_RETRY_REQUESTED → IMAGE_UPLOADED ×2 → SUBMITTED →
+EVIDENCE_INVALID` (classifier fail-closed on the controlled synthetic evidence).
+API-level checks 8/8 (the ninth was an assertion reading the sanitized field —
+verified at the DB instead).
+
 ## Known limitation (owner decision pending)
 
 The staging backend has **no `GEMINI_API_KEY`** (health shows all OCR providers
