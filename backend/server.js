@@ -94,6 +94,7 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
+import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
@@ -161,7 +162,8 @@ app.get('/api/security/csrf-token', (req, res) => {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 3600000 * 2
+    maxAge: 3600000 * 2,
+    path: '/',
   });
   res.json({ csrfToken: token });
 });
@@ -255,6 +257,7 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
+app.use(identityVerificationAdminRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);

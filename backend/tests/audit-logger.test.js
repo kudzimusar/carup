@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { logAuditEvent, normalizeTrustAuditEvent } from '../services/auditLogger.js';
+
+process.env.SUPABASE_URL ||= 'http://localhost:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
+
+const { logAuditEvent, normalizeTrustAuditEvent } = await import('../services/auditLogger.js');
 
 // In-memory Supabase-ish stub. `memberships` seeds organization_users rows so the
 // FK-safe legacy resolver can find a verified (user_id, organization_id) pair —

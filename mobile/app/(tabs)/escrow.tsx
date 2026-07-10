@@ -32,6 +32,7 @@ function EscrowDashboardScreenInner() {
       const response = await fetch(apiUrl('/api/safepay/list'), {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
@@ -49,6 +50,7 @@ function EscrowDashboardScreenInner() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
         body: JSON.stringify({ status, details }),
