@@ -10,7 +10,10 @@
 
 const fs = require('fs');
 const zlib = require('zlib');
-const BACKEND = 'https://carup-backend-staging-git-phase-7c-nati-bb2612-pay-pass-project.vercel.app';
+// Target backend: env-driven so the harness follows the release branch's
+// deployment (the old hardcoded URL was the superseded PR #72 branch alias).
+const BACKEND = process.env.STAGING_BACKEND_URL
+  || 'https://carup-backend-staging-git-release-phase-81c126-pay-pass-project.vercel.app';
 const RESULTS_PATH = '/tmp/carup-phase7c-gate1/gate1-results.json';
 
 let tokens;
