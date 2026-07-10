@@ -6,7 +6,7 @@
  * (mirrors tests/native-navigation.test.ts).
  *
  * Proves the `_layout.tsx` tab plan (`resolveTabBar`) maps governed feature
- * truth → tab visibility/beta for the 5 REAL native screens, with no fabricated
+ * truth → tab visibility/beta for the real native tab screens, with no fabricated
  * screens, the ≤5 cap, and `escrow` always drawer-only.
  */
 import { strict as assert } from 'node:assert';
@@ -68,8 +68,8 @@ function visibleNames(c: NativeNavContext): string[] {
     .map((t) => t.name);
 }
 
-/** All five real screens are always declared (regardless of visibility). */
-const ALL_SCREENS = ['index', 'garage', 'escrow', 'marketplace', 'referral'];
+/** All real screens are always declared (regardless of visibility). */
+const ALL_SCREENS = ['index', 'garage', 'escrow', 'marketplace', 'referral', 'communications'];
 const NON_OWNER_ROLES: UserRole[] = [
   'dealer',
   'mechanic',
@@ -82,9 +82,9 @@ const NON_OWNER_ROLES: UserRole[] = [
 console.log('\n=== MILESTONE B — GOVERNED ROLE-AWARE TABS TEST ===\n');
 
 // ── Plan shape ───────────────────────────────────────────────────────────────
-test('resolveTabBar always returns a row for each of the 5 real screens', () => {
+test('resolveTabBar always returns a row for each real tab screen', () => {
   const plan = resolveTabBar(ctx('owner'));
-  assert.equal(plan.length, 5);
+  assert.equal(plan.length, ALL_SCREENS.length);
   assert.deepEqual(plan.map((p) => p.name).sort(), [...ALL_SCREENS].sort());
 });
 
@@ -103,14 +103,15 @@ test('never more than 5 visible tabs for any role', () => {
 });
 
 // ── Owner ────────────────────────────────────────────────────────────────────
-test('owner: index + marketplace + garage + referral visible, escrow hidden, ≤5', () => {
+test('owner: index + marketplace + garage + communications visible, referral/escrow hidden, ≤4 before More', () => {
   const names = visibleNames(ctx('owner'));
   assert.ok(names.includes('index'));
   assert.ok(names.includes('marketplace'));
   assert.ok(names.includes('garage'));
-  assert.ok(names.includes('referral'));
+  assert.ok(names.includes('communications'));
+  assert.ok(!names.includes('referral'), 'referral is drawer-placed to preserve the More-tab budget');
   assert.ok(!names.includes('escrow'), 'escrow is drawer-only');
-  assert.ok(names.length <= 5);
+  assert.ok(names.length <= 4);
 });
 
 // ── Non-owner authenticated roles ────────────────────────────────────────────
@@ -151,16 +152,16 @@ test('hidden owner.garage hides the garage tab', () => {
 
 // ── Beta indicator ───────────────────────────────────────────────────────────
 test('beta owner (state:beta) marks the tab beta=true while still visible', () => {
-  const states = { 'owner.referrals': eff('owner.referrals', { state: 'beta', beta: true }) };
-  const referral = resolveTabBar(ctx('owner', states)).find((t) => t.name === 'referral');
-  assert.ok(referral);
-  assert.equal(referral!.beta, true);
-  assert.equal(referral!.visible, true, 'beta is still visible');
+  const states = { 'owner.communications': eff('owner.communications', { state: 'beta', beta: true }) };
+  const communications = resolveTabBar(ctx('owner', states)).find((t) => t.name === 'communications');
+  assert.ok(communications);
+  assert.equal(communications!.beta, true);
+  assert.equal(communications!.visible, true, 'beta is still visible');
 });
 
 test('non-beta owner marks beta=false', () => {
-  const referral = resolveTabBar(ctx('owner')).find((t) => t.name === 'referral');
-  assert.equal(referral!.beta, false);
+  const communications = resolveTabBar(ctx('owner')).find((t) => t.name === 'communications');
+  assert.equal(communications!.beta, false);
 });
 
 // ── Icon / title wiring ──────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import {
   DIASPORA_INQUIRY_TYPES,
 } from './marketplaceEventTypes.js';
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -239,6 +240,20 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     actor: buyerId ? { actor_user_id: buyerId, id: buyerId, actor_type: 'user' } : {},
     metadata: { inquiry_type: inquiryType },
   });
+
+  // Best-effort bridge into the canonical communication fabric. Marketplace
+  // remains the source of truth; communication only creates threads/alerts.
+  emitDomainEvent(null, 'marketplace.inquiry.created', {
+    inquiryId: inserted.id,
+    listingId: listingId || null,
+    inquiry_type: inquiryType,
+    recipientUserId: sellerId || buyerId || null,
+    buyerId,
+    sellerId,
+    source_channel: sourceChannel,
+    referral_code: row.referral_code || null,
+    campaign_code: row.campaign_code || null,
+  }, sellerTenantId || null).catch(() => {});
 
   return toPublicInquiry(inserted);
 }

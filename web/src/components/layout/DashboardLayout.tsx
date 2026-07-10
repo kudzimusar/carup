@@ -165,6 +165,7 @@ export default function DashboardLayout({ role }: { role: string }) {
               'Start Import Order': 'nav-diaspora-new-import',
               'Diaspora Compliance': 'nav-diaspora-compliance',
               'Workbook Console': 'diaspora-workbook-console-nav-link',
+              'Communications': role === 'admin' ? 'nav-admin-communications' : 'nav-communications',
             }
             const IconComponent = resolveIcon(item)
             return (

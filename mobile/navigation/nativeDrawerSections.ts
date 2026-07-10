@@ -96,10 +96,10 @@ const DISCOVER_ENTRY_IDS = new Set(['native.marketplace']);
 
 /**
  * Which manifest entry ids belong in MY WORK (owner work area). SafePay/escrow
- * is drawer-only so it always surfaces here for eligible owners; Garage appears
- * only if it is NOT already a visible tab.
+ * and Referrals are drawer-placed owner work items; Garage appears only if it
+ * is NOT already a visible tab.
  */
-const MY_WORK_ENTRY_IDS = new Set(['native.garage', 'native.escrow']);
+const MY_WORK_ENTRY_IDS = new Set(['native.garage', 'native.referral', 'native.escrow']);
 
 /**
  * TRUST & VERIFICATION links — ONLY real native screens. There is no native

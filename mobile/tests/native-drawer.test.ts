@@ -164,6 +164,18 @@ test('owner: My Work surfaces SafePay (escrow / owner.listings)', () => {
   assert.equal(safepay!.expoRoute, '/(tabs)/escrow');
 });
 
+test('owner: My Work surfaces Referrals (owner.referrals)', () => {
+  const sections = resolveDrawerSections(ctx('owner'));
+  const myWork = sections.find((s) => s.id === 'my-work');
+  assert.ok(myWork, 'expected My Work section for owner');
+  const referrals = myWork!.items.find(
+    (i) => i.kind === 'link' && i.label === 'Referrals',
+  ) as DrawerLinkItem | undefined;
+  assert.ok(referrals, 'expected Referrals in owner My Work');
+  assert.equal(referrals!.featureId, 'owner.referrals');
+  assert.equal(referrals!.expoRoute, '/(tabs)/referral');
+});
+
 test('owner: Garage is NOT duplicated (it is a visible tab)', () => {
   const sections = resolveDrawerSections(ctx('owner'));
   const garage = links(sections).find((l) => l.id === 'native.garage');
@@ -223,8 +235,7 @@ test('disabled owner.listings (enabled:false) removes SafePay from owner My Work
   const states = { 'owner.listings': eff('owner.listings', { enabled: false }) };
   const sections = resolveDrawerSections(ctx('owner', states));
   assert.ok(!links(sections).some((l) => l.id === 'native.escrow'));
-  // And with no other My Work item, the section is omitted entirely.
-  assert.ok(!sectionIds(sections).includes('my-work'));
+  assert.ok(links(sections).some((l) => l.id === 'native.referral'));
 });
 
 test('planned owner.listings removes SafePay (lifecycle gate)', () => {
