@@ -64,6 +64,8 @@ const NEW_MIGRATIONS = [
   '20260703190000_provider_storage.sql',
   // Full Activation hardening — scope provider request idempotency to (provider_id, idempotency_key)
   '20260710120000_provider_request_attempts_provider_scope.sql',
+  // Phase 2B.1 (ported PR #11) — governed PartSentry public-card review workflow + approval provenance
+  '20260710130000_partsentry_review_requests.sql',
 ];
 
 function splitMigration(file) {
