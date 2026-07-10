@@ -19,8 +19,9 @@ Ledger maintained continuously. All claims below are backed by commands/SHAs/tot
 | S0 | Repository & PR forensics | **VERIFIED (LOCAL)** | This ledger, §Stage 0 |
 | S1 | Gate 2 launcher recovered/authored | **IMPLEMENTED — UNVERIFIED (device)** | `scripts/start-phase7c-gate2-mobile.sh` + 15/15 shell checks |
 | S2 | Automated backend Phase 7C validation | **VERIFIED (LOCAL)** | 117/117 backend tests, §Stage 2 |
-| S2 | Mobile ts/vitest/expo export | **NOT STARTED** | needs mobile workspace install |
-| S2 | Web ts/test/build | **NOT STARTED** | needs web workspace install |
+| S2 | Mobile ts/vitest/static-guards/expo export | **VERIFIED (LOCAL)** | tsc 0 · vitest 18/18 · static 4+59 · iOS export OK, §Stage 2 |
+| S2 | Web ts/test/build | **VERIFIED (LOCAL)** | tsc 0 · vitest 119/119 · build ✓, §Stage 2 |
+| S2 | git diff --check + secret/artifact scan | **VERIFIED (LOCAL)** | clean · 0 credential markers, §Stage 2 |
 | S3 | Staging migration reconciliation | **BLOCKED — EXTERNAL** | Supabase account lacks CarUp projects (§Blockers) |
 | S4 | Deploy tested SHA to staging | **BLOCKED — EXTERNAL** | Vercel MCP unauthenticated (§Blockers) |
 | S5 | Full staging acceptance matrix | **BLOCKED — EXTERNAL** | depends on S3/S4 |
@@ -119,9 +120,29 @@ This is a deliberate safety guard so production can never use mock OCR. Running 
 suites without the flag produces 9 expected "provider unavailable" failures; with the
 flag, 117/117 pass.
 
-**Pending (need workspace installs, not yet run this session):** mobile `ts:check` +
-`vitest` + `expo export`, web `tsc` + unit + build, `git diff --check`, repository
-secret scan across tracked source / build artifacts / env templates.
+**Full-stack validation — VERIFIED (2026-07-10, after full `npm install`, 1166+3 pkgs):**
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Launcher real verify | `PHASE7C_GATE2_ENV_FILE=<staging-valid tmp> ./scripts/start-phase7c-gate2-mobile.sh --verify-only` | PASS — all 4 default modules resolved for real |
+| Mobile TypeScript | `npm run ts:check --workspace=mobile` | 0 errors |
+| Mobile vitest | `npm test` (mobile) | **18/18** (1 file) |
+| Mobile static guards | `npm run test:static` (mobile) | **4 guard scripts PASS + smoke 59/59** |
+| Web TypeScript | `npx tsc -p web/tsconfig.app.json --noEmit` | 0 errors |
+| Web unit | `npx vitest run` (web) | **119/119** (8 files) |
+| Web production build | `npm run build --workspace=web` | ✓ built (chunk-size warning only) |
+| Expo iOS export | `npx expo export --platform ios --output-dir dist-phase7c-gate2 --clear` | ✓ Hermes bundle 5.28 MB + metadata |
+| `git diff --check` | — | clean |
+| Secret scan (tracked) | pattern grep | only runtime-generated `sk_live_` prefixes (dispositioned in `SECRET_EXPOSURE_AUDIT.md`); no stored credentials; no service-role assignments in tracked env files |
+| Artifact scan | `web/dist` + `mobile/dist-phase7c-gate2` | **0 credential markers** |
+
+**Defect found & fixed by this pass (silent test-coverage hole):**
+`mobile/vitest.config.ts` hard-pinned `include` to a single file, so 4 static guard
+scripts + a 59-assertion flow-smoke script never ran under any wired command, and any
+future vitest suite would be silently skipped. Fixed: glob include with explicit
+excludes for the 5 standalone `tsx` scripts, new `test` + `test:static` npm scripts in
+`mobile/package.json`, and `tsx` pinned as a real devDependency (was fetched ad-hoc by
+npx). `mobile/dist-phase7c-gate2/` added to `mobile/.gitignore` (build artifact).
 
 ---
 
