@@ -1,9 +1,10 @@
 # Full Activation — Migration, RLS & Storage Matrix
 
-Scope: the seven migrations that make up the Vehicle Trust OS provider control-plane and the
+Scope: the eight migrations that make up the Vehicle Trust OS provider control-plane and the
 five domain workstreams. All are **additive, marker-aware (`-- +migrate Up` / `-- +migrate Down`),
-and reversible**. Verified by `database/test/migration_pglite_check.mjs` — **Up 23 / Down 23 /
-re-Up 23** (PostgreSQL 17.5 WASM) — and applied to deployed staging `eoyenigwevnxwwhyhaer`.
+and reversible**. Verified by `database/test/migration_pglite_check.mjs` — **Up 24 / Down 24 /
+re-Up 24** (PostgreSQL 17.5 WASM), with an invariant gate that fails the run on any append-only
+regression — and applied to deployed staging `eoyenigwevnxwwhyhaer`.
 
 ## 1. Migration matrix (this cycle)
 
@@ -16,6 +17,7 @@ re-Up 23** (PostgreSQL 17.5 WASM) — and applied to deployed staging `eoyenigwe
 | `20260703160000_escrow_provider.sql` | `8ac4325d98d14072` | escrow_provider_config, escrow_kyc_kyb_states, escrow_reconciliation_ledger, escrow_dual_control_approvals | escrow_reconciliation_ledger, escrow_dual_control_approvals | ✅ participant/admin | ✅ applied |
 | `20260703170000_mobile_certification.sql` | `f3d76bb4fec0196c` | mobile_certification_runs, mobile_certification_results | mobile_certification_results | ✅ admin/government | ✅ applied |
 | `20260703190000_provider_storage.sql` | `476ab84d3d3c0bb9` | (storage.buckets + policies; PGlite-safe no-op) | — | storage policies | ✅ applied |
+| `20260710120000_provider_request_attempts_provider_scope.sql` | `d78ec5afff88708b` | (hardening) scope provider request idempotency to `UNIQUE(provider_id, idempotency_key)` | — | — | ✅ applied + verified |
 
 Immutability is asserted directly in the PGlite harness for every append-only ledger — each
 `UPDATE` and `DELETE` is blocked at the DB layer:
