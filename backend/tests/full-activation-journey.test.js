@@ -257,7 +257,12 @@ test('Full Activation — 15-step integrated staging journey (all 5 workstreams,
   approveKyc(escrowProvider.id);
   const blocked = await escrow.initiateProviderEscrow(sess2.id, { providerKey: 'escrow_acme', amountCents: 500000, currency: 'USD', gateContext: ESCROW_GATE });
   assert.equal(blocked.ok, false); assert.equal(blocked.blocked_reason, 'provider_kill_switch');
-  assert.ok(db.source_verification_results.length >= svrBefore, 'prior history intact (append-only, never deleted)');
+  // Prior history is intact (append-only): the earlier CLEAN 'match' verdict still exists, and the
+  // kill-switched call fabricated nothing (it never wrote a 'match' for the killed query).
+  assert.ok(svrBefore > 0 && db.source_verification_results.some(r => r.vin === 'ZIMRACLEANVIN' && r.result === 'match'),
+    'the earlier successful verdict survives the kill switch (append-only, never rewritten)');
+  assert.equal((await escrow.getProviderState(sess.id)).state, 'inspection',
+    'the earlier escrow session state is untouched by the kill switch');
   modesSeen.push(killed.mode);
   step(14, 'per-provider kill switch stops NEW gov + escrow calls; prior history intact');
 

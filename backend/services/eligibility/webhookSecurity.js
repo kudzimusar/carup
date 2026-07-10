@@ -15,6 +15,9 @@ const IS_PRODUCTION = () => process.env.NODE_ENV === 'production' || process.env
 const PROVIDER_SECRETS = () => ({
   insurance_sandbox: process.env.INSURANCE_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'insurance-sandbox-hmac-secret'),
   finance_sandbox: process.env.FINANCE_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'finance-sandbox-hmac-secret'),
+  // Trust-gated escrow webhook has its OWN secret — never share the finance secret across
+  // capabilities (a finance-secret holder must not be able to forge escrow state transitions).
+  escrow_trust_sandbox: process.env.ESCROW_TRUST_WEBHOOK_SECRET || (IS_PRODUCTION() ? null : 'escrow-trust-sandbox-hmac-secret'),
 });
 
 export const REPLAY_WINDOW_MS = 5 * 60 * 1000;

@@ -131,7 +131,17 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-app.use(express.json({ limit: '15mb' }));
+// Capture the exact raw request bytes for webhook paths so in-service HMAC signature
+// verification checks the real payload. The global JSON parser runs before any route-level
+// parser, so route-level `verify` callbacks never fire — this is the single place raw bytes
+// are available. Scoped to webhook URLs to avoid buffering every request body as a string.
+app.use(express.json({
+  limit: '15mb',
+  verify: (req, _res, buf) => {
+    const u = req.originalUrl || req.url || '';
+    if (u.includes('/webhook')) req.rawBody = buf.toString('utf8');
+  },
+}));
 app.use(express.urlencoded({ limit: '15mb', extended: true }));
 app.use(csrfMiddleware);
 

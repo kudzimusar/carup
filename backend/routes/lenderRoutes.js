@@ -26,6 +26,19 @@ const router = express.Router();
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+const isPrivileged = (role) => role === 'admin' || role === 'government';
+
+// Object-level authorization: a caller with the global 'owner' role may only touch a VIN they
+// actually own. Admin/government bypass. Returns true if allowed.
+async function ownsVehicleOrPrivileged(req) {
+  const role = req.userContext?.role;
+  if (isPrivileged(role)) return true;
+  const userId = req.userContext?.userId;
+  if (!userId) return false;
+  const { data } = await supabase.from('vehicles').select('owner_id').eq('vin', req.params.vin).maybeSingle();
+  return !!data && data.owner_id === userId;
+}
+
 // Derive gate inputs from the unified trust decision (fail-closed if it can't be computed).
 async function gateContextFor(vin, body = {}) {
   try {
@@ -86,21 +99,33 @@ router.post('/api/vehicles/:vin/finance/lender/eligibility',
     }
   }));
 
-// PRIVATE status — applicant (owner) or admin only. Never buyer/dealer-at-large/partner.
+// PRIVATE status — the VEHICLE OWNER or admin/government only. Role alone is not enough: an
+// 'owner'-role caller must own THIS vin (object-level authorization).
 router.get('/api/vehicles/:vin/finance/lender/status',
-  authorizeRole(['owner', 'admin']),
+  authorizeRole(['owner', 'admin', 'government']),
   asyncHandler(async (req, res) => {
+    if (!(await ownsVehicleOrPrivileged(req))) {
+      return res.status(403).json({ error: 'forbidden: not the vehicle owner' });
+    }
     res.json({
       status: await getLenderStatus(req.params.vin),
       history: await getLenderHistory(req.params.vin),
     });
   }));
 
-// Applicant erasure/retention request (right-to-erasure). Owner or admin.
+// Applicant erasure/retention request (right-to-erasure). The consent's own applicant or admin —
+// a caller cannot file erasure against a consent ref that is not theirs.
 router.post('/api/vehicles/:vin/finance/consent/:id/deletion',
-  authorizeRole(['owner', 'admin']),
+  authorizeRole(['owner', 'admin', 'government']),
   asyncHandler(async (req, res) => {
     try {
+      if (!isPrivileged(req.userContext?.role)) {
+        const { data: consent } = await supabase.from('finance_consents').select('applicant_user_id').eq('id', req.params.id).maybeSingle();
+        if (!consent) return res.status(404).json({ error: 'consent not found' });
+        if (consent.applicant_user_id !== req.userContext?.userId) {
+          return res.status(403).json({ error: 'forbidden: not the consent owner' });
+        }
+      }
       const out = await requestApplicantDeletion(req.params.id, { actor: req.userContext?.userId });
       res.json({ deletion_requested_at: out.deletion_requested_at, consent_ref: out.consent.id });
     } catch (err) {

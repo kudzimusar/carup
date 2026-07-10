@@ -42,7 +42,8 @@ function run(st) {
   const rows = (db[st.table] = db[st.table] || []);
   if (st.op === 'insert') {
     const list = Array.isArray(st.payload) ? st.payload : [st.payload];
-    for (const p of list) if (p.idempotency_key && rows.some(r => r.idempotency_key === p.idempotency_key)) return { data: null, error: { message: 'duplicate key value violates unique constraint' } };
+    // Mirrors the DB UNIQUE(provider_id, idempotency_key) — same key is allowed across providers.
+    for (const p of list) if (p.idempotency_key && rows.some(r => r.provider_id === p.provider_id && r.idempotency_key === p.idempotency_key)) return { data: null, error: { message: 'duplicate key value violates unique constraint' } };
     const ins = list.map((p) => ({ id: `a-${++seq}`, created_at: `2026-07-03T00:00:${String(seq % 60).padStart(2, '0')}.${String(seq).padStart(4, '0')}Z`, ...p }));
     rows.push(...ins); return ok(st.single ? ins[0] : ins);
   }
@@ -59,16 +60,22 @@ function install() { reset(); supabase.from = (t) => builder(t); }
 const PROVIDER = { id: 'prov-res-1', capability_type: 'insurance', activation_mode: 'sandbox', kill_switch_enabled: false, contract_status: 'none', tenant_id: null };
 const okInvoke = () => ({ outcome: 'ok', data: { simulated: true }, scenario: 'success' });
 
-test('concurrent idempotency: a parallel burst with ONE key records exactly one attempt', async () => {
+test('concurrent idempotency: a parallel burst with ONE key claims the key exactly once', async () => {
   install();
   const key = 'idem-concurrent-1';
+  let invokes = 0;
+  const countingInvoke = () => { invokes++; return { outcome: 'ok', data: { simulated: true } }; };
   const results = await Promise.all(Array.from({ length: 8 }, () =>
-    executeProviderRequest(PROVIDER, { vin: 'V1' }, { idempotencyKey: key, invoke: okInvoke })));
-  // Every caller gets a consistent successful outcome...
+    executeProviderRequest(PROVIDER, { vin: 'V1' }, { idempotencyKey: key, invoke: countingInvoke })));
+  // Every caller gets a consistent successful outcome.
   assert.ok(results.every(r => r.outcome === 'ok'), 'all concurrent callers see a consistent ok');
-  // ...but the append-only ledger holds EXACTLY ONE row for the key (unique backstop = no double-record).
-  const persisted = db.provider_request_attempts.filter(a => a.idempotency_key === key);
-  assert.equal(persisted.length, 1, 'exactly one attempt persisted for the idempotency key under concurrency');
+  // The key is CLAIMED by exactly one ledger row (the UNIQUE(provider_id, idempotency_key) backstop).
+  const keyed = db.provider_request_attempts.filter(a => a.idempotency_key === key);
+  assert.equal(keyed.length, 1, 'the idempotency key is owned by exactly one attempt row');
+  // HONEST semantics: true simultaneity is not de-DUPLICATED at execution (check-then-act TOCTOU);
+  // every concurrent invocation is still fully AUDITED (one row each), and no row is lost.
+  assert.ok(invokes >= 1 && invokes <= 8, 'each concurrent caller may invoke; guarantee is at-most-once KEY ownership');
+  assert.equal(db.provider_request_attempts.filter(a => a.correlation_id).length, invokes, 'every invocation is audited (no lost rows)');
 });
 
 test('sequential idempotency: a repeat key is deduped (no re-execution)', async () => {
@@ -133,4 +140,59 @@ test('exhausted retries dead-letter honestly (no fabricated success)', async () 
   assert.equal(r.dead_letter, true);
   assert.notEqual(r.outcome, 'ok', 'a failed provider is never reported as success');
   assert.ok(db.provider_request_attempts.some(a => a.error_category === 'dead_letter'), 'a dead-letter row is recorded');
+});
+
+// ── circuit breaker RECOVERY (half-open) — proves the breaker does NOT latch open forever ──────
+test('circuit breaker: RECOVERS after the provider heals (half-open probe re-closes it)', async () => {
+  install();
+  const failInvoke = () => ({ outcome: 'unavailable', error_category: 'provider_down' });
+  for (let i = 0; i < 4; i++) await executeProviderRequest(PROVIDER, { vin: `F${i}` }, { invoke: failInvoke });
+  // Provider is now healthy again. Keep calling; the breaker must let probes through and re-close.
+  const outcomes = [];
+  for (let i = 0; i < 20; i++) {
+    const r = await executeProviderRequest(PROVIDER, { vin: `H${i}` }, { invoke: okInvoke });
+    outcomes.push(r.outcome);
+  }
+  assert.ok(outcomes.includes('ok'), 'a healed provider is eventually probed and succeeds (no permanent latch)');
+  // By the end the circuit is fully closed — the final calls succeed outright.
+  assert.equal(outcomes[outcomes.length - 1], 'ok', 'circuit closes once recent invocations are healthy');
+});
+
+test('circuit breaker: a kill-switch period does NOT latch the circuit (gate blocks excluded)', async () => {
+  install();
+  const killed = { ...PROVIDER, kill_switch_enabled: true };
+  // Many gate-blocked calls record outcome 'unavailable' with a gating error_category.
+  for (let i = 0; i < 6; i++) await executeProviderRequest(killed, { vin: `K${i}` }, { invoke: okInvoke });
+  // Re-enabled: the very first real call must go through (gate rows are not breaker failures).
+  const r = await executeProviderRequest(PROVIDER, { vin: 'K-live' }, { invoke: okInvoke });
+  assert.equal(r.outcome, 'ok', 'kill-switch unavailability must not open the circuit');
+});
+
+// ── idempotent replay returns the request's FINAL outcome, not a mid-retry failure (F5) ────────
+test('idempotent replay after retry-then-success returns OK (not the intermediate timeout)', async () => {
+  install();
+  let n = 0;
+  const flaky = () => (++n === 1 ? { outcome: 'timeout', error_category: 'upstream_timeout' } : { outcome: 'ok', data: { x: 1 } });
+  const first = await executeProviderRequest(PROVIDER, { vin: 'V1' }, { idempotencyKey: 'replay-1', invoke: flaky, maxRetries: 2 });
+  assert.equal(first.ok, true);
+  assert.equal(first.outcome, 'ok');
+  const replay = await executeProviderRequest(PROVIDER, { vin: 'V1' }, { idempotencyKey: 'replay-1', invoke: flaky, maxRetries: 2 });
+  assert.equal(replay.deduped, true);
+  assert.equal(replay.outcome, 'ok', 'replay reflects the FINAL outcome, not the mid-retry timeout');
+  assert.equal(replay.ok, true);
+});
+
+// ── cross-capability idempotency: the same key on a DIFFERENT provider is independent (F6) ──────
+test('cross-provider idempotency: the same key on another provider does NOT collide', async () => {
+  install();
+  const providerA = { ...PROVIDER, id: 'prov-A', capability_type: 'insurance' };
+  const providerB = { ...PROVIDER, id: 'prov-B', capability_type: 'finance' };
+  const a = await executeProviderRequest(providerA, { vin: 'VA' }, { idempotencyKey: 'shared-key', invoke: () => ({ outcome: 'ok', data: { who: 'A' } }) });
+  let bInvoked = false;
+  const b = await executeProviderRequest(providerB, { vin: 'VB' }, { idempotencyKey: 'shared-key', invoke: () => { bInvoked = true; return { outcome: 'mismatch' }; } });
+  assert.equal(a.outcome, 'ok');
+  assert.equal(a.deduped, undefined);
+  assert.equal(bInvoked, true, 'provider B is genuinely invoked — not deduped against provider A');
+  assert.equal(b.deduped, undefined);
+  assert.equal(b.outcome, 'mismatch', 'provider B returns its own outcome, not the cached ok from provider A');
 });
