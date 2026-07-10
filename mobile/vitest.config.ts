@@ -18,6 +18,9 @@ export default defineConfig({
     exclude: [
       'node_modules',
       '../node_modules',
+      // Full Activation device-certification checks: standalone tsx assertion
+      // scripts with their own runner (scripts/mobile-cert/*, `npx tsx`).
+      'tests/certification/**',
       'tests/communication-api.test.ts',
       'tests/login-submit-button.test.ts',
       'tests/native-analytics.test.ts',
