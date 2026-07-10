@@ -80,6 +80,8 @@ const MIGRATIONS = [
   '20260703170000_mobile_certification.sql',
   // Full Activation — private storage buckets (PGlite-safe no-op)
   '20260703190000_provider_storage.sql',
+  // Full Activation hardening — scope provider request idempotency to (provider_id, idempotency_key)
+  '20260710120000_provider_request_attempts_provider_scope.sql',
 ];
 
 function extractUpSection(filepath) {

@@ -172,7 +172,13 @@ export function csrfMiddleware(req, res, next) {
   const url = req.originalUrl || req.url || '';
   const isWebhook = url.startsWith('/api/payments/webhook') ||
                     url.startsWith('/api/safepay/webhook') ||
-                    /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url);
+                    /^\/api\/referrals\/channels\/(whatsapp|telegram|facebook|instagram)\/webhook(?:$|[/?#])/.test(url) ||
+                    // Full Activation signed provider webhooks (HMAC + timestamp + idempotency verified in-service)
+                    url.startsWith('/api/insurer/webhook') ||
+                    url.startsWith('/api/finance/lender/webhook') ||
+                    url.startsWith('/api/escrow/provider/webhook') ||
+                    url.startsWith('/api/escrow/webhook') ||
+                    /^\/api\/eligibility\/[^/]+\/webhook(?:$|[/?#])/.test(url);
   if (isWebhook) {
     return next();
   }

@@ -98,7 +98,15 @@ function request(method, path, body, userId) {
       const req = http.request({ host: '127.0.0.1', port, path, method, headers: { 'content-type': 'application/json', ...(userId ? { 'x-user-id': userId } : {}), ...(data ? { 'content-length': Buffer.byteLength(data) } : {}) } }, (res) => {
         let buf = '';
         res.on('data', (c) => (buf += c));
-        res.on('end', () => { srv.close(); resolve({ status: res.statusCode, body: buf ? JSON.parse(buf) : null }); });
+        res.on('end', () => {
+          srv.close();
+          let body = null;
+          // Guard the parse: a non-JSON error body (e.g. Node's plain-text "Client sent an HTTP
+          // request to an HTTPS server" or an unexpected 4xx text) must not throw an
+          // uncaughtException that flakes the whole file — surface the raw text instead.
+          if (buf) { try { body = JSON.parse(buf); } catch { body = { _raw: buf }; } }
+          resolve({ status: res.statusCode, body });
+        });
       });
       req.on('error', (e) => { srv.close(); reject(e); });
       if (data) req.write(data);

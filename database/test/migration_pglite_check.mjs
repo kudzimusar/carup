@@ -62,6 +62,8 @@ const NEW_MIGRATIONS = [
   '20260703170000_mobile_certification.sql',
   // Full Activation — private storage buckets (PGlite-safe no-op)
   '20260703190000_provider_storage.sql',
+  // Full Activation hardening — scope provider request idempotency to (provider_id, idempotency_key)
+  '20260710120000_provider_request_attempts_provider_scope.sql',
 ];
 
 function splitMigration(file) {
@@ -448,13 +450,42 @@ results.catalog.tables_after_down = n0(await q(`
    'ingestion_jobs','source_records','vehicle_identity_candidates','listing_snapshots',
    'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log',
    'vehicle_document_extractions','source_verification_results','partner_clients','partner_api_requests',
-   'fraud_signals','fraud_cases','dealer_profiles','dealer_compliance_decisions','eligibility_requests','eligibility_decisions','escrow_trust_sessions','escrow_trust_events')`));
+   'fraud_signals','fraud_cases','dealer_profiles','dealer_compliance_decisions','eligibility_requests','eligibility_decisions','escrow_trust_sessions','escrow_trust_events',
+   -- Full Activation tables (must also be dropped by Down)
+   'provider_registry','provider_contract_versions','provider_request_attempts','provider_health_checks','provider_incidents',
+   'reconciliation_jobs','reconciliation_mismatches','provider_activation_history',
+   'government_source_config','government_source_batch_imports',
+   'insurer_profiles','insurance_consents','insurance_provider_decisions',
+   'lender_profiles','finance_consents','finance_provider_decisions',
+   'escrow_provider_config','escrow_kyc_kyb_states','escrow_reconciliation_ledger','escrow_dual_control_approvals',
+   'mobile_certification_runs','mobile_certification_results')`));
 
 // 5. re-apply Up
 for (const f of NEW_MIGRATIONS) {
   await step(db, f + ' (re-Up)', splitMigration(f).up, results.reup);
 }
 results.catalog.tables_after_reup = results.catalog.new_tables.length;
+
+// 6. Invariant validation — catalog assertions MUST affect overall PASS + the exit code.
+//    (Previously append-only / guard assertions were recorded but never flipped results.ok, so a
+//    regression — a failed INSERT, or an UPDATE/DELETE that was NOT blocked — would still report
+//    PASS. This closes that verification blind spot.)
+const invariantFailures = [];
+for (const [k, v] of Object.entries(results.catalog)) {
+  if (!k.endsWith('_immutable')) continue;
+  if (!v || v.error || v.update_blocked !== true || v.delete_blocked !== true) {
+    invariantFailures.push(`${k}=${JSON.stringify(v)}`);
+  }
+}
+// Named boolean guards that must hold (only fail on an explicit false, not string statuses).
+for (const k of ['provenance_append_only_enforced', 'extraction_content_guard_enforced',
+  'publication_status_check_enforced', 'source_verification_mode_enforced',
+  'source_coverage_view_sandbox_labelled']) {
+  if (results.catalog[k] === false) invariantFailures.push(`${k}=false`);
+}
+if (results.catalog.legacy_backfill && results.catalog.legacy_backfill.backfill_ok !== true) invariantFailures.push('legacy_backfill.backfill_ok=false');
+if (results.catalog.tables_after_down !== 0) invariantFailures.push(`tables_after_down=${results.catalog.tables_after_down}`);
+if (invariantFailures.length) { results.ok = false; results.catalog.invariant_failures = invariantFailures; }
 
 // report
 const fail = (arr) => arr.filter(x => x.status === 'FAIL');
