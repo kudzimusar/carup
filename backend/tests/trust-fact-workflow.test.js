@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
+
+process.env.SUPABASE_URL ||= 'http://localhost:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
+
+const {
   approveTrustFactRequest,
   createTrustFactRequest,
   getTrustFactAuditTrail,
@@ -8,7 +12,7 @@ import {
   rejectTrustFactRequest,
   revokeTrustFactRequest,
   validatePhase2ATrustFactPayload,
-} from '../services/trustGovernance/trustFactWorkflowService.js';
+} = await import('../services/trustGovernance/trustFactWorkflowService.js');
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
