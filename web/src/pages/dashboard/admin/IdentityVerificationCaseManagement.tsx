@@ -40,6 +40,7 @@ import type {
   EvidencePreview,
   ExtendedAdminVerificationSession,
 } from '@shared/types'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
   EVIDENCE_CLASSIFICATION_LABELS,
   EXTRACTION_TRUST_LABELS,
@@ -47,8 +48,6 @@ import {
   WORKFLOW_PHASE_META,
 } from '@shared/types'
 
-const API_BASE = '/api'
-const ADMIN_BASE = '/api/admin/identity/verification-sessions'
 
 const OPERATIONAL_TABS: { id: string; label: string; phase?: string; status?: string }[] = [
   { id: 'reviewer_action_required', label: 'Reviewer Action Required', phase: 'reviewer_action_required' },
@@ -134,24 +133,13 @@ function bindingColor(status?: string | null): string {
   return 'text-amber-600'
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`)
-  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
-  return res.json()
-}
-
-async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-idempotency-key': crypto.randomUUID() },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || `API error: ${res.status}`)
-  return data
-}
-
 export default function IdentityVerificationCaseManagement() {
+  const {
+    fetchVerificationReviewQueue,
+    fetchVerificationSessionDetail,
+    fetchEvidencePreview,
+    reviewVerificationCase,
+  } = useCarUpApi()
   const [activeTab, setActiveTab] = useState('reviewer_action_required')
   const [sessions, setSessions] = useState<ExtendedAdminVerificationSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -176,20 +164,16 @@ export default function IdentityVerificationCaseManagement() {
     setLoading(true)
     try {
       const tab = OPERATIONAL_TABS.find(t => t.id === tabId)
-      let query = ''
-      if (tab?.phase) query = `?workflow_phase=${encodeURIComponent(tab.phase)}`
-      else if (tab?.status) query = `?status=${encodeURIComponent(tab.status)}`
-      const data = await apiGet<{ success: boolean; sessions: ExtendedAdminVerificationSession[] }>(
-        `${ADMIN_BASE}${query}`
-      )
-      setSessions(data.sessions || [])
+      const filter = tab?.phase ? { workflow_phase: tab.phase } : tab?.status ? { status: tab.status } : undefined
+      const data = await fetchVerificationReviewQueue(filter)
+      setSessions((data || []) as ExtendedAdminVerificationSession[])
     } catch {
       toast.error('Failed to load verification sessions')
       setSessions([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fetchVerificationReviewQueue])
 
   useEffect(() => {
     if (!fetchedRef.current) {
@@ -215,10 +199,8 @@ export default function IdentityVerificationCaseManagement() {
     setSuccessPanel(null)
 
     try {
-      const detail = await apiGet<{ success: boolean; session: ExtendedAdminVerificationSession }>(
-        `${ADMIN_BASE}/${session.id}`
-      )
-      setSessionDetail(detail.session)
+      const detail = await fetchVerificationSessionDetail(session.id)
+      setSessionDetail(detail as ExtendedAdminVerificationSession)
     } catch {
       toast.error('Failed to load session detail')
     } finally {
@@ -231,10 +213,8 @@ export default function IdentityVerificationCaseManagement() {
     if (previews[side]) return
     setPreviewsLoading(prev => ({ ...prev, [side]: true }))
     try {
-      const data = await apiGet<{ success: boolean; preview: EvidencePreview }>(
-        `${ADMIN_BASE}/${selectedSession.id}/evidence/${side}/preview`
-      )
-      setPreviews(prev => ({ ...prev, [side]: data.preview }))
+      const preview = await fetchEvidencePreview(selectedSession.id, side)
+      setPreviews(prev => ({ ...prev, [side]: preview }))
     } catch {
       toast.error(`Failed to load ${side} preview`)
     } finally {
@@ -259,15 +239,15 @@ export default function IdentityVerificationCaseManagement() {
     if (!selectedSession || !disposition) return
     setSubmitting(true)
     try {
-      const body: Record<string, unknown> = {
-        action: disposition,
-        reasonCode: reasonCode || null,
-        internalNote: internalNote || null,
-        applicantMessage: applicantMessage || null,
-      }
-      const result = await apiPost<DecisionResponse>(
-        `${ADMIN_BASE}/${selectedSession.id}/review`,
-        body
+      const result = await reviewVerificationCase(
+        selectedSession.id,
+        {
+          action: disposition,
+          reasonCode: reasonCode || null,
+          internalNote: internalNote || null,
+          applicantMessage: applicantMessage || null,
+        },
+        { idempotencyKey: crypto.randomUUID() },
       )
       setSuccessPanel(result)
       setShowConfirm(false)
