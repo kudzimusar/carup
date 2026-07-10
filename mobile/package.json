@@ -9,7 +9,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "ts:check": "tsc --noEmit",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test": "vitest run --config vitest.config.ts",
+    "test:static": "tsx tests/login-submit-button.test.ts && tsx tests/start-verification-flow.test.ts && tsx tests/tab-stability-guard.test.ts && tsx tests/verification-api.test.ts && tsx tests/verification-flow-smoke.ts"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",
@@ -46,6 +48,7 @@
     "postcss": "^8.4.38",
     "semver": "^7.8.1",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.23.0",
     "typescript": "~5.9.2"
   }
 }
