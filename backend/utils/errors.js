@@ -33,6 +33,12 @@ export class NotFoundError extends CarUpError {
   }
 }
 
+export class ConflictError extends CarUpError {
+  constructor(message = 'Resource conflict', details = null) {
+    super(message, 409, 'CONFLICT', details);
+  }
+}
+
 export class DatabaseError extends CarUpError {
   constructor(message = 'Database query failed', details = null) {
     super(message, 500, 'DATABASE_ERROR', details);

@@ -39,6 +39,24 @@ class EventWorker {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     }) : null;
+
+    // CRITICAL: a pg.Pool with no 'error' listener turns an idle-client error
+    // (e.g. a Supabase "read ETIMEDOUT") into an uncaughtException that crashes
+    // the whole API process — which takes down localhost:5001 and makes ngrok
+    // return ERR_NGROK_8012, so the mobile app sees CSRF/login HTTP 400. The
+    // outbox poller is NON-critical to the HTTP API (auth, CSRF and verification
+    // all use the Supabase REST client, not this pool), so log the error and
+    // keep the server (and the ngrok upstream) running.
+    if (this.pool) {
+      this.pool.on('error', (err) => {
+        logger.error(
+          'QUEUE',
+          `Outbox pool idle-client error (non-fatal; API stays up): ${err.message}`,
+          { error: err }
+        );
+      });
+    }
+
     this.running = false;
     this.handlers = new Map();
     this.pollInterval = null;

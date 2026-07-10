@@ -150,3 +150,5 @@ export interface ServiceRecord {
 // Marketplace v1 canonical contracts (trust/verification/pricing/inquiry/referral).
 export * from './marketplace';
 export * from './communication';
+// Phase 7C: shared identity-verification status mapping + admin review contracts.
+export * from './verificationStatus';
