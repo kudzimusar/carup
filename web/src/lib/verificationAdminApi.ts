@@ -6,7 +6,7 @@
  */
 
 import { apiRequest, type AuthHeaders } from './apiClient'
-import type { EvidencePreview, DecisionAction, DecisionResponse } from '@shared/types'
+import type { AdminVerificationSession, EvidencePreview, DecisionAction, DecisionResponse } from '@shared/types'
 
 const BASE_PATH = '/admin/identity/verification-sessions'
 
@@ -18,12 +18,20 @@ export interface VerificationAdminClientConfig {
 
 interface ListResponse {
   success: boolean
-  sessions: any[]
+  sessions: AdminVerificationSession[]
 }
 
 interface SessionResponse {
   success: boolean
-  session: any
+  session: AdminVerificationSession
+}
+
+interface ReviewDecisionResponse {
+  decision: DecisionResponse['decision']
+  session: AdminVerificationSession
+  allowed_actions: DecisionAction[]
+  success?: boolean
+  idempotent_replay?: boolean
 }
 
 interface EvidencePreviewResponse {
@@ -35,7 +43,7 @@ interface EvidencePreviewResponse {
 export async function fetchVerificationReviewQueue(
   config: VerificationAdminClientConfig,
   filter?: { workflow_phase?: string; status?: string },
-): Promise<any[]> {
+): Promise<AdminVerificationSession[]> {
   const params = new URLSearchParams()
   if (filter?.workflow_phase) params.set('workflow_phase', filter.workflow_phase)
   else if (filter?.status) params.set('status', filter.status)
@@ -53,7 +61,7 @@ export async function fetchVerificationReviewQueue(
 export async function fetchVerificationSessionDetail(
   config: VerificationAdminClientConfig,
   sessionId: string,
-): Promise<any> {
+): Promise<AdminVerificationSession> {
   const res = await apiRequest<SessionResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}`,
@@ -93,14 +101,8 @@ export async function reviewVerificationSession(
     internalNote?: string | null
     applicantMessage?: string | null
   },
-): Promise<{
-  decision: DecisionResponse['decision']
-  session: import('@shared/types').AdminVerificationSession
-  allowed_actions: DecisionAction[]
-  success?: boolean
-  idempotent_replay?: boolean
-}> {
-  const res = await apiRequest<any>({
+): Promise<ReviewDecisionResponse> {
+  const res = await apiRequest<ReviewDecisionResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}/review`,
     options: { method: 'POST', body: JSON.stringify(body) },

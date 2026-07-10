@@ -217,12 +217,17 @@ export default function VerificationReview() {
     [fetchVerificationReviewQueue],
   )
 
+  // Repo convention for fetch-in-effect (react-hooks/set-state-in-effect):
+  // the effect only kicks the request; every state update happens in async
+  // continuations, and `loading` is initialised true.
   useEffect(() => {
     let mounted = true
-    setLoading(true)
-    setLoadError(null)
     fetchVerificationReviewQueue(status)
-      .then((data) => { if (mounted) setItems(data) })
+      .then((data) => {
+        if (!mounted) return
+        setItems(data)
+        setLoadError(null)
+      })
       .catch((err) => {
         if (!mounted) return
         setLoadError(err instanceof Error ? err.message : 'Failed to load the verification queue.')

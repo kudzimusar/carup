@@ -183,7 +183,7 @@ export default function IdentityVerificationCaseManagement() {
         `${ADMIN_BASE}${query}`
       )
       setSessions(data.sessions || [])
-    } catch (err) {
+    } catch {
       toast.error('Failed to load verification sessions')
       setSessions([])
     } finally {
@@ -219,7 +219,7 @@ export default function IdentityVerificationCaseManagement() {
         `${ADMIN_BASE}/${session.id}`
       )
       setSessionDetail(detail.session)
-    } catch (err) {
+    } catch {
       toast.error('Failed to load session detail')
     } finally {
       setDetailLoading(false)
