@@ -9,7 +9,7 @@
 import { type ReactNode, useEffect } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { evaluateRouteAccess, loginWithReturnTo } from '@/lib/routeAccess'
 import { trackNav } from '@/lib/navigationAnalytics'
 import { Spinner } from '@/components/ui/spinner'

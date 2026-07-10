@@ -6,7 +6,7 @@ import {
   getFooterSocial,
   type SocialLink,
 } from '@/config/navigationManifest'
-import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 
 const SOCIAL_ICON = {
   facebook: Facebook,
