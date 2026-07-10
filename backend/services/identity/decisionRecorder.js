@@ -62,6 +62,26 @@ export class VerificationDecisionRecorder {
 
     // Get the current assessment from the decision policy
     const assessment = DecisionPolicyEngine.buildAssessmentSummary(session, null, null, null);
+
+    // Proactive idempotency check — BEFORE the policy gate, so a retried
+    // identical command replays the stored decision instead of failing the
+    // policy re-evaluation against the post-decision state (e.g. a retried
+    // "escalate" previously got 403 "Case is already escalated"). Scoped to
+    // this session so a key can never replay another session's decision.
+    const idempotencyKey = req?.headers?.['x-idempotency-key'] || null;
+    if (idempotencyKey) {
+      const { data: existingDecision } = await client
+        .from('verification_decisions')
+        .select('*')
+        .eq('idempotency_key', idempotencyKey)
+        .eq('session_id', session.id)
+        .maybeSingle();
+
+      if (existingDecision) {
+        return VerificationDecisionRecorder._buildResponse(existingDecision, session, assessment);
+      }
+    }
+
     const policyCheck = DecisionPolicyEngine.isActionAllowed(action, assessment);
 
     if (!policyCheck.allowed) {
@@ -75,22 +95,8 @@ export class VerificationDecisionRecorder {
     const newLegacyStatus = decisionToLegacyStatus(action, session.status);
     const disposition = decisionToDisposition(action, reasonCode);
 
-    // Generate decision ID and idempotency key
+    // Generate decision ID
     const decisionId = 'dec_' + crypto.randomUUID().replace(/-/g, '').substring(0, 16);
-    const idempotencyKey = req?.headers?.['x-idempotency-key'] || null;
-
-    // Proactive idempotency check — short-circuit before any writes
-    if (idempotencyKey) {
-      const { data: existingDecision } = await client
-        .from('verification_decisions')
-        .select('*')
-        .eq('idempotency_key', idempotencyKey)
-        .maybeSingle();
-
-      if (existingDecision) {
-        return VerificationDecisionRecorder._buildResponse(existingDecision, session, assessment);
-      }
-    }
 
     // Optimistic concurrency: check version before any writes.
     // Skip entirely when session has no version field (pre-migration rows).
