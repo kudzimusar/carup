@@ -165,7 +165,13 @@ async function main() {
           exitCode = 1;
         } else {
           const nullable = found.is_nullable === 'YES';
-          const expectedType = col === 'version' ? 'integer' : 'text';
+          // Types per 20260618040000_verification_case_management.sql:
+          // version INTEGER, notification_attempted_at TIMESTAMPTZ, rest TEXT.
+          const expectedType = col === 'version'
+            ? 'integer'
+            : col === 'notification_attempted_at'
+              ? 'timestamp with time zone'
+              : 'text';
           const typeOk = found.data_type === expectedType
             || found.data_type === 'character varying'
             || (expectedType === 'integer' && found.data_type === 'bigint');

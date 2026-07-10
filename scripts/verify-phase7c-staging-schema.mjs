@@ -29,7 +29,9 @@ const EXPECTED_FOREIGN_KEYS = [
   { fk: 'verification_sessions.reviewed_by', ref: 'users(id)' },
   { fk: 'verification_ocr_provenance.session_id', ref: 'verification_sessions(id)' },
   { fk: 'verification_ocr_provenance.user_id', ref: 'users(id)' },
-  { fk: 'verification_ocr_provenance.ocr_document_id', ref: 'ocr_documents(id)' },
+  // NOTE: verification_ocr_provenance.ocr_document_id is INTENTIONALLY a plain
+  // TEXT column with no FK (see 20260618030000_verification_ocr_provenance.sql)
+  // — provenance is immutable audit data and must survive ocr_documents pruning.
   { fk: 'verification_assessments.session_id', ref: 'verification_sessions(id)' },
   { fk: 'verification_decisions.session_id', ref: 'verification_sessions(id)' },
   { fk: 'user_sessions.user_id', ref: 'users(id)' },
