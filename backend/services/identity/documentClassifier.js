@@ -12,8 +12,17 @@
 
 import crypto from 'crypto';
 import { validateEvidenceImages } from './evidenceValidation.js';
-import { askGemini } from '../ai/GeminiClient.js';
+import { askGemini, askGeminiVision } from '../ai/GeminiClient.js';
 import { supabase } from '../../db/supabase.js';
+
+/** Detect the image MIME type from magic bytes; defaults to JPEG. */
+function sniffImageMime(buffer) {
+  if (!buffer || buffer.length < 4) return 'image/jpeg';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
+  if (buffer[0] === 0x89 && buffer[1] === 0x50) return 'image/png';
+  if (buffer[0] === 0x52 && buffer[1] === 0x49) return 'image/webp'; // RIFF container
+  return 'image/jpeg';
+}
 
 export const EVIDENCE_CLASSIFICATION = Object.freeze({
   NOT_RUN: 'not_run',
@@ -95,16 +104,18 @@ Respond with a JSON object ONLY:
   "reason": "Brief reason for the classification"
 }`;
 
-    const frontB64 = frontBuffer ? frontBuffer.toString('base64').substring(0, 200) : 'none';
-    const backB64 = backBuffer ? backBuffer.toString('base64').substring(0, 200) : 'none';
-    const selfieB64 = selfieBuffer ? selfieBuffer.toString('base64').substring(0, 200) : 'none';
+    // Send the REAL image bytes as vision parts — a text prompt carrying
+    // truncated base64 cannot be classified visually, which blocked every
+    // valid document at the pre-OCR gate in production. The selfie is
+    // intentionally excluded: it must never influence document presence.
+    const images = [];
+    if (frontBuffer) images.push({ mimeType: sniffImageMime(frontBuffer), base64: frontBuffer.toString('base64') });
+    if (backBuffer) images.push({ mimeType: sniffImageMime(backBuffer), base64: backBuffer.toString('base64') });
 
     const userPrompt = `Declared document type: ${declaredDocType || 'unknown'}
-Front image (truncated): ${frontB64}
-Back image (truncated): ${backB64}
-Selfie image (truncated): ${selfieB64}
+The attached image(s) are the document front${backBuffer ? ' and back' : ''}.
 
-Classify the front image for identity document presence. Ignore the selfie for classification.`;
+Classify the FIRST attached image for identity document presence.`;
 
     try {
       const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
@@ -120,7 +131,7 @@ Classify the front image for identity document presence. Ignore the selfie for c
         };
       }
 
-      const response = await askGemini(systemPrompt, userPrompt, true);
+      const response = await askGeminiVision(systemPrompt, userPrompt, images, true);
 
       let parsed;
       if (typeof response === 'string') {

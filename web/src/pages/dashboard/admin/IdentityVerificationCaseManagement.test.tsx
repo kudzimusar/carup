@@ -218,6 +218,9 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('session detail dialog', () => {
     beforeEach(() => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes(SESSION_ID_1)) {
           return Promise.resolve(jsonResponse({ success: true, session: sessionDetail }))
         }
@@ -261,6 +264,9 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('evidence preview', () => {
     it('loads and displays evidence preview image on button click', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes('/evidence/front/preview')) {
           return Promise.resolve(jsonResponse({
             success: true,
@@ -291,6 +297,9 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('decision form', () => {
     beforeEach(() => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes('/review')) {
           return Promise.resolve(jsonResponse({
             success: true,
@@ -357,6 +366,9 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('error handling', () => {
     it('shows error toast when session detail fetch fails', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes(SESSION_ID_1)) {
           return Promise.resolve(jsonResponse({ error: 'Not found' }, false))
         }
@@ -376,6 +388,9 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('disposition flows', () => {
     beforeEach(() => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes('/review')) {
           return Promise.resolve(jsonResponse({
             success: true,
@@ -416,6 +431,9 @@ describe('IdentityVerificationCaseManagement', () => {
 
     it('reject flow requires reason code before confirming', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes('/review')) {
           return Promise.resolve(jsonResponse({
             success: true,
@@ -482,6 +500,9 @@ describe('IdentityVerificationCaseManagement', () => {
   describe('close and state reset', () => {
     it('cancel button in decision form closes dialog', async () => {
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes(SESSION_ID_1)) {
           return Promise.resolve(jsonResponse({ success: true, session: sessionDetail }))
         }
@@ -506,6 +527,9 @@ describe('IdentityVerificationCaseManagement', () => {
     it('does not show case timeline when no decisions exist', async () => {
       const noDecisions = { ...sessionDetail, decisions: [] }
       globalThis.fetch = vi.fn((url: string) => {
+        if (url.includes('/security/csrf-token')) {
+          return Promise.resolve(jsonResponse({ csrfToken: 'test-csrf-token' }))
+        }
         if (url.includes(SESSION_ID_1)) {
           return Promise.resolve(jsonResponse({ success: true, session: noDecisions }))
         }
