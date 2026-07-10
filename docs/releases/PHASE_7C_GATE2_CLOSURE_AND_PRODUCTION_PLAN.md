@@ -26,8 +26,8 @@ Ledger maintained continuously. All claims below are backed by commands/SHAs/tot
 | S4 | Deploy tested SHA to staging | **BLOCKED — EXTERNAL** | Vercel MCP unauthenticated (§Blockers) |
 | S5 | Full staging acceptance matrix | **BLOCKED — EXTERNAL** | depends on S3/S4 |
 | S6 | Owner physical-device Gate 2 | **BLOCKED — EXTERNAL (owner)** | requires a human + device |
-| S8 | One clean current-main release PR | **NOT STARTED** | delta matrix pending (§Stage 8) |
-| S9 | PR consolidation (#72/#76) | **NOT STARTED** | §Stage 9 |
+| S8 | One clean current-main release PR | **DONE — PR #115 OPEN** | merge `ff0e6c9` + qualification `00e0a1d`; battery green (§Stage 8) |
+| S9 | PR consolidation (#72/#76) | **DONE** | #72 CLOSED superseded; #76 7C-snapshot superseded (comment); `docs/PROJECT_PR_CONSOLIDATION_LEDGER.md` |
 | S11 | Production preflight | **BLOCKED — EXTERNAL** | no prod Supabase/Vercel access |
 | S12 | Production cutover | **BLOCKED — EXTERNAL (authorization)** | needs `AUTHORIZE PHASE 7C PRODUCTION CUTOVER` |
 
@@ -200,3 +200,38 @@ Everything **not** gated by the above is being driven autonomously.
   repo's `scripts/*phase7c-staging*` tooling with credentials.
 - A deployed staging backend URL for `EXPO_PUBLIC_API_URL` + owner-device Gate 2 run.
 - The production authorization phrase when preflight is green.
+
+
+---
+
+## Stage 8/9 — executed 2026-07-10
+
+**Shallow-clone correction.** The Stage 0 divergence numbers (66/202, 335/66, "no
+merge base") were artifacts of a shallow clone (3 grafts). After
+`git fetch --unshallow`: main↔#72 true divergence **347 / 47**, merge-base
+`dd0b6e5` (Phase 7B OCR persistence). All 47 branch-only commits were
+Phase 7C-scoped — no RC1 baggage — so a normal history-preserving merge was used.
+
+**Release branch** `release/phase7c-verification-production` cut from
+`main@ce14e32`; merge `ff0e6c9` resolved all 19 conflict hunks across 14 files
+(policy: preserve newer main behavior — hardened `resolveCsrfSecret`, canonical
+apiBase/marketplaceApi, shared icon registry, NotFoundPage — plus the 7C delta:
+`/admin/verification` route+UI, RoleSwitchResult+CSRF role switch, stale-CSRF
+retry, verification CTA/testIDs). Qualification `00e0a1d`: feature-manifest
+regenerated (87 features), tab-guard patterns generalized (URL-context host
+check; canonical-resolver/delegated-util acceptance + util assertions), mobile
+vitest excludes list all 14 standalone tsx scripts.
+
+**Release-branch verification (head `00e0a1d`):** backend 7C **131/131** · web
+vitest **501/501** · mobile vitest **18/18** · static guards 4 scripts + 59/59
+smoke ALL PASS · main's 9 standalone scripts ALL PASS · web/mobile tsc 0 · web
+build ✓ · Expo iOS export ✓ · launcher verify PASS + 15/15 · diff-check/secret
+scan clean. **Known pre-existing main defect (P2, not from this merge):**
+`native-boundary-audit` fails identically on pristine `main@ce14e32`
+(communications tab #100 lacks NativeFeatureBoundary).
+
+**PR consolidation:** #72 **CLOSED** as superseded (comment with final evidence);
+#76 Phase 7C snapshot formally superseded (comment), PR left open pending
+disposition of its unrelated components; ledger:
+`docs/PROJECT_PR_CONSOLIDATION_LEDGER.md`. Release PR: **#115** (0 behind main
+at creation).
