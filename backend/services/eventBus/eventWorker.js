@@ -8,7 +8,11 @@ import { metricsHub } from '../metrics.js';
 
 dotenv.config();
 
-const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
+const connectionString = process.env.EVENT_WORKER_DATABASE_URL
+  || process.env.SUPABASE_POOLER_DB_URL
+  || process.env.SUPABASE_TRANSACTION_POOLER_URL
+  || process.env.DATABASE_URL
+  || process.env.SUPABASE_DB_URL;
 
 // Maximum delivery attempts before an outbox event is moved to the dead-letter
 // state. Centralized so the poller's selection filter and the failure
@@ -16,7 +20,15 @@ const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL
 export const MAX_OUTBOX_ATTEMPTS = 5;
 
 if (!connectionString) {
-  console.warn('⚠️ Event worker database URL missing. Set DATABASE_URL or SUPABASE_DB_URL to enable transactional outbox polling.');
+  console.warn('⚠️ Event worker database URL missing. Set EVENT_WORKER_DATABASE_URL, SUPABASE_POOLER_DB_URL, SUPABASE_TRANSACTION_POOLER_URL, DATABASE_URL, or SUPABASE_DB_URL to enable transactional outbox polling.');
+}
+
+function isVercelServerlessRuntime() {
+  return process.env.VERCEL === '1' || Boolean(process.env.VERCEL_ENV);
+}
+
+function intervalPollingEnabled() {
+  return process.env.EVENT_WORKER_INTERVAL_ENABLED === 'true' || process.env.EVENT_WORKER_MODE === 'interval';
 }
 
 class EventWorker {
@@ -51,6 +63,10 @@ class EventWorker {
    */
   start(intervalMs = 1000) {
     if (this.running) return;
+    if (!this.shouldStartInterval()) {
+      logger.info('QUEUE', 'Transactional Outbox Event Worker interval skipped in serverless runtime. Use scheduled/worker endpoint or set EVENT_WORKER_INTERVAL_ENABLED=true for a dedicated worker.');
+      return;
+    }
     this.running = true;
     logger.info('QUEUE', 'Transactional Outbox Event Worker started.');
     
@@ -59,6 +75,10 @@ class EventWorker {
         logger.error('QUEUE', `Outbox Poller Error: ${err.message}`, { error: err });
       });
     }, intervalMs);
+  }
+
+  shouldStartInterval() {
+    return !isVercelServerlessRuntime() || intervalPollingEnabled();
   }
 
   /**
@@ -78,7 +98,7 @@ class EventWorker {
    */
   async pollEvents() {
     if (!this.pool) {
-      console.warn('⚠️ Outbox poll skipped because DATABASE_URL/SUPABASE_DB_URL is not configured.');
+      console.warn('⚠️ Outbox poll skipped because no event worker database URL is configured.');
       return;
     }
 

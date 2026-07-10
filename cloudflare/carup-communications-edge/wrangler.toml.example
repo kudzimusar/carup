@@ -1,0 +1,52 @@
+name = "carup-communications-edge"
+main = "src/index.js"
+compatibility_date = "2026-06-25"
+
+[vars]
+CARUP_API_BASE_URL = "https://carup-backend-staging.example.com"
+ALLOWED_INBOUND_RECIPIENTS = "support@example.com"
+MAX_INBOUND_EMAIL_BYTES = "26214400"
+
+[[send_email]]
+name = "EMAIL"
+
+[[queues.producers]]
+binding = "INBOUND_QUEUE"
+queue = "carup-communications-inbound-staging"
+
+[[queues.producers]]
+binding = "OUTBOUND_QUEUE"
+queue = "carup-communications-outbound-staging"
+
+[[queues.producers]]
+binding = "DLQ"
+queue = "carup-communications-dlq-staging"
+
+[[queues.consumers]]
+queue = "carup-communications-inbound-staging"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "carup-communications-dlq-staging"
+
+[[queues.consumers]]
+queue = "carup-communications-outbound-staging"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 5
+dead_letter_queue = "carup-communications-dlq-staging"
+
+[[r2_buckets]]
+binding = "ATTACHMENTS"
+bucket_name = "carup-communications-attachments-staging"
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+[env.staging.vars]
+CARUP_API_BASE_URL = "https://carup-backend-staging.example.com"
+
+# Set these with `wrangler secret put`, never in this file:
+# CARUP_EDGE_WORKER_SECRET
+# CARUP_CLOUDFLARE_WEBHOOK_SECRET
+# COMMUNICATION_WORKER_SECRET

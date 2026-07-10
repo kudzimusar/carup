@@ -85,6 +85,8 @@ import reportRouter from './routes/reportRoutes.js';
 import governanceRouter from './routes/governanceRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
+import communicationRouter from './routes/communicationRoutes.js';
+import adminCommunicationRouter from './routes/adminCommunicationRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
@@ -94,6 +96,7 @@ import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 
 dotenv.config();
@@ -132,17 +135,21 @@ app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
 // Capture the exact raw request bytes for webhook paths so in-service HMAC signature
-// verification checks the real payload. The global JSON parser runs before any route-level
-// parser, so route-level `verify` callbacks never fire — this is the single place raw bytes
-// are available. Scoped to webhook URLs to avoid buffering every request body as a string.
-app.use(express.json({
-  limit: '15mb',
-  verify: (req, _res, buf) => {
-    const u = req.originalUrl || req.url || '';
-    if (u.includes('/webhook')) req.rawBody = buf.toString('utf8');
-  },
-}));
-app.use(express.urlencoded({ limit: '15mb', extended: true }));
+// verification checks the real payload the sender signed. The global parsers run before any
+// route-level parser, so route-level `verify` callbacks never fire — this is the single place
+// raw bytes are available. The '/webhook' substring covers the Full Activation provider webhooks
+// AND the communications-engine webhooks (/api/communications/webhooks/...); scoped so ordinary
+// request bodies are not buffered as strings.
+const captureWebhookRawBody = (req, _res, buf) => {
+  const u = req.originalUrl || req.url || '';
+  // The communications-engine pattern is covered by the substring but kept explicit — it is a
+  // source-level contract asserted by communication-engine.test.js.
+  if (u.includes('/webhook') || /^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(u)) {
+    req.rawBody = buf.toString('utf8');
+  }
+};
+app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
+app.use(express.urlencoded({ limit: '15mb', extended: true, verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
 app.use(csrfMiddleware);
 
 // Signed CSRF token route
@@ -217,6 +224,8 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
+app.use(communicationRouter());
+app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
@@ -264,6 +273,7 @@ if (connectionError) {
   
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
+  registerCommunicationListeners(eventWorker);
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 
