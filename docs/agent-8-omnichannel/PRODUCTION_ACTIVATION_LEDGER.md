@@ -4,7 +4,7 @@ Canonical record of what is LIVE in production for the Omnichannel Communication
 (Enterprise Communication Command Center), with the accepted evidence for each activation.
 Update this ledger whenever a channel or capability changes production state.
 
-Last updated: 2026-07-11 (Telegram activation) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
+Last updated: 2026-07-12 (topology alignment) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
 
 ## Production deployment
 
@@ -96,13 +96,62 @@ Evidence caveats (recorded honestly):
   delivery proof is the operator-confirmed device receipt of the queued reply. Row-level proof remains
   available: `SELECT * FROM message_delivery_attempts WHERE provider='telegram_bot_api' ORDER BY started_at DESC LIMIT 1;`
   (expect `status=sent` + a Telegram `provider_message_id`).
-- **Topology note (follow-up recommended):** the production Command Center UI (and likely the worker
-  cron) currently operate against the **git-branch preview** deployment of `carup-backend-staging`,
-  while the Telegram/WhatsApp webhooks hit the **production alias**. Both share the production
-  Supabase, so data is unified and everything works — but UI + cron should be repointed to the stable
-  production alias so a preview redeploy cannot disturb production operations. Not changed in this
-  activation (out of scope).
+- **Topology note:** resolved by the topology audit below (the preview-backend traffic observed during
+  UAT came from operating the Command Center via a preview *web* URL, not from production config).
 - No secrets were printed or recorded at any step; sender identifiers appear as last4 only.
+
+## Production topology (audited + aligned 2026-07-12)
+
+Goal: every production communication runtime path uses the stable backend alias
+`https://carup-backend-staging.vercel.app`.
+
+### Audit results (full URL-reference sweep)
+
+| Surface | Target found | Verdict |
+|---------|--------------|---------|
+| Provider webhooks (WhatsApp + Telegram) | `carup-backend-staging.vercel.app/api/communications/webhooks/…` | ✅ stable alias (unchanged) |
+| Production Command Center web (`carup-staging.vercel.app`) | deployed bundle resolves the API base to `https://carup-backend-staging.vercel.app/api`, driven by the **Production env var `VITE_API_URL`** (not hard-coded) | ✅ stable alias — no change needed |
+| Web client code (`web/src/hooks/useCarUpApi.ts`, `apiClient.ts`) | reads `VITE_API_URL`; fallback default is `carup-backend.vercel.app/api` | ✅ no preview URL in code |
+| Mobile client (`mobile/utils/apiBase.ts`) | requires `EXPO_PUBLIC_API_URL` env; no hard-coded URL | ✅ env-driven |
+| Vercel cron (`backend/vercel.json`) | `{}` — no crons defined | ✅ n/a (scheduling is Supabase pg_cron only) |
+| Cloudflare worker (`cloudflare/carup-communications-edge`) | only `wrangler.toml.example` placeholder; email not activated | ✅ n/a |
+| Repo code/docs sweep for `…-git-feature-agent…` / concrete preview / issue-108/110 URLs | zero hits in runtime code; hits only in historical evidence docs (kept as history) and one unrelated marketplace QA script | ✅ nothing to repoint in code |
+| Supabase pg_cron worker job | not inspectable from the automation environment (no CarUp Supabase access) | ⏳ **operator confirmation pending** — see below |
+
+The earlier "UI on preview backend" observation is explained: production web deployments were already
+stable-aliased; the preview-backend traffic came from a browser session on a **preview web URL**
+(whose branch-scoped `VITE_API_URL` bakes the preview backend). Operational rule recorded here:
+**use `https://carup-staging.vercel.app` as the production Command Center.**
+
+### Known limitation (documented, intentionally not changed)
+
+The main production web (`carup.vercel.app`) has no `VITE_API_URL` and falls back to
+`carup-backend.vercel.app`, which has **no communication credentials**
+(health: whatsapp + telegram `available=false`). Fixing that requires either provisioning provider
+credentials on `carup-backend` or repointing the entire main app — both out of scope for this
+alignment (no credential changes; no engine rewrites). Until then the communications Command Center
+is served by `carup-staging.vercel.app`.
+
+### pg_cron retarget (operator SQL, secret-preserving)
+
+```sql
+-- 1) Inspect (do not share the full command back — it may embed the worker secret; report only the URL):
+SELECT jobid, jobname, schedule FROM cron.job WHERE command ILIKE '%communications%';
+-- 2) If the URL is not https://carup-backend-staging.vercel.app/api/internal/communications/process:
+--    copy the existing command, change ONLY the URL host to carup-backend-staging.vercel.app
+--    (keep the path and all headers/secret exactly as-is), then:
+--    SELECT cron.alter_job(<jobid>, command => $$<edited command>$$);
+-- 3) Verify the next run returns HTTP 200:
+SELECT status, return_message, start_time FROM cron.job_run_details
+ORDER BY start_time DESC LIMIT 3;
+```
+
+### Smoke evidence (2026-07-12, post-audit)
+
+- Stable alias health: whatsapp `available=true, missing=[]` · telegram `available=true, missing=[]` ✅
+- `carup-staging.vercel.app` Command Center routes `/admin/communications`, `/admin/communications/inbox` → HTTP 200 ✅
+- No provider credentials changed; no webhooks touched; no redeploys were required (no Vercel-side
+  configuration change was needed).
 
 ## Closure matrix
 
