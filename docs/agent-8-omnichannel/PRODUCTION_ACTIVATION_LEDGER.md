@@ -4,7 +4,7 @@ Canonical record of what is LIVE in production for the Omnichannel Communication
 (Enterprise Communication Command Center), with the accepted evidence for each activation.
 Update this ledger whenever a channel or capability changes production state.
 
-Last updated: 2026-07-11 · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
+Last updated: 2026-07-11 (Telegram activation) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
 
 ## Production deployment
 
@@ -67,20 +67,61 @@ Notes:
   (expect `direction=inbound`, `channel=whatsapp`, the exact inbound text) — or by opening the thread
   in the Command Center inbox.
 
+## Telegram — LIVE / GREEN ✅ (activated 2026-07-11)
+
+End-to-end production activation: env vars → redeploy → webhook → real inbound → canonical
+persistence → admin reply → device receipt.
+
+| Item | Value |
+|------|-------|
+| Production deployment (serving the accepted webhooks) | https://carup-backend-staging-mfcexxc6j-pay-pass-project.vercel.app |
+| Deployment ID | `dpl_9GhjgfSg4WtY2tmew2Gzae1r9KwN` |
+| Provider / health | `telegram_bot_api`, `mode=real`, `available=true`, `missing=[]` |
+| Webhook URL | `https://carup-backend-staging.vercel.app/api/communications/webhooks/telegram/telegram` |
+| Env activation | `CARUP_TELEGRAM_BOT_TOKEN` + `CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN` added as Production-only records by the operator (values never printed; Vercel has no server-side env duplication, so the bot token was re-entered via dashboard reveal→paste and a fresh webhook secret was generated) |
+
+### Activation timeline + evidence (2026-07-11 UTC, production runtime logs)
+
+1. Production redeploy #1 (`dpl_6wtZEuehv5XQXNL83VLRdS7v5YsR`) → health flipped to `telegram available=true, missing=[]`; WhatsApp unchanged/green.
+2. First `setWebhook` used a secret that did not match the Production env value → Telegram POSTs arrived and were **rejected 403** by the exact-match fail-closed check (`x-telegram-bot-api-secret-token`), retried by Telegram with backoff (nine 403s captured 14:07–14:23). **The fail-closed webhook security check works in production.**
+3. Fix: operator replaced the Production `CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN` from one freshly generated mode-600 file; production redeploy #2 (`dpl_9GhjgfSg4WtY2tmew2Gzae1r9KwN`); `setWebhook` re-run with the same file → `ok:true`, `getWebhookInfo` shows the production URL, `allowed_updates:["message"]`, `pending_update_count:0`, no `last_error_message`.
+4. **Inbound accepted**: `POST /api/communications/webhooks/telegram/telegram` → **HTTP 200** at `14:24:35Z` (896ms, `req-9e2dfd37…`, the drained pending retry — update handling idempotent-safe) and **HTTP 200** at `14:27:51Z` (5,568ms full inbound pipeline, `req-dff877c5…`) for the fresh **"CarUp production Telegram MVP inbound 001"**. Zero 403s and zero error logs after the secret fix.
+5. **Canonical persistence confirmed by operator in the production Command Center**: the Telegram thread with the exact inbound text rendered in the inbox (renders only from `message_threads` + `messages` + `channel_identities` rows).
+6. **Admin reply queue → provider delivery confirmed**: operator replied **"CarUp production Telegram MVP reply 001"** from the thread; the reply is enqueued (`status: queued`, `queueExistingMessage`) and delivered asynchronously by the delivery worker — **received on the operator's Telegram device**, proving queue → worker → `telegram_bot_api` end-to-end in production.
+
+Evidence caveats (recorded honestly):
+
+- The worker cron's `POST /api/internal/communications/process` tick was not observable in the
+  current-deployment log windows (the scheduler evidently targets a pinned deployment URL); the
+  delivery proof is the operator-confirmed device receipt of the queued reply. Row-level proof remains
+  available: `SELECT * FROM message_delivery_attempts WHERE provider='telegram_bot_api' ORDER BY started_at DESC LIMIT 1;`
+  (expect `status=sent` + a Telegram `provider_message_id`).
+- **Topology note (follow-up recommended):** the production Command Center UI (and likely the worker
+  cron) currently operate against the **git-branch preview** deployment of `carup-backend-staging`,
+  while the Telegram/WhatsApp webhooks hit the **production alias**. Both share the production
+  Supabase, so data is unified and everything works — but UI + cron should be repointed to the stable
+  production alias so a preview redeploy cannot disturb production operations. Not changed in this
+  activation (out of scope).
+- No secrets were printed or recorded at any step; sender identifiers appear as last4 only.
+
 ## Closure matrix
 
 | Capability | Production state | Notes |
 |------------|------------------|-------|
 | **WhatsApp** (`meta_whatsapp_cloud_api`) | 🟢 **LIVE / GREEN** | Outbound + status webhooks + GET verification + real inbound all passed; health `available=true, missing=[]` |
-| **Telegram** (`telegram_bot_api`) | 🟡 Code-ready, **not activated** | Production env missing `CARUP_TELEGRAM_BOT_TOKEN` (+ webhook secret); proven live on staging previews |
+| **Telegram** (`telegram_bot_api`) | 🟢 **LIVE / GREEN** (2026-07-11) | Real inbound POST 200 + canonical persistence + admin reply received on device; fail-closed webhook secret verified in production (403s until secrets matched) |
 | **Email** | 🟡 Code-ready / feature-gated, not activated | SendGrid / Cloudflare Worker paths exist; no production credentials configured |
-| **Admin reply queue** | 🟢 Code-ready | Live delivery depends on the active providers above; queue → worker → provider path proven via WhatsApp |
+| **Admin reply queue** | 🟢 **LIVE** | Proven in production via the Telegram reply (queued → worker → `telegram_bot_api` → device); WhatsApp path previously proven |
 | **Worker scheduling** | 🟢 GREEN | Automatic delivery active (worker/cron), no manual invocation required |
 | **Messenger** | ⚪ Out of scope | Not started, per activation plan |
 | **Instagram** | ⚪ Out of scope | Not started, per activation plan |
 
-## Boundaries observed for this ledger entry
+## Boundaries observed
 
-- Production was not modified to produce this evidence (read-only log pulls + public health probes).
-- No secrets were rotated, printed, or recorded.
-- No Telegram, Messenger, Instagram, or email activation work was started.
+- WhatsApp entry (2026-07-11): produced with read-only evidence only (log pulls + public health probes).
+- Telegram activation (2026-07-11): authorized production changes only — two Production env records
+  added by the operator (values never shared with tooling or printed) and two `vercel redeploy` runs;
+  webhook registered by the operator with the bot token kept in their shell. WhatsApp untouched
+  (regression-checked green after each redeploy).
+- No secrets were rotated beyond the intended fresh webhook secret, printed, or recorded.
+- No Messenger, Instagram, or email activation work was started.
