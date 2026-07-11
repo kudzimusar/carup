@@ -4,7 +4,7 @@ Canonical record of what is LIVE in production for the Omnichannel Communication
 (Enterprise Communication Command Center), with the accepted evidence for each activation.
 Update this ledger whenever a channel or capability changes production state.
 
-Last updated: 2026-07-12 (topology alignment) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
+Last updated: 2026-07-12 (scheduler status corrected; activation pending) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
 
 ## Production deployment
 
@@ -91,10 +91,14 @@ persistence → admin reply → device receipt.
 
 Evidence caveats (recorded honestly):
 
-- The worker cron's `POST /api/internal/communications/process` tick was not observable in the
-  current-deployment log windows (the scheduler evidently targets a pinned deployment URL); the
-  delivery proof is the operator-confirmed device receipt of the queued reply. Row-level proof remains
-  available: `SELECT * FROM message_delivery_attempts WHERE provider='telegram_bot_api' ORDER BY started_at DESC LIMIT 1;`
+- **Corrected 2026-07-12:** the worker tick was not observable because **no production scheduler
+  existed** — direct inspection of production Supabase (`get_communication_scheduler_health()`)
+  showed `pg_cron_available=false, pg_net_available=false, job_configured=false` (the earlier
+  "pinned deployment URL" hypothesis was wrong). The UAT reply was delivered by a non-scheduled
+  worker invocation during the session; the device receipt remains valid proof of the
+  queue → worker → `telegram_bot_api` delivery path itself. Scheduler activation is tracked in the
+  "Worker scheduler activation" section below. Row-level proof remains available:
+  `SELECT * FROM message_delivery_attempts WHERE provider='telegram_bot_api' ORDER BY started_at DESC LIMIT 1;`
   (expect `status=sent` + a Telegram `provider_message_id`).
 - **Topology note:** resolved by the topology audit below (the preview-backend traffic observed during
   UAT came from operating the Command Center via a preview *web* URL, not from production config).
@@ -116,7 +120,7 @@ Goal: every production communication runtime path uses the stable backend alias
 | Vercel cron (`backend/vercel.json`) | `{}` — no crons defined | ✅ n/a (scheduling is Supabase pg_cron only) |
 | Cloudflare worker (`cloudflare/carup-communications-edge`) | only `wrangler.toml.example` placeholder; email not activated | ✅ n/a |
 | Repo code/docs sweep for `…-git-feature-agent…` / concrete preview / issue-108/110 URLs | zero hits in runtime code; hits only in historical evidence docs (kept as history) and one unrelated marketplace QA script | ✅ nothing to repoint in code |
-| Supabase pg_cron worker job | not inspectable from the automation environment (no CarUp Supabase access) | ⏳ **operator confirmation pending** — see below |
+| Supabase pg_cron worker job | operator inspected production directly (2026-07-12): `pg_cron`/`pg_net` **available but not installed**, `cron.job` does not exist, `job_configured=false` — **no job has ever existed** | ❌ scheduler never activated → activation migration `20260712100000` (see "Worker scheduler activation") |
 
 The earlier "UI on preview backend" observation is explained: production web deployments were already
 stable-aliased; the preview-backend traffic came from a browser session on a **preview web URL**
@@ -132,19 +136,53 @@ credentials on `carup-backend` or repointing the entire main app — both out of
 alignment (no credential changes; no engine rewrites). Until then the communications Command Center
 is served by `carup-staging.vercel.app`.
 
-### pg_cron retarget (operator SQL, secret-preserving)
+## Worker scheduler activation (in progress 2026-07-12)
+
+**Corrected status:** worker scheduling was previously recorded green — that was wrong. Direct
+production inspection (2026-07-12, `SELECT public.get_communication_scheduler_health();`) returned:
+`pg_cron_available=false`, `pg_net_available=false`, `job_configured=false`, `job_config=null`,
+`latest_run=null`, `latest_http_call=null`, `stale_lock_count=0`; `cron.job` does not exist and
+`pg_available_extensions` shows both extensions available but **not installed**. Root cause: the
+original scheduler migration (`20260626120000_communication_supabase_cron.sql`) deliberately skips
+job creation when the extensions are absent, and they were never enabled on production.
+
+**Activation path** — migration `database/migrations/20260712100000_communication_scheduler_production_activation.sql`:
+
+- `CREATE EXTENSION IF NOT EXISTS pg_cron` + `pg_net`, then idempotently (unschedule-then-recreate)
+  schedules exactly one job `carup-communication-worker-every-minute`, `* * * * *`.
+- The job command reads **both** the endpoint URL and the worker secret from **Supabase Vault at
+  execution time** (`CARUP_WORKER_ENDPOINT_URL`, `CARUP_WORKER_SECRET`) — no secret in source
+  control, in `cron.job.command`, in logs, or in health output; guard clauses make runs a no-op
+  until both Vault entries exist. `timeout_milliseconds=20000` so real worker batches (5–8s
+  provider sends) record a `status_code=200` instead of a client-side timeout.
+- Target URL (stable alias, via Vault): `https://carup-backend-staging.vercel.app/api/internal/communications/process`
+- Auth: `Authorization: Bearer <CARUP_WORKER_SECRET>` matching Vercel Production
+  `COMMUNICATION_WORKER_SECRET` (accepted by the endpoint's constant-time check).
+- **Rollback:** the migration's Down unschedules the job only (health function belongs to
+  `20260626120000`; extensions are left installed as shared infrastructure).
+
+**Operator runbook (SQL editor, production `vhmnajoeicasaigiophh`):**
 
 ```sql
--- 1) Inspect (do not share the full command back — it may embed the worker secret; report only the URL):
-SELECT jobid, jobname, schedule FROM cron.job WHERE command ILIKE '%communications%';
--- 2) If the URL is not https://carup-backend-staging.vercel.app/api/internal/communications/process:
---    copy the existing command, change ONLY the URL host to carup-backend-staging.vercel.app
---    (keep the path and all headers/secret exactly as-is), then:
---    SELECT cron.alter_job(<jobid>, command => $$<edited command>$$);
--- 3) Verify the next run returns HTTP 200:
-SELECT status, return_message, start_time FROM cron.job_run_details
-ORDER BY start_time DESC LIMIT 3;
+-- 1) Vault secrets (one secure paste; values never enter chat/repo):
+SELECT vault.create_secret(
+  'https://carup-backend-staging.vercel.app/api/internal/communications/process',
+  'CARUP_WORKER_ENDPOINT_URL');
+SELECT vault.create_secret('<COMMUNICATION_WORKER_SECRET value>', 'CARUP_WORKER_SECRET');
+-- (if a name exists: SELECT vault.update_secret((SELECT id FROM vault.secrets WHERE name='…'), '<value>');)
+
+-- 2) Run the Up section of 20260712100000_communication_scheduler_production_activation.sql
+
+-- 3) After ≥1 minute, verify:
+SELECT public.get_communication_scheduler_health();
+--   expect pg_cron_available=true, pg_net_available=true, job_configured=true,
+--          job_config={jobname:'carup-communication-worker-every-minute', schedule:'* * * * *', active:true},
+--          latest_run.status='succeeded', latest_http_call.status_code=200
+SELECT COUNT(*) FROM cron.job WHERE command ILIKE '%communications%';  -- expect exactly 1
 ```
+
+**Evidence: ⏳ pending operator application + first verified 200 run** (this section will be updated
+with the run timestamp + HTTP status once observed; success is not claimed until then).
 
 ### Smoke evidence (2026-07-12, post-audit)
 
@@ -161,7 +199,7 @@ ORDER BY start_time DESC LIMIT 3;
 | **Telegram** (`telegram_bot_api`) | 🟢 **LIVE / GREEN** (2026-07-11) | Real inbound POST 200 + canonical persistence + admin reply received on device; fail-closed webhook secret verified in production (403s until secrets matched) |
 | **Email** | 🟡 Code-ready / feature-gated, not activated | SendGrid / Cloudflare Worker paths exist; no production credentials configured |
 | **Admin reply queue** | 🟢 **LIVE** | Proven in production via the Telegram reply (queued → worker → `telegram_bot_api` → device); WhatsApp path previously proven |
-| **Worker scheduling** | 🟢 GREEN | Automatic delivery active (worker/cron), no manual invocation required |
+| **Worker scheduling** | 🟠 **PENDING ACTIVATION** (corrected 2026-07-12) | pg_cron + pg_net available but **not installed**; no production job has ever existed (verified via `get_communication_scheduler_health()`). Activation migration `20260712100000` + Vault runbook ready; awaiting operator apply + first verified 200 run |
 | **Messenger** | ⚪ Out of scope | Not started, per activation plan |
 | **Instagram** | ⚪ Out of scope | Not started, per activation plan |
 
