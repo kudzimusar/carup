@@ -6,7 +6,7 @@
  */
 
 import { apiRequest, type AuthHeaders } from './apiClient'
-import type { AdminVerificationSession, EvidencePreview, DecisionAction, DecisionResponse } from '@shared/types'
+import type { AdminVerificationSession, EvidencePreview, DecisionResponse } from '@shared/types'
 
 const BASE_PATH = '/admin/identity/verification-sessions'
 
@@ -26,12 +26,8 @@ interface SessionResponse {
   session: AdminVerificationSession
 }
 
-interface ReviewDecisionResponse {
-  decision: DecisionResponse['decision']
-  session: AdminVerificationSession
-  allowed_actions: DecisionAction[]
+interface ReviewDecisionResponse extends DecisionResponse {
   success?: boolean
-  idempotent_replay?: boolean
 }
 
 interface EvidencePreviewResponse {
@@ -101,11 +97,16 @@ export async function reviewVerificationSession(
     internalNote?: string | null
     applicantMessage?: string | null
   },
+  opts?: { idempotencyKey?: string },
 ): Promise<ReviewDecisionResponse> {
   const res = await apiRequest<ReviewDecisionResponse>({
     baseUrl: config.baseUrl,
     path: `${BASE_PATH}/${encodeURIComponent(sessionId)}/review`,
-    options: { method: 'POST', body: JSON.stringify(body) },
+    options: {
+      method: 'POST',
+      body: JSON.stringify(body),
+      ...(opts?.idempotencyKey ? { headers: { 'x-idempotency-key': opts.idempotencyKey } } : {}),
+    },
     authHeaders: config.authHeaders,
     fetchImpl: config.fetchImpl,
   })

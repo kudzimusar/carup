@@ -68,7 +68,7 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
 
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -83,7 +83,7 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
         } : undefined
       })
     });
-    
+
     const data = await response.json();
     if (data.candidates && data.candidates[0].content.parts[0].text) {
       return data.candidates[0].content.parts[0].text;
@@ -93,4 +93,58 @@ export async function askGemini(systemPrompt, userPrompt, jsonMode = false) {
     console.error('Gemini API call failed, falling back to simulation:', error.message);
     return JSON.stringify({ error: true, message: error.message });
   }
+}
+
+/**
+ * Vision variant of askGemini: sends the actual image bytes as inline_data
+ * parts so the model can SEE the evidence — a text prompt carrying truncated
+ * base64 cannot be classified visually. `images` is an array of
+ * `{ mimeType, base64 }`. Unlike askGemini, provider failures THROW so the
+ * caller can distinguish "provider error" from a model verdict and fail
+ * closed on its own terms.
+ *
+ * The mock gate matches askGemini exactly (NODE_ENV=test + ALLOW_OCR_MOCK)
+ * and returns the same generic simulated payload, so test-mode behaviour of
+ * callers is identical to the text path.
+ */
+export async function askGeminiVision(systemPrompt, textPrompt, images = [], jsonMode = false) {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    const mockAllowed = process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true';
+    if (!mockAllowed) {
+      throw new Error('Vision provider unavailable: Gemini API key missing and mock is only permitted under NODE_ENV=test with ALLOW_OCR_MOCK=true.');
+    }
+    if (jsonMode) {
+      return JSON.stringify({
+        success: true,
+        simulated: true,
+        message: 'Simulated JSON payload from CarUp AI Orchestration.'
+      });
+    }
+    return 'This is a simulated high-fidelity response from the CarUp OS AI Orchestration engine.';
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const parts = [{ text: `${systemPrompt}\n\n${textPrompt}` }];
+  for (const image of images) {
+    if (!image?.base64) continue;
+    parts.push({ inline_data: { mime_type: image.mimeType || 'image/jpeg', data: image.base64 } });
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts }],
+      generationConfig: jsonMode ? { responseMimeType: 'application/json' } : undefined
+    })
+  });
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error('Malformed Gemini vision API response');
+  }
+  return text;
 }

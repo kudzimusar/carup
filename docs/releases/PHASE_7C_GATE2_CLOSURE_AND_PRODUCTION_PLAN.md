@@ -22,9 +22,9 @@ Ledger maintained continuously. All claims below are backed by commands/SHAs/tot
 | S2 | Mobile ts/vitest/static-guards/expo export | **VERIFIED (LOCAL)** | tsc 0 · vitest 18/18 · static 4+59 · iOS export OK, §Stage 2 |
 | S2 | Web ts/test/build | **VERIFIED (LOCAL)** | tsc 0 · vitest 119/119 · build ✓, §Stage 2 |
 | S2 | git diff --check + secret/artifact scan | **VERIFIED (LOCAL)** | clean · 0 credential markers, §Stage 2 |
-| S3 | Staging migration reconciliation | **BLOCKED — EXTERNAL** | Supabase account lacks CarUp projects (§Blockers) |
-| S4 | Deploy tested SHA to staging | **BLOCKED — EXTERNAL** | Vercel MCP unauthenticated (§Blockers) |
-| S5 | Full staging acceptance matrix | **BLOCKED — EXTERNAL** | depends on S3/S4 |
+| S3 | Staging migration reconciliation | **VERIFIED ON STAGING** | 5/5 applied via repo tooling; verify exit 0; rows preserved (§report) |
+| S4 | Deploy tested SHA to staging | **VERIFIED ON STAGING** | branch aliases live; health 200; web targets staging (VITE_API_URL fixed) |
+| S5 | Full staging acceptance matrix | **AUTOMATED PASS** | 26/26 harness ×2 + 13/13 extended; P1 idempotency defect fixed `d8bed39` (§report) |
 | S6 | Owner physical-device Gate 2 | **BLOCKED — EXTERNAL (owner)** | requires a human + device |
 | S8 | One clean current-main release PR | **DONE — PR #115 OPEN** | merge `ff0e6c9` + qualification `00e0a1d`; battery green (§Stage 8) |
 | S9 | PR consolidation (#72/#76) | **DONE** | #72 CLOSED superseded; #76 7C-snapshot superseded (comment); `docs/PROJECT_PR_CONSOLIDATION_LEDGER.md` |
