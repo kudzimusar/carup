@@ -302,6 +302,87 @@ test('duplicate x-idempotency-key returns existing decision without side effects
 });
 
 // ---------------------------------------------------------------------------
+// 14b. REGRESSION (staging Gate 4): a retried command must replay even though
+// the policy would now reject it against the post-decision state. Previously
+// the policy gate ran before the idempotency lookup, so a retried "escalate"
+// failed 403 "Case is already escalated" instead of replaying.
+// ---------------------------------------------------------------------------
+test('duplicate key replays a phase-changing decision against the post-decision state', async () => {
+  const decisions = [];
+  const auditEvents = [];
+
+  const preSession = {
+    id: 'vs-idem-esc',
+    version: 1,
+    user_id: 'owner-1',
+    status: 'pending_manual_review',
+    workflow_phase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+    document_type: 'national_id',
+    double_sided: false,
+    front_storage_path: 'path/front.jpg',
+    ocr_result: null,
+    confidence_score: null,
+    created_at: '2026-06-01T00:00:00.000Z',
+    updated_at: '2026-06-01T00:00:00.000Z',
+  };
+
+  const client = makeMockClient({ decisions, auditEvents, sessions: [{ ...preSession }] });
+
+  const first = await VerificationDecisionRecorder.recordDecision(client, {
+    session: { ...preSession },
+    action: DECISION_ACTION.ESCALATE,
+    reasonCode: null,
+    internalNote: 'Escalating for specialist review.',
+    applicantMessage: null,
+    reviewerId: 'admin-1',
+    reviewerRole: 'admin',
+    currentWorkflowPhase: WORKFLOW_PHASE.REVIEWER_ACTION_REQUIRED,
+    req: { headers: { 'x-idempotency-key': 'idem-esc-1' } },
+  });
+  assert.equal(first.decision.action, DECISION_ACTION.ESCALATE);
+  assert.equal(decisions.length, 1);
+
+  // Retry as it happens in reality: the session is refetched and now carries
+  // the POST-decision escalated phase. The policy alone would 403 this.
+  const postSession = {
+    ...preSession,
+    workflow_phase: WORKFLOW_PHASE.ESCALATED,
+    status: first.decision.legacy_status || preSession.status,
+  };
+  const second = await VerificationDecisionRecorder.recordDecision(client, {
+    session: postSession,
+    action: DECISION_ACTION.ESCALATE,
+    reasonCode: null,
+    internalNote: 'Escalating for specialist review.',
+    applicantMessage: null,
+    reviewerId: 'admin-1',
+    reviewerRole: 'admin',
+    currentWorkflowPhase: WORKFLOW_PHASE.ESCALATED,
+    req: { headers: { 'x-idempotency-key': 'idem-esc-1' } },
+  });
+
+  assert.equal(second.idempotent_replay, true);
+  assert.equal(second.decision.id, first.decision.id);
+  assert.equal(decisions.length, 1); // no duplicate decision row
+
+  // A DIFFERENT key against the escalated state must still hit the policy gate.
+  await assert.rejects(
+    () => VerificationDecisionRecorder.recordDecision(client, {
+      session: { ...postSession },
+      action: DECISION_ACTION.ESCALATE,
+      reasonCode: null,
+      internalNote: 'Second distinct escalate attempt.',
+      applicantMessage: null,
+      reviewerId: 'admin-1',
+      reviewerRole: 'admin',
+      currentWorkflowPhase: WORKFLOW_PHASE.ESCALATED,
+      req: { headers: { 'x-idempotency-key': 'idem-esc-2' } },
+    }),
+    /not allowed/i,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // 15. stale session version returns 409
 // ---------------------------------------------------------------------------
 test('stale session version returns 409 Conflict', async () => {

@@ -402,8 +402,11 @@ export function useCarUpApi() {
   }, [user, token])
 
   const fetchVerificationReviewQueue = useCallback(
-    (status?: VerificationSessionStatus | string): Promise<AdminVerificationSession[]> =>
-      fetchVerificationReviewQueueRequest(verificationClientConfig, status ? { status } : undefined),
+    (filter?: VerificationSessionStatus | string | { workflow_phase?: string; status?: string }): Promise<AdminVerificationSession[]> =>
+      fetchVerificationReviewQueueRequest(
+        verificationClientConfig,
+        typeof filter === 'string' ? { status: filter } : filter || undefined,
+      ),
     [verificationClientConfig],
   )
 
@@ -422,6 +425,18 @@ export function useCarUpApi() {
   const reviewVerificationSession = useCallback(
     (sessionId: string, body: VerificationReviewRequest): Promise<{ decision: DecisionResponse['decision']; session: AdminVerificationSession; allowed_actions: DecisionAction[] }> =>
       reviewVerificationSessionRequest(verificationClientConfig, sessionId, body),
+    [verificationClientConfig],
+  )
+
+  // Phase 7C case management: the new decision contract (reason codes, notes,
+  // applicant messaging) with backend idempotency via x-idempotency-key.
+  const reviewVerificationCase = useCallback(
+    (
+      sessionId: string,
+      body: { action: string; reasonCode?: string | null; internalNote?: string | null; applicantMessage?: string | null },
+      opts?: { idempotencyKey?: string },
+    ): Promise<DecisionResponse> =>
+      reviewVerificationSessionRequest(verificationClientConfig, sessionId, body, opts),
     [verificationClientConfig],
   )
 
@@ -1702,6 +1717,7 @@ export function useCarUpApi() {
     fetchVerificationSessionDetail,
     fetchEvidencePreview,
     reviewVerificationSession,
+    reviewVerificationCase,
     fetchTrustReviewQueue,
     approveTrustFactRequest,
     rejectTrustFactRequest,

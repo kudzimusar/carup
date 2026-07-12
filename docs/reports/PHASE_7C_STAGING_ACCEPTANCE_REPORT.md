@@ -1,66 +1,93 @@
 # Phase 7C — Staging Acceptance Report
 
-**Date:** 2026-06-19  
-**PR:** #72 (phase-7c-native-verification-production-loop)  
-**SHA:** `c26763503899a33848dad71837561a98032c14d4`  
-**Staging Backend:** `carup-backend-staging-git-phase-7c-nati-bb2612-pay-pass-project.vercel.app`  
-**Staging Supabase:** `eoyenigwevnxwwhyhaer`  
+Release PR: **#115** · Branch: `release/phase7c-verification-production`
+Staging Supabase: `eoyenigwevnxwwhyhaer` · Updated: 2026-07-11
 
-## Gate 1 — Automated Staging Acceptance: PASSED
+## Environment (Gate 3 — verified)
 
-| Metric | Value |
-|--------|-------|
-| Total tests | 26 |
-| Pass | **26** |
-| Fail | **0** |
-| Skip | 0 |
+| Item | Value |
+|---|---|
+| Backend (branch alias) | `carup-backend-staging-git-release-phase-81c126-pay-pass-project.vercel.app` |
+| Backend deployment | `dpl_DijUmCYAXQZkekuGHuPBXoTpAHeF` (SHA `8097ad9`), redeployed with `d8bed39` fix |
+| Web (branch alias) | `carup-staging-git-release-phase7c-verif-2d8ff1-pay-pass-project.vercel.app` |
+| Backend health | `/api/health` 200, supabase healthy, outbox 0 |
+| Web `/admin/verification` | 200 |
+| Web → backend target | **staging alias baked into the bundle** (branch-scoped `VITE_API_URL` added — the build previously fell back to the production backend: fixed) |
+| Production refs in bundle | 0 |
 
-### Scenario Results
+## Staging DB (Gate 2 — applied + verified)
 
-| # | Scenario | Tests | Result |
-|---|----------|-------|--------|
-| 1 | Cup/non-document containment | 6 | **PASS** |
-| 2 | Request resubmission | 6 | **PASS** |
-| 3 | Idempotency and stale-version conflict | 4 | **PASS** |
-| 4 | Authorization (401/403/admin) | 3 | **PASS** |
-| 5 | Controlled valid-document policy path | 7 | **PASS** |
+All 5 approved migrations applied via `scripts/apply-phase7c-staging-migrations.mjs`
+(`--dry-run` reviewed, then `--apply`): phase7b auth/identity, admin_review,
+ocr_provenance, case_management, evidence_trust_columns. `verify-phase7c-staging-schema.mjs`
+exit 0. Row counts preserved: users 29, user_sessions 45, trust_audit_events 354.
+Two false positives fixed in the tooling itself (TIMESTAMPTZ expectation; intentional
+no-FK on provenance.ocr_document_id) — the database always matched the migrations.
+Supabase advisors: NOT RUN (management-API access unavailable from this environment).
 
-### Staging Verification Session IDs
+## Gate 1 automated acceptance — 26/26 PASS (run twice)
 
-| Purpose | Session ID |
-|---------|-----------|
-| Scenario 1 (cup containment) → Scenario 2 (resubmission) | `47222441-3dd6-4941-96a6-ed545d1b2865` |
-| Scenario 3 (idempotency) | `1809b856-9d47-461d-b1da-49dc6cf98e80` |
-| Scenario 5 (policy path) | `2f16c10a-a67f-4a26-9e05-4f187b0c5420` |
+Runs against the deployed release backend with provisioned QA accounts
+(`qa-buyer-73` / `qa-seller-73` / `qa-admin-73`, one-time strong passwords, tokens
+minted via the real login+CSRF flow):
 
-### Decision IDs
+| Scenario | Tests | Result |
+|---|---|---|
+| 1 Non-document (cup) containment — never verified, reason blocks approval, OCR null, reviewer-action-required | 6 | PASS |
+| 2 Request resubmission — decision record, audit event, retry_requested visible to applicant with message | 6 | PASS |
+| 3 Submit idempotency + stale-session 404 | 4 | PASS |
+| 4 Authorization — 401 unauthenticated, 403 non-admin, 200 admin | 3 | PASS |
+| 5 Valid-document policy path — classification gate, extraction guarded, never auto-verified, approve NOT in allowed actions for untrusted evidence | 7 | PASS |
 
-| Session | Decision ID | Action |
-|---------|------------|--------|
-| `47222441-...` | `dec_24a1c1099ec5405a` | `request_resubmission` |
+Second run (post-fix deployment) session IDs: `8cff814d…`, `6b14664a…`, `63626809…`.
 
-### Automated Suite Totals
+## Extended acceptance (goal-listed scenarios not in the harness)
 
-| Suite | Result |
-|-------|--------|
-| Backend (this report) | 26/26 pass, 0 fail (Gate 1 scenarios only) |
-| Full backend test suite | 499 total, 492 pass, 0 fail, 7 skip (pre-existing) |
-| Web vitest | 119/119 |
-| Web TS build | Pass |
-| Web production build | Pass |
-| Mobile vitest | 18/18 |
-| Mobile TS build | Pass |
-| Mobile Expo iOS export | Pass |
-| All Vercel checks | 4/4 green |
+| Check | Result | Evidence |
+|---|---|---|
+| Rejection → applicant sees `rejected` | PASS | decision `dec_01a7fb6a…`, audit `VERIFICATION_REVIEW_REJECTED` |
+| Escalation → escalated queue | PASS | session appears in `?workflow_phase=escalated` |
+| Non-admin cannot decide an escalated case | PASS | 403 |
+| Signed evidence preview | PASS | 200 with `url`, `side`, `expiresInSeconds` (TTL 180s) |
+| Preview response cache policy | PASS | `Cache-Control: no-store` |
+| Preview authz | PASS | non-admin 403, unauthenticated 401 |
+| **Duplicate admin command idempotent** | **PASS (after fix)** | see defect below |
 
-### Limitations
+## Defect found & fixed by this acceptance run (P1)
 
-1. **Gemini API key not configured in staging** — all document classification falls back to `uncertain`/`DOCUMENT_TOO_SMALL`, which correctly prevents approval by policy. Scenario 5g validates this policy works.
-2. **Audit event IDs** not returned in review API response; recorded in `trust_audit_events` table (verifiable via direct DB query). Decision record includes `audit_event_type` as proof.
-3. **Before/after row counts** require service-role key which is encrypted at the Vercel project level and accessible only at runtime by the Supabase integration; not exposed via `vercel env pull`.
+A retried admin decision with the same `x-idempotency-key` returned
+**403 "Case is already escalated"** — the policy gate re-evaluated against the
+post-decision state BEFORE the idempotency lookup. Fixed in `d8bed39`
+(lookup hoisted above the policy gate, session-scoped); regression test 14b added
+(backend suites now **132/132**). **Live re-verified** on the redeployed staging:
+retry returns 200 with the same decision id and `idempotent_replay: true`
+(session `040d68c6-b092-45b6-b4d3-7bda2599d139`).
 
-## Recommendation
+## Resubmission-loop completion (live, 2026-07-11)
 
-**PROCEED** to Gate 2 (owner mobile smoke test).  
+Session `0fc62cc2-6ed8-4786-99e4-52cba8ebdda3`: submit → admin `request_resubmission`
+(BLURRY, applicant message) → applicant sees `retry_requested` + reason → re-upload
+front/selfie → resubmit 200 → back to `reviewer_action_required`. **DB truth:**
+`version` advanced 1→2 (optimistic concurrency intact; the API deliberately
+sanitizes `version` out of responses), 1 decision row, complete audit chain:
+`IMAGE_UPLOADED ×2 → REVIEW_RETRY_REQUESTED → IMAGE_UPLOADED ×2 → SUBMITTED →
+EVIDENCE_INVALID` (classifier fail-closed on the controlled synthetic evidence).
+API-level checks 8/8 (the ninth was an assertion reading the sanitized field —
+verified at the DB instead).
 
-All five acceptance scenarios pass. All automated suites remain green. No release blockers identified.
+## Known limitation (owner decision pending)
+
+The staging backend has **no `GEMINI_API_KEY`** (health shows all OCR providers
+false). Every submission therefore classifies `uncertain` (provider unavailable)
+and the decision policy — fail-closed by design — **blocks `approve`** for all
+sessions. Resubmission / reject / escalate / audit / preview flows are fully
+provable (above); the "valid document → admin approve → mobile Approved" scenario
+requires the owner either to (a) add a branch-scoped `GEMINI_API_KEY` to
+`carup-backend-staging` (Preview / `release/phase7c-verification-production`) —
+an automated attempt was correctly blocked by the permission layer as a
+secret-store write — or (b) accept approve-path verification at production
+cutover. Recorded as OPEN owner decision.
+
+## Status
+
+**AUTOMATED STAGING PASS (26/26 harness ×2 + 13/13 extended) — OWNER DEVICE GATE REQUIRED.**
