@@ -4,7 +4,7 @@ Canonical record of what is LIVE in production for the Omnichannel Communication
 (Enterprise Communication Command Center), with the accepted evidence for each activation.
 Update this ledger whenever a channel or capability changes production state.
 
-Last updated: 2026-07-12 (scheduler status corrected; activation pending) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
+Last updated: 2026-07-12 (worker scheduler LIVE) · Owner: Agent 8 · Status source: production runtime evidence (no secrets recorded here)
 
 ## Production deployment
 
@@ -181,8 +181,47 @@ SELECT public.get_communication_scheduler_health();
 SELECT COUNT(*) FROM cron.job WHERE command ILIKE '%communications%';  -- expect exactly 1
 ```
 
-**Evidence: ⏳ pending operator application + first verified 200 run** (this section will be updated
-with the run timestamp + HTTP status once observed; success is not claimed until then).
+**Evidence: ✅ ACTIVE — first verified successful authenticated run 2026-07-12T06:32:00Z.**
+
+Applied to production `vhmnajoeicasaigiophh` (2026-07-12). Final `get_communication_scheduler_health()`:
+
+| Field | Value |
+|-------|-------|
+| `pg_cron_available` / `pg_net_available` | `true` / `true` (extensions installed by the migration) |
+| `job_configured` | `true` |
+| `job_config` | `{ jobname: 'carup-communication-worker-every-minute', schedule: '* * * * *', active: true }` |
+| `latest_run` | `status: succeeded`, `2026-07-12T06:32:00Z`, `return_message: "1 row"` |
+| `latest_success` | `status: succeeded`, `2026-07-12T06:32:00Z` |
+| `latest_http_call` | **`status_code: 200`**, `timed_out: false`, `2026-07-12T06:32:00Z` |
+| `stale_lock_count` | `0` |
+| Job uniqueness | exactly **1** active job with this name; **0** other communication cron jobs |
+
+Secret handling (no value ever printed/committed): URL + worker secret read from Vault at execution
+time. Vercel Production `COMMUNICATION_WORKER_SECRET` matches Vault `CARUP_WORKER_SECRET`
+byte-for-byte (the endpoint's check is constant-time, no-trim).
+
+**Activation incident + remediation (recorded honestly):**
+
+- During activation the two Vault entries were initially swapped — `CARUP_WORKER_ENDPOINT_URL` held
+  the secret — so `net.http_post` failed with `Bad scheme` and **wrote the worker secret in plaintext
+  into `cron.job_run_details.return_message`** (also echoed to CLI/logs). Treated as a real exposure.
+- Remediation: the worker secret was **rotated** (operator: new value → Vercel Production
+  `COMMUNICATION_WORKER_SECRET` → production redeploy; same value → Vault `CARUP_WORKER_SECRET`), which
+  neutralized the leaked value. The Vault URL entry was corrected. Next: a `401` run confirmed the URL
+  was fixed (real request enqueued) and isolated a secret mismatch; after a byte-exact re-sync of the
+  Vault secret to the Vercel value, the `06:32:00Z` tick returned **HTTP 200 / succeeded**.
+- **Operator follow-up (audit hygiene, non-blocking):** delete the failed run rows that captured the
+  (now-dead) leaked value —
+  `DELETE FROM cron.job_run_details WHERE status='failed' AND jobid=(SELECT jobid FROM cron.job WHERE jobname='carup-communication-worker-every-minute');`
+  The leaked value is already invalidated by the rotation, so this is cleanup, not exposure closure.
+
+**Rollback:** run the Down section of `20260712100000` (unschedules the job only; extensions + health
+function retained). Vault entries and Vercel env are managed independently of the migration.
+
+**Post-activation regression (2026-07-12, stable alias):** WhatsApp `available=true, missing=[]` ·
+Telegram `available=true, missing=[]` · Command Center `/admin/communications` + `/inbox` → HTTP 200 ·
+no provider webhook changed · only `COMMUNICATION_WORKER_SECRET` rotated (required by the leak); no
+provider credentials rotated.
 
 ### Smoke evidence (2026-07-12, post-audit)
 
@@ -199,7 +238,7 @@ with the run timestamp + HTTP status once observed; success is not claimed until
 | **Telegram** (`telegram_bot_api`) | 🟢 **LIVE / GREEN** (2026-07-11) | Real inbound POST 200 + canonical persistence + admin reply received on device; fail-closed webhook secret verified in production (403s until secrets matched) |
 | **Email** | 🟡 Code-ready / feature-gated, not activated | SendGrid / Cloudflare Worker paths exist; no production credentials configured |
 | **Admin reply queue** | 🟢 **LIVE** | Proven in production via the Telegram reply (queued → worker → `telegram_bot_api` → device); WhatsApp path previously proven |
-| **Worker scheduling** | 🟠 **PENDING ACTIVATION** (corrected 2026-07-12) | pg_cron + pg_net available but **not installed**; no production job has ever existed (verified via `get_communication_scheduler_health()`). Activation migration `20260712100000` + Vault runbook ready; awaiting operator apply + first verified 200 run |
+| **Worker scheduling** | 🟢 **LIVE / GREEN** (2026-07-12) | Supabase pg_cron every-minute job active; first authenticated run `06:32:00Z` returned `latest_http_call.status_code=200`, `latest_run=succeeded`; single job, `stale_lock_count=0`; secret read from Vault. Worker secret was rotated during activation (leak remediation) |
 | **Messenger** | ⚪ Out of scope | Not started, per activation plan |
 | **Instagram** | ⚪ Out of scope | Not started, per activation plan |
 
