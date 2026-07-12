@@ -251,3 +251,65 @@ provider credentials rotated.
   (regression-checked green after each redeploy).
 - No secrets were rotated beyond the intended fresh webhook secret, printed, or recorded.
 - No Messenger, Instagram, or email activation work was started.
+
+## ⛔ Command-Center-to-main-web promotion — BLOCKED (backend/database mismatch, 2026-07-12)
+
+**Requested:** point `pay-pass-project/carup` (main production web, `carup.vercel.app`) at
+`https://carup-backend-staging.vercel.app/api` so the Command Center is served on the main domain.
+
+**Verdict: NOT SAFE — not performed.** `VITE_API_URL` was **not** changed, no redeploy was triggered,
+and no success is claimed. Doing the flip would break every non-communication CarUp feature on the
+real production domain.
+
+**Audit (carup web project):** Production Branch `main` (confirmed via the `carup-git-main` alias),
+Root Directory `web`, latest Production deployment `carup-e90vmei9p` (Ready, built from main, and the
+bundle already **contains** the Command Center — `admin.communications` present, `/admin/communications`
+routes return 200 on direct refresh). `VITE_API_URL` is **unset** in Production, so the bundle is baked
+to the fallback `https://carup-backend.vercel.app/api`. Domains: `carup.vercel.app`,
+`carup-pay-pass-project.vercel.app`.
+
+**Parity gate results:**
+
+| Check | Result |
+|-------|--------|
+| Route-shape parity (20 endpoints: auth/vehicles/finance/insurance/safepay/diaspora/telemetry/security/communications…) | ✅ **PASS** — 0 mismatches; both backends run the same route set |
+| **Data parity (same database?)** | ❌ **FAIL** — different databases |
+
+**Evidence the two backends use different databases:**
+
+- `carup-backend` `/api/vehicles` → **259** vehicles (real VINs); `carup-backend-staging` → **12**
+  (test VINs, e.g. `123456`). Confirmed not pagination (`?limit=1000` returns the same 259 vs 12).
+- A real production VIN taken from `carup-backend` resolves **HTTP 200** on `carup-backend`'s
+  `/api/vehicles/<vin>/details` but **HTTP 500** on `carup-backend-staging` (absent there).
+
+**Root cause / topology reality:** `carup-backend` is wired to the **real CarUp production database**
+(259 real vehicles + the live marketplace/vehicle/trust/user data that `carup.vercel.app` serves
+today). `carup-backend-staging` is wired to the **communications/staging database**
+(`vhmnajoeicasaigiophh`, ~12 test vehicles) — the DB where WhatsApp/Telegram threads, the scheduler,
+and Vault live. The Command Center's live conversation data therefore sits in a **different** database
+from the real production app data. Promotion is not a `VITE_API_URL` flip; the two datasets must be
+reconciled first.
+
+**Impact if the flip had been done:** `carup.vercel.app` (real users) would instantly show 12 test
+vehicles instead of 259 real ones, and marketplace/vehicle/trust/finance/user reads would switch to
+the staging dataset — a full production data regression. Auth/session would also move to the other
+project's user table.
+
+**Safe options for the operator (decision required — both out of this task's no-secrets/no-flip scope):**
+
+1. **Bring communications to the real production backend (recommended).** Provision the WhatsApp +
+   Telegram + scheduler configuration (provider creds in Vercel `carup-backend` Production; run the
+   Command Center migrations + the `20260712100000` scheduler + Vault on the **real** production
+   Supabase that `carup-backend` uses; repoint the Meta/Telegram webhooks to `carup-backend`). Then the
+   already-deployed Command Center on `carup.vercel.app` works against real data with **no**
+   `VITE_API_URL` change. This is the true "promotion" but it re-activates providers on a new
+   DB/backend (credential + migration work).
+2. **Unify the databases** so `carup-backend` and `carup-backend-staging` share one production Supabase
+   (larger architectural change; verify no data divergence first).
+3. **Keep the Command Center on `carup-staging.vercel.app`** (current working state → `carup-backend-staging`
+   → the comms DB) and treat it as the operational Command Center until option 1 or 2 is done.
+
+**Until resolved:** `carup.vercel.app` remains correctly served by `carup-backend` (real data); the
+operational Command Center remains `carup-staging.vercel.app`. No feature was changed by this audit
+(read-only probes + public health only). No secrets were touched. WhatsApp/Telegram/scheduler/webhooks
+unchanged.
