@@ -102,7 +102,13 @@ export const NATIVE_NAV: NativeNavEntry[] = [
 ];
 
 /** All Expo routes the native app actually ships (for dead-route detection). */
-export const KNOWN_NATIVE_ROUTES: string[] = NATIVE_NAV.map((e) => e.expoRoute);
+export const KNOWN_NATIVE_ROUTES: string[] = [
+  ...NATIVE_NAV.map((e) => e.expoRoute),
+  // Shipped native screens reachable outside the tab/drawer manifest entries.
+  // The Phase 7C identity-verification flow lives under the (auth) group and
+  // is linked from the drawer's auth-gated Identity Verification entry.
+  '/(auth)/verification/intro',
+];
 
 /** Resolve the owning feature id for an entry under a given role. */
 export function resolveEntryOwner(entry: NativeNavEntry, role: UserRole | null): string {
