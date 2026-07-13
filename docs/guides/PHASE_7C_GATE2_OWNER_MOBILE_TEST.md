@@ -8,10 +8,15 @@ Run one real-device staging journey to prove that non-document evidence is never
 
 You do **not** need to run the backend server locally.
 
+Use ONLY these deployed staging services for the CURRENT release branch
+(`release/phase7c-verification-production`). Aliases from the superseded
+PR #72 guide (`...git-phase-7c-nati-...`) must NOT be used — pointing the
+app at them was device-test defect #1.
+
 Use these deployed staging services:
 
-- Staging backend: `https://carup-backend-staging-git-phase-7c-nati-bb2612-pay-pass-project.vercel.app`
-- Staging web: `https://carup-staging-git-phase-7c-native-verif-3e08e9-pay-pass-project.vercel.app`
+- Staging backend: `https://carup-backend-staging-git-release-phase-81c126-pay-pass-project.vercel.app`
+- Staging web: `https://carup-staging-git-release-phase7c-verif-2d8ff1-pay-pass-project.vercel.app`
 - Staging Supabase project: `eoyenigwevnxwwhyhaer`
 
 Only the Expo mobile development server needs to run on the Mac. The Expo server serves the mobile JavaScript bundle; API requests go directly to the deployed staging backend.
@@ -29,7 +34,7 @@ git worktree remove /private/tmp/carup-phase7c-gate2 --force 2>/dev/null || true
 
 git worktree add --detach \
   /private/tmp/carup-phase7c-gate2 \
-  origin/phase-7c-native-verification-production-loop
+  origin/release/phase7c-verification-production
 
 cd /private/tmp/carup-phase7c-gate2
 
@@ -58,7 +63,7 @@ Create a temporary local environment file inside `mobile/`:
 
 ```bash
 cat > mobile/.env.local <<'EOF'
-EXPO_PUBLIC_API_URL=https://carup-backend-staging-git-phase-7c-nati-bb2612-pay-pass-project.vercel.app
+EXPO_PUBLIC_API_URL=https://carup-backend-staging-git-release-phase-81c126-pay-pass-project.vercel.app
 EXPO_PUBLIC_ALLOW_LOCALHOST_API=false
 EXPO_PUBLIC_ALLOW_DEV_USER_FALLBACK=false
 EOF
@@ -130,7 +135,7 @@ Keep the mobile app open on the result screen.
 
 On the Mac, open:
 
-`https://carup-staging-git-phase-7c-native-verif-3e08e9-pay-pass-project.vercel.app`
+`https://carup-staging-git-release-phase7c-verif-2d8ff1-pay-pass-project.vercel.app`
 
 1. Sign in using the Gate 1 admin account.
 2. Open `/admin/verification`.
@@ -201,7 +206,7 @@ npx expo start --tunnel --clear
 - use the staging test password shared in owner chat
 - confirm the backend health endpoint opens:
 
-  `https://carup-backend-staging-git-phase-7c-nati-bb2612-pay-pass-project.vercel.app/api/health`
+  `https://carup-backend-staging-git-release-phase-81c126-pay-pass-project.vercel.app/api/health`
 
 Do not register a new account before confirming the existing account credentials.
 

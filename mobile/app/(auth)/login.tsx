@@ -120,7 +120,7 @@ export default function LoginScreen() {
           render={({ field: { onChange, onBlur, value } }) => (
             <TextInput
               style={inputStyle}
-              placeholder="phase7b.tester@carup.dev"
+              placeholder="you@example.com"
               placeholderTextColor="#94a3b8"
               onBlur={onBlur}
               onChangeText={onChange}
