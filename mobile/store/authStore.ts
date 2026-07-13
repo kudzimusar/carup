@@ -24,6 +24,42 @@ export interface RoleSwitchResult {
   error?: string;
 }
 
+/**
+ * Classify a SAVED session token against the backend before trusting it.
+ *  - 'valid'   → /api/auth/me accepted the token.
+ *  - 'invalid' → 401/403: the token is stale/expired and MUST be purged
+ *                (a restored dead session previously stranded the whole
+ *                governed dashboard on "Temporarily unavailable").
+ *  - 'unknown' → network/config/5xx: cannot judge; keep the session so the
+ *                app still opens offline.
+ */
+export async function validateSessionToken(
+  token: string,
+  userId: string | undefined,
+  fetchImpl: typeof fetch = fetch,
+): Promise<'valid' | 'invalid' | 'unknown'> {
+  let url: string;
+  try {
+    url = apiUrl('/api/auth/me');
+  } catch {
+    return 'unknown';
+  }
+  try {
+    const res = await fetchImpl(url, {
+      headers: {
+        'ngrok-skip-browser-warning': 'true',
+        'x-session-token': token,
+        ...(userId ? { 'x-user-id': userId } : {}),
+      },
+    });
+    if (res.ok) return 'valid';
+    if (res.status === 401 || res.status === 403) return 'invalid';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 interface AuthState {
   user: AuthUser | null;
   token: string | null;
@@ -51,11 +87,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (savedUserStr && savedToken) {
         const savedUser = JSON.parse(savedUserStr) as AuthUser;
-        set({
-          user: savedUser,
-          token: savedToken,
-          isAuthenticated: true,
-        });
+        // Session validation contract: never trust a restored token blindly.
+        // A stale token used to restore a dead "signed-in" identity whose
+        // every governed fetch 401'd — rendering the dashboard permanently
+        // "Temporarily unavailable". Validate first; purge on 401/403; keep
+        // only on confirmed-valid or unreachable-backend (offline tolerance).
+        const validity = await validateSessionToken(savedToken, savedUser?.id);
+        if (validity === 'invalid') {
+          await SecureStore.deleteItemAsync(SECURE_USER_KEY);
+          await SecureStore.deleteItemAsync(SECURE_TOKEN_KEY);
+          set({ user: null, token: null, isAuthenticated: false });
+        } else {
+          set({
+            user: savedUser,
+            token: savedToken,
+            isAuthenticated: true,
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to initialize secure auth store:', error);

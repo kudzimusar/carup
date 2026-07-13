@@ -111,12 +111,15 @@ else
   cat > "$ENV_FILE" <<'TEMPLATE'
 # CarUp Phase 7C Gate 2 — mobile environment (git-ignored; never commit).
 # Set EXPO_PUBLIC_API_URL to the DEPLOYED STAGING backend URL (https, not localhost).
-EXPO_PUBLIC_API_URL=https://REPLACE-WITH-DEPLOYED-STAGING-BACKEND
+# Prefilled with the CURRENT release staging backend (branch alias of
+# release/phase7c-verification-production). The old PR #72 alias from the
+# earlier owner guide is superseded - do not use it.
+EXPO_PUBLIC_API_URL=https://carup-backend-staging-git-release-phase-81c126-pay-pass-project.vercel.app
 # Safety posture for a physical-device Gate 2 run — keep both disabled.
 EXPO_PUBLIC_ALLOW_LOCALHOST_API=false
 EXPO_PUBLIC_ALLOW_DEV_USER_FALLBACK=false
 TEMPLATE
-  log "template written to mobile/.env.local — edit EXPO_PUBLIC_API_URL, then re-run."
+  log "env template written to mobile/.env.local (prefilled with the release staging backend)."
 fi
 
 # ---------------------------------------------------------------------------
