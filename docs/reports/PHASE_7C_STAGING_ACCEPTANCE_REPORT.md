@@ -88,6 +88,30 @@ an automated attempt was correctly blocked by the permission layer as a
 secret-store write — or (b) accept approve-path verification at production
 cutover. Recorded as OPEN owner decision.
 
+## Owner device Gate 2 — first run FAIL → all six defects fixed (2026-07-14, `a1a5002`)
+
+The owner's physical-device run (iPhone, Expo Go, 2026-07-13 22:09–22:16 JST,
+redacted screenshots on file) FAILED with six defects; all are fixed and
+regression-locked:
+
+| # | Device defect | Fix |
+|---|---|---|
+| 1 | Bundle configured with the superseded PR #72 backend alias | Launcher env template prefilled with the release alias; owner guide rewritten |
+| 2 | Stale "Phase7B Tester" SecureStore session restored blindly | `initialize()` validates the token via `/api/auth/me`; 401/403 → purge + signed out; unreachable → keep (offline tolerance) |
+| 3 | `/api/features/effective` failure → dashboard dead-ends "Temporarily unavailable" | 401/403 classified `unauthorized` → invalid auth cleared → login; network/5xx stays retryable |
+| 4 | Start Verification Flow unreachable behind the governed boundary | Boundary failed-state exposes an authenticated "Start Verification Flow" escape hatch |
+| 5 | No drawer entry for verification | Trust & Verification drawer section — auth-gated, NOT governance-map-gated |
+| 6 | Phase7B tester placeholder copy on login | Neutral `you@example.com` |
+
+Regression: 18 new tests (mobile vitest 36/36 total). Batteries at `a1a5002`:
+mobile tsc 0 · static guards PASS · expo iOS export OK · backend 7C 132/132 ·
+launcher verify 15/15. Staging redeployed (backend alias target created
+2026-07-14 08:20 JST) and the 26-test acceptance harness re-passed against it.
+QA accounts re-provisioned with fresh one-time passwords; secure owner handoff
+at `~/carup-gate2-owner-credentials.txt` (0600).
+
+**Gate 2 remains OPEN until the owner retests on the phone.**
+
 ## Status
 
 **AUTOMATED STAGING PASS (26/26 harness ×2 + 13/13 extended) — OWNER DEVICE GATE REQUIRED.**

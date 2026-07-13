@@ -45,12 +45,16 @@ expect() { # <desc> <pass|fail> <code>
 
 echo "== Phase 7C Gate 2 launcher — deterministic verification =="
 
-# 1. Missing env file -> template created, then fails on placeholder.
+# 1. Missing env file -> template created PREFILLED with the release staging
+#    backend, so verify-only passes immediately (no owner hand-edit needed).
 EF="$TMP/missing.env"; rm -f "$EF"
 run "$EF" 0 fs --verify-only
-expect "1. missing env file rejected (placeholder)" fail "$CODE"
-[ -f "$EF" ] && { echo "ok     - 1b. template created when missing"; PASS=$((PASS+1)); } \
-             || { echo "NOT OK - 1b. template NOT created"; FAIL=$((FAIL+1)); }
+expect "1. missing env file -> prefilled template accepted" pass "$CODE"
+if [ -f "$EF" ] && grep -q "carup-backend-staging-git-release" "$EF"; then
+  echo "ok     - 1b. template created with the RELEASE staging backend"; PASS=$((PASS+1))
+else
+  echo "NOT OK - 1b. template missing or not prefilled with the release alias"; FAIL=$((FAIL+1))
+fi
 
 # 2. Valid existing env.
 EF="$TMP/valid.env"; write_env "$EF" "https://carup-backend-staging.vercel.app" false false
