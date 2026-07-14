@@ -36,10 +36,12 @@ export default function VerificationResult() {
   // Restart is offered only when the user can act: a reviewer asked for a
   // retry, OCR failed, the session was rejected, capture was incomplete, or the
   // backend was unreachable so nothing was submitted.
+  // RETRY POLICY A (deliberate): rejection is TERMINAL for the applicant.
+  // Restart is offered only for actionable, non-terminal states; a rejected
+  // case reopens ONLY via a reviewer requesting resubmission (or support).
   const allowsRestart =
     verificationStatus === 'retry_requested' ||
     verificationStatus === 'ocr_failed' ||
-    verificationStatus === 'rejected' ||
     verificationStatus === 'incomplete' ||
     verificationStatus === 'backend_pending';
 
@@ -222,15 +224,24 @@ export default function VerificationResult() {
               width: '100%', backgroundColor: '#161C2C', borderWidth: 1, borderColor: '#2B3552',
               borderRadius: 24, padding: 24, marginBottom: 32,
             }}>
-              <Text style={{ color: '#fbbf24', fontWeight: 'bold', fontSize: 14, marginBottom: 8 }}>
-                {verificationStatus === 'retry_requested'
-                  ? 'Retake Required — Photos Did Not Pass Review'
-                  : 'Verification Under Review'}
+              <Text
+                style={{
+                  color: verificationStatus === 'rejected' ? '#f87171' : '#fbbf24',
+                  fontWeight: 'bold', fontSize: 14, marginBottom: 8,
+                }}
+              >
+                {verificationStatus === 'rejected'
+                  ? 'Verification Closed — Not Approved'
+                  : verificationStatus === 'retry_requested'
+                    ? 'Retake Required — Photos Did Not Pass Review'
+                    : 'Verification Under Review'}
               </Text>
               <Text style={{ color: '#94a3b8', fontSize: 12, lineHeight: 18 }}>
-                {verificationStatus === 'retry_requested'
-                  ? 'A reviewer found issues with your submitted documents. Please retake and resubmit clear photos of your identity document and selfie.'
-                  : 'Your verification has been submitted for manual review. OCR-extracted identity fields are not confirmed until a reviewer approves your documents.'}
+                {verificationStatus === 'rejected'
+                  ? 'A reviewer examined your submission and closed this verification. This decision is final in the app. If you believe this is a mistake, contact CarUp support — a reviewer can reopen the case by requesting a new submission.'
+                  : verificationStatus === 'retry_requested'
+                    ? 'A reviewer found issues with your submitted documents. Please retake and resubmit clear photos of your identity document and selfie.'
+                    : 'Your verification has been submitted for manual review. OCR-extracted identity fields are not confirmed until a reviewer approves your documents.'}
               </Text>
               {processingError ? (
                 <Text style={{ color: '#f87171', fontSize: 12, lineHeight: 18, marginTop: 8 }}>

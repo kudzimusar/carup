@@ -260,6 +260,24 @@ export async function createVerificationSession(client = supabase, actor = {}, p
   const userId = actorId(actor);
   if (!userId) throw new ValidationError('Authenticated user context is required.');
 
+  // REJECTION IS TERMINAL (retry policy A — deliberate, not accidental):
+  // an applicant may not self-start a new verification while their most
+  // recent session is rejected. A reviewer/support reopens the case by
+  // requesting resubmission on it (allowed by the decision policy), which
+  // moves it off the terminal state and resumes the SAME session.
+  const { data: priorSessions } = await client
+    .from('verification_sessions')
+    .select('id, status, created_at')
+    .eq('user_id', userId);
+  const latestPrior = (priorSessions || [])
+    .slice()
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+  if (latestPrior && latestPrior.status === 'rejected') {
+    throw new ForbiddenError(
+      'Your previous verification was closed by a reviewer. A new attempt requires a reviewer to reopen the case (request resubmission) or CarUp support.',
+    );
+  }
+
   const documentType = normalizeDocumentType(payload.documentType || payload.document_type);
   const doubleSided = requiresBack(documentType, payload.doubleSided ?? payload.double_sided);
   const timestamp = now();
@@ -410,7 +428,7 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     // -------------------------------------------------------
     // STAGE 1: Document classification (Layer 1 + Layer 2)
     // -------------------------------------------------------
-    const classificationResult = await DocumentClassifier.classify(
+    let classificationResult = await DocumentClassifier.classify(
       { front: frontDocument.buffer, back: backBuffer, selfie: selfieBuffer },
       session.document_type
     );
@@ -508,6 +526,26 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
     } else {
       extractionTrust = EXTRACTION_TRUST_STATUS.NO_FIELDS;
       extractionReasonCode = 'OCR_PROVIDER_FAILED';
+    }
+
+    // CONSISTENCY INVARIANT (fail-closed): a stored record may never claim a
+    // valid identity document while extraction produced ZERO identity fields.
+    // The owner's device Gate 2 surfaced a rejected case displaying BOTH
+    // "Valid identity document" (classifier/mock verdict) and "Not an identity
+    // document" (decision reason). When nothing extractable supports validity,
+    // the authoritative classification downgrades to UNCERTAIN.
+    if (
+      classificationResult.classification === EVIDENCE_CLASSIFICATION.VALID_IDENTITY_DOCUMENT &&
+      extractionTrust === EXTRACTION_TRUST_STATUS.NO_FIELDS
+    ) {
+      classificationResult = {
+        ...classificationResult,
+        classification: EVIDENCE_CLASSIFICATION.UNCERTAIN,
+        reasons: [
+          ...(classificationResult.reasons || []),
+          'Classification downgraded to uncertain: no identity fields were extractable from the evidence.',
+        ],
+      };
     }
 
     // Compute identity binding
@@ -699,6 +737,12 @@ function sanitizeReviewSession(session, identity = null) {
     // Workstream F — surface BOTH identities + the comparison so the reviewer
     // can see an account-vs-document mismatch at a glance. null on the list view.
     identity_binding: identity,
+    // Applicant identity for admin cards (from the users join; null on mocks).
+    applicant_name: session.users?.name ?? null,
+    applicant_email: session.users?.email ?? null,
+    // Applicant-notification bookkeeping (case-management columns).
+    notification_status: session.notification_status || null,
+    notification_attempted_at: session.notification_attempted_at || null,
   };
 }
 
@@ -716,7 +760,10 @@ async function fetchSessionForReview(client, sessionId) {
 export async function listVerificationSessionsForReview(client = supabase, actor = {}, filters = {}) {
   assertAdminReviewer(actor);
 
-  let query = client.from('verification_sessions').select('*');
+  // Join the applicant so admin cards can show WHO the case belongs to
+  // (name/email); mocks that ignore select args simply yield no `users`
+  // object and the serializer falls back to null.
+  let query = client.from('verification_sessions').select('*, users(name, email)');
 
   // Support both legacy status and workflow phase filters
   if (filters.workflow_phase !== undefined && filters.workflow_phase !== null && filters.workflow_phase !== '') {
