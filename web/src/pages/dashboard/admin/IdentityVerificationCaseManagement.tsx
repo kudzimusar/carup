@@ -143,6 +143,7 @@ export default function IdentityVerificationCaseManagement() {
   const [activeTab, setActiveTab] = useState('reviewer_action_required')
   const [sessions, setSessions] = useState<ExtendedAdminVerificationSession[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [selectedSession, setSelectedSession] = useState<ExtendedAdminVerificationSession | null>(null)
   const [sessionDetail, setSessionDetail] = useState<ExtendedAdminVerificationSession | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -167,9 +168,14 @@ export default function IdentityVerificationCaseManagement() {
       const filter = tab?.phase ? { workflow_phase: tab.phase } : tab?.status ? { status: tab.status } : undefined
       const data = await fetchVerificationReviewQueue(filter)
       setSessions((data || []) as ExtendedAdminVerificationSession[])
+      setLoadError(false)
     } catch {
       toast.error('Failed to load verification sessions')
+      // Retain the ERROR state: a failed load must never render as an empty
+      // queue with zero counts (round-4 staging regression showed "0" cases
+      // while the API was returning 500).
       setSessions([])
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -292,11 +298,13 @@ export default function IdentityVerificationCaseManagement() {
               {tab.label}
               {!loading && tab.id !== 'all' && (
                 <span className="ml-1.5 text-gray-400">
-                  ({sessions.filter(s => {
-                    if (tab.phase) return s.workflow_phase === tab.phase
-                    if (tab.status) return s.status === tab.status
-                    return true
-                  }).length})
+                  {loadError
+                    ? '(—)'
+                    : `(${sessions.filter(s => {
+                        if (tab.phase) return s.workflow_phase === tab.phase
+                        if (tab.status) return s.status === tab.status
+                        return true
+                      }).length})`}
                 </span>
               )}
             </TabsTrigger>
@@ -310,6 +318,14 @@ export default function IdentityVerificationCaseManagement() {
               <div className="flex justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
               </div>
+            ) : loadError ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-red-600 font-medium mb-1">Could not load verification sessions.</p>
+                  <p className="text-gray-500 text-sm mb-4">Queue counts are unavailable until this succeeds — they are NOT zero.</p>
+                  <Button variant="outline" onClick={() => fetchSessions(activeTab)}>Retry</Button>
+                </CardContent>
+              </Card>
             ) : sessionsByTab.length === 0 ? (
               <Card>
                 <CardContent className="py-12 text-center text-gray-500">
