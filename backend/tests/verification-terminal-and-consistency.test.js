@@ -21,6 +21,7 @@ const {
   uploadVerificationSessionImage,
   submitVerificationSession,
   reviewVerificationSession,
+  getLatestVerificationSessionForUser,
 } = await import('../services/identity/verificationSessionService.js');
 const { ForbiddenError } = await import('../utils/errors.js');
 
@@ -189,4 +190,24 @@ test('policy A: a user with no rejected history is unaffected', async () => {
   const first = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
   const second = await createVerificationSession(client, owner, { documentType: 'national_id', doubleSided: true });
   assert.ok(first.id && second.id);
+});
+
+// ---------------------------------------------------------------------------
+// Entry preflight backend: latest-session lookup for the authenticated user
+// ---------------------------------------------------------------------------
+test('latest-session lookup returns the newest sanitized session (or null)', async () => {
+  const client = createMockClient();
+  assert.equal(await getLatestVerificationSessionForUser(client, owner), null);
+
+  const first = await createVerificationSession(client, owner, { documentType: 'passport', doubleSided: false });
+  // Force distinct timestamps: both mock inserts land in the same millisecond,
+  // whereas real rows get distinct now() values.
+  client.data.verification_sessions.find((r) => r.id === first.id).created_at = '2026-07-01T00:00:00.000Z';
+  const second = await createVerificationSession(client, owner, { documentType: 'national_id', doubleSided: true });
+
+  const latest = await getLatestVerificationSessionForUser(client, owner);
+  assert.equal(latest.id, second.id);
+  assert.equal(latest.document_type, 'national_id');
+  // Sanitized shape: storage paths never leak.
+  assert.equal('front_storage_path' in latest, false);
 });

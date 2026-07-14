@@ -693,6 +693,29 @@ export async function submitVerificationSession(client = supabase, actor = {}, s
   }
 }
 
+/**
+ * The authenticated applicant's most recent verification session (sanitized),
+ * or null when they have none. Powers the mobile ENTRY PREFLIGHT so a
+ * terminally-rejected applicant is stopped BEFORE document selection or any
+ * camera capture — the create-session guard alone fired only after all
+ * captures (device Gate 2 round 3).
+ */
+export async function getLatestVerificationSessionForUser(client = supabase, actor = {}) {
+  const userId = actorId(actor);
+  if (!userId) throw new ValidationError('Authenticated user context is required.');
+
+  const { data, error } = await client
+    .from('verification_sessions')
+    .select('*')
+    .eq('user_id', userId);
+  if (error) throw new Error(error.message);
+
+  const latest = (data || [])
+    .slice()
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0];
+  return latest ? sanitizeSession(latest) : null;
+}
+
 export async function getVerificationSession(client = supabase, actor = {}, sessionId) {
   const session = await fetchSession(client, sessionId, actor, { allowReviewer: true });
   return sanitizeSession(session);
