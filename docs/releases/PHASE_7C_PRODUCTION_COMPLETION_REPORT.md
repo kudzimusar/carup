@@ -58,13 +58,16 @@ GEMINI_API_KEY absent; `ocrProviders` all false; automatic approval unavailable
 (approve is policy-blocked without a trusted classifier); no external providers;
 no live capability flags changed; no real customer documents used.
 
-## Cleanup required (owner)
-Two internal test accounts remain in production for this verification and
-**should be removed**:
-- `prod-gate2-applicant@internal.carup.test` (owner) — id `prod-gate2-applicant-int`
-- `prod-gate2-admin@internal.carup.test` (**admin role**) — id `prod-gate2-admin-int`
-Plus their test verification sessions (2). Passwords were random one-time and are
-not stored in the repo. Recommend deleting both accounts + their test sessions.
+## Test cleanup — COMPLETED (owner-authorized, 2026-07-14)
+Removed under `AUTHORIZE PHASE 7C PRODUCTION TEST CLEANUP` in ONE guarded
+transaction (auto-rollback guards on every count). Read-only dependency scan
+first confirmed a test-only footprint across all 103 users-FK tables (no genuine
+customer records). Deleted: 2 verification_sessions (cascaded 2 assessments +
+3 decisions + 0 provenance), 9 user_sessions, 9 login_attempts, 2 users
+(`prod-gate2-applicant@internal.carup.test`, `prod-gate2-admin@internal.carup.test`).
+Post-cleanup: users **29→27**, verification_sessions **11→9**, 0 orphans, RLS
+still on all four verification tables, **trust_audit_events preserved** (Phase 7C
+audit chain untouched), frontend 200, backend UP, providers disabled.
 
 ## Result
 **PASS** — Phase 7C is live in production (schema + app tier), fail-closed, with
