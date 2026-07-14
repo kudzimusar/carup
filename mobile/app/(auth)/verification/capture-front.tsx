@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
 import { View, Text, TouchableOpacity, Dimensions, ActivityIndicator, Image, InteractionManager, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -7,7 +8,7 @@ import { useVerificationStore } from '../../../store/verificationStore';
 
 const { width } = Dimensions.get('window');
 
-export default function CaptureFront() {
+function CaptureFront() {
   const { docType, doubleSided } = useLocalSearchParams<{ docType: string; doubleSided: string }>();
 
   const setCapturedFront = useVerificationStore(state => state.setCapturedFront);
@@ -210,3 +211,14 @@ const styles = StyleSheet.create({
   shutterReady: { backgroundColor: '#2563eb' },
   helpText: { fontSize: 11, color: '#64748b', textAlign: 'center', lineHeight: 16 },
 });
+
+// ENTRY PREFLIGHT (device Gate 2 round 3): a terminally-rejected applicant is
+// stopped BEFORE this screen mounts — including deep links — so no document
+// selection or camera capture is possible until a reviewer reopens the case.
+export default function GuardedCaptureFront(): React.ReactElement {
+  return (
+    <VerificationEntryGuard>
+      <CaptureFront />
+    </VerificationEntryGuard>
+  );
+}

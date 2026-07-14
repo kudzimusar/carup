@@ -233,6 +233,19 @@ export async function submitVerificationSession(sessionId: string) {
  * (verified / rejected / retry_requested) after manual review. The backend
  * remains the source of truth — the mobile app never invents a status.
  */
+/**
+ * ENTRY PREFLIGHT: the authenticated applicant's most recent session, or null
+ * when they have none. Lets the flow stop a terminally-rejected applicant
+ * BEFORE document selection or camera capture.
+ */
+export async function getLatestVerificationSession(): Promise<VerificationSession | null> {
+  const response = await requestJson<{ success: boolean; session: VerificationSession | null }>(
+    '/api/identity/verification-sessions/latest',
+    { method: 'GET' }
+  );
+  return response.session ?? null;
+}
+
 export async function getVerificationSession(sessionId: string) {
   const response = await requestJson<{ success: boolean; session: VerificationSession }>(
     `/api/identity/verification-sessions/${sessionId}`,
