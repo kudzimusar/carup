@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve as pathResolve } from 'node:path'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import IdentityVerificationCaseManagement from './IdentityVerificationCaseManagement'
@@ -545,5 +547,32 @@ describe('IdentityVerificationCaseManagement', () => {
       })
       expect(screen.queryByText('Case Timeline')).not.toBeInTheDocument()
     })
+  })
+})
+
+
+describe('device retest round 2 regressions (source-level)', () => {
+  const src = readFileSync(
+    pathResolve(__dirname, './IdentityVerificationCaseManagement.tsx'),
+    'utf-8',
+  )
+
+  it('the detail drawer dismiss is labelled "Close", never the case-action-like "Close Case"', () => {
+    expect(src).not.toContain('>Close Case<')
+    expect(src).toContain('onClick={closeDetail}>Close<')
+  })
+
+  it('classification chips are framed as AUTOMATED so they cannot contradict the decision reason', () => {
+    expect(src).toContain('Automated Classification:')
+    expect(src).toContain('`Automated: ${EVIDENCE_CLASSIFICATION_LABELS[session.evidence_classification]}`')
+  })
+
+  it('admin cards surface the applicant identity with a user-id fallback', () => {
+    expect(src).toContain('session.applicant_name')
+    expect(src).toContain('session.applicant_email')
+  })
+
+  it('the resubmission queue has a distinct sub-filter label', () => {
+    expect(src).toContain("label: 'Resubmission Requested'")
   })
 })
