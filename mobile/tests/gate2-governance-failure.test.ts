@@ -155,4 +155,31 @@ describe('verification discoverability and availability', () => {
     const src = readFileSync(resolve(__dirname, '../app/(auth)/login.tsx'), 'utf-8')
     expect(src.toLowerCase()).not.toContain('phase7b')
   })
+
+  describe('rejected state is terminal (device retest round 2)', () => {
+    const resultSrc = readFileSync(
+      resolve(__dirname, '../app/(auth)/verification/result.tsx'),
+      'utf-8',
+    )
+
+    it('rejected panel uses terminal wording, never "Under Review"', () => {
+      expect(resultSrc).toContain('Verification Closed — Not Approved')
+      // The generic under-review copy must be unreachable for rejected: the
+      // rejected branch precedes it in the same ternary.
+      const rejectedIdx = resultSrc.indexOf("verificationStatus === 'rejected'\n                  ? 'Verification Closed")
+      expect(resultSrc.indexOf('Verification Closed — Not Approved')).toBeGreaterThan(-1)
+    })
+
+    it('Restart Verification is NOT offered for rejected (retry policy A)', () => {
+      const allowsBlock = resultSrc.slice(
+        resultSrc.indexOf('const allowsRestart'),
+        resultSrc.indexOf('backend_pending') + 40,
+      )
+      expect(allowsBlock).not.toContain("'rejected'")
+    })
+
+    it('rejected copy explains the reviewer/support reopen path', () => {
+      expect(resultSrc).toContain('reviewer can reopen the case')
+    })
+  })
 })

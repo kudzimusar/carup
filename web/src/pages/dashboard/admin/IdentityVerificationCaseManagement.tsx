@@ -51,7 +51,7 @@ import {
 
 const OPERATIONAL_TABS: { id: string; label: string; phase?: string; status?: string }[] = [
   { id: 'reviewer_action_required', label: 'Reviewer Action Required', phase: 'reviewer_action_required' },
-  { id: 'applicant_action_required', label: 'Waiting for Applicant', phase: 'applicant_action_required' },
+  { id: 'applicant_action_required', label: 'Resubmission Requested', phase: 'applicant_action_required' },
   { id: 'escalated', label: 'Escalated Cases', phase: 'escalated' },
   { id: 'resolved_approved', label: 'Approved', phase: 'resolved_approved' },
   { id: 'resolved_rejected', label: 'Rejected / Closed', phase: 'resolved_rejected' },
@@ -338,7 +338,11 @@ export default function IdentityVerificationCaseManagement() {
                           )}
                         </div>
                         <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                          <span>User: {session.user_id.slice(0, 8)}...</span>
+                          <span>
+                            {session.applicant_name
+                              ? `${session.applicant_name}${session.applicant_email ? ` · ${session.applicant_email}` : ''}`
+                              : `User: ${session.user_id.slice(0, 8)}...`}
+                          </span>
                           <span>Type: {humanize(session.document_type)}</span>
                           {session.submitted_at && (
                             <span>Submitted: {new Date(session.submitted_at).toLocaleString()}</span>
@@ -347,7 +351,7 @@ export default function IdentityVerificationCaseManagement() {
                         {session.evidence_classification && (
                           <div className="flex items-center gap-1 mt-1">
                             <Badge className={evidenceClassColor(session.evidence_classification)}>
-                              {EVIDENCE_CLASSIFICATION_LABELS[session.evidence_classification]}
+                              {`Automated: ${EVIDENCE_CLASSIFICATION_LABELS[session.evidence_classification]}`}
                             </Badge>
                             {session.extraction_trust_status && (
                               <span className={`text-xs ${trustColor(session.extraction_trust_status)}`}>
@@ -529,11 +533,22 @@ export default function IdentityVerificationCaseManagement() {
                 <CardContent>
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500 w-44">Evidence Classification:</span>
+                      <span className="text-gray-500 w-44">Automated Classification:</span>
                       <Badge className={evidenceClassColor(sessionDetail.evidence_classification || sessionDetail.assessment?.evidence_classification)}>
                         {EVIDENCE_CLASSIFICATION_LABELS[sessionDetail.evidence_classification || sessionDetail.assessment?.evidence_classification || 'not_run']}
                       </Badge>
                     </div>
+                    {(sessionDetail.notification_status || sessionDetail.notification_attempted_at) && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 w-44">Applicant Notification:</span>
+                        <span>
+                          {humanize(sessionDetail.notification_status || 'unknown')}
+                          {sessionDetail.notification_attempted_at
+                            ? ` · last attempt ${new Date(sessionDetail.notification_attempted_at).toLocaleString()}`
+                            : ''}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <span className="text-gray-500 w-44">Document Type Detected:</span>
                       <span>{humanize(sessionDetail.document_type)}</span>
@@ -784,7 +799,7 @@ export default function IdentityVerificationCaseManagement() {
               {/* Success panel actions */}
               {successPanel && (
                 <div className="flex justify-end">
-                  <Button variant="outline" onClick={closeDetail}>Close Case</Button>
+                  <Button variant="outline" onClick={closeDetail}>Close</Button>
                 </div>
               )}
             </>
