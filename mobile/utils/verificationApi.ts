@@ -5,7 +5,7 @@ export interface VerificationSession {
   id: string;
   document_type: string;
   double_sided: boolean;
-  status: 'draft' | 'captured' | 'uploaded' | 'ocr_pending' | 'ocr_failed' | 'pending_manual_review' | 'verified' | 'rejected';
+  status: 'draft' | 'captured' | 'uploaded' | 'ocr_pending' | 'ocr_failed' | 'pending_manual_review' | 'retry_requested' | 'verified' | 'rejected';
   uploaded_sides: {
     front: boolean;
     back: boolean;
@@ -16,6 +16,7 @@ export interface VerificationSession {
   confidence_score: number | null;
   failure_reason: string | null;
   review_notes: string | null;
+  retry_reason: string | null;
   created_at: string;
   updated_at: string;
   submitted_at: string | null;
@@ -35,6 +36,8 @@ export interface VerificationOutcome {
   sessionId: string | null;
   ocrResult: OcrResult | null;
   processingError: string | null;
+  /** Raw backend session status, used for shared status-mapping copy. */
+  sessionStatus: VerificationSession['status'] | null;
 }
 
 export class VerificationApiError extends Error {
@@ -225,6 +228,32 @@ export async function submitVerificationSession(sessionId: string) {
   return response.session;
 }
 
+/**
+ * Re-fetch a session so the result screen can reflect an admin decision
+ * (verified / rejected / retry_requested) after manual review. The backend
+ * remains the source of truth — the mobile app never invents a status.
+ */
+/**
+ * ENTRY PREFLIGHT: the authenticated applicant's most recent session, or null
+ * when they have none. Lets the flow stop a terminally-rejected applicant
+ * BEFORE document selection or camera capture.
+ */
+export async function getLatestVerificationSession(): Promise<VerificationSession | null> {
+  const response = await requestJson<{ success: boolean; session: VerificationSession | null }>(
+    '/api/identity/verification-sessions/latest',
+    { method: 'GET' }
+  );
+  return response.session ?? null;
+}
+
+export async function getVerificationSession(sessionId: string) {
+  const response = await requestJson<{ success: boolean; session: VerificationSession }>(
+    `/api/identity/verification-sessions/${sessionId}`,
+    { method: 'GET' }
+  );
+  return response.session;
+}
+
 export function mapSessionToVerificationOutcome(session: VerificationSession): VerificationOutcome {
   if (session.status === 'verified') {
     return {
@@ -232,6 +261,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       sessionId: session.id,
       ocrResult: session.ocr_result,
       processingError: null,
+      sessionStatus: session.status,
     };
   }
 
@@ -241,6 +271,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       sessionId: session.id,
       ocrResult: session.ocr_result,
       processingError: session.failure_reason || 'OCR could not complete. A reviewer may need to inspect the capture.',
+      sessionStatus: session.status,
     };
   }
 
@@ -250,6 +281,17 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       sessionId: session.id,
       ocrResult: session.ocr_result,
       processingError: session.review_notes || session.failure_reason || 'Verification needs manual review before it can be marked verified.',
+      sessionStatus: session.status,
+    };
+  }
+
+  if (session.status === 'retry_requested') {
+    return {
+      status: 'retry_requested',
+      sessionId: session.id,
+      ocrResult: session.ocr_result,
+      processingError: session.retry_reason || session.review_notes || 'A reviewer asked you to retake and resubmit your verification.',
+      sessionStatus: session.status,
     };
   }
 
@@ -259,6 +301,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
       sessionId: session.id,
       ocrResult: session.ocr_result,
       processingError: session.review_notes || session.failure_reason || 'Verification was rejected.',
+      sessionStatus: session.status,
     };
   }
 
@@ -267,6 +310,7 @@ export function mapSessionToVerificationOutcome(session: VerificationSession): V
     sessionId: session.id,
     ocrResult: session.ocr_result,
     processingError: 'Verification was captured and is still being processed.',
+    sessionStatus: session.status,
   };
 }
 

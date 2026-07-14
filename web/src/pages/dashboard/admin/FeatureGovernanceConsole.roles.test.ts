@@ -6,7 +6,7 @@ import {
   rolesModeOf,
   allowedRolesValue,
   roleSummary,
-} from './FeatureGovernanceConsole'
+} from './featureGovernanceConsole.helpers'
 import type { AdminFeatureRow, FeatureOverrideRow } from '@/hooks/useFeatureGovernanceApi'
 
 const STATIC_ROLES = ['owner', 'dealer']

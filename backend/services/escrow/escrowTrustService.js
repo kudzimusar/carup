@@ -113,7 +113,7 @@ export async function listSessionsForVin(vin) {
 
 /** Sandbox payment webhook: signed + replay-protected + idempotent. */
 export async function ingestEscrowWebhook({ payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now()) {
-  const verdict = verifyWebhook('finance_sandbox', payloadString, signature, timestamp, now);
+  const verdict = verifyWebhook('escrow_trust_sandbox', payloadString, signature, timestamp, now);
   let duplicate = false;
   if (idempotencyKey) {
     const { data: seen } = await supabase.from('escrow_trust_webhook_events').select('id').eq('idempotency_key', idempotencyKey).maybeSingle();

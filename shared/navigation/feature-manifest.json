@@ -210,6 +210,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.verification",
+    "domain": "trust",
+    "route": "/admin/verification",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "auth.kyc",
     "domain": "admin",
     "route": "/kyc",

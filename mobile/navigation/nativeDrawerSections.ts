@@ -102,12 +102,27 @@ const DISCOVER_ENTRY_IDS = new Set(['native.marketplace']);
 const MY_WORK_ENTRY_IDS = new Set(['native.garage', 'native.referral', 'native.escrow']);
 
 /**
- * TRUST & VERIFICATION links — ONLY real native screens. There is no native
- * verification/search screen, so this set is intentionally EMPTY: we omit the
- * section rather than leak a web-only route. Kept as a seam for when a real
- * native trust screen ships.
+ * TRUST & VERIFICATION links — ONLY real native screens. The Phase 7C native
+ * identity-verification flow ships at /(auth)/verification/intro; manifest-
+ * governed trust entries would list here too.
  */
 const TRUST_ENTRY_IDS = new Set<string>([]);
+
+/**
+ * The Identity Verification entry is AUTH-GATED but deliberately NOT
+ * governance-map-gated: verification must stay discoverable even when the
+ * /api/features/effective fetch fails (device Gate 2 found the flow
+ * undiscoverable — no drawer entry — exactly when governance was down).
+ * The flow's own screens still enforce authentication.
+ */
+const IDENTITY_VERIFICATION_LINK: DrawerLinkItem = {
+  kind: 'link',
+  id: 'native.verification',
+  label: 'Identity Verification',
+  iconName: 'Shield',
+  expoRoute: '/(auth)/verification/intro',
+  featureId: 'owner.verification',
+};
 
 /** Pretty, human label for a role. */
 function roleLabel(role: UserRole | null): string {
@@ -184,8 +199,11 @@ export function resolveDrawerSections(ctx: NativeNavContext): DrawerSection[] {
     sections.push({ id: 'my-work', title: SECTION_TITLES['my-work'], items: myWork });
   }
 
-  // ── Trust & Verification (real native screens ONLY — currently none) ─────────
+  // ── Trust & Verification ──────────────────────────────────────────────────
   const trust = linksFor(TRUST_ENTRY_IDS);
+  if (ctx.isAuthenticated) {
+    trust.unshift(IDENTITY_VERIFICATION_LINK);
+  }
   if (trust.length > 0) {
     sections.push({ id: 'trust', title: SECTION_TITLES.trust, items: trust });
   }
