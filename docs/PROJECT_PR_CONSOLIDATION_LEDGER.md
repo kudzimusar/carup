@@ -22,3 +22,14 @@ Updated 2026-07-10 (Phase 7C consolidation pass).
 - **Known pre-existing main defect (P2):** `mobile/tests/native-boundary-audit.test.ts`
   fails identically on pristine `main@ce14e32` — the communications tab (#100)
   lacks `NativeFeatureBoundary`. Not introduced by, and not fixed in, #115.
+
+
+## Backlog (non-blocking, post-Gate-2)
+
+- **P2 — admin case modal stale after Request Resubmission.** After a successful
+  Request Resubmission decision, the open admin case modal may keep rendering the
+  previous Rejected/Closed summary until manually refreshed. Fix: auto-refresh the
+  case modal/detail and the decision timeline on a successful decision (re-fetch
+  the session + decisions, or optimistically apply the returned decision).
+  Discovered during the Gate 2 owner device PASS (2026-07-14). Does **not** reopen
+  Gate 2.

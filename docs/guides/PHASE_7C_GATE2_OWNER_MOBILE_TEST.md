@@ -1,5 +1,13 @@
 # Phase 7C Gate 2 — Owner Mobile Smoke Test
 
+> **STATUS: GATE 2 PASS — owner physical-device test confirmed 2026-07-14.**
+> The full loop verified on device: non-document manual-review → resubmission →
+> reject (with reviewer reason) → the rejected applicant is blocked before
+> introduction, document selection and camera capture → admin Request
+> Resubmission reopens the case → mobile preflight allows re-entry. Admin queues
+> load with applicant name/email. This guide is retained for re-runs.
+
+
 ## Purpose
 
 Run one real-device staging journey to prove that non-document evidence is never presented as a verified identity and that an admin resubmission request reaches the applicant mobile experience.

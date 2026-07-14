@@ -25,13 +25,51 @@ Ledger maintained continuously. All claims below are backed by commands/SHAs/tot
 | S3 | Staging migration reconciliation | **VERIFIED ON STAGING** | 5/5 applied via repo tooling; verify exit 0; rows preserved (§report) |
 | S4 | Deploy tested SHA to staging | **VERIFIED ON STAGING** | branch aliases live; health 200; web targets staging (VITE_API_URL fixed) |
 | S5 | Full staging acceptance matrix | **AUTOMATED PASS** | 26/26 harness ×2 + 13/13 extended; P1 idempotency defect fixed `d8bed39` (§report) |
-| S6 | Owner physical-device Gate 2 | **BLOCKED — EXTERNAL (owner)** | requires a human + device |
+| S6 | Owner physical-device Gate 2 | **VERIFIED ON OWNER DEVICE (PASS 2026-07-14)** | owner-confirmed full loop incl. pre-capture block + reopen (§Gate 2 closure) |
 | S8 | One clean current-main release PR | **DONE — PR #115 OPEN** | merge `ff0e6c9` + qualification `00e0a1d`; battery green (§Stage 8) |
 | S9 | PR consolidation (#72/#76) | **DONE** | #72 CLOSED superseded; #76 7C-snapshot superseded (comment); `docs/PROJECT_PR_CONSOLIDATION_LEDGER.md` |
 | S11 | Production preflight | **BLOCKED — EXTERNAL** | no prod Supabase/Vercel access |
 | S12 | Production cutover | **BLOCKED — EXTERNAL (authorization)** | needs `AUTHORIZE PHASE 7C PRODUCTION CUTOVER` |
 
 ---
+
+---
+
+## Gate 2 — CLOSED (owner physical-device PASS, 2026-07-14)
+
+The owner ran the physical-device staging test and confirmed the complete
+verification loop. **Gate 2 is PASS.**
+
+Owner-confirmed on-device outcomes:
+1. Controlled non-document evidence submitted.
+2. Evidence never auto-verified.
+3. Mobile showed **Manual Review Required**.
+4. Admin **Requested Resubmission**.
+5. Mobile showed **Retake Required** with the reviewer message.
+6. Applicant resubmitted.
+7. Admin **rejected**.
+8. Mobile showed **Verification Closed / Rejected** with the reviewer reason.
+9. The rejected applicant was **blocked before introduction, document selection and
+   camera capture** (round-3 entry preflight).
+10. Admin **Request Resubmission reopened** the rejected case.
+11. Mobile preflight then **allowed the applicant back** into introduction and
+    document selection.
+12. Admin queues loaded with **applicant name/email** after the ambiguous
+    `users` FK fix (round-4).
+
+Release evidence at close: PR #114 (`plan/vehicle-trust-full-activation`), release
+branch `release/phase7c-verification-production`. Automated: backend 7C 142/142,
+web 506/506, mobile vitest 53/53, static guards PASS, Expo iOS export OK, staging
+acceptance 26/26, both admin queue filters HTTP 200 with applicant identity.
+
+**Non-blocking P2 (does NOT reopen Gate 2):** after Request Resubmission succeeds,
+the open admin case modal may keep showing the previous Rejected/Closed summary
+until manually refreshed. Backlog: auto-refresh the case modal/detail + timeline
+on a successful decision. Tracked in `docs/PROJECT_PR_CONSOLIDATION_LEDGER.md`
+backlog and the acceptance report.
+
+Remaining gates are owner-side only: **owner merge approval** for #114, then the
+production authorization phrase `AUTHORIZE PHASE 7C PRODUCTION CUTOVER`.
 
 ## Stage 0 — Repository & PR forensics (read-only, verified this session)
 

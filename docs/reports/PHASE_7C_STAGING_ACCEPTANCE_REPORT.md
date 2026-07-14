@@ -110,8 +110,8 @@ launcher verify 15/15. Staging redeployed (backend alias target created
 QA accounts re-provisioned with fresh one-time passwords; secure owner handoff
 at `~/carup-gate2-owner-credentials.txt` (0600).
 
-**Gate 2 remains OPEN until the owner retests on the phone.**
+**Gate 2 — CLOSED: owner physical-device PASS confirmed 2026-07-14** (full loop: non-document manual-review → resubmission → reject with reviewer reason → pre-capture block of the rejected applicant → admin reopen → mobile re-entry; admin queues load with applicant name/email).
 
 ## Status
 
-**AUTOMATED STAGING PASS (26/26 harness ×2 + 13/13 extended) — OWNER DEVICE GATE REQUIRED.**
+**GATE 2 PASS — automated (26/26 harness + 13/13 extended) AND owner physical-device test confirmed (2026-07-14).** Non-blocking P2: admin case modal may show the stale Rejected summary until refreshed after Request Resubmission (backlog item; does not reopen Gate 2).
