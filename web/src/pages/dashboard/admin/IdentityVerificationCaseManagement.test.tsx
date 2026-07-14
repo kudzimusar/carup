@@ -575,4 +575,11 @@ describe('device retest round 2 regressions (source-level)', () => {
   it('the resubmission queue has a distinct sub-filter label', () => {
     expect(src).toContain("label: 'Resubmission Requested'")
   })
+
+  it('a failed load NEVER renders zero counts — counts show — and the error panel offers Retry', () => {
+    expect(src).toContain('setLoadError(true)')
+    expect(src).toContain("'(—)'")
+    expect(src).toContain('Could not load verification sessions.')
+    expect(src).toContain('they are NOT zero')
+  })
 })

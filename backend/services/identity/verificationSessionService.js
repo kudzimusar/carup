@@ -760,9 +760,10 @@ function sanitizeReviewSession(session, identity = null) {
     // Workstream F — surface BOTH identities + the comparison so the reviewer
     // can see an account-vs-document mismatch at a glance. null on the list view.
     identity_binding: identity,
-    // Applicant identity for admin cards (from the users join; null on mocks).
-    applicant_name: session.users?.name ?? null,
-    applicant_email: session.users?.email ?? null,
+    // Applicant identity for admin cards (explicit user_id-FK embed; null on
+    // mocks). NEVER sourced from the reviewed_by relationship.
+    applicant_name: session.applicant?.name ?? null,
+    applicant_email: session.applicant?.email ?? null,
     // Applicant-notification bookkeeping (case-management columns).
     notification_status: session.notification_status || null,
     notification_attempted_at: session.notification_attempted_at || null,
@@ -783,10 +784,17 @@ async function fetchSessionForReview(client, sessionId) {
 export async function listVerificationSessionsForReview(client = supabase, actor = {}, filters = {}) {
   assertAdminReviewer(actor);
 
-  // Join the applicant so admin cards can show WHO the case belongs to
-  // (name/email); mocks that ignore select args simply yield no `users`
-  // object and the serializer falls back to null.
-  let query = client.from('verification_sessions').select('*, users(name, email)');
+  // Join the APPLICANT so admin cards can show who the case belongs to.
+  // verification_sessions has TWO FKs to users (user_id and reviewed_by), so a
+  // bare `users(...)` embed is AMBIGUOUS and PostgREST returns 500 (round-4
+  // staging regression). The relationship is named explicitly via the
+  // user_id FK — constraint name confirmed against the live staging schema:
+  //   verification_sessions_user_id_fkey  (never the reviewed_by join).
+  // Mocks that ignore select args simply yield no `applicant` object and the
+  // serializer falls back to null.
+  let query = client
+    .from('verification_sessions')
+    .select('*, applicant:users!verification_sessions_user_id_fkey(name, email)');
 
   // Support both legacy status and workflow phase filters
   if (filters.workflow_phase !== undefined && filters.workflow_phase !== null && filters.workflow_phase !== '') {
