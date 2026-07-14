@@ -308,6 +308,12 @@ export interface AssessmentSummary {
 }
 
 export interface ExtendedAdminVerificationSession extends AdminVerificationSession {
+  /** Applicant identity for admin cards (users join; may be null). */
+  applicant_name?: string | null;
+  applicant_email?: string | null;
+  /** Applicant-notification bookkeeping. */
+  notification_status?: string | null;
+  notification_attempted_at?: string | null;
   workflow_phase: WorkflowPhase | null;
   final_disposition: WorkflowFinalDisposition | null;
   primary_reason_code: ReasonCode | null;
