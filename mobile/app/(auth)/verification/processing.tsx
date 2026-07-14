@@ -126,7 +126,7 @@ export default function VerificationProcessing() {
         capturedSelfie,
       });
 
-      setVerificationOutcome(outcome.status, outcome.sessionId, outcome.processingError);
+      setVerificationOutcome(outcome.status, outcome.sessionId, outcome.processingError, outcome.sessionStatus);
       setProcessingError(outcome.processingError);
       if (outcome.ocrResult) {
         setOcrResult(outcome.ocrResult);

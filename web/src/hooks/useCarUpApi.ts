@@ -1,6 +1,21 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, type AuthHeaders } from '@/lib/apiClient'
+import {
+  fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
+  fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
+  fetchEvidencePreview as fetchEvidencePreviewRequest,
+  reviewVerificationSession as reviewVerificationSessionRequest,
+  type VerificationAdminClientConfig,
+} from '@/lib/verificationAdminApi'
+import type {
+  AdminVerificationSession,
+  DecisionAction,
+  DecisionResponse,
+  EvidencePreview,
+  VerificationReviewRequest,
+  VerificationSessionStatus,
+} from '@shared/types'
 import type { 
   User, 
   Vehicle, 
@@ -373,6 +388,57 @@ export function useCarUpApi() {
       throw err
     }
   }, [user, token])
+
+  // Identity-verification admin review (Phase 7C). Built from the same auth
+  // identity as `request` and delegated to the dedicated, unit-tested client
+  // module so the page never issues raw fetches.
+  const verificationClientConfig = useMemo<VerificationAdminClientConfig>(() => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+    return { baseUrl: BASE_URL, authHeaders }
+  }, [user, token])
+
+  const fetchVerificationReviewQueue = useCallback(
+    (filter?: VerificationSessionStatus | string | { workflow_phase?: string; status?: string }): Promise<AdminVerificationSession[]> =>
+      fetchVerificationReviewQueueRequest(
+        verificationClientConfig,
+        typeof filter === 'string' ? { status: filter } : filter || undefined,
+      ),
+    [verificationClientConfig],
+  )
+
+  const fetchVerificationSessionDetail = useCallback(
+    (sessionId: string): Promise<AdminVerificationSession> =>
+      fetchVerificationSessionDetailRequest(verificationClientConfig, sessionId),
+    [verificationClientConfig],
+  )
+
+  const fetchEvidencePreview = useCallback(
+    (sessionId: string, side: 'front' | 'back' | 'selfie'): Promise<EvidencePreview> =>
+      fetchEvidencePreviewRequest(verificationClientConfig, sessionId, side),
+    [verificationClientConfig],
+  )
+
+  const reviewVerificationSession = useCallback(
+    (sessionId: string, body: VerificationReviewRequest): Promise<{ decision: DecisionResponse['decision']; session: AdminVerificationSession; allowed_actions: DecisionAction[] }> =>
+      reviewVerificationSessionRequest(verificationClientConfig, sessionId, body),
+    [verificationClientConfig],
+  )
+
+  // Phase 7C case management: the new decision contract (reason codes, notes,
+  // applicant messaging) with backend idempotency via x-idempotency-key.
+  const reviewVerificationCase = useCallback(
+    (
+      sessionId: string,
+      body: { action: string; reasonCode?: string | null; internalNote?: string | null; applicantMessage?: string | null },
+      opts?: { idempotencyKey?: string },
+    ): Promise<DecisionResponse> =>
+      reviewVerificationSessionRequest(verificationClientConfig, sessionId, body, opts),
+    [verificationClientConfig],
+  )
 
   const switchRole = useCallback(async (userId: string, role: string): Promise<any> => {
     return request('/auth/switch-role', {
@@ -1647,6 +1713,11 @@ export function useCarUpApi() {
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,
     fetchEvidenceReviewQueue,
+    fetchVerificationReviewQueue,
+    fetchVerificationSessionDetail,
+    fetchEvidencePreview,
+    reviewVerificationSession,
+    reviewVerificationCase,
     fetchTrustReviewQueue,
     approveTrustFactRequest,
     rejectTrustFactRequest,

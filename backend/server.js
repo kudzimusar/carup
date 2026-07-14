@@ -73,6 +73,13 @@ import fraudRouter from './routes/fraudRoutes.js';
 import dealerRouter from './routes/dealerRoutes.js';
 import eligibilityRouter from './routes/eligibilityRoutes.js';
 import escrowTrustRouter from './routes/escrowTrustRoutes.js';
+import providerPlatformRouter from './routes/providerPlatformRoutes.js';
+// Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
+import governmentActivationRouter from './routes/governmentActivationRoutes.js';
+import insurerRouter from './routes/insurerRoutes.js';
+import lenderRouter from './routes/lenderRoutes.js';
+import escrowProviderRouter from './routes/escrowProviderRoutes.js';
+import mobileCertificationRouter from './routes/mobileCertificationRoutes.js';
 import intelligenceRouter from './routes/intelligenceRoutes.js';
 import reportRouter from './routes/reportRoutes.js';
 import governanceRouter from './routes/governanceRoutes.js';
@@ -87,6 +94,8 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
+import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
+import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
@@ -127,25 +136,22 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-app.use(express.json({
-  limit: '15mb',
-  verify: (req, _res, buf) => {
-    const url = req.originalUrl || req.url || '';
-    if (/^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(url)) {
-      req.rawBody = Buffer.from(buf).toString('utf8');
-    }
-  },
-}));
-app.use(express.urlencoded({
-  limit: '15mb',
-  extended: true,
-  verify: (req, _res, buf) => {
-    const url = req.originalUrl || req.url || '';
-    if (/^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(url)) {
-      req.rawBody = Buffer.from(buf).toString('utf8');
-    }
-  },
-}));
+// Capture the exact raw request bytes for webhook paths so in-service HMAC signature
+// verification checks the real payload the sender signed. The global parsers run before any
+// route-level parser, so route-level `verify` callbacks never fire — this is the single place
+// raw bytes are available. The '/webhook' substring covers the Full Activation provider webhooks
+// AND the communications-engine webhooks (/api/communications/webhooks/...); scoped so ordinary
+// request bodies are not buffered as strings.
+const captureWebhookRawBody = (req, _res, buf) => {
+  const u = req.originalUrl || req.url || '';
+  // The communications-engine pattern is covered by the substring but kept explicit — it is a
+  // source-level contract asserted by communication-engine.test.js.
+  if (u.includes('/webhook') || /^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(u)) {
+    req.rawBody = buf.toString('utf8');
+  }
+};
+app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
+app.use(express.urlencoded({ limit: '15mb', extended: true, verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
 app.use(csrfMiddleware);
 
 // Signed CSRF token route
@@ -157,7 +163,8 @@ app.get('/api/security/csrf-token', (req, res) => {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 3600000 * 2
+    maxAge: 3600000 * 2,
+    path: '/',
   });
   res.json({ csrfToken: token });
 });
@@ -235,6 +242,13 @@ app.use(fraudRouter);
 app.use(dealerRouter);
 app.use(eligibilityRouter);
 app.use(escrowTrustRouter);
+app.use(providerPlatformRouter);
+// Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
+app.use(governmentActivationRouter);
+app.use(insurerRouter);
+app.use(lenderRouter);
+app.use(escrowProviderRouter);
+app.use(mobileCertificationRouter);
 app.use(intelligenceRouter);
 app.use(reportRouter);
 app.use(governanceRouter);
@@ -244,6 +258,8 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
+app.use(identityVerificationAdminRouter);
+app.use(partsentryReviewRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);

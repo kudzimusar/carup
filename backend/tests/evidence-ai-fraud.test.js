@@ -12,10 +12,27 @@ process.env.NODE_ENV = 'test';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 
+// The Node 20 `node --test` runner streams child stdout over an IPC channel
+// that intermittently corrupts ("Unable to deserialize cloned data") when this
+// suite's services log heavily while the runner serializes results — a known
+// runner-transport flake, not an assertion failure. Silence the noisy service
+// logs for this file (assertion failures are reported via the runner, not
+// console) so the suite is deterministic on its own and alongside others.
+const __originalConsole = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
+console.log = () => {};
+console.info = () => {};
+console.warn = () => {};
+console.error = () => {};
+console.debug = () => {};
+
 const express = (await import('express')).default;
 const vehiclesRouter = (await import('../routes/vehiclesRoutes.js')).default;
 const errorHandler = (await import('../middleware/errorMiddleware.js')).default;
 const { supabase } = await import('../db/supabase.js');
+// Hoisted to module scope: importing evidenceService inside a running test body
+// triggers a Node 20 test-runner IPC "Unable to deserialize cloned data" crash
+// (worker-thread structured clone races with the module's top-level side effects).
+const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
 
 let db;
 function resetDb() {
@@ -180,7 +197,10 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(async () => { if (server) await new Promise((r) => server.close(r)); });
+after(async () => {
+  if (server) await new Promise((r) => server.close(r));
+  Object.assign(console, __originalConsole);
+});
 beforeEach(resetDb);
 
 function sleep(ms) {
@@ -334,8 +354,8 @@ test('Duplicate photo checksum check flags duplicates automatically', async () =
   // Set uploader file checksum to trigger duplicate detection match
   db.evidence[data.id].checksum = 'duplicate-checksum-sha256';
 
-  // Re-run worker logic with preset checksum in database
-  const { runAiAnalysis } = await import('../services/evidence/evidenceService.js');
+  // Re-run worker logic with preset checksum in database (runAiAnalysis is
+  // imported at module scope; see the hoist note above).
   await runAiAnalysis(data.id, Buffer.from('test-image-bytes'), 'image/png', 'odometer_photo');
 
   const ev = db.evidence[data.id];

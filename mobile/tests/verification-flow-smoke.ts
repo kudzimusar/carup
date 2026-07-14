@@ -155,6 +155,53 @@ async function runTests() {
 
   useVerificationStore.getState().clear();
 
+  // --- Test 12: status refresh reflecting an admin decision (Phase 7C) ---
+  console.log('\n12. Status refresh after admin review');
+  useVerificationStore.getState().clear();
+
+  // Submitted → backend says pending manual review. Must NOT read as verified.
+  useVerificationStore.getState().setVerificationOutcome('needs_review', 'session-xyz', 'Pending manual review.', 'pending_manual_review');
+  test(
+    'Pending manual review renders as needs_review, not verified',
+    useVerificationStore.getState().verificationStatus === 'needs_review' && useVerificationStore.getState().verificationStatus !== 'verified',
+    useVerificationStore.getState().verificationStatus,
+  );
+  test(
+    'Backend session status stored for shared status copy',
+    useVerificationStore.getState().verificationSessionStatus === 'pending_manual_review',
+    String(useVerificationStore.getState().verificationSessionStatus),
+  );
+
+  // Refresh in flight.
+  useVerificationStore.getState().setRefreshing(true);
+  test('setRefreshing toggles isRefreshing on', useVerificationStore.getState().isRefreshing === true, String(useVerificationStore.getState().isRefreshing));
+  useVerificationStore.getState().setRefreshing(false);
+  test('setRefreshing toggles isRefreshing off', useVerificationStore.getState().isRefreshing === false, String(useVerificationStore.getState().isRefreshing));
+
+  // Admin requested a retry.
+  useVerificationStore.getState().setVerificationOutcome('retry_requested', 'session-xyz', 'Reupload a sharper photo.', 'retry_requested');
+  test('Retry-requested reflected after refresh', useVerificationStore.getState().verificationStatus === 'retry_requested', useVerificationStore.getState().verificationStatus);
+  test('Retry reason surfaced', (useVerificationStore.getState().processingError || '').includes('sharper'), String(useVerificationStore.getState().processingError));
+
+  // Admin approved → verified is backend-driven only.
+  useVerificationStore.getState().setVerificationOutcome('verified', 'session-xyz', null, 'verified');
+  test('Verified-after-review reflected', useVerificationStore.getState().verificationStatus === 'verified', useVerificationStore.getState().verificationStatus);
+
+  // Clear resets the new Phase 7C fields.
+  useVerificationStore.getState().clear();
+  test('clear resets verificationSessionStatus', useVerificationStore.getState().verificationSessionStatus === null, String(useVerificationStore.getState().verificationSessionStatus));
+  test('clear resets isRefreshing', useVerificationStore.getState().isRefreshing === false, String(useVerificationStore.getState().isRefreshing));
+
+  // --- Test 13: backend-unreachable must never render verified (Phase 7C blocker) ---
+  console.log('\n13. Backend-unreachable never renders verified');
+  useVerificationStore.getState().clear();
+  useVerificationStore.getState().setVerificationOutcome('backend_pending', null, 'Backend unreachable. Please retry.', null);
+  test('backend-unreachable is NOT verified', useVerificationStore.getState().verificationStatus !== 'verified', useVerificationStore.getState().verificationStatus);
+  test('backend-unreachable carries no backend session status', useVerificationStore.getState().verificationSessionStatus === null, String(useVerificationStore.getState().verificationSessionStatus));
+  useVerificationStore.getState().setVerificationOutcome('ocr_failed', 's1', 'OCR failed', 'ocr_failed');
+  test('ocr_failed is NOT verified', useVerificationStore.getState().verificationStatus !== 'verified', useVerificationStore.getState().verificationStatus);
+  useVerificationStore.getState().clear();
+
   // --- Summary ---
   console.log('\n=== RESULTS ===');
   const passed = results.filter(r => r.pass).length;

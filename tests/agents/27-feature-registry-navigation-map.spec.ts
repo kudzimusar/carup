@@ -129,9 +129,10 @@ test.describe('Feature Registry & Navigation Map', () => {
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(8);
-      // admin has main's 'Feature Governance' (admin.features, M7) item (16) and Agent 8 adds
-      // admin Communications (→ 17). The hidden admin.communications-alias is not a sidebar item.
-      expect(result.roleItemCounts['admin']).toBe(17);
+      // admin has main's 'Feature Governance' (admin.features, M7) item (16), Agent 8 adds
+      // admin Communications (→ 17), and Phase 7C adds Identity Verification
+      // (admin.verification → 18). The hidden admin.communications-alias is not a sidebar item.
+      expect(result.roleItemCounts['admin']).toBe(18);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
