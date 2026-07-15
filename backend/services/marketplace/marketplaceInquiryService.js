@@ -241,6 +241,20 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     metadata: { inquiry_type: inquiryType },
   });
 
+  // Referral V1 Stage-4 remediation A: when the inquiry carries a valid referral code, the invitee's own
+  // real submission creates the canonical qualifiable local-marketplace lead (idempotent per inquiry;
+  // owner derived server-side from the code; no reward). Best-effort — never breaks the inquiry.
+  let referralLeadEventId = null;
+  try {
+    const bridged = await referralBridge.bridgeInquiryToReferralLead({
+      inquiry: inserted,
+      actor: buyerId ? { actor_user_id: buyerId, id: buyerId, actor_type: 'user' } : {},
+    });
+    referralLeadEventId = bridged?.lead_event_id || null;
+  } catch (error) {
+    console.warn('[marketplace-inquiry] referral lead bridge skipped:', error.message);
+  }
+
   // Best-effort bridge into the canonical communication fabric. Marketplace
   // remains the source of truth; communication only creates threads/alerts.
   emitDomainEvent(null, 'marketplace.inquiry.created', {
@@ -255,7 +269,9 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     campaign_code: row.campaign_code || null,
   }, sellerTenantId || null).catch(() => {});
 
-  return toPublicInquiry(inserted);
+  // Additive: expose the bridged referral lead id (null when no valid code) without changing the
+  // existing public inquiry shape.
+  return { ...toPublicInquiry(inserted), referral_lead_event_id: referralLeadEventId };
 }
 
 /** Seller/dealer view of inquiries they own (by seller_id or tenant). */

@@ -99,6 +99,27 @@ function explanationForStatus(status, risk = {}) {
   return 'This benefit has been created but has not yet completed trust review.';
 }
 
+/**
+ * Owner-safe, status-derived resolution message for a dispute. Never echoes the raw administrator
+ * resolution note (which may contain internal commentary); maps the dispute status to a safe summary.
+ */
+function ownerSafeResolution(status) {
+  switch (status) {
+    case DISPUTE_STATUSES.OPEN:
+      return 'Your dispute is open and awaiting review by a CarUp trust reviewer.';
+    case DISPUTE_STATUSES.UNDER_REVIEW:
+      return 'Your dispute is being reviewed by a CarUp trust reviewer.';
+    case DISPUTE_STATUSES.RESOLVED_UPHELD:
+      return 'Reviewed: after checking the milestone and attribution, the benefit’s current status was upheld.';
+    case DISPUTE_STATUSES.RESOLVED_REVERSED:
+      return 'Reviewed: the decision on this benefit was reversed in your favour.';
+    case DISPUTE_STATUSES.CLOSED:
+      return 'This dispute has been closed.';
+    default:
+      return 'This dispute has been recorded.';
+  }
+}
+
 export class ReferralTrustReviewService {
   constructor({ referralService, client, now = () => new Date() } = {}) {
     this.referralService = referralService || new ReferralEngineService({ client, now });
@@ -352,6 +373,57 @@ export class ReferralTrustReviewService {
       };
     });
     return { disputes, pagination };
+  }
+
+  /**
+   * Referral V1 Stage-4 remediation B: owner-scoped dispute read for the Refer & Earn surface.
+   *
+   * Returns ONLY disputes linked to wallet transactions the authenticated owner actually owns
+   * (transaction.user_id === ownerUserId), so no user can read another user's dispute. The projection
+   * is owner-safe: the owner's own reason, a status-derived owner-safe resolution message (NOT the raw
+   * administrator resolution note), timestamps, and the current benefit status. Confidential
+   * administrator commentary and risk/fraud signals are never exposed.
+   *
+   * @param {string} ownerUserId authenticated owner id (derived server-side; never caller-supplied)
+   * @param {object} [filters] { wallet_transaction_id }
+   */
+  async listOwnerDisputes(ownerUserId, filters = {}) {
+    if (!ownerUserId) throw new ForbiddenError('An authenticated owner is required to read disputes.');
+    const events = await this.referralService.repository.list(
+      REFERRAL_TABLES.events,
+      { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED },
+      { orderBy: 'created_at', ascending: false, limit: 1000 }
+    );
+    const md = (event) => event.metadata || {};
+    const walletCache = new Map();
+    const resolveWallet = async (txId) => {
+      if (!txId) return null;
+      if (walletCache.has(txId)) return walletCache.get(txId);
+      const tx = await this.referralService.repository.findOne(REFERRAL_TABLES.walletTransactions, { id: txId });
+      walletCache.set(txId, tx || null);
+      return tx || null;
+    };
+
+    const disputes = [];
+    for (const event of (events || []).filter(Boolean)) {
+      const meta = md(event);
+      const txId = meta.wallet_transaction_id ?? event.wallet_transaction_id ?? null;
+      if (filters.wallet_transaction_id && txId !== filters.wallet_transaction_id) continue;
+      // Ownership gate: the linked benefit must belong to this owner. No transaction → not owner-visible.
+      const tx = await resolveWallet(txId);
+      if (!tx || tx.user_id !== ownerUserId) continue;
+      disputes.push({
+        dispute_id: event.id,
+        wallet_transaction_id: txId,
+        status: meta.status ?? null,
+        submitted_at: meta.created_at ?? event.created_at ?? null,
+        resolved_at: meta.resolved_at ?? null,
+        owner_reason: meta.reason ?? null,
+        owner_safe_resolution: ownerSafeResolution(meta.status),
+        benefit_status: tx.status ?? null,
+      });
+    }
+    return { disputes };
   }
 
   async createDispute(input = {}, actor = {}) {

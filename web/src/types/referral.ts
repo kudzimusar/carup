@@ -495,6 +495,22 @@ export interface ReferralMarketingAssetListResponse {
  * response (`res.json(response)`), whose shape is intentionally open. Methods that
  * hit those use this loose envelope rather than over-claiming a fixed shape.
  */
+export interface OwnerReferralDispute {
+  dispute_id: string
+  wallet_transaction_id: string | null
+  status: string | null
+  submitted_at: string | null
+  resolved_at: string | null
+  owner_reason: string | null
+  owner_safe_resolution: string | null
+  benefit_status: string | null
+}
+
+export interface OwnerReferralDisputesResponse {
+  success?: boolean
+  disputes: OwnerReferralDispute[]
+}
+
 export type ReferralServiceResponse = Record<string, unknown>
 
 // Filter helpers used by list methods.

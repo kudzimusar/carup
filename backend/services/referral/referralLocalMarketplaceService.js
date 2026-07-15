@@ -217,6 +217,7 @@ export class ReferralLocalMarketplaceService {
       metadata: {
         ...summary,
         lead_reference: input.lead_reference || null,
+        source_inquiry_id: input.source_inquiry_id || null,
         listing_id: input.listing_id || null,
         vin: input.vin || null,
         part_name: input.part_name || null,
