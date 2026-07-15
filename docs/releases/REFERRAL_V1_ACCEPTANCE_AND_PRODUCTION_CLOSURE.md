@@ -20,7 +20,7 @@
 | 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
-| 4 — Owner/invitee correct-attribution journey | NOT STARTED | No |
+| 4 — Owner/invitee correct-attribution journey | BLOCKED — security precondition (active Stage 2 token) | No |
 | 5 — Import/container referral journey | NOT STARTED | No |
 | 6 — Simulated channel-attribution integration | NOT STARTED | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
@@ -608,3 +608,62 @@ Next single action: begin Stage 4 (owner/invitee correct-attribution journey) in
 # PASS
 
 An administrator operated the complete Referral Engine V1 through the real deployed staging web application: all 20 functional cases passed with database-verified persistence, the correct-owner attribution invariant held, capacity/waitlist/duplicate protections held, fraud-hold/human-review/dispute/audit-export controls worked with enforced reasons, and every authorization boundary denied non-admin and unauthenticated access (API 403/401). CSRF enforcement is functionally correct; the deployed-staging test-mode default-bypass is recorded as a P2 with a mandatory Stage 9 production check. No P0/P1 defects, no production contact, no external-provider activation, no real customer data, and no real reward or settlement. Stage 4 may begin in a separate execution.
+
+---
+
+# Stage 4 — Owner/invitee correct-attribution journey (BLOCKED — security precondition)
+
+- Attempted: `2026-07-15`
+- Gate result: **NOT STARTED — blocked by mandatory security precondition**
+- Production changed: **No**
+- Staging data written: **None** (no Stage 4 run identifier was created; no R-OWN case was executed)
+
+## 1. Security precondition check (Stage 4 §1) — FAILED
+
+The Stage 4 execution directive requires, before any journey work: *"Confirm the temporary Supabase Management API token used during Stage 2 has been revoked server-side, not merely deleted locally"*, and *"If the temporary Management API token is still active, stop and report the security blocker. Do not begin the referral journey."*
+
+Verification performed at Stage 4 start:
+
+```text
+GET https://api.supabase.com/v1/projects with the Stage 2 token
+→ HTTP 200 — the token is STILL ACTIVE server-side
+```
+
+Execution therefore stopped immediately. No referral-journey action, account rotation, or data creation was performed.
+
+## 2. Local hygiene state (verified clean)
+
+| Surface | State |
+|---|---|
+| Shell environment | Clean (non-persistent per-invocation shells; nothing exported) |
+| Shell history (`~/.zsh_history`) | No token material |
+| Temporary files / session scratchpad | No token material (local copy was deleted at Stage 3 start) |
+| Helper configuration (`sbq.mjs` / `sbread.mjs`) | No embedded token (file-based; token file deleted) |
+| Claude settings (global and project) | No token material |
+| `backend/.env.uat.local` | git-ignored, mode `-rw-------`, staging-only values, no token, no production values |
+
+**Irreducible exposure:** the token value exists in the working conversation transcript (it was pasted there by the owner when granting access, and referenced by the verification test). This cannot be scrubbed locally and is precisely why **server-side revocation is the only effective control**. Local deletion alone — already done — is insufficient.
+
+## 3. Owner actions required to unblock Stage 4
+
+1. **Revoke the Stage 2 Supabase personal access token** in the Supabase dashboard (Account → Access Tokens). There is no self-revocation API for the token; this is dashboard-only, owner-only.
+2. Re-run of Stage 4 will then re-verify revocation (expect HTTP 401), complete the remaining preconditions (staging-credential rotation policy check, three live logins), and begin the R-OWN journey.
+
+The previously recorded rotation list remains pending as a separately authorized security workflow: production service-role key / DB password / DB URL pasted into conversation, the Stage 2 Management API token, the staging service key held in the ignored local env file, and the three REFV1 staging account passwords.
+
+## 4. Stage 4 blocker summary
+
+```text
+Stage: Stage 4 — Owner/invitee correct-attribution journey
+Exact SHA: 6214f3dd7aef7a24d33170009164d8f4932ab429
+Environment: none contacted beyond the single Management API token-validity check (api.supabase.com)
+Security preconditions: FAILED at item 1 — Stage 2 Management API token still ACTIVE server-side (HTTP 200)
+Owner/invitee functional cases: not started (0 of R-OWN-01…20)
+Actions completed: token-validity verification; local remnant sweep (all clean); env-file hygiene verification
+Data created: none
+Production changed: No
+External providers changed: No
+Evidence recorded: this file
+Gate result: BLOCKED — awaiting owner revocation of the Stage 2 token
+Next single action: owner revokes the Stage 2 Supabase access token in the dashboard, then Stage 4 re-runs from the security preconditions
+```
