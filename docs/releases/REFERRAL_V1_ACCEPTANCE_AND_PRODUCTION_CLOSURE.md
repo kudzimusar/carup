@@ -19,7 +19,7 @@
 | 0 — Freeze and verify current state | **PASS** | No |
 | 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | **PASS** | No |
-| 3 — Staging admin web acceptance | NOT STARTED | No |
+| 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
 | 4 — Owner/invitee correct-attribution journey | NOT STARTED | No |
 | 5 — Import/container referral journey | NOT STARTED | No |
 | 6 — Simulated channel-attribution integration | NOT STARTED | No |
@@ -467,3 +467,144 @@ Next single action: begin Stage 3 staging admin web acceptance (R-ADM-01 … R-A
 # PASS
 
 The staging Referral V1 foundation schema is present, correctly constrained, indexed, triggered, tenant-scoped and RLS-protected in the server-owned posture; production remains free of referral tables and unchanged; and the three controlled staging accounts exist only in staging with verified logins and minimum correct roles. Stage 3 may begin in a separate execution.
+
+---
+
+# Stage 3 — Staging admin web acceptance
+
+- Executed: `2026-07-15`
+- Gate result: **PASS** (0 P0, 0 P1; one P2 staging-configuration finding and one P3 recorded, neither blocking)
+- Production changed: **No** (production not contacted at all during Stage 3)
+- Environment: deployed staging `https://carup-staging.vercel.app` (frontend) + `https://carup-backend-staging.vercel.app` (backend), Supabase `eoyenigwevnxwwhyhaer`
+- Method: real deployed staging UI driven with Playwright (Chromium). Direct API/DB reads used only for post-action verification, authorization-negative testing, and evidence — never as a substitute for a required UI operation.
+- Run identifier: `REFV1-STAGING-S3-20260715T092916Z` (embedded in every synthetic record's name/slug/metadata)
+
+## 0. Security preconditions
+
+| Precondition | State |
+|---|---|
+| Stage 2 Supabase Management API token | Local session copy **deleted**; no `sbp_` token remains in scratchpad or shell history. **Server-side revocation is an owner action** (recorded as a required rotation item; the token is owner-held, not revocable from this session). Not used in Stage 3. |
+| Production `SERVICE_ROLE_KEY` / DB password / DB URL pasted earlier | **Not used.** Recorded as requiring a separately authorized security rotation (see §8). |
+| Credentials source | Only `backend/.env.uat.local` (git-ignored, mode `-rw-------`, staging ref only). |
+| Secrets in evidence | No password, token, JWT, cookie, CSRF token or service key printed to terminal, ledger, commits, or retained Playwright/DB output. |
+
+## 1. Browser preparation
+
+| Check | Result |
+|---|---|
+| Staging frontend `GET /` | **HTTP 200** |
+| Staging backend `GET /api/health` | **HTTP 200**, `status: UP`, `supabase: healthy` |
+| Staging bundle API target | staging backend baked (`carup-backend-staging` ×4); 1 inert fallback constant; **0** service-role/Supabase-ref matches |
+| Referral Playwright spec (`web/e2e/referral-staging.spec.ts --workers=1`, staging base URL + REFV1 admin/owner creds) | **4 passed, 0 failed, 0 skipped** — the two previously credential-gated admin/owner journeys now execute |
+
+## 2. Functional acceptance cases (R-ADM-01 … R-ADM-20)
+
+All 20 executed **in order through the deployed staging UI**. Persistence verified with the staging-only read-only PostgREST helper.
+
+| Case | UI route | Action | Observed (PASS) | Key persisted ID / evidence |
+|---|---|---|---|---|
+| R-ADM-01 | `/login` → `/admin` | Admin login | Authenticated `role=admin`; no production/external host contacted | user `refv1-staging-admin` |
+| R-ADM-02 | `/admin/referrals` | Open admin console | Campaign console renders; nav for all 6 referral areas present; 0 console errors; persisted (not mock) data | — |
+| R-ADM-03 | `/admin/referrals` | Create campaign | Row created, `tenant=platform`, `LOCAL_MARKETPLACE·LOCAL`, safe initial status `DRAFT`; `campaign.created` event written | campaign `956a1e1f-b65a-4bed-969e-724bbaa6f235`; event `3d6e1efb-30ff-4a8e-b4c4-1005cef88d1e` |
+| R-ADM-04 | `/admin/referrals` | Update campaign | `DRAFT → ACTIVE`; persisted across reload (UI + DB); `updated_by=refv1-staging-admin` | before `DRAFT` / after `ACTIVE` |
+| R-ADM-05 | `/admin/referrals/codes` + `/local-leads` | Create referral code | Code created and campaign-linked; **owner-owned** code minted via the Create-Bundle UI with `owner_user_id=refv1-staging-owner`; **duplicate creation blocked** ("Referral code already exists.", HTTP 400) | admin code `1cb25f37-…` (`REFV1S3CODE20260715`); owner code `ae7d6b33-8ecf-42e7-ac6e-69efb571b7ec` (`LOCAL-BUYER-REFV1-STAGING-OWNE-4A4CDF3B`, owner `refv1-staging-owner`) |
+| R-ADM-06 | `/admin/referrals/codes` | Create coupon | `FIXED · 25`, `ACTIVE`, persisted once; **duplicate blocked** ("Coupon already exists.", HTTP 400) | coupon `0eb92b8d-6fd7-4c99-a3f6-8470cb121c7c` (`REFV1S3COUPON20260715`) |
+| R-ADM-07 | `/admin/referrals/codes` | Generate share kit | Attributed share kit persisted; URL carries the referral code; targets `carup.app/r/…` (safe public route), never production admin | share asset `75ef50f3-46c2-4d43-9729-c5deaec5d4c4` (code `ae7d6b33`, campaign `171c994b`); URL `https://carup.app/r/LOCAL-BUYER-REFV1-STAGING-OWNE-4A4CDF3B` |
+| R-ADM-08 | `/admin/referrals/local-leads` | Create local lead | Lead persisted, attributed to owner code+campaign (`attribution.owner_user_id=refv1-staging-owner`); synthetic target only; status `attributed`; **no wallet txn at creation** | lead event `737f04f1-b38f-44fc-ae88-3f544957a342` |
+| R-ADM-09 | `/admin/referrals/local-leads` | Qualify local lead | `reward_created:true`; **benefit owner = `refv1-staging-owner` (original code owner), NOT the acting admin**; benefit `pending`; **duplicate qualification blocked** ("Reward eligibility already exists…"); one txn only | wallet txn `26ad7374-5efb-484b-b556-835a033d571f` (`user_id=refv1-staging-owner`, `amount=10`, `pending`); owner wallet `0c568b48…` `pending_balance=10` |
+| R-ADM-10 | `/admin/referrals/import-routes` | Create import route | Container-space route persisted, `total=10 CBM booked=0 open` | route `refv1s3-japan-refv1s3-zimbabwe-container-space`; event `b40e4898-c12d-4099-92ec-bd92e2b3255a` |
+| R-ADM-11 | `/admin/referrals/import-routes` | Update route capacity | `total 10 → 6`; reload confirms `total:6 booked:0 available:6` | event `import_campaign.capacity_updated` |
+| R-ADM-12 | `/admin/referrals/import-routes` | Fill + block overbooking | Route filled to `booked 6/6` (status `full`); route-level over-set (`booked 7 > 6`) rejected ("booked capacity cannot exceed total capacity."); demand-over-available with waitlist OFF rejected ("requested capacity exceeds available route capacity."); **capacity never negative, never overbooked** | — |
+| R-ADM-13 | `/admin/referrals/import-routes` | Enable waitlist | Excess demand (waitlist ON) → `waitlisted:true`, `capacity_status:full`; **reserved capacity unchanged (6/6)**; **0 wallet txns** for the waitlisted event | waitlisted lead event `fa259238-45c6-4b11-8d0b-63542460fddf` |
+| R-ADM-14 | `/admin/referrals/marketing` | Generate marketing draft | Proof-story asset created as **`draft`**; disclosure present; **no external provider call**; not auto-published | asset `6b7ba4d2-f0d4-4b75-bb2f-97dee6196dfa` |
+| R-ADM-15 | `/admin/referrals/marketing` | Approve marketing asset | `draft → review → approved` (each an allowed transition, persisted across reload); **approval triggered no external publication** | events `38c23828…` (→review), `b8ea6a71…` (→approved) |
+| R-ADM-16 | `/admin/referrals/trust` | Run risk check | `Recommendation: review · score: 30 · critical: false`; result persisted with signal; **did not auto-approve/settle** the wallet txn (stayed `pending`) | event `trust.ai_recommendation_stored 77a3fd5a…` |
+| R-ADM-17 | `/admin/referrals/trust` | Place wallet hold | Txn `26ad7374` → `held`; wallet totals internally consistent (all balances net-zero, benefit held not settled); **no settlement/external reward**; audit event written | event `trust.wallet_hold_applied a834738f…`; txn `26ad7374`, wallet `0c568b48…` |
+| R-ADM-18 | `/admin/referrals/trust` | Review decision | No-reason submit **blocked** by UI ("A reason is required for every decision.") **and** API (`400 VALIDATION_FAILED: decision reason is required.`); with reason → decision persisted, actor `refv1-staging-admin`, reason recorded, audit event written; txn remained `held` (no settlement) | review case `e3436f3a-45f0-4b12-b708-5dd954198349`; event `trust.review_case_decided d7cc1a52…` |
+| R-ADM-19 | `/admin/referrals/trust` | Resolve dispute | Dispute opened (reason required) then resolved `resolved_upheld` with reason+actor; owner-visible state retrievable via Explain Benefit ("held: This benefit is held for trust review…"); complete audit chain | dispute `ac32f244-cf26-4346-a305-f11d7f8a4a7f`; events `trust.dispute_created ac32f244…`, `trust.dispute_resolved 71fc3c86…` |
+| R-ADM-20 | `/admin/referrals/trust` | Export audit trail | Export succeeded: **200 events**, **SHA-256 checksum present**, bounded (`limit=200`); contains all controlled IDs (`956a1e1f`, `ae7d6b33`, `26ad7374`, `ac32f244`, `e3436f3a`); **no service-role key, JWT, password, or unrelated customer PII**; saved only to local ignored evidence dir | export event `trust.audit_export_created`; saved `scratchpad/s3-evidence/refv1-s3-audit-export.json` |
+
+**Functional total: 20 / 20 PASS.** The mandatory correct-owner database assertion (`reward_owner_user_id == original referral code owner`) held: the qualified benefit is owned by `refv1-staging-owner`, not the acting admin.
+
+## 3. Authorization / security boundary tests
+
+| Boundary | Result |
+|---|---|
+| Owner cannot access admin referral routes | **PASS** — all 6 admin routes: API returns **403** on every admin endpoint (`/campaigns`, `/codes`, `/local-marketplace/leads`, `/import-campaigns/routes`, `/trust/review-cases`); frontend redirects to owner `/dashboard`; **no admin UI/data rendered** |
+| Invitee cannot access admin referral routes | **PASS** — identical: API **403** on all, redirect to owner dashboard, no admin data |
+| Unauthenticated admin API calls | **PASS** — `GET`/`POST` to admin referral endpoints return **401** |
+| Authenticated non-admin (owner/invitee) | **PASS** — **403** (covered above) |
+| Required-reason cannot be bypassed | **PASS** — hold, review decision, and dispute-resolve each rejected without a reason at both **UI** and **API** (`400 VALIDATION_FAILED`: "wallet hold reason is required." / "decision reason is required." / "dispute resolution reason is required.") |
+| Marketing cannot auto-publish | **PASS** — draft stayed `draft`; approval reached `approved` (not `published`); no external provider contacted |
+| CSRF on mutation | **Mechanism PASS, with P2 staging-config caveat** — see below |
+
+### CSRF finding (P2 — staging environment configuration; Stage 9 production gate)
+
+- Forcing enforcement (`x-verify-csrf: true`, no token) on `POST /api/referrals/campaigns` returns **HTTP 403 "CSRF validation failed. Request untrusted."** — the double-submit CSRF middleware is present and **functionally correct**.
+- However, the same POST **without** a CSRF token (the plain boundary test) returned **HTTP 201** on deployed staging. Root cause: the deployed **staging backend runs `NODE_ENV=test`**, and `csrfMiddleware` intentionally bypasses CSRF when `NODE_ENV==='test' && x-verify-csrf!=='true'` (same switch also enables a rate-limit bypass header and an insecure default CSRF secret). This is a **staging deployment configuration** matter, **not a Referral V1 code defect** (the enforcement code is proven correct).
+- Classification: **P2**, staging-only. Recorded as a **mandatory Stage 9 read-only check**: confirm the **production** backend is **not** `NODE_ENV=test` (i.e., production enforces CSRF, rate limiting, and a real CSRF secret by default). If Stage 9 finds production in test mode, that escalates to P0/P1. Per Stage 1–8 discipline, production was **not** probed during Stage 3.
+
+## 4. Console and network inspection
+
+- **Only external host contacted in the entire session: `fonts.googleapis.com`** (Google Fonts stylesheet, 200). No requests to the production backend (`carup-backend.vercel.app`), the production Supabase ref, or any WhatsApp/Telegram/Facebook/email/payment/AI provider. `carup.app/r/…` and `carup.app/referrals/…` appear only as **hrefs inside generated share/marketing assets**, never navigated or fetched.
+- All captured console errors originate from the **deliberate negative tests** (duplicate code/coupon `400`, forced-CSRF `403`, unauthenticated `401`, required-reason `400`). No unexplained JavaScript errors.
+
+## 5. Defects
+
+```text
+P0: 0
+P1: 0
+P2: 1 — deployed staging backend runs NODE_ENV=test, bypassing CSRF-by-default (and enabling
+        rate-limit bypass header + insecure default CSRF secret). Staging-only; CSRF enforcement
+        code proven correct. MANDATORY Stage 9 gate: verify production is NOT NODE_ENV=test.
+P3: 1 — frontend admin route-guard is timing-inconsistent (an unauthorized user briefly shows the
+        /admin/* URL before the redirect settles), but no admin data ever renders and the API
+        enforces 403. Cosmetic; no data exposure.
+```
+
+No P0/P1 defect was found, so no defect remediation branch/PR was required for Stage 3.
+
+## 6. Data created (staging only; all carry `REFV1-STAGING-S3-20260715T092916Z` or a REFV1 identifier)
+
+- Campaigns: `956a1e1f…` (Local Campaign), `171c994b…` (owner bundle campaign), `d52654ff…` (created by the CSRF-negative test; tracked test data)
+- Codes: `1cb25f37…` (`REFV1S3CODE20260715`), `ae7d6b33…` (`LOCAL-BUYER-REFV1-STAGING-OWNE-4A4CDF3B`)
+- Coupon: `0eb92b8d…` (`REFV1S3COUPON20260715`)
+- Share assets: `75ef50f3…` (+ one earlier bundle share kit `04490601…`)
+- Local lead: `737f04f1…`; import route `refv1s3-japan-refv1s3-zimbabwe-container-space` + its leads incl. waitlisted `fa259238…`
+- Wallet: owner wallet `0c568b48…`, transaction `26ad7374…`
+- Trust: risk recommendation, review case `e3436f3a…`, dispute `ac32f244…`, marketing asset `6b7ba4d2…`
+
+All are staging synthetic records for Stage 12 cleanup. No real customer contact, real reward, or settlement was created (benefit remained `pending`→`held`, never approved/settled).
+
+## 7. Stage 3 evidence summary
+
+```text
+Stage: Stage 3 — Staging admin web acceptance
+Exact SHA: 6214f3dd7aef7a24d33170009164d8f4932ab429
+Environment: deployed staging (carup-staging / carup-backend-staging), Supabase eoyenigwevnxwwhyhaer
+Browser suite: web/e2e/referral-staging.spec.ts — 4 passed, 0 failed, 0 skipped (1 worker, staging creds)
+Admin functional cases: R-ADM-01 … R-ADM-20 = 20/20 PASS via deployed UI
+Authorization/security checks: owner 403, invitee 403, unauth 401, required-reason blocked (UI+API), marketing no auto-publish, CSRF enforcement 403 (mechanism); P2 staging test-mode CSRF-default-bypass
+Actions completed: browser prep; 20 functional cases; 6 authorization boundaries; console/network sweep; audit export capture
+Commands/tests run: Playwright referral spec + Playwright-driven UI journeys; read-only PostgREST verification; authenticated negative-auth fetches
+Pass totals: 4/4 browser; 20/20 functional; 6/6 authorization boundaries (CSRF mechanism verified)
+Failures: 0
+Defects: P0=0, P1=0, P2=1 (staging NODE_ENV=test), P3=1 (frontend route-guard timing)
+Data created: staging-only synthetic REFV1-STAGING-S3 records (listed §6); 0 production
+Production changed: No (production not contacted)
+External providers changed: No (only Google Fonts stylesheet loaded)
+Evidence recorded: this file; audit export at scratchpad/s3-evidence/refv1-s3-audit-export.json (local, ignored)
+Gate result: PASS
+Next single action: begin Stage 4 (owner/invitee correct-attribution journey) in a separate execution
+```
+
+## 8. Carry-forward items
+
+1. **Stage 9 (mandatory):** verify production backend is **not** `NODE_ENV=test` — CSRF, rate limiting, and CSRF-secret must be enforced by default in production. (Root of the Stage 3 P2.)
+2. **Security rotation (separately authorized):** the production `SERVICE_ROLE_KEY`, DB password and DB URL pasted into the working conversation, the Stage 2 Supabase Management API token, the staging service key in `backend/.env.uat.local`, and the three REFV1 staging account passwords must be rotated as a distinct, owner-authorized action. Not performed in Stage 3.
+
+## Stage 3 decision
+
+# PASS
+
+An administrator operated the complete Referral Engine V1 through the real deployed staging web application: all 20 functional cases passed with database-verified persistence, the correct-owner attribution invariant held, capacity/waitlist/duplicate protections held, fraud-hold/human-review/dispute/audit-export controls worked with enforced reasons, and every authorization boundary denied non-admin and unauthenticated access (API 403/401). CSRF enforcement is functionally correct; the deployed-staging test-mode default-bypass is recorded as a P2 with a mandatory Stage 9 production check. No P0/P1 defects, no production contact, no external-provider activation, no real customer data, and no real reward or settlement. Stage 4 may begin in a separate execution.
