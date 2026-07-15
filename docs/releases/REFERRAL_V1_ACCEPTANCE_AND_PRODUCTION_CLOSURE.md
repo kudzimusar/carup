@@ -687,3 +687,20 @@ Next single action: owner revokes the Stage 2 Supabase access token in the dashb
   3. **If no member account is expected to hold this token**, treat the still-active token as a genuine unauthorized-credential exposure and escalate through the security-rotation workflow; do not proceed with Stage 4 until it is dead.
 - Verification contract on resume: Stage 4 re-runs its one status-only check and proceeds **only** on an authentication-failure status (401, or a confirmed invalid-credential 403). Any 200 keeps the stage blocked.
 - Stage 4 remains **NOT STARTED**. No run identifier, no data, no staging login, no journey action. Local hygiene (§2) unchanged. The previously pasted **production** service-role key / DB password / DB URL remain unused and on the separately-authorized pre-Stage-9 rotation list.
+
+## 7. PAT-owning account identified (one read-only `/v1/profile` call)
+
+- Attempted: `2026-07-15`. Exactly one read-only `GET https://api.supabase.com/v1/profile` with the Stage 2 PAT → **HTTP 200**. Only `primary_email`, `username`, `gotrue_id` were parsed; the raw JSON was not displayed, no headers were logged, the temporary response file was deleted immediately, and no project/organization/database/secret/API-key endpoint was called.
+
+```text
+PAT owner identified: Yes
+PAT owner email: b***@gmail.com  (masked; full value reported privately to the owner in chat, not committed)
+PAT owner username: matches the email local-part account handle (not committed in full)
+PAT owner identity hash (SHA-256 of normalized email): 0f3daf685128aa8be1d76e14ba23a97649f7cd1602c03e20bbf0a28d39821379
+Profile endpoint result: HTTP 200
+```
+
+- The owning account is a **`@gmail.com` personal account**, distinct from the org-owner account previously used for revocation — which is exactly why revoking PATs on that other account never invalidated this token (PATs are account-scoped; see §6).
+- **Owner action required:** log into Supabase as this exact account (`b***@gmail.com`) → *Account → Access Tokens* → revoke the Stage 2 token (or all PATs on that account). If this account is not a recognized/authorized CarUp member, treat it as a credential-security incident: remove it from org `tzmmjpcgplzjzktuwsad` **and** invalidate the PAT (member removal alone does not kill the token), escalating to Supabase support if the account cannot be accessed.
+- **Revocation-verification contract on resume:** one read-only `GET /v1/profile` must return **HTTP 401** (or an explicit invalid-token authentication failure). A `200` with no/empty CarUp projects, a per-project `403`, org-membership removal, or role downgrade are **not** accepted as proof the PAT is dead.
+- Stage 4 stays **BLOCKED**. No further token requests will be made until the owner confirms revocation.
