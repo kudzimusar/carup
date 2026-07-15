@@ -18,7 +18,7 @@
 |---|---|---|
 | 0 — Freeze and verify current state | **PASS** | No |
 | 1 — Current-main automated regression | **PASS** | No |
-| 2 — Staging schema and account readiness | IN PROGRESS — BLOCKED (staging DB access) | No |
+| 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | NOT STARTED | No |
 | 4 — Owner/invitee correct-attribution journey | NOT STARTED | No |
 | 5 — Import/container referral journey | NOT STARTED | No |
@@ -324,12 +324,13 @@ Zero test failures, zero TypeScript errors, successful web production build, suc
 
 ---
 
-# Stage 2 — Staging schema and account readiness (IN PROGRESS — BLOCKED)
+# Stage 2 — Staging schema and account readiness
 
-- Started: `2026-07-15`
-- Gate result: **NOT YET — blocked on staging database access (see §3)**
-- Production changed: **No**
-- Staging data written: **None so far**
+- Started: `2026-07-15` (blocked mid-stage on staging DB access; resolved same day by owner-provided, to-be-rotated Supabase Management API access)
+- Completed: `2026-07-15`
+- Gate result: **PASS**
+- Production changed: **No** (read-only SELECT inventory only)
+- Staging data written: **3 rows in `public.users` only** (the REFV1 accounts; no referral data)
 
 ## 1. Completed Stage 2 checks (no database access required)
 
@@ -345,29 +346,124 @@ Zero test failures, zero TypeScript errors, successful web production build, suc
 
 Stage 0's read-only inventory (recorded above) already confirmed the nine `referral_*` tables exist on staging with RLS enabled on all nine and zero client policies (deny-by-default).
 
-## 2. Remaining Stage 2 items (require staging database access)
+## 2. Access resolution (historical blocker, closed)
 
-- Primary keys, foreign keys, unique constraints, indexes per table
-- Referral-code uniqueness constraint proof
-- Coupon duplicate-redemption protection constraint proof
-- Wallet status and transition constraints
-- Triggers
-- Tenant columns and enforcement
-- Creation of the three staging accounts (`refv1-admin@`, `refv1-owner@`, `refv1-invitee@staging.carup.local`) with locally-stored ignored credentials
+The stage was initially blocked: the claude.ai Supabase connector was bound to the wrong Supabase account, the CLI lacked the staging DB password, the only local env credentials pointed at production (deliberately unused), and keychain token extraction was correctly refused by local permission policy. The owner resolved this by providing a Supabase Management API access token scoped to the CarUp organization (`tzmmjpcgplzjzktuwsad`) **with a commitment to rotate all provided credentials after closure**. Access was verified to show exactly the two CarUp projects (`eoyenigwevnxwwhyhaer` carup-staging, `vhmnajoeicasaigiophh` CarUp, both ACTIVE_HEALTHY), and the staging ref was explicitly confirmed before any SQL ran.
 
-## 3. Blocker — no sanctioned path to the staging database from this session
+All database inspection ran through a local helper that (a) allows only the two CarUp refs, (b) rejects any statement that is not a single `SELECT`/`WITH`, and (c) calls the Management API `database/query` endpoint with `read_only: true`. No token, key, or password appears in the ledger, the repository, chat output, or logs.
 
-1. **claude.ai Supabase connector**: authenticated, but against the wrong Supabase account — it can only see an unrelated project (`production-os`, INACTIVE, org `hrhxurdxkwhwazoundpd`). The CarUp projects live in org `tzmmjpcgplzjzktuwsad` and return "permission denied" through this connector.
-2. **Supabase CLI**: logged in and lists both CarUp projects, and the repo is linked to staging — but every database-level CLI operation requires `SUPABASE_DB_PASSWORD` for `eoyenigwevnxwwhyhaer`, which is not stored locally.
-3. **Local env files**: the only local Supabase credentials found point at **production** (`vhmnajoeicasaigiophh`) and were therefore deliberately not used for staging work (and will not be used for any Stage 2–8 action).
-4. **CLI keychain token → Management API**: keychain extraction was blocked by the local permission policy (credential-store access requires explicit user review).
+## 3. Staging schema inspection — `eoyenigwevnxwwhyhaer` (read-only)
 
-No production resource was touched while establishing the above.
+### 3.1 Tables and RLS
 
-## 4. Owner unblock options (any one suffices for schema inspection)
+Exactly **nine** `referral_*` tables exist (catalogue query, no extras):
 
-- **Option A (preferred, unblocks everything)**: re-authorize the claude.ai Supabase connector against the Supabase account that owns org `tzmmjpcgplzjzktuwsad` (carup-staging + CarUp). All Stage 2+ staging SQL then proceeds via MCP.
-- **Option B**: place the **staging** database password in a git-ignored local file (e.g. `backend/.env.uat.local`, `SUPABASE_DB_PASSWORD=…`) so the linked Supabase CLI can run read-only inspection.
-- **Option C**: add a permission rule allowing the session to read the Supabase CLI keychain token, enabling read-only Management API queries.
+| Table | RLS enabled | RLS forced | Client policies |
+|---|---:|---:|---:|
+| `referral_admin_audit_events` | Yes | No | 0 |
+| `referral_campaigns` | Yes | No | 0 |
+| `referral_codes` | Yes | No | 0 |
+| `referral_coupon_redemptions` | Yes | No | 0 |
+| `referral_coupons` | Yes | No | 0 |
+| `referral_events` | Yes | No | 0 |
+| `referral_share_assets` | Yes | No | 0 |
+| `referral_wallet_transactions` | Yes | No | 0 |
+| `referral_wallets` | Yes | No | 0 |
 
-For **staging account creation** (sanctioned path: `backend/scripts/seed-uat-referral-users.mjs`), the **staging** `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are additionally required in `backend/.env.uat.local` (git-ignored; never committed, never printed) — unless Option A is chosen, in which case alternatives via MCP will be evaluated at execution time.
+ACL posture (from `pg_class.relacl`): standard Supabase grants exist for `anon`/`authenticated`/`service_role`, but with **RLS enabled and zero policies every direct client request is deny-by-default**; only the server-owned `service_role` path (RLS-bypassing by Supabase design, used exclusively by the Express backend) can operate. This is the expected server-owned posture.
+
+### 3.2 Constraints (46 total via `pg_constraint`) — required proofs
+
+| Required verification | Constraint evidence |
+|---|---|
+| Referral-code uniqueness | `referral_codes_code_key UNIQUE (code)` |
+| Campaign/code ownership linkage | `referral_codes.campaign_id → referral_campaigns(id) ON DELETE SET NULL`; owner column `referral_codes.owner_user_id` |
+| Coupon uniqueness | `referral_coupons_code_key UNIQUE (code)` |
+| Duplicate coupon-redemption prevention | `UNIQUE (coupon_id, redeemer_user_id)` **and** `UNIQUE (idempotency_key)` on `referral_coupon_redemptions` |
+| Wallet uniqueness by owner | `referral_wallets_user_id_key UNIQUE (user_id)` (tenant scoping via `tenant_id NOT NULL`; single-wallet-per-user model) |
+| Allowed wallet transaction statuses | CHECK allowlist: `created, pending, eligible, approved, payable, paid_or_applied, held, rejected` |
+| Registration cannot mature a reward (DB level) | CHECK `referral_signup_only_not_matured`: signup-type source events may only be `created/pending/held/rejected` |
+| Invalid wallet transition protection | DB layer: status allowlist + `amount >= 0` CHECK; transition state machine enforced in the service layer and verified by the Stage 1 suites (171/171, incl. invalid-transition and hold/review cases) |
+| Share-asset campaign/code relationships | `share_assets.campaign_id → campaigns ON DELETE SET NULL`; `share_assets.code_id → codes ON DELETE CASCADE` |
+| Event/audit immutability controls | `referral_events`, `referral_coupon_redemptions`, `referral_share_assets`, `referral_admin_audit_events` are append-only in the service layer (no update triggers, no client write path via RLS); client tampering impossible (0 policies); service path verified append-only by Stage 1 suites |
+| Status catalogs on campaigns/codes/coupons | CHECKs: campaign `DRAFT/ACTIVE/PAUSED/COMPLETED/ARCHIVED`, type `LOCAL_MARKETPLACE/IMPORT_VEHICLE/IMPORT_PARTS/CONTAINER_SPACE/COMMUNITY_GROUP/AGENT_PARTNER`; code `ACTIVE/DISABLED/EXPIRED/EXHAUSTED` + `code_type MEMBER/CAMPAIGN/COUPON/GROUP/AGENT` + `uses_count >= 0` + `max_uses >= 0`; coupon `PERCENT/FIXED/SERVICE_CREDIT`, `discount_value >= 0`, `max_redemptions >= 0`; redemption `applied/reversed/voided` |
+| Referential graph | `events → campaigns/codes/coupons/wallet_transactions (SET NULL)`; `wallet_transactions → wallets (CASCADE), campaigns/codes/source events (SET NULL)` |
+
+### 3.3 Indexes (32) and triggers (5)
+
+- Every PK is a unique btree index; every FK path and hot lookup is covered: codes by `code` and `campaign_id`; coupons by `code` and `campaign_id`; events by `campaign_id/occurred_at DESC`, `code_id/occurred_at DESC`, `coupon_id`, `subject_type+subject_id`, `wallet_transaction_id`; wallet transactions by `wallet_id/created_at DESC`, `campaign_id`, `code_id`, `source_event_id`; wallets by `user_id` (unique); campaigns by `status+campaign_type+priority_scope` and unique `tenant_id+slug`.
+- Triggers: `set_referral_updated_at()` BEFORE UPDATE on the five mutable tables (`campaigns`, `codes`, `coupons`, `wallets`, `wallet_transactions`). The four append-only tables intentionally have none.
+
+### 3.4 Tenant columns and defaults
+
+All nine tables carry `tenant_id text NOT NULL DEFAULT 'platform'`. Ownership/actor columns present as designed: `codes.owner_user_id`, `wallets.user_id NOT NULL`, `wallet_transactions.user_id NOT NULL`, `coupon_redemptions.redeemer_user_id NOT NULL`, `events.actor_user_id`, `admin_audit_events.actor_user_id` + `reason`. Status columns default safely (`campaigns → DRAFT`, `codes/coupons → ACTIVE`, `wallet_transactions → pending`, `redemptions → applied`).
+
+### 3.5 Wave A absence
+
+A staging-wide catalogue scan for `ambassador|payout|attribution|receiver_|specialist|permanent_code|widget` table names returned **zero rows** — no Full-Vision/Wave A tables exist or are being treated as V1 requirements.
+
+## 4. Production read-only reconfirmation — `vhmnajoeicasaigiophh`
+
+The same catalogue query (single read-only SELECT) returned **zero** public `referral_*` tables. No migration was applied; production is unchanged.
+
+## 5. Staging account provisioning
+
+Provisioned via the repository's sanctioned mechanism (the exact gates and upsert semantics of `backend/scripts/seed-uat-referral-users.mjs`, reusing `hashPassword` from `backend/utils/passwordAuth.js` and `extractSupabaseRef`/`assertStagingTarget`/role-catalog/minimum-length checks from `scripts/provision-staging-qa-accounts.mjs`), executed with `NODE_ENV=test`, `UAT_SEED_CONFIRM=yes`, against the explicitly asserted staging ref only.
+
+| Email | id | Role | Action | Rationale |
+|---|---|---|---|---|
+| `refv1-admin@staging.carup.local` | `refv1-staging-admin` | `admin` | created | Admin console + qualification/review surfaces |
+| `refv1-owner@staging.carup.local` | `refv1-staging-owner` | `owner` | created | Referral code owner / Refer & Earn wallet |
+| `refv1-invitee@staging.carup.local` | `refv1-staging-invitee` | `owner` | created | CarUp has no separate member/buyer role — an ordinary invitee is an `owner`-role user with no privileged data (per the documented product model); minimum correct role |
+
+Credential handling: three strong random passwords (18 random bytes each, base64url) generated directly into `backend/.env.uat.local` (matched by `.gitignore:27 .env.*`), file mode `-rw-------`; staging service-role key retrieved via the Management API into the same ignored file. **No password, hash, key, or token was printed, committed, or recorded anywhere else.** Display names use the `REFV1-STAGING-` test-data prefix.
+
+Verification:
+
+| Check | Result |
+|---|---|
+| Staging `users` rows (read-only SELECT) | 3/3 present with correct roles and non-empty scrypt hashes |
+| Live login `POST /api/auth/login` on deployed staging backend | admin → **HTTP 200, role=admin**; owner → **HTTP 200, role=owner**; invitee → **HTTP 200, role=owner** |
+| Same emails in production `users` (read-only SELECT) | **0 rows** — accounts exist only in staging |
+
+## 6. Stage 2 completion criteria
+
+```text
+All nine staging foundation tables exist            YES
+RLS enabled on all nine                             YES (0 client policies; server-owned)
+Required constraints, indexes, triggers verified    YES (46 constraints, 32 indexes, 5 triggers)
+Staging deployment bindings remain correct          YES (§1: health + bundle checks)
+UAT runner refuses production targets               YES (§1: live refusal, exit 1)
+No client-side secret present                       YES (§1: deployed bundle scans)
+Three staging accounts exist with correct roles     YES (created + live-login verified)
+Accounts do not exist in production                 YES (0 rows)
+Production still contains zero referral tables      YES (read-only reconfirmed)
+Production has not changed                          YES (SELECT-only)
+P0 defects                                          0
+P1 defects                                          0
+```
+
+## 7. Stage 2 evidence summary
+
+```text
+Stage: Stage 2 — Staging schema and account readiness
+Exact SHA: 6214f3dd7aef7a24d33170009164d8f4932ab429
+Environment: staging Supabase eoyenigwevnxwwhyhaer (inspection + 3 user rows); production vhmnajoeicasaigiophh (read-only SELECTs only); deployed staging web/backend
+Actions completed: project-ref verification; full nine-table schema inspection; ACL/RLS posture verification; Wave A absence scan; production zero-table reconfirmation; REFV1 account provisioning + live login verification; production absence verification
+SQL/read-only inspections: 9 catalogue/inspection SELECTs via ref-allowlisted read-only helper
+Account provisioning result: 3 created (admin/owner/owner), logins verified HTTP 200 with correct roles
+Pass totals: 12/12 completion criteria
+Failures: 0
+Defects: P0 = 0, P1 = 0
+Data created: 3 staging users rows only (REFV1-STAGING- prefix; no referral data)
+Production changed: No
+Evidence recorded: this file
+Gate result: PASS
+Next single action: begin Stage 3 staging admin web acceptance (R-ADM-01 … R-ADM-20) as a separate execution
+```
+
+## Stage 2 decision
+
+# PASS
+
+The staging Referral V1 foundation schema is present, correctly constrained, indexed, triggered, tenant-scoped and RLS-protected in the server-owned posture; production remains free of referral tables and unchanged; and the three controlled staging accounts exist only in staging with verified logins and minimum correct roles. Stage 3 may begin in a separate execution.
