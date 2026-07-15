@@ -1,0 +1,647 @@
+- generic [ref=f10e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f10e357]:
+    - complementary [ref=f10e358]:
+      - generic [ref=f10e359]:
+        - link "CarUp" [ref=f10e360] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=f10e367] [cursor=pointer]
+      - generic [ref=f10e370]:
+        - paragraph [ref=f10e371]: REFV1-STAGING-Admin
+        - paragraph [ref=f10e372]: Active portal
+        - combobox "Switch active portal role" [ref=f10e375] [cursor=pointer]:
+          - option "Car Owner"
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator" [selected]
+          - option "Banker"
+      - navigation [ref=f10e376]:
+        - link "Overview" [ref=f10e377] [cursor=pointer]:
+          - /url: /admin
+        - link "Feature Governance" [ref=f10e384] [cursor=pointer]:
+          - /url: /admin/features
+        - link "Users" [ref=f10e388] [cursor=pointer]:
+          - /url: /admin/users
+        - link "AI Monitoring" [ref=f10e402] [cursor=pointer]:
+          - /url: /admin/ai
+        - link "Moderation" [ref=f10e412] [cursor=pointer]:
+          - /url: /admin/moderation
+        - link "Evidence Review" [ref=f10e416] [cursor=pointer]:
+          - /url: /admin/evidence
+        - link "Verification Cases" [ref=f10e421] [cursor=pointer]:
+          - /url: /admin/verification
+        - link "Trust Review" [ref=f10e428] [cursor=pointer]:
+          - /url: /admin/trust-review
+        - link "Referral Campaigns" [ref=f10e433] [cursor=pointer]:
+          - /url: /admin/referrals
+        - link "Codes & Coupons" [ref=f10e438] [cursor=pointer]:
+          - /url: /admin/referrals/codes
+        - link "Local Leads" [ref=f10e443] [cursor=pointer]:
+          - /url: /admin/referrals/local-leads
+        - link "Import Routes" [ref=f10e450] [cursor=pointer]:
+          - /url: /admin/referrals/import-routes
+        - link "Referral Marketing" [ref=f10e455] [cursor=pointer]:
+          - /url: /admin/referrals/marketing
+        - link "Referral Trust" [ref=f10e459] [cursor=pointer]:
+          - /url: /admin/referrals/trust
+        - link "Communications SLA" [ref=f10e463] [cursor=pointer]:
+          - /url: /admin/communications
+          - generic [ref=f10e466]: Communications
+          - generic [ref=f10e467]: SLA
+        - link "Diaspora Compliance" [ref=f10e468] [cursor=pointer]:
+          - /url: /admin/diaspora/compliance
+        - link "Workbook Console" [ref=f10e472] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks
+        - link "New Dry Run" [ref=f10e477] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks/new
+      - generic [ref=f10e482]:
+        - link "Settings" [ref=f10e483] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f10e487] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f10e491]:
+      - banner [ref=f10e492]:
+        - button "Open sidebar menu" [ref=f10e493] [cursor=pointer]
+        - generic [ref=f10e494]:
+          - link [ref=f10e495] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=f10e496] [cursor=pointer]:
+            - /url: /
+      - main [ref=f10e7]:
+        - generic [ref=f10e8]:
+          - generic [ref=f10e14]:
+            - heading "AI Marketing Review" [level=1] [ref=f10e15]
+            - paragraph [ref=f10e16]: Generate, review, and publish referral marketing assets
+          - generic [ref=f10e18]:
+            - heading "Rules" [level=2] [ref=f10e19]
+            - generic [ref=f10e20]:
+              - paragraph [ref=f10e21]: "Workflow: draft → review → approved → scheduled → published"
+              - paragraph [ref=f10e22]: "Disclosure required: Disclosure: a CarUp promoter or referrer may receive a benefit if this referral leads to a verified purchase, booking, or approved transaction."
+              - paragraph [ref=f10e23]: "Asset types: corridor_landing_page, local_city_page, vehicle_import_page, parts_request_page, container_campaign_page, ambassador_share_kit, proof_story, faq_page, whatsapp_message, telegram_post, facebook_caption, instagram_caption"
+          - generic [ref=f10e25]:
+            - heading "Create Draft Assets" [level=2] [ref=f10e26]
+            - generic [ref=f10e27]:
+              - textbox "campaign_id" [ref=f10e28]: 956a1e1f-b65a-4bed-969e-724bbaa6f235
+              - textbox "referral_code" [ref=f10e29]: REFV1S3CODE20260715
+              - textbox "base_url (https://…)" [ref=f10e30]
+            - paragraph [ref=f10e31]: Provide a campaign_id or referral_code so the AI can resolve campaign context.
+            - generic [ref=f10e32]:
+              - button "Campaign Kit" [ref=f10e33] [cursor=pointer]
+              - button "Proof Story" [ref=f10e34] [cursor=pointer]
+              - button "FAQ" [ref=f10e35] [cursor=pointer]
+            - generic [ref=f10e36]:
+              - combobox [ref=f10e37]:
+                - option "corridor_landing_page" [selected]
+                - option "local_city_page"
+                - option "vehicle_import_page"
+                - option "parts_request_page"
+                - option "container_campaign_page"
+                - option "faq_page"
+              - button "SEO Page" [ref=f10e38] [cursor=pointer]
+            - generic [ref=f10e39]:
+              - textbox "channels (comma-sep, blank = all)" [ref=f10e40]
+              - button "Channel Messages" [ref=f10e41] [cursor=pointer]
+            - paragraph [ref=f10e498]: Proof story created.
+          - generic [ref=f10e43]:
+            - generic [ref=f10e44]:
+              - heading "Marketing Assets" [level=2] [ref=f10e45]
+              - button "Refresh" [ref=f10e46] [cursor=pointer]
+            - generic [ref=f10e47]:
+              - generic [ref=f10e499]:
+                - generic [ref=f10e500]:
+                  - generic [ref=f10e501]:
+                    - paragraph [ref=f10e502]: proof_story
+                    - paragraph [ref=f10e503]: "disclosure ✓ · canonical: https://carup.app/referrals/proof/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e504]: draft
+                - generic [ref=f10e505]:
+                  - combobox [ref=f10e506]:
+                    - option "draft"
+                    - option "review" [selected]
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e507]: REFV1-STAGING-S3-20260715T092916Z review pass
+                  - button "Apply" [active] [ref=f10e508] [cursor=pointer]
+                - paragraph [ref=f10e509]: Status updated.
+              - generic [ref=f10e48]:
+                - generic [ref=f10e49]:
+                  - generic [ref=f10e50]:
+                    - paragraph [ref=f10e51]: corridor_landing_page
+                    - paragraph [ref=f10e52]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e53]: draft
+                - generic [ref=f10e54]:
+                  - combobox [ref=f10e55]:
+                    - option "draft"
+                    - option "review" [selected]
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e56]
+                  - button "Apply" [ref=f10e57] [cursor=pointer]
+              - generic [ref=f10e58]:
+                - generic [ref=f10e59]:
+                  - generic [ref=f10e60]:
+                    - paragraph [ref=f10e61]: faq_page
+                    - paragraph [ref=f10e62]: "disclosure ✓ · canonical: https://carup.app/referrals/faq/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e63]: draft
+                - generic [ref=f10e64]:
+                  - combobox [ref=f10e65]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e66]
+                  - button "Apply" [ref=f10e67] [cursor=pointer]
+              - generic [ref=f10e68]:
+                - generic [ref=f10e69]:
+                  - generic [ref=f10e70]:
+                    - paragraph [ref=f10e71]: proof_story
+                    - paragraph [ref=f10e72]: "disclosure ✓ · canonical: https://carup.app/referrals/proof/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e73]: draft
+                - generic [ref=f10e74]:
+                  - combobox [ref=f10e75]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e76]
+                  - button "Apply" [ref=f10e77] [cursor=pointer]
+              - generic [ref=f10e78]:
+                - generic [ref=f10e79]:
+                  - generic [ref=f10e80]:
+                    - paragraph [ref=f10e81]: telegram_post
+                    - paragraph [ref=f10e82]: "disclosure ✓ · canonical: https://carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e83]: draft
+                - generic [ref=f10e84]:
+                  - combobox [ref=f10e85]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e86]
+                  - button "Apply" [ref=f10e87] [cursor=pointer]
+              - generic [ref=f10e88]:
+                - generic [ref=f10e89]:
+                  - generic [ref=f10e90]:
+                    - paragraph [ref=f10e91]: whatsapp_message
+                    - paragraph [ref=f10e92]: "disclosure ✓ · canonical: https://carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e93]: draft
+                - generic [ref=f10e94]:
+                  - combobox [ref=f10e95]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e96]
+                  - button "Apply" [ref=f10e97] [cursor=pointer]
+              - generic [ref=f10e98]:
+                - generic [ref=f10e99]:
+                  - generic [ref=f10e100]:
+                    - paragraph [ref=f10e101]: corridor_landing_page
+                    - paragraph [ref=f10e102]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e103]: published
+                - generic [ref=f10e104]:
+                  - combobox [ref=f10e105]:
+                    - option "draft"
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published" [selected]
+                    - option "archived"
+                  - textbox "reason" [ref=f10e106]
+                  - textbox "public_url (optional)" [ref=f10e107]
+                  - button "Apply" [ref=f10e108] [cursor=pointer]
+              - generic [ref=f10e109]:
+                - generic [ref=f10e110]:
+                  - generic [ref=f10e111]:
+                    - paragraph [ref=f10e112]: instagram_caption
+                    - paragraph [ref=f10e113]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e114]: draft
+                - generic [ref=f10e115]:
+                  - combobox [ref=f10e116]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e117]
+                  - button "Apply" [ref=f10e118] [cursor=pointer]
+              - generic [ref=f10e119]:
+                - generic [ref=f10e120]:
+                  - generic [ref=f10e121]:
+                    - paragraph [ref=f10e122]: facebook_caption
+                    - paragraph [ref=f10e123]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e124]: draft
+                - generic [ref=f10e125]:
+                  - combobox [ref=f10e126]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e127]
+                  - button "Apply" [ref=f10e128] [cursor=pointer]
+              - generic [ref=f10e129]:
+                - generic [ref=f10e130]:
+                  - generic [ref=f10e131]:
+                    - paragraph [ref=f10e132]: telegram_post
+                    - paragraph [ref=f10e133]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e134]: draft
+                - generic [ref=f10e135]:
+                  - combobox [ref=f10e136]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e137]
+                  - button "Apply" [ref=f10e138] [cursor=pointer]
+              - generic [ref=f10e139]:
+                - generic [ref=f10e140]:
+                  - generic [ref=f10e141]:
+                    - paragraph [ref=f10e142]: whatsapp_message
+                    - paragraph [ref=f10e143]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e144]: draft
+                - generic [ref=f10e145]:
+                  - combobox [ref=f10e146]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e147]
+                  - button "Apply" [ref=f10e148] [cursor=pointer]
+              - generic [ref=f10e149]:
+                - generic [ref=f10e150]:
+                  - generic [ref=f10e151]:
+                    - paragraph [ref=f10e152]: faq_page
+                    - paragraph [ref=f10e153]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/faq/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e154]: draft
+                - generic [ref=f10e155]:
+                  - combobox [ref=f10e156]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e157]
+                  - button "Apply" [ref=f10e158] [cursor=pointer]
+              - generic [ref=f10e159]:
+                - generic [ref=f10e160]:
+                  - generic [ref=f10e161]:
+                    - paragraph [ref=f10e162]: proof_story
+                    - paragraph [ref=f10e163]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/proof/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e164]: draft
+                - generic [ref=f10e165]:
+                  - combobox [ref=f10e166]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e167]
+                  - button "Apply" [ref=f10e168] [cursor=pointer]
+              - generic [ref=f10e169]:
+                - generic [ref=f10e170]:
+                  - generic [ref=f10e171]:
+                    - paragraph [ref=f10e172]: ambassador_share_kit
+                    - paragraph [ref=f10e173]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e174]: draft
+                - generic [ref=f10e175]:
+                  - combobox [ref=f10e176]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e177]
+                  - button "Apply" [ref=f10e178] [cursor=pointer]
+              - generic [ref=f10e179]:
+                - generic [ref=f10e180]:
+                  - generic [ref=f10e181]:
+                    - paragraph [ref=f10e182]: container_campaign_page
+                    - paragraph [ref=f10e183]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/import/container-space/japan/zimbabwe/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e184]: draft
+                - generic [ref=f10e185]:
+                  - combobox [ref=f10e186]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e187]
+                  - button "Apply" [ref=f10e188] [cursor=pointer]
+              - generic [ref=f10e189]:
+                - generic [ref=f10e190]:
+                  - generic [ref=f10e191]:
+                    - paragraph [ref=f10e192]: corridor_landing_page
+                    - paragraph [ref=f10e193]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161611634 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e194]: draft
+                - generic [ref=f10e195]:
+                  - combobox [ref=f10e196]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e197]
+                  - button "Apply" [ref=f10e198] [cursor=pointer]
+              - generic [ref=f10e199]:
+                - generic [ref=f10e200]:
+                  - generic [ref=f10e201]:
+                    - paragraph [ref=f10e202]: corridor_landing_page
+                    - paragraph [ref=f10e203]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e204]: draft
+                - generic [ref=f10e205]:
+                  - combobox [ref=f10e206]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e207]
+                  - button "Apply" [ref=f10e208] [cursor=pointer]
+              - generic [ref=f10e209]:
+                - generic [ref=f10e210]:
+                  - generic [ref=f10e211]:
+                    - paragraph [ref=f10e212]: faq_page
+                    - paragraph [ref=f10e213]: "disclosure ✓ · canonical: https://carup.app/referrals/faq/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e214]: draft
+                - generic [ref=f10e215]:
+                  - combobox [ref=f10e216]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e217]
+                  - button "Apply" [ref=f10e218] [cursor=pointer]
+              - generic [ref=f10e219]:
+                - generic [ref=f10e220]:
+                  - generic [ref=f10e221]:
+                    - paragraph [ref=f10e222]: proof_story
+                    - paragraph [ref=f10e223]: "disclosure ✓ · canonical: https://carup.app/referrals/proof/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e224]: draft
+                - generic [ref=f10e225]:
+                  - combobox [ref=f10e226]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e227]
+                  - button "Apply" [ref=f10e228] [cursor=pointer]
+              - generic [ref=f10e229]:
+                - generic [ref=f10e230]:
+                  - generic [ref=f10e231]:
+                    - paragraph [ref=f10e232]: telegram_post
+                    - paragraph [ref=f10e233]: "disclosure ✓ · canonical: https://carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e234]: draft
+                - generic [ref=f10e235]:
+                  - combobox [ref=f10e236]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e237]
+                  - button "Apply" [ref=f10e238] [cursor=pointer]
+              - generic [ref=f10e239]:
+                - generic [ref=f10e240]:
+                  - generic [ref=f10e241]:
+                    - paragraph [ref=f10e242]: whatsapp_message
+                    - paragraph [ref=f10e243]: "disclosure ✓ · canonical: https://carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e244]: draft
+                - generic [ref=f10e245]:
+                  - combobox [ref=f10e246]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e247]
+                  - button "Apply" [ref=f10e248] [cursor=pointer]
+              - generic [ref=f10e249]:
+                - generic [ref=f10e250]:
+                  - generic [ref=f10e251]:
+                    - paragraph [ref=f10e252]: corridor_landing_page
+                    - paragraph [ref=f10e253]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e254]: published
+                - generic [ref=f10e255]:
+                  - combobox [ref=f10e256]:
+                    - option "draft"
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published" [selected]
+                    - option "archived"
+                  - textbox "reason" [ref=f10e257]
+                  - textbox "public_url (optional)" [ref=f10e258]
+                  - button "Apply" [ref=f10e259] [cursor=pointer]
+              - generic [ref=f10e260]:
+                - generic [ref=f10e261]:
+                  - generic [ref=f10e262]:
+                    - paragraph [ref=f10e263]: instagram_caption
+                    - paragraph [ref=f10e264]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e265]: draft
+                - generic [ref=f10e266]:
+                  - combobox [ref=f10e267]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e268]
+                  - button "Apply" [ref=f10e269] [cursor=pointer]
+              - generic [ref=f10e270]:
+                - generic [ref=f10e271]:
+                  - generic [ref=f10e272]:
+                    - paragraph [ref=f10e273]: facebook_caption
+                    - paragraph [ref=f10e274]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e275]: draft
+                - generic [ref=f10e276]:
+                  - combobox [ref=f10e277]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e278]
+                  - button "Apply" [ref=f10e279] [cursor=pointer]
+              - generic [ref=f10e280]:
+                - generic [ref=f10e281]:
+                  - generic [ref=f10e282]:
+                    - paragraph [ref=f10e283]: telegram_post
+                    - paragraph [ref=f10e284]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e285]: draft
+                - generic [ref=f10e286]:
+                  - combobox [ref=f10e287]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e288]
+                  - button "Apply" [ref=f10e289] [cursor=pointer]
+              - generic [ref=f10e290]:
+                - generic [ref=f10e291]:
+                  - generic [ref=f10e292]:
+                    - paragraph [ref=f10e293]: whatsapp_message
+                    - paragraph [ref=f10e294]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e295]: draft
+                - generic [ref=f10e296]:
+                  - combobox [ref=f10e297]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e298]
+                  - button "Apply" [ref=f10e299] [cursor=pointer]
+              - generic [ref=f10e300]:
+                - generic [ref=f10e301]:
+                  - generic [ref=f10e302]:
+                    - paragraph [ref=f10e303]: faq_page
+                    - paragraph [ref=f10e304]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/faq/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e305]: draft
+                - generic [ref=f10e306]:
+                  - combobox [ref=f10e307]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e308]
+                  - button "Apply" [ref=f10e309] [cursor=pointer]
+              - generic [ref=f10e310]:
+                - generic [ref=f10e311]:
+                  - generic [ref=f10e312]:
+                    - paragraph [ref=f10e313]: proof_story
+                    - paragraph [ref=f10e314]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/proof/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e315]: draft
+                - generic [ref=f10e316]:
+                  - combobox [ref=f10e317]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e318]
+                  - button "Apply" [ref=f10e319] [cursor=pointer]
+              - generic [ref=f10e320]:
+                - generic [ref=f10e321]:
+                  - generic [ref=f10e322]:
+                    - paragraph [ref=f10e323]: ambassador_share_kit
+                    - paragraph [ref=f10e324]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e325]: draft
+                - generic [ref=f10e326]:
+                  - combobox [ref=f10e327]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e328]
+                  - button "Apply" [ref=f10e329] [cursor=pointer]
+              - generic [ref=f10e330]:
+                - generic [ref=f10e331]:
+                  - generic [ref=f10e332]:
+                    - paragraph [ref=f10e333]: container_campaign_page
+                    - paragraph [ref=f10e334]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/import/container-space/japan/zimbabwe/japan-zimbabwe-local-marketplace · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e335]: draft
+                - generic [ref=f10e336]:
+                  - combobox [ref=f10e337]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e338]
+                  - button "Apply" [ref=f10e339] [cursor=pointer]
+              - generic [ref=f10e340]:
+                - generic [ref=f10e341]:
+                  - generic [ref=f10e342]:
+                    - paragraph [ref=f10e343]: corridor_landing_page
+                    - paragraph [ref=f10e344]: "disclosure ✓ · canonical: https://staging.carup.app/referrals/campaigns/uat-local-campaign-uat-1782161520767 · utm ✓ · internal-links ✓"
+                  - generic [ref=f10e345]: draft
+                - generic [ref=f10e346]:
+                  - combobox [ref=f10e347]:
+                    - option "draft" [selected]
+                    - option "review"
+                    - option "approved"
+                    - option "rejected"
+                    - option "scheduled"
+                    - option "published"
+                    - option "archived"
+                  - textbox "reason" [ref=f10e348]
+                  - button "Apply" [ref=f10e349] [cursor=pointer]
+          - generic [ref=f10e351]:
+            - heading "Analytics Suggestion" [level=2] [ref=f10e352]
+            - generic [ref=f10e353]:
+              - spinbutton "views" [ref=f10e354]
+              - spinbutton "clicks" [ref=f10e355]
+              - button "Get Suggestions" [ref=f10e356] [cursor=pointer]

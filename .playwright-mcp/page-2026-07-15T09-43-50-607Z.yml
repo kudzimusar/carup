@@ -1,0 +1,454 @@
+- generic [ref=f4e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f4e394]:
+    - complementary [ref=f4e395]:
+      - generic [ref=f4e396]:
+        - link "CarUp" [ref=f4e397] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=f4e404] [cursor=pointer]
+      - generic [ref=f4e407]:
+        - paragraph [ref=f4e408]: REFV1-STAGING-Admin
+        - paragraph [ref=f4e409]: Active portal
+        - combobox "Switch active portal role" [ref=f4e412] [cursor=pointer]:
+          - option "Car Owner"
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator" [selected]
+          - option "Banker"
+      - navigation [ref=f4e413]:
+        - link "Overview" [ref=f4e414] [cursor=pointer]:
+          - /url: /admin
+        - link "Feature Governance" [ref=f4e421] [cursor=pointer]:
+          - /url: /admin/features
+        - link "Users" [ref=f4e425] [cursor=pointer]:
+          - /url: /admin/users
+        - link "AI Monitoring" [ref=f4e439] [cursor=pointer]:
+          - /url: /admin/ai
+        - link "Moderation" [ref=f4e449] [cursor=pointer]:
+          - /url: /admin/moderation
+        - link "Evidence Review" [ref=f4e453] [cursor=pointer]:
+          - /url: /admin/evidence
+        - link "Verification Cases" [ref=f4e458] [cursor=pointer]:
+          - /url: /admin/verification
+        - link "Trust Review" [ref=f4e465] [cursor=pointer]:
+          - /url: /admin/trust-review
+        - link "Referral Campaigns" [ref=f4e470] [cursor=pointer]:
+          - /url: /admin/referrals
+        - link "Codes & Coupons" [ref=f4e475] [cursor=pointer]:
+          - /url: /admin/referrals/codes
+        - link "Local Leads" [ref=f4e480] [cursor=pointer]:
+          - /url: /admin/referrals/local-leads
+        - link "Import Routes" [ref=f4e487] [cursor=pointer]:
+          - /url: /admin/referrals/import-routes
+        - link "Referral Marketing" [ref=f4e492] [cursor=pointer]:
+          - /url: /admin/referrals/marketing
+        - link "Referral Trust" [ref=f4e496] [cursor=pointer]:
+          - /url: /admin/referrals/trust
+        - link "Communications SLA" [ref=f4e500] [cursor=pointer]:
+          - /url: /admin/communications
+          - generic [ref=f4e503]: Communications
+          - generic [ref=f4e504]: SLA
+        - link "Diaspora Compliance" [ref=f4e505] [cursor=pointer]:
+          - /url: /admin/diaspora/compliance
+        - link "Workbook Console" [ref=f4e509] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks
+        - link "New Dry Run" [ref=f4e514] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks/new
+      - generic [ref=f4e519]:
+        - link "Settings" [ref=f4e520] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f4e524] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f4e528]:
+      - banner [ref=f4e529]:
+        - button "Open sidebar menu" [ref=f4e530] [cursor=pointer]
+        - generic [ref=f4e531]:
+          - link [ref=f4e532] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=f4e533] [cursor=pointer]:
+            - /url: /
+      - main [ref=f4e7]:
+        - generic [ref=f4e8]:
+          - generic [ref=f4e13]:
+            - heading "Codes & Coupons" [level=1] [ref=f4e14]
+            - paragraph [ref=f4e15]: Create codes/coupons, validate, apply, redeem, and generate share assets
+          - generic [ref=f4e16]:
+            - generic [ref=f4e18]:
+              - heading "Create Referral Code" [level=2] [ref=f4e19]
+              - combobox [ref=f4e20]:
+                - option "MEMBER" [selected]
+                - option "CAMPAIGN"
+                - option "COUPON"
+                - option "GROUP"
+                - option "AGENT"
+              - textbox "Custom code (optional — auto-generated if blank)" [ref=f4e21]: REFV1S3CODE20260715
+              - textbox "Campaign id (optional)" [ref=f4e22]: 956a1e1f-b65a-4bed-969e-724bbaa6f235
+              - button "Create Code" [active] [ref=f4e23] [cursor=pointer]
+              - paragraph [ref=f4e535]: Referral code already exists.
+            - generic [ref=f4e25]:
+              - heading "Validate Code" [level=2] [ref=f4e26]
+              - textbox "Code to validate" [ref=f4e27]
+              - button "Validate" [ref=f4e28] [cursor=pointer]
+            - generic [ref=f4e30]:
+              - heading "Create Coupon" [level=2] [ref=f4e31]
+              - combobox [ref=f4e32]:
+                - option "FIXED" [selected]
+                - option "PERCENT"
+                - option "SERVICE_CREDIT"
+              - spinbutton "Discount value" [ref=f4e33]
+              - textbox "Custom coupon code (optional)" [ref=f4e34]
+              - button "Create Coupon" [ref=f4e35] [cursor=pointer]
+            - generic [ref=f4e37]:
+              - heading "Apply / Redeem Coupon" [level=2] [ref=f4e38]
+              - textbox "Coupon code" [ref=f4e39]
+              - spinbutton "Order amount" [ref=f4e40]
+              - button "Apply" [ref=f4e42] [cursor=pointer]
+              - generic [ref=f4e43]:
+                - textbox "Redeemer user id" [ref=f4e44]
+                - button "Redeem for user" [ref=f4e45] [cursor=pointer]
+          - generic [ref=f4e47]:
+            - heading "Generate Share Assets" [level=2] [ref=f4e48]
+            - generic [ref=f4e49]:
+              - textbox "Code to generate assets for" [ref=f4e50]
+              - button "Generate" [ref=f4e51] [cursor=pointer]
+          - generic [ref=f4e53]:
+            - generic [ref=f4e54]:
+              - generic [ref=f4e55]:
+                - heading "Referral Codes" [level=2] [ref=f4e56]
+                - paragraph [ref=f4e57]: 48 shown · 48 total
+              - button "Refresh" [ref=f4e58] [cursor=pointer]
+            - generic [ref=f4e59]:
+              - generic [ref=f4e60]:
+                - generic [ref=f4e61]: UATUAT1782161611634CH
+                - generic [ref=f4e62]: MEMBER · ACTIVE
+                - generic [ref=f4e63]: 6/23/2026
+              - generic [ref=f4e64]:
+                - generic [ref=f4e65]: UATUAT1782161611634CT
+                - generic [ref=f4e66]: MEMBER · ACTIVE
+                - generic [ref=f4e67]: 6/23/2026
+              - generic [ref=f4e68]:
+                - generic [ref=f4e69]: UATUAT1782161611634PT
+                - generic [ref=f4e70]: MEMBER · ACTIVE
+                - generic [ref=f4e71]: 6/23/2026
+              - generic [ref=f4e72]:
+                - generic [ref=f4e73]: UATUAT1782161611634BV
+                - generic [ref=f4e74]: MEMBER · ACTIVE
+                - generic [ref=f4e75]: 6/23/2026
+              - generic [ref=f4e76]:
+                - generic [ref=f4e77]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-F3629171
+                - generic [ref=f4e78]: MEMBER · ACTIVE
+                - generic [ref=f4e79]: 6/23/2026
+              - generic [ref=f4e80]:
+                - generic [ref=f4e81]: UATUAT1782161611634TL
+                - generic [ref=f4e82]: MEMBER · ACTIVE
+                - generic [ref=f4e83]: 6/23/2026
+              - generic [ref=f4e84]:
+                - generic [ref=f4e85]: UATUAT1782161520767CH
+                - generic [ref=f4e86]: MEMBER · ACTIVE
+                - generic [ref=f4e87]: 6/23/2026
+              - generic [ref=f4e88]:
+                - generic [ref=f4e89]: UATUAT1782161520767CT
+                - generic [ref=f4e90]: MEMBER · ACTIVE
+                - generic [ref=f4e91]: 6/23/2026
+              - generic [ref=f4e92]:
+                - generic [ref=f4e93]: UATUAT1782161520767PT
+                - generic [ref=f4e94]: MEMBER · ACTIVE
+                - generic [ref=f4e95]: 6/23/2026
+              - generic [ref=f4e96]:
+                - generic [ref=f4e97]: UATUAT1782161520767BV
+                - generic [ref=f4e98]: MEMBER · ACTIVE
+                - generic [ref=f4e99]: 6/23/2026
+              - generic [ref=f4e100]:
+                - generic [ref=f4e101]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-21A9335D
+                - generic [ref=f4e102]: MEMBER · ACTIVE
+                - generic [ref=f4e103]: 6/23/2026
+              - generic [ref=f4e104]:
+                - generic [ref=f4e105]: UATUAT1782161520767TL
+                - generic [ref=f4e106]: MEMBER · ACTIVE
+                - generic [ref=f4e107]: 6/23/2026
+              - generic [ref=f4e108]:
+                - generic [ref=f4e109]: UATUAT1782136969149CH
+                - generic [ref=f4e110]: MEMBER · ACTIVE
+                - generic [ref=f4e111]: 6/22/2026
+              - generic [ref=f4e112]:
+                - generic [ref=f4e113]: UATUAT1782136969149CT
+                - generic [ref=f4e114]: MEMBER · ACTIVE
+                - generic [ref=f4e115]: 6/22/2026
+              - generic [ref=f4e116]:
+                - generic [ref=f4e117]: UATUAT1782136969149PT
+                - generic [ref=f4e118]: MEMBER · ACTIVE
+                - generic [ref=f4e119]: 6/22/2026
+              - generic [ref=f4e120]:
+                - generic [ref=f4e121]: UATUAT1782136969149BV
+                - generic [ref=f4e122]: MEMBER · ACTIVE
+                - generic [ref=f4e123]: 6/22/2026
+              - generic [ref=f4e124]:
+                - generic [ref=f4e125]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-0B860ECF
+                - generic [ref=f4e126]: MEMBER · ACTIVE
+                - generic [ref=f4e127]: 6/22/2026
+              - generic [ref=f4e128]:
+                - generic [ref=f4e129]: UATUAT1782136969149TL
+                - generic [ref=f4e130]: MEMBER · ACTIVE
+                - generic [ref=f4e131]: 6/22/2026
+              - generic [ref=f4e132]:
+                - generic [ref=f4e133]: UATUAT1782089275082CH
+                - generic [ref=f4e134]: MEMBER · ACTIVE
+                - generic [ref=f4e135]: 6/22/2026
+              - generic [ref=f4e136]:
+                - generic [ref=f4e137]: UATUAT1782089275082CT
+                - generic [ref=f4e138]: MEMBER · ACTIVE
+                - generic [ref=f4e139]: 6/22/2026
+              - generic [ref=f4e140]:
+                - generic [ref=f4e141]: UATUAT1782089275082PT
+                - generic [ref=f4e142]: MEMBER · ACTIVE
+                - generic [ref=f4e143]: 6/22/2026
+              - generic [ref=f4e144]:
+                - generic [ref=f4e145]: UATUAT1782089275082BV
+                - generic [ref=f4e146]: MEMBER · ACTIVE
+                - generic [ref=f4e147]: 6/22/2026
+              - generic [ref=f4e148]:
+                - generic [ref=f4e149]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-5429958C
+                - generic [ref=f4e150]: MEMBER · ACTIVE
+                - generic [ref=f4e151]: 6/22/2026
+              - generic [ref=f4e152]:
+                - generic [ref=f4e153]: UATUAT1782089275082TL
+                - generic [ref=f4e154]: MEMBER · ACTIVE
+                - generic [ref=f4e155]: 6/22/2026
+              - generic [ref=f4e156]:
+                - generic [ref=f4e157]: UATUAT1782088388249CH
+                - generic [ref=f4e158]: MEMBER · ACTIVE
+                - generic [ref=f4e159]: 6/22/2026
+              - generic [ref=f4e160]:
+                - generic [ref=f4e161]: UATUAT1782088388249CT
+                - generic [ref=f4e162]: MEMBER · ACTIVE
+                - generic [ref=f4e163]: 6/22/2026
+              - generic [ref=f4e164]:
+                - generic [ref=f4e165]: UATUAT1782088388249PT
+                - generic [ref=f4e166]: MEMBER · ACTIVE
+                - generic [ref=f4e167]: 6/22/2026
+              - generic [ref=f4e168]:
+                - generic [ref=f4e169]: UATUAT1782088388249BV
+                - generic [ref=f4e170]: MEMBER · ACTIVE
+                - generic [ref=f4e171]: 6/22/2026
+              - generic [ref=f4e172]:
+                - generic [ref=f4e173]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-78B39932
+                - generic [ref=f4e174]: MEMBER · ACTIVE
+                - generic [ref=f4e175]: 6/22/2026
+              - generic [ref=f4e176]:
+                - generic [ref=f4e177]: UATUAT1782088388249TL
+                - generic [ref=f4e178]: MEMBER · ACTIVE
+                - generic [ref=f4e179]: 6/22/2026
+              - generic [ref=f4e180]:
+                - generic [ref=f4e181]: UATUAT1782087903020CH
+                - generic [ref=f4e182]: MEMBER · ACTIVE
+                - generic [ref=f4e183]: 6/22/2026
+              - generic [ref=f4e184]:
+                - generic [ref=f4e185]: UATUAT1782087903020CT
+                - generic [ref=f4e186]: MEMBER · ACTIVE
+                - generic [ref=f4e187]: 6/22/2026
+              - generic [ref=f4e188]:
+                - generic [ref=f4e189]: UATUAT1782087903020PT
+                - generic [ref=f4e190]: MEMBER · ACTIVE
+                - generic [ref=f4e191]: 6/22/2026
+              - generic [ref=f4e192]:
+                - generic [ref=f4e193]: UATUAT1782087903020BV
+                - generic [ref=f4e194]: MEMBER · ACTIVE
+                - generic [ref=f4e195]: 6/22/2026
+              - generic [ref=f4e196]:
+                - generic [ref=f4e197]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-50733D26
+                - generic [ref=f4e198]: MEMBER · ACTIVE
+                - generic [ref=f4e199]: 6/22/2026
+              - generic [ref=f4e200]:
+                - generic [ref=f4e201]: UATUAT1782087903020TL
+                - generic [ref=f4e202]: MEMBER · ACTIVE
+                - generic [ref=f4e203]: 6/22/2026
+              - generic [ref=f4e204]:
+                - generic [ref=f4e205]: UATUAT1782087435640CH
+                - generic [ref=f4e206]: MEMBER · ACTIVE
+                - generic [ref=f4e207]: 6/22/2026
+              - generic [ref=f4e208]:
+                - generic [ref=f4e209]: UATUAT1782087435640CT
+                - generic [ref=f4e210]: MEMBER · ACTIVE
+                - generic [ref=f4e211]: 6/22/2026
+              - generic [ref=f4e212]:
+                - generic [ref=f4e213]: UATUAT1782087435640PT
+                - generic [ref=f4e214]: MEMBER · ACTIVE
+                - generic [ref=f4e215]: 6/22/2026
+              - generic [ref=f4e216]:
+                - generic [ref=f4e217]: UATUAT1782087435640BV
+                - generic [ref=f4e218]: MEMBER · ACTIVE
+                - generic [ref=f4e219]: 6/22/2026
+              - generic [ref=f4e220]:
+                - generic [ref=f4e221]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-F37202D8
+                - generic [ref=f4e222]: MEMBER · ACTIVE
+                - generic [ref=f4e223]: 6/22/2026
+              - generic [ref=f4e224]:
+                - generic [ref=f4e225]: UATUAT1782087435640TL
+                - generic [ref=f4e226]: MEMBER · ACTIVE
+                - generic [ref=f4e227]: 6/22/2026
+              - generic [ref=f4e228]:
+                - generic [ref=f4e229]: UATUAT1782086989135CH
+                - generic [ref=f4e230]: MEMBER · ACTIVE
+                - generic [ref=f4e231]: 6/22/2026
+              - generic [ref=f4e232]:
+                - generic [ref=f4e233]: UATUAT1782086989135CT
+                - generic [ref=f4e234]: MEMBER · ACTIVE
+                - generic [ref=f4e235]: 6/22/2026
+              - generic [ref=f4e236]:
+                - generic [ref=f4e237]: UATUAT1782086989135PT
+                - generic [ref=f4e238]: MEMBER · ACTIVE
+                - generic [ref=f4e239]: 6/22/2026
+              - generic [ref=f4e240]:
+                - generic [ref=f4e241]: UATUAT1782086989135BV
+                - generic [ref=f4e242]: MEMBER · ACTIVE
+                - generic [ref=f4e243]: 6/22/2026
+              - generic [ref=f4e244]:
+                - generic [ref=f4e245]: LOCAL-BUYER-U-UAT-REF-ADMIN-20-ABA47FC4
+                - generic [ref=f4e246]: MEMBER · ACTIVE
+                - generic [ref=f4e247]: 6/22/2026
+              - generic [ref=f4e248]:
+                - generic [ref=f4e249]: UATUAT1782086989135TL
+                - generic [ref=f4e250]: MEMBER · ACTIVE
+                - generic [ref=f4e251]: 6/22/2026
+          - generic [ref=f4e253]:
+            - generic [ref=f4e254]:
+              - generic [ref=f4e255]:
+                - heading "Coupons" [level=2] [ref=f4e256]
+                - paragraph [ref=f4e257]: 8 shown · 8 total
+              - button "Refresh" [ref=f4e258] [cursor=pointer]
+            - generic [ref=f4e259]:
+              - generic [ref=f4e260]:
+                - generic [ref=f4e261]: UATUAT1782161611634W10
+                - generic [ref=f4e262]: PERCENT · 10
+                - generic [ref=f4e263]: ACTIVE
+              - generic [ref=f4e264]:
+                - generic [ref=f4e265]: UATUAT1782161520767W10
+                - generic [ref=f4e266]: PERCENT · 10
+                - generic [ref=f4e267]: ACTIVE
+              - generic [ref=f4e268]:
+                - generic [ref=f4e269]: UATUAT1782136969149W10
+                - generic [ref=f4e270]: PERCENT · 10
+                - generic [ref=f4e271]: ACTIVE
+              - generic [ref=f4e272]:
+                - generic [ref=f4e273]: UATUAT1782089275082W10
+                - generic [ref=f4e274]: PERCENT · 10
+                - generic [ref=f4e275]: ACTIVE
+              - generic [ref=f4e276]:
+                - generic [ref=f4e277]: UATUAT1782088388249W10
+                - generic [ref=f4e278]: PERCENT · 10
+                - generic [ref=f4e279]: ACTIVE
+              - generic [ref=f4e280]:
+                - generic [ref=f4e281]: UATUAT1782087903020W10
+                - generic [ref=f4e282]: PERCENT · 10
+                - generic [ref=f4e283]: ACTIVE
+              - generic [ref=f4e284]:
+                - generic [ref=f4e285]: UATUAT1782087435640W10
+                - generic [ref=f4e286]: PERCENT · 10
+                - generic [ref=f4e287]: ACTIVE
+              - generic [ref=f4e288]:
+                - generic [ref=f4e289]: UATUAT1782086989135W10
+                - generic [ref=f4e290]: PERCENT · 10
+                - generic [ref=f4e291]: ACTIVE
+          - generic [ref=f4e293]:
+            - generic [ref=f4e294]:
+              - generic [ref=f4e295]:
+                - heading "Audit activity (event log)" [level=2] [ref=f4e296]
+                - paragraph [ref=f4e297]: Dedicated list endpoint pending Phase E — showing recent events from the audit log.
+              - button "Refresh" [ref=f4e298] [cursor=pointer]
+            - generic [ref=f4e299]:
+              - generic [ref=f4e300]:
+                - generic [ref=f4e301]: campaign.created
+                - generic [ref=f4e302]: 7/15/2026, 6:35:56 PM
+              - generic [ref=f4e303]:
+                - generic [ref=f4e304]: marketplace_inquiry_created
+                - generic [ref=f4e305]: marketplace_inquiry 3df5ebfe-60a1-44f6-b75a-e89dc106dd28
+                - generic [ref=f4e306]: 7/14/2026, 11:48:02 AM
+              - generic [ref=f4e307]:
+                - generic [ref=f4e308]: agent.tool_executed
+                - generic [ref=f4e309]: agent_gateway_tool triage
+                - generic [ref=f4e310]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f4e311]:
+                - generic [ref=f4e312]: agent.triage_completed
+                - generic [ref=f4e313]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f4e314]:
+                - generic [ref=f4e315]: channel.attribution_attached
+                - generic [ref=f4e316]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f4e317]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f4e318]:
+                - generic [ref=f4e319]: agent.tool_executed
+                - generic [ref=f4e320]: agent_gateway_tool validate_referral_code
+                - generic [ref=f4e321]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f4e322]:
+                - generic [ref=f4e323]: referral.code_validated
+                - generic [ref=f4e324]: agent_gateway_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f4e325]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f4e326]:
+                - generic [ref=f4e327]: agent.tool_executed
+                - generic [ref=f4e328]: agent_gateway_tool triage
+                - generic [ref=f4e329]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f4e330]:
+                - generic [ref=f4e331]: agent.triage_completed
+                - generic [ref=f4e332]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f4e333]:
+                - generic [ref=f4e334]: channel.inbound_received
+                - generic [ref=f4e335]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f4e336]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f4e337]:
+                - generic [ref=f4e338]: channel.attribution_attached
+                - generic [ref=f4e339]: channel_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f4e340]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f4e341]:
+                - generic [ref=f4e342]: agent.tool_executed
+                - generic [ref=f4e343]: agent_gateway_tool validate_referral_code
+                - generic [ref=f4e344]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f4e345]:
+                - generic [ref=f4e346]: referral.code_validated
+                - generic [ref=f4e347]: agent_gateway_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f4e348]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f4e349]:
+                - generic [ref=f4e350]: agent.tool_executed
+                - generic [ref=f4e351]: agent_gateway_tool triage
+                - generic [ref=f4e352]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f4e353]:
+                - generic [ref=f4e354]: agent.triage_completed
+                - generic [ref=f4e355]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f4e356]:
+                - generic [ref=f4e357]: channel.inbound_received
+                - generic [ref=f4e358]: channel_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f4e359]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f4e360]:
+                - generic [ref=f4e361]: referral.code_created
+                - generic [ref=f4e362]: 6/23/2026, 5:54:52 AM
+              - generic [ref=f4e363]:
+                - generic [ref=f4e364]: trust.audit_export_created
+                - generic [ref=f4e365]: audit_export 1d88c6ad99afbc7289d59c6d4f8aeac5fb6bc680ee64d37750cc00bd803b12ec
+                - generic [ref=f4e366]: 6/23/2026, 5:54:51 AM
+              - generic [ref=f4e367]:
+                - generic [ref=f4e368]: trust.dispute_resolved
+                - generic [ref=f4e369]: trust_dispute a40d224c-6651-4743-a3eb-a1fee7a23908
+                - generic [ref=f4e370]: 6/23/2026, 5:54:46 AM
+              - generic [ref=f4e371]:
+                - generic [ref=f4e372]: trust.dispute_created
+                - generic [ref=f4e373]: trust_dispute ce981356-ae5c-4cfe-8da1-181380261210
+                - generic [ref=f4e374]: 6/23/2026, 5:54:45 AM
+              - generic [ref=f4e375]:
+                - generic [ref=f4e376]: trust.audit_export_created
+                - generic [ref=f4e377]: audit_export 2146208353b785a61763f401c4e4eda33121a5de535ef25af046a9d2e7aeeac7
+                - generic [ref=f4e378]: 6/23/2026, 5:54:43 AM
+              - generic [ref=f4e379]:
+                - generic [ref=f4e380]: trust.review_case_decided
+                - generic [ref=f4e381]: trust_review_case b4a41aaa-6446-46e7-9e0e-e80ac0284293
+                - generic [ref=f4e382]: 6/23/2026, 5:54:42 AM
+              - generic [ref=f4e383]:
+                - generic [ref=f4e384]: trust.wallet_hold_applied
+                - generic [ref=f4e385]: wallet_transaction ec0c612f-85c6-4194-925b-0e1c4bb1d03a
+                - generic [ref=f4e386]: 6/23/2026, 5:54:41 AM
+              - generic [ref=f4e387]:
+                - generic [ref=f4e388]: wallet.transaction_status_changed
+                - generic [ref=f4e389]: 6/23/2026, 5:54:41 AM
+              - generic [ref=f4e390]:
+                - generic [ref=f4e391]: trust.review_case_created
+                - generic [ref=f4e392]: trust_review_case ec0c612f-85c6-4194-925b-0e1c4bb1d03a
+                - generic [ref=f4e393]: 6/23/2026, 5:54:38 AM

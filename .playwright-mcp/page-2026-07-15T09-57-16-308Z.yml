@@ -1,0 +1,293 @@
+- generic [ref=f8e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f8e232]:
+    - complementary [ref=f8e233]:
+      - generic [ref=f8e234]:
+        - link "CarUp" [ref=f8e235] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=f8e242] [cursor=pointer]
+      - generic [ref=f8e245]:
+        - paragraph [ref=f8e246]: REFV1-STAGING-Admin
+        - paragraph [ref=f8e247]: Active portal
+        - combobox "Switch active portal role" [ref=f8e250] [cursor=pointer]:
+          - option "Car Owner"
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator" [selected]
+          - option "Banker"
+      - navigation [ref=f8e251]:
+        - link "Overview" [ref=f8e252] [cursor=pointer]:
+          - /url: /admin
+        - link "Feature Governance" [ref=f8e259] [cursor=pointer]:
+          - /url: /admin/features
+        - link "Users" [ref=f8e263] [cursor=pointer]:
+          - /url: /admin/users
+        - link "AI Monitoring" [ref=f8e277] [cursor=pointer]:
+          - /url: /admin/ai
+        - link "Moderation" [ref=f8e287] [cursor=pointer]:
+          - /url: /admin/moderation
+        - link "Evidence Review" [ref=f8e291] [cursor=pointer]:
+          - /url: /admin/evidence
+        - link "Verification Cases" [ref=f8e296] [cursor=pointer]:
+          - /url: /admin/verification
+        - link "Trust Review" [ref=f8e303] [cursor=pointer]:
+          - /url: /admin/trust-review
+        - link "Referral Campaigns" [ref=f8e308] [cursor=pointer]:
+          - /url: /admin/referrals
+        - link "Codes & Coupons" [ref=f8e313] [cursor=pointer]:
+          - /url: /admin/referrals/codes
+        - link "Local Leads" [ref=f8e318] [cursor=pointer]:
+          - /url: /admin/referrals/local-leads
+        - link "Import Routes" [ref=f8e325] [cursor=pointer]:
+          - /url: /admin/referrals/import-routes
+        - link "Referral Marketing" [ref=f8e330] [cursor=pointer]:
+          - /url: /admin/referrals/marketing
+        - link "Referral Trust" [ref=f8e334] [cursor=pointer]:
+          - /url: /admin/referrals/trust
+        - link "Communications SLA" [ref=f8e338] [cursor=pointer]:
+          - /url: /admin/communications
+          - generic [ref=f8e341]: Communications
+          - generic [ref=f8e342]: SLA
+        - link "Diaspora Compliance" [ref=f8e343] [cursor=pointer]:
+          - /url: /admin/diaspora/compliance
+        - link "Workbook Console" [ref=f8e347] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks
+        - link "New Dry Run" [ref=f8e352] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks/new
+      - generic [ref=f8e357]:
+        - link "Settings" [ref=f8e358] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f8e362] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f8e366]:
+      - banner [ref=f8e367]:
+        - button "Open sidebar menu" [ref=f8e368] [cursor=pointer]
+        - generic [ref=f8e369]:
+          - link [ref=f8e370] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=f8e371] [cursor=pointer]:
+            - /url: /
+      - main [ref=f8e7]:
+        - generic [ref=f8e8]:
+          - generic [ref=f8e14]:
+            - heading "Import Routes & Capacity" [level=1] [ref=f8e15]
+            - paragraph [ref=f8e16]: Vehicle import, parts import, and container-space flow
+          - generic [ref=f8e17]:
+            - generic [ref=f8e19]:
+              - heading "Create Route" [level=2] [ref=f8e20]
+              - generic [ref=f8e21]:
+                - textbox "Origin *" [ref=f8e22]: REFV1S3-Japan
+                - textbox "Destination *" [ref=f8e23]: REFV1S3-Zimbabwe
+              - combobox [ref=f8e24]:
+                - option "vehicle_import"
+                - option "parts_import"
+                - option "container_space" [selected]
+              - generic [ref=f8e25]:
+                - spinbutton "Total capacity" [ref=f8e26]: "10"
+                - textbox "Unit label (e.g. CBM, slots)" [ref=f8e27]: CBM
+              - button "Create Route" [active] [ref=f8e28] [cursor=pointer]
+              - paragraph [ref=f8e373]: "Route created. route_key: refv1s3-japan-refv1s3-zimbabwe-container-space"
+            - generic [ref=f8e30]:
+              - heading "Route Status & Capacity" [level=2] [ref=f8e31]
+              - generic [ref=f8e32]:
+                - textbox "route_key" [ref=f8e33]
+                - button "Check" [ref=f8e34] [cursor=pointer]
+              - generic [ref=f8e35]:
+                - generic [ref=f8e36]:
+                  - spinbutton "New total" [ref=f8e37]
+                  - spinbutton "New booked" [ref=f8e38]
+                - button "Update Capacity" [ref=f8e39] [cursor=pointer]
+            - generic [ref=f8e41]:
+              - heading "Create Import Lead" [level=2] [ref=f8e42]
+              - textbox "route_key (optional)" [ref=f8e43]
+              - combobox [ref=f8e44]:
+                - option "vehicle_import"
+                - option "parts_import"
+                - option "container_space" [selected]
+              - spinbutton "Requested capacity (container-space)" [ref=f8e45]
+              - generic [ref=f8e46]:
+                - checkbox "Allow waitlist when route is full" [ref=f8e47]
+                - text: Allow waitlist when route is full
+              - button "Create Lead" [ref=f8e48] [cursor=pointer]
+            - generic [ref=f8e50]:
+              - heading "Qualify Import Lead" [level=2] [ref=f8e51]
+              - textbox "lead_event_id *" [ref=f8e52]
+              - generic [ref=f8e53]:
+                - textbox "Milestone *" [ref=f8e54]
+                - spinbutton "Reward amount" [ref=f8e55]
+              - button "Qualify" [ref=f8e56] [cursor=pointer]
+              - paragraph [ref=f8e57]: Milestones (e.g. quote, booking, delivery) tie incentives to real import progress.
+          - generic [ref=f8e58]: Container-space = flow_type “container_space” + requested capacity
+          - generic [ref=f8e60]:
+            - generic [ref=f8e61]:
+              - generic [ref=f8e62]:
+                - heading "Import Routes" [level=2] [ref=f8e63]
+                - paragraph [ref=f8e64]: 16 shown · 16 total
+              - button "Refresh" [ref=f8e65] [cursor=pointer]
+            - generic [ref=f8e66]:
+              - generic [ref=f8e67]:
+                - generic [ref=f8e68]: uat-japan-zimbabwe-container-uat-1782161611634
+                - generic [ref=f8e69]: container_space · open
+                - generic [ref=f8e70]: 5/30 CBM
+              - generic [ref=f8e71]:
+                - generic [ref=f8e72]: uat-japan-zimbabwe-vehicle-uat-1782161611634
+                - generic [ref=f8e73]: vehicle_import · open
+                - generic [ref=f8e74]: 8/8 slots
+              - generic [ref=f8e75]:
+                - generic [ref=f8e76]: uat-japan-zimbabwe-container-uat-1782161520767
+                - generic [ref=f8e77]: container_space · open
+                - generic [ref=f8e78]: 5/30 CBM
+              - generic [ref=f8e79]:
+                - generic [ref=f8e80]: uat-japan-zimbabwe-vehicle-uat-1782161520767
+                - generic [ref=f8e81]: vehicle_import · open
+                - generic [ref=f8e82]: 8/8 slots
+              - generic [ref=f8e83]:
+                - generic [ref=f8e84]: uat-japan-zimbabwe-container-uat-1782136969149
+                - generic [ref=f8e85]: container_space · open
+                - generic [ref=f8e86]: 5/30 CBM
+              - generic [ref=f8e87]:
+                - generic [ref=f8e88]: uat-japan-zimbabwe-vehicle-uat-1782136969149
+                - generic [ref=f8e89]: vehicle_import · open
+                - generic [ref=f8e90]: 8/8 slots
+              - generic [ref=f8e91]:
+                - generic [ref=f8e92]: uat-japan-zimbabwe-container-uat-1782089275082
+                - generic [ref=f8e93]: container_space · open
+                - generic [ref=f8e94]: 5/30 CBM
+              - generic [ref=f8e95]:
+                - generic [ref=f8e96]: uat-japan-zimbabwe-vehicle-uat-1782089275082
+                - generic [ref=f8e97]: vehicle_import · open
+                - generic [ref=f8e98]: 8/8 slots
+              - generic [ref=f8e99]:
+                - generic [ref=f8e100]: uat-japan-zimbabwe-container-uat-1782088388249
+                - generic [ref=f8e101]: container_space · open
+                - generic [ref=f8e102]: 5/30 CBM
+              - generic [ref=f8e103]:
+                - generic [ref=f8e104]: uat-japan-zimbabwe-vehicle-uat-1782088388249
+                - generic [ref=f8e105]: vehicle_import · open
+                - generic [ref=f8e106]: 8/8 slots
+              - generic [ref=f8e107]:
+                - generic [ref=f8e108]: uat-japan-zimbabwe-container-uat-1782087903020
+                - generic [ref=f8e109]: container_space · open
+                - generic [ref=f8e110]: 5/30 CBM
+              - generic [ref=f8e111]:
+                - generic [ref=f8e112]: uat-japan-zimbabwe-vehicle-uat-1782087903020
+                - generic [ref=f8e113]: vehicle_import · open
+                - generic [ref=f8e114]: 8/8 slots
+              - generic [ref=f8e115]:
+                - generic [ref=f8e116]: uat-japan-zimbabwe-container-uat-1782087435640
+                - generic [ref=f8e117]: container_space · open
+                - generic [ref=f8e118]: 5/30 CBM
+              - generic [ref=f8e119]:
+                - generic [ref=f8e120]: uat-japan-zimbabwe-vehicle-uat-1782087435640
+                - generic [ref=f8e121]: vehicle_import · open
+                - generic [ref=f8e122]: 8/8 slots
+              - generic [ref=f8e123]:
+                - generic [ref=f8e124]: uat-japan-zimbabwe-container-uat-1782086989135
+                - generic [ref=f8e125]: container_space · open
+                - generic [ref=f8e126]: 5/30 CBM
+              - generic [ref=f8e127]:
+                - generic [ref=f8e128]: uat-japan-zimbabwe-vehicle-uat-1782086989135
+                - generic [ref=f8e129]: vehicle_import · open
+                - generic [ref=f8e130]: 8/8 slots
+          - generic [ref=f8e132]:
+            - generic [ref=f8e133]:
+              - generic [ref=f8e134]:
+                - heading "Audit activity (event log)" [level=2] [ref=f8e135]
+                - paragraph [ref=f8e136]: Dedicated list endpoint pending Phase E — showing recent events from the audit log.
+              - button "Refresh" [ref=f8e137] [cursor=pointer]
+            - generic [ref=f8e138]:
+              - generic [ref=f8e139]:
+                - generic [ref=f8e140]: local_marketplace.reward_eligibility_created
+                - generic [ref=f8e141]: local_marketplace_lead 737f04f1-b38f-44fc-ae88-3f544957a342
+                - generic [ref=f8e142]: 7/15/2026, 6:54:22 PM
+              - generic [ref=f8e143]:
+                - generic [ref=f8e144]: wallet.transaction_created
+                - generic [ref=f8e145]: wallet_transaction 26ad7374-5efb-484b-b556-835a033d571f
+                - generic [ref=f8e146]: 7/15/2026, 6:54:21 PM
+              - generic [ref=f8e147]:
+                - generic [ref=f8e148]: local_marketplace.lead_qualified
+                - generic [ref=f8e149]: local_marketplace_lead 737f04f1-b38f-44fc-ae88-3f544957a342
+                - generic [ref=f8e150]: 7/15/2026, 6:54:19 PM
+              - generic [ref=f8e151]:
+                - generic [ref=f8e152]: referral.code_validated
+                - generic [ref=f8e153]: local_marketplace_lead 737f04f1-b38f-44fc-ae88-3f544957a342
+                - generic [ref=f8e154]: 7/15/2026, 6:54:19 PM
+              - generic [ref=f8e155]:
+                - generic [ref=f8e156]: local_marketplace.lead_created
+                - generic [ref=f8e157]: local_marketplace_lead
+                - generic [ref=f8e158]: 7/15/2026, 6:52:16 PM
+              - generic [ref=f8e159]:
+                - generic [ref=f8e160]: referral.code_validated
+                - generic [ref=f8e161]: local_marketplace_lead
+                - generic [ref=f8e162]: 7/15/2026, 6:52:16 PM
+              - generic [ref=f8e163]:
+                - generic [ref=f8e164]: local_marketplace.referral_bundle_created
+                - generic [ref=f8e165]: local_marketplace_referral_bundle refv1-staging-owner
+                - generic [ref=f8e166]: 7/15/2026, 6:45:00 PM
+              - generic [ref=f8e167]:
+                - generic [ref=f8e168]: referral.code_created
+                - generic [ref=f8e169]: 7/15/2026, 6:44:59 PM
+              - generic [ref=f8e170]:
+                - generic [ref=f8e171]: campaign.created
+                - generic [ref=f8e172]: 7/15/2026, 6:44:58 PM
+              - generic [ref=f8e173]:
+                - generic [ref=f8e174]: referral.code_created
+                - generic [ref=f8e175]: 7/15/2026, 6:43:01 PM
+              - generic [ref=f8e176]:
+                - generic [ref=f8e177]: campaign.created
+                - generic [ref=f8e178]: 7/15/2026, 6:35:56 PM
+              - generic [ref=f8e179]:
+                - generic [ref=f8e180]: marketplace_inquiry_created
+                - generic [ref=f8e181]: marketplace_inquiry 3df5ebfe-60a1-44f6-b75a-e89dc106dd28
+                - generic [ref=f8e182]: 7/14/2026, 11:48:02 AM
+              - generic [ref=f8e183]:
+                - generic [ref=f8e184]: agent.tool_executed
+                - generic [ref=f8e185]: agent_gateway_tool triage
+                - generic [ref=f8e186]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f8e187]:
+                - generic [ref=f8e188]: agent.triage_completed
+                - generic [ref=f8e189]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f8e190]:
+                - generic [ref=f8e191]: channel.attribution_attached
+                - generic [ref=f8e192]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f8e193]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f8e194]:
+                - generic [ref=f8e195]: agent.tool_executed
+                - generic [ref=f8e196]: agent_gateway_tool validate_referral_code
+                - generic [ref=f8e197]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f8e198]:
+                - generic [ref=f8e199]: referral.code_validated
+                - generic [ref=f8e200]: agent_gateway_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f8e201]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f8e202]:
+                - generic [ref=f8e203]: agent.tool_executed
+                - generic [ref=f8e204]: agent_gateway_tool triage
+                - generic [ref=f8e205]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f8e206]:
+                - generic [ref=f8e207]: agent.triage_completed
+                - generic [ref=f8e208]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f8e209]:
+                - generic [ref=f8e210]: channel.inbound_received
+                - generic [ref=f8e211]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f8e212]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f8e213]:
+                - generic [ref=f8e214]: channel.attribution_attached
+                - generic [ref=f8e215]: channel_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f8e216]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f8e217]:
+                - generic [ref=f8e218]: agent.tool_executed
+                - generic [ref=f8e219]: agent_gateway_tool validate_referral_code
+                - generic [ref=f8e220]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f8e221]:
+                - generic [ref=f8e222]: referral.code_validated
+                - generic [ref=f8e223]: agent_gateway_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f8e224]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f8e225]:
+                - generic [ref=f8e226]: agent.tool_executed
+                - generic [ref=f8e227]: agent_gateway_tool triage
+                - generic [ref=f8e228]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f8e229]:
+                - generic [ref=f8e230]: agent.triage_completed
+                - generic [ref=f8e231]: 6/23/2026, 5:54:53 AM

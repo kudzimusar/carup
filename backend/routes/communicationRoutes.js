@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
+import { validateCommunicationConfiguration } from '../services/communication/communicationConfigurationValidator.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -55,7 +56,14 @@ export function createCommunicationRouter({ services = createCommunicationServic
   const router = express.Router();
 
   router.get('/api/communications/health', asyncHandler(async (_req, res) => {
-    res.json({ success: true, adapters: services.adapterRegistry.health() });
+    const configuration = services.configurationValidator?.validate?.()
+      || validateCommunicationConfiguration({ adapterRegistry: services.adapterRegistry });
+    res.status(configuration.status === 'BLOCKED' ? 503 : 200).json({
+      success: configuration.status !== 'BLOCKED',
+      status: configuration.status,
+      configuration,
+      adapters: services.adapterRegistry.health?.() || [],
+    });
   }));
 
   router.get('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));

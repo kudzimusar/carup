@@ -1,0 +1,419 @@
+- generic [ref=f12e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f12e305]:
+    - complementary [ref=f12e306]:
+      - generic [ref=f12e307]:
+        - link "CarUp" [ref=f12e308] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=f12e315] [cursor=pointer]
+      - generic [ref=f12e318]:
+        - paragraph [ref=f12e319]: REFV1-STAGING-Admin
+        - paragraph [ref=f12e320]: Active portal
+        - combobox "Switch active portal role" [ref=f12e323] [cursor=pointer]:
+          - option "Car Owner"
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator" [selected]
+          - option "Banker"
+      - navigation [ref=f12e324]:
+        - link "Overview" [ref=f12e325] [cursor=pointer]:
+          - /url: /admin
+        - link "Feature Governance" [ref=f12e332] [cursor=pointer]:
+          - /url: /admin/features
+        - link "Users" [ref=f12e336] [cursor=pointer]:
+          - /url: /admin/users
+        - link "AI Monitoring" [ref=f12e350] [cursor=pointer]:
+          - /url: /admin/ai
+        - link "Moderation" [ref=f12e360] [cursor=pointer]:
+          - /url: /admin/moderation
+        - link "Evidence Review" [ref=f12e364] [cursor=pointer]:
+          - /url: /admin/evidence
+        - link "Verification Cases" [ref=f12e369] [cursor=pointer]:
+          - /url: /admin/verification
+        - link "Trust Review" [ref=f12e376] [cursor=pointer]:
+          - /url: /admin/trust-review
+        - link "Referral Campaigns" [ref=f12e381] [cursor=pointer]:
+          - /url: /admin/referrals
+        - link "Codes & Coupons" [ref=f12e386] [cursor=pointer]:
+          - /url: /admin/referrals/codes
+        - link "Local Leads" [ref=f12e391] [cursor=pointer]:
+          - /url: /admin/referrals/local-leads
+        - link "Import Routes" [ref=f12e398] [cursor=pointer]:
+          - /url: /admin/referrals/import-routes
+        - link "Referral Marketing" [ref=f12e403] [cursor=pointer]:
+          - /url: /admin/referrals/marketing
+        - link "Referral Trust" [ref=f12e407] [cursor=pointer]:
+          - /url: /admin/referrals/trust
+        - link "Communications SLA" [ref=f12e411] [cursor=pointer]:
+          - /url: /admin/communications
+          - generic [ref=f12e414]: Communications
+          - generic [ref=f12e415]: SLA
+        - link "Diaspora Compliance" [ref=f12e416] [cursor=pointer]:
+          - /url: /admin/diaspora/compliance
+        - link "Workbook Console" [ref=f12e420] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks
+        - link "New Dry Run" [ref=f12e425] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks/new
+      - generic [ref=f12e430]:
+        - link "Settings" [ref=f12e431] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f12e435] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f12e439]:
+      - banner [ref=f12e440]:
+        - button "Open sidebar menu" [ref=f12e441] [cursor=pointer]
+        - generic [ref=f12e442]:
+          - link [ref=f12e443] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=f12e444] [cursor=pointer]:
+            - /url: /
+      - main [ref=f12e7]:
+        - generic [ref=f12e8]:
+          - generic [ref=f12e13]:
+            - heading "Referral Trust Review" [level=1] [ref=f12e14]
+            - paragraph [ref=f12e15]: Risk checks, review cases, holds, disputes, and audit — for referral benefits
+          - generic [ref=f12e17]:
+            - heading "Trust Rules" [level=2] [ref=f12e18]
+            - generic [ref=f12e19]:
+              - paragraph [ref=f12e20]: "Recommendations: allow, hold, review, reject"
+              - paragraph [ref=f12e21]: "Review statuses: open, in_review, approved, held, rejected, resolved, closed"
+              - paragraph [ref=f12e22]: "Dispute statuses: open, under_review, resolved_upheld, resolved_reversed, closed"
+          - generic [ref=f12e23]:
+            - generic [ref=f12e25]:
+              - heading "Run Risk Check" [level=2] [ref=f12e26]
+              - textbox "target_id (user/code)" [ref=f12e27]: refv1-staging-owner
+              - textbox "wallet_transaction_id (optional)" [ref=f12e28]: 26ad7374-5efb-484b-b556-835a033d571f
+              - spinbutton "duplicate_account_count (optional)" [ref=f12e29]: "3"
+              - generic [ref=f12e30]:
+                - button "Run" [ref=f12e31] [cursor=pointer]
+                - button "Open Review Case" [ref=f12e446] [cursor=pointer]
+              - paragraph [ref=f12e447]: "Recommendation: review · score: 30 · critical: false"
+            - generic [ref=f12e33]:
+              - heading "Apply Wallet Hold" [level=2] [ref=f12e34]
+              - textbox "wallet_transaction_id" [ref=f12e35]: 26ad7374-5efb-484b-b556-835a033d571f
+              - textbox "reason (required)" [ref=f12e36]: REFV1-STAGING-S3-20260715T092916Z fraud-signal hold
+              - button "Apply Hold" [ref=f12e37] [cursor=pointer]
+              - paragraph [ref=f12e448]: Wallet hold applied.
+            - generic [ref=f12e39]:
+              - heading "Explain Benefit" [level=2] [ref=f12e40]
+              - textbox "wallet_transaction_id" [ref=f12e41]
+              - button "Explain" [ref=f12e42] [cursor=pointer]
+            - generic [ref=f12e44]:
+              - heading "Disputes" [level=2] [ref=f12e45]
+              - paragraph [ref=f12e46]: No dispute-list endpoint yet (pending Phase E). Open one to get its event id, or resolve by pasted id.
+              - textbox "wallet_transaction_id" [ref=f12e47]
+              - textbox "reason (required)" [ref=f12e48]
+              - button "Open Dispute" [ref=f12e49] [cursor=pointer]
+              - generic [ref=f12e50]:
+                - textbox "dispute_event_id" [ref=f12e51]
+                - generic [ref=f12e52]:
+                  - combobox [ref=f12e53]:
+                    - option "resolved_upheld" [selected]
+                    - option "resolved_reversed"
+                  - textbox "reason (required)" [ref=f12e54]
+                - button "Resolve Dispute" [ref=f12e55] [cursor=pointer]
+          - generic [ref=f12e57]:
+            - generic [ref=f12e58]:
+              - heading "Review Cases" [level=2] [ref=f12e59]
+              - button "Refresh" [disabled]
+            - generic [ref=f12e61]:
+              - generic [ref=f12e449]:
+                - generic [ref=f12e450]:
+                  - generic [ref=f12e451]:
+                    - paragraph [ref=f12e452]: benefit refv1-staging-owner
+                    - paragraph [ref=f12e453]: "case id: e3436f3a-45f0-4b12-b708-5dd954198349 · tx: 26ad7374-5efb-484b-b556-835a033d571f"
+                  - generic [ref=f12e454]:
+                    - generic [ref=f12e455]: review
+                    - generic [ref=f12e456]: open
+                - generic [ref=f12e457]:
+                  - combobox [ref=f12e458]:
+                    - option "allow"
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve" [selected]
+                  - textbox "reason (required)" [ref=f12e459]: "REFV1-STAGING-S3-20260715T092916Z reviewed: controlled synthetic benefit, approve"
+                  - button "Decide" [active] [ref=f12e460] [cursor=pointer]
+                - paragraph [ref=f12e462]: Decision recorded.
+              - generic [ref=f12e62]:
+                - generic [ref=f12e63]:
+                  - generic [ref=f12e64]:
+                    - paragraph [ref=f12e65]: benefit ec0c612f-85c6-4194-925b-0e1c4bb1d03a
+                    - paragraph [ref=f12e66]: "case id: b4a41aaa-6446-46e7-9e0e-e80ac0284293 · tx: ec0c612f-85c6-4194-925b-0e1c4bb1d03a"
+                  - generic [ref=f12e67]:
+                    - generic [ref=f12e68]: review
+                    - generic [ref=f12e69]: approved
+                - generic [ref=f12e70]:
+                  - combobox [ref=f12e71]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e72]
+                  - button "Decide" [ref=f12e73] [cursor=pointer]
+              - generic [ref=f12e74]:
+                - generic [ref=f12e75]:
+                  - generic [ref=f12e76]:
+                    - paragraph [ref=f12e77]: benefit 30f41ef0-4156-4dd7-939b-d6eee215ba77
+                    - paragraph [ref=f12e78]: "case id: 3149e05b-c2c1-4968-8421-74a107398821 · tx: 30f41ef0-4156-4dd7-939b-d6eee215ba77"
+                  - generic [ref=f12e79]:
+                    - generic [ref=f12e80]: review
+                    - generic [ref=f12e81]: approved
+                - generic [ref=f12e82]:
+                  - combobox [ref=f12e83]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e84]
+                  - button "Decide" [ref=f12e85] [cursor=pointer]
+              - generic [ref=f12e86]:
+                - generic [ref=f12e87]:
+                  - generic [ref=f12e88]:
+                    - paragraph [ref=f12e89]: benefit 8a2454e4-530d-4bb7-8911-031a207e7e6b
+                    - paragraph [ref=f12e90]: "case id: 437d9515-1631-4ee1-9694-d8ecd771c860 · tx: 8a2454e4-530d-4bb7-8911-031a207e7e6b"
+                  - generic [ref=f12e91]:
+                    - generic [ref=f12e92]: review
+                    - generic [ref=f12e93]: approved
+                - generic [ref=f12e94]:
+                  - combobox [ref=f12e95]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e96]
+                  - button "Decide" [ref=f12e97] [cursor=pointer]
+              - generic [ref=f12e98]:
+                - generic [ref=f12e99]:
+                  - generic [ref=f12e100]:
+                    - paragraph [ref=f12e101]: benefit 44bb1630-11f4-4fdf-ae63-569028697f63
+                    - paragraph [ref=f12e102]: "case id: 06d87b55-d346-4b72-a9a7-eb6eed200e62 · tx: 44bb1630-11f4-4fdf-ae63-569028697f63"
+                  - generic [ref=f12e103]:
+                    - generic [ref=f12e104]: review
+                    - generic [ref=f12e105]: approved
+                - generic [ref=f12e106]:
+                  - combobox [ref=f12e107]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e108]
+                  - button "Decide" [ref=f12e109] [cursor=pointer]
+              - generic [ref=f12e110]:
+                - generic [ref=f12e111]:
+                  - generic [ref=f12e112]:
+                    - paragraph [ref=f12e113]: benefit 8c8c9c5c-3df9-4b27-8d34-45e2a924c402
+                    - paragraph [ref=f12e114]: "case id: 67ed9f96-adc4-44b6-9e21-df440bea3b7d · tx: 8c8c9c5c-3df9-4b27-8d34-45e2a924c402"
+                  - generic [ref=f12e115]:
+                    - generic [ref=f12e116]: review
+                    - generic [ref=f12e117]: approved
+                - generic [ref=f12e118]:
+                  - combobox [ref=f12e119]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e120]
+                  - button "Decide" [ref=f12e121] [cursor=pointer]
+              - generic [ref=f12e122]:
+                - generic [ref=f12e123]:
+                  - generic [ref=f12e124]:
+                    - paragraph [ref=f12e125]: benefit bee73732-d2f6-4bd7-b4b8-9cb26969e2d6
+                    - paragraph [ref=f12e126]: "case id: 8dd3ce35-7fbb-4fd7-96a3-284a293eb241 · tx: bee73732-d2f6-4bd7-b4b8-9cb26969e2d6"
+                  - generic [ref=f12e127]:
+                    - generic [ref=f12e128]: review
+                    - generic [ref=f12e129]: approved
+                - generic [ref=f12e130]:
+                  - combobox [ref=f12e131]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e132]
+                  - button "Decide" [ref=f12e133] [cursor=pointer]
+              - generic [ref=f12e134]:
+                - generic [ref=f12e135]:
+                  - generic [ref=f12e136]:
+                    - paragraph [ref=f12e137]: benefit 9ce5cf20-0bee-43ff-ad07-55189a4aa007
+                    - paragraph [ref=f12e138]: "case id: e3d4fdcc-f91e-44f2-b9ea-246fd2fdeb28 · tx: 9ce5cf20-0bee-43ff-ad07-55189a4aa007"
+                  - generic [ref=f12e139]:
+                    - generic [ref=f12e140]: review
+                    - generic [ref=f12e141]: approved
+                - generic [ref=f12e142]:
+                  - combobox [ref=f12e143]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e144]
+                  - button "Decide" [ref=f12e145] [cursor=pointer]
+              - generic [ref=f12e146]:
+                - generic [ref=f12e147]:
+                  - generic [ref=f12e148]:
+                    - paragraph [ref=f12e149]: benefit a2e6e443-6267-4274-918e-0505809aeb3e
+                    - paragraph [ref=f12e150]: "case id: 92c60531-9f1a-4735-b578-bdcf55abb45d · tx: a2e6e443-6267-4274-918e-0505809aeb3e"
+                  - generic [ref=f12e151]:
+                    - generic [ref=f12e152]: review
+                    - generic [ref=f12e153]: approved
+                - generic [ref=f12e154]:
+                  - combobox [ref=f12e155]:
+                    - option "allow" [selected]
+                    - option "hold"
+                    - option "review"
+                    - option "reject"
+                    - option "approve"
+                  - textbox "reason (required)" [ref=f12e156]
+                  - button "Decide" [ref=f12e157] [cursor=pointer]
+          - generic [ref=f12e159]:
+            - heading "Audit Export" [level=2] [ref=f12e160]
+            - button "Export Audit Trail" [ref=f12e161] [cursor=pointer]
+          - generic [ref=f12e163]:
+            - generic [ref=f12e164]:
+              - generic [ref=f12e165]:
+                - heading "Disputes" [level=2] [ref=f12e166]
+                - paragraph [ref=f12e167]: 8 shown · 8 total
+              - button "Refresh" [ref=f12e168] [cursor=pointer]
+            - generic [ref=f12e169]:
+              - generic [ref=f12e170]:
+                - generic [ref=f12e171]: a40d224c-6651-4743-a3eb-a1fee7a23908
+                - generic [ref=f12e172]: wallet_transaction ce981356-ae5c-4cfe-8da1-181380261210
+                - generic [ref=f12e173]: resolved_upheld
+              - generic [ref=f12e174]:
+                - generic [ref=f12e175]: 4be2530c-20c8-4583-863b-43e92f9a3dce
+                - generic [ref=f12e176]: wallet_transaction cb57b5cb-95c9-4f49-bcc1-36216d5f4111
+                - generic [ref=f12e177]: resolved_upheld
+              - generic [ref=f12e178]:
+                - generic [ref=f12e179]: 191c8331-aa37-478d-9bbb-50cb669b3567
+                - generic [ref=f12e180]: wallet_transaction 43924425-4aac-4e21-be6a-fd351c36d6a5
+                - generic [ref=f12e181]: resolved_upheld
+              - generic [ref=f12e182]:
+                - generic [ref=f12e183]: bb4ea39e-005c-4809-8542-7b81b8ca1e61
+                - generic [ref=f12e184]: wallet_transaction 23a5a4d8-fced-472d-b9d3-c4b00a9360a6
+                - generic [ref=f12e185]: resolved_upheld
+              - generic [ref=f12e186]:
+                - generic [ref=f12e187]: eda35359-4897-492c-992a-52601d3ef5b9
+                - generic [ref=f12e188]: wallet_transaction fe68f6c2-08d2-4641-ac9e-a03209045717
+                - generic [ref=f12e189]: resolved_upheld
+              - generic [ref=f12e190]:
+                - generic [ref=f12e191]: cc45d75c-6828-4622-9b05-2e622617ceee
+                - generic [ref=f12e192]: wallet_transaction 25a93053-7f64-4964-9a76-e2f0457d3ba6
+                - generic [ref=f12e193]: resolved_upheld
+              - generic [ref=f12e194]:
+                - generic [ref=f12e195]: 7e841967-fbee-4a4c-a803-602cfe28fed1
+                - generic [ref=f12e196]: wallet_transaction 593197fc-bee6-4bbf-bee0-51898a0e574e
+                - generic [ref=f12e197]: resolved_upheld
+              - generic [ref=f12e198]:
+                - generic [ref=f12e199]: acb7f3ed-05cf-4492-afb6-d06982adf326
+                - generic [ref=f12e200]: wallet_transaction 138e450d-21f8-4231-8836-b0e752656b8f
+                - generic [ref=f12e201]: resolved_upheld
+          - generic [ref=f12e203]:
+            - generic [ref=f12e204]:
+              - generic [ref=f12e205]:
+                - heading "Audit activity (event log)" [level=2] [ref=f12e206]
+                - paragraph [ref=f12e207]: Dedicated list endpoint pending Phase E — showing recent events from the audit log.
+              - button "Refresh" [ref=f12e208] [cursor=pointer]
+            - generic [ref=f12e209]:
+              - generic [ref=f12e210]:
+                - generic [ref=f12e211]: ai_marketing.status_changed
+                - generic [ref=f12e212]: ai_marketing_asset 6b7ba4d2-f0d4-4b75-bb2f-97dee6196dfa
+                - generic [ref=f12e213]: 7/15/2026, 7:08:01 PM
+              - generic [ref=f12e214]:
+                - generic [ref=f12e215]: ai_marketing.status_changed
+                - generic [ref=f12e216]: ai_marketing_asset 6b7ba4d2-f0d4-4b75-bb2f-97dee6196dfa
+                - generic [ref=f12e217]: 7/15/2026, 7:07:22 PM
+              - generic [ref=f12e218]:
+                - generic [ref=f12e219]: ai_marketing.status_changed
+                - generic [ref=f12e220]: ai_marketing_asset 6b7ba4d2-f0d4-4b75-bb2f-97dee6196dfa
+                - generic [ref=f12e221]: 7/15/2026, 7:05:41 PM
+              - generic [ref=f12e222]:
+                - generic [ref=f12e223]: ai_marketing.asset_drafted
+                - generic [ref=f12e224]: ai_marketing_asset proof_story:referrals-proof-japan-zimbabwe-local-marketplace
+                - generic [ref=f12e225]: 7/15/2026, 7:03:12 PM
+              - generic [ref=f12e226]:
+                - generic [ref=f12e227]: import_campaign.lead_created
+                - generic [ref=f12e228]: import_campaign_lead
+                - generic [ref=f12e229]: 7/15/2026, 7:01:39 PM
+              - generic [ref=f12e230]:
+                - generic [ref=f12e231]: import_campaign.capacity_updated
+                - generic [ref=f12e232]: import_route refv1s3-japan-refv1s3-zimbabwe-container-space
+                - generic [ref=f12e233]: 7/15/2026, 7:01:05 PM
+              - generic [ref=f12e234]:
+                - generic [ref=f12e235]: import_campaign.lead_created
+                - generic [ref=f12e236]: import_campaign_lead
+                - generic [ref=f12e237]: 7/15/2026, 7:00:26 PM
+              - generic [ref=f12e238]:
+                - generic [ref=f12e239]: import_campaign.lead_created
+                - generic [ref=f12e240]: import_campaign_lead
+                - generic [ref=f12e241]: 7/15/2026, 7:00:00 PM
+              - generic [ref=f12e242]:
+                - generic [ref=f12e243]: import_campaign.capacity_updated
+                - generic [ref=f12e244]: import_route refv1s3-japan-refv1s3-zimbabwe-container-space
+                - generic [ref=f12e245]: 7/15/2026, 6:59:03 PM
+              - generic [ref=f12e246]:
+                - generic [ref=f12e247]: import_campaign.route_page_created
+                - generic [ref=f12e248]: import_route refv1s3-japan-refv1s3-zimbabwe-container-space
+                - generic [ref=f12e249]: 7/15/2026, 6:57:15 PM
+              - generic [ref=f12e250]:
+                - generic [ref=f12e251]: local_marketplace.reward_eligibility_created
+                - generic [ref=f12e252]: local_marketplace_lead 737f04f1-b38f-44fc-ae88-3f544957a342
+                - generic [ref=f12e253]: 7/15/2026, 6:54:22 PM
+              - generic [ref=f12e254]:
+                - generic [ref=f12e255]: wallet.transaction_created
+                - generic [ref=f12e256]: wallet_transaction 26ad7374-5efb-484b-b556-835a033d571f
+                - generic [ref=f12e257]: 7/15/2026, 6:54:21 PM
+              - generic [ref=f12e258]:
+                - generic [ref=f12e259]: local_marketplace.lead_qualified
+                - generic [ref=f12e260]: local_marketplace_lead 737f04f1-b38f-44fc-ae88-3f544957a342
+                - generic [ref=f12e261]: 7/15/2026, 6:54:19 PM
+              - generic [ref=f12e262]:
+                - generic [ref=f12e263]: referral.code_validated
+                - generic [ref=f12e264]: local_marketplace_lead 737f04f1-b38f-44fc-ae88-3f544957a342
+                - generic [ref=f12e265]: 7/15/2026, 6:54:19 PM
+              - generic [ref=f12e266]:
+                - generic [ref=f12e267]: local_marketplace.lead_created
+                - generic [ref=f12e268]: local_marketplace_lead
+                - generic [ref=f12e269]: 7/15/2026, 6:52:16 PM
+              - generic [ref=f12e270]:
+                - generic [ref=f12e271]: referral.code_validated
+                - generic [ref=f12e272]: local_marketplace_lead
+                - generic [ref=f12e273]: 7/15/2026, 6:52:16 PM
+              - generic [ref=f12e274]:
+                - generic [ref=f12e275]: local_marketplace.referral_bundle_created
+                - generic [ref=f12e276]: local_marketplace_referral_bundle refv1-staging-owner
+                - generic [ref=f12e277]: 7/15/2026, 6:45:00 PM
+              - generic [ref=f12e278]:
+                - generic [ref=f12e279]: referral.code_created
+                - generic [ref=f12e280]: 7/15/2026, 6:44:59 PM
+              - generic [ref=f12e281]:
+                - generic [ref=f12e282]: campaign.created
+                - generic [ref=f12e283]: 7/15/2026, 6:44:58 PM
+              - generic [ref=f12e284]:
+                - generic [ref=f12e285]: referral.code_created
+                - generic [ref=f12e286]: 7/15/2026, 6:43:01 PM
+              - generic [ref=f12e287]:
+                - generic [ref=f12e288]: campaign.created
+                - generic [ref=f12e289]: 7/15/2026, 6:35:56 PM
+              - generic [ref=f12e290]:
+                - generic [ref=f12e291]: marketplace_inquiry_created
+                - generic [ref=f12e292]: marketplace_inquiry 3df5ebfe-60a1-44f6-b75a-e89dc106dd28
+                - generic [ref=f12e293]: 7/14/2026, 11:48:02 AM
+              - generic [ref=f12e294]:
+                - generic [ref=f12e295]: agent.tool_executed
+                - generic [ref=f12e296]: agent_gateway_tool triage
+                - generic [ref=f12e297]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f12e298]:
+                - generic [ref=f12e299]: agent.triage_completed
+                - generic [ref=f12e300]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f12e301]:
+                - generic [ref=f12e302]: channel.attribution_attached
+                - generic [ref=f12e303]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f12e304]: 6/23/2026, 5:54:55 AM

@@ -1,0 +1,272 @@
+- generic [ref=f7e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f7e7]:
+    - complementary [ref=f7e8]:
+      - generic [ref=f7e9]:
+        - link "CarUp" [ref=f7e10] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=f7e17] [cursor=pointer]
+      - generic [ref=f7e20]:
+        - paragraph [ref=f7e21]: REFV1-STAGING-Admin
+        - paragraph [ref=f7e22]: Active portal
+        - combobox "Switch active portal role" [ref=f7e25] [cursor=pointer]:
+          - option "Car Owner"
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator" [selected]
+          - option "Banker"
+      - navigation [ref=f7e26]:
+        - link "Overview" [ref=f7e27] [cursor=pointer]:
+          - /url: /admin
+        - link "Feature Governance" [ref=f7e34] [cursor=pointer]:
+          - /url: /admin/features
+        - link "Users" [ref=f7e38] [cursor=pointer]:
+          - /url: /admin/users
+        - link "AI Monitoring" [ref=f7e52] [cursor=pointer]:
+          - /url: /admin/ai
+        - link "Moderation" [ref=f7e62] [cursor=pointer]:
+          - /url: /admin/moderation
+        - link "Evidence Review" [ref=f7e66] [cursor=pointer]:
+          - /url: /admin/evidence
+        - link "Verification Cases" [ref=f7e71] [cursor=pointer]:
+          - /url: /admin/verification
+        - link "Trust Review" [ref=f7e78] [cursor=pointer]:
+          - /url: /admin/trust-review
+        - link "Referral Campaigns" [ref=f7e83] [cursor=pointer]:
+          - /url: /admin/referrals
+        - link "Codes & Coupons" [ref=f7e88] [cursor=pointer]:
+          - /url: /admin/referrals/codes
+        - link "Local Leads" [ref=f7e93] [cursor=pointer]:
+          - /url: /admin/referrals/local-leads
+        - link "Import Routes" [ref=f7e100] [cursor=pointer]:
+          - /url: /admin/referrals/import-routes
+        - link "Referral Marketing" [ref=f7e105] [cursor=pointer]:
+          - /url: /admin/referrals/marketing
+        - link "Referral Trust" [ref=f7e109] [cursor=pointer]:
+          - /url: /admin/referrals/trust
+        - link "Communications SLA" [ref=f7e113] [cursor=pointer]:
+          - /url: /admin/communications
+          - generic [ref=f7e116]: Communications
+          - generic [ref=f7e117]: SLA
+        - link "Diaspora Compliance" [ref=f7e118] [cursor=pointer]:
+          - /url: /admin/diaspora/compliance
+        - link "Workbook Console" [ref=f7e122] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks
+        - link "New Dry Run" [ref=f7e127] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks/new
+      - generic [ref=f7e132]:
+        - link "Settings" [ref=f7e133] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f7e137] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f7e141]:
+      - banner [ref=f7e142]:
+        - button "Open sidebar menu" [ref=f7e143] [cursor=pointer]
+        - generic [ref=f7e144]:
+          - link [ref=f7e145] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=f7e146] [cursor=pointer]:
+            - /url: /
+      - main [ref=f7e148]:
+        - generic [ref=f7e149]:
+          - generic [ref=f7e157]:
+            - heading "Local Marketplace Leads" [level=1] [ref=f7e158]
+            - paragraph [ref=f7e159]: Capture intent, create and qualify local referral leads
+          - generic [ref=f7e160]:
+            - generic [ref=f7e162]:
+              - heading "Classify Intent" [level=2] [ref=f7e163]
+              - textbox "e.g. I want to sell my Toyota Aqua in Harare" [ref=f7e164]
+              - button "Classify" [ref=f7e165] [cursor=pointer]
+            - generic [ref=f7e167]:
+              - heading "Create Lead" [level=2] [ref=f7e168]
+              - textbox "Referral code (optional)" [ref=f7e169]: LOCAL-BUYER-REFV1-STAGING-OWNE-4A4CDF3B
+              - generic [ref=f7e170]:
+                - textbox "Make" [ref=f7e171]: REFV1S3Make
+                - textbox "Model" [ref=f7e172]: REFV1S3Model
+              - button "Create Lead" [ref=f7e173] [cursor=pointer]
+              - paragraph [ref=f7e360]: "Lead created. event_id: 737f04f1-b38f-44fc-ae88-3f544957a342"
+            - generic [ref=f7e175]:
+              - heading "Create Referral Bundle" [level=2] [ref=f7e176]
+              - textbox "Owner user id *" [ref=f7e177]
+              - textbox "Campaign name (optional)" [ref=f7e178]
+              - button "Create Bundle" [ref=f7e179] [cursor=pointer]
+            - generic [ref=f7e181]:
+              - heading "Qualify Lead" [level=2] [ref=f7e182]
+              - textbox "lead_event_id *" [ref=f7e183]: 737f04f1-b38f-44fc-ae88-3f544957a342
+              - generic [ref=f7e184]:
+                - textbox "Milestone *" [ref=f7e185]: purchase_confirmed
+                - spinbutton "Reward amount" [ref=f7e186]: "10"
+              - button "Qualify" [active] [ref=f7e187] [cursor=pointer]
+              - paragraph [ref=f7e361]: Reward eligibility already exists for this local marketplace lead milestone.
+          - generic [ref=f7e189]:
+            - generic [ref=f7e190]:
+              - generic [ref=f7e191]:
+                - heading "Local Marketplace Leads" [level=2] [ref=f7e192]
+                - paragraph [ref=f7e193]: 16 shown · 16 total
+              - button "Refresh" [ref=f7e194] [cursor=pointer]
+            - generic [ref=f7e195]:
+              - generic [ref=f7e196]:
+                - generic [ref=f7e197]: buy_vehicle · buyer
+                - generic [ref=f7e198]: 116bab7d-46ae-45f0-a1af-bdd35aba8965
+                - generic [ref=f7e199]: attributed
+              - generic [ref=f7e200]:
+                - generic [ref=f7e201]: buy_vehicle · buyer
+                - generic [ref=f7e202]: 27d40c67-d864-4838-b13c-c81a12649a94
+                - generic [ref=f7e203]: attributed
+              - generic [ref=f7e204]:
+                - generic [ref=f7e205]: buy_vehicle · buyer
+                - generic [ref=f7e206]: aed875f9-b173-4564-8841-b71baf785b6d
+                - generic [ref=f7e207]: attributed
+              - generic [ref=f7e208]:
+                - generic [ref=f7e209]: buy_vehicle · buyer
+                - generic [ref=f7e210]: bd7d7f3b-5604-4bd6-9f09-36fe24f12b01
+                - generic [ref=f7e211]: attributed
+              - generic [ref=f7e212]:
+                - generic [ref=f7e213]: buy_vehicle · buyer
+                - generic [ref=f7e214]: fb513c86-9ac4-4d71-931b-bd9b1433c607
+                - generic [ref=f7e215]: attributed
+              - generic [ref=f7e216]:
+                - generic [ref=f7e217]: buy_vehicle · buyer
+                - generic [ref=f7e218]: c4b3f2ba-7b2e-423f-b7db-ee24228d4772
+                - generic [ref=f7e219]: attributed
+              - generic [ref=f7e220]:
+                - generic [ref=f7e221]: buy_vehicle · buyer
+                - generic [ref=f7e222]: 485f3a3a-5893-44d0-9b1f-eca242ed9aa5
+                - generic [ref=f7e223]: attributed
+              - generic [ref=f7e224]:
+                - generic [ref=f7e225]: buy_vehicle · buyer
+                - generic [ref=f7e226]: 17f434b9-8e23-41df-8d13-9a8dd4a07810
+                - generic [ref=f7e227]: attributed
+              - generic [ref=f7e228]:
+                - generic [ref=f7e229]: buy_vehicle · buyer
+                - generic [ref=f7e230]: 75396b2d-d26e-486f-bf93-afc2a8a6dbcd
+                - generic [ref=f7e231]: attributed
+              - generic [ref=f7e232]:
+                - generic [ref=f7e233]: buy_vehicle · buyer
+                - generic [ref=f7e234]: 844bd6ef-fd3a-44bf-a634-5d63807a0eec
+                - generic [ref=f7e235]: attributed
+              - generic [ref=f7e236]:
+                - generic [ref=f7e237]: buy_vehicle · buyer
+                - generic [ref=f7e238]: 15c8c92a-a94d-46a4-af93-026e3bd3c3a1
+                - generic [ref=f7e239]: attributed
+              - generic [ref=f7e240]:
+                - generic [ref=f7e241]: buy_vehicle · buyer
+                - generic [ref=f7e242]: b16fe46e-e38e-4750-87b1-8aefba6cd339
+                - generic [ref=f7e243]: attributed
+              - generic [ref=f7e244]:
+                - generic [ref=f7e245]: buy_vehicle · buyer
+                - generic [ref=f7e246]: a606c3cc-cbc9-4460-904b-20aba5708996
+                - generic [ref=f7e247]: attributed
+              - generic [ref=f7e248]:
+                - generic [ref=f7e249]: buy_vehicle · buyer
+                - generic [ref=f7e250]: 1c8f96a0-c77d-4052-95c7-18b4eee40d8b
+                - generic [ref=f7e251]: attributed
+              - generic [ref=f7e252]:
+                - generic [ref=f7e253]: buy_vehicle · buyer
+                - generic [ref=f7e254]: 19120be4-47df-4c03-8948-43f0f8e4b5aa
+                - generic [ref=f7e255]: attributed
+              - generic [ref=f7e256]:
+                - generic [ref=f7e257]: buy_vehicle · buyer
+                - generic [ref=f7e258]: 56cdfc5d-fb87-40d2-b860-3144c131b007
+                - generic [ref=f7e259]: attributed
+          - generic [ref=f7e261]:
+            - generic [ref=f7e262]:
+              - generic [ref=f7e263]:
+                - heading "Audit activity (event log)" [level=2] [ref=f7e264]
+                - paragraph [ref=f7e265]: Dedicated list endpoint pending Phase E — showing recent events from the audit log.
+              - button "Refresh" [ref=f7e266] [cursor=pointer]
+            - generic [ref=f7e267]:
+              - generic [ref=f7e268]:
+                - generic [ref=f7e269]: local_marketplace.referral_bundle_created
+                - generic [ref=f7e270]: local_marketplace_referral_bundle refv1-staging-owner
+                - generic [ref=f7e271]: 7/15/2026, 6:45:00 PM
+              - generic [ref=f7e272]:
+                - generic [ref=f7e273]: referral.code_created
+                - generic [ref=f7e274]: 7/15/2026, 6:44:59 PM
+              - generic [ref=f7e275]:
+                - generic [ref=f7e276]: campaign.created
+                - generic [ref=f7e277]: 7/15/2026, 6:44:58 PM
+              - generic [ref=f7e278]:
+                - generic [ref=f7e279]: referral.code_created
+                - generic [ref=f7e280]: 7/15/2026, 6:43:01 PM
+              - generic [ref=f7e281]:
+                - generic [ref=f7e282]: campaign.created
+                - generic [ref=f7e283]: 7/15/2026, 6:35:56 PM
+              - generic [ref=f7e284]:
+                - generic [ref=f7e285]: marketplace_inquiry_created
+                - generic [ref=f7e286]: marketplace_inquiry 3df5ebfe-60a1-44f6-b75a-e89dc106dd28
+                - generic [ref=f7e287]: 7/14/2026, 11:48:02 AM
+              - generic [ref=f7e288]:
+                - generic [ref=f7e289]: agent.tool_executed
+                - generic [ref=f7e290]: agent_gateway_tool triage
+                - generic [ref=f7e291]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f7e292]:
+                - generic [ref=f7e293]: agent.triage_completed
+                - generic [ref=f7e294]: 6/23/2026, 5:54:56 AM
+              - generic [ref=f7e295]:
+                - generic [ref=f7e296]: channel.attribution_attached
+                - generic [ref=f7e297]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f7e298]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f7e299]:
+                - generic [ref=f7e300]: agent.tool_executed
+                - generic [ref=f7e301]: agent_gateway_tool validate_referral_code
+                - generic [ref=f7e302]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f7e303]:
+                - generic [ref=f7e304]: referral.code_validated
+                - generic [ref=f7e305]: agent_gateway_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f7e306]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f7e307]:
+                - generic [ref=f7e308]: agent.tool_executed
+                - generic [ref=f7e309]: agent_gateway_tool triage
+                - generic [ref=f7e310]: 6/23/2026, 5:54:55 AM
+              - generic [ref=f7e311]:
+                - generic [ref=f7e312]: agent.triage_completed
+                - generic [ref=f7e313]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f7e314]:
+                - generic [ref=f7e315]: channel.inbound_received
+                - generic [ref=f7e316]: channel_session uat-telegram-thread-uat-1782161611634
+                - generic [ref=f7e317]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f7e318]:
+                - generic [ref=f7e319]: channel.attribution_attached
+                - generic [ref=f7e320]: channel_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f7e321]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f7e322]:
+                - generic [ref=f7e323]: agent.tool_executed
+                - generic [ref=f7e324]: agent_gateway_tool validate_referral_code
+                - generic [ref=f7e325]: 6/23/2026, 5:54:54 AM
+              - generic [ref=f7e326]:
+                - generic [ref=f7e327]: referral.code_validated
+                - generic [ref=f7e328]: agent_gateway_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f7e329]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f7e330]:
+                - generic [ref=f7e331]: agent.tool_executed
+                - generic [ref=f7e332]: agent_gateway_tool triage
+                - generic [ref=f7e333]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f7e334]:
+                - generic [ref=f7e335]: agent.triage_completed
+                - generic [ref=f7e336]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f7e337]:
+                - generic [ref=f7e338]: channel.inbound_received
+                - generic [ref=f7e339]: channel_session uat-whatsapp-thread-uat-1782161611634
+                - generic [ref=f7e340]: 6/23/2026, 5:54:53 AM
+              - generic [ref=f7e341]:
+                - generic [ref=f7e342]: referral.code_created
+                - generic [ref=f7e343]: 6/23/2026, 5:54:52 AM
+              - generic [ref=f7e344]:
+                - generic [ref=f7e345]: trust.audit_export_created
+                - generic [ref=f7e346]: audit_export 1d88c6ad99afbc7289d59c6d4f8aeac5fb6bc680ee64d37750cc00bd803b12ec
+                - generic [ref=f7e347]: 6/23/2026, 5:54:51 AM
+              - generic [ref=f7e348]:
+                - generic [ref=f7e349]: trust.dispute_resolved
+                - generic [ref=f7e350]: trust_dispute a40d224c-6651-4743-a3eb-a1fee7a23908
+                - generic [ref=f7e351]: 6/23/2026, 5:54:46 AM
+              - generic [ref=f7e352]:
+                - generic [ref=f7e353]: trust.dispute_created
+                - generic [ref=f7e354]: trust_dispute ce981356-ae5c-4cfe-8da1-181380261210
+                - generic [ref=f7e355]: 6/23/2026, 5:54:45 AM
+              - generic [ref=f7e356]:
+                - generic [ref=f7e357]: trust.audit_export_created
+                - generic [ref=f7e358]: audit_export 2146208353b785a61763f401c4e4eda33121a5de535ef25af046a9d2e7aeeac7
+                - generic [ref=f7e359]: 6/23/2026, 5:54:43 AM

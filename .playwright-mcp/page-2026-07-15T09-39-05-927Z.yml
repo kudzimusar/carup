@@ -1,0 +1,590 @@
+- generic [ref=f2e2]:
+  - region "Notifications alt+T"
+  - generic [ref=f2e7]:
+    - complementary [ref=f2e8]:
+      - generic [ref=f2e9]:
+        - link "CarUp" [ref=f2e10] [cursor=pointer]:
+          - /url: /
+        - button "Close sidebar menu" [ref=f2e17] [cursor=pointer]
+      - generic [ref=f2e20]:
+        - paragraph [ref=f2e21]: REFV1-STAGING-Admin
+        - paragraph [ref=f2e22]: Active portal
+        - combobox "Switch active portal role" [ref=f2e25] [cursor=pointer]:
+          - option "Car Owner"
+          - option "Dealer"
+          - option "Mechanic"
+          - option "Insurance"
+          - option "Government"
+          - option "Administrator" [selected]
+          - option "Banker"
+      - navigation [ref=f2e26]:
+        - link "Overview" [ref=f2e27] [cursor=pointer]:
+          - /url: /admin
+        - link "Feature Governance" [ref=f2e34] [cursor=pointer]:
+          - /url: /admin/features
+        - link "Users" [ref=f2e38] [cursor=pointer]:
+          - /url: /admin/users
+        - link "AI Monitoring" [ref=f2e52] [cursor=pointer]:
+          - /url: /admin/ai
+        - link "Moderation" [ref=f2e62] [cursor=pointer]:
+          - /url: /admin/moderation
+        - link "Evidence Review" [ref=f2e66] [cursor=pointer]:
+          - /url: /admin/evidence
+        - link "Verification Cases" [ref=f2e71] [cursor=pointer]:
+          - /url: /admin/verification
+        - link "Trust Review" [ref=f2e78] [cursor=pointer]:
+          - /url: /admin/trust-review
+        - link "Referral Campaigns" [ref=f2e83] [cursor=pointer]:
+          - /url: /admin/referrals
+        - link "Codes & Coupons" [ref=f2e88] [cursor=pointer]:
+          - /url: /admin/referrals/codes
+        - link "Local Leads" [ref=f2e93] [cursor=pointer]:
+          - /url: /admin/referrals/local-leads
+        - link "Import Routes" [ref=f2e100] [cursor=pointer]:
+          - /url: /admin/referrals/import-routes
+        - link "Referral Marketing" [ref=f2e105] [cursor=pointer]:
+          - /url: /admin/referrals/marketing
+        - link "Referral Trust" [ref=f2e109] [cursor=pointer]:
+          - /url: /admin/referrals/trust
+        - link "Communications SLA" [ref=f2e113] [cursor=pointer]:
+          - /url: /admin/communications
+          - generic [ref=f2e116]: Communications
+          - generic [ref=f2e117]: SLA
+        - link "Diaspora Compliance" [ref=f2e118] [cursor=pointer]:
+          - /url: /admin/diaspora/compliance
+        - link "Workbook Console" [ref=f2e122] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks
+        - link "New Dry Run" [ref=f2e127] [cursor=pointer]:
+          - /url: /admin/diaspora/workbooks/new
+      - generic [ref=f2e132]:
+        - link "Settings" [ref=f2e133] [cursor=pointer]:
+          - /url: /settings
+        - link "Sign Out" [ref=f2e137] [cursor=pointer]:
+          - /url: /
+    - generic [ref=f2e141]:
+      - banner [ref=f2e142]:
+        - button "Open sidebar menu" [ref=f2e143] [cursor=pointer]
+        - generic [ref=f2e144]:
+          - link [ref=f2e145] [cursor=pointer]:
+            - /url: /dashboard
+          - link "Back to Site" [ref=f2e146] [cursor=pointer]:
+            - /url: /
+      - main [ref=f2e148]:
+        - generic [ref=f2e149]:
+          - generic [ref=f2e155]:
+            - heading "Referral Campaigns" [level=1] [ref=f2e156]
+            - paragraph [ref=f2e157]: Create and manage referral campaigns
+          - generic [ref=f2e159]:
+            - heading "Create Campaign" [level=2] [ref=f2e160]
+            - generic [ref=f2e161]:
+              - textbox "Campaign name *" [ref=f2e162]
+              - combobox [ref=f2e163]:
+                - option "LOCAL_MARKETPLACE" [selected]
+                - option "IMPORT_VEHICLE"
+                - option "IMPORT_PARTS"
+                - option "CONTAINER_SPACE"
+                - option "COMMUNITY_GROUP"
+                - option "AGENT_PARTNER"
+              - combobox [ref=f2e164]:
+                - option "LOCAL" [selected]
+                - option "IMPORT"
+                - option "HYBRID"
+              - button "Create" [ref=f2e165] [cursor=pointer]
+            - paragraph [ref=f2e452]: Campaign created.
+          - generic [ref=f2e167]:
+            - generic [ref=f2e168]:
+              - heading "Campaigns" [level=2] [ref=f2e169]
+              - button "Refresh" [ref=f2e170] [cursor=pointer]
+            - generic [ref=f2e171]:
+              - generic [ref=f2e453]:
+                - generic [ref=f2e454]:
+                  - paragraph [ref=f2e455]: REFV1-STAGING-S3-20260715T092916Z Local Campaign
+                  - paragraph [ref=f2e456]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e457]:
+                  - generic [ref=f2e458]: DRAFT
+                  - combobox [ref=f2e459]:
+                    - option "DRAFT" [selected]
+                    - option "ACTIVE"
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e172]:
+                - generic [ref=f2e173]:
+                  - paragraph [ref=f2e174]: Japan uat-1782161611634 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e175]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e176]:
+                  - generic [ref=f2e177]: ACTIVE
+                  - combobox [ref=f2e178]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e179]:
+                - generic [ref=f2e180]:
+                  - paragraph [ref=f2e181]: UAT Parts Import uat-1782161611634
+                  - paragraph [ref=f2e182]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e183]:
+                  - generic [ref=f2e184]: ACTIVE
+                  - combobox [ref=f2e185]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e186]:
+                - generic [ref=f2e187]:
+                  - paragraph [ref=f2e188]: UAT Owner Bundle uat-1782161611634
+                  - paragraph [ref=f2e189]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e190]:
+                  - generic [ref=f2e191]: ACTIVE
+                  - combobox [ref=f2e192]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e193]:
+                - generic [ref=f2e194]:
+                  - paragraph [ref=f2e195]: Local buy vehicle referral
+                  - paragraph [ref=f2e196]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e197]:
+                  - generic [ref=f2e198]: ACTIVE
+                  - combobox [ref=f2e199]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e200]:
+                - generic [ref=f2e201]:
+                  - paragraph [ref=f2e202]: UAT Local Campaign uat-1782161611634
+                  - paragraph [ref=f2e203]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e204]:
+                  - generic [ref=f2e205]: ACTIVE
+                  - combobox [ref=f2e206]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e207]:
+                - generic [ref=f2e208]:
+                  - paragraph [ref=f2e209]: Japan uat-1782161520767 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e210]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e211]:
+                  - generic [ref=f2e212]: ACTIVE
+                  - combobox [ref=f2e213]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e214]:
+                - generic [ref=f2e215]:
+                  - paragraph [ref=f2e216]: UAT Parts Import uat-1782161520767
+                  - paragraph [ref=f2e217]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e218]:
+                  - generic [ref=f2e219]: ACTIVE
+                  - combobox [ref=f2e220]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e221]:
+                - generic [ref=f2e222]:
+                  - paragraph [ref=f2e223]: UAT Owner Bundle uat-1782161520767
+                  - paragraph [ref=f2e224]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e225]:
+                  - generic [ref=f2e226]: ACTIVE
+                  - combobox [ref=f2e227]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e228]:
+                - generic [ref=f2e229]:
+                  - paragraph [ref=f2e230]: Local buy vehicle referral
+                  - paragraph [ref=f2e231]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e232]:
+                  - generic [ref=f2e233]: ACTIVE
+                  - combobox [ref=f2e234]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e235]:
+                - generic [ref=f2e236]:
+                  - paragraph [ref=f2e237]: UAT Local Campaign uat-1782161520767
+                  - paragraph [ref=f2e238]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e239]:
+                  - generic [ref=f2e240]: ACTIVE
+                  - combobox [ref=f2e241]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e242]:
+                - generic [ref=f2e243]:
+                  - paragraph [ref=f2e244]: Japan uat-1782136969149 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e245]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e246]:
+                  - generic [ref=f2e247]: ACTIVE
+                  - combobox [ref=f2e248]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e249]:
+                - generic [ref=f2e250]:
+                  - paragraph [ref=f2e251]: UAT Parts Import uat-1782136969149
+                  - paragraph [ref=f2e252]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e253]:
+                  - generic [ref=f2e254]: ACTIVE
+                  - combobox [ref=f2e255]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e256]:
+                - generic [ref=f2e257]:
+                  - paragraph [ref=f2e258]: UAT Owner Bundle uat-1782136969149
+                  - paragraph [ref=f2e259]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e260]:
+                  - generic [ref=f2e261]: ACTIVE
+                  - combobox [ref=f2e262]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e263]:
+                - generic [ref=f2e264]:
+                  - paragraph [ref=f2e265]: Local buy vehicle referral
+                  - paragraph [ref=f2e266]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e267]:
+                  - generic [ref=f2e268]: ACTIVE
+                  - combobox [ref=f2e269]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e270]:
+                - generic [ref=f2e271]:
+                  - paragraph [ref=f2e272]: UAT Local Campaign uat-1782136969149
+                  - paragraph [ref=f2e273]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e274]:
+                  - generic [ref=f2e275]: ACTIVE
+                  - combobox [ref=f2e276]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e277]:
+                - generic [ref=f2e278]:
+                  - paragraph [ref=f2e279]: Japan uat-1782089275082 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e280]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e281]:
+                  - generic [ref=f2e282]: ACTIVE
+                  - combobox [ref=f2e283]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e284]:
+                - generic [ref=f2e285]:
+                  - paragraph [ref=f2e286]: UAT Parts Import uat-1782089275082
+                  - paragraph [ref=f2e287]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e288]:
+                  - generic [ref=f2e289]: ACTIVE
+                  - combobox [ref=f2e290]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e291]:
+                - generic [ref=f2e292]:
+                  - paragraph [ref=f2e293]: UAT Owner Bundle uat-1782089275082
+                  - paragraph [ref=f2e294]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e295]:
+                  - generic [ref=f2e296]: ACTIVE
+                  - combobox [ref=f2e297]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e298]:
+                - generic [ref=f2e299]:
+                  - paragraph [ref=f2e300]: Local buy vehicle referral
+                  - paragraph [ref=f2e301]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e302]:
+                  - generic [ref=f2e303]: ACTIVE
+                  - combobox [ref=f2e304]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e305]:
+                - generic [ref=f2e306]:
+                  - paragraph [ref=f2e307]: UAT Local Campaign uat-1782089275082
+                  - paragraph [ref=f2e308]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e309]:
+                  - generic [ref=f2e310]: ACTIVE
+                  - combobox [ref=f2e311]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e312]:
+                - generic [ref=f2e313]:
+                  - paragraph [ref=f2e314]: Japan uat-1782088388249 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e315]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e316]:
+                  - generic [ref=f2e317]: ACTIVE
+                  - combobox [ref=f2e318]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e319]:
+                - generic [ref=f2e320]:
+                  - paragraph [ref=f2e321]: UAT Parts Import uat-1782088388249
+                  - paragraph [ref=f2e322]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e323]:
+                  - generic [ref=f2e324]: ACTIVE
+                  - combobox [ref=f2e325]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e326]:
+                - generic [ref=f2e327]:
+                  - paragraph [ref=f2e328]: UAT Owner Bundle uat-1782088388249
+                  - paragraph [ref=f2e329]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e330]:
+                  - generic [ref=f2e331]: ACTIVE
+                  - combobox [ref=f2e332]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e333]:
+                - generic [ref=f2e334]:
+                  - paragraph [ref=f2e335]: Local buy vehicle referral
+                  - paragraph [ref=f2e336]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e337]:
+                  - generic [ref=f2e338]: ACTIVE
+                  - combobox [ref=f2e339]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e340]:
+                - generic [ref=f2e341]:
+                  - paragraph [ref=f2e342]: UAT Local Campaign uat-1782088388249
+                  - paragraph [ref=f2e343]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e344]:
+                  - generic [ref=f2e345]: ACTIVE
+                  - combobox [ref=f2e346]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e347]:
+                - generic [ref=f2e348]:
+                  - paragraph [ref=f2e349]: Japan uat-1782087903020 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e350]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e351]:
+                  - generic [ref=f2e352]: ACTIVE
+                  - combobox [ref=f2e353]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e354]:
+                - generic [ref=f2e355]:
+                  - paragraph [ref=f2e356]: UAT Parts Import uat-1782087903020
+                  - paragraph [ref=f2e357]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e358]:
+                  - generic [ref=f2e359]: ACTIVE
+                  - combobox [ref=f2e360]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e361]:
+                - generic [ref=f2e362]:
+                  - paragraph [ref=f2e363]: UAT Owner Bundle uat-1782087903020
+                  - paragraph [ref=f2e364]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e365]:
+                  - generic [ref=f2e366]: ACTIVE
+                  - combobox [ref=f2e367]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e368]:
+                - generic [ref=f2e369]:
+                  - paragraph [ref=f2e370]: Local buy vehicle referral
+                  - paragraph [ref=f2e371]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e372]:
+                  - generic [ref=f2e373]: ACTIVE
+                  - combobox [ref=f2e374]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e375]:
+                - generic [ref=f2e376]:
+                  - paragraph [ref=f2e377]: UAT Local Campaign uat-1782087903020
+                  - paragraph [ref=f2e378]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e379]:
+                  - generic [ref=f2e380]: ACTIVE
+                  - combobox [ref=f2e381]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e382]:
+                - generic [ref=f2e383]:
+                  - paragraph [ref=f2e384]: Japan uat-1782087435640 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e385]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e386]:
+                  - generic [ref=f2e387]: ACTIVE
+                  - combobox [ref=f2e388]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e389]:
+                - generic [ref=f2e390]:
+                  - paragraph [ref=f2e391]: UAT Parts Import uat-1782087435640
+                  - paragraph [ref=f2e392]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e393]:
+                  - generic [ref=f2e394]: ACTIVE
+                  - combobox [ref=f2e395]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e396]:
+                - generic [ref=f2e397]:
+                  - paragraph [ref=f2e398]: UAT Owner Bundle uat-1782087435640
+                  - paragraph [ref=f2e399]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e400]:
+                  - generic [ref=f2e401]: ACTIVE
+                  - combobox [ref=f2e402]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e403]:
+                - generic [ref=f2e404]:
+                  - paragraph [ref=f2e405]: Local buy vehicle referral
+                  - paragraph [ref=f2e406]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e407]:
+                  - generic [ref=f2e408]: ACTIVE
+                  - combobox [ref=f2e409]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e410]:
+                - generic [ref=f2e411]:
+                  - paragraph [ref=f2e412]: UAT Local Campaign uat-1782087435640
+                  - paragraph [ref=f2e413]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e414]:
+                  - generic [ref=f2e415]: ACTIVE
+                  - combobox [ref=f2e416]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e417]:
+                - generic [ref=f2e418]:
+                  - paragraph [ref=f2e419]: Japan uat-1782086989135 to Zimbabwe container space campaign
+                  - paragraph [ref=f2e420]: CONTAINER_SPACE · IMPORT
+                - generic [ref=f2e421]:
+                  - generic [ref=f2e422]: ACTIVE
+                  - combobox [ref=f2e423]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e424]:
+                - generic [ref=f2e425]:
+                  - paragraph [ref=f2e426]: UAT Parts Import uat-1782086989135
+                  - paragraph [ref=f2e427]: IMPORT_PARTS · IMPORT
+                - generic [ref=f2e428]:
+                  - generic [ref=f2e429]: ACTIVE
+                  - combobox [ref=f2e430]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e431]:
+                - generic [ref=f2e432]:
+                  - paragraph [ref=f2e433]: UAT Owner Bundle uat-1782086989135
+                  - paragraph [ref=f2e434]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e435]:
+                  - generic [ref=f2e436]: ACTIVE
+                  - combobox [ref=f2e437]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e438]:
+                - generic [ref=f2e439]:
+                  - paragraph [ref=f2e440]: Local buy vehicle referral
+                  - paragraph [ref=f2e441]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e442]:
+                  - generic [ref=f2e443]: ACTIVE
+                  - combobox [ref=f2e444]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"
+              - generic [ref=f2e445]:
+                - generic [ref=f2e446]:
+                  - paragraph [ref=f2e447]: UAT Local Campaign uat-1782086989135
+                  - paragraph [ref=f2e448]: LOCAL_MARKETPLACE · LOCAL
+                - generic [ref=f2e449]:
+                  - generic [ref=f2e450]: ACTIVE
+                  - combobox [ref=f2e451]:
+                    - option "DRAFT"
+                    - option "ACTIVE" [selected]
+                    - option "PAUSED"
+                    - option "COMPLETED"
+                    - option "ARCHIVED"

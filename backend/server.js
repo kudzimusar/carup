@@ -77,6 +77,7 @@ import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
+import { validateCommunicationConfiguration } from './services/communication/communicationConfigurationValidator.js';
 
 dotenv.config();
 
@@ -95,6 +96,22 @@ if (
   throw new Error(
     'FATAL: STRICT OCR MODE REQUIRES AT LEAST ONE REAL OCR PROVIDER (GEMINI_API_KEY or GROQ_API_KEY)'
   );
+}
+
+const startupCommunicationConfiguration = validateCommunicationConfiguration();
+const startupCommunicationLog = {
+  status: startupCommunicationConfiguration.status,
+  explanations: startupCommunicationConfiguration.explanations,
+  blockedProviders: startupCommunicationConfiguration.providers
+    .filter((provider) => provider.status === 'BLOCKED')
+    .map((provider) => provider.channel),
+};
+if (startupCommunicationConfiguration.status === 'BLOCKED') {
+  console.error('❌ Communication configuration BLOCKED:', startupCommunicationLog);
+} else if (startupCommunicationConfiguration.status === 'WARNING') {
+  console.warn('⚠️ Communication configuration WARNING:', startupCommunicationLog);
+} else {
+  console.log('✅ Communication configuration READY');
 }
 
 const app = express();
@@ -167,6 +184,7 @@ app.get('/api/health', async (req, res) => {
   }
 
   const snapshot = metricsHub.getSnapshot();
+  const communicationConfiguration = validateCommunicationConfiguration();
 
   res.json({
     status: 'UP',
@@ -183,6 +201,18 @@ app.get('/api/health', async (req, res) => {
       groq: !!process.env.CARUP_KIMI_GROQ_API_KEY || !!process.env.GROQ_API_KEY,
       openrouter: !!process.env.OPENROUTER_API_KEY,
       moonshot: !!process.env.MOONSHOT_API_KEY
+    },
+    communications: {
+      status: communicationConfiguration.status,
+      ready: communicationConfiguration.ready,
+      explanations: communicationConfiguration.explanations,
+      providers: communicationConfiguration.providers.map((provider) => ({
+        channel: provider.channel,
+        provider: provider.provider,
+        status: provider.status,
+        available: provider.available,
+        explanations: provider.explanations
+      }))
     },
     metrics: snapshot
   });
