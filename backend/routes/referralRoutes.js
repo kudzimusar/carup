@@ -415,6 +415,18 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     res.status(201).json(response);
   }));
 
+  // Owner-scoped dispute read (Refer & Earn). Any authenticated user; owner derived server-side.
+  // Returns only disputes on wallet transactions the caller owns, with an owner-safe projection.
+  router.get('/trust/disputes/mine', authorizeRole(), asyncHandler(async (req, res) => {
+    const actor = createActor(req, ACTOR_TYPES.USER);
+    const ownerUserId = actor.actor_user_id;
+    if (!ownerUserId) return res.status(401).json({ success: false, error: 'Authentication required.' });
+    const result = await trustReviewService.listOwnerDisputes(ownerUserId, {
+      wallet_transaction_id: req.query.wallet_transaction_id || undefined,
+    });
+    res.json({ success: true, ...result });
+  }));
+
   router.get('/trust/disputes', authorizeRole(OPERATOR_ROLES), asyncHandler(async (req, res) => {
     const result = await trustReviewService.listDisputes({
       tenant_id: req.query.tenant_id || req.userContext?.tenantId || undefined,

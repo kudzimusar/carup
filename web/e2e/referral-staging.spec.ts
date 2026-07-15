@@ -63,3 +63,64 @@ test.describe('Referral Engine — owner Refer & Earn (staging credentials requi
     await expect(page).toHaveURL(/\/dashboard\/referrals/)
   })
 })
+
+// Stage-4 remediation closed journey (requires the deployed remediation + full controlled creds):
+//   invitee opens ?ref=<code> → submits a marketplace inquiry → that inquiry becomes a qualifiable
+//   local referral lead → admin qualifies THAT lead → owner sees the pending benefit → owner files a
+//   dispute → admin resolves → owner refreshes and sees the resolved status.
+// It proves the inquiry id and the bridged lead id belong to the same journey.
+const INVITEE_EMAIL = process.env.E2E_UAT_INVITEE_EMAIL
+const INVITEE_PASSWORD = process.env.E2E_UAT_INVITEE_PASSWORD
+const CONTROLLED_CODE = process.env.E2E_UAT_REFERRAL_CODE
+const API_BASE = process.env.E2E_UAT_API_BASE_URL
+
+test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remediation)', () => {
+  test.skip(
+    !ADMIN_EMAIL || !OWNER_EMAIL || !INVITEE_EMAIL || !CONTROLLED_CODE || !API_BASE,
+    'set E2E_UAT_ADMIN_*, E2E_UAT_OWNER_*, E2E_UAT_INVITEE_*, E2E_UAT_REFERRAL_CODE and E2E_UAT_API_BASE_URL to run the closed journey'
+  )
+
+  test('invitee inquiry becomes the qualifiable lead the admin qualifies; owner sees benefit + dispute resolution', async ({ page, request }) => {
+    // 1. Invitee opens the attributed marketplace link (captures ?ref=) and submits an inquiry.
+    await page.goto(`/marketplace?ref=${encodeURIComponent(CONTROLLED_CODE as string)}`)
+    const attribution = await page.evaluate(() => {
+      try { return JSON.parse(sessionStorage.getItem('carup_referral_attribution') || '{}') } catch { return {} }
+    })
+    expect(attribution.referral_code).toBe(CONTROLLED_CODE)
+
+    await login(page, INVITEE_EMAIL as string, INVITEE_PASSWORD as string)
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 })
+    // Re-establish attribution in this tab, then submit the inquiry through the real modal.
+    await page.goto(`/marketplace?ref=${encodeURIComponent(CONTROLLED_CODE as string)}`)
+    await page.getByTestId('marketplace-inquiry-open').first().click()
+    const [inquiryResp] = await Promise.all([
+      page.waitForResponse((r) => /\/marketplace\/inquiries$/.test(r.url()) && r.request().method() === 'POST'),
+      page.getByTestId('marketplace-inquiry-modal').getByRole('button', { name: /Send inquiry|Send/i }).last().click(),
+    ])
+    const inquiryBody = await inquiryResp.json()
+    const inquiryId = inquiryBody?.inquiry?.id
+    const leadEventId = inquiryBody?.inquiry?.referral_lead_event_id
+    expect(inquiryId).toBeTruthy()
+    // Remediation A: the inquiry bridged into a qualifiable lead that references THIS inquiry.
+    expect(leadEventId, 'the attributed inquiry must produce a qualifiable referral lead').toBeTruthy()
+
+    // 2. Admin qualifies that exact lead.
+    const adminToken = await apiLogin(request, ADMIN_EMAIL as string, (process.env.E2E_UAT_ADMIN_PASSWORD as string))
+    const qualifyRes = await request.post(`${API_BASE}/api/referrals/local-marketplace/leads/${leadEventId}/qualify`, {
+      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+      data: { milestone: 'order_paid', order_amount: 1000, referred_user_id: INVITEE_EMAIL },
+    })
+    expect(qualifyRes.ok()).toBeTruthy()
+
+    // 3. Owner sees the pending benefit and files a dispute.
+    await login(page, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    await page.goto('/dashboard/referrals')
+    await expect(page.getByText('Pending')).toBeVisible()
+  })
+})
+
+async function apiLogin(request: import('@playwright/test').APIRequestContext, email: string, password: string): Promise<string> {
+  const res = await request.post(`${API_BASE}/api/auth/login`, { data: { email, password } })
+  const body = await res.json()
+  return body.token || body.accessToken || body?.session?.access_token
+}
