@@ -704,3 +704,13 @@ Profile endpoint result: HTTP 200
 - **Owner action required:** log into Supabase as this exact account (`b***@gmail.com`) → *Account → Access Tokens* → revoke the Stage 2 token (or all PATs on that account). If this account is not a recognized/authorized CarUp member, treat it as a credential-security incident: remove it from org `tzmmjpcgplzjzktuwsad` **and** invalidate the PAT (member removal alone does not kill the token), escalating to Supabase support if the account cannot be accessed.
 - **Revocation-verification contract on resume:** one read-only `GET /v1/profile` must return **HTTP 401** (or an explicit invalid-token authentication failure). A `200` with no/empty CarUp projects, a per-project `403`, org-membership removal, or role downgrade are **not** accepted as proof the PAT is dead.
 - Stage 4 stays **BLOCKED**. No further token requests will be made until the owner confirms revocation.
+
+## 8. Fourth revocation-verification attempt — STILL BLOCKED (post correct-account revocation)
+
+- Attempted: `2026-07-15`, after the owner confirmed the identified account (`b***@gmail.com`) is the legitimate CarUp Supabase account, logged into it, and revoked all its personal access tokens.
+- Verification: one status-only `GET https://api.supabase.com/v1/profile` with the Stage 2 PAT → **HTTP 200**. Stopped immediately per directive; no repeated checks, no staging contact, no body read.
+- The token is **still being honored** despite revocation on its confirmed owning account. Two candidate causes, distinguishable by the owner in seconds:
+  1. **Revocation did not actually commit** — the token row is still present under the identified account (`b***@gmail.com`) → *Account → Access Tokens*. **Check:** if any token still appears in that list, the revoke did not take effect (e.g. a confirmation step was missed). Re-revoke until the list shows the Stage 2 token gone.
+  2. **Server-side propagation/cache window** — Supabase can keep honoring a just-revoked Management API token for a short interval. **Check:** if the token no longer appears in the list, wait a few minutes, then ask for exactly one re-verification.
+- Verification contract unchanged: resume only on `GET /v1/profile` → **HTTP 401** (or an explicit invalid-token authentication failure). A `200` — with or without CarUp projects — keeps Stage 4 blocked.
+- Stage 4 remains **NOT STARTED**: no run identifier, no data, no staging login, no journey action. Local hygiene (§2) unchanged; production credentials remain unused and on the separate pre-Stage-9 rotation list.
