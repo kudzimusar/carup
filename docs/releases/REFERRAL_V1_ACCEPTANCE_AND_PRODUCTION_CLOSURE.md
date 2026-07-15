@@ -20,7 +20,7 @@
 | 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
-| 4 — Owner/invitee correct-attribution journey | **FAIL — P1 remediation required** (R-OWN-09 FAIL, R-OWN-19 FAIL; P1 = 2) | No |
+| 4 — Owner/invitee correct-attribution journey | **FAIL — P1 remediation submitted (PR #118), awaiting owner-approved merge + Stage 4 re-run** | No |
 | 5 — Import/container referral journey | NOT STARTED | No |
 | 6 — Simulated channel-attribution integration | NOT STARTED | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
@@ -822,8 +822,40 @@ Gate result: FAIL — P1 remediation required
 Next single action: remediate both P1s on a focused branch (fix/referral-v1-stage4-journey-closure); re-run Stage 4 after the remediation PR is owner-approved and merged
 ```
 
+## 10. Stage 4 P1 remediation — submitted (PR #118, unmerged)
+
+- Base main SHA (re-confirmed unchanged): `6214f3dd7aef7a24d33170009164d8f4932ab429`
+- Remediation branch: `fix/referral-v1-stage4-journey-closure`
+- Runtime PR: **#118** (open, unmerged, awaiting owner approval)
+- Scope guard: Referral V1 only — no permanent codes, universal widget, QR, multi-touch attribution, ambassador/receiver dashboards, payout batches, Wave A schema, PR #105 code, or Stage 5 functionality. **No schema changes / migrations.**
+
+**Remediation A (fixes P1-1 / R-OWN-09).** The invitee's real attributed marketplace inquiry now bridges into the canonical qualifiable `local_marketplace.lead_created` lead: `MarketplaceReferralBridgeService.bridgeInquiryToReferralLead()` invokes the existing `ReferralLocalMarketplaceService.createLead()` when the inquiry carries a valid referral code (best-effort; never breaks the inquiry). Owner/campaign/code are derived server-side from the validated code (caller-supplied owner fields never forwarded); idempotent per inquiry (one inquiry → at most one lead, keyed on the inquiry id as the lead `subject_id` + `source_inquiry_id`); invalid/missing code → no attributed lead; no wallet reward at inquiry time.
+
+**Remediation B (fixes P1-2 / R-OWN-19).** New owner-scoped read `GET /api/referrals/trust/disputes/mine` (`authorizeRole()`, owner derived server-side, transaction-ownership gated) returns an owner-safe projection (`status`, `submitted_at`, `resolved_at`, `owner_reason`, status-derived `owner_safe_resolution`, `benefit_status`) — never the raw admin resolution note or risk signals. Refer & Earn now shows per-benefit dispute status/resolution + timestamps and refetches after filing.
+
+**Verification (local, frozen-SHA worktree):**
+
+| Gate | Result |
+|---|---|
+| `npm ci` | exit 0 |
+| `tsc -p web/tsconfig.app.json --noEmit` | 0 errors |
+| web unit (`vitest run --maxWorkers=1`) | **516/516** (was 506; +10 new remediation tests) |
+| `ts:check --workspace=mobile` | 0 errors |
+| backend `node --test` (auth-login + referral-* + seed) | **187/187** (was 171; +16 new) |
+| marketplace-* + communication-engine suites | pass (no regression from the inquiry-service change) |
+| `npm run build --workspace=web` | success (only standing chunk-size warning) |
+| referral Playwright (`--workers=1`) | 2 passed, 3 credential-gated skips (incl. new closed-journey E2E) |
+| UAT runner `node --check` | ok |
+| secret scan (ci.yml fallback grep) | clean (0 credential-shaped matches) |
+| built-bundle scan | clean (no service-role/secret, no Supabase refs) |
+| `git diff --check` | clean |
+
+New tests: `backend/tests/referral-marketplace-inquiry-lead-bridge.test.js` (9 — attribution, idempotency, owner-from-code, caller-tampering ignored, invalid code → no lead, no reward at inquiry, admin qualify → one pending benefit for the code owner, duplicate qualification blocked, invitee/admin get no benefit); `backend/tests/referral-owner-dispute-visibility.test.js` (7 — ownership isolation, owner-safe projection, resolved status, no admin-note leakage, 401 unauth); `web/src/lib/marketplaceReferral.test.ts` (5); `web/src/pages/dashboard/owner/ReferralWallet.disputes.test.tsx` (5). All 17 required backend/frontend assertions covered.
+
+**Not deployed. No staging or production data was altered by this remediation.** Stage 4 stays FAIL until PR #118 is owner-approved and merged, after which `main`'s new SHA is recorded here and Stage 4 is re-run end-to-end (invitee inquiry → bridged lead → admin qualifies that lead → owner sees benefit → dispute → resolution visible).
+
 ## Stage 4 decision
 
-# FAIL — P1 remediation required
+# FAIL — P1 remediation submitted (PR #118), awaiting owner-approved merge and Stage 4 re-run
 
-Stage 4 executed in full against the deployed staging application, and the security-critical core held: attribution was captured from the referral link and survived navigation and authentication; the invitee remained the invitee; qualification created exactly one pending benefit owned by the original referral-code owner (`refv1-staging-owner`) — never the invitee, the admin, or a caller-injected owner; duplicate qualification created no second benefit; no reward matured from login/registration; cross-user/role/unauthenticated access were denied (403/401); and the audit trail is complete with a checksum and no secrets. However, **two acceptance-contract violations reclassify the stage to FAIL (P1 = 2)**: R-OWN-09 — the invitee's real marketplace inquiry did not create the qualifiable lead the admin qualifies (the qualifiable lead was administrator-created, which the directive prohibited); and R-OWN-19 — the owner cannot see the dispute resolution in the Refer & Earn UI. Both are user-journey integration gaps at the boundaries of the flow, not defects in the ownership/reward engine. Remediation A (inquiry→qualifiable-lead bridge) and Remediation B (owner-visible dispute status) are required on a focused branch before Stage 4 can be re-run. Production remains unchanged. Stage 5 must not begin until Stage 4 passes.
+Stage 4 executed in full against the deployed staging application, and the security-critical core held: attribution was captured from the referral link and survived navigation and authentication; the invitee remained the invitee; qualification created exactly one pending benefit owned by the original referral-code owner (`refv1-staging-owner`) — never the invitee, the admin, or a caller-injected owner; duplicate qualification created no second benefit; no reward matured from login/registration; cross-user/role/unauthenticated access were denied (403/401); and the audit trail is complete with a checksum and no secrets. However, **two acceptance-contract violations reclassify the stage to FAIL (P1 = 2)**: R-OWN-09 — the invitee's real marketplace inquiry did not create the qualifiable lead the admin qualifies (the qualifiable lead was administrator-created, which the directive prohibited); and R-OWN-19 — the owner cannot see the dispute resolution in the Refer & Earn UI. Both are user-journey integration gaps at the boundaries of the flow, not defects in the ownership/reward engine. Remediation A (inquiry→qualifiable-lead bridge) and Remediation B (owner-visible dispute status) have been implemented on a focused branch and submitted as **PR #118** (documentation of that work is in §10 above; full regression green locally). Production remains unchanged and PR #118 is unmerged. Stage 4 is re-run only after PR #118 is owner-approved and merged; Stage 5 must not begin until Stage 4 passes.
