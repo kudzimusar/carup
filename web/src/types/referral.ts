@@ -509,6 +509,7 @@ export interface OwnerReferralDispute {
 export interface OwnerReferralDisputesResponse {
   success?: boolean
   disputes: OwnerReferralDispute[]
+  pagination?: ReferralPagination
 }
 
 export type ReferralServiceResponse = Record<string, unknown>
