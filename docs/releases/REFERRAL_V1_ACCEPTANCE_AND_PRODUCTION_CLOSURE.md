@@ -18,7 +18,7 @@
 |---|---|---|
 | 0 — Freeze and verify current state | **PASS** | No |
 | 1 — Current-main automated regression | **PASS** | No |
-| 2 — Staging schema and account readiness | NOT STARTED | No |
+| 2 — Staging schema and account readiness | IN PROGRESS — BLOCKED (staging DB access) | No |
 | 3 — Staging admin web acceptance | NOT STARTED | No |
 | 4 — Owner/invitee correct-attribution journey | NOT STARTED | No |
 | 5 — Import/container referral journey | NOT STARTED | No |
@@ -321,3 +321,53 @@ Next single action: begin Stage 2 staging schema and account readiness against S
 # PASS
 
 Zero test failures, zero TypeScript errors, successful web production build, successful mobile type-check, all expected referral routes present (backend route-smoke + web feature registry), and no browser/mobile secret exposure. Production remains unchanged. Stage 2 may begin.
+
+---
+
+# Stage 2 — Staging schema and account readiness (IN PROGRESS — BLOCKED)
+
+- Started: `2026-07-15`
+- Gate result: **NOT YET — blocked on staging database access (see §3)**
+- Production changed: **No**
+- Staging data written: **None so far**
+
+## 1. Completed Stage 2 checks (no database access required)
+
+| Check | Method | Result |
+|---|---|---|
+| Staging backend health | `GET https://carup-backend-staging.vercel.app/api/health` | **HTTP 200**, `status: UP`, `supabase.status: healthy` |
+| Staging frontend availability | `GET https://carup-staging.vercel.app/` | **HTTP 200** |
+| Staging frontend API target | Downloaded deployed bundle `assets/index-CmHlN0Cs.js` (2,319,950 bytes) | **staging backend `https://carup-backend-staging.vercel.app` baked (7 occurrences)** — `VITE_API_URL` correctly set per Vercel project |
+| Production references in staging bundle | Same bundle scan | 1 occurrence of `https://carup-backend.vercel.app` — the documented last-resort fallback constant in `apiClient.ts` (inert when `VITE_API_URL` is set; same constant present in the local frozen-SHA build; Stage 1 note N3) |
+| Service-role material in staging client bundle | Same bundle scan | **0 matches** for `service_role`/`SERVICE_ROLE`; **no Supabase project refs** (neither `eoyenigwevnxwwhyhaer` nor `vhmnajoeicasaigiophh`); **no JWT-shaped tokens at all** in the bundle |
+| UAT tooling refuses production (live) | `STAGING_API_BASE_URL=https://carup-backend.vercel.app` + syntactically-dummy creds → `node backend/scripts/uat/referral-uat-journeys.mjs` | **Refused before any network call**: `ABORT: not staging — Refusing: API host "carup-backend.vercel.app" is not recognisable as the staging environment`, exit 1 |
+| UAT tooling guard unit matrix | Stage 1: `backend/tests/referral-uat-guard.test.js` incl. historical P1 production-host-laundering case | **pass** |
+
+Stage 0's read-only inventory (recorded above) already confirmed the nine `referral_*` tables exist on staging with RLS enabled on all nine and zero client policies (deny-by-default).
+
+## 2. Remaining Stage 2 items (require staging database access)
+
+- Primary keys, foreign keys, unique constraints, indexes per table
+- Referral-code uniqueness constraint proof
+- Coupon duplicate-redemption protection constraint proof
+- Wallet status and transition constraints
+- Triggers
+- Tenant columns and enforcement
+- Creation of the three staging accounts (`refv1-admin@`, `refv1-owner@`, `refv1-invitee@staging.carup.local`) with locally-stored ignored credentials
+
+## 3. Blocker — no sanctioned path to the staging database from this session
+
+1. **claude.ai Supabase connector**: authenticated, but against the wrong Supabase account — it can only see an unrelated project (`production-os`, INACTIVE, org `hrhxurdxkwhwazoundpd`). The CarUp projects live in org `tzmmjpcgplzjzktuwsad` and return "permission denied" through this connector.
+2. **Supabase CLI**: logged in and lists both CarUp projects, and the repo is linked to staging — but every database-level CLI operation requires `SUPABASE_DB_PASSWORD` for `eoyenigwevnxwwhyhaer`, which is not stored locally.
+3. **Local env files**: the only local Supabase credentials found point at **production** (`vhmnajoeicasaigiophh`) and were therefore deliberately not used for staging work (and will not be used for any Stage 2–8 action).
+4. **CLI keychain token → Management API**: keychain extraction was blocked by the local permission policy (credential-store access requires explicit user review).
+
+No production resource was touched while establishing the above.
+
+## 4. Owner unblock options (any one suffices for schema inspection)
+
+- **Option A (preferred, unblocks everything)**: re-authorize the claude.ai Supabase connector against the Supabase account that owns org `tzmmjpcgplzjzktuwsad` (carup-staging + CarUp). All Stage 2+ staging SQL then proceeds via MCP.
+- **Option B**: place the **staging** database password in a git-ignored local file (e.g. `backend/.env.uat.local`, `SUPABASE_DB_PASSWORD=…`) so the linked Supabase CLI can run read-only inspection.
+- **Option C**: add a permission rule allowing the session to read the Supabase CLI keychain token, enabling read-only Management API queries.
+
+For **staging account creation** (sanctioned path: `backend/scripts/seed-uat-referral-users.mjs`), the **staging** `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are additionally required in `backend/.env.uat.local` (git-ignored; never committed, never printed) — unless Option A is chosen, in which case alternatives via MCP will be evaluated at execution time.
