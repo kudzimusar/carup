@@ -20,7 +20,7 @@
 | 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
-| 4 — Owner/invitee correct-attribution journey | **PASS** (2 P2 + 2 P3 findings; 0 P0/P1) | No |
+| 4 — Owner/invitee correct-attribution journey | **FAIL — P1 remediation required** (R-OWN-09 FAIL, R-OWN-19 FAIL; P1 = 2) | No |
 | 5 — Import/container referral journey | NOT STARTED | No |
 | 6 — Simulated channel-attribution integration | NOT STARTED | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
@@ -750,7 +750,7 @@ Controlled IDs: campaign `ddb3fb58-8b96-4133-abfd-59a7c23099eb`; owner-owned cod
 | R-OWN-06 Generate share link | owner | Refer & Earn | **PASS** — link `https://carup.app/r/LOCAL-BUYER-REFV1-STAGING-OWNE-C32E47C0` (carries code, public route, not admin); share asset `2216fe94-e920-4ba8-9cd9-a721af4418cf` persisted (linked to S4 campaign); no reward/lead created |
 | R-OWN-07 Invitee opens attributed link | invitee (isolated) | `/marketplace?ref=…` | **PASS** — cleared cookies+storage; `?ref=CODE` captured to `sessionStorage.carup_referral_attribution` (`{referral_code, utm_source, utm_medium, captured_at}`); survived navigation to `/marketplace/parts`; not authenticated; no wallet txn. Storage keys: session `carup_referral_attribution`, local `carup_nav_cohort` (names only) |
 | R-OWN-08 Invitee auth without losing attribution | invitee | `/login` | **PASS** — attribution intact after login (same referral_code); identity `refv1-staging-invitee` role=owner (invitee stays invitee, not the referral owner); no benefit from auth |
-| R-OWN-09 Invitee submits a lead | invitee | Marketplace InquiryModal (real UI) | **PASS with P2 finding** — invitee submitted a real attributed marketplace inquiry (payload carried `referral_code=…C32E47C0`, "Inquiry sent"); persisted referral event `410f5f25…` (`marketplace_import_interest_created`, subject `marketplace_inquiry`, actor invitee, attributed to the owner's code); no reward. **Finding (P2):** this marketplace inquiry is *not* a qualifiable `local_marketplace.lead_created`, and the deployed web app has **no non-admin UI** to create the qualifiable lead — see §9.5. The qualifiable journey lead L1 `2d80f0fa` was therefore created via the admin Local Leads UI (real V1 operator UI), attribution owner = `refv1-staging-owner`, status `attributed`, not qualified, no txn |
+| R-OWN-09 Invitee submits a lead | invitee | Marketplace InquiryModal (real UI) | **FAIL (P1-1)** — the invitee's real attributed marketplace inquiry persisted only as a `marketplace_inquiry` referral event (`410f5f25…`, `marketplace_import_interest_created`, actor invitee, attributed to the owner's code) and **did not create the qualifiable `local_marketplace.lead_created`** that the admin qualify→reward flow operates on. The qualifiable journey lead L1 `2d80f0fa` was created **later by the administrator** through the Local Leads console — an administrator-created substitute the directive explicitly prohibited. The intended end-to-end user flow (invitee submits → admin qualifies *that same* lead → benefit) therefore does **not** complete through the real invitee experience. Remediation A required. (The attribution capture, code validation, and the fact that no reward was created by the inquiry remain valid evidence.) |
 | R-OWN-10 Caller-supplied owner redirection | invitee → API (tampering) | `POST /local-marketplace/leads` | **PASS** — invitee submitted lead L2 injecting `owner_user_id`/`reward_owner_user_id`/`user_id = refv1-staging-invitee` (HTTP 201); persisted `attribution.owner_user_id = refv1-staging-owner` (code owner); injected fields **ignored (null in metadata)**. L2 left unqualified (no benefit). Reward owner cannot be redirected |
 | R-OWN-11 Admin qualifies lead | admin | Local Leads (Qualify) | **PASS** — `reward_created: true`; exactly **one** wallet txn `138e4d92` created, status `pending`, amount 15 (≥0), type `local_marketplace_referral_credit`, campaign `ddb3fb58`; qualification event `487ac1bd` (actor admin); no external reward |
 | R-OWN-12 Correct-owner attribution proof | — | DB | **PASS (P0-critical)** — `referral_codes.owner_user_id = refv1-staging-owner`; `referral_wallets.user_id = refv1-staging-owner` (wallet `0c568b48`); `referral_wallet_transactions.user_id = refv1-staging-owner`; **≠ refv1-staging-invitee**, **≠ refv1-staging-admin**; the injected invitee-owner never appears as reward owner |
@@ -760,10 +760,12 @@ Controlled IDs: campaign `ddb3fb58-8b96-4133-abfd-59a7c23099eb`; owner-owned cod
 | R-OWN-16 No maturity from login/signup | — | DB/event review | **PASS** — S4 benefit `source_event_type = local_marketplace.purchase_confirmed` (not a signup type), status `pending`; no approved/payable/paid benefit arose from login/registration; benefit exists only from the legitimate qualification event; `referral_signup_only_not_matured` constraint satisfied |
 | R-OWN-17 Owner files dispute | owner | Refer & Earn (File Dispute) | **PASS** — dispute `ff0e672c` persisted, `opened_by=refv1-staging-owner`, linked to txn `138e4d92`, reason recorded (S4 id), UI acknowledgment shown; benefit unchanged (still `pending`) — filing did not approve/pay/reject |
 | R-OWN-18 Admin resolves dispute | admin | `/admin/referrals/trust` (Resolve) | **PASS** — no-reason submit **blocked** ("dispute_event_id and a reason are required."); with reason → status `resolved_upheld`, `resolved_by=refv1-staging-admin`, reason recorded; benefit remains `pending` (policy-correct); no external payment |
-| R-OWN-19 Owner refreshes resolved state | owner | Refer & Earn | **PASS with P3 note** — refreshed buckets match DB (Pending $15, benefit still pending/upheld); only the owner's own txns shown (no stale cross-user data); ownership unchanged. **P3:** owner Refer & Earn has no dispute-resolution list (Phase E pending), so the resolution is reflected only implicitly via the unchanged benefit state |
+| R-OWN-19 Owner refreshes resolved state | owner | Refer & Earn | **FAIL (P1-2)** — the Refer & Earn interface has **no dispute list or resolution-status display**. After the admin resolved the dispute (`resolved_upheld`), the owner could only observe that the benefit remained `pending`; the UI does not visibly prove the dispute was resolved, its status, when it was resolved, whether upheld/rejected, or an owner-safe resolution explanation. The required "owner refreshes → owner sees persisted resolution" is not met. Remediation B required. (The benefit state matching DB, ownership-unchanged, and no-stale-cross-user-data observations remain valid.) |
 | R-OWN-20 Complete event/audit trail | admin | Trust (Export Audit Trail) | **PASS** — export succeeded, **200 events, SHA-256 checksum present**, bounded; contains all S4 IDs (campaign, code, lead, txn, dispute); **no service-role key, JWT, or password**. DB chain (campaign `ddb3fb58`) confirms ordered lifecycle: campaign.created → code_created → bundle_created → code_validated (owner) → share_kit_prepared → attributed inquiry (invitee) → lead_created (L1) → lead_created (L2 tampering) → lead_qualified → wallet.transaction_created → reward_eligibility_created → benefit_explanation_created; dispute created/resolved linked via wallet_transaction_id. Append-only |
 
-**Functional total: 20 / 20 PASS.** The mandatory correct-owner invariant held end-to-end (benefit owned by `refv1-staging-owner`, the code owner — never the invitee or admin, and never the caller-injected owner).
+**Functional total: 18 / 20 PASS, 2 FAIL (R-OWN-09, R-OWN-19 — both P1).** The mandatory correct-owner invariant itself held end-to-end (benefit owned by `refv1-staging-owner`, the code owner — never the invitee or admin, and never the caller-injected owner); the two failures are **user-journey integration gaps at the edges of the flow, not defects in the ownership/reward engine**: (1) the invitee's real web submission does not create the qualifiable lead the admin qualifies, and (2) the owner cannot see the dispute resolution in the UI.
+
+> **Post-review reclassification (2026-07-15).** The Stage 4 review determined that R-OWN-09 and R-OWN-19, originally recorded as PASS-with-findings, are **contract violations** and must be **FAIL / P1**. The directive explicitly prohibited replacing a missing invitee lead UI with an API-only or administrator-created substitute (R-OWN-09), and required the owner to *see* the persisted resolution after refresh (R-OWN-19). This ledger has been corrected: **Stage 4 = FAIL — P1 remediation required (P0 = 0, P1 = 2)**. All other Stage 4 evidence below is preserved unchanged and remains valid.
 
 ### 9.3 Cross-user isolation
 
@@ -780,12 +782,20 @@ Controlled IDs: campaign `ddb3fb58-8b96-4133-abfd-59a7c23099eb`; owner-owned cod
 
 Across all three actors' sessions, the **only** external host contacted was `fonts.googleapis.com` (Google Fonts stylesheet, 200) — no production backend (`carup-backend.vercel.app`), no production Supabase, no WhatsApp/Telegram/Facebook/email/payment/payout/AI provider. No real reward, payment, or settlement occurred (benefit stayed `pending`). `carup.app/r/…` appears only as an href in the generated share link, never fetched.
 
-### 9.5 Findings (none blocking; P0 = 0, P1 = 0)
+### 9.5 Findings
 
-- **P2 (new) — invitee qualifiable-lead UI gap.** The invitee's genuine web referral action (marketplace inquiry via `?ref=`) carries attribution but persists a `marketplace_inquiry` referral event, **not** a qualifiable `local_marketplace.lead_created`. The qualifiable lead — the object the admin qualify→reward path operates on — has **no non-admin web UI**; in the deployed app it is created only via the admin console (or the public API / channel gateway, both used by mobile/agent/operator flows). For this stage the qualifiable journey lead was created via the admin Local Leads UI (real V1 operator UI), and the correct-owner invariant was fully proven. This is a design/integration seam (the invitee's own web submission does not itself become the reward-driving lead). **Owner decision required:** confirm whether operator/channel-mediated qualifiable leads are intended V1 scope, or whether to schedule a marketplace-inquiry→lead bridge / self-service invitee lead UI (candidate is Full-Vision-adjacent; not built here to avoid introducing Wave A scope).
-- **P3 (new) — no owner dispute-resolution display.** The owner Refer & Earn page has no dispute list/status view (Phase E), so a resolved dispute is visible to the owner only implicitly through the (unchanged) benefit state.
-- **P3 (new) — `GET /referrals/agent/tools` returns 500 on staging.** Powers only the decorative "Assistant Tools" panel on the owner page; the page degrades gracefully (`.catch`). No effect on the wallet/validate/share/dispute/attribution journey.
-- **P2 (carried, Stage 3) — deployed staging `NODE_ENV=test` bypasses CSRF by default.** Not resolved; **not** re-verified as enforced here. Carried forward: **Stage 9 must prove production is not `NODE_ENV=test`**, and **Stage 11 must run a real production CSRF negative test after cutover authorization**.
+**P1 (blocking — Stage 4 FAIL, remediation required):**
+
+- **P1-1 — R-OWN-09: invitee-to-lead journey does not complete through the real user flow.** The invitee's genuine web referral action (marketplace inquiry via `?ref=`) carries attribution but persists a `marketplace_inquiry` referral event, **not** a qualifiable `local_marketplace.lead_created`. The qualifiable lead — the object the admin qualify→reward path operates on — has **no non-admin web UI**, and for this stage it was created by the administrator through the Local Leads console. The directive explicitly prohibited an API-only or administrator-created substitute for the missing invitee lead UI. Remediation A: the attributed marketplace inquiry must create (or atomically bridge to) the existing qualifiable local referral lead, deriving campaign/code/owner server-side from the validated referral code, idempotently, with no reward at inquiry time.
+- **P1-2 — R-OWN-19: owner-visible dispute lifecycle is incomplete.** The Refer & Earn interface has no dispute list or resolution-status display, so the owner cannot see that a dispute was resolved, its status, timestamp, upheld/rejected outcome, or an owner-safe explanation. Remediation B: add an owner-scoped dispute-read path and surface open/resolved status + owner-safe outcome on Refer & Earn.
+
+Both P1s are **user-journey integration gaps at the boundaries of the flow, not defects in the ownership/reward engine** — the correct-owner invariant, tampering protection, duplicate protection, no-maturity, and wallet isolation all held.
+
+**P3 (non-blocking, recorded for later):**
+
+- **`GET /referrals/agent/tools` returns 500 on staging.** Powers only the decorative "Assistant Tools" panel on the owner page; the page degrades gracefully (`.catch`). No effect on the wallet/validate/share/dispute/attribution journey. (Not part of this remediation.)
+
+**P2 (carried, Stage 3) — deployed staging `NODE_ENV=test` bypasses CSRF by default.** Not resolved; **not** re-verified as enforced here. Carried forward: **Stage 9 must prove production is not `NODE_ENV=test`**, and **Stage 11 must run a real production CSRF negative test after cutover authorization**.
 
 ### 9.6 Stage 4 evidence summary
 
@@ -794,26 +804,26 @@ Stage: Stage 4 — Owner/invitee correct-attribution journey
 Exact SHA: 6214f3dd7aef7a24d33170009164d8f4932ab429
 Environment: deployed staging (carup-staging / carup-backend-staging), Supabase eoyenigwevnxwwhyhaer
 Security preconditions: PAT revoked+verified (401); hygiene clean; 3 staging logins pass; production creds unused (pending separate rotation)
-Owner/invitee functional cases: R-OWN-01…20 = 20/20 PASS
+Owner/invitee functional cases: R-OWN-01…20 = 18/20 PASS, 2 FAIL (R-OWN-09, R-OWN-19 — P1)
 Correct-owner attribution proof: PASS — wallet txn 138e4d92 user_id = refv1-staging-owner (= code owner), ≠ invitee, ≠ admin; caller-injected owner ignored
 Wallet result: exactly one pending benefit, amount 15, owner wallet pending_balance 0→15
-Dispute lifecycle: owner filed (ff0e672c, opened_by owner) → admin resolved (resolved_upheld, reason, admin); benefit stayed pending
+Dispute lifecycle: owner filed (ff0e672c, opened_by owner) → admin resolved (resolved_upheld, reason, admin); benefit stayed pending — BUT resolution not owner-visible in UI (P1-2)
 Authorization checks: invitee→owner wallet 403; owner→admin qualify/resolve 403; unauth 401; invitee own wallet 404 (no benefit)
 Audit/event trail: 200-event export, SHA-256 checksum, all S4 IDs present, no secrets; ordered lifecycle chain complete, append-only
 Commands/tests run: Playwright-driven UI journeys (owner/invitee/admin); staging-only read-only PostgREST verification; authenticated tampering + negative-auth fetches
-Pass totals: 20/20 functional; 6/6 cross-user isolation; network sweep clean
-Failures: 0
-Defects: P0=0, P1=0, P2=2 (new invitee-lead-UI gap + carried CSRF), P3=2 (owner dispute display, agent/tools 500)
+Pass totals: 18/20 functional; 6/6 cross-user isolation; network sweep clean
+Failures: 2 (R-OWN-09 invitee-to-lead journey; R-OWN-19 owner-visible dispute resolution)
+Defects: P0=0, P1=2 (R-OWN-09, R-OWN-19), P2=1 (carried CSRF), P3=1 (agent/tools 500)
 Data created: staging-only REFV1-STAGING-S4 synthetic records (campaign, owner code, share asset, marketplace inquiry, leads L1+L2, wallet txn, dispute); 0 production
 Production changed: No
 External providers changed: No (only Google Fonts loaded)
 Evidence recorded: this file
-Gate result: PASS
-Next single action: begin Stage 5 (import/container referral journey) in a separate execution
+Gate result: FAIL — P1 remediation required
+Next single action: remediate both P1s on a focused branch (fix/referral-v1-stage4-journey-closure); re-run Stage 4 after the remediation PR is owner-approved and merged
 ```
 
 ## Stage 4 decision
 
-# PASS
+# FAIL — P1 remediation required
 
-The complete owner/invitee attribution and wallet journey was proven against the deployed staging application: attribution was captured from the referral link and survived navigation and authentication; the invitee remained the invitee; the admin qualified the lead to create exactly one pending benefit; and the benefit belongs to the original referral-code owner (`refv1-staging-owner`) — never the invitee, the admin, or a caller-injected owner. Duplicate qualification created no second benefit, no reward matured from login/registration, the owner saw and correctly-explained the pending benefit, and the dispute was filed by the owner and resolved by the admin through the real UI with enforced reasons. Cross-user, cross-role, and unauthenticated access were all denied (403/401), the audit trail is complete with a checksum and no secrets, and no production contact, external-provider activation, or real reward/settlement occurred. Two P2 and two P3 findings are recorded (invitee qualifiable-lead UI gap; carried CSRF test-mode; owner dispute display; agent/tools 500) — none blocking. Stage 5 may begin in a separate execution.
+Stage 4 executed in full against the deployed staging application, and the security-critical core held: attribution was captured from the referral link and survived navigation and authentication; the invitee remained the invitee; qualification created exactly one pending benefit owned by the original referral-code owner (`refv1-staging-owner`) — never the invitee, the admin, or a caller-injected owner; duplicate qualification created no second benefit; no reward matured from login/registration; cross-user/role/unauthenticated access were denied (403/401); and the audit trail is complete with a checksum and no secrets. However, **two acceptance-contract violations reclassify the stage to FAIL (P1 = 2)**: R-OWN-09 — the invitee's real marketplace inquiry did not create the qualifiable lead the admin qualifies (the qualifiable lead was administrator-created, which the directive prohibited); and R-OWN-19 — the owner cannot see the dispute resolution in the Refer & Earn UI. Both are user-journey integration gaps at the boundaries of the flow, not defects in the ownership/reward engine. Remediation A (inquiry→qualifiable-lead bridge) and Remediation B (owner-visible dispute status) are required on a focused branch before Stage 4 can be re-run. Production remains unchanged. Stage 5 must not begin until Stage 4 passes.
