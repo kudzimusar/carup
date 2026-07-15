@@ -17,7 +17,7 @@
 | Stage | Status | Production changed |
 |---|---|---|
 | 0 — Freeze and verify current state | **PASS** | No |
-| 1 — Current-main automated regression | NOT STARTED | No |
+| 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | NOT STARTED | No |
 | 3 — Staging admin web acceptance | NOT STARTED | No |
 | 4 — Owner/invitee correct-attribution journey | NOT STARTED | No |
@@ -203,3 +203,121 @@ Next single action: begin Stage 1 current-main automated regression on exact SHA
 # PASS
 
 The repository, deployment statuses, environment bindings, referral schema state, and PR boundary are frozen and recorded. Production remains unchanged. Stage 1 may begin only from the exact approved SHA above.
+
+---
+
+# Stage 1 — Current-main automated regression
+
+- Executed: `2026-07-15`
+- Gate result: **PASS**
+- Production changed: **No**
+- Database writes: **None**
+- Deployments promoted/re-aliased: **None**
+- PRs merged/rebased: **None**
+
+## 1. Execution environment
+
+```text
+Exact SHA under test: 6214f3dd7aef7a24d33170009164d8f4932ab429
+Checkout: fresh detached git worktree of the frozen SHA (clean tree, no local modifications)
+Pre-flight: origin/main re-fetched and confirmed still exactly 6214f3dd7aef7a24d33170009164d8f4932ab429 — no Stage 0 refresh required
+Machine: macOS (Darwin 21.6.0), local release-engineering workstation
+Node: v20.20.2   npm: 10.8.2   Playwright: 1.60.0 (chromium-1223 installed)
+```
+
+Canonical CI parity reference: `.github/workflows/referral-ci.yml` (Referral Engine CI). That workflow ran on `3e37ba0440672189febc0edf32237dfe4ed5855f` (this ledger branch — tree = frozen main + this documentation file only) on 2026-07-15 with conclusion **success**, providing independent ubuntu/node-20 confirmation of the same suites.
+
+## 2. Baseline commands, exit codes and totals
+
+Backend suites require the same non-secret dummy environment values that `referral-ci.yml` uses to satisfy import-time checks (the suites self-mock the database; no live Supabase is contacted):
+
+```text
+SUPABASE_URL=http://localhost:54321
+SUPABASE_SERVICE_ROLE_KEY=dummy_ci_key_not_a_secret
+JWT_SECRET=dummy_ci_jwt_secret_not_a_secret
+NODE_ENV=test
+```
+
+| # | Command | Exit | Result |
+|---|---|---:|---|
+| 1 | `npm ci` | 0 | 1463 packages installed; 2 upstream deprecation warnings (`uuid@7.0.3`, `recharts@2.15.4`); `npm audit` advisory: 28 vulnerabilities (3 low / 18 moderate / 7 high) — dependency-level, pre-existing, non-gating |
+| 2 | `npm exec --workspace=web -- tsc -p tsconfig.app.json --noEmit` | 0 | 0 TypeScript errors |
+| 3 | `npm run test:unit --workspace=web` (canonical single-worker run: `npx vitest run --maxWorkers=1` in `web/`) | 0 | **63 files passed, 506/506 tests passed, 0 failed, 0 skipped** |
+| 4 | `npm run ts:check --workspace=mobile` | 0 | 0 TypeScript errors |
+| 5 | `node --test` per file: `backend/tests/auth-login.test.js`, all 16 `backend/tests/referral-*.test.js`, plus `backend/tests/seed-uat-referral-users.test.js` (18 files, CI env above) | 0 | **171/171 tests passed, 0 failed, 0 skipped, 0 cancelled** |
+| 6 | `node --check backend/scripts/uat/referral-uat-journeys.mjs` | 0 | UAT runner syntax valid |
+| 7 | `npm run build --workspace=web` | 0 | Production build success in 46.3s; only warning: standing Rollup chunk-size advisory (chunks > 500 kB) |
+| 8 | `npx playwright test e2e/referral-staging.spec.ts --workers=1` (in `web/`, against local Vite server) | 0 | **2 passed, 2 skipped, 0 failed** (16s) |
+| 9 | `npx vitest run src/config/featureRegistry.route-validation.test.ts` (in `web/`) | 0 | 7/7 passed — every registered referral route present in `App.tsx` |
+| 10 | `git diff --check` (clean worktree at frozen SHA) | 0 | clean |
+
+Total across executed suites: **679 distinct tests passed, 0 failed, 2 credential-gated Playwright skips** (web unit 506 + backend 171 + Playwright 2; the explicit 7/7 feature-registry run in row 9 re-executes tests already contained in the web unit 506 and is not double-counted).
+
+## 3. Referral browser-test discovery
+
+```bash
+find web/e2e -name 'referral-*.spec.ts' -print
+```
+
+```text
+web/e2e/referral-staging.spec.ts
+```
+
+This is the only referral Playwright spec at this SHA. It belongs to `web/playwright.config.ts` (`testDir: ./e2e`, chromium, no `webServer` block — server started externally). Executed with one worker against a locally served frontend of the frozen SHA:
+
+- `login page renders the form` — **pass**
+- `invalid credentials surface a readable, accessible inline alert` — **pass**
+- `admin logs in and reaches the referral admin area` — **skipped by design** (requires `E2E_UAT_ADMIN_*` staging credentials; exercised for real in Stage 3)
+- `owner logs in and sees the Refer & Earn wallet page` — **skipped by design** (requires `E2E_UAT_OWNER_*` staging credentials; exercised for real in Stage 3/4)
+
+## 4. Current equivalents of the required auxiliary gates
+
+| Required gate | Current equivalent at this SHA | Result |
+|---|---|---|
+| Referral route-smoke | `backend/tests/referral-engine-route-smoke.test.js` (mounts real `createReferralRouter` over real HTTP with in-memory services; verifies route registration + public/operator/webhook-secret auth behaviour) | **pass** (within the 171) |
+| Referral E2E-stack | `backend/tests/referral-engine-e2e-stack.test.js` (full production service-graph wiring, attribution → reward → trust → audit chain, in-process) | **pass** (within the 171) |
+| Referral UAT guard | `backend/tests/referral-uat-guard.test.js` + `backend/tests/referral-uat-auth-guard.test.js` (staging-target guard PASS/FAIL matrix incl. the historical P1 production-host laundering case; switch-role escalation guard) | **pass** (within the 171) |
+| Feature Registry referral route validation | `web/src/config/featureRegistry.route-validation.test.ts` — referral routes `/dashboard/referrals`, `/admin/referrals`, `/admin/referrals/{codes,local-leads,import-routes,marketing,trust}` all registered and routed | **pass** (7/7) |
+| Secret scanning | Exact `ci.yml` `secret-scan` fallback grep (`service_role`, private-key blocks, `sk-…` tokens over js/ts/tsx/json/sql, excluding `node_modules`/`dist`) | **pass** — 120 matches, every one a literal `service_role` role-name string in SQL migrations/backend RLS code; **zero credentials, zero private keys, zero token-shaped matches** |
+| Client-bundle staging/production reference check | **No bundle-check script exists at this SHA** (verified). Equivalent manual scan over freshly built `web/dist`: no `service_role`/`SERVICE_ROLE` match, no private-key material, no `sk-…` token, no staging Supabase ref (`eoyenigwevnxwwhyhaer`), no production Supabase ref (`vhmnajoeicasaigiophh`) | **pass** (see note N3) |
+| `git diff --check` | Run in the clean frozen-SHA worktree | **pass** (exit 0) |
+
+## 5. Notes and observations (non-gating)
+
+- **N1 — Backend env prerequisite.** A bare `node --test backend/tests/referral-*.test.js` without the CI dummy env fails at module load (`backend/db/supabase.js` throws on missing `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` — only `referral-engine-route-smoke.test.js` transitively imports it). With the canonical CI dummy values the full set passes 171/171. Not a product defect; recorded so future gates use the canonical invocation.
+- **N2 — Local vitest parallelism flake (not a defect).** On this workstation, the default multi-worker `vitest run` intermittently times out (5s per-test budget) in two non-referral admin-console test files (`FeatureGovernanceConsole.test.tsx`, `IdentityVerificationCaseManagement.test.tsx`) under jsdom worker contention. Both files pass 38/38 in isolation, the full suite passes 506/506 single-worker, and Referral Engine CI passed the identical tree on ubuntu on 2026-07-15. Classified as local-hardware resource contention; canonical evidence is the single-worker run plus CI.
+- **N3 — Fallback backend URL in bundle (by design).** The built bundle contains exactly one occurrence of `https://carup-backend.vercel.app` — the documented last-resort fallback in `web/src/lib/apiClient.ts` (used only when `VITE_API_URL` is unset and the host is not local; deployed staging sets `VITE_API_URL` to the staging backend). It is a public URL, not a secret. Recorded for completeness.
+- **N4 — First Playwright attempt flake.** On the first (cold) run the login-render test hit the 30s timeout while the dev server compiled, then passed on automatic retry (suite exit 0). The recorded warm run is clean: 2 passed / 2 skipped in 16s.
+
+## 6. Defects
+
+```text
+P0: 0
+P1: 0
+P2/P3 opened: 0 (observations N1–N4 recorded above; none is a product defect at this SHA)
+```
+
+## 7. Stage 1 evidence summary
+
+```text
+Stage: Stage 1 — Current-main automated regression
+Exact SHA: 6214f3dd7aef7a24d33170009164d8f4932ab429
+Environment: clean local worktree (macOS/node 20.20.2) + Referral Engine CI (ubuntu/node 20) on the identical tree
+Actions completed: full baseline suite, referral browser-spec discovery and execution, route-smoke/e2e-stack/UAT-guard/feature-registry/secret-scan/bundle-scan/git-diff gates
+Commands/tests run: 10 gate commands recorded above with exact invocations
+Pass totals: web unit 506/506; backend referral+auth+seed 171/171; Playwright referral 2 passed; feature-registry 7/7; all TypeScript checks 0 errors; web production build success
+Failures: 0 (in canonical invocations)
+Skips: 2 Playwright journeys, credential-gated by design (covered in Stages 3–4)
+Defects: none (P0 = 0, P1 = 0)
+Data created: none (no database contacted; self-mocked suites only)
+Production changed: No
+Evidence recorded: this file
+Gate result: PASS
+Next single action: begin Stage 2 staging schema and account readiness against Supabase project eoyenigwevnxwwhyhaer
+```
+
+## Stage 1 decision
+
+# PASS
+
+Zero test failures, zero TypeScript errors, successful web production build, successful mobile type-check, all expected referral routes present (backend route-smoke + web feature registry), and no browser/mobile secret exposure. Production remains unchanged. Stage 2 may begin.
