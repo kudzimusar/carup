@@ -667,3 +667,11 @@ Evidence recorded: this file
 Gate result: BLOCKED — awaiting owner revocation of the Stage 2 token
 Next single action: owner revokes the Stage 2 Supabase access token in the dashboard, then Stage 4 re-runs from the security preconditions
 ```
+
+## 5. Second revocation-verification attempt — STILL BLOCKED
+
+- Attempted: `2026-07-15` (after the owner reported dashboard revocation)
+- Verification: `GET https://api.supabase.com/v1/projects` with the Stage 2 token → **HTTP 200**; confirmed once more with cache-busting → **HTTP 200**. The Stage 2 token remains **ACTIVE**; status only was captured (no body read, no token printed or saved).
+- Interpretation: the Supabase dashboard lists personal access tokens by **name and creation date only** — token values are never displayed — so the revocation most likely removed a **different** token on the account.
+- Unblock guidance recorded for the owner: in **supabase.com/dashboard → Account → Access Tokens**, either identify the token generated for Stage 2 by its name/creation date (created 2026-07-15 or earlier, supplied for the Stage 2 unblock) and revoke it, or — reliably — **revoke ALL personal access tokens** on the account (the Supabase CLI login can be re-established afterwards with `supabase login`; no production runtime credential is affected by PAT revocation).
+- Stage 4 remains **NOT STARTED**: no run identifier, no data, no staging login, no journey action. Local hygiene state from §2 is unchanged.
