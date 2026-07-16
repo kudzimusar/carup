@@ -19,6 +19,9 @@ import { REFERRAL_TABLES, createSupabaseReferralRepository } from './referralEng
 
 const DEFAULT_CURRENCY = 'USD';
 const DEFAULT_PLATFORM_TENANT = 'platform';
+const DEFAULT_PRODUCTION_PUBLIC_APP_URL = 'https://carup.app';
+const DEFAULT_STAGING_PUBLIC_APP_URL = 'https://carup-staging.vercel.app';
+const DEFAULT_LOCAL_PUBLIC_APP_URL = 'http://localhost:5173';
 const SIGNUP_EVENT_TYPES = new Set(['user.signup', 'auth.signup', 'member.registered']);
 const RESTRICTED_FINANCIAL_STATES = new Set([
   WALLET_TRANSACTION_STATUSES.ELIGIBLE,
@@ -66,6 +69,81 @@ function assertEnum(value, values, label) {
 function cleanMetadata(metadata) {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return {};
   return metadata;
+}
+
+function normalizePublicAppUrl(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const url = new URL(withProtocol);
+    if (!['http:', 'https:'].includes(url.protocol)) return null;
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function hostnameIncludes(value, pattern) {
+  return String(value || '').toLowerCase().includes(pattern);
+}
+
+export function resolveReferralPublicAppUrl(options = {}, env = process.env) {
+  const explicit = normalizePublicAppUrl(
+    options.baseUrl
+      || options.publicAppUrl
+      || env.CARUP_PUBLIC_BASE_URL
+      || env.CARUP_PUBLIC_APP_URL
+      || env.PUBLIC_APP_URL
+      || env.VITE_PUBLIC_APP_URL
+  );
+  if (explicit) return explicit;
+
+  const projectName = String(env.VERCEL_PROJECT_NAME || env.CARUP_VERCEL_PROJECT || '').toLowerCase();
+  const productionHost = String(env.VERCEL_PROJECT_PRODUCTION_URL || '').toLowerCase();
+  const deploymentHost = String(env.VERCEL_BRANCH_URL || env.VERCEL_URL || '').toLowerCase();
+  const appEnv = String(env.CARUP_ENV || env.APP_ENV || env.NODE_ENV || '').toLowerCase();
+  const isStagingProject =
+    hostnameIncludes(projectName, 'staging')
+    || hostnameIncludes(productionHost, 'carup-staging')
+    || hostnameIncludes(deploymentHost, 'carup-staging')
+    || appEnv === 'staging';
+
+  if (env.VERCEL_ENV === 'preview') {
+    const previewUrl = normalizePublicAppUrl(env.VERCEL_BRANCH_URL || env.VERCEL_URL);
+    if (previewUrl && !hostnameIncludes(previewUrl, 'carup-backend')) return previewUrl;
+    if (isStagingProject) return DEFAULT_STAGING_PUBLIC_APP_URL;
+  }
+
+  if (isStagingProject) return DEFAULT_STAGING_PUBLIC_APP_URL;
+
+  if (appEnv === 'development' || appEnv === 'dev' || appEnv === 'test') {
+    return DEFAULT_LOCAL_PUBLIC_APP_URL;
+  }
+
+  return DEFAULT_PRODUCTION_PUBLIC_APP_URL;
+}
+
+export function sanitizeCallerShareOptions(options = {}) {
+  const safeOptions = { ...cleanMetadata(options) };
+  for (const key of [
+    'baseUrl',
+    'base_url',
+    'publicAppUrl',
+    'public_app_url',
+    'PUBLIC_APP_URL',
+    'VITE_PUBLIC_APP_URL',
+    'CARUP_PUBLIC_BASE_URL',
+    'CARUP_PUBLIC_APP_URL',
+    'env',
+  ]) {
+    delete safeOptions[key];
+  }
+  return safeOptions;
 }
 
 function asIso(value, fallback = null) {
@@ -201,7 +279,7 @@ function buildCode39BarcodeSvg(code) {
 export function buildReferralShareAssets(codeRecord, campaignRecord = null, options = {}) {
   if (!codeRecord?.code) throw new ValidationError('Referral code is required to build share assets.');
   const code = normalizeReferralCode(codeRecord.code);
-  const baseUrl = String(options.baseUrl || process.env.CARUP_PUBLIC_BASE_URL || 'https://carup.app').replace(/\/$/, '');
+  const baseUrl = resolveReferralPublicAppUrl(options, options.env || process.env);
   const whatsappNumber = options.whatsappNumber || process.env.CARUP_WHATSAPP_NUMBER || '';
   const telegramBot = options.telegramBot || process.env.CARUP_TELEGRAM_BOT || 'CarUpBot';
   const campaignSlug = campaignRecord?.slug || codeRecord.campaign_slug || 'referral';
@@ -600,7 +678,7 @@ export class ReferralEngineService {
     const code = await this.repository.findOne(REFERRAL_TABLES.codes, { code: normalizeReferralCode(input.code) });
     if (!code) throw new NotFoundError('Referral code not found.', { code: input.code });
     const campaign = code.campaign_id ? await this.repository.findOne(REFERRAL_TABLES.campaigns, { id: code.campaign_id }) : null;
-    const assets = buildReferralShareAssets(code, campaign, { ...this.shareOptions, ...input.options });
+    const assets = buildReferralShareAssets(code, campaign, { ...sanitizeCallerShareOptions(input.options), ...this.shareOptions });
     return this.repository.insert(REFERRAL_TABLES.shareAssets, {
       tenant_id: code.tenant_id,
       code_id: code.id,
