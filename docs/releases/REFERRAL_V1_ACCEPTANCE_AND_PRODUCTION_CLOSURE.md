@@ -20,8 +20,8 @@
 | 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
-| 4 — Owner/invitee correct-attribution journey | **FAIL — P1 remediation submitted (PR #118), awaiting owner-approved merge + Stage 4 re-run** | No |
-| 5 — Import/container referral journey | NOT STARTED | No |
+| 4 — Owner/invitee correct-attribution journey | **PASS** — PR #118 merged, canonical staging re-run passed (R-OWN-01…20 = 20/20) | No |
+| 5 — Import/container referral journey | UNBLOCKED — NOT STARTED | No |
 | 6 — Simulated channel-attribution integration | NOT STARTED | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
 | 8 — Owner physical-device mobile gate | NOT STARTED | No |
@@ -611,7 +611,7 @@ An administrator operated the complete Referral Engine V1 through the real deplo
 
 ---
 
-# Stage 4 — Owner/invitee correct-attribution journey (BLOCKED — security precondition)
+# Stage 4 — Owner/invitee correct-attribution journey (PASS after remediation)
 
 - Attempted: `2026-07-15`
 - Gate result: **NOT STARTED — blocked by mandatory security precondition**
@@ -822,40 +822,130 @@ Gate result: FAIL — P1 remediation required
 Next single action: remediate both P1s on a focused branch (fix/referral-v1-stage4-journey-closure); re-run Stage 4 after the remediation PR is owner-approved and merged
 ```
 
-## 10. Stage 4 P1 remediation — submitted (PR #118, unmerged)
+## 10. Stage 4 P1 remediation — merged and deployed (PR #118)
 
-- Base main SHA (re-confirmed unchanged): `6214f3dd7aef7a24d33170009164d8f4932ab429`
-- Remediation branch: `fix/referral-v1-stage4-journey-closure`
-- Runtime PR: **#118** (open, unmerged, awaiting owner approval)
-- Scope guard: Referral V1 only — no permanent codes, universal widget, QR, multi-touch attribution, ambassador/receiver dashboards, payout batches, Wave A schema, PR #105 code, or Stage 5 functionality. **No schema changes / migrations.**
+- Runtime PR: **#118** — merged `2026-07-16T14:56:21Z`
+- PR #118 head SHA before merge: `dd50e8514ecf06efc270411017d45fdac6d1ef70`
+- Main merge commit under acceptance: `b3355d0a334e8169da7b94f2b749ee93a8086918`
+- Merged-main CI: **PASS** — GitHub Actions run `29508864700` (`CI`, completed success, `2026-07-16T14:59:25Z`)
+- Scope guard: Referral V1 only — no permanent codes, universal widget, QR, multi-touch attribution, ambassador/receiver dashboards, payout batches, Wave A schema, PR #105 code, or Stage 5 runtime functionality.
 
-**Remediation A (fixes P1-1 / R-OWN-09).** The invitee's real attributed marketplace inquiry now bridges into the canonical qualifiable `local_marketplace.lead_created` lead: `MarketplaceReferralBridgeService.bridgeInquiryToReferralLead()` invokes the existing `ReferralLocalMarketplaceService.createLead()` when the inquiry carries a valid referral code (best-effort; never breaks the inquiry). Owner/campaign/code are derived server-side from the validated code (caller-supplied owner fields never forwarded); idempotent per inquiry (one inquiry → at most one lead, keyed on the inquiry id as the lead `subject_id` + `source_inquiry_id`); invalid/missing code → no attributed lead; no wallet reward at inquiry time.
+**Remediation A (fixes P1-1 / R-OWN-09).** The invitee's real attributed marketplace inquiry now durably bridges into the canonical qualifiable `local_marketplace.lead_created` lead. A successful valid attributed inquiry returns only after a matching inquiry-derived lead event exists; invalid/missing referral codes create no attributed lead; and inquiry submission never creates or matures a wallet reward. Owner/campaign/code are derived server-side from the validated referral code and trusted inquiry/tenant context, not caller-supplied ownership fields.
 
-**Remediation B (fixes P1-2 / R-OWN-19).** New owner-scoped read `GET /api/referrals/trust/disputes/mine` (`authorizeRole()`, owner derived server-side, transaction-ownership gated) returns an owner-safe projection (`status`, `submitted_at`, `resolved_at`, `owner_reason`, status-derived `owner_safe_resolution`, `benefit_status`) — never the raw admin resolution note or risk signals. Refer & Earn now shows per-benefit dispute status/resolution + timestamps and refetches after filing.
+**Remediation B (fixes P1-2 / R-OWN-19).** Owner disputes are transaction-ownership gated (`wallet_transaction_id` required for owner filing, transaction loaded server-side, 404 when absent, 403 for another owner or tenant). Caller-supplied ownership fields are ignored/rejected. Owner reads first scope to the authenticated owner's wallet transactions, apply stable pagination after ownership scoping, and return only owner-safe projection fields. Refer & Earn now shows dispute status, owner-safe outcome, and timestamps after refresh.
 
-**Verification (local, frozen-SHA worktree):**
+**Atomic idempotency and schema impact.** PR #118 added an idempotent staging-applied migration:
 
-| Gate | Result |
+```text
+database/migrations/20260715205718_referral_v1_lead_created_idempotency.sql
+```
+
+The final index is tenant-scoped and inquiry-specific: it enforces uniqueness on `(tenant_id, metadata->>'source_inquiry_id')` only for `event_type = 'local_marketplace.lead_created'`, `subject_type = 'local_marketplace_lead'`, and non-blank `metadata.source_inquiry_id`. It does **not** constrain unrelated manually created local leads. Conflict recovery queries by tenant, event type, subject type, and `metadata.source_inquiry_id`; it never recovers a lead from another tenant. Rollback is explicit: drop only the new partial expression index. The corrected migration was applied to **staging only** (`eoyenigwevnxwwhyhaer`); production remains unchanged.
+
+**Durability and duplicate-validation result.** The bridge uses the server-side authoritative referral validation path and no trusted client-supplied validation object. The behavioral tests prove the intended event counts: one validation event, one marketplace inquiry event, and one inquiry-derived lead-created event for the same inquiry, including retry and concurrent execution.
+
+**Verification added in PR #118.** Backend and frontend tests now cover real `createInquiry()` behavior, tenant-safe idempotency/concurrency, durable failure handling, invalid-code no-op behavior, no wallet reward at inquiry time, owner-field tampering ignored, authenticated dispute filing/listing/resolution, cross-user and cross-tenant dispute denial, safe owner projection, confidential-field exclusion, and pagination that remains correct beyond 1,000 newer unrelated disputes.
+
+## 11. Canonical post-remediation Stage 4 re-run — PASS
+
+- Executed: `2026-07-17` (JST)
+- Gate result: **PASS**
+- Production changed: **No**
+- External providers changed: **No**
+- Environment: canonical staging frontend `https://carup-staging.vercel.app`, canonical staging backend `https://carup-backend-staging.vercel.app`, Supabase staging `eoyenigwevnxwwhyhaer`
+- Main SHA deployed to both canonical staging projects: `b3355d0a334e8169da7b94f2b749ee93a8086918`
+
+### 11.1 Deployment and environment verification
+
+| Check | Result |
 |---|---|
-| `npm ci` | exit 0 |
-| `tsc -p web/tsconfig.app.json --noEmit` | 0 errors |
-| web unit (`vitest run --maxWorkers=1`) | **516/516** (was 506; +10 new remediation tests) |
-| `ts:check --workspace=mobile` | 0 errors |
-| backend `node --test` (auth-login + referral-* + seed) | **187/187** (was 171; +16 new) |
-| marketplace-* + communication-engine suites | pass (no regression from the inquiry-service change) |
-| `npm run build --workspace=web` | success (only standing chunk-size warning) |
-| referral Playwright (`--workers=1`) | 2 passed, 3 credential-gated skips (incl. new closed-journey E2E) |
-| UAT runner `node --check` | ok |
-| secret scan (ci.yml fallback grep) | clean (0 credential-shaped matches) |
-| built-bundle scan | clean (no service-role/secret, no Supabase refs) |
-| `git diff --check` | clean |
+| Merged-main CI | **PASS** — `CI` run `29508864700`, commit `b3355d0a334e8169da7b94f2b749ee93a8086918` |
+| Frontend canonical deployment | **Ready** — alias `https://carup-staging.vercel.app`, deployment `https://carup-staging-5wubznfk0-pay-pass-project.vercel.app`, project `carup-staging`, commit `b3355d0a…` |
+| Backend canonical deployment | **Ready** — alias `https://carup-backend-staging.vercel.app`, deployment `https://carup-backend-staging-bde2ix7nz-pay-pass-project.vercel.app`, project `carup-backend-staging`, commit `b3355d0a…` |
+| Frontend API target | Deployed bundle contains `https://carup-backend-staging.vercel.app`; it does **not** contain `https://carup-backend.vercel.app`, production Supabase ref `vhmnajoeicasaigiophh`, `SUPABASE_SERVICE_ROLE`, or `service_role` |
+| Backend health | `GET /api/health` returned `status: UP` and `supabase.status: healthy` on the canonical staging backend |
+| Staging project proof | Canonical acceptance writes and evidence queries resolved in Supabase staging `eoyenigwevnxwwhyhaer`; production ref was absent from the commands and bundle scans |
+| Production target guard | Production-target refusal guard remained active; no production URL or production Supabase project was used for acceptance writes |
 
-New tests: `backend/tests/referral-marketplace-inquiry-lead-bridge.test.js` (9 — attribution, idempotency, owner-from-code, caller-tampering ignored, invalid code → no lead, no reward at inquiry, admin qualify → one pending benefit for the code owner, duplicate qualification blocked, invitee/admin get no benefit); `backend/tests/referral-owner-dispute-visibility.test.js` (7 — ownership isolation, owner-safe projection, resolved status, no admin-note leakage, 401 unauth); `web/src/lib/marketplaceReferral.test.ts` (5); `web/src/pages/dashboard/owner/ReferralWallet.disputes.test.tsx` (5). All 17 required backend/frontend assertions covered.
+### 11.2 Credentialed browser result
 
-**Not deployed. No staging or production data was altered by this remediation.** Stage 4 stays FAIL until PR #118 is owner-approved and merged, after which `main`'s new SHA is recorded here and Stage 4 is re-run end-to-end (invitee inquiry → bridged lead → admin qualifies that lead → owner sees benefit → dispute → resolution visible).
+The formal credentialed referral Playwright specification ran against canonical staging:
+
+```text
+cd web
+npx playwright test e2e/referral-staging.spec.ts --workers=1
+```
+
+Result:
+
+```text
+5 passed, 0 failed, 0 closed-journey skips (1.8m)
+```
+
+The closed journey used the real UI for login, invitee marketplace inquiry, admin exact-lead lookup, admin qualification, owner dispute filing, admin dispute resolution with required reason, and owner refresh/resolution display. API/DB checks were used only for setup and post-action verification.
+
+Controlled evidence:
+
+| Evidence | Value |
+|---|---|
+| Campaign | `07dc02e5-e23a-4fb5-a0b0-76bcda229d50` |
+| Owner-owned code row | `5cb10b69-9a4e-4c0d-a9d3-3d07434e8cf7` |
+| Inquiry | `35ffc5e3-845d-48c6-8fbe-3f7d0ec030c9` |
+| Lead event | `0dc0f663-07a3-4556-9e53-947982b838b1` |
+| Wallet transaction | `65b52247-198d-47d7-a58c-69c5eb115c6d` |
+| Dispute | `cfcb9c02-64b6-47ff-943d-b1ade2a0a9e6` |
+| Owner assertion | wallet transaction `user_id = u_uat_ref_owner_2026`, matching the referral-code owner |
+
+### 11.3 R-OWN case outcome
+
+| Case group | Result |
+|---|---|
+| R-OWN-01 … R-OWN-08 | **PASS** — owner wallet baseline/share flow, invitee attribution capture, and attribution survival through login |
+| R-OWN-09 | **PASS** — invitee's real marketplace inquiry persisted and produced the exact qualifiable inquiry-derived lead; `metadata.source_inquiry_id = 35ffc5e3-845d-48c6-8fbe-3f7d0ec030c9` |
+| R-OWN-10 … R-OWN-18 | **PASS** — caller-supplied owner fields ignored, admin qualified the exact lead, duplicate qualification blocked, exactly one pending benefit created for the code owner, invitee/admin received no transaction, and owner filed a dispute |
+| R-OWN-19 | **PASS** — after admin resolution, owner refresh showed the resolved status/outcome and timestamp in Refer & Earn |
+| R-OWN-20 | **PASS** — event/audit chain complete, no secrets in evidence, no provider activation |
+
+**Functional total: 20 / 20 PASS, 0 FAIL.**
+
+Post-action database assertions:
+
+```text
+lead source_inquiry_id matches inquiry: YES
+duplicate inquiry-derived lead count: 1
+wallet status: pending
+wallet owner: original code owner
+invitee wallet transaction count for this lead: 0
+admin wallet transaction count for this lead: 0
+dispute status/outcome: resolved_upheld
+resolved_at present: YES
+opened_by: owner
+resolved_by: admin
+audit event count for dispute lifecycle: 2
+```
+
+No reward became approved, payable, paid, or settled during Stage 4. No payment, payout, messaging, WhatsApp, Telegram, Facebook, email, or AI provider was activated.
+
+### 11.4 Stage 4 acceptance summary
+
+```text
+Stage: Stage 4 — Owner/invitee correct-attribution journey
+Exact SHA: b3355d0a334e8169da7b94f2b749ee93a8086918
+Environment: canonical staging (carup-staging / carup-backend-staging), Supabase eoyenigwevnxwwhyhaer
+Merged-main CI: PASS
+Credentialed browser suite: 5 passed, 0 failed, 0 closed-journey skips
+Owner/invitee functional cases: R-OWN-01…20 = 20/20 PASS
+Correct-owner attribution proof: PASS — wallet transaction owner is the referral-code owner, not invitee/admin
+Duplicate protection: PASS — one inquiry-derived lead and one pending wallet transaction
+Dispute lifecycle: PASS — owner filed, admin resolved with reason, owner saw resolved status/outcome/timestamp after refresh
+Production changed: No
+External providers changed: No
+Gate result: PASS
+Next single action: Stage 5 is unblocked and may begin as a separate execution; Stage 5 has not started in this ledger update
+```
 
 ## Stage 4 decision
 
-# FAIL — P1 remediation submitted (PR #118), awaiting owner-approved merge and Stage 4 re-run
+# PASS
 
-Stage 4 executed in full against the deployed staging application, and the security-critical core held: attribution was captured from the referral link and survived navigation and authentication; the invitee remained the invitee; qualification created exactly one pending benefit owned by the original referral-code owner (`refv1-staging-owner`) — never the invitee, the admin, or a caller-injected owner; duplicate qualification created no second benefit; no reward matured from login/registration; cross-user/role/unauthenticated access were denied (403/401); and the audit trail is complete with a checksum and no secrets. However, **two acceptance-contract violations reclassify the stage to FAIL (P1 = 2)**: R-OWN-09 — the invitee's real marketplace inquiry did not create the qualifiable lead the admin qualifies (the qualifiable lead was administrator-created, which the directive prohibited); and R-OWN-19 — the owner cannot see the dispute resolution in the Refer & Earn UI. Both are user-journey integration gaps at the boundaries of the flow, not defects in the ownership/reward engine. Remediation A (inquiry→qualifiable-lead bridge) and Remediation B (owner-visible dispute status) have been implemented on a focused branch and submitted as **PR #118** (documentation of that work is in §10 above; full regression green locally). Production remains unchanged and PR #118 is unmerged. Stage 4 is re-run only after PR #118 is owner-approved and merged; Stage 5 must not begin until Stage 4 passes.
+PR #118 has been merged into `main`, deployed to canonical staging, verified against Supabase staging `eoyenigwevnxwwhyhaer`, and re-tested through the credentialed closed owner/invitee journey. The two P1 failures that previously blocked Stage 4 are closed: R-OWN-09 now uses the invitee's real marketplace inquiry as the exact source of the qualifiable lead the admin qualifies, and R-OWN-19 now shows the owner the resolved dispute status/outcome/timestamp after refresh. All 20 Stage 4 owner/invitee acceptance cases pass. Production remains unchanged. Stage 5 is now **unblocked but not started**.
