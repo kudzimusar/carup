@@ -10,27 +10,29 @@ import { REFERRAL_CODE_TYPES, REFERRAL_EVENT_TYPES, WALLET_TRANSACTION_STATUSES 
 import { ConflictError, DatabaseError } from '../utils/errors.js';
 
 class MemoryReferralRepository {
-  constructor({ uniqueLeadSubject = false } = {}) {
+  constructor({ uniqueInquiryLead = false } = {}) {
     this.counter = 0;
-    this.uniqueLeadSubject = uniqueLeadSubject;
+    this.uniqueInquiryLead = uniqueInquiryLead;
     this.tables = new Map(Object.values(REFERRAL_TABLES).map((table) => [table, []]));
   }
   nextId(table) { this.counter += 1; return `${table}-${this.counter}`; }
   match(row, filters = {}) { return Object.entries(filters).every(([key, value]) => value === undefined || value === null || row[key] === value); }
   async insert(table, payload) {
+    const sourceInquiryId = payload.metadata?.source_inquiry_id || null;
     if (
-      this.uniqueLeadSubject &&
+      this.uniqueInquiryLead &&
       table === REFERRAL_TABLES.events &&
       payload.event_type === LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED &&
       payload.subject_type === 'local_marketplace_lead' &&
-      payload.subject_id &&
+      sourceInquiryId &&
       this.tables.get(table).some((row) =>
         row.event_type === payload.event_type &&
         row.subject_type === payload.subject_type &&
-        row.subject_id === payload.subject_id
+        row.tenant_id === payload.tenant_id &&
+        row.metadata?.source_inquiry_id === sourceInquiryId
       )
     ) {
-      throw new ConflictError('duplicate local marketplace lead subject');
+      throw new ConflictError('duplicate local marketplace inquiry lead');
     }
     const row = { id: payload.id || this.nextId(table), created_at: payload.created_at || new Date().toISOString(), ...payload };
     this.tables.get(table).push(row);
@@ -39,6 +41,9 @@ class MemoryReferralRepository {
   async findOne(table, filters = {}) { return this.tables.get(table).find((row) => this.match(row, filters)) || null; }
   async list(table, filters = {}, options = {}) {
     let rows = this.tables.get(table).filter((row) => this.match(row, filters));
+    if (options.jsonContains?.metadata) {
+      rows = rows.filter((row) => Object.entries(options.jsonContains.metadata).every(([key, value]) => row.metadata?.[key] === value));
+    }
     if (options.orderBy) rows = rows.sort((a, b) => String(b[options.orderBy] || '').localeCompare(String(a[options.orderBy] || '')));
     if (options.limit) rows = rows.slice(Number(options.offset || 0), Number(options.offset || 0) + Number(options.limit));
     return rows;
@@ -230,7 +235,7 @@ test('durable bridge failure is not reported as a successful attributed inquiry'
 });
 
 test('simultaneous bridge executions for the same inquiry produce one qualifiable lead', async () => {
-  const harness = await createHarness({ uniqueLeadSubject: true });
+  const harness = await createHarness({ uniqueInquiryLead: true });
   const inquiry = {
     id: 'same-inquiry-1',
     listing_id: 'listing-42',
@@ -249,6 +254,44 @@ test('simultaneous bridge executions for the same inquiry produce one qualifiabl
   assert.equal(second.bridged, true);
   assert.equal(first.lead_event_id, second.lead_event_id);
   assert.equal((await events(harness.repository, LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED)).length, 1);
+});
+
+test('bridge conflict recovery returns only the matching tenant inquiry lead', async () => {
+  const harness = await createHarness({ uniqueInquiryLead: true });
+  const inquiry = {
+    id: 'shared-inquiry-id',
+    listing_id: 'listing-42',
+    seller_tenant_id: 'tenant-1',
+    message: 'I want to buy a Toyota Aqua',
+    source_channel: 'web',
+    referral_code: harness.code.code,
+    buyer_id: INVITEE,
+  };
+
+  await harness.repository.insert(REFERRAL_TABLES.events, {
+    tenant_id: 'tenant-2',
+    event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED,
+    subject_type: 'local_marketplace_lead',
+    subject_id: 'manual-subject-can-overlap',
+    metadata: { source_inquiry_id: inquiry.id },
+  });
+
+  const first = await harness.bridge.bridgeInquiryToReferralLead({
+    inquiry,
+    actor: { actor_user_id: INVITEE, id: INVITEE, actor_type: 'user', actor_tenant_id: 'tenant-1' },
+  });
+  const second = await harness.bridge.bridgeInquiryToReferralLead({
+    inquiry,
+    actor: { actor_user_id: INVITEE, id: INVITEE, actor_type: 'user', actor_tenant_id: 'tenant-1' },
+  });
+
+  assert.equal(first.bridged, true);
+  assert.equal(second.bridged, true);
+  assert.equal(first.lead_event_id, second.lead_event_id);
+  const leadEvents = await events(harness.repository, LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED);
+  assert.equal(leadEvents.find((event) => event.id === first.lead_event_id)?.tenant_id, 'tenant-1');
+  assert.equal(leadEvents.filter((event) => event.tenant_id === 'tenant-1' && event.metadata?.source_inquiry_id === inquiry.id).length, 1);
+  assert.equal(leadEvents.filter((event) => event.tenant_id === 'tenant-2' && event.metadata?.source_inquiry_id === inquiry.id).length, 1);
 });
 
 test('admin qualification of the bridged lead creates exactly one pending benefit for the original code owner', async () => {

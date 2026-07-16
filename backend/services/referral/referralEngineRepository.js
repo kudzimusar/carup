@@ -52,6 +52,11 @@ export function createSupabaseReferralRepository(client) {
 
     async list(table, filters = {}, options = {}) {
       let query = applyFilters(client.from(table).select(options.select || '*'), filters);
+      if (options.jsonContains) {
+        for (const [key, value] of Object.entries(options.jsonContains)) {
+          query = query.contains(key, value);
+        }
+      }
       if (options.orderBy) {
         query = query.order(options.orderBy, { ascending: options.ascending ?? false });
       }
