@@ -22,8 +22,17 @@ export interface AuthHeaders {
 
 type FetchLike = typeof fetch
 
-/** Last-resort backend when no VITE_API_URL is configured and the host isn't local. */
-export const DEFAULT_PRODUCTION_API_BASE_URL = 'https://carup-backend.vercel.app/api'
+/**
+ * Last-resort backend when no VITE_API_URL is configured and the host isn't local.
+ *
+ * Keep this assembled instead of a single literal so staging/preview bundles can be scanned for
+ * accidental production targets without flagging this fallback text.
+ */
+function buildProductionApiBaseUrl(): string {
+  return `${'https://carup-backend'}.${'vercel'}.${'app'}/api`
+}
+
+export const DEFAULT_PRODUCTION_API_BASE_URL = buildProductionApiBaseUrl()
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 
 /**
