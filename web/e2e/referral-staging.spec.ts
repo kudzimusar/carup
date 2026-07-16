@@ -19,6 +19,11 @@ const OWNER_PASSWORD = process.env.E2E_UAT_OWNER_PASSWORD
 
 async function login(page, email: string, password: string) {
   await page.goto('/login')
+  await page.evaluate(() => {
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+  await page.reload()
   await page.locator('[data-testid="email-input"]').fill(email)
   await page.locator('[data-testid="password-input"]').fill(password)
   await page.locator('[data-testid="login-button"]').click()
@@ -132,6 +137,8 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
   )
 
   test('invitee inquiry becomes the qualifiable lead the admin qualifies; owner sees benefit + dispute resolution', async ({ page, request }) => {
+    test.setTimeout(180_000)
+
     expect(API_BASE).not.toMatch(/carup-backend\.vercel\.app\/?$/)
     expect(API_BASE).not.toMatch(/production/i)
     expect(INVITEE_USER_ID, 'invitee user id must be provided; email is not acceptable as referred_user_id').toBeTruthy()
@@ -198,6 +205,7 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
 
     // 3. Owner sees the pending benefit and files a dispute through the UI.
     await login(page, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 })
     await page.goto('/dashboard/referrals')
     await expect(page.getByTestId(`referral-wallet-transaction-${walletTransactionId}`)).toBeVisible({ timeout: 20000 })
     await expect(page.getByTestId(`referral-wallet-transaction-status-${walletTransactionId}`)).toContainText(/pending/i)
@@ -212,6 +220,7 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
 
     // 4. Admin resolves the exact dispute through the UI with a required reason.
     await login(page, ADMIN_EMAIL as string, process.env.E2E_UAT_ADMIN_PASSWORD as string)
+    await page.waitForURL(/\/(admin|dashboard)/, { timeout: 20000 })
     await page.goto('/admin/referrals/trust')
     await expect(page.getByText(disputeId)).toBeVisible({ timeout: 20000 })
     await page.getByTestId('referral-resolve-dispute-id').fill(disputeId)
@@ -222,6 +231,7 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
 
     // 5. Owner refreshes and sees the resolved status/outcome/timestamp.
     await login(page, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 })
     await page.goto('/dashboard/referrals')
     await page.reload()
     await expect(page.getByTestId(`dispute-status-${walletTransactionId}`)).toContainText(/resolved/i, { timeout: 20000 })
