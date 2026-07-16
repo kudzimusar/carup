@@ -9,8 +9,11 @@
 
 import { supabase } from '../../db/supabase.js';
 import { ReferralEngineService } from '../referral/referralEngineService.js';
+import { ReferralLocalMarketplaceService, LOCAL_MARKETPLACE_EVENT_TYPES } from '../referral/referralLocalMarketplaceService.js';
+import { REFERRAL_TABLES } from '../referral/referralEngineRepository.js';
 import { REFERRAL_CHANNELS, ACTOR_TYPES } from '../../constants/referral/referralConstants.js';
 import { MARKETPLACE_REFERRAL_EVENT_TYPES } from './marketplaceEventTypes.js';
+import { ConflictError } from '../../utils/errors.js';
 
 const SOURCE_CHANNEL_MAP = {
   web: REFERRAL_CHANNELS.WEB,
@@ -21,18 +24,42 @@ const SOURCE_CHANNEL_MAP = {
   qr: REFERRAL_CHANNELS.QR,
   operator: REFERRAL_CHANNELS.ADMIN,
 };
+const PLATFORM_TENANT = 'platform';
 
 function toReferralChannel(sourceChannel) {
   return SOURCE_CHANNEL_MAP[String(sourceChannel || '').toLowerCase()] || REFERRAL_CHANNELS.WEB;
 }
 
 export class MarketplaceReferralBridgeService {
-  constructor({ client = supabase, referralService = null } = {}) {
+  constructor({ client = supabase, referralService = null, localMarketplaceService = null } = {}) {
     this.referralService = referralService || new ReferralEngineService({ client });
+    // Reuse the canonical local-marketplace lead service so a bridged lead is byte-for-byte
+    // identical to an admin-console-created lead (same LEAD_CREATED event the qualify flow consumes).
+    this.localMarketplaceService =
+      localMarketplaceService || new ReferralLocalMarketplaceService({ referralService: this.referralService });
   }
 
   isSupportedEvent(eventType) {
     return MARKETPLACE_REFERRAL_EVENT_TYPES.includes(eventType);
+  }
+
+  async findInquiryLeadEvent(inquiryId, tenantId) {
+    if (!inquiryId || !tenantId) return null;
+    const rows = await this.referralService.repository.list(
+      REFERRAL_TABLES.events,
+      {
+        tenant_id: tenantId,
+        event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED,
+        subject_type: 'local_marketplace_lead',
+      },
+      {
+        jsonContains: { metadata: { source_inquiry_id: inquiryId } },
+        orderBy: 'created_at',
+        ascending: false,
+        limit: 1,
+      }
+    );
+    return rows[0] || null;
   }
 
   /**
@@ -56,6 +83,7 @@ export class MarketplaceReferralBridgeService {
     sourceChannel,
     actor = {},
     metadata = {},
+    validation = null,
   } = {}) {
     if (!this.isSupportedEvent(eventType)) {
       // Reject unknown types loudly to the caller — this is a programming error, not a runtime outage.
@@ -69,7 +97,7 @@ export class MarketplaceReferralBridgeService {
 
     try {
       if (referralCode) {
-        const attribution = await this.referralService.validateReferralCode({ code: referralCode, channel }, actor);
+        const attribution = validation || await this.referralService.validateReferralCode({ code: referralCode, channel }, actor);
         if (attribution && attribution.valid !== false && (attribution.code_id || attribution.attribution)) {
           const resolved = attribution.attribution || attribution;
           code_id = resolved.code_id || null;
@@ -107,6 +135,113 @@ export class MarketplaceReferralBridgeService {
     } catch (error) {
       console.warn('[marketplace-referral] event emission failed:', error.message);
       return { recorded: false, referral_attributed, reason: 'emit_failed', event_type: eventType };
+    }
+  }
+
+  /**
+   * Bridge a marketplace inquiry that carries a referral code into the canonical, qualifiable
+   * local-marketplace referral lead (the LEAD_CREATED event the admin qualify → reward flow consumes).
+   *
+   * Guarantees:
+   * - The invitee's real marketplace submission — not an admin substitute — creates the lead.
+   * - campaign_id / code_id / owner are derived SERVER-SIDE from the validated referral code; any
+   *   caller-supplied owner/beneficiary/campaign fields on the inquiry are ignored (never passed on).
+   * - Idempotent per inquiry: one inquiry → at most one qualifiable lead (keyed on the inquiry id as the
+   *   lead's subject_id + source_inquiry_id). Retries return the existing lead.
+   * - No wallet transaction / reward is created here — only a pending, qualifiable lead.
+   * - An invalid/expired/missing code yields NO attributed lead (the plain marketplace inquiry still stands).
+   * Valid attributed inquiries are not best-effort: a successful attributed inquiry must have a
+   * durable qualifiable lead. Invalid/non-usable codes still return { bridged:false } so the plain
+   * marketplace inquiry can continue without referral attribution.
+   *
+   * @param {object} args
+   * @param {object} args.inquiry the persisted inquiry row ({ id, listing_id, message, referral_code, source_channel, buyer_id })
+   * @param {object} [args.actor] authenticated buyer actor context ({ actor_user_id | id })
+   * @returns {Promise<{bridged:boolean, reason?:string, lead_event_id?:string, idempotent?:boolean, owner_user_id?:string}>}
+   */
+  async bridgeInquiryToReferralLead({ inquiry = {}, actor = {} } = {}) {
+    const inquiryId = inquiry.id || null;
+    const referralCode = inquiry.referral_code || null;
+    if (!referralCode) return { bridged: false, reason: 'no_referral_code' };
+    if (!inquiryId) return { bridged: false, reason: 'missing_inquiry_id' };
+
+    const channel = String(inquiry.source_channel || 'web').toLowerCase();
+    const trustedInquiryTenant = inquiry.seller_tenant_id || inquiry.tenant_id || actor.actor_tenant_id || actor.tenantId || null;
+    const leadActor = {
+      actor_user_id: actor.actor_user_id || actor.id || inquiry.buyer_id || null,
+      actor_type: (actor.actor_user_id || actor.id || inquiry.buyer_id) ? ACTOR_TYPES.USER : ACTOR_TYPES.SYSTEM,
+      actor_tenant_id: trustedInquiryTenant,
+      surface: channel,
+    };
+
+    try {
+      // Reject non-usable codes up front so an invalid/expired code never produces an attributed lead.
+      const validation = await this.referralService.validateReferralCode({ code: referralCode, channel }, leadActor);
+      if (!validation || validation.valid === false) {
+        return { bridged: false, reason: 'invalid_code', validation };
+      }
+      const leadTenantId = trustedInquiryTenant || validation.code?.tenant_id || PLATFORM_TENANT;
+      leadActor.actor_tenant_id = leadTenantId;
+
+      // Idempotency: within one tenant, one source marketplace inquiry may create
+      // at most one qualifiable inquiry-derived lead.
+      const existing = await this.findInquiryLeadEvent(inquiryId, leadTenantId);
+      if (existing) {
+        return {
+          bridged: true,
+          idempotent: true,
+          lead_event_id: existing.id,
+          owner_user_id: validation.attribution?.owner_user_id || null,
+          code_id: validation.attribution?.code_id || existing.code_id || null,
+          campaign_id: validation.attribution?.campaign_id || existing.campaign_id || null,
+          validation,
+        };
+      }
+
+      // Create the canonical lead. Only the referral code + inquiry context are forwarded — never a
+      // caller-chosen owner/beneficiary. createLead derives owner/campaign from the validated code.
+      let result;
+      try {
+        result = await this.localMarketplaceService.createLead(
+          {
+          referral_code: referralCode,
+          listing_id: inquiry.listing_id || null,
+          message: inquiry.message || null,
+          channel,
+          tenant_id: leadTenantId,
+          lead_reference: inquiryId,
+          source_inquiry_id: inquiryId,
+          session_id: inquiryId,
+          },
+          leadActor,
+          { referralValidation: validation }
+        );
+      } catch (error) {
+        if (!(error instanceof ConflictError)) throw error;
+        const racedExisting = await this.findInquiryLeadEvent(inquiryId, leadTenantId);
+        if (!racedExisting) throw error;
+        return {
+          bridged: true,
+          idempotent: true,
+          lead_event_id: racedExisting.id,
+          owner_user_id: validation.attribution?.owner_user_id || null,
+          code_id: validation.attribution?.code_id || racedExisting.code_id || null,
+          campaign_id: validation.attribution?.campaign_id || racedExisting.campaign_id || null,
+          validation,
+        };
+      }
+      return {
+        bridged: true,
+        idempotent: false,
+        lead_event_id: result.event_id,
+        owner_user_id: result.attribution?.owner_user_id || validation.attribution?.owner_user_id || null,
+        code_id: result.attribution?.code_id || validation.attribution?.code_id || null,
+        campaign_id: result.attribution?.campaign_id || validation.attribution?.campaign_id || null,
+        validation,
+      };
+    } catch (error) {
+      error.message = `[marketplace-referral] inquiry→lead bridge failed: ${error.message}`;
+      throw error;
     }
   }
 }

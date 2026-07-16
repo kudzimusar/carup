@@ -184,20 +184,28 @@ export class ReferralLocalMarketplaceService {
     return { success: true, intent, event_id: event.id };
   }
 
-  async createLead(input = {}, actor = {}) {
+  async createLead(input = {}, actor = {}, options = {}) {
     const intent = this.classifyIntent(input, actor);
     const referralCode = normalizeReferralCode(input.referral_code || input.code || '');
     let validation = null;
     if (referralCode) {
-      validation = await this.referralService.validateReferralCode({
-        code: referralCode,
-        channel: channelToReferralChannel(input.channel || actor.surface || REFERRAL_CHANNELS.WEB),
-        source: 'local_marketplace',
-        session_id: input.session_id || actor.session_id || null,
-        subject_type: 'local_marketplace_lead',
-        subject_id: input.lead_reference || input.session_id || actor.session_id || null,
-        metadata: { flow_type: intent.flow_type, participant_type: intent.participant_type },
-      }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.USER });
+      const prevalidated = options.referralValidation;
+      if (
+        prevalidated?.valid &&
+        normalizeReferralCode(prevalidated.code?.code) === referralCode
+      ) {
+        validation = prevalidated;
+      } else {
+        validation = await this.referralService.validateReferralCode({
+          code: referralCode,
+          channel: channelToReferralChannel(input.channel || actor.surface || REFERRAL_CHANNELS.WEB),
+          source: 'local_marketplace',
+          session_id: input.session_id || actor.session_id || null,
+          subject_type: 'local_marketplace_lead',
+          subject_id: input.lead_reference || input.session_id || actor.session_id || null,
+          metadata: { flow_type: intent.flow_type, participant_type: intent.participant_type },
+        }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.USER });
+      }
     }
 
     let coupon = null;
@@ -217,6 +225,7 @@ export class ReferralLocalMarketplaceService {
       metadata: {
         ...summary,
         lead_reference: input.lead_reference || null,
+        source_inquiry_id: input.source_inquiry_id || null,
         listing_id: input.listing_id || null,
         vin: input.vin || null,
         part_name: input.part_name || null,

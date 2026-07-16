@@ -313,21 +313,20 @@ export default function ReferralTrustReview() {
         <Card className="border-0 card-shadow">
           <CardContent className="p-6 space-y-3">
             <h2 className="font-semibold">Disputes</h2>
-            <p className="text-xs text-amber-600">No dispute-list endpoint yet (pending Phase E). Open one to get its event id, or resolve by pasted id.</p>
-            <Input placeholder="wallet_transaction_id" value={disputeTx} onChange={(e) => setDisputeTx(e.target.value)} />
-            <Input placeholder="reason (required)" value={disputeReason} onChange={(e) => setDisputeReason(e.target.value)} />
-            <Button variant="outline" onClick={onCreateDispute}>Open Dispute</Button>
-            {disputeMsg && <p className="text-sm text-gray-600 break-all">{disputeMsg}</p>}
+            <Input data-testid="referral-admin-dispute-wallet-id" placeholder="wallet_transaction_id" value={disputeTx} onChange={(e) => setDisputeTx(e.target.value)} />
+            <Input data-testid="referral-admin-dispute-reason" placeholder="reason (required)" value={disputeReason} onChange={(e) => setDisputeReason(e.target.value)} />
+            <Button data-testid="referral-admin-dispute-open" variant="outline" onClick={onCreateDispute}>Open Dispute</Button>
+            {disputeMsg && <p data-testid="referral-admin-dispute-message" className="text-sm text-gray-600 break-all">{disputeMsg}</p>}
             <div className="pt-2 border-t border-gray-100 space-y-2">
-              <Input placeholder="dispute_event_id" value={resolveId} onChange={(e) => setResolveId(e.target.value)} />
+              <Input data-testid="referral-resolve-dispute-id" placeholder="dispute_event_id" value={resolveId} onChange={(e) => setResolveId(e.target.value)} />
               <div className="flex gap-2">
-                <select value={resolveOutcome} onChange={(e) => setResolveOutcome(e.target.value)} className="border border-gray-200 rounded-md h-9 px-2 text-sm">
+                <select data-testid="referral-resolve-outcome" value={resolveOutcome} onChange={(e) => setResolveOutcome(e.target.value)} className="border border-gray-200 rounded-md h-9 px-2 text-sm">
                   {DISPUTE_OUTCOMES.map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
-                <Input placeholder="reason (required)" value={resolveReason} onChange={(e) => setResolveReason(e.target.value)} />
+                <Input data-testid="referral-resolve-reason" placeholder="reason (required)" value={resolveReason} onChange={(e) => setResolveReason(e.target.value)} />
               </div>
-              <Button variant="outline" onClick={onResolve}>Resolve Dispute</Button>
-              {resolveMsg && <p className="text-sm text-gray-600">{resolveMsg}</p>}
+              <Button data-testid="referral-resolve-submit" variant="outline" onClick={onResolve}>Resolve Dispute</Button>
+              {resolveMsg && <p data-testid="referral-resolve-message" className="text-sm text-gray-600">{resolveMsg}</p>}
             </div>
           </CardContent>
         </Card>
@@ -368,7 +367,7 @@ export default function ReferralTrustReview() {
         load={loadDisputes}
         emptyText="No disputes yet."
         renderRow={(d: ReferralDispute) => (
-          <div key={d.dispute_event_id} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+          <div key={d.dispute_event_id} data-testid={`referral-admin-dispute-row-${d.dispute_event_id}`} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
             <span className="font-mono break-all">{d.dispute_event_id}</span>
             <span className="text-gray-500 mx-2">{[d.target_type, d.target_id].filter(Boolean).join(' ')}</span>
             <span className="text-gray-400 shrink-0">{d.status}</span>
