@@ -24,6 +24,7 @@ const SOURCE_CHANNEL_MAP = {
   qr: REFERRAL_CHANNELS.QR,
   operator: REFERRAL_CHANNELS.ADMIN,
 };
+const PLATFORM_TENANT = 'platform';
 
 function toReferralChannel(sourceChannel) {
   return SOURCE_CHANNEL_MAP[String(sourceChannel || '').toLowerCase()] || REFERRAL_CHANNELS.WEB;
@@ -40,6 +41,25 @@ export class MarketplaceReferralBridgeService {
 
   isSupportedEvent(eventType) {
     return MARKETPLACE_REFERRAL_EVENT_TYPES.includes(eventType);
+  }
+
+  async findInquiryLeadEvent(inquiryId, tenantId) {
+    if (!inquiryId || !tenantId) return null;
+    const rows = await this.referralService.repository.list(
+      REFERRAL_TABLES.events,
+      {
+        tenant_id: tenantId,
+        event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED,
+        subject_type: 'local_marketplace_lead',
+      },
+      {
+        jsonContains: { metadata: { source_inquiry_id: inquiryId } },
+        orderBy: 'created_at',
+        ascending: false,
+        limit: 1,
+      }
+    );
+    return rows[0] || null;
   }
 
   /**
@@ -146,10 +166,11 @@ export class MarketplaceReferralBridgeService {
     if (!inquiryId) return { bridged: false, reason: 'missing_inquiry_id' };
 
     const channel = String(inquiry.source_channel || 'web').toLowerCase();
+    const trustedInquiryTenant = inquiry.seller_tenant_id || inquiry.tenant_id || actor.actor_tenant_id || actor.tenantId || null;
     const leadActor = {
       actor_user_id: actor.actor_user_id || actor.id || inquiry.buyer_id || null,
       actor_type: (actor.actor_user_id || actor.id || inquiry.buyer_id) ? ACTOR_TYPES.USER : ACTOR_TYPES.SYSTEM,
-      actor_tenant_id: actor.actor_tenant_id || actor.tenantId || null,
+      actor_tenant_id: trustedInquiryTenant,
       surface: channel,
     };
 
@@ -159,13 +180,12 @@ export class MarketplaceReferralBridgeService {
       if (!validation || validation.valid === false) {
         return { bridged: false, reason: 'invalid_code', validation };
       }
+      const leadTenantId = trustedInquiryTenant || validation.code?.tenant_id || PLATFORM_TENANT;
+      leadActor.actor_tenant_id = leadTenantId;
 
-      // Idempotency: one inquiry → at most one qualifiable lead (subject_id === inquiry id).
-      const existing = await this.referralService.repository.findOne(REFERRAL_TABLES.events, {
-        event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED,
-        subject_type: 'local_marketplace_lead',
-        subject_id: inquiryId,
-      });
+      // Idempotency: within one tenant, one source marketplace inquiry may create
+      // at most one qualifiable inquiry-derived lead.
+      const existing = await this.findInquiryLeadEvent(inquiryId, leadTenantId);
       if (existing) {
         return {
           bridged: true,
@@ -188,6 +208,7 @@ export class MarketplaceReferralBridgeService {
           listing_id: inquiry.listing_id || null,
           message: inquiry.message || null,
           channel,
+          tenant_id: leadTenantId,
           lead_reference: inquiryId,
           source_inquiry_id: inquiryId,
           session_id: inquiryId,
@@ -197,11 +218,7 @@ export class MarketplaceReferralBridgeService {
         );
       } catch (error) {
         if (!(error instanceof ConflictError)) throw error;
-        const racedExisting = await this.referralService.repository.findOne(REFERRAL_TABLES.events, {
-          event_type: LOCAL_MARKETPLACE_EVENT_TYPES.LEAD_CREATED,
-          subject_type: 'local_marketplace_lead',
-          subject_id: inquiryId,
-        });
+        const racedExisting = await this.findInquiryLeadEvent(inquiryId, leadTenantId);
         if (!racedExisting) throw error;
         return {
           bridged: true,
