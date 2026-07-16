@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Gift, Wallet, Share2, Copy, ShieldAlert, CheckCircle2, XCircle, HelpCircle } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { ReferralWalletTransaction } from '@/types/referral'
+import type { ReferralWalletTransaction, OwnerReferralDispute } from '@/types/referral'
 
 /**
  * Owner "Refer & Earn" surface (Phase B). Owner-scoped, read-mostly:
@@ -37,6 +37,30 @@ function statusClass(status?: string): string {
   return STATUS_STYLES[status || ''] || 'bg-gray-100 text-gray-700'
 }
 
+const DISPUTE_STATUS_STYLES: Record<string, string> = {
+  open: 'bg-amber-100 text-amber-700',
+  under_review: 'bg-blue-100 text-blue-700',
+  resolved_upheld: 'bg-gray-200 text-gray-700',
+  resolved_reversed: 'bg-green-100 text-green-700',
+  closed: 'bg-gray-100 text-gray-600',
+}
+
+const DISPUTE_STATUS_LABELS: Record<string, string> = {
+  open: 'Dispute submitted',
+  under_review: 'Dispute under review',
+  resolved_upheld: 'Dispute resolved — upheld',
+  resolved_reversed: 'Dispute resolved — reversed',
+  closed: 'Dispute closed',
+}
+
+function disputeStatusClass(status?: string | null): string {
+  return DISPUTE_STATUS_STYLES[status || ''] || 'bg-gray-100 text-gray-600'
+}
+
+function disputeStatusLabel(status?: string | null): string {
+  return DISPUTE_STATUS_LABELS[status || ''] || 'Dispute recorded'
+}
+
 function money(amount?: number, currency?: string | null): string {
   if (typeof amount !== 'number') return '—'
   return `${currency ? `${currency} ` : '$'}${amount.toLocaleString()}`
@@ -49,9 +73,10 @@ export default function ReferralWallet() {
     createReferralChannelShareKit,
     explainReferralBenefit,
     createReferralDispute,
-    getReferralAgentTools,
+    getOwnerReferralDisputes,
   } = useCarUpApi()
   const { user } = useAuth()
+  const userId = user?.id
 
   const [pending, setPending] = useState<number | undefined>(undefined)
   const [approved, setApproved] = useState<number | undefined>(undefined)
@@ -71,15 +96,14 @@ export default function ReferralWallet() {
   const [disputeTxId, setDisputeTxId] = useState<string>('')
   const [disputeReason, setDisputeReason] = useState('')
   const [disputeMsg, setDisputeMsg] = useState<string | null>(null)
-
-  const [tools, setTools] = useState<Array<{ name: string; description?: string }>>([])
+  const [disputes, setDisputes] = useState<OwnerReferralDispute[]>([])
 
   const loadWallet = useCallback(async () => {
-    if (!user?.id) return
+    if (!userId) return
     setLoading(true)
     setWalletError(null)
     try {
-      const res = await getReferralWallet(user.id)
+      const res = await getReferralWallet(userId)
       const w = res.wallet
       setPending(w?.pending_balance)
       // "Approved" = claimable but not yet settled (approved + payable buckets).
@@ -91,20 +115,37 @@ export default function ReferralWallet() {
     } finally {
       setLoading(false)
     }
-  }, [getReferralWallet, user?.id])
+  }, [getReferralWallet, userId])
+
+  const loadDisputes = useCallback(async () => {
+    try {
+      const res = await getOwnerReferralDisputes()
+      setDisputes(Array.isArray(res.disputes) ? res.disputes : [])
+    } catch {
+      // Non-fatal: the dispute panel degrades to empty; wallet/validate/share stay functional.
+      setDisputes([])
+    }
+  }, [getOwnerReferralDisputes])
 
   useEffect(() => {
-    loadWallet()
+    let active = true
+    void Promise.resolve().then(async () => {
+      if (active) await loadWallet()
+    })
+    return () => {
+      active = false
+    }
   }, [loadWallet])
 
   useEffect(() => {
-    getReferralAgentTools({ surface: 'web' })
-      .then((res) => {
-        const list = Array.isArray(res.tools) ? (res.tools as Array<{ name: string; description?: string }>) : []
-        setTools(list)
-      })
-      .catch(() => setTools([]))
-  }, [getReferralAgentTools])
+    let active = true
+    void Promise.resolve().then(async () => {
+      if (active) await loadDisputes()
+    })
+    return () => {
+      active = false
+    }
+  }, [loadDisputes])
 
   const onValidate = useCallback(async () => {
     if (!code.trim()) {
@@ -131,7 +172,7 @@ export default function ReferralWallet() {
     setShareMsg(null)
     setShareLink(null)
     try {
-      const res = await createReferralChannelShareKit('web', { code: code.trim(), user_id: user?.id })
+      const res = await createReferralChannelShareKit('web', { code: code.trim(), user_id: userId })
       // prepareShareKit returns the link under `copy.link`; fall back defensively.
       const copy = res.copy as { link?: unknown } | undefined
       const link =
@@ -150,7 +191,7 @@ export default function ReferralWallet() {
     } catch (err) {
       setShareMsg(err instanceof Error ? err.message : 'Could not generate a share kit.')
     }
-  }, [code, createReferralChannelShareKit, user?.id])
+  }, [code, createReferralChannelShareKit, userId])
 
   const onCopy = useCallback(() => {
     if (shareLink) {
@@ -186,10 +227,22 @@ export default function ReferralWallet() {
       await createReferralDispute({ wallet_transaction_id: disputeTxId.trim(), reason: disputeReason.trim() })
       setDisputeMsg('Dispute filed. A reviewer will look into it.')
       setDisputeReason('')
+      // Refetch so the owner immediately sees the submitted dispute (and, after admin action, its resolution).
+      await loadDisputes()
     } catch (err) {
       setDisputeMsg(err instanceof Error ? err.message : 'Could not file the dispute.')
     }
-  }, [disputeTxId, disputeReason, createReferralDispute])
+  }, [disputeTxId, disputeReason, createReferralDispute, loadDisputes])
+
+  const disputeByTxId = useMemo(() => {
+    const map = new Map<string, OwnerReferralDispute>()
+    for (const d of disputes) {
+      if (!d.wallet_transaction_id) continue
+      // Keep the most recent dispute per transaction (API returns newest-first).
+      if (!map.has(d.wallet_transaction_id)) map.set(d.wallet_transaction_id, d)
+    }
+    return map
+  }, [disputes])
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -236,7 +289,7 @@ export default function ReferralWallet() {
               ) : (
                 <div className="space-y-2">
                   {transactions.map((tx) => (
-                    <div key={tx.id} className="rounded-lg border border-gray-100 p-3">
+                    <div key={tx.id} data-testid={`referral-wallet-transaction-${tx.id}`} className="rounded-lg border border-gray-100 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{tx.reason || tx.event_type || 'Referral benefit'}</p>
@@ -244,7 +297,7 @@ export default function ReferralWallet() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-sm font-semibold">{money(tx.amount, tx.currency)}</span>
-                          <Badge className={`text-[10px] ${statusClass(tx.status)}`}>{tx.status || 'unknown'}</Badge>
+                          <Badge data-testid={`referral-wallet-transaction-status-${tx.id}`} className={`text-[10px] ${statusClass(tx.status)}`}>{tx.status || 'unknown'}</Badge>
                           <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => onExplain(tx.id)}>
                             <HelpCircle className="w-3 h-3 mr-1" />Why?
                           </Button>
@@ -253,6 +306,25 @@ export default function ReferralWallet() {
                       {explainFor === tx.id && (
                         <p className="mt-2 text-xs text-gray-600 bg-gray-50 rounded p-2">{explainText}</p>
                       )}
+                      {disputeByTxId.get(tx.id) && (() => {
+                        const d = disputeByTxId.get(tx.id) as OwnerReferralDispute
+                        return (
+                          <div className="mt-2 rounded-md bg-gray-50 p-2" data-testid={`dispute-status-${tx.id}`}>
+                            <div className="flex items-center gap-2">
+                              <Badge className={`text-[10px] ${disputeStatusClass(d.status)}`}>{disputeStatusLabel(d.status)}</Badge>
+                              {d.resolved_at && (
+                                <span className="text-[11px] text-gray-400">Resolved {new Date(d.resolved_at).toLocaleString()}</span>
+                              )}
+                              {!d.resolved_at && d.submitted_at && (
+                                <span className="text-[11px] text-gray-400">Filed {new Date(d.submitted_at).toLocaleString()}</span>
+                              )}
+                            </div>
+                            {d.owner_safe_resolution && (
+                              <p className="mt-1 text-[11px] text-gray-600">{d.owner_safe_resolution}</p>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -304,6 +376,7 @@ export default function ReferralWallet() {
           </div>
           <p className="text-xs text-gray-500">If a held or rejected benefit looks wrong, tell us why and a reviewer will check it.</p>
           <select
+            data-testid="referral-dispute-transaction-select"
             value={disputeTxId}
             onChange={(e) => setDisputeTxId(e.target.value)}
             className="w-full sm:max-w-xs border border-gray-200 rounded-md h-9 px-3 text-sm"
@@ -316,32 +389,16 @@ export default function ReferralWallet() {
             ))}
           </select>
           <Textarea
+            data-testid="referral-dispute-reason"
             placeholder="Describe the issue"
             value={disputeReason}
             onChange={(e) => setDisputeReason(e.target.value)}
             className="sm:max-w-md"
           />
-          <Button variant="outline" onClick={onDispute}>File Dispute</Button>
-          {disputeMsg && <p className="text-sm text-gray-600">{disputeMsg}</p>}
+          <Button data-testid="referral-dispute-submit" variant="outline" onClick={onDispute}>File Dispute</Button>
+          {disputeMsg && <p data-testid="referral-dispute-message" className="text-sm text-gray-600">{disputeMsg}</p>}
         </CardContent>
       </Card>
-
-      {/* Safe agent tools (read-only) */}
-      {tools.length > 0 && (
-        <Card className="border-0 card-shadow">
-          <CardContent className="p-6">
-            <h2 className="font-semibold mb-2">Assistant Tools</h2>
-            <p className="text-xs text-gray-500 mb-3">Safe actions the CarUp assistant can help you with. None of these can move money in your wallet.</p>
-            <div className="flex flex-wrap gap-2">
-              {tools.map((tool) => (
-                <Badge key={tool.name} variant="outline" className="text-[11px]" title={tool.description || ''}>
-                  {tool.name}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

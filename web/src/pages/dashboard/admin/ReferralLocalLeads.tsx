@@ -51,6 +51,7 @@ export default function ReferralLocalLeads() {
 
   const [qualifyEventId, setQualifyEventId] = useState('')
   const [milestone, setMilestone] = useState('')
+  const [referredUserId, setReferredUserId] = useState('')
   const [rewardAmount, setRewardAmount] = useState('')
   const [qualifyMsg, setQualifyMsg] = useState<string | null>(null)
 
@@ -106,13 +107,14 @@ export default function ReferralLocalLeads() {
     try {
       const res = await qualifyReferralLocalMarketplaceLead(qualifyEventId.trim(), {
         milestone: milestone.trim(),
+        ...(referredUserId.trim() ? { referred_user_id: referredUserId.trim() } : {}),
         ...(rewardAmount.trim() ? { reward_amount: Number(rewardAmount) } : {}),
       })
       setQualifyMsg(`Qualified. reward_created: ${str(pick(res, 'reward_created'))}`)
     } catch (err) {
       setQualifyMsg(err instanceof Error ? err.message : 'Could not qualify lead.')
     }
-  }, [qualifyEventId, milestone, rewardAmount, qualifyReferralLocalMarketplaceLead])
+  }, [qualifyEventId, milestone, referredUserId, rewardAmount, qualifyReferralLocalMarketplaceLead])
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -162,13 +164,14 @@ export default function ReferralLocalLeads() {
         <Card className="border-0 card-shadow">
           <CardContent className="p-6 space-y-3">
             <h2 className="font-semibold">Qualify Lead</h2>
-            <Input placeholder="lead_event_id *" value={qualifyEventId} onChange={(e) => setQualifyEventId(e.target.value)} />
+            <Input data-testid="referral-qualify-lead-id" placeholder="lead_event_id *" value={qualifyEventId} onChange={(e) => setQualifyEventId(e.target.value)} />
             <div className="flex gap-2">
-              <Input placeholder="Milestone *" value={milestone} onChange={(e) => setMilestone(e.target.value)} />
-              <Input type="number" placeholder="Reward amount" value={rewardAmount} onChange={(e) => setRewardAmount(e.target.value)} />
+              <Input data-testid="referral-qualify-milestone" placeholder="Milestone *" value={milestone} onChange={(e) => setMilestone(e.target.value)} />
+              <Input data-testid="referral-qualify-referred-user" placeholder="Referred user id" value={referredUserId} onChange={(e) => setReferredUserId(e.target.value)} />
+              <Input data-testid="referral-qualify-reward-amount" type="number" placeholder="Reward amount" value={rewardAmount} onChange={(e) => setRewardAmount(e.target.value)} />
             </div>
-            <Button variant="outline" onClick={onQualify}>Qualify</Button>
-            {qualifyMsg && <p className="text-sm text-gray-600">{qualifyMsg}</p>}
+            <Button data-testid="referral-qualify-submit" variant="outline" onClick={onQualify}>Qualify</Button>
+            {qualifyMsg && <p data-testid="referral-qualify-message" className="text-sm text-gray-600">{qualifyMsg}</p>}
           </CardContent>
         </Card>
       </div>
@@ -178,7 +181,7 @@ export default function ReferralLocalLeads() {
         load={loadLeads}
         emptyText="No leads yet — create one above."
         renderRow={(lead: ReferralLocalMarketplaceLead) => (
-          <div key={lead.lead_event_id} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
+          <div key={lead.lead_event_id} data-testid={`referral-lead-row-${lead.lead_event_id}`} className="flex items-center justify-between text-xs border-b border-gray-50 py-1.5">
             <span className="text-gray-500">{[lead.flow_type, lead.participant_type].filter(Boolean).join(' · ') || 'lead'}</span>
             <span className="text-gray-400 font-mono break-all mx-2">{lead.lead_event_id}</span>
             <span className="text-gray-400 shrink-0">{lead.status || ''}</span>

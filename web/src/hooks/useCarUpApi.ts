@@ -107,6 +107,7 @@ import type {
   ReferralLocalLeadListResponse,
   ReferralImportRouteListResponse,
   ReferralDisputeListResponse,
+  OwnerReferralDisputesResponse,
 } from '@/types/referral'
 
 
@@ -1626,6 +1627,8 @@ export function useCarUpApi() {
     request<ReferralServiceResponse>(`/referrals/trust/benefits/${encodeURIComponent(transactionId)}/explain`), [request])
   const createReferralDispute = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>('/referrals/trust/disputes', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const getOwnerReferralDisputes = useCallback((): Promise<OwnerReferralDisputesResponse> =>
+    request<OwnerReferralDisputesResponse>('/referrals/trust/disputes/mine'), [request])
   const resolveReferralDispute = useCallback((disputeEventId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/disputes/${encodeURIComponent(disputeEventId)}/resolve`, { method: 'PATCH', body: JSON.stringify(payload) }), [request])
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
@@ -1878,6 +1881,7 @@ export function useCarUpApi() {
     applyReferralWalletHold,
     explainReferralBenefit,
     createReferralDispute,
+    getOwnerReferralDisputes,
     resolveReferralDispute,
     exportReferralAudit
   }
