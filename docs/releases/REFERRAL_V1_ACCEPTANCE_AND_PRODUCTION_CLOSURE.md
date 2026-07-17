@@ -12,6 +12,20 @@
 - Production changes are prohibited during Stages 0–8.
 - No real customer contacts, real rewards, external-provider activation, Docker installation, or Wave A migrations are authorized.
 
+## Correction — production runtime vs production data
+
+As of `2026-07-17`, earlier shorthand statements of `Production changed: No` are corrected as follows:
+
+```text
+Production runtime deployment: Occurred automatically when Referral V1 reached main; exact frontend/backend deployment evidence is recorded in the Stage 4 incident addendum.
+Production Referral database: Unchanged; 0 public referral_* tables.
+Production Referral data: No authorized writes and no Referral V1 schema available.
+External providers: Unchanged.
+Production cutover: Not authorized.
+```
+
+Stage 4's canonical staging functional acceptance remains **PASS**. Stage 5 is blocked until the production deployment-governance incident is contained by an owner-approved deployment-control change.
+
 ## Stage ledger
 
 | Stage | Status | Production changed |
@@ -20,8 +34,8 @@
 | 1 — Current-main automated regression | **PASS** | No |
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
-| 4 — Owner/invitee correct-attribution journey | **PASS** — PR #118 merged, canonical staging re-run passed (R-OWN-01…20 = 20/20) | No |
-| 5 — Import/container referral journey | UNBLOCKED — NOT STARTED | No |
+| 4 — Owner/invitee correct-attribution journey | **PASS** — staging functional acceptance; production-runtime incident recorded | Runtime deployment occurred; DB/data/providers unchanged |
+| 5 — Import/container referral journey | BLOCKED — production deployment-governance incident must be contained before Stage 5 starts | No new changes |
 | 6 — Simulated channel-attribution integration | NOT STARTED | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
 | 8 — Owner physical-device mobile gate | NOT STARTED | No |
@@ -938,14 +952,124 @@ Owner/invitee functional cases: R-OWN-01…20 = 20/20 PASS
 Correct-owner attribution proof: PASS — wallet transaction owner is the referral-code owner, not invitee/admin
 Duplicate protection: PASS — one inquiry-derived lead and one pending wallet transaction
 Dispute lifecycle: PASS — owner filed, admin resolved with reason, owner saw resolved status/outcome/timestamp after refresh
-Production changed: No
+Production runtime deployment: Occurred automatically when PR #118 reached `main` (see incident addendum below)
+Production Referral database/data/providers changed: No
 External providers changed: No
 Gate result: PASS
-Next single action: Stage 5 is unblocked and may begin as a separate execution; Stage 5 has not started in this ledger update
+Next single action: contain the production deployment-governance incident before Stage 5 starts
 ```
 
 ## Stage 4 decision
 
 # PASS
 
-PR #118 has been merged into `main`, deployed to canonical staging, verified against Supabase staging `eoyenigwevnxwwhyhaer`, and re-tested through the credentialed closed owner/invitee journey. The two P1 failures that previously blocked Stage 4 are closed: R-OWN-09 now uses the invitee's real marketplace inquiry as the exact source of the qualifiable lead the admin qualifies, and R-OWN-19 now shows the owner the resolved dispute status/outcome/timestamp after refresh. All 20 Stage 4 owner/invitee acceptance cases pass. Production remains unchanged. Stage 5 is now **unblocked but not started**.
+PR #118 has been merged into `main`, deployed to canonical staging, verified against Supabase staging `eoyenigwevnxwwhyhaer`, and re-tested through the credentialed closed owner/invitee journey. The two P1 failures that previously blocked Stage 4 are closed: R-OWN-09 now uses the invitee's real marketplace inquiry as the exact source of the qualifiable lead the admin qualifies, and R-OWN-19 now shows the owner the resolved dispute status/outcome/timestamp after refresh. All 20 Stage 4 owner/invitee acceptance cases pass.
+
+Correction recorded `2026-07-17`: production runtime deployments did occur automatically from `main` for the production Vercel projects. Production Referral database/data/provider state remains unchanged, but production was not untouched at the runtime-deployment layer. Stage 5 is **blocked** until the deployment-governance incident below is contained.
+
+## 12. Production deployment-governance incident — runtime deployed without cutover authorization
+
+- Recorded: `2026-07-17`
+- Incident type: production runtime deployment from normal `main` merges before the owner authorization phrase `AUTHORIZE REFERRAL V1 PRODUCTION CUTOVER`
+- Stage impact: Stage 4 staging functional acceptance remains **PASS**; Stage 5 is **BLOCKED** until containment
+- Rollback/promotion action taken: **None**. No production deployment, alias, rollback, environment-variable, database, or provider change was performed during this correction.
+
+### 12.1 What happened
+
+PR #118 was merged to `main` at runtime merge commit `b3355d0a334e8169da7b94f2b749ee93a8086918`. Because the production Vercel projects were configured to deploy from `main`, that runtime commit generated **Production** deployments for both `carup` and `carup-backend`. The later documentation-only ledger commit `8c980544cddf00a6c6689ef6e7e9f6269bb3addb` also generated Production deployments and is the current active production alias state at the time of this audit.
+
+The production cutover phrase was not granted. The deployment therefore represents a deployment-governance incident, not an authorized Referral V1 production cutover.
+
+### 12.2 Read-only Vercel evidence
+
+| Project | Active canonical alias | Active deployment URL | Vercel environment | Active commit | Created |
+|---|---|---|---|---|---|
+| `carup` | `https://carup.vercel.app` | `https://carup-7l5923ugg-pay-pass-project.vercel.app` | Production | `8c980544cddf00a6c6689ef6e7e9f6269bb3addb` | `2026-07-17 00:38:20 JST` |
+| `carup-backend` | `https://carup-backend.vercel.app` | `https://carup-backend-klhcse3lx-pay-pass-project.vercel.app` | Production | `8c980544cddf00a6c6689ef6e7e9f6269bb3addb` | `2026-07-17 00:38:20 JST` |
+| `carup-staging` | `https://carup-staging.vercel.app` | `https://carup-staging-bwbqkkaql-pay-pass-project.vercel.app` | Production target for staging project | `8c980544cddf00a6c6689ef6e7e9f6269bb3addb` | `2026-07-17 00:38:20 JST` |
+| `carup-backend-staging` | `https://carup-backend-staging.vercel.app` | `https://carup-backend-staging-qs7gik5ef-pay-pass-project.vercel.app` | Production target for staging project | `8c980544cddf00a6c6689ef6e7e9f6269bb3addb` | `2026-07-17 00:38:20 JST` |
+
+PR #118's runtime merge commit also produced earlier Production deployments:
+
+| Project | Deployment URL | Commit | Created |
+|---|---|---|---|
+| `carup` | `https://carup-qjt319yk7-pay-pass-project.vercel.app` | `b3355d0a334e8169da7b94f2b749ee93a8086918` | `2026-07-16 23:56:25 JST` |
+| `carup-backend` | `https://carup-backend-lyxji6i40-pay-pass-project.vercel.app` | `b3355d0a334e8169da7b94f2b749ee93a8086918` | `2026-07-16 23:56:25 JST` |
+
+Last observed production deployments before PR #118:
+
+| Project | Deployment URL | Commit | Created |
+|---|---|---|---|
+| `carup` | `https://carup-aawo7eu7r-pay-pass-project.vercel.app` | `6214f3dd7aef7a24d33170009164d8f4932ab429` | `2026-07-14 23:32:22 JST` |
+| `carup-backend` | `https://carup-backend-1a41m52ou-pay-pass-project.vercel.app` | `6214f3dd7aef7a24d33170009164d8f4932ab429` | `2026-07-14 23:32:22 JST` |
+
+### 12.3 Production database and route state
+
+Read-only Supabase production project:
+
+```text
+Project: CarUp
+Ref: vhmnajoeicasaigiophh
+Health: ACTIVE_HEALTHY
+```
+
+Exact read-only table-count query:
+
+```sql
+select count(*)::int as referral_table_count
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind = 'r'
+  and c.relname like 'referral\_%' escape '\';
+```
+
+Result:
+
+```text
+referral_table_count = 0
+```
+
+Production backend health check was read-only and returned HTTP 200 with `status: UP` and `supabase.status: healthy`. Minimal unauthenticated read-only route probes showed Referral V1 routes are present but authentication-gated (`401`) where applicable. No authenticated production writes or mutation endpoint tests were executed.
+
+### 12.4 Corrected classification
+
+```text
+Production runtime deployment: occurred automatically when Referral V1 reached main; frontend/backend alias state recorded above.
+Production Referral database migration: did not occur.
+Production Referral data writes: none found; no public referral_* schema exists.
+Production external-provider activation: none found.
+Production cutover authorization: not granted.
+```
+
+### 12.5 Containment requirements
+
+1. Keep Stage 5 blocked until the owner approves and applies a production deployment-control change.
+2. Do not perform an automatic rollback unless the owner explicitly authorizes it and accepts the impact on non-referral production code.
+3. Do not apply Referral V1 production database migrations or run production referral UAT until the authorization phrase is granted.
+4. Continue to distinguish runtime deployment from database migration, data writes, provider activation, and business cutover in all release records.
+
+### 12.6 Prevention proposal — owner approval required
+
+Recommended release model:
+
+```text
+carup-staging + carup-backend-staging:
+deploy from main
+
+carup + carup-backend:
+deploy only from a dedicated release/production branch
+or explicit owner-approved Vercel promotion
+```
+
+Preferred branch setting: configure the `carup` and `carup-backend` production projects so Production deployments come only from a dedicated branch such as `release/production`, while `main` continues to feed the staging projects. A production promotion from `main` to `release/production` would require the owner authorization phrase and a PR/review step.
+
+Current production-branch behavior: `main` is effectively producing Production deployments for `carup` and `carup-backend`, proven by the `b3355d0a…` and `8c980544…` Production deployments above. The read-only Vercel CLI project inspect output confirms the project identities/root directories but does not expose a separate production-branch field; the dashboard setting should be reviewed before applying the owner-approved control change.
+
+Expected impact: normal merges to `main` would still deploy to canonical staging for acceptance, but would no longer automatically promote the production frontend/backend. Non-referral releases would need the same explicit production-promotion step, so the owner should confirm this governance model fits all CarUp release trains.
+
+Emergency hotfix path: branch from the last approved production SHA, apply the hotfix, open a PR into `release/production`, run required checks, and promote only after owner approval. If staging validation is required first, also merge or cherry-pick to `main` for staging deployment.
+
+Rollback path: redeploy or promote the last approved `release/production` deployment for the affected Vercel project, then verify production health and aliases read-only. Rollback must be explicitly owner-approved because it changes production runtime state.
+
+No Vercel production settings were changed by this ledger correction.
