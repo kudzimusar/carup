@@ -58,19 +58,27 @@ These are not "risks to mitigate" but hard stops requiring the user: staging sec
 Google OAuth + vault (EB-2), live billing (EB-3), real-money SafeTrade + legal (EB-4),
 production migration/deploy (EB-5), Phase 8 granularity decision (PD-1).
 
-### EB-1 status refresh (2026-07-04, main-reconciliation loop)
+### EB-1 status — CORRECTED (2026-07-18)
 
-The Supabase MCP integration that earlier at least surfaced one (wrong) project is now **fully
-disconnected** for this session (`mcp__claude_ai_Supabase__*` tools unavailable) — so there is
-**no path from this environment** to `carup-staging` (`eoyenigwevnxwwhyhaer`) or production
-(`vhmnajoeicasaigiophh`). Consequently the plan's staging steps for the one outstanding program
-migration — apply `20260704090000_diaspora_payment_milestone_idempotency.sql`, run
-schema/RLS/RPC/grant/storage advisors, execute real row-lock concurrency + rollback rehearsal — are
-**not executable here** and remain the release owner's action (set the CI `staging-integration`
-secrets or run against staging directly). The migration is additive, `-- +migrate Down`-scripted,
-ledger-recorded (#16), and paired with `database/rollbacks/diaspora/` classification scripts. All
-prior migrations belong to `main`/upstream and are already applied there. Production Supabase
-untouched.
+**Correction (supersedes the 2026-07-04 note below).** The release owner confirms
+`carup-staging` (`eoyenigwevnxwwhyhaer`) **is accessible and is the authorized staging target**;
+production is `CarUp` (`vhmnajoeicasaigiophh`), **read-only**. Any earlier statement that the
+Supabase connector was "disconnected" or scoped to the wrong project (`sfhtlzcgrnrdznhvdrbn`)
+described only a **specific non-interactive automation session's tool namespace** and is
+**withdrawn** — it does not mean staging is unreachable. EB-1 is therefore reclassified from
+"external hard-block" to **"pending execution against staging from an environment that surfaces the
+connector or `DIASPORA_STAGING_DATABASE_URL`."** Runner: `backend/scripts/diaspora-staging-apply-verify.mjs`
+(dry-run diff by default; `--apply` applies only verified-missing migrations then verifies
+RPC/grant/RLS + adjudicates advisor findings). Expected-missing staging migrations (ledger #11–#16,
+all additive, checksums recorded): `h7_rpc_execute_grants`, `phase8_subscription_entitlements`,
+`phase9_safetrade`, `phase9_safetrade_disputes`, `phase10_trade_graph`,
+`payment_milestone_idempotency`. Production Supabase remains untouched/read-only.
+
+_(Historical, 2026-07-04 — retained for provenance, now superseded:)_ A particular automation session
+had no `mcp__claude_ai_Supabase__*` tools in its own tool set and so could not reach staging from that
+session; the outstanding migration `20260704090000` and the advisor/RLS/concurrency verification were
+deferred to a connector-enabled environment. The SQL/locking logic was proven ahead of time on real
+embedded Postgres 18.4 (`backend/tests/realpg/`, 10/10).
 
 **Code posture after reconciliation:** the stack is fully merged with production `main` (227
 commits: Vehicle Trust OS, Agent 8 communications, Phase 7C identity verification), both PRs are

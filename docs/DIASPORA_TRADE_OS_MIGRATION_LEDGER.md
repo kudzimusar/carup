@@ -12,6 +12,17 @@
 >
 > **Runner caveat:** files without `-- +migrate` markers are **skipped by the Node runner** and applied
 > out-of-band via `psql`/deploy scripts (marked ⚠ below). Rehydrate them in the release runbook.
+>
+> **CORRECTION (2026-07-18):** `carup-staging` (`eoyenigwevnxwwhyhaer`) **is accessible** — the
+> authorized staging target (production `vhmnajoeicasaigiophh` stays read-only). The `Staging` column
+> below reading `BLOCKED (EB-1)` reflected a prior automation session without the connector in its
+> tool set; it is **not** applied-state. The apply + verify is executed by
+> `backend/scripts/diaspora-staging-apply-verify.mjs` (dry-run diff by default; `--apply` applies only
+> verified-missing migrations). Expected-missing on staging: ledger #11–#16
+> (`h7_rpc_execute_grants`, `phase8_subscription_entitlements`, `phase9_safetrade`,
+> `phase9_safetrade_disputes`, `phase10_trade_graph`, `payment_milestone_idempotency`) — all additive,
+> checksums recorded below. Rows flip to `APPLIED (<date>)` only after the runner confirms them
+> recorded in staging's `schema_migrations`.
 
 | Ord | Filename | Phase | Purpose | Tables / RPCs | RLS / grants / search_path | Down script | sha256 | Staging | Prod |
 |---|---|---|---|---|---|---|---|---|---|
