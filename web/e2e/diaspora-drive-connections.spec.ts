@@ -1,7 +1,9 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-const dealer = { id: 'd-1', name: 'Dealer', email: 'd@carup.test', role: 'dealer' }
-const mechanic = { id: 'm-1', name: 'Mech', email: 'm@carup.test', role: 'mechanic' }
+type TestUser = { id: string; name: string; email: string; role: string }
+
+const dealer: TestUser = { id: 'd-1', name: 'Dealer', email: 'd@carup.test', role: 'dealer' }
+const mechanic: TestUser = { id: 'm-1', name: 'Mech', email: 'm@carup.test', role: 'mechanic' }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin || '*'
@@ -10,16 +12,16 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) })
 }
 
-async function loginAs(page: Page, user: any, token = 'mock-token') {
+async function loginAs(page: Page, user: TestUser, token = 'mock-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
     window.localStorage.setItem('carup_token', token)
   }, { user, token })
 }
 
-interface DState { enabled: boolean; connected: boolean; files: any[] }
+interface DState { enabled: boolean; connected: boolean; files: unknown[] }
 
-async function mockApi(page: Page, state: DState, user: any) {
+async function mockApi(page: Page, state: DState, user: TestUser) {
   await page.context().route('**/api/auth/me', (r) => fulfillJson(r, { user }))
   await page.context().route('**/api/security/csrf-token', (r) => fulfillJson(r, { csrfToken: 'mock-csrf' }))
   await page.context().route('**/api/diaspora/**', async (route) => {

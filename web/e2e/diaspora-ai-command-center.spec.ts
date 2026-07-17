@@ -1,7 +1,9 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-const dealer = { id: 'd-1', name: 'Dealer', email: 'd@carup.test', role: 'dealer' }
-const insurance = { id: 'i-1', name: 'Ins', email: 'i@carup.test', role: 'insurance' }
+type TestUser = { id: string; name: string; email: string; role: string }
+
+const dealer: TestUser = { id: 'd-1', name: 'Dealer', email: 'd@carup.test', role: 'dealer' }
+const insurance: TestUser = { id: 'i-1', name: 'Ins', email: 'i@carup.test', role: 'insurance' }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin || '*'
@@ -10,14 +12,24 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) })
 }
 
-async function loginAs(page: Page, user: any, token = 'mock-token') {
+async function loginAs(page: Page, user: TestUser, token = 'mock-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
     window.localStorage.setItem('carup_token', token)
   }, { user, token })
 }
 
-interface AiState { commands: any[]; seq: number; executeAttempts: string[] }
+interface AiCommand {
+  id: string
+  raw_command: string
+  intent: string
+  risk_level: string
+  confidence_score: number
+  execution_status: string
+  approval_status: string
+  metadata: { ambiguous: boolean }
+}
+interface AiState { commands: AiCommand[]; seq: number; executeAttempts: string[] }
 function initialState(): AiState { return { commands: [], seq: 0, executeAttempts: [] } }
 
 function classify(raw: string) {
@@ -28,7 +40,7 @@ function classify(raw: string) {
   return { intent: 'UNKNOWN', risk: 'LOW', confidence: 0.1, ambiguous: true, exec: 'NEEDS_REVIEW', approval: 'NOT_REQUIRED' }
 }
 
-async function mockAiApi(page: Page, state: AiState, user: any) {
+async function mockAiApi(page: Page, state: AiState, user: TestUser) {
   await page.context().route('**/api/auth/me', (r) => fulfillJson(r, { user }))
   await page.context().route('**/api/security/csrf-token', (r) => fulfillJson(r, { csrfToken: 'mock-csrf' }))
   await page.context().route('**/api/diaspora/**', async (route) => {

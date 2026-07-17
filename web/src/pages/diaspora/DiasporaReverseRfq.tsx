@@ -63,6 +63,7 @@ export default function DiasporaReverseRfq() {
 
   useEffect(() => {
     if (authLoading || !canView) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadOrders()
     void loadRfqs()
   }, [authLoading, canView, loadOrders, loadRfqs])
