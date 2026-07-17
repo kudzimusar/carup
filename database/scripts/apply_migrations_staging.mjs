@@ -66,6 +66,24 @@ const MIGRATIONS = [
   '20260626150000_dealer_compliance.sql',
   '20260626160000_eligibility_framework.sql',
   '20260626180000_escrow_trust_sessions.sql',
+  // Full Activation — shared provider platform
+  '20260703120000_provider_platform.sql',
+  // Full Activation — government source activation (config + append-only batch imports)
+  '20260703130000_government_source_activation.sql',
+  // Full Activation — licensed insurer provider (onboarding + execution)
+  '20260703140000_insurance_provider.sql',
+  // Full Activation — regulated lender (finance) provider workflow
+  '20260703150000_finance_provider.sql',
+  // Full Activation — regulated real-money escrow provider extension
+  '20260703160000_escrow_provider.sql',
+  // Full Activation — native mobile device certification ledger
+  '20260703170000_mobile_certification.sql',
+  // Full Activation — private storage buckets (PGlite-safe no-op)
+  '20260703190000_provider_storage.sql',
+  // Full Activation hardening — scope provider request idempotency to (provider_id, idempotency_key)
+  '20260710120000_provider_request_attempts_provider_scope.sql',
+  // Phase 2B.1 (ported PR #11) — governed PartSentry public-card review workflow + approval provenance
+  '20260710130000_partsentry_review_requests.sql',
 ];
 
 function extractUpSection(filepath) {

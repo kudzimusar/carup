@@ -107,12 +107,18 @@ export async function analyzeEvidenceImage(fileBuffer, mimeType, evidenceType, m
     }, 50);
   });
 
-  // Enforce strict timeout boundary
+  // Enforce strict timeout boundary. The timer MUST be cleared once the race
+  // settles — otherwise every analysis leaves a dangling multi-second timer
+  // that keeps the event loop alive (a real resource leak under load, and the
+  // cause of the test-runner IPC crash when this suite runs alongside others).
+  let timeoutHandle;
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => {
+    timeoutHandle = setTimeout(() => {
       reject(new Error(`AI Vision provider analysis timed out after ${timeoutMs}ms.`));
     }, timeoutMs);
   });
 
-  return Promise.race([analysisPromise, timeoutPromise]);
+  return Promise.race([analysisPromise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutHandle);
+  });
 }

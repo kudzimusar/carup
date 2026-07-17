@@ -6,7 +6,7 @@ import {
   WALLET_TRANSACTION_STATUSES,
 } from '../../constants/referral/referralConstants.js';
 import { REFERRAL_TABLES } from './referralEngineRepository.js';
-import { ReferralEngineService, paginateReferralRows } from './referralEngineService.js';
+import { ReferralEngineService, clampReferralLimit, clampReferralOffset, paginateReferralRows } from './referralEngineService.js';
 
 export const TRUST_EVENT_TYPES = Object.freeze({
   RISK_CHECK_RUN: 'trust.risk_check_run',
@@ -77,8 +77,15 @@ function checksum(value) { return crypto.createHash('sha256').update(JSON.string
 // Audit export page-size bounds — never an unbounded full-table scan.
 const AUDIT_EXPORT_DEFAULT_LIMIT = 500;
 const AUDIT_EXPORT_MAX_LIMIT = 1000;
+const OWNER_DISPUTE_DEFAULT_LIMIT = 25;
+const OWNER_DISPUTE_MAX_LIMIT = 100;
+const OWNER_WALLET_SCAN_LIMIT = 1000;
 function timestamp(now) { return now().toISOString(); }
 function normalizeReason(reason) { return String(reason || '').replace(/\s+/g, ' ').trim(); }
+function tenantConsistent(rowTenant, actorTenant) {
+  if (!rowTenant || !actorTenant) return true;
+  return String(rowTenant) === String(actorTenant);
+}
 
 function recommendationFromScore(score, critical = false) {
   if (critical || score >= 100) return TRUST_RECOMMENDATIONS.REJECT;
@@ -97,6 +104,27 @@ function explanationForStatus(status, risk = {}) {
   if (status === WALLET_TRANSACTION_STATUSES.REJECTED) return 'This benefit was rejected after review. Check the review decision trail for details.';
   if (status === WALLET_TRANSACTION_STATUSES.PAID_OR_APPLIED) return 'This benefit has already been paid or applied.';
   return 'This benefit has been created but has not yet completed trust review.';
+}
+
+/**
+ * Owner-safe, status-derived resolution message for a dispute. Never echoes the raw administrator
+ * resolution note (which may contain internal commentary); maps the dispute status to a safe summary.
+ */
+function ownerSafeResolution(status) {
+  switch (status) {
+    case DISPUTE_STATUSES.OPEN:
+      return 'Your dispute is open and awaiting review by a CarUp trust reviewer.';
+    case DISPUTE_STATUSES.UNDER_REVIEW:
+      return 'Your dispute is being reviewed by a CarUp trust reviewer.';
+    case DISPUTE_STATUSES.RESOLVED_UPHELD:
+      return 'Reviewed: after checking the milestone and attribution, the benefit’s current status was upheld.';
+    case DISPUTE_STATUSES.RESOLVED_REVERSED:
+      return 'Reviewed: the decision on this benefit was reversed in your favour.';
+    case DISPUTE_STATUSES.CLOSED:
+      return 'This dispute has been closed.';
+    default:
+      return 'This dispute has been recorded.';
+  }
 }
 
 export class ReferralTrustReviewService {
@@ -354,26 +382,175 @@ export class ReferralTrustReviewService {
     return { disputes, pagination };
   }
 
+  /**
+   * Referral V1 Stage-4 remediation B: owner-scoped dispute read for the Refer & Earn surface.
+   *
+   * Returns ONLY disputes linked to wallet transactions the authenticated owner actually owns
+   * (transaction.user_id === ownerUserId), so no user can read another user's dispute. The projection
+   * is owner-safe: the owner's own reason, a status-derived owner-safe resolution message (NOT the raw
+   * administrator resolution note), timestamps, and the current benefit status. Confidential
+   * administrator commentary and risk/fraud signals are never exposed.
+   *
+   * @param {string} ownerUserId authenticated owner id (derived server-side; never caller-supplied)
+   * @param {object} [filters] { wallet_transaction_id }
+   */
+  assertOwnerWalletAccess(transaction, actor = {}) {
+    if (!transaction) throw new NotFoundError('Wallet transaction not found.');
+    if (!actor.actor_user_id) throw new ForbiddenError('An authenticated owner is required to access disputes.');
+    if (transaction.user_id !== actor.actor_user_id) {
+      throw new ForbiddenError('You cannot access another user benefit dispute.');
+    }
+    if (!tenantConsistent(transaction.tenant_id, actor.actor_tenant_id)) {
+      throw new ForbiddenError('You cannot access benefit disputes outside your tenant.');
+    }
+  }
+
+  async listOwnerDisputes(ownerUserId, filters = {}, actor = {}) {
+    if (!ownerUserId) throw new ForbiddenError('An authenticated owner is required to read disputes.');
+    const ownerActor = { ...actor, actor_user_id: actor.actor_user_id || ownerUserId };
+    const limit = clampReferralLimit(filters.limit, OWNER_DISPUTE_DEFAULT_LIMIT, OWNER_DISPUTE_MAX_LIMIT);
+    const offset = clampReferralOffset(filters.offset);
+    const md = (event) => event.metadata || {};
+
+    let walletTransactions;
+    let disputeEvents;
+    let total;
+    if (filters.wallet_transaction_id) {
+      const tx = await this.referralService.repository.findOne(REFERRAL_TABLES.walletTransactions, { id: filters.wallet_transaction_id });
+      this.assertOwnerWalletAccess(tx, ownerActor);
+      walletTransactions = [tx];
+      const directFilters = {
+        event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED,
+        wallet_transaction_id: tx.id,
+      };
+      if (ownerActor.actor_tenant_id) directFilters.tenant_id = ownerActor.actor_tenant_id;
+      if (this.referralService.repository.listIn) {
+        disputeEvents = await this.referralService.repository.listIn(
+          REFERRAL_TABLES.events,
+          'wallet_transaction_id',
+          [tx.id],
+          { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED, ...(ownerActor.actor_tenant_id ? { tenant_id: ownerActor.actor_tenant_id } : {}) },
+          {
+            orderBy: 'created_at',
+            ascending: false,
+            limit,
+            offset,
+            jsonContains: { metadata: { opened_by: ownerUserId } },
+          }
+        );
+      } else {
+        disputeEvents = await this.referralService.repository.list(REFERRAL_TABLES.events, directFilters, {
+          orderBy: 'created_at',
+          ascending: false,
+          limit,
+          offset,
+        });
+        disputeEvents = disputeEvents.filter((event) => md(event).opened_by === ownerUserId);
+      }
+      if (this.referralService.repository.countIn) {
+        total = await this.referralService.repository.countIn(
+          REFERRAL_TABLES.events,
+          'wallet_transaction_id',
+          [tx.id],
+          { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED, ...(ownerActor.actor_tenant_id ? { tenant_id: ownerActor.actor_tenant_id } : {}) },
+          { jsonContains: { metadata: { opened_by: ownerUserId } } }
+        );
+      } else {
+        total = disputeEvents.length;
+      }
+    } else {
+      const walletFilters = { user_id: ownerUserId };
+      if (ownerActor.actor_tenant_id) walletFilters.tenant_id = ownerActor.actor_tenant_id;
+      walletTransactions = await this.referralService.repository.list(REFERRAL_TABLES.walletTransactions, walletFilters, {
+        orderBy: 'created_at',
+        ascending: false,
+        limit: OWNER_WALLET_SCAN_LIMIT,
+      });
+      const walletIds = walletTransactions.map((tx) => tx.id).filter(Boolean);
+      const eventFilters = { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED };
+      if (ownerActor.actor_tenant_id) eventFilters.tenant_id = ownerActor.actor_tenant_id;
+      const listOptions = {
+        orderBy: 'created_at',
+        ascending: false,
+        limit,
+        offset,
+        jsonContains: { metadata: { opened_by: ownerUserId } },
+      };
+      if (this.referralService.repository.listIn) {
+        disputeEvents = await this.referralService.repository.listIn(
+          REFERRAL_TABLES.events,
+          'wallet_transaction_id',
+          walletIds,
+          eventFilters,
+          listOptions
+        );
+        total = this.referralService.repository.countIn
+          ? await this.referralService.repository.countIn(
+              REFERRAL_TABLES.events,
+              'wallet_transaction_id',
+              walletIds,
+              eventFilters,
+              { jsonContains: { metadata: { opened_by: ownerUserId } } }
+            )
+          : disputeEvents.length;
+      } else {
+        const allOwnerEvents = await this.referralService.repository.list(REFERRAL_TABLES.events, eventFilters, {
+          orderBy: 'created_at',
+          ascending: false,
+          limit: OWNER_WALLET_SCAN_LIMIT,
+        });
+        const ownerWalletIds = new Set(walletIds);
+        const scoped = allOwnerEvents.filter((event) => ownerWalletIds.has(event.wallet_transaction_id) && md(event).opened_by === ownerUserId);
+        const paged = paginateReferralRows(scoped, { limit, offset });
+        disputeEvents = paged.page;
+        total = paged.pagination.total;
+      }
+    }
+
+    const walletById = new Map(walletTransactions.map((tx) => [tx.id, tx]));
+    const disputes = [];
+    for (const event of (disputeEvents || []).filter(Boolean)) {
+      const meta = md(event);
+      const txId = meta.wallet_transaction_id ?? event.wallet_transaction_id ?? null;
+      const tx = walletById.get(txId);
+      if (!tx || tx.user_id !== ownerUserId || meta.opened_by !== ownerUserId) continue;
+      disputes.push({
+        dispute_id: event.id,
+        wallet_transaction_id: txId,
+        status: meta.status ?? null,
+        submitted_at: meta.created_at ?? event.created_at ?? null,
+        resolved_at: meta.resolved_at ?? null,
+        owner_reason: meta.reason ?? null,
+        owner_safe_resolution: ownerSafeResolution(meta.status),
+        benefit_status: tx.status ?? null,
+      });
+    }
+    return { disputes, pagination: { limit, offset, total, has_more: offset + limit < total } };
+  }
+
   async createDispute(input = {}, actor = {}) {
-    if (!input.target_id && !input.wallet_transaction_id) throw new ValidationError('target_id or wallet_transaction_id is required for disputes.');
+    if (!input.wallet_transaction_id) throw new ValidationError('wallet_transaction_id is required for owner disputes.');
+    const transaction = await this.referralService.repository.findOne(REFERRAL_TABLES.walletTransactions, { id: input.wallet_transaction_id });
+    this.assertOwnerWalletAccess(transaction, actor);
     const metadata = {
       status: DISPUTE_STATUSES.OPEN,
-      target_type: input.target_type || 'wallet_transaction',
-      target_id: input.target_id || input.wallet_transaction_id,
-      wallet_transaction_id: input.wallet_transaction_id || null,
+      target_type: 'wallet_transaction',
+      target_id: transaction.id,
+      wallet_transaction_id: transaction.id,
       reason: normalizeReason(input.reason || 'Referral dispute opened.'),
-      opened_by: actor.actor_user_id || input.opened_by || null,
+      opened_by: actor.actor_user_id,
       evidence: Array.isArray(input.evidence) ? input.evidence : [],
       created_at: timestamp(this.now),
     };
     const event = await this.referralService.recordReferralEvent({
       event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED,
-      campaign_id: input.campaign_id || null,
-      code_id: input.code_id || null,
-      wallet_transaction_id: input.wallet_transaction_id || null,
+      tenant_id: transaction.tenant_id || actor.actor_tenant_id || null,
+      campaign_id: transaction.campaign_id || null,
+      code_id: transaction.code_id || null,
+      wallet_transaction_id: transaction.id,
       subject_type: 'trust_dispute',
       subject_id: metadata.target_id,
-      channel: input.channel || REFERRAL_CHANNELS.ADMIN,
+      channel: input.channel || REFERRAL_CHANNELS.WEB,
       session_id: input.session_id || actor.session_id || null,
       metadata,
     }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.USER });

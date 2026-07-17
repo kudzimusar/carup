@@ -70,6 +70,8 @@ function RetryableStateView({
   title: string;
   message: string;
 }): React.ReactElement {
+  const router = useRouter();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   return (
     <View style={styles.center}>
       <Text style={styles.title}>{title}</Text>
@@ -84,6 +86,21 @@ function RetryableStateView({
       >
         <Text style={styles.actionText}>Retry</Text>
       </Pressable>
+      {isAuthenticated ? (
+        // Verification must stay reachable even when the governed dashboard
+        // cannot load (identity verification is auth-gated, not
+        // governance-map-gated). Without this, a governance outage locked the
+        // ONLY entry point to the verification flow behind this error state.
+        <Pressable
+          style={[styles.action, styles.actionSecondary]}
+          accessibilityRole="button"
+          accessibilityLabel="Start Verification Flow"
+          testID="boundary-start-verification"
+          onPress={() => router.push('/(auth)/verification/intro' as never)}
+        >
+          <Text style={styles.actionText}>Start Verification Flow</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -275,6 +292,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 10,
+  },
+  actionSecondary: {
+    backgroundColor: '#0F172A',
+    borderWidth: 2,
+    borderColor: '#F97316',
+    marginTop: 12,
   },
   actionText: {
     color: '#FFFFFF',

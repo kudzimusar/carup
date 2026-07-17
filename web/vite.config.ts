@@ -22,5 +22,8 @@ export default defineConfig({
       "**/dist/**",
       "**/.{idea,git,cache,output,temp}/**",
     ],
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    globals: true,
   },
 });
