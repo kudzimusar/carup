@@ -324,11 +324,28 @@ updated items 2–3 under "Honest deviations". Backend diaspora suite after gap 
 | D Atomic drafts | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (4) | N/A | DONE (SOLID) | DONE | **COMPLETE (code, see deviation)** |
 | E Reservation/rollback | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (16) | regression | DONE | DONE | **COMPLETE (code)** |
 
-## Real-Postgres verification (2026-07-04) — "other executable work" done despite EB-1
+## CORRECTION (2026-07-18) — staging IS the authorized, accessible target
 
-`carup-staging` is unreachable (EB-1: `ToolSearch mcp__claude_ai_Supabase__list_projects` →
-"No matching deferred tools found"; no Docker for the Supabase CLI local stack). Rather than stop at
-the JS-mock evidence, a **real embedded Postgres (18.4)** was booted and the **actual migration SQL**
+Program correction from the release owner: **`carup-staging` (ref `eoyenigwevnxwwhyhaer`) is
+accessible** and is the authorized staging target; production is **`CarUp` (ref
+`vhmnajoeicasaigiophh`), read-only**. Earlier notes in this program that described the Supabase
+connector as "disconnected" or scoped to the wrong project (`sfhtlzcgrnrdznhvdrbn`) described only a
+**particular non-interactive automation session's tool namespace** and are **superseded** — they do
+not mean staging is unreachable. The staging apply + verification is the immediate pending action and
+is executed by **`backend/scripts/diaspora-staging-apply-verify.mjs`** (dry-run diff by default;
+`--apply` applies only verified-missing migrations, then verifies RPC/grant/RLS posture and
+adjudicates the diaspora advisor findings) plus the Supabase security/performance advisors, run from
+an environment that has the connector or `DIASPORA_STAGING_DATABASE_URL`. The migrations the live
+inventory is expected to be missing (ledger #11–#16): `20260621094000_h7_rpc_execute_grants`,
+`20260621120000_phase8_subscription_entitlements`, `20260621130000_phase9_safetrade`,
+`20260621131000_phase9_safetrade_disputes`, `20260621140000_phase10_trade_graph`,
+`20260704090000_payment_milestone_idempotency` — all confirmed additive and checksum-recorded in the
+migration ledger.
+
+## Real-Postgres verification (2026-07-04) — logic proven ahead of the staging apply
+
+Ahead of the staging apply (and while a prior automation session lacked the connector in its own tool
+set), a **real embedded Postgres (18.4)** was booted and the **actual migration SQL**
 applied verbatim to prove the claims that genuinely need real Postgres semantics. Harness +
 reproducible instructions + captured output: `backend/tests/realpg/`. **Result: 10/10.**
 
