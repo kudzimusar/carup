@@ -92,6 +92,7 @@ export default function DiasporaStockManager() {
 
   useEffect(() => {
     if (authLoading || !canView) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadList()
     void loadDocs()
   }, [authLoading, canView, loadList, loadDocs])
