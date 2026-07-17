@@ -1,8 +1,10 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-const buyer = { id: 'b-1', name: 'Buyer', email: 'b@carup.test', role: 'owner' }
-const reviewer = { id: 'r-1', name: 'Rev', email: 'r@carup.test', role: 'reviewer' }
-const mechanic = { id: 'm-1', name: 'Mech', email: 'm@carup.test', role: 'mechanic' }
+type TestUser = { id: string; name: string; email: string; role: string }
+
+const buyer: TestUser = { id: 'b-1', name: 'Buyer', email: 'b@carup.test', role: 'owner' }
+const reviewer: TestUser = { id: 'r-1', name: 'Rev', email: 'r@carup.test', role: 'reviewer' }
+const mechanic: TestUser = { id: 'm-1', name: 'Mech', email: 'm@carup.test', role: 'mechanic' }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin || '*'
@@ -11,14 +13,33 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) })
 }
 
-async function loginAs(page: Page, user: any, token = 'mock-token') {
+async function loginAs(page: Page, user: TestUser, token = 'mock-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
     window.localStorage.setItem('carup_token', token)
   }, { user, token })
 }
 
-interface CState { containers: any[]; reservations: any[]; seq: number; reservePayloads: any[] }
+interface Container {
+  id: string
+  origin_country: string
+  destination_country: string
+  container_type: string
+  total_capacity_volume: number
+  used_capacity_volume: number
+  available_capacity_volume: number
+  status: string
+  reservations_used?: number
+}
+interface Reservation {
+  id: string
+  container_id: string
+  buyer_id: string
+  estimated_volume: number
+  reservation_status: string
+}
+interface ReservePayload { estimated_volume: number }
+interface CState { containers: Container[]; reservations: Reservation[]; seq: number; reservePayloads: ReservePayload[] }
 function initial(): CState {
   return {
     containers: [{ id: 'cont-1', origin_country: 'Japan', destination_country: 'Zimbabwe', container_type: '40HC', total_capacity_volume: 50, used_capacity_volume: 0, available_capacity_volume: 50, status: 'BOOKING_OPEN' }],
@@ -28,14 +49,14 @@ function initial(): CState {
   }
 }
 
-function capOf(c: any) {
+function capOf(c: Container) {
   const total = c.total_capacity_volume
   const used = c.reservations_used || 0
   const pct = total > 0 ? used / total : 0
   return { totalVolume: total, usedVolume: used, availableVolume: Math.max(total - used, 0), fillPercent: pct, readyToClose: pct >= 0.9, full: pct >= 0.98, overfilled: used > total }
 }
 
-async function mockApi(page: Page, state: CState, user: any) {
+async function mockApi(page: Page, state: CState, user: TestUser) {
   await page.context().route('**/api/auth/me', (r) => fulfillJson(r, { user }))
   await page.context().route('**/api/security/csrf-token', (r) => fulfillJson(r, { csrfToken: 'mock-csrf' }))
   await page.context().route('**/api/diaspora/**', async (route) => {

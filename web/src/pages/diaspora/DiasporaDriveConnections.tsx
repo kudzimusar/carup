@@ -39,6 +39,7 @@ export default function DiasporaDriveConnections() {
     }
   }, [api, canView])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, load])
 
   const handleConnect = async () => {

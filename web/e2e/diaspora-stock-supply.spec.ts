@@ -25,11 +25,27 @@ async function loginAs(page: Page, user = dealerUser, token = 'mock-token') {
   }, { user, token })
 }
 
+interface StockItem {
+  id: string
+  part_name: string
+  quantity_on_hand: number
+  quantity_reserved: number
+  balances: { onHand: number; reserved: number; available: number }
+}
+interface SupplyDoc {
+  id: string
+  document_number: string
+  title: string
+  origin_country: string | null
+  status: string
+  publication_status: string
+}
+interface MovementPayload { action: string; quantity: number; idempotencyKey?: string }
 interface StockState {
-  items: any[]
-  ledger: Record<string, any[]>
-  docs: any[]
-  movementPayloads: any[]
+  items: StockItem[]
+  ledger: Record<string, unknown[]>
+  docs: SupplyDoc[]
+  movementPayloads: MovementPayload[]
   seq: number
 }
 
