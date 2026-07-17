@@ -1,3 +1,32 @@
+# Real-Postgres proofs — atomicity, idempotency, and Phase 8/9 ACL boundaries
+
+Two standalone real-Postgres harnesses (neither part of CI `node --test`; both need
+`embedded-postgres` + `pg`, installed via this dir's `package.json`):
+
+- **`reservation-idempotency-realpg.mjs`** — atomic `FOR UPDATE` reservation-approval concurrency +
+  migration #16 idempotency (documented below).
+- **`phase8-9-acl-realpg.mjs`** — the Phase 8/9 **mutation-boundary hardening** proof. Creates the real
+  `anon`/`authenticated`/`service_role` roles (service_role with `BYPASSRLS`, as Supabase configures
+  it) + the real `diaspora_trade_os_*` helper functions, applies the hardened RLS policies + grants,
+  and proves the negative cases as the actual Postgres roles. **Captured result (2026-07-18): 16/16.**
+  ```
+  P8: tenant member CAN SELECT own-tenant subscription
+  P8: cross-tenant member SELECT returns 0 rows (RLS)
+  P8: tenant member CANNOT INSERT a subscription (42501)
+  P8: tenant member CANNOT UPDATE plan_key/status (42501)
+  P8: tenant member CANNOT create an entitlement override (42501)
+  P8/anon+authenticated CANNOT execute the usage-mutation RPC (42501)
+  P9: participant CAN SELECT an allowed SafeTrade transaction
+  P9: participant CANNOT set transaction status RELEASED / milestone status (42501)
+  P9: participant CANNOT forge an eligible=true release evaluation (42501)
+  P9: participant CANNOT set dispute status/fraud_hold (42501)
+  P9: cross-tenant SELECT returns 0 (RLS)
+  service_role CAN write the money table + execute the RPC (backend path)
+  ════ PHASE 8/9 ACL PROOF: 16/16 passed ════
+  ```
+
+---
+
 # Real-Postgres proof — atomic reservation approval + migration idempotency
 
 `reservation-idempotency-realpg.mjs` boots a **real embedded Postgres** (not the in-memory JS mock

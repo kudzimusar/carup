@@ -177,23 +177,27 @@ CREATE POLICY diaspora_subscription_plans_read
   TO authenticated
   USING (is_active = true);
 
--- Subscriptions: tenant members + platform admins (created_by/updated_by tracked for owner access).
+-- Subscriptions: tenant members + platform admins get RLS-scoped READ ONLY. Billing is a
+-- tenant-level financial control — all subscription writes (checkout/plan-change/cancel/webhook)
+-- go through the backend service_role (which bypasses RLS) after the canManageSubscription authz
+-- gate. There is deliberately NO authenticated write policy, so a caller who reaches the table
+-- directly (bypassing Express) still cannot INSERT/UPDATE/DELETE. (Hardening 2026-07-18: was FOR ALL.)
 DROP POLICY IF EXISTS diaspora_subscriptions_tenant_access ON public.diaspora_subscriptions;
 CREATE POLICY diaspora_subscriptions_tenant_access
   ON public.diaspora_subscriptions
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
--- Overrides: tenant members + platform admins.
+-- Overrides: tenant members + platform admins READ ONLY; entitlement overrides are a grant of
+-- paid capability and must only be written by service_role (never self-granted by a tenant member).
+-- (Hardening 2026-07-18: was FOR ALL.)
 DROP POLICY IF EXISTS diaspora_user_overrides_tenant_access ON public.diaspora_user_entitlement_overrides;
 CREATE POLICY diaspora_user_overrides_tenant_access
   ON public.diaspora_user_entitlement_overrides
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
 -- Usage meters: tenant-scoped read for members; mutation only via the SECURITY DEFINER RPC /
 -- service_role. No created_by/updated_by on this table, so the predicate keys on tenant membership.
@@ -235,9 +239,12 @@ REVOKE ALL ON TABLE public.diaspora_usage_reservations FROM PUBLIC;
 REVOKE ALL ON TABLE public.diaspora_billing_provider_events FROM PUBLIC;
 DO $grants$
 BEGIN
+  -- authenticated gets SELECT only on every Phase 8 table (RLS scopes which rows). No table-level
+  -- INSERT/UPDATE/DELETE to authenticated: all writes are service_role (post-authz backend) or the
+  -- SECURITY DEFINER usage RPC. (Hardening 2026-07-18: subscriptions + overrides were SELECT,INSERT,UPDATE.)
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_subscriptions TO authenticated;
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_user_entitlement_overrides TO authenticated;
+    GRANT SELECT ON TABLE public.diaspora_subscriptions TO authenticated;
+    GRANT SELECT ON TABLE public.diaspora_user_entitlement_overrides TO authenticated;
     GRANT SELECT ON TABLE public.diaspora_subscription_plans TO authenticated;
     GRANT SELECT ON TABLE public.diaspora_usage_meters TO authenticated;
     GRANT SELECT ON TABLE public.diaspora_usage_reservations TO authenticated;
@@ -350,12 +357,24 @@ BEGIN
 END;
 $$;
 
--- Only the backend service role may execute this function.
+-- Only the backend service role may execute this function. Explicitly strip PUBLIC/anon/authenticated
+-- (not just PUBLIC) so a PostgREST-exposed anon/authenticated caller can never invoke the quota RPC
+-- directly and bypass the entitlement checks. (Hardening 2026-07-18: added anon/authenticated revokes.)
 REVOKE ALL ON FUNCTION public.diaspora_reserve_usage_atomic(
   uuid, text, text, integer, integer, timestamptz, timestamptz, text
 ) FROM PUBLIC;
 DO $grant$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_reserve_usage_atomic(
+      uuid, text, text, integer, integer, timestamptz, timestamptz, text
+    ) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_reserve_usage_atomic(
+      uuid, text, text, integer, integer, timestamptz, timestamptz, text
+    ) FROM authenticated;
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     GRANT EXECUTE ON FUNCTION public.diaspora_reserve_usage_atomic(
       uuid, text, text, integer, integer, timestamptz, timestamptz, text

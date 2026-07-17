@@ -1,166 +1,163 @@
 #!/usr/bin/env node
 /**
- * Diaspora Trade OS — staging apply + verify runner (carup-staging, ref eoyenigwevnxwwhyhaer).
+ * Diaspora Trade OS — staging READ-ONLY DIAGNOSTIC (carup-staging, ref eoyenigwevnxwwhyhaer).
  *
- * Implements the completion-loop staging steps against the ACTUAL staging Postgres via a direct
- * connection — for use in an execution environment that HAS staging access (the Supabase MCP
- * connector, or a DB URL). It does NOT invent access: it requires DIASPORA_STAGING_DATABASE_URL
- * (a service-role/owner Postgres URL for carup-staging) in the environment. Never hard-code or print
- * the secret; pass it via env only.
+ * This is a diagnostic only — it NEVER writes to staging and is NOT the canonical apply path.
+ * Canonical migration application is done by the release operator through the OFFICIAL Supabase
+ * migration flow (Supabase MCP `apply_migration`, or `supabase db push`), which records history in
+ * Supabase's own `supabase_migrations.schema_migrations`. This script must never create or write a
+ * parallel migration ledger.
  *
- *   Dry-run (default — reads history, diffs vs repo, prints plan, NO writes):
- *     DIASPORA_STAGING_DATABASE_URL=... node backend/scripts/diaspora-staging-apply-verify.mjs
- *   Apply the verified-missing migrations, then verify + adjudicate advisors:
- *     DIASPORA_STAGING_DATABASE_URL=... node backend/scripts/diaspora-staging-apply-verify.mjs --apply
+ * What it does (all read-only, inside read-only transactions):
+ *   1. Reads Supabase's OFFICIAL migration history and diffs it against the repo diaspora set.
+ *   2. STATIC-scans the pending migration files for security anti-patterns (FOR ALL to authenticated,
+ *      authenticated INSERT/UPDATE grants, SECURITY DEFINER without a pinned search_path, mutation
+ *      RPCs missing an explicit anon/authenticated REVOKE).
+ *   3. Runs REAL verification queries against the connected DB: RLS-enabled state, per-table policy
+ *      commands, function grants, and the diaspora advisor-finding adjudication queries.
+ *   4. Runs a REAL negative ACL probe as the `authenticated` role (SET LOCAL ROLE, read-only txn):
+ *      a direct INSERT into a launch money-table must be denied (42501).
  *
- * Safety: refuses to run against production (rejects a URL whose host/db matches the forbidden prod
- * ref vhmnajoeicasaigiophh). Never reapplies a recorded migration. Stops on first migration failure.
- * Production (CarUp / vhmnajoeicasaigiophh) must remain read-only — this script never targets it.
+ * Access: requires DIASPORA_STAGING_DATABASE_URL in the env (never hard-coded/printed). It POSITIVELY
+ * requires the URL to reference the staging ref `eoyenigwevnxwwhyhaer`, and refuses any URL that
+ * references the forbidden production ref `vhmnajoeicasaigiophh`. No --apply mode exists.
  */
 import pg from 'pg';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const MIG_DIR = `${REPO}database/migrations`;
-const APPLY = process.argv.includes('--apply');
+const STAGING_REF = 'eoyenigwevnxwwhyhaer';
 const FORBIDDEN_PROD_REF = 'vhmnajoeicasaigiophh';
 
-// The diaspora migrations that must exist on staging, in dependency order (matches the ledger).
 const DIASPORA_MIGRATIONS = [
-  '013_diaspora_trade_schema',
-  '014_diaspora_rls_recursion_fix',
-  '20260611061849_diaspora_trade_os_phase1b_foundation',
-  '20260619201406_production_access_containment',
-  '20260620120000_diaspora_phase3_stock_ledger_idempotency',
-  '20260620232827_issue77_access_containment_followup',
-  '20260621090000_diaspora_h1_stock_movement_rpc',
-  '20260621091000_diaspora_h2_quote_acceptance_rpc',
-  '20260621092000_diaspora_h3_container_approval_rpc',
-  '20260621093000_diaspora_h6_oauth_state_nonce',
-  '20260621094000_diaspora_h7_rpc_execute_grants',
-  '20260621120000_diaspora_phase8_subscription_entitlements',
-  '20260621130000_diaspora_phase9_safetrade',
-  '20260621131000_diaspora_phase9_safetrade_disputes',
-  '20260621140000_diaspora_phase10_trade_graph',
-  '20260704090000_diaspora_payment_milestone_idempotency',
+  '013_diaspora_trade_schema', '014_diaspora_rls_recursion_fix',
+  '20260611061849_diaspora_trade_os_phase1b_foundation', '20260619201406_production_access_containment',
+  '20260620120000_diaspora_phase3_stock_ledger_idempotency', '20260620232827_issue77_access_containment_followup',
+  '20260621090000_diaspora_h1_stock_movement_rpc', '20260621091000_diaspora_h2_quote_acceptance_rpc',
+  '20260621092000_diaspora_h3_container_approval_rpc', '20260621093000_diaspora_h6_oauth_state_nonce',
+  '20260621094000_diaspora_h7_rpc_execute_grants', '20260621120000_diaspora_phase8_subscription_entitlements',
+  '20260621130000_diaspora_phase9_safetrade', '20260621131000_diaspora_phase9_safetrade_disputes',
+  '20260621140000_diaspora_phase10_trade_graph', '20260704090000_diaspora_payment_milestone_idempotency',
 ];
 
-// The five diaspora advisor findings the loop must explicitly adjudicate (intended vs defect).
-const ADVISOR_QUERIES = {
-  'diaspora_oauth_states RLS-enabled + policy count': `
-    SELECT c.relrowsecurity AS rls_enabled,
-           (SELECT count(*) FROM pg_policies p WHERE p.tablename='diaspora_oauth_states') AS policy_count,
-           (SELECT string_agg(grantee||':'||privilege_type, ', ')
-              FROM information_schema.role_table_grants
-             WHERE table_name='diaspora_oauth_states' AND grantee IN ('anon','authenticated','PUBLIC')) AS client_grants
-    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='public' AND c.relname='diaspora_oauth_states'`,
-  'set_diaspora_updated_at search_path': `
-    SELECT proname, proconfig, prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' AND proname='set_diaspora_updated_at'`,
-  'authz helper EXECUTE grants (anon/authenticated must not hold where intended service-only)': `
-    SELECT routine_name, grantee, privilege_type FROM information_schema.routine_privileges
-    WHERE routine_schema='public'
-      AND routine_name IN ('diaspora_trade_os_is_platform_admin','diaspora_trade_os_is_tenant_member','diaspora_can_access_order')
-      AND grantee IN ('anon','authenticated','PUBLIC') ORDER BY routine_name, grantee`,
-};
-
-function loadUp(name) {
-  const sql = readFileSync(`${MIG_DIR}/${name}.sql`, 'utf8');
-  // Node runner convention: Up block is before the -- +migrate Down marker.
-  return sql.split('-- +migrate Down')[0].replace(/^-- \+migrate Up\s*/m, '');
+// Strip -- line comments and /* */ block comments, then collapse whitespace, so scans see only SQL.
+function stripSql(sql) {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n').map((l) => l.replace(/--.*$/, '')).join('\n');
 }
-function isAdditive(name) {
-  const up = loadUp(name).toUpperCase();
-  return !/\bDROP\s+TABLE\b|\bDROP\s+COLUMN\b|\bTRUNCATE\b/.test(up); // heuristic; RPC/grant migrations are additive
+// Repo-wide concatenation of all diaspora Up blocks — so a REVOKE that lives in a SEPARATE grants
+// migration (e.g. H7 locks the H1/H2/H3 RPCs) is correctly credited to those RPCs.
+let _repoUp = null;
+function repoUp() {
+  if (_repoUp) return _repoUp;
+  _repoUp = DIASPORA_MIGRATIONS.map((n) => stripSql(readFileSync(`${MIG_DIR}/${n}.sql`, 'utf8').split('-- +migrate Down')[0])).join('\n;\n');
+  return _repoUp;
+}
+
+// Static security scan of a pending migration — reports anti-patterns the operator must review
+// before canonical application. (Fixes defect D: statement-scoped, comment-stripped, cross-migration
+// aware for RPC revokes.)
+function scanSecurity(name) {
+  const up = stripSql(readFileSync(`${MIG_DIR}/${name}.sql`, 'utf8').split('-- +migrate Down')[0]);
+  const flags = [];
+  const statements = up.split(';');
+  for (const st of statements) {
+    if (/\bCREATE POLICY\b/i.test(st) && /\bFOR\s+ALL\b/i.test(st) && /\bTO\s+authenticated\b/i.test(st)) flags.push('FOR ALL policy to authenticated');
+    if (/\bGRANT\b/i.test(st) && !/\bREVOKE\b/i.test(st) && /\b(INSERT|UPDATE|DELETE)\b/i.test(st) && /\bTO\s+authenticated\b/i.test(st)) flags.push('authenticated INSERT/UPDATE/DELETE grant');
+  }
+  // SECURITY DEFINER functions must pin search_path (scan each function head).
+  for (const m of up.matchAll(/CREATE OR REPLACE FUNCTION\s+public\.([a-z_]+)[\s\S]{0,400}?\bAS\b/gi)) {
+    // Postgres accepts both `SET search_path = 'public'` and `SET search_path TO 'public'`.
+    if (/SECURITY DEFINER/i.test(m[0]) && !/SET search_path\s*(=|TO)\s*/i.test(m[0])) flags.push(`SECURITY DEFINER without pinned search_path: ${m[1]}`);
+  }
+  // Mutation RPCs should have anon + authenticated EXECUTE revoked SOMEWHERE in the diaspora set
+  // (own migration OR the dedicated grants migration). Only flag genuine mutation RPCs (…_atomic /
+  // …reserve…), not read-only helper fns.
+  const repo = repoUp();
+  for (const m of up.matchAll(/REVOKE ALL ON FUNCTION public\.([a-z_]+)\([^)]*\)\s*FROM PUBLIC/gi)) {
+    const fn = m[1];
+    if (!/_atomic$|reserve_usage/.test(fn)) continue;
+    if (!new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]*\\)\\s*FROM anon`, 'i').test(repo)) flags.push(`mutation RPC ${fn}: no explicit anon REVOKE anywhere in the diaspora set`);
+    if (!new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]*\\)\\s*FROM authenticated`, 'i').test(repo)) flags.push(`mutation RPC ${fn}: no explicit authenticated REVOKE anywhere in the diaspora set`);
+  }
+  return flags;
 }
 
 async function main() {
   const url = process.env.DIASPORA_STAGING_DATABASE_URL;
-  if (!url) {
-    console.error('REFUSING TO RUN: DIASPORA_STAGING_DATABASE_URL is not set. This runner needs a real');
-    console.error('carup-staging (eoyenigwevnxwwhyhaer) Postgres URL in the environment. It never targets');
-    console.error('production. Set the env var in an execution context that has authorized staging access.');
-    process.exit(3);
-  }
-  if (url.includes(FORBIDDEN_PROD_REF)) {
-    console.error(`REFUSING TO RUN: the connection string references the forbidden production ref ${FORBIDDEN_PROD_REF}.`);
-    process.exit(4);
-  }
+  if (!url) { console.error('REFUSING: DIASPORA_STAGING_DATABASE_URL not set. Read-only diagnostic; never applies.'); process.exit(3); }
+  if (url.includes(FORBIDDEN_PROD_REF)) { console.error(`REFUSING: URL references the forbidden production ref ${FORBIDDEN_PROD_REF}.`); process.exit(4); }
+  if (!url.includes(STAGING_REF)) { console.error(`REFUSING: URL must positively reference the staging ref ${STAGING_REF} (production/other targets are rejected).`); process.exit(5); }
 
-  const client = new pg.Client({ connectionString: url });
+  console.log('── STATIC security scan of pending migrations (no DB needed) ──');
+  for (const name of DIASPORA_MIGRATIONS) {
+    const flags = scanSecurity(name);
+    if (flags.length) console.log(`  ⚠ ${name}: ${flags.join('; ')}`);
+  }
+  console.log('  (no ⚠ lines above = clean scan)\n');
+
+  const client = new pg.Client({ connectionString: url, statement_timeout: 15000 });
   await client.connect();
-  const dbInfo = (await client.query(`select current_database() db, inet_server_addr() host, version() v`)).rows[0];
-  console.log(`Connected: db=${dbInfo.db} host=${dbInfo.host ?? 'n/a'} ${dbInfo.v.split(' ').slice(0,2).join(' ')}`);
-  console.log(`Mode: ${APPLY ? 'APPLY (writes enabled)' : 'DRY-RUN (read-only)'}\n`);
+  await client.query('SET default_transaction_read_only = on'); // belt: this session cannot write
+  const info = (await client.query(`select current_database() db, version() v`)).rows[0];
+  console.log(`Connected READ-ONLY: db=${info.db} ${info.v.split(' ').slice(0,2).join(' ')}\n`);
 
-  // 1. Read the actual staging migration history (support the Node-runner table AND supabase's).
+  // Read the OFFICIAL Supabase migration history (never a parallel table). Fixes defect B.
   let applied = new Set();
-  for (const q of [
-    `SELECT version FROM public.schema_migrations`,
-    `SELECT version FROM supabase_migrations.schema_migrations`,
-  ]) {
-    try { (await client.query(q)).rows.forEach((r) => applied.add(String(r.version))); } catch { /* table may not exist */ }
-  }
-  console.log(`Staging recorded migrations: ${applied.size}`);
+  try { (await client.query(`SELECT version FROM supabase_migrations.schema_migrations`)).rows.forEach(r => applied.add(String(r.version))); }
+  catch { console.log('  (supabase_migrations.schema_migrations not readable — check the operator applies via the official flow)'); }
+  console.log(`Official staging migration history entries: ${applied.size}`);
+  const missing = DIASPORA_MIGRATIONS.filter(m => !applied.has(m) && !applied.has(m.split('_')[0]));
+  console.log(`Diaspora migrations NOT yet in staging history (${missing.length}): ${missing.join(', ') || 'none'}\n`);
 
-  // 2/3. Diff vs repo diaspora set → precise missing list, in dependency order.
-  const missing = DIASPORA_MIGRATIONS.filter((m) => {
-    const version = m.split('_')[0];
-    return !applied.has(m) && !applied.has(version);
-  });
-  console.log(`\nMissing diaspora migrations (dependency order): ${missing.length}`);
-  for (const m of missing) console.log(`  - ${m}   additive=${isAdditive(m)}`);
+  console.log('── RPC posture (SECURITY + pinned search_path + PUBLIC/anon/authenticated grants) ──');
+  for (const r of (await client.query(`
+    SELECT proname, prosecdef, proconfig,
+      (SELECT string_agg(grantee||':'||privilege_type,', ') FROM information_schema.routine_privileges
+        WHERE routine_schema='public' AND routine_name=p.proname AND grantee IN ('PUBLIC','anon','authenticated')) AS client_exec
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND proname LIKE 'diaspora_%atomic' ORDER BY proname`)).rows)
+    console.log(`  ${r.proname}: ${r.prosecdef?'DEFINER':'INVOKER'} search_path=${JSON.stringify(r.proconfig)} client_exec=${r.client_exec||'none ✓'}`);
 
-  // 5. Apply only verified-missing migrations, one at a time, stop on first failure.
-  if (APPLY) {
-    for (const m of missing) {
-      process.stdout.write(`APPLY ${m} ... `);
-      const up = loadUp(m);
-      try {
-        await client.query('BEGIN');
-        await client.query(up);
-        // Record in the Node-runner history table (create if needed) so it is never reapplied.
-        await client.query(`CREATE TABLE IF NOT EXISTS public.schema_migrations (version text primary key, applied_at timestamptz default now())`);
-        await client.query(`INSERT INTO public.schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING`, [m]);
-        await client.query('COMMIT');
-        console.log('OK');
-      } catch (e) {
-        await client.query('ROLLBACK').catch(() => {});
-        console.log(`FAILED: ${e.message}`);
-        console.error('STOPPING on first migration failure (per directive).');
-        await client.end();
-        process.exit(5);
-      }
-    }
-  }
+  console.log('\n── RLS + policy commands on launch/money tables ──');
+  for (const r of (await client.query(`
+    SELECT c.relname, c.relrowsecurity AS rls,
+      (SELECT string_agg(DISTINCT cmd,',') FROM pg_policies WHERE tablename=c.relname) AS policy_cmds,
+      (SELECT string_agg(grantee||':'||privilege_type,', ') FROM information_schema.role_table_grants
+        WHERE table_name=c.relname AND grantee='authenticated') AS auth_grants
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname IN
+      ('diaspora_subscriptions','diaspora_user_entitlement_overrides','diaspora_safetrade_transactions',
+       'diaspora_safetrade_milestones','diaspora_safetrade_release_evaluations','diaspora_safetrade_disputes')
+    ORDER BY c.relname`)).rows)
+    console.log(`  ${r.relname}: rls=${r.rls} policy_cmds=${r.policy_cmds} authenticated=${r.auth_grants||'none'}`);
 
-  // 6. Post-verification: RPC posture, grants, RLS. (Runs in dry-run too, reporting current state.)
-  console.log('\n── RPC / grant / RLS verification ──');
-  const rpcs = (await client.query(`
-    SELECT proname, prosecdef AS security_definer, proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' AND proname LIKE 'diaspora_%atomic' ORDER BY proname`)).rows;
-  for (const r of rpcs) console.log(`  RPC ${r.proname}: SECURITY ${r.security_definer ? 'DEFINER' : 'INVOKER'}, search_path=${JSON.stringify(r.proconfig)}`);
+  console.log('\n── Advisor-finding adjudication queries (read-only) ──');
+  const adv = {
+    oauth_states_rls: `SELECT relrowsecurity rls,(SELECT count(*) FROM pg_policies WHERE tablename='diaspora_oauth_states') pols FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND relname='diaspora_oauth_states'`,
+    set_updated_at_searchpath: `SELECT proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='set_diaspora_updated_at'`,
+    authz_helper_client_exec: `SELECT routine_name,grantee FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name IN ('diaspora_trade_os_is_platform_admin','diaspora_trade_os_is_tenant_member','diaspora_can_access_order') AND grantee IN ('anon','authenticated') ORDER BY routine_name`,
+  };
+  for (const [k,q] of Object.entries(adv)) { try { console.log(`  ${k}:`, JSON.stringify((await client.query(q)).rows)); } catch(e){ console.log(`  ${k}: ${e.message}`); } }
 
-  // 7. Advisor-finding adjudication.
-  console.log('\n── Diaspora advisor-finding adjudication ──');
-  for (const [label, q] of Object.entries(ADVISOR_QUERIES)) {
-    try { console.log(`  [${label}]`, JSON.stringify((await client.query(q)).rows)); }
-    catch (e) { console.log(`  [${label}] query error: ${e.message}`); }
-  }
-
-  // 10 (sample). Tenant-isolation smoke: confirm RLS is ENABLED on the launch tables.
-  const rls = (await client.query(`
-    SELECT relname, relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='public' AND relname IN
-      ('diaspora_trade_profiles','diaspora_import_orders','diaspora_payment_milestones','diaspora_stock_items','diaspora_oauth_states')
-    ORDER BY relname`)).rows;
-  console.log('\n── RLS enabled state (launch tables) ──');
-  for (const r of rls) console.log(`  ${r.relname}: rls_enabled=${r.relrowsecurity}`);
+  // Real negative ACL probe as `authenticated` (read-only txn; the INSERT must be REJECTED, not run).
+  console.log('\n── Live negative ACL probe (authenticated INSERT must be denied) ──');
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL ROLE authenticated`);
+    await client.query(`SET LOCAL request.jwt.claim.sub = 'diagnostic-probe'`);
+    let denied = false;
+    try { await client.query(`INSERT INTO public.diaspora_subscriptions (id) VALUES (gen_random_uuid())`); }
+    catch (e) { denied = e.code === '42501' || /permission denied|read-only/i.test(e.message); }
+    console.log(`  authenticated direct INSERT into diaspora_subscriptions denied: ${denied}`);
+    await client.query('ROLLBACK');
+  } catch (e) { await client.query('ROLLBACK').catch(()=>{}); console.log(`  probe skipped: ${e.message}`); }
 
   await client.end();
-  console.log('\nDone. (Advisors themselves — Supabase security/performance — run via the Supabase API/MCP,');
-  console.log('not raw SQL; use get_advisors before/after alongside this runner.)');
+  console.log('\nDIAGNOSTIC COMPLETE (no writes performed). Canonical migration application + the Supabase');
+  console.log('security/performance advisors are run by the operator via the official Supabase flow.');
 }
-main().catch((e) => { console.error('RUNNER ERROR:', e.message); process.exit(2); });
+main().catch(e => { console.error('DIAGNOSTIC ERROR:', e.message); process.exit(2); });

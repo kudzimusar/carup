@@ -185,41 +185,52 @@ ALTER TABLE public.diaspora_safetrade_disputes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.diaspora_safetrade_dispute_evidence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.diaspora_safetrade_delivery_confirmations ENABLE ROW LEVEL SECURITY;
 
+-- Disputes: participants get RLS-scoped READ ONLY. The backend (service_role) creates disputes and
+-- controls every state field — status, resolution, assigned_reviewer_id, resolved_by, hold_placed,
+-- fraud_hold, dispute_window_closed, reputation_eligibility_emitted, raised_by_role — so an ordinary
+-- caller can never set them directly. (Hardening 2026-07-18: was FOR ALL.)
 DROP POLICY IF EXISTS diaspora_safetrade_disputes_tenant_access ON public.diaspora_safetrade_disputes;
 CREATE POLICY diaspora_safetrade_disputes_tenant_access
   ON public.diaspora_safetrade_disputes
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
+-- Evidence: participants get RLS-scoped READ ONLY (the server-redacted read endpoint, ST-4B, is the
+-- authored boundary; author_role and visibility are server-set). Uploads go through the backend, so
+-- no direct INSERT for authenticated. (Hardening 2026-07-18: was FOR ALL / GRANT SELECT,INSERT.)
 DROP POLICY IF EXISTS diaspora_safetrade_dispute_evidence_tenant_access ON public.diaspora_safetrade_dispute_evidence;
 CREATE POLICY diaspora_safetrade_dispute_evidence_tenant_access
   ON public.diaspora_safetrade_dispute_evidence
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
+-- Delivery confirmations: participants READ ONLY; confirmed_by_role and confirmation are server-set
+-- by the backend so a buyer cannot forge a delivery confirmation that gates release. (Was FOR ALL.)
 DROP POLICY IF EXISTS diaspora_safetrade_delivery_tenant_access ON public.diaspora_safetrade_delivery_confirmations;
 CREATE POLICY diaspora_safetrade_delivery_tenant_access
   ON public.diaspora_safetrade_delivery_confirmations
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
--- ── Table-level grants: never PUBLIC; authenticated (RLS-scoped) + service_role only ──
+-- ── Table-level grants: never PUBLIC; authenticated SELECT-only + service_role writes ──
 REVOKE ALL ON TABLE public.diaspora_safetrade_disputes FROM PUBLIC;
 REVOKE ALL ON TABLE public.diaspora_safetrade_dispute_evidence FROM PUBLIC;
 REVOKE ALL ON TABLE public.diaspora_safetrade_delivery_confirmations FROM PUBLIC;
 DO $grants$
 BEGIN
+  -- SELECT-only for authenticated on all three; every create/mutate is service_role via the backend
+  -- (dispute lifecycle, evidence upload, delivery confirmation). Explicit write REVOKEs are
+  -- defense-in-depth. (Hardening 2026-07-18: all three previously had authenticated INSERT/UPDATE.)
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_safetrade_disputes TO authenticated;
-    -- Evidence is append-only for participants: no UPDATE for authenticated.
-    GRANT SELECT, INSERT ON TABLE public.diaspora_safetrade_dispute_evidence TO authenticated;
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_safetrade_delivery_confirmations TO authenticated;
+    GRANT SELECT ON TABLE public.diaspora_safetrade_disputes TO authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.diaspora_safetrade_disputes FROM authenticated;
+    GRANT SELECT ON TABLE public.diaspora_safetrade_dispute_evidence TO authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.diaspora_safetrade_dispute_evidence FROM authenticated;
+    GRANT SELECT ON TABLE public.diaspora_safetrade_delivery_confirmations TO authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.diaspora_safetrade_delivery_confirmations FROM authenticated;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     GRANT ALL ON TABLE public.diaspora_safetrade_disputes TO service_role;

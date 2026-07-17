@@ -192,29 +192,36 @@ ALTER TABLE public.diaspora_safetrade_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.diaspora_safetrade_milestones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.diaspora_safetrade_release_evaluations ENABLE ROW LEVEL SECURITY;
 
+-- SafeTrade is escrow/assurance over money-state. Participants get RLS-scoped READ ONLY on the
+-- transaction; every write — status/state transitions, reviewer, settlement, RELEASE/REFUND, provider
+-- fields — goes through the service_role atomic RPCs (transition/record-milestone) which enforce the
+-- state machine, evaluation requirement, non-negotiables and audit. A participant who reaches the
+-- table directly still cannot UPDATE status or any money field. (Hardening 2026-07-18: was FOR ALL.)
 DROP POLICY IF EXISTS diaspora_safetrade_transactions_tenant_access ON public.diaspora_safetrade_transactions;
 CREATE POLICY diaspora_safetrade_transactions_tenant_access
   ON public.diaspora_safetrade_transactions
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
+-- Milestones drive the release schedule; direct participant mutation of milestone status would
+-- bypass the record-milestone RPC's evaluation/idempotency. READ ONLY for participants. (Was FOR ALL.)
 DROP POLICY IF EXISTS diaspora_safetrade_milestones_tenant_access ON public.diaspora_safetrade_milestones;
 CREATE POLICY diaspora_safetrade_milestones_tenant_access
   ON public.diaspora_safetrade_milestones
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
+-- Release evaluations: participants READ ONLY (grant already blocks writes; the policy is SELECT too
+-- so a future stray GRANT can never re-open forging of an eligible=true verdict). (Hardening
+-- 2026-07-18: policy was FOR ALL though the grant was already SELECT-only.)
 DROP POLICY IF EXISTS diaspora_safetrade_evals_tenant_access ON public.diaspora_safetrade_release_evaluations;
 CREATE POLICY diaspora_safetrade_evals_tenant_access
   ON public.diaspora_safetrade_release_evaluations
-  FOR ALL
+  FOR SELECT
   TO authenticated
-  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by))
-  WITH CHECK (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
+  USING (public.diaspora_trade_os_can_access_row(tenant_id, created_by, updated_by));
 
 -- ── Table-level grants: never PUBLIC; authenticated (RLS-scoped) + service_role only ──
 REVOKE ALL ON TABLE public.diaspora_safetrade_transactions FROM PUBLIC;
@@ -222,9 +229,15 @@ REVOKE ALL ON TABLE public.diaspora_safetrade_milestones FROM PUBLIC;
 REVOKE ALL ON TABLE public.diaspora_safetrade_release_evaluations FROM PUBLIC;
 DO $grants$
 BEGIN
+  -- Every SafeTrade table is SELECT-only for authenticated (RLS scopes the rows); all writes are
+  -- service_role via the atomic RPCs. Explicit REVOKE of INSERT/UPDATE/DELETE is defense-in-depth so a
+  -- future stray GRANT cannot silently re-open direct writes. (Hardening 2026-07-18: transactions +
+  -- milestones were SELECT,INSERT,UPDATE.)
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_safetrade_transactions TO authenticated;
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.diaspora_safetrade_milestones TO authenticated;
+    GRANT SELECT ON TABLE public.diaspora_safetrade_transactions TO authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.diaspora_safetrade_transactions FROM authenticated;
+    GRANT SELECT ON TABLE public.diaspora_safetrade_milestones TO authenticated;
+    REVOKE INSERT, UPDATE, DELETE ON TABLE public.diaspora_safetrade_milestones FROM authenticated;
     -- Release evaluations are the N5 verdict the release path/RPC TRUSTS to bless a money RELEASE. They
     -- are written ONLY by the service_role singleton client (the evaluation service), never by an end
     -- user. Granting authenticated INSERT would let a non-reviewer forge an eligible=true row that the
@@ -461,11 +474,23 @@ BEGIN
 END;
 $$;
 
+-- service_role only. Explicitly strip PUBLIC/anon/authenticated so no PostgREST caller can drive a
+-- SafeTrade state transition (release/refund/settlement) directly. (Hardening 2026-07-18.)
 REVOKE ALL ON FUNCTION public.diaspora_safetrade_transition_atomic(
   uuid, uuid, text, uuid, boolean, text, uuid, text, boolean, text, text, jsonb, text, text
 ) FROM PUBLIC;
 DO $grant$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_safetrade_transition_atomic(
+      uuid, uuid, text, uuid, boolean, text, uuid, text, boolean, text, text, jsonb, text, text
+    ) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_safetrade_transition_atomic(
+      uuid, uuid, text, uuid, boolean, text, uuid, text, boolean, text, text, jsonb, text, text
+    ) FROM authenticated;
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     GRANT EXECUTE ON FUNCTION public.diaspora_safetrade_transition_atomic(
       uuid, uuid, text, uuid, boolean, text, uuid, text, boolean, text, text, jsonb, text, text
@@ -633,11 +658,22 @@ BEGIN
 END;
 $$;
 
+-- service_role only. Explicitly strip PUBLIC/anon/authenticated. (Hardening 2026-07-18.)
 REVOKE ALL ON FUNCTION public.diaspora_safetrade_record_milestone_atomic(
   uuid, text, uuid, boolean, jsonb, text, text, text
 ) FROM PUBLIC;
 DO $grant$
 BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_safetrade_record_milestone_atomic(
+      uuid, text, uuid, boolean, jsonb, text, text, text
+    ) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_safetrade_record_milestone_atomic(
+      uuid, text, uuid, boolean, jsonb, text, text, text
+    ) FROM authenticated;
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     GRANT EXECUTE ON FUNCTION public.diaspora_safetrade_record_milestone_atomic(
       uuid, text, uuid, boolean, jsonb, text, text, text
