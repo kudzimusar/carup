@@ -35,7 +35,10 @@ vi.setConfig({ testTimeout: 15000 })
 beforeEach(() => {
   vi.clearAllMocks()
   listReferralImportRoutes.mockResolvedValue({ routes: [], pagination: { limit: 50 } })
-  createReferralImportRoute.mockResolvedValue({ route: { route_key: 'refv1-stage5-route' } })
+  createReferralImportRoute.mockResolvedValue({
+    route: { route_key: 'refv1-stage5-route' },
+    event_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  })
   createReferralImportLead.mockResolvedValue({
     event_id: '11111111-1111-4111-8111-111111111111',
     lead: { capacity_status: 'open', waitlisted: false },
@@ -56,6 +59,7 @@ describe('ReferralImportRoutes', () => {
     fireEvent.click(screen.getByTestId('referral-import-route-create'))
 
     await waitFor(() => expect(createReferralImportRoute).toHaveBeenCalled())
+    expect(screen.getByTestId('referral-import-route-message')).toHaveTextContent('event_id: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
     expect(createReferralImportRoute).toHaveBeenCalledWith(expect.objectContaining({
       route_origin: 'Japan',
       route_destination: 'Zimbabwe',

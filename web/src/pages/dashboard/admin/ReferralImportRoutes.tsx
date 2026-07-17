@@ -90,7 +90,7 @@ export default function ReferralImportRoutes() {
         ...(totalCapacity.trim() ? { total_capacity_units: Number(totalCapacity) } : {}),
         ...(unitLabel.trim() ? { unit_label: unitLabel.trim() } : {}),
       })
-      setRouteMsg(`Route created. route_key: ${str(pick(pick(res, 'route'), 'route_key'))}`)
+      setRouteMsg(`Route created. route_key: ${str(pick(pick(res, 'route'), 'route_key'))} · event_id: ${str(pick(res, 'event_id'))}`)
     } catch (err) {
       setRouteMsg(err instanceof Error ? err.message : 'Could not create route.')
     }

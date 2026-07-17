@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   STAGE5_REQUIRED_ENV,
+  assertStage5StagingApiTarget,
   missingStage5Credentials,
   stage5ShouldSkip,
 } from './stage5CredentialGate'
@@ -50,5 +51,43 @@ describe('Stage 5 credential gate', () => {
     ]) {
       expect(STAGE5_REQUIRED_ENV).toContain(k)
     }
+  })
+})
+
+describe('Stage 5 staging API target guard', () => {
+  it.each([
+    'https://carup-backend-staging.vercel.app',
+    'https://carup-backend-staging-abc123.vercel.app',
+    'https://carup-backend-staging-abc123-pay-pass-project.vercel.app',
+  ])('allows explicit staging backend host %s', (target) => {
+    expect(assertStage5StagingApiTarget(target).hostname).toMatch(/^carup-backend-staging/)
+  })
+
+  it.each([
+    'https://carup-backend.vercel.app',
+    'https://carup-backend-git-main-pay-pass-project.vercel.app',
+    'https://api.carup.app',
+    'https://example.com',
+    'https://carup-backend-staging.evil.example.com',
+    '',
+    'not a url',
+    'http://carup-backend-staging.vercel.app',
+  ])('rejects production, unknown, malformed, or non-HTTPS target %s', (target) => {
+    expect(() => assertStage5StagingApiTarget(target)).toThrow()
+  })
+
+  it.each([
+    'apiLogin',
+    'createImportBundle',
+    'route creation',
+    'lead creation',
+    'qualification',
+  ])('throws before %s can execute on an unsafe target', () => {
+    let operationInvoked = false
+    expect(() => {
+      assertStage5StagingApiTarget('https://carup-backend.vercel.app')
+      operationInvoked = true
+    }).toThrow()
+    expect(operationInvoked).toBe(false)
   })
 })
