@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test'
-import { stage5ShouldSkip } from '../src/lib/stage5CredentialGate'
+import { test, expect, type Locator } from '@playwright/test'
+import { promises as fs } from 'node:fs'
+import { assertStage5StagingApiTarget, stage5ShouldSkip } from '../src/lib/stage5CredentialGate'
 
 // Referral Engine browser UAT.
 //
@@ -81,6 +82,8 @@ const INVITEE_USER_ID = process.env.E2E_UAT_INVITEE_USER_ID
 const OWNER_USER_ID = process.env.E2E_UAT_OWNER_USER_ID
 const CONTROLLED_CODE = process.env.E2E_UAT_REFERRAL_CODE
 const API_BASE = process.env.E2E_UAT_API_BASE_URL
+const STAGING_SUPABASE_REF = 'eoyenigwevnxwwhyhaer'
+const PRODUCTION_SUPABASE_REF = 'vhmnajoeicasaigiophh'
 
 interface StoredAttribution {
   referral_code?: string
@@ -131,6 +134,30 @@ interface OwnerDisputeRecord {
 
 interface OwnerDisputesResponseBody {
   disputes: OwnerDisputeRecord[]
+}
+
+interface Stage5Evidence {
+  run_tag: string
+  campaign_id: string
+  code_id: string
+  referral_code: string
+  vehicle_route_key: string
+  vehicle_route_event_id: string
+  parts_lead_event_id: string
+  parts_wallet_transaction_id: string
+  container_route_key: string
+  container_route_event_id: string
+  container_lead_event_id: string
+  container_wallet_transaction_id: string
+  waitlisted_lead_event_id: string
+  tamper_lead_event_id: string
+  tamper_wallet_transaction_id: string
+  owner_user_id: string
+  invitee_user_id: string
+  api_base_url: string
+  api_hostname: string
+  verified_supabase_ref: string
+  production_supabase_ref_contacted: false
 }
 
 test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remediation)', () => {
@@ -255,7 +282,15 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
   test('admin UI creates import routes/leads and qualifies pending owner rewards', async ({ page, request }) => {
     test.setTimeout(240_000)
 
-    expect(API_BASE).not.toMatch(/carup-backend\.vercel\.app\/?$/)
+    // Fail closed before any authentication or destructive staging write.
+    const stage5ApiTarget = assertStage5StagingApiTarget(API_BASE)
+    expect(stage5ApiTarget.hostname).not.toContain(PRODUCTION_SUPABASE_REF)
+    const health = await request.get(`${stage5ApiTarget.origin}/api/health`)
+    expect(health.status(), 'staging backend health must be readable before writes').toBe(200)
+    const healthBody = await health.json()
+    expect(healthBody?.status).toBe('UP')
+    expect(healthBody?.supabase?.status).toBe('healthy')
+
     const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
     const runTag = `REFV1-STAGING-S5-${stamp}Z`
     const slug = runTag.toLowerCase()
@@ -273,6 +308,8 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
       route_destination: 'Zimbabwe',
     })
     const referralCode = bundle.code?.code || `${runTag}-CODE`
+    expect(bundle.campaign?.id).toBeTruthy()
+    expect(bundle.code?.id).toBeTruthy()
     expect(bundle.code?.owner_user_id).toBe(OWNER_USER_ID)
 
     await login(page, ADMIN_EMAIL as string, ADMIN_PASSWORD as string)
@@ -288,7 +325,10 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     await page.getByTestId('referral-import-route-total-capacity').fill('8')
     await page.getByTestId('referral-import-route-unit-label').fill('vehicles')
     await page.getByTestId('referral-import-route-create').click()
-    await expect(page.getByTestId('referral-import-route-message')).toContainText(vehicleRouteKey, { timeout: 20000 })
+    const routeMessage = page.getByTestId('referral-import-route-message')
+    await expect(routeMessage).toContainText(vehicleRouteKey, { timeout: 20000 })
+    const vehicleRouteEventId = extractEventId(await routeMessage.textContent())
+    expect(vehicleRouteEventId).toBeTruthy()
     await page.reload()
     await page.getByTestId('referral-import-status-route-key').fill(vehicleRouteKey)
     await page.getByTestId('referral-import-status-check').click()
@@ -308,9 +348,9 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     await page.getByTestId('referral-import-lead-contact-user-id').fill(INVITEE_USER_ID as string)
     await page.getByTestId('referral-import-lead-part-name').fill('replacement engine')
     await page.getByTestId('referral-import-lead-create').click()
-    const partsLeadMessage = page.getByTestId('referral-import-lead-message')
-    await expect(partsLeadMessage).toContainText(/Lead created/i, { timeout: 20000 })
-    const partsLeadId = extractEventId(await partsLeadMessage.textContent())
+    const leadMessage = page.getByTestId('referral-import-lead-message')
+    await expect(leadMessage).toContainText(/Lead created/i, { timeout: 20000 })
+    const partsLeadId = await waitForMessageEventId(leadMessage, [], /waitlisted:\s*false/i)
     expect(partsLeadId).toBeTruthy()
 
     await page.getByTestId('referral-import-qualify-lead-event-id').fill(partsLeadId)
@@ -331,7 +371,9 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     await page.getByTestId('referral-import-route-total-capacity').fill('30')
     await page.getByTestId('referral-import-route-unit-label').fill('CBM')
     await page.getByTestId('referral-import-route-create').click()
-    await expect(page.getByTestId('referral-import-route-message')).toContainText(containerRouteKey, { timeout: 20000 })
+    await expect(routeMessage).toContainText(containerRouteKey, { timeout: 20000 })
+    const containerRouteEventId = extractEventId(await routeMessage.textContent())
+    expect(containerRouteEventId).toBeTruthy()
     await page.getByTestId('referral-import-status-route-key').fill(containerRouteKey)
     await page.getByTestId('referral-import-status-check').click()
     await expect(page.getByTestId('referral-import-status-text')).toContainText(/total:\s*30/i, { timeout: 20000 })
@@ -345,8 +387,7 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     await page.getByTestId('referral-import-lead-contact-user-id').fill(INVITEE_USER_ID as string)
     await page.getByTestId('referral-import-lead-part-name').fill('')
     await page.getByTestId('referral-import-lead-create').click()
-    await expect(partsLeadMessage).toContainText(/waitlisted:\s*false/i, { timeout: 20000 })
-    const containerLeadId = extractEventId(await partsLeadMessage.textContent())
+    const containerLeadId = await waitForMessageEventId(leadMessage, [partsLeadId], /waitlisted:\s*false/i)
     expect(containerLeadId).toBeTruthy()
 
     await page.getByTestId('referral-import-capacity-total').fill('30')
@@ -365,7 +406,7 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     await page.getByTestId('referral-import-lead-allow-waitlist').check()
     await page.getByTestId('referral-import-lead-create').click()
     await expect(page.getByTestId('referral-import-lead-message')).toContainText(/waitlisted:\s*true/i, { timeout: 20000 })
-    const waitlistedLeadId = extractEventId(await page.getByTestId('referral-import-lead-message').textContent())
+    const waitlistedLeadId = await waitForMessageEventId(leadMessage, [partsLeadId, containerLeadId], /waitlisted:\s*true/i)
     expect(waitlistedLeadId).toBeTruthy()
 
     await page.getByTestId('referral-import-qualify-lead-event-id').fill(containerLeadId)
@@ -385,6 +426,10 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     // (2) Every captured transaction: user_id === OWNER_USER_ID and status === pending.
     expect(stage5Transactions.every((tx) => tx.user_id === OWNER_USER_ID && tx.status === 'pending')).toBeTruthy()
     expect(stage5Transactions.map((tx) => tx.metadata?.lead_event_id).sort()).toEqual([containerLeadId, partsLeadId].sort())
+    const partsTransaction = stage5Transactions.find((tx) => tx.metadata?.lead_event_id === partsLeadId)
+    const containerTransaction = stage5Transactions.find((tx) => tx.metadata?.lead_event_id === containerLeadId)
+    expect(partsTransaction?.id).toBeTruthy()
+    expect(containerTransaction?.id).toBeTruthy()
     // (4) Admin is NOT the wallet-transaction owner.
     expect(stage5Transactions.every((tx) => tx.user_id !== adminSession.user.id)).toBeTruthy()
 
@@ -448,6 +493,7 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     const tamperTx = (walletAfterTamper.transactions || []).find((tx) => tx.metadata?.lead_event_id === tamperLead.eventId)
     expect(tamperTx, 'the tampered reward must land in a wallet').toBeTruthy()
     expect(tamperTx?.user_id, 'reward owner is derived from the referral code, not the injected field').toBe(OWNER_USER_ID)
+    expect(tamperTx?.id).toBeTruthy()
     // The injected invitee must NOT have received the tampered reward.
     const inviteeWalletAfter = await fetchWalletAllowMissing(request, inviteeSession.token, INVITEE_USER_ID as string)
     if (inviteeWalletAfter.status === 200) {
@@ -468,6 +514,37 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
       expect(option).toMatch(/USD|\$/i)
       expect(option).toMatch(/pending/i)
     }
+
+    const evidence: Stage5Evidence = {
+      run_tag: runTag,
+      campaign_id: bundle.campaign?.id || '',
+      code_id: bundle.code?.id || '',
+      referral_code: referralCode,
+      vehicle_route_key: vehicleRouteKey,
+      vehicle_route_event_id: vehicleRouteEventId,
+      parts_lead_event_id: partsLeadId,
+      parts_wallet_transaction_id: partsTransaction?.id || '',
+      container_route_key: containerRouteKey,
+      container_route_event_id: containerRouteEventId,
+      container_lead_event_id: containerLeadId,
+      container_wallet_transaction_id: containerTransaction?.id || '',
+      waitlisted_lead_event_id: waitlistedLeadId,
+      tamper_lead_event_id: tamperLead.eventId,
+      tamper_wallet_transaction_id: tamperTx?.id || '',
+      owner_user_id: OWNER_USER_ID as string,
+      invitee_user_id: INVITEE_USER_ID as string,
+      api_base_url: stage5ApiTarget.origin,
+      api_hostname: stage5ApiTarget.hostname,
+      verified_supabase_ref: STAGING_SUPABASE_REF,
+      production_supabase_ref_contacted: false,
+    }
+    expect(Object.values(evidence).every((value) => value !== '')).toBeTruthy()
+    const evidencePath = test.info().outputPath('stage5-evidence.json')
+    await fs.writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+    await test.info().attach('stage5-evidence.json', {
+      path: evidencePath,
+      contentType: 'application/json',
+    })
   })
 })
 
@@ -654,4 +731,17 @@ async function importQualifyRaw(
 function extractEventId(text: string | null): string {
   const match = (text || '').match(/event_id:\s*([0-9a-f-]{36})/i)
   return match?.[1] || ''
+}
+
+async function waitForMessageEventId(locator: Locator, excludedIds: string[] = [], requiredText?: RegExp): Promise<string> {
+  let latest = ''
+  await expect.poll(async () => {
+    const text = await locator.textContent()
+    if (requiredText && !requiredText.test(text || '')) return ''
+    const id = extractEventId(text)
+    if (!id || excludedIds.includes(id)) return ''
+    latest = id
+    return id
+  }, { timeout: 20000 }).toMatch(/[0-9a-f-]{36}/i)
+  return latest
 }

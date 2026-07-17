@@ -37,3 +37,48 @@ export function missingStage5Credentials(
 export function stage5ShouldSkip(env: Record<string, string | undefined>): boolean {
   return missingStage5Credentials(env).length > 0
 }
+
+const STAGING_HOSTS = [
+  /^carup-backend-staging\.vercel\.app$/,
+  /^carup-backend-staging-[a-z0-9-]+\.vercel\.app$/,
+  /^carup-backend-staging-[a-z0-9-]+-pay-pass-project\.vercel\.app$/,
+]
+
+/**
+ * Fail-closed guard for the destructive Stage 5 browser journey.
+ *
+ * Only the canonical staging backend and its Vercel staging-preview hostnames are
+ * accepted. Production, production-project previews, custom domains, malformed
+ * URLs, and non-HTTPS remote URLs are rejected before any login or write occurs.
+ */
+export function assertStage5StagingApiTarget(
+  value: string | undefined,
+  options: { allowLocalhostStagingApi?: boolean } = {},
+): URL {
+  const raw = String(value || '').trim()
+  if (!raw) throw new Error('Stage 5 requires E2E_UAT_API_BASE_URL to be set.')
+
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(`Stage 5 API target is not a valid URL: ${raw}`)
+  }
+
+  const hostname = url.hostname.toLowerCase()
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  if (isLocalhost) {
+    if (options.allowLocalhostStagingApi === true) return url
+    throw new Error('Stage 5 localhost API target requires an explicit test-only allowLocalhostStagingApi option and separate staging-Supabase proof.')
+  }
+
+  if (url.protocol !== 'https:') {
+    throw new Error(`Stage 5 remote API target must use HTTPS: ${url.origin}`)
+  }
+
+  if (!STAGING_HOSTS.some((pattern) => pattern.test(hostname))) {
+    throw new Error(`Stage 5 API target is not an approved staging backend: ${hostname}`)
+  }
+
+  return url
+}
