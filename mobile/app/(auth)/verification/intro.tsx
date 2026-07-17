@@ -1,4 +1,5 @@
 import React from 'react';
+import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
 
@@ -35,7 +36,7 @@ const benefitBodyStyle = {
   lineHeight: 19,
 };
 
-export default function VerificationIntro() {
+function VerificationIntro() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0A0E1A' }}>
@@ -138,5 +139,16 @@ export default function VerificationIntro() {
 
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// ENTRY PREFLIGHT (device Gate 2 round 3): a terminally-rejected applicant is
+// stopped BEFORE this screen mounts — including deep links — so no document
+// selection or camera capture is possible until a reviewer reopens the case.
+export default function GuardedVerificationIntro(): React.ReactElement {
+  return (
+    <VerificationEntryGuard>
+      <VerificationIntro />
+    </VerificationEntryGuard>
   );
 }

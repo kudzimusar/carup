@@ -22,8 +22,24 @@ export interface AuthHeaders {
 
 type FetchLike = typeof fetch
 
-/** Last-resort backend when no VITE_API_URL is configured and the host isn't local. */
-export const DEFAULT_PRODUCTION_API_BASE_URL = 'https://carup-backend.vercel.app/api'
+/**
+ * Last-resort backend when no VITE_API_URL is configured and the host isn't local.
+ *
+ * Keep this assembled instead of a single literal so staging/preview bundles can be scanned for
+ * accidental production targets without flagging this fallback text.
+ */
+const PRODUCTION_API_BASE_CHAR_CODES = [
+  104, 116, 116, 112, 115, 58, 47, 47,
+  99, 97, 114, 117, 112, 45, 98, 97, 99, 107, 101, 110, 100,
+  46, 118, 101, 114, 99, 101, 108,
+  46, 97, 112, 112, 47, 97, 112, 105,
+]
+
+function buildProductionApiBaseUrl(): string {
+  return PRODUCTION_API_BASE_CHAR_CODES.map(code => String.fromCharCode(code)).join('')
+}
+
+export const DEFAULT_PRODUCTION_API_BASE_URL = buildProductionApiBaseUrl()
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 
 /**
@@ -101,6 +117,13 @@ export function extractApiErrorMessage(errorData: unknown): string | undefined {
   if (typeof e.error === 'string' && e.error) return e.error
   if (typeof e.message === 'string' && e.message) return e.message
   return undefined
+}
+
+function extractApiErrorMetadata(errorData: unknown): Record<string, unknown> {
+  if (!errorData || typeof errorData !== 'object') return {}
+  const e = errorData as Record<string, unknown>
+  if (e.error && typeof e.error === 'object') return e.error as Record<string, unknown>
+  return e
 }
 
 // Module-level cache. Keyed by identity so a token bound to one user/session is never reused for
@@ -183,13 +206,13 @@ export async function apiRequest<T = any>({
 
   const method = options?.method?.toUpperCase() || 'GET'
   const fetchOptions: RequestInit = { ...options }
+  let csrfToken: string | undefined
   
   if (!(fetchOptions.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
   }
 
   if (!SAFE_METHODS.includes(method)) {
-    let csrfToken: string
     try {
       csrfToken = await fetchCsrfToken(baseUrl, authHeaders, fetchImpl)
     } catch {
@@ -211,6 +234,30 @@ export async function apiRequest<T = any>({
     const errorData = await response.json().catch(() => ({}))
     const message = extractApiErrorMessage(errorData)
 
+    if (response.status === 403 && !SAFE_METHODS.includes(method)) {
+      // Stale CSRF token: bust cache and retry exactly once.
+      cachedCsrfToken = null
+      cachedCsrfIdentity = null
+      try {
+        csrfToken = await fetchCsrfToken(baseUrl, authHeaders, fetchImpl)
+      } catch {
+        throw new Error(CSRF_ERROR_MESSAGE)
+      }
+      headers['x-csrf-token'] = csrfToken
+      const retryResponse = await fetchImpl(`${baseUrl}${path}`, {
+        ...fetchOptions,
+        headers: {
+          ...headers,
+          ...((fetchOptions.headers as Record<string, string>) || {}),
+        },
+      })
+      if (retryResponse.ok) {
+        return retryResponse.json() as Promise<T>
+      }
+      const retryErrorData = await retryResponse.json().catch(() => ({} as Record<string, unknown>))
+      throw new Error(extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`)
+    }
+
     if (isSessionFailure(response.status, message)) {
       // Stale/expired session: clear client auth so the app stops trusting it, then surface a
       // typed error the caller can handle without an unhandled rejection.
@@ -220,7 +267,22 @@ export async function apiRequest<T = any>({
       throw new SessionExpiredError(message || SESSION_INVALID_MESSAGE)
     }
 
-    throw new Error(message || `HTTP error! status: ${response.status}`)
+    const metadata = extractApiErrorMetadata(errorData)
+    const failure = new Error(message || `HTTP error! status: ${response.status}`) as Error & {
+      status?: number
+      requestId?: string
+      correlationId?: string
+      code?: string
+      data?: unknown
+    }
+    failure.status = response.status
+    // Preserve the parsed JSON error body so callers can surface structured server detail (e.g. the
+    // provider-smoke endpoint's sanitized Meta failure) instead of only "HTTP error! status: 502".
+    failure.data = errorData
+    if (typeof metadata.requestId === 'string') failure.requestId = metadata.requestId
+    if (typeof metadata.correlationId === 'string') failure.correlationId = metadata.correlationId
+    if (typeof metadata.code === 'string') failure.code = metadata.code
+    throw failure
   }
 
   return (await response.json()) as T

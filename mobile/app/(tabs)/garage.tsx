@@ -72,6 +72,7 @@ function GarageScreenInner() {
       const response = await fetch(apiUrl('/api/vehicles/me'), {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
@@ -89,6 +90,7 @@ function GarageScreenInner() {
       const response = await fetch(apiUrl('/api/service-history/me'), {
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
           ...(token ? { 'x-session-token': token } : {}),
         },
       });
@@ -129,6 +131,7 @@ function GarageScreenInner() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
             ...(token ? { 'x-session-token': token } : {}),
           },
           body: JSON.stringify({

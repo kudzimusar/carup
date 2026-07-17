@@ -154,6 +154,7 @@ export type LucideIconName =
   | 'LayoutDashboard'
   | 'Car'
   | 'FileText'
+  | 'FileSearch'
   | 'Wrench'
   | 'Shield'
   | 'Gauge'
@@ -378,6 +379,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'Tag',
     description: 'Your referral benefits, sharing, and disputes',
+  },
+  {
+    id: 'owner.communications',
+    label: 'Communications',
+    route: '/dashboard/communications',
+    domain: 'info',
+    roles: ['owner'],
+    placements: ['dashboard_sidebar', 'user_menu'],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    badge: 'Inbox',
+    description: 'Notification center, support chat, sharing, and communication preferences',
   },
 
   // ─── Dealer Dashboard ──────────────────────────────────────────────────
@@ -656,6 +669,17 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'FileText',
   },
   {
+    id: 'admin.verification',
+    label: 'Verification Cases',
+    route: '/admin/verification',
+    domain: 'trust',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'FileSearch',
+    description: 'Identity verification case management: review, approve, request resubmission, reject, and escalate.',
+  },
+  {
     id: 'admin.trust-review',
     label: 'Trust Review',
     route: '/admin/trust-review',
@@ -730,6 +754,29 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'ShieldAlert',
     description: 'Risk checks, review cases, disputes, and audit',
+  },
+  {
+    id: 'admin.communications',
+    label: 'Communications',
+    route: '/admin/communications',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    badge: 'SLA',
+    description: 'Omnichannel inbox, assignment, human handoff, and delivery recovery',
+  },
+  {
+    id: 'admin.communications-alias',
+    label: 'Communications',
+    route: '/dashboard/admin/communications',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'MessageSquare',
+    isHidden: true,
   },
   {
     id: 'diaspora.compliance',

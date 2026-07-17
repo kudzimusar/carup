@@ -100,7 +100,7 @@ test('webhook: valid signed transition applies', async () => {
   await esc.transitionEscrow(s.id, 'initiated', { actor: { id: 'b1' }, gateContext: OK });
   const body = { session_id: s.id, to_status: 'funded_sandbox', event_type: 'payment', gate_context: OK };
   const payload = JSON.stringify(body); const ts = String(Date.now());
-  const sig = websec.sign('finance_sandbox', payload, ts);
+  const sig = websec.sign('escrow_trust_sandbox', payload, ts);
   const out = await esc.ingestEscrowWebhook({ payloadString: payload, signature: sig, timestamp: ts, idempotencyKey: 'w1', body });
   assert.equal(out.applied, true);
 });

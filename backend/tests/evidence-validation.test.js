@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
+
+process.env.SUPABASE_URL ||= 'http://localhost:54321';
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
+
+const {
   canUploadEvidence,
   evidenceStatusTrustImpact,
   evidenceToTimelineItem,
   mergeEventsWithEvidence,
   parseBase64Payload,
   validateEvidenceUploadPayload
-} from '../services/evidence/evidenceService.js';
+} = await import('../services/evidence/evidenceService.js');
 
 const pngPayload = `data:image/png;base64,${Buffer.from('png-bytes').toString('base64')}`;
 

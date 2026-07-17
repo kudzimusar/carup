@@ -73,6 +73,7 @@ import SavedCars from './pages/dashboard/owner/SavedCars'
 import SellVehicle from './pages/dashboard/owner/SellVehicle'
 import AIDashboard from './pages/dashboard/owner/AIDashboard'
 import ReferralWallet from './pages/dashboard/owner/ReferralWallet'
+import Communications from './pages/dashboard/owner/Communications'
 
 // Dealer Dashboard
 import DealerDashboard from './pages/dashboard/dealer/DealerDashboard'
@@ -115,7 +116,7 @@ const FeatureGovernanceConsole = lazy(importFeatureGovernanceConsole)
  * /admin/features is instant. No-op for non-admins (gated by the caller). Safe
  * to call repeatedly — the dynamic import is memoized by the bundler.
  */
-export function preloadFeatureGovernanceConsole() {
+function preloadFeatureGovernanceConsole() {
   importFeatureGovernanceConsole().catch(() => {
     /* Preload is best-effort; a failure here is harmless — the real navigation
        (with Suspense + LazyRouteBoundary) handles errors and retries. */
@@ -127,6 +128,7 @@ import MarketplaceModeration from './pages/dashboard/admin/MarketplaceModeration
 import EvidenceReview from './pages/dashboard/admin/EvidenceReview'
 import FraudQueue from './pages/dashboard/admin/FraudQueue'
 import DealerCompliance from './pages/dashboard/admin/DealerCompliance'
+import IdentityVerificationCaseManagement from './pages/dashboard/admin/IdentityVerificationCaseManagement'
 import TrustReviewQueue from './pages/dashboard/shared/TrustReviewQueue'
 import GovernanceReviewQueue from './pages/dashboard/shared/GovernanceReviewQueue'
 import ReferralCampaigns from './pages/dashboard/admin/ReferralCampaigns'
@@ -135,6 +137,7 @@ import ReferralLocalLeads from './pages/dashboard/admin/ReferralLocalLeads'
 import ReferralImportRoutes from './pages/dashboard/admin/ReferralImportRoutes'
 import ReferralMarketing from './pages/dashboard/admin/ReferralMarketing'
 import ReferralTrustReview from './pages/dashboard/admin/ReferralTrustReview'
+import AdminCommunications from './pages/dashboard/admin/Communications'
 
 // Bank Dashboard
 import BankDashboard from './pages/dashboard/bank/BankDashboard'
@@ -282,6 +285,7 @@ export default function App() {
           <Route path="/dashboard/sell-vehicle" element={<SellVehicle />} />
           <Route path="/dashboard/ai" element={<AIDashboard />} />
           <Route path="/dashboard/referrals" element={<ReferralWallet />} />
+          <Route path="/dashboard/communications" element={<Communications />} />
         </Route>
 
         {/* Dealer Dashboard */}
@@ -353,6 +357,7 @@ export default function App() {
           <Route path="/admin/evidence" element={<EvidenceReview />} />
           <Route path="/admin/fraud-queue" element={<FraudQueue />} />
           <Route path="/admin/dealer-compliance" element={<DealerCompliance />} />
+          <Route path="/admin/verification" element={<IdentityVerificationCaseManagement />} />
           <Route path="/admin/trust-review" element={<TrustReviewQueue />} />
           <Route path="/admin/governance-review" element={<GovernanceReviewQueue />} />
           <Route path="/government/governance-review" element={<GovernanceReviewQueue />} />
@@ -362,6 +367,13 @@ export default function App() {
           <Route path="/admin/referrals/import-routes" element={<ReferralImportRoutes />} />
           <Route path="/admin/referrals/marketing" element={<ReferralMarketing />} />
           <Route path="/admin/referrals/trust" element={<ReferralTrustReview />} />
+          {/* Command Center nested routes (item 5): section surfaces + path-based thread deep-link. */}
+          <Route path="/admin/communications" element={<AdminCommunications />} />
+          <Route path="/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
+          <Route path="/admin/communications/:section" element={<AdminCommunications />} />
+          <Route path="/dashboard/admin/communications" element={<AdminCommunications />} />
+          <Route path="/dashboard/admin/communications/inbox/:threadId" element={<AdminCommunications />} />
+          <Route path="/dashboard/admin/communications/:section" element={<AdminCommunications />} />
         </Route>
 
         {/* Catch-all — unknown routes render the not-found page (previously blank) */}

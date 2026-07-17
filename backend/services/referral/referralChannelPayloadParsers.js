@@ -43,6 +43,7 @@ function normalizeGenericMessage(channel, body = {}) {
     session_id: body.session_id || body.conversation_id || body.thread_id || body.chat_id || null,
     message_id: body.message_id || body.mid || body.id || null,
     referral_code: body.referral_code || body.code || null,
+    provider_timestamp: body.provider_timestamp || body.timestamp || null,
     start_payload: body.start_payload || null,
     consent: cleanObject(body.consent),
     source: body.source || channel,
@@ -97,6 +98,7 @@ export function parseWhatsAppWebhook(body = {}) {
           conversation_id: firstDefined(message.context?.id, message.from, value.metadata?.phone_number_id),
           thread_id: firstDefined(message.context?.id, message.from),
           message_id: message.id,
+          provider_timestamp: message.timestamp,
           source: 'whatsapp_webhook',
           payload: { entry_id: entry.id, field: change.field, metadata: value.metadata, contact: value.contacts?.[0], message },
         }));

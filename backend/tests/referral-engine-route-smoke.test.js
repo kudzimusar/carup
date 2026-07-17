@@ -106,6 +106,8 @@ const DOCUMENTED_ROUTES = [
   'GET /trust/audit-export',
   // Phase E additive read/list endpoints
   'GET /codes', 'GET /coupons', 'GET /local-marketplace/leads', 'GET /import-campaigns/routes', 'GET /trust/disputes',
+  // Stage-4 remediation B: owner-scoped dispute read
+  'GET /trust/disputes/mine',
 ];
 
 test('every documented referral route is registered on the mounted router', () => {

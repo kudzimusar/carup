@@ -1,6 +1,21 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, type AuthHeaders } from '@/lib/apiClient'
+import {
+  fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
+  fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
+  fetchEvidencePreview as fetchEvidencePreviewRequest,
+  reviewVerificationSession as reviewVerificationSessionRequest,
+  type VerificationAdminClientConfig,
+} from '@/lib/verificationAdminApi'
+import type {
+  AdminVerificationSession,
+  DecisionAction,
+  DecisionResponse,
+  EvidencePreview,
+  VerificationReviewRequest,
+  VerificationSessionStatus,
+} from '@shared/types'
 import type { 
   User, 
   Vehicle, 
@@ -119,6 +134,7 @@ import type {
   ReferralLocalLeadListResponse,
   ReferralImportRouteListResponse,
   ReferralDisputeListResponse,
+  OwnerReferralDisputesResponse,
 } from '@/types/referral'
 
 
@@ -159,6 +175,218 @@ function referralQuery(filters?: object): string {
   return pairs.length ? `?${new URLSearchParams(pairs).toString()}` : ''
 }
 
+type CommunicationThreadSummary = {
+  id: string
+  tenant_id?: string | null
+  thread_key?: string
+  thread_type?: string
+  status?: string
+  priority?: string
+  primary_channel?: string
+  ai_mode?: string
+  assigned_team?: string
+  assigned_admin_id?: string | null
+  primary_user_id?: string | null
+  marketplace_listing_id?: string
+  escrow_id?: string
+  financing_application_id?: string
+  subject_type?: string | null
+  subject_id?: string | null
+  sla_due_at?: string | null
+  sla_paused_at?: string | null
+  sla_pause_reason?: string | null
+  last_message_at?: string | null
+  updated_at?: string | null
+  created_at?: string | null
+  // Identity-first projection (communication_inbox_threads view / RPC). Optional so legacy rows
+  // that predate the projection still type-check.
+  identity_display_name?: string | null
+  identity_address?: string | null
+  identity_external_id?: string | null
+  identity_verified?: boolean | null
+  identity_channel?: string | null
+  identity_provider?: string | null
+  latest_message_text?: string | null
+  latest_message_direction?: string | null
+  latest_message_at?: string | null
+  latest_message_status?: string | null
+  latest_provider_message_id?: string | null
+  unread_count?: number
+  team_unread_count?: number
+  failed_outbound_count?: number
+}
+
+type CommunicationMessageSummary = {
+  id: string
+  direction?: string
+  channel?: string
+  status?: string
+  content_text?: string
+  created_at?: string | null
+  sender_user_id?: string | null
+  provider_message_id?: string | null
+  human_approved?: boolean
+}
+
+type CommunicationNotificationSummary = {
+  id: string
+  read?: boolean
+  title?: string
+  message?: string
+  status?: string
+  channel?: string
+  notification_type?: string
+  last_error_code?: string
+  last_error_message?: string
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+type CommunicationPreferences = Record<string, boolean | string | number | null | undefined>
+type CommunicationMutationResponse = {
+  success?: boolean
+  message?: CommunicationMessageSummary
+  notification?: CommunicationNotificationSummary
+  duplicate?: boolean
+  [key: string]: unknown
+}
+type ProviderSmokeTestResult = {
+  ok: boolean
+  error?: string
+  message?: string
+  channel?: string
+  provider?: string
+  recipient?: string
+  adapter?: { channel: string; provider: string; mode: string; available: boolean }
+  thread_id?: string
+  message_id?: string
+  notification_id?: string
+  correlation_token?: string
+  delivery?: {
+    status: string | null
+    worker_result: string | null
+    provider: string
+    provider_message_id: string | null
+    provider_request_id: string | null
+    attempt_number: number | null
+    error_code: string | null
+    error_message: string | null
+    provider_http_status?: number | null
+    provider_error_code?: number | string | null
+    provider_error_subcode?: number | string | null
+    provider_error_type?: string | null
+    provider_error_message?: string | null
+    provider_trace_id?: string | null
+  }
+  details?: unknown
+  inspect?: Record<string, string>
+}
+type CommunicationMetricsResponse = Record<string, number | string | null | undefined>
+type CommunicationThreadCounts = {
+  total: number
+  all_active: number
+  unassigned: number
+  mine: number
+  needs_human?: number
+  awaiting_human?: number
+  awaiting_ai?: number
+  awaiting_user?: number
+  escalated?: number
+  resolved?: number
+  sla_breach: number
+  failed_risk: number
+  by_workflow: Record<string, number>
+  by_channel: Record<string, number>
+}
+type CommunicationThreadPage = {
+  sort: string
+  limit: number
+  returned: number
+  matched?: number
+  has_more: boolean
+  next_cursor: string | null
+  mode?: string
+}
+type CommunicationProviderTelemetry = {
+  channel: string
+  provider?: string | null
+  mode?: string | null
+  available?: boolean
+  webhook?: { path?: string | null; configured?: boolean; latest_inbound_at?: string | null; last_signature_valid?: boolean | null }
+  outbound?: { latest_success_at?: string | null; latest_success_provider_message_id?: string | null }
+  latest_error?: { at?: string | null; code?: string | null; message?: string | null } | null
+  queue?: { queued?: number; retry_scheduled?: number; dead_letter?: number }
+  credentials?: { complete?: boolean; missing?: string[] }
+}
+type CommunicationSlaPolicy = {
+  id?: string
+  name?: string
+  tenant_id?: string | null
+  channel?: string | null
+  priority?: string | null
+  first_response_minutes?: number | null
+  next_response_minutes?: number | null
+  resolution_minutes?: number | null
+  business_timezone?: string | null
+  business_hours?: Record<string, unknown> | null
+  active?: boolean
+}
+type CommunicationChannelIdentity = {
+  id?: string
+  user_id?: string | null
+  display_name?: string | null
+  normalized_address?: string | null
+  external_id?: string | null
+  channel?: string | null
+  provider?: string | null
+  verified?: boolean | null
+  consent_status?: string | null
+}
+type CommunicationDeliveryAttempt = {
+  id: string
+  attempt_number?: number
+  provider?: string | null
+  channel?: string | null
+  message_id?: string | null
+  provider_request_id?: string | null
+  provider_message_id?: string | null
+  status?: string | null
+  error_code?: string | null
+  error_message?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  next_retry_at?: string | null
+}
+type CommunicationPreferencesRow = {
+  preferred_channel?: string | null
+  timezone?: string | null
+  language?: string | null
+  consent_status?: string | null
+  consent_version?: string | null
+  consented_at?: string | null
+  whatsapp_enabled?: boolean
+  telegram_enabled?: boolean
+  email_enabled?: boolean
+  sms_enabled?: boolean
+  push_enabled?: boolean
+  in_app_enabled?: boolean
+  marketing_enabled?: boolean
+}
+type CommunicationAuditEvent = {
+  id: string
+  event_type: string
+  actor_type?: string | null
+  actor_id?: string | null
+  channel?: string | null
+  summary?: string | null
+  correlation_id?: string | null
+  thread_id?: string | null
+  message_id?: string | null
+  notification_id?: string | null
+  metadata?: Record<string, unknown> | null
+  created_at?: string | null
+}
+
 export function useCarUpApi() {
   const { user, token } = useAuth()
   const [loading, setLoading] = useState(false)
@@ -188,6 +416,57 @@ export function useCarUpApi() {
       throw err
     }
   }, [user, token])
+
+  // Identity-verification admin review (Phase 7C). Built from the same auth
+  // identity as `request` and delegated to the dedicated, unit-tested client
+  // module so the page never issues raw fetches.
+  const verificationClientConfig = useMemo<VerificationAdminClientConfig>(() => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+    return { baseUrl: BASE_URL, authHeaders }
+  }, [user, token])
+
+  const fetchVerificationReviewQueue = useCallback(
+    (filter?: VerificationSessionStatus | string | { workflow_phase?: string; status?: string }): Promise<AdminVerificationSession[]> =>
+      fetchVerificationReviewQueueRequest(
+        verificationClientConfig,
+        typeof filter === 'string' ? { status: filter } : filter || undefined,
+      ),
+    [verificationClientConfig],
+  )
+
+  const fetchVerificationSessionDetail = useCallback(
+    (sessionId: string): Promise<AdminVerificationSession> =>
+      fetchVerificationSessionDetailRequest(verificationClientConfig, sessionId),
+    [verificationClientConfig],
+  )
+
+  const fetchEvidencePreview = useCallback(
+    (sessionId: string, side: 'front' | 'back' | 'selfie'): Promise<EvidencePreview> =>
+      fetchEvidencePreviewRequest(verificationClientConfig, sessionId, side),
+    [verificationClientConfig],
+  )
+
+  const reviewVerificationSession = useCallback(
+    (sessionId: string, body: VerificationReviewRequest): Promise<{ decision: DecisionResponse['decision']; session: AdminVerificationSession; allowed_actions: DecisionAction[] }> =>
+      reviewVerificationSessionRequest(verificationClientConfig, sessionId, body),
+    [verificationClientConfig],
+  )
+
+  // Phase 7C case management: the new decision contract (reason codes, notes,
+  // applicant messaging) with backend idempotency via x-idempotency-key.
+  const reviewVerificationCase = useCallback(
+    (
+      sessionId: string,
+      body: { action: string; reasonCode?: string | null; internalNote?: string | null; applicantMessage?: string | null },
+      opts?: { idempotencyKey?: string },
+    ): Promise<DecisionResponse> =>
+      reviewVerificationSessionRequest(verificationClientConfig, sessionId, body, opts),
+    [verificationClientConfig],
+  )
 
   const switchRole = useCallback(async (userId: string, role: string): Promise<any> => {
     return request('/auth/switch-role', {
@@ -1206,6 +1485,195 @@ export function useCarUpApi() {
     return request<any[]>('/notifications/me', { method: 'GET' })
   }, [request])
 
+  // ── Agent 8 Omnichannel Communication Engine ──
+  const fetchCommunicationThreads = useCallback(async (): Promise<{ threads: CommunicationThreadSummary[] }> => {
+    return request('/communications/threads', { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationThread = useCallback(async (id: string): Promise<{ thread: CommunicationThreadSummary; messages: CommunicationMessageSummary[] }> => {
+    return request(`/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
+  }, [request])
+
+  const createCommunicationThread = useCallback(async (payload: Record<string, unknown>): Promise<{ thread: CommunicationThreadSummary }> => {
+    return request('/communications/threads', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const sendCommunicationMessage = useCallback(async (threadId: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/communications/threads/${encodeURIComponent(threadId)}/messages`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const sendCommunicationFeedback = useCallback(async (threadId: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/communications/threads/${encodeURIComponent(threadId)}/feedback`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchCommunicationNotifications = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
+    return request('/communications/notifications', { method: 'GET' })
+  }, [request])
+
+  const markCommunicationNotificationRead = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
+    return request(`/communications/notifications/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
+  const fetchCommunicationPreferences = useCallback(async (): Promise<{ preferences: CommunicationPreferences | null }> => {
+    return request('/communications/preferences', { method: 'GET' })
+  }, [request])
+
+  const updateCommunicationPreferences = useCallback(async (payload: Record<string, unknown>): Promise<{ preferences: CommunicationPreferences }> => {
+    return request('/communications/preferences', { method: 'PATCH', body: JSON.stringify(payload) })
+  }, [request])
+
+  const createCommunicationShare = useCallback(async (payload: Record<string, unknown>): Promise<{ share_url?: string; listing_url?: string }> => {
+    return request('/communications/share', { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchAdminCommunicationThreads = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ threads: CommunicationThreadSummary[]; page?: CommunicationThreadPage; counts?: CommunicationThreadCounts }> => {
+    const query = filters ? referralQuery(filters) : ''
+    return request(`/admin/communications/threads${query}`, { method: 'GET' })
+  }, [request])
+
+  const fetchAdminCommunicationThread = useCallback(async (id: string): Promise<{
+    thread: CommunicationThreadSummary
+    messages: CommunicationMessageSummary[]
+    participants: unknown[]
+    escalations: unknown[]
+    identities?: CommunicationChannelIdentity[]
+    linked_identities?: CommunicationChannelIdentity[]
+    delivery_attempts?: CommunicationDeliveryAttempt[]
+    preferences?: CommunicationPreferencesRow | null
+  }> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
+  }, [request])
+
+  const markAdminCommunicationThreadRead = useCallback(async (id: string): Promise<{ ok?: boolean; thread_id?: string; last_read_at?: string | null }> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
+  const fetchAdminCommunicationThreadAudit = useCallback(async (id: string): Promise<{ events: CommunicationAuditEvent[] }> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/audit`, { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationAudit = useCallback(async (filters?: Record<string, string | undefined>): Promise<{ events: CommunicationAuditEvent[] }> => {
+    const query = filters ? referralQuery(filters) : ''
+    return request(`/admin/communications/audit${query}`, { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationSlaPolicies = useCallback(async (): Promise<{ policies: CommunicationSlaPolicy[] }> => {
+    return request('/admin/communications/sla/policies', { method: 'GET' })
+  }, [request])
+
+  const adminReplyCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/reply`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const assignCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/assignment`, { method: 'PATCH', body: JSON.stringify(payload) })
+  }, [request])
+
+  const escalateCommunicationThread = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/escalate`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const resolveCommunicationThread = useCallback(async (id: string, summary: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify({ summary }) })
+  }, [request])
+
+  const reopenCommunicationThread = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const pauseCommunicationThreadSla = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/sla/pause`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const resumeCommunicationThreadSla = useCallback(async (id: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/threads/${encodeURIComponent(id)}/sla/resume`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
+  const fetchCommunicationDeadLetters = useCallback(async (): Promise<{ notifications: CommunicationNotificationSummary[] }> => {
+    return request('/admin/communications/dead-letter', { method: 'GET' })
+  }, [request])
+
+  const retryCommunicationDeadLetter = useCallback(async (id: string, payload: Record<string, unknown> = {}): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/retry`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const cancelCommunicationDeadLetter = useCallback(async (id: string, reason: string): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) })
+  }, [request])
+
+  const fetchCommunicationRecovery = useCallback(async (): Promise<{ categories: Record<string, CommunicationNotificationSummary[]>; counts: Record<string, number> }> => {
+    return request('/admin/communications/recovery', { method: 'GET' })
+  }, [request])
+
+  const bulkRetryCommunicationRecovery = useCallback(async (ids: string[]): Promise<{ retried: number; failed: number; total: number; results: Array<{ id: string; ok: boolean; error?: string }> }> => {
+    return request('/admin/communications/recovery/bulk-retry', { method: 'POST', body: JSON.stringify({ ids }) })
+  }, [request])
+
+  const requeueCommunicationDeadLetter = useCallback(async (id: string, payload: Record<string, unknown>): Promise<CommunicationMutationResponse> => {
+    return request(`/admin/communications/dead-letter/${encodeURIComponent(id)}/requeue`, { method: 'POST', body: JSON.stringify(payload) })
+  }, [request])
+
+  const fetchAdminCommunicationMetrics = useCallback(async (): Promise<CommunicationMetricsResponse> => {
+    return request('/admin/communications/metrics', { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationWorkerHealth = useCallback(async (): Promise<{
+    timestamp: string
+    queue: {
+      queued: number
+      processing: number
+      retry_scheduled: number
+      dead_letter: number
+      depth: number
+      oldest_queued_seconds: number | null
+      sla_threshold_seconds: number
+      sla_breaching: number
+    }
+    telegram: { channel: string; provider: string; mode: string; available: boolean; missing?: string[] } | null
+    adapters: Array<{ channel: string; provider: string; mode: string; available: boolean; missing?: string[] }>
+    scheduler: {
+      scheduler_type: string
+      pg_cron_available: boolean
+      pg_net_available?: boolean
+      job_name?: string
+      job_configured: boolean
+      job_config?: { jobname: string; schedule: string; active: boolean } | null
+      latest_run?: { start_time: string; end_time: string; status: string; return_message?: string } | null
+      latest_success?: { start_time: string; end_time: string; status: string } | null
+      latest_failure?: { start_time: string; end_time: string; status: string; return_message?: string } | null
+      latest_http_call?: { status_code: number; created: string; timed_out: boolean } | null
+      stale_lock_count: number
+    }
+    inspect?: Record<string, string>
+  }> => {
+    return request('/admin/communications/worker/health', { method: 'GET' })
+  }, [request])
+
+  const fetchCommunicationProviders = useCallback(async (): Promise<{ channels: CommunicationProviderTelemetry[]; worker?: { stale_locks?: number; scheduler?: Record<string, unknown> } }> => {
+    return request('/admin/communications/providers', { method: 'GET' })
+  }, [request])
+
+  // Provider smoke test: sends one real message through the Communication Engine's queue +
+  // delivery-worker path. Admin-authed; refuses fake adapters server-side (ok:false / error).
+  const sendCommunicationProviderSmokeTest = useCallback(async (payload: {
+    channel?: string
+    to: string
+    message?: string
+    client_message_id?: string
+  }): Promise<ProviderSmokeTestResult> => {
+    try {
+      return await request<ProviderSmokeTestResult>('/admin/communications/test/provider-smoke', { method: 'POST', body: JSON.stringify(payload) })
+    } catch (err) {
+      // A provider rejection returns HTTP 502 WITH a JSON body carrying the sanitized delivery detail.
+      // Surface that body (not a bare "HTTP 502") so the panel shows the real Meta error.
+      const data = (err as { data?: unknown })?.data
+      if (data && typeof data === 'object' && 'ok' in (data as Record<string, unknown>)) {
+        return data as ProviderSmokeTestResult
+      }
+      throw err
+    }
+  }, [request])
+
   const fetchAdminUsers = useCallback(async (): Promise<User[]> => {
     return request<User[]>('/users/management', { method: 'GET' })
   }, [request])
@@ -1412,6 +1880,8 @@ export function useCarUpApi() {
     request<ReferralServiceResponse>(`/referrals/trust/benefits/${encodeURIComponent(transactionId)}/explain`), [request])
   const createReferralDispute = useCallback((payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>('/referrals/trust/disputes', { method: 'POST', body: JSON.stringify(payload) }), [request])
+  const getOwnerReferralDisputes = useCallback((): Promise<OwnerReferralDisputesResponse> =>
+    request<OwnerReferralDisputesResponse>('/referrals/trust/disputes/mine'), [request])
   const resolveReferralDispute = useCallback((disputeEventId: string, payload: Record<string, unknown>): Promise<ReferralServiceResponse> =>
     request<ReferralServiceResponse>(`/referrals/trust/disputes/${encodeURIComponent(disputeEventId)}/resolve`, { method: 'PATCH', body: JSON.stringify(payload) }), [request])
   const exportReferralAudit = useCallback((filters?: ReferralAuditExportFilters): Promise<ReferralServiceResponse> =>
@@ -1429,6 +1899,39 @@ export function useCarUpApi() {
     saveVehicle,
     fetchServiceHistory,
     fetchNotifications,
+    fetchCommunicationThreads,
+    fetchCommunicationThread,
+    createCommunicationThread,
+    sendCommunicationMessage,
+    sendCommunicationFeedback,
+    fetchCommunicationNotifications,
+    markCommunicationNotificationRead,
+    fetchCommunicationPreferences,
+    updateCommunicationPreferences,
+    createCommunicationShare,
+    fetchAdminCommunicationThreads,
+    fetchAdminCommunicationThread,
+    markAdminCommunicationThreadRead,
+    fetchAdminCommunicationThreadAudit,
+    fetchCommunicationAudit,
+    fetchCommunicationSlaPolicies,
+    adminReplyCommunicationThread,
+    assignCommunicationThread,
+    escalateCommunicationThread,
+    resolveCommunicationThread,
+    reopenCommunicationThread,
+    pauseCommunicationThreadSla,
+    resumeCommunicationThreadSla,
+    fetchCommunicationDeadLetters,
+    retryCommunicationDeadLetter,
+    cancelCommunicationDeadLetter,
+    fetchCommunicationRecovery,
+    bulkRetryCommunicationRecovery,
+    requeueCommunicationDeadLetter,
+    fetchAdminCommunicationMetrics,
+    fetchCommunicationWorkerHealth,
+    fetchCommunicationProviders,
+    sendCommunicationProviderSmokeTest,
     fetchAdminUsers,
     fetchAdminTelemetry,
   
@@ -1466,6 +1969,11 @@ export function useCarUpApi() {
     fetchVehiclePassport,
     fetchVehicleEvidenceTimeline,
     fetchEvidenceReviewQueue,
+    fetchVerificationReviewQueue,
+    fetchVerificationSessionDetail,
+    fetchEvidencePreview,
+    reviewVerificationSession,
+    reviewVerificationCase,
     fetchTrustReviewQueue,
     approveTrustFactRequest,
     rejectTrustFactRequest,
@@ -1669,6 +2177,7 @@ export function useCarUpApi() {
     applyReferralWalletHold,
     explainReferralBenefit,
     createReferralDispute,
+    getOwnerReferralDisputes,
     resolveReferralDispute,
     exportReferralAudit
   }

@@ -22,6 +22,7 @@ function session(status: VerificationSession['status'], overrides: Partial<Verif
     confidence_score: null,
     failure_reason: null,
     review_notes: null,
+    retry_reason: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     submitted_at: null,
@@ -86,6 +87,40 @@ test('maps OCR failure to ocr_failed', () => {
   }));
   assert.equal(outcome.status, 'ocr_failed');
   assert.match(outcome.processingError || '', /provider unavailable/);
+  assert.equal(outcome.sessionStatus, 'ocr_failed');
 });
 
-console.log('\nALL PHASE 7B VERIFICATION API TESTS PASSED');
+test('maps rejected backend session to rejected with the reviewer reason', () => {
+  const outcome = mapSessionToVerificationOutcome(session('rejected', {
+    review_notes: 'Document is illegible.',
+  }));
+  assert.equal(outcome.status, 'rejected');
+  assert.equal(outcome.sessionStatus, 'rejected');
+  assert.match(outcome.processingError || '', /illegible/);
+});
+
+test('maps retry_requested with the retry reason and a retry-capable status', () => {
+  const outcome = mapSessionToVerificationOutcome(session('retry_requested', {
+    retry_reason: 'Reupload a sharper back photo.',
+  }));
+  assert.equal(outcome.status, 'retry_requested');
+  assert.equal(outcome.sessionStatus, 'retry_requested');
+  assert.match(outcome.processingError || '', /sharper back/);
+});
+
+test('verified-after-review maps to verified and carries backend sessionStatus', () => {
+  const outcome = mapSessionToVerificationOutcome(session('verified', {
+    ocr_result: { first_name: 'Ada', last_name: 'Banda' },
+  }));
+  assert.equal(outcome.status, 'verified');
+  assert.equal(outcome.sessionStatus, 'verified');
+});
+
+test('never reports verified unless the backend status is verified', () => {
+  for (const backendStatus of ['pending_manual_review', 'ocr_failed', 'retry_requested', 'rejected'] as const) {
+    const outcome = mapSessionToVerificationOutcome(session(backendStatus));
+    assert.notEqual(outcome.status, 'verified');
+  }
+});
+
+console.log('\nALL PHASE 7B/7C VERIFICATION API TESTS PASSED');

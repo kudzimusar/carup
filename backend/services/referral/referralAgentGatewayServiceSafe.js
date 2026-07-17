@@ -1,6 +1,6 @@
 import { ForbiddenError, ValidationError } from '../../utils/errors.js';
 import { ACTOR_TYPES, REFERRAL_CAMPAIGN_STATUSES, REFERRAL_CAMPAIGN_TYPES, REFERRAL_CHANNELS } from '../../constants/referral/referralConstants.js';
-import { ReferralEngineService, buildReferralShareAssets, normalizeReferralCode, slugify } from './referralEngineService.js';
+import { ReferralEngineService, buildReferralShareAssets, normalizeReferralCode, sanitizeCallerShareOptions, slugify } from './referralEngineService.js';
 
 export const AGENT_GATEWAY_EVENT_TYPES = Object.freeze({
   TOOL_EXECUTED: 'agent.tool_executed',
@@ -163,8 +163,9 @@ export class ReferralAgentGatewayService {
     if (!input.code) throw new ValidationError('code is required for share-kit generation.');
     const validation = await this.referralService.validateReferralCode({ code: input.code, channel: input.channel || actor.surface || REFERRAL_CHANNELS.WEB, source: 'agent_gateway_share_kit', session_id: input.session_id || actor.session_id || null }, { ...actor, actor_type: ACTOR_TYPES.AGENT });
     if (!validation.valid) return { persisted: false, valid: false, validation };
-    if (input.persist === true) { const shareAsset = await this.referralService.createShareAssets({ code: validation.code.code, channel: input.channel || actor.surface || REFERRAL_CHANNELS.WEB, asset_type: input.asset_type || 'agent_share_kit', options: { ...this.shareOptions, ...cleanObject(input.options) } }, { ...actor, actor_type: ACTOR_TYPES.AGENT }); return { persisted: true, valid: true, shareAsset, validation }; }
-    return { persisted: false, valid: true, share_kit: buildReferralShareAssets(validation.code, null, { ...this.shareOptions, ...cleanObject(input.options) }), validation };
+    const callerShareOptions = sanitizeCallerShareOptions(input.options);
+    if (input.persist === true) { const shareAsset = await this.referralService.createShareAssets({ code: validation.code.code, channel: input.channel || actor.surface || REFERRAL_CHANNELS.WEB, asset_type: input.asset_type || 'agent_share_kit', options: callerShareOptions }, { ...actor, actor_type: ACTOR_TYPES.AGENT }); return { persisted: true, valid: true, shareAsset, validation }; }
+    return { persisted: false, valid: true, share_kit: buildReferralShareAssets(validation.code, null, { ...callerShareOptions, ...this.shareOptions }), validation };
   }
 
   async explainWallet(input = {}, actor = {}) {

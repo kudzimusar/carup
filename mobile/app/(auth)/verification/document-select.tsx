@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import VerificationEntryGuard from '../../../components/verification/VerificationEntryGuard';
 import { View, Text, TouchableOpacity, ScrollView, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
 import { useVerificationStore } from '../../../store/verificationStore';
@@ -29,7 +30,7 @@ const SUPPORTED_DOCUMENTS: DocumentOption[] = [
   {
     id: 'driver_license',
     title: "Driver's License",
-    description: 'ZRP issued driving disc or card',
+    description: 'Personal driving licence card with your photo (not a vehicle licence disc)',
     doubleSided: true,
     icon: '🚗',
   },
@@ -40,16 +41,9 @@ const SUPPORTED_DOCUMENTS: DocumentOption[] = [
     doubleSided: false,
     icon: '📝',
   },
-  {
-    id: 'registration_book',
-    title: 'Vehicle Registration Book',
-    description: 'Blue-green vehicle registration logbook',
-    doubleSided: false,
-    icon: '📖',
-  },
 ];
 
-export default function DocumentSelect() {
+function DocumentSelect() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const handleSelect = useCallback((doc: DocumentOption) => {
@@ -133,5 +127,16 @@ export default function DocumentSelect() {
 
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// ENTRY PREFLIGHT (device Gate 2 round 3): a terminally-rejected applicant is
+// stopped BEFORE this screen mounts — including deep links — so no document
+// selection or camera capture is possible until a reviewer reopens the case.
+export default function GuardedDocumentSelect(): React.ReactElement {
+  return (
+    <VerificationEntryGuard>
+      <DocumentSelect />
+    </VerificationEntryGuard>
   );
 }

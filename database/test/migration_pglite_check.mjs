@@ -48,6 +48,24 @@ const NEW_MIGRATIONS = [
   '20260626160000_eligibility_framework.sql',
   // WS-F — trust-gated escrow lifecycle
   '20260626180000_escrow_trust_sessions.sql',
+  // Full Activation — shared provider platform
+  '20260703120000_provider_platform.sql',
+  // Full Activation — government source activation (config + append-only batch imports)
+  '20260703130000_government_source_activation.sql',
+  // Full Activation — licensed insurer provider (onboarding + execution)
+  '20260703140000_insurance_provider.sql',
+  // Full Activation — regulated lender (finance) provider workflow
+  '20260703150000_finance_provider.sql',
+  // Full Activation — regulated real-money escrow provider extension
+  '20260703160000_escrow_provider.sql',
+  // Full Activation — native mobile device certification ledger
+  '20260703170000_mobile_certification.sql',
+  // Full Activation — private storage buckets (PGlite-safe no-op)
+  '20260703190000_provider_storage.sql',
+  // Full Activation hardening — scope provider request idempotency to (provider_id, idempotency_key)
+  '20260710120000_provider_request_attempts_provider_scope.sql',
+  // Phase 2B.1 (ported PR #11) — governed PartSentry public-card review workflow + approval provenance
+  '20260710130000_partsentry_review_requests.sql',
 ];
 
 function splitMigration(file) {
@@ -363,6 +381,67 @@ results.catalog.partner_requests_immutable = await checkImmutable(
   `DELETE FROM partner_api_requests WHERE correlation_id='corr-1'`
 );
 
+// government_source_batch_imports (Full Activation) — append-only signed-file import ledger
+results.catalog.gov_batch_imports_immutable = await checkImmutable(
+  'government_source_batch_imports',
+  `INSERT INTO provider_registry(provider_key,capability_type,display_name)
+     VALUES ('zimra','government_source','ZIMRA') ON CONFLICT DO NOTHING;
+   INSERT INTO government_source_batch_imports(provider_id,source_key,file_ref,status)
+     SELECT id,'zimra','gov-imports/zimra/f.csv','pending' FROM provider_registry
+     WHERE provider_key='zimra' AND capability_type='government_source'
+     ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE government_source_batch_imports SET status='imported' WHERE file_ref='gov-imports/zimra/f.csv'`,
+  `DELETE FROM government_source_batch_imports WHERE file_ref='gov-imports/zimra/f.csv'`
+);
+
+// insurance_provider_decisions (Full Activation) — append-only insurer outcome ledger
+results.catalog.insurance_decisions_immutable = await checkImmutable(
+  'insurance_provider_decisions',
+  `INSERT INTO provider_registry(id,provider_key,capability_type,display_name)
+     VALUES ('a0000000-0000-0000-0000-0000000000ff','insurer_x','insurance','Insurer X') ON CONFLICT DO NOTHING;
+   INSERT INTO insurer_profiles(id,provider_id,legal_name)
+     VALUES ('b0000000-0000-0000-0000-0000000000ff','a0000000-0000-0000-0000-0000000000ff','Insurer X') ON CONFLICT DO NOTHING;
+   INSERT INTO insurance_provider_decisions(insurer_provider_id,vin,outcome)
+     VALUES ('b0000000-0000-0000-0000-0000000000ff','V1','eligible')`,
+  `UPDATE insurance_provider_decisions SET outcome='declined' WHERE vin='V1' AND outcome='eligible'`,
+  `DELETE FROM insurance_provider_decisions WHERE vin='V1' AND outcome='eligible'`
+);
+
+// finance_provider_decisions (Full Activation) — append-only lender decision ledger
+results.catalog.finance_decisions_immutable = await checkImmutable(
+  'finance_provider_decisions',
+  `INSERT INTO provider_registry(provider_key,capability_type,display_name)
+     VALUES ('lender_x','finance','Lender X') ON CONFLICT DO NOTHING;
+   INSERT INTO finance_provider_decisions(lender_provider_id,vin,outcome,decision_inputs_snapshot)
+     SELECT id,'V1','potentially_eligible','{"identity_status":"complete"}'::jsonb
+     FROM provider_registry WHERE provider_key='lender_x' AND capability_type='finance'
+     ORDER BY created_at DESC LIMIT 1`,
+  `UPDATE finance_provider_decisions SET outcome='declined' WHERE vin='V1' AND outcome='potentially_eligible'`,
+  `DELETE FROM finance_provider_decisions WHERE vin='V1' AND outcome='potentially_eligible'`
+);
+
+// escrow_reconciliation_ledger (Full Activation) — append-only money reconciliation history
+results.catalog.escrow_recon_ledger_immutable = await checkImmutable(
+  'escrow_reconciliation_ledger',
+  `INSERT INTO provider_registry(id,provider_key,capability_type,display_name)
+     VALUES ('e1111111-1111-1111-1111-111111111111','escrow_y','escrow','Escrow Y') ON CONFLICT DO NOTHING;
+   INSERT INTO escrow_reconciliation_ledger(provider_id,external_txn_ref,internal_amount_cents,external_amount_cents,matched)
+     VALUES ('e1111111-1111-1111-1111-111111111111','X1',5000,5000,true)`,
+  `UPDATE escrow_reconciliation_ledger SET matched=false WHERE external_txn_ref='X1'`,
+  `DELETE FROM escrow_reconciliation_ledger WHERE external_txn_ref='X1'`
+);
+
+// mobile_certification_results (Full Activation) — append-only device-certification evidence
+results.catalog.mobile_cert_results_immutable = await checkImmutable(
+  'mobile_certification_results',
+  `INSERT INTO mobile_certification_runs(id,platform,device_model,os_version,build_type,status)
+     VALUES ('c2222222-2222-2222-2222-222222222222','android','Pixel 6a','Android 14','release','running');
+   INSERT INTO mobile_certification_results(run_id,check_key,result)
+     VALUES ('c2222222-2222-2222-2222-222222222222','offline_queue_persist_restart','pass')`,
+  `UPDATE mobile_certification_results SET result='fail' WHERE check_key='offline_queue_persist_restart'`,
+  `DELETE FROM mobile_certification_results WHERE check_key='offline_queue_persist_restart'`
+);
+
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
   await step(db, f + ' (Down)', splitMigration(f).down, results.down);
@@ -373,13 +452,42 @@ results.catalog.tables_after_down = n0(await q(`
    'ingestion_jobs','source_records','vehicle_identity_candidates','listing_snapshots',
    'ai_analysis_jobs','temporal_findings','disclosure_conflicts','report_versions','review_tasks','disputes','trust_change_log',
    'vehicle_document_extractions','source_verification_results','partner_clients','partner_api_requests',
-   'fraud_signals','fraud_cases','dealer_profiles','dealer_compliance_decisions','eligibility_requests','eligibility_decisions','escrow_trust_sessions','escrow_trust_events')`));
+   'fraud_signals','fraud_cases','dealer_profiles','dealer_compliance_decisions','eligibility_requests','eligibility_decisions','escrow_trust_sessions','escrow_trust_events',
+   -- Full Activation tables (must also be dropped by Down)
+   'provider_registry','provider_contract_versions','provider_request_attempts','provider_health_checks','provider_incidents',
+   'reconciliation_jobs','reconciliation_mismatches','provider_activation_history',
+   'government_source_config','government_source_batch_imports',
+   'insurer_profiles','insurance_consents','insurance_provider_decisions',
+   'lender_profiles','finance_consents','finance_provider_decisions',
+   'escrow_provider_config','escrow_kyc_kyb_states','escrow_reconciliation_ledger','escrow_dual_control_approvals',
+   'mobile_certification_runs','mobile_certification_results')`));
 
 // 5. re-apply Up
 for (const f of NEW_MIGRATIONS) {
   await step(db, f + ' (re-Up)', splitMigration(f).up, results.reup);
 }
 results.catalog.tables_after_reup = results.catalog.new_tables.length;
+
+// 6. Invariant validation — catalog assertions MUST affect overall PASS + the exit code.
+//    (Previously append-only / guard assertions were recorded but never flipped results.ok, so a
+//    regression — a failed INSERT, or an UPDATE/DELETE that was NOT blocked — would still report
+//    PASS. This closes that verification blind spot.)
+const invariantFailures = [];
+for (const [k, v] of Object.entries(results.catalog)) {
+  if (!k.endsWith('_immutable')) continue;
+  if (!v || v.error || v.update_blocked !== true || v.delete_blocked !== true) {
+    invariantFailures.push(`${k}=${JSON.stringify(v)}`);
+  }
+}
+// Named boolean guards that must hold (only fail on an explicit false, not string statuses).
+for (const k of ['provenance_append_only_enforced', 'extraction_content_guard_enforced',
+  'publication_status_check_enforced', 'source_verification_mode_enforced',
+  'source_coverage_view_sandbox_labelled']) {
+  if (results.catalog[k] === false) invariantFailures.push(`${k}=false`);
+}
+if (results.catalog.legacy_backfill && results.catalog.legacy_backfill.backfill_ok !== true) invariantFailures.push('legacy_backfill.backfill_ok=false');
+if (results.catalog.tables_after_down !== 0) invariantFailures.push(`tables_after_down=${results.catalog.tables_after_down}`);
+if (invariantFailures.length) { results.ok = false; results.catalog.invariant_failures = invariantFailures; }
 
 // report
 const fail = (arr) => arr.filter(x => x.status === 'FAIL');

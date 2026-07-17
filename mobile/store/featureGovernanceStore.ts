@@ -103,13 +103,21 @@ export const useFeatureGovernanceStore = create<FeatureGovernanceState>((set) =>
     }
 
     if (!result.ok) {
-      // FAIL CLOSED. Do NOT set `loadedForKey`: an identity-change failure
-      // (loadedForKey was cleared to null by computeRefreshStart) must never be
-      // treated as "loaded" — the boundary keeps the route blocked + retryable.
-      // A SAME-identity transient failure retains the prior last-good map (it
-      // is still loaded for this identity); we only flag `error:true` so a
-      // retry is offered. The dangerous case — an identity CHANGE failure —
-      // stays blocked because loadedForKey is null.
+      // INVALID SESSION (401/403 with a token present): the saved token is
+      // stale/expired. Showing the generic retryable error here dead-ends the
+      // user (retry re-sends the same bad token forever). Instead clear the
+      // invalid auth — logout() purges SecureStore and re-runs governance
+      // anonymously, and route boundaries then redirect to /login.
+      if (result.unauthorized && after.token) {
+        await after.logout();
+        return;
+      }
+      // FAIL CLOSED (network/5xx). Do NOT set `loadedForKey`: an
+      // identity-change failure (loadedForKey was cleared to null by
+      // computeRefreshStart) must never be treated as "loaded" — the boundary
+      // keeps the route blocked + retryable. A SAME-identity transient failure
+      // retains the prior last-good map (it is still loaded for this
+      // identity); we only flag `error:true` so a retry is offered.
       set({ loading: false, error: true });
       return;
     }

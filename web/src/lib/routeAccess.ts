@@ -61,6 +61,19 @@ const LEGACY_ROUTE_OWNERS: ReadonlyArray<{ pattern: string; featureId: string }>
 ]
 
 /**
+ * Nested subroutes that are governed by an already-registered parent feature (item 5): the Command
+ * Center section surfaces + path-based thread deep-link all defer to the `admin.communications`
+ * feature (or its `/dashboard` alias) for auth/role/lifecycle, so they inherit the exact same gate as
+ * the base route instead of being treated as unregistered (→ login). Most specific pattern first.
+ */
+const NESTED_ROUTE_OWNERS: ReadonlyArray<{ pattern: string; featureId: string }> = [
+  { pattern: '/admin/communications/inbox/:threadId', featureId: 'admin.communications' },
+  { pattern: '/admin/communications/:section', featureId: 'admin.communications' },
+  { pattern: '/dashboard/admin/communications/inbox/:threadId', featureId: 'admin.communications-alias' },
+  { pattern: '/dashboard/admin/communications/:section', featureId: 'admin.communications-alias' },
+]
+
+/**
  * Feature ids that, although present in the registry, are un-governed legacy
  * placeholders deferring to a legacy owner (see {@link LEGACY_ROUTE_OWNERS}).
  * When `getFeatureByRoute` resolves to one of these, the legacy table — not the
@@ -75,7 +88,7 @@ const LEGACY_PLACEHOLDER_FEATURE_IDS: ReadonlySet<string> = new Set(['public.veh
  * be reused against the owner's id (static lifecycle + `effectiveStates[ownerId]`).
  */
 function resolveLegacyOwner(route: string): FeatureRegistryItem | undefined {
-  for (const { pattern, featureId } of LEGACY_ROUTE_OWNERS) {
+  for (const { pattern, featureId } of [...LEGACY_ROUTE_OWNERS, ...NESTED_ROUTE_OWNERS]) {
     if (matchRoutePattern(pattern, route)) return getFeatureById(featureId)
   }
   return undefined
