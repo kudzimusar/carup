@@ -78,3 +78,14 @@ draft + stacked + MERGEABLE, the authoritative *Diaspora Phases 3-7 Validation* 
 both, the repo-wide `CI` lint-regression gate is green on PR #81, and the full diaspora surface is
 lint-clean vs `main` on both branches. The only blockers to production deploy are the external
 boundaries above (EB-1 staging proof, EB-5 deploy authorization, CR-1 credential rotation).
+
+**Real-Postgres verification (2026-07-04) — partially de-risks the concurrency/idempotency items
+that EB-1 otherwise blocks.** A real embedded Postgres 18.4 was booted and the actual migration SQL
+applied verbatim (`backend/tests/realpg/`, 10/10): the H3 atomic reservation-approval RPC's
+`SELECT … FOR UPDATE` genuinely serializes two overlapping approvals so a concurrent overfill is
+rejected (real row-locking, not the sequential JS mock); migration #16's partial unique index
+enforces real `23505` de-duplication and permits NULL keys; the RPC's `REVOKE … FROM PUBLIC` holds.
+This does **not** close EB-1 — the actual `carup-staging` apply, Supabase advisor sweep, full
+RLS/grant/storage verification against production-shaped data, and live rollback rehearsal remain the
+release owner's action — but it proves the SQL/locking *logic* correct against real Postgres
+semantics, so the residual EB-1 exposure is a deployment/verification step, not a logic risk.

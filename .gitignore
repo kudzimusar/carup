@@ -35,3 +35,7 @@ playwright-report
 supabase/.temp
 .vercel
 supabase/.temp/
+
+# Ephemeral embedded-postgres data dir for the real-PG proof harness
+backend/tests/realpg/.pgdata-proof/
+backend/tests/realpg/node_modules/
