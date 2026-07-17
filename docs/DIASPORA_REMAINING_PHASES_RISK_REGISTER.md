@@ -57,3 +57,24 @@
 These are not "risks to mitigate" but hard stops requiring the user: staging secret (EB-1),
 Google OAuth + vault (EB-2), live billing (EB-3), real-money SafeTrade + legal (EB-4),
 production migration/deploy (EB-5), Phase 8 granularity decision (PD-1).
+
+### EB-1 status refresh (2026-07-04, main-reconciliation loop)
+
+The Supabase MCP integration that earlier at least surfaced one (wrong) project is now **fully
+disconnected** for this session (`mcp__claude_ai_Supabase__*` tools unavailable) — so there is
+**no path from this environment** to `carup-staging` (`eoyenigwevnxwwhyhaer`) or production
+(`vhmnajoeicasaigiophh`). Consequently the plan's staging steps for the one outstanding program
+migration — apply `20260704090000_diaspora_payment_milestone_idempotency.sql`, run
+schema/RLS/RPC/grant/storage advisors, execute real row-lock concurrency + rollback rehearsal — are
+**not executable here** and remain the release owner's action (set the CI `staging-integration`
+secrets or run against staging directly). The migration is additive, `-- +migrate Down`-scripted,
+ledger-recorded (#16), and paired with `database/rollbacks/diaspora/` classification scripts. All
+prior migrations belong to `main`/upstream and are already applied there. Production Supabase
+untouched.
+
+**Code posture after reconciliation:** the stack is fully merged with production `main` (227
+commits: Vehicle Trust OS, Agent 8 communications, Phase 7C identity verification), both PRs are
+draft + stacked + MERGEABLE, the authoritative *Diaspora Phases 3-7 Validation* gate is green on
+both, the repo-wide `CI` lint-regression gate is green on PR #81, and the full diaspora surface is
+lint-clean vs `main` on both branches. The only blockers to production deploy are the external
+boundaries above (EB-1 staging proof, EB-5 deploy authorization, CR-1 credential rotation).
