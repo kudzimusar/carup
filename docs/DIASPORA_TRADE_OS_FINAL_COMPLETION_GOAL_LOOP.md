@@ -324,6 +324,30 @@ updated items 2–3 under "Honest deviations". Backend diaspora suite after gap 
 | D Atomic drafts | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (4) | N/A | DONE (SOLID) | DONE | **COMPLETE (code, see deviation)** |
 | E Reservation/rollback | DONE | DONE | N/A | **BLOCKED (EB-1)** | DONE (16) | regression | DONE | DONE | **COMPLETE (code)** |
 
+## Real-Postgres verification (2026-07-04) — "other executable work" done despite EB-1
+
+`carup-staging` is unreachable (EB-1: `ToolSearch mcp__claude_ai_Supabase__list_projects` →
+"No matching deferred tools found"; no Docker for the Supabase CLI local stack). Rather than stop at
+the JS-mock evidence, a **real embedded Postgres (18.4)** was booted and the **actual migration SQL**
+applied verbatim to prove the claims that genuinely need real Postgres semantics. Harness +
+reproducible instructions + captured output: `backend/tests/realpg/`. **Result: 10/10.**
+
+- `diaspora_approve_cargo_reservation_atomic` loads as real PL/pgSQL with pinned `search_path`.
+- **Real `SELECT … FOR UPDATE` serialization:** two *overlapping* transactions approving reservations
+  that together overfill (30+30 > 50) — B blocks on the container row lock while A is open; after A
+  commits, B recomputes and is rejected `OVERFILL`; end state is exactly one approval, `used=30`, one
+  in-transaction audit row (the rolled-back approval left no trace). This is the plan's real
+  concurrency proof, upgraded from the sequential JS mock.
+- **Migration #16** applies on real PG; the partial unique index enforces real `23505` on duplicate
+  `(import_order_id, idempotency_key)` and permits multiple NULL keys.
+- The RPC's `REVOKE … FROM PUBLIC` holds (grant introspection on real PG).
+
+**Still EB-1-blocked (release owner):** applying #16 to the *actual staging instance*, the Supabase
+security/performance **advisor** sweep, the **full** RLS/grant/storage-policy verification against
+production-shaped data, and the live rollback rehearsal. A local embedded Postgres proves the
+SQL/locking *logic*; it is not the staging database and does not substitute for the staging apply +
+advisors.
+
 ## Evidence per workstream
 
 - **A** — `diasporaTradeProfileService.js`: own-only create/read/list/`updateTradeProfile` (safe fields
