@@ -23,6 +23,18 @@
 > `phase9_safetrade_disputes`, `phase10_trade_graph`, `payment_milestone_idempotency`) — all additive,
 > checksums recorded below. Rows flip to `APPLIED (<date>)` only after the runner confirms them
 > recorded in staging's `schema_migrations`.
+>
+> **PRE-STAGING HARDENING (2026-07-18) — checksums changed for #12/#13/#14.** Before first canonical
+> staging application, the Phase 8/9 migrations were corrected to enforce **service-role mutation
+> boundaries at the database layer** (not just Express/frontend): every subscription/entitlement/
+> usage/SafeTrade/dispute table is now `FOR SELECT`-only for `authenticated` (tenant-scoped RLS) with
+> `service_role` writes, all authenticated table-level INSERT/UPDATE/DELETE grants removed, and each
+> mutation RPC explicitly `REVOKE`s PUBLIC + anon + authenticated before granting `service_role`. New
+> checksums: #12 `14f18cea8e74`→`38bffde6bf3b`, #13 `1cfbc7271867`→`b35cc9d3c4a5`, #14
+> `9f8b0cb06f5d`→`100b7f95817f`. Legitimate because these are **not yet recorded on staging** — no
+> applied migration's bytes were changed. Proven on real Postgres:
+> `backend/tests/realpg/phase8-9-acl-realpg.mjs` (16/16). Phase 10 (#15) already followed this model
+> (reference). Migration sanity + full diaspora backend suite still green (125/125, 758/751/0/7).
 
 | Ord | Filename | Phase | Purpose | Tables / RPCs | RLS / grants / search_path | Down script | sha256 | Staging | Prod |
 |---|---|---|---|---|---|---|---|---|---|
@@ -37,9 +49,9 @@
 | 9 | `20260621092000_diaspora_h3_container_approval_rpc.sql` | PR#81 P3-7 (H3) | Serialized container approval (lock, recompute, overfill guard, audit) | RPC `diaspora_approve_cargo_reservation_atomic` | grants Y · search_path Y | **Y** | `2f2c02fce58b` | BLOCKED | NOT APPLIED |
 | 10 | `20260621093000_diaspora_h6_oauth_state_nonce.sql` | PR#81 P3-7 (H6) | One-time expiring OAuth state nonce store (never stores tokens) | table `diaspora_oauth_states` | RLS Y (service-role only) | **Y** | `059a16df74d4` | BLOCKED | NOT APPLIED |
 | 11 | `20260621094000_diaspora_h7_rpc_execute_grants.sql` | PR#81 P3-7 (H7) | Lock H1/H2/H3 RPC EXECUTE to service_role | grants only | grants Y | N (would weaken security) | `c5675c23fd76` | BLOCKED | NOT APPLIED |
-| 12 | `20260621120000_diaspora_phase8_subscription_entitlements.sql` | Phase 8 | Plan catalog + subscriptions + overrides + usage meters/reservations + billing log; atomic quota RPC; seeds 5 plans | 6 tables (`diaspora_subscription_*`); RPC `diaspora_reserve_usage_atomic` | RLS Y (6) · grants Y · search_path Y | **Y** | `14f18cea8e74` | BLOCKED | NOT APPLIED |
-| 13 | `20260621130000_diaspora_phase9_safetrade.sql` | Phase 9 | Escrow/assurance overlay; fail-closed money (CHECK `live_payment=false`, provider∈sandbox/fake) | 3 tables (`diaspora_safetrade_transactions/_milestones/_release_evaluations`); RPCs `diaspora_safetrade_transition_atomic`, `_record_milestone_atomic` | RLS Y (3) · grants Y · search_path Y | **Y** | `1cfbc7271867` | BLOCKED | NOT APPLIED |
-| 14 | `20260621131000_diaspora_phase9_safetrade_disputes.sql` | Phase 9 (Stage B) | Disputes + append-only evidence + delivery confirmations (records only) | 3 tables (`diaspora_safetrade_disputes/_dispute_evidence/_delivery_confirmations`) | RLS Y (3) · grants Y (evidence append-only) | **Y** | `9f8b0cb06f5d` | BLOCKED | NOT APPLIED |
+| 12 | `20260621120000_diaspora_phase8_subscription_entitlements.sql` | Phase 8 | Plan catalog + subscriptions + overrides + usage meters/reservations + billing log; atomic quota RPC; seeds 5 plans | 6 tables (`diaspora_subscription_*`); RPC `diaspora_reserve_usage_atomic` | RLS Y (6, SELECT-only for authenticated; service_role writes) · grants Y (no authenticated write) · RPC service_role-only (REVOKE anon/auth) · search_path Y | **Y** | `38bffde6bf3b` | BLOCKED | NOT APPLIED |
+| 13 | `20260621130000_diaspora_phase9_safetrade.sql` | Phase 9 | Escrow/assurance overlay; fail-closed money (CHECK `live_payment=false`, provider∈sandbox/fake) | 3 tables (`diaspora_safetrade_transactions/_milestones/_release_evaluations`); RPCs `diaspora_safetrade_transition_atomic`, `_record_milestone_atomic` | RLS Y (3, SELECT-only for authenticated; all money writes service_role) · grants Y (no authenticated write) · 2 RPCs service_role-only (REVOKE anon/auth) · search_path Y | **Y** | `b35cc9d3c4a5` | BLOCKED | NOT APPLIED |
+| 14 | `20260621131000_diaspora_phase9_safetrade_disputes.sql` | Phase 9 (Stage B) | Disputes + append-only evidence + delivery confirmations (records only) | 3 tables (`diaspora_safetrade_disputes/_dispute_evidence/_delivery_confirmations`) | RLS Y (3, SELECT-only for authenticated; disputes/evidence/delivery mutated by service_role) · grants Y (no authenticated write) | **Y** | `100b7f95817f` | BLOCKED | NOT APPLIED |
 | 15 | `20260621140000_diaspora_phase10_trade_graph.sql` | Phase 10 | Event-sourced rebuildable graph projection (nodes/edges from `domain_events`+audit); admin rebuild | 7 tables (`trade_graph_*`); RPCs `trade_graph_record_checkpoint`, `_request_rebuild` | RLS Y (7) · grants Y · search_path Y | **Y** | `b23a2dadf006` | BLOCKED | NOT APPLIED |
 | 16 | `20260704090000_diaspora_payment_milestone_idempotency.sql` | Final completion (W3) | Additive idempotency key on payment milestones so retried creations de-duplicate | alters `diaspora_payment_milestones` (+`idempotency_key`, partial unique index on `(import_order_id, idempotency_key)`) | additive only | **Y** | `1f1fc891fd05` | BLOCKED (EB-1) | NOT APPLIED (EB-5) |
 
