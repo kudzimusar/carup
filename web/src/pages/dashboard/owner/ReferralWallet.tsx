@@ -66,6 +66,33 @@ function money(amount?: number, currency?: string | null): string {
   return `${currency ? `${currency} ` : '$'}${amount.toLocaleString()}`
 }
 
+function formatReferralTransactionDate(value?: string | null): string {
+  if (!value) return 'date unavailable'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'date unavailable'
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function shortTransactionSuffix(id?: string | null): string {
+  const value = String(id || '').trim()
+  if (!value) return 'unknown'
+  return value.slice(-4)
+}
+
+function disputeTransactionOptionLabel(tx: ReferralWalletTransaction): string {
+  const label = tx.reason || tx.event_type || 'Referral benefit'
+  const amount = money(tx.amount, tx.currency || 'USD')
+  const status = tx.status || 'unknown'
+  const createdAt = formatReferralTransactionDate(tx.created_at)
+  return `${label} · ${amount} · ${status} · ${createdAt} · …${shortTransactionSuffix(tx.id)}`
+}
+
 export default function ReferralWallet() {
   const {
     getReferralWallet,
@@ -384,7 +411,7 @@ export default function ReferralWallet() {
             <option value="">Select a transaction…</option>
             {transactions.map((tx) => (
               <option key={tx.id} value={tx.id}>
-                {(tx.reason || tx.event_type || tx.id)} — {tx.status}
+                {disputeTransactionOptionLabel(tx)}
               </option>
             ))}
           </select>
