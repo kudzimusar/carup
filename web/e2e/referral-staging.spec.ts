@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { stage5ShouldSkip } from '../src/lib/stage5CredentialGate'
 
 // Referral Engine browser UAT.
 //
@@ -243,9 +244,12 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
 })
 
 test.describe('Referral Engine — import, parts, and container journey (Stage-5 acceptance)', () => {
+  // Every credential AND identifier the Stage 5 journey uses must be present —
+  // including all three passwords — or it skips deliberately instead of passing
+  // undefined to login. stage5ShouldSkip() is unit-tested so this gate does not drift.
   test.skip(
-    !ADMIN_EMAIL || !OWNER_EMAIL || !INVITEE_EMAIL || !INVITEE_USER_ID || !OWNER_USER_ID || !API_BASE,
-    'set E2E_UAT_ADMIN_*, E2E_UAT_OWNER_*, E2E_UAT_INVITEE_*, E2E_UAT_INVITEE_USER_ID, E2E_UAT_OWNER_USER_ID and E2E_UAT_API_BASE_URL to run Stage 5'
+    stage5ShouldSkip(process.env),
+    'set all E2E_UAT_ADMIN_*, E2E_UAT_OWNER_*, E2E_UAT_INVITEE_*, user IDs and E2E_UAT_API_BASE_URL to run Stage 5'
   )
 
   test('admin UI creates import routes/leads and qualifies pending owner rewards', async ({ page, request }) => {
@@ -256,9 +260,9 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     const runTag = `REFV1-STAGING-S5-${stamp}Z`
     const slug = runTag.toLowerCase()
 
-    const adminSession = await apiLogin(request, ADMIN_EMAIL as string, process.env.E2E_UAT_ADMIN_PASSWORD as string)
-    const ownerSession = await apiLogin(request, OWNER_EMAIL as string, process.env.E2E_UAT_OWNER_PASSWORD as string)
-    const inviteeSession = await apiLogin(request, INVITEE_EMAIL as string, process.env.E2E_UAT_INVITEE_PASSWORD as string)
+    const adminSession = await apiLogin(request, ADMIN_EMAIL as string, ADMIN_PASSWORD as string)
+    const ownerSession = await apiLogin(request, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    const inviteeSession = await apiLogin(request, INVITEE_EMAIL as string, INVITEE_PASSWORD as string)
 
     const bundle = await createImportBundle(request, adminSession.token, {
       code: `${runTag}-CODE`,
@@ -271,7 +275,7 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     const referralCode = bundle.code?.code || `${runTag}-CODE`
     expect(bundle.code?.owner_user_id).toBe(OWNER_USER_ID)
 
-    await login(page, ADMIN_EMAIL as string, process.env.E2E_UAT_ADMIN_PASSWORD as string)
+    await login(page, ADMIN_EMAIL as string, ADMIN_PASSWORD as string)
     await page.waitForURL(/\/(admin|dashboard)/, { timeout: 20000 })
     await page.goto('/admin/referrals/import-routes')
     await expect(page).toHaveURL(/\/admin\/referrals\/import-routes/)
@@ -374,12 +378,81 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
     await page.getByTestId('referral-import-qualify-submit').click()
     await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/already exists/i, { timeout: 20000 })
 
+    // (1) Owner wallet holds EXACTLY the two Stage 5 rewards for the captured leads.
     const wallet = await fetchWallet(request, ownerSession.token, OWNER_USER_ID as string)
     const stage5Transactions = (wallet.transactions || []).filter((tx) => tx.metadata?.lead_event_id === partsLeadId || tx.metadata?.lead_event_id === containerLeadId)
     expect(stage5Transactions).toHaveLength(2)
+    // (2) Every captured transaction: user_id === OWNER_USER_ID and status === pending.
     expect(stage5Transactions.every((tx) => tx.user_id === OWNER_USER_ID && tx.status === 'pending')).toBeTruthy()
     expect(stage5Transactions.map((tx) => tx.metadata?.lead_event_id).sort()).toEqual([containerLeadId, partsLeadId].sort())
-    expect(await fetchWalletStatus(request, inviteeSession.token, INVITEE_USER_ID as string)).not.toBe(200)
+    // (4) Admin is NOT the wallet-transaction owner.
+    expect(stage5Transactions.every((tx) => tx.user_id !== adminSession.user.id)).toBeTruthy()
+
+    // (3) The invitee token CANNOT read the OWNER wallet — the real security
+    // boundary (an invitee reading its OWN wallet is legitimately allowed).
+    expect(await fetchWalletStatus(request, inviteeSession.token, OWNER_USER_ID as string)).toBe(403)
+
+    // (5) The invitee MAY have an unrelated wallet; if it exists it must contain
+    // NO transaction whose metadata.lead_event_id matches either Stage 5 lead.
+    // We do NOT require the invitee's own wallet to be absent.
+    const inviteeWallet = await fetchWalletAllowMissing(request, inviteeSession.token, INVITEE_USER_ID as string)
+    if (inviteeWallet.status === 200) {
+      const leaked = (inviteeWallet.body.transactions || []).filter(
+        (tx) => tx.metadata?.lead_event_id === partsLeadId || tx.metadata?.lead_event_id === containerLeadId
+      )
+      expect(leaked, 'invitee wallet must not contain any Stage 5 reward').toHaveLength(0)
+    }
+
+    // Negative authorization boundaries (owner is NOT an operator/admin).
+    expect(
+      await importRouteCreateStatus(request, ownerSession.token, `${slug}-owner-denied`),
+      'owner must not create an import route'
+    ).toBe(403)
+    expect(
+      await importRouteCapacityStatus(request, ownerSession.token, vehicleRouteKey),
+      'owner must not update import route capacity'
+    ).toBe(403)
+    expect(
+      await importQualifyStatus(request, ownerSession.token, partsLeadId, { milestone: 'parts_order_paid', reward_amount: 10 }),
+      'owner must not qualify an import lead'
+    ).toBe(403)
+    expect(
+      await importRouteCreateStatus(request, '', `${slug}-unauth-denied`),
+      'unauthenticated import administration must be rejected'
+    ).toBe(401)
+
+    // (6) Tampering: qualify a fresh owner-code lead while injecting caller-supplied
+    // reward-owner-like fields. The backend derives the owner from the persisted
+    // referral attribution/code, so the resulting reward must STILL belong to
+    // OWNER_USER_ID — never the injected invitee.
+    const tamperLead = await createImportLeadApi(request, adminSession.token, {
+      flow_type: 'parts_import',
+      referral_code: referralCode,
+      lead_reference: `${runTag}-TAMPER-LEAD`,
+      contact: { user_id: INVITEE_USER_ID as string },
+      part_request: { part_name: 'tamper engine' },
+    })
+    expect(tamperLead.eventId).toBeTruthy()
+    const tamperQualify = await importQualifyRaw(request, adminSession.token, tamperLead.eventId, {
+      milestone: 'parts_order_paid',
+      reward_amount: 10,
+      result_reference: `${runTag}-TAMPER-PAID`,
+      // Injected caller-supplied ownership fields — MUST be ignored by the backend.
+      owner_user_id: INVITEE_USER_ID,
+      reward_owner_user_id: INVITEE_USER_ID,
+      wallet_owner_id: INVITEE_USER_ID,
+      referred_user_id: INVITEE_USER_ID,
+    })
+    expect(tamperQualify.status, 'tampered qualify still succeeds on the server-derived owner').toBe(200)
+    const walletAfterTamper = await fetchWallet(request, ownerSession.token, OWNER_USER_ID as string)
+    const tamperTx = (walletAfterTamper.transactions || []).find((tx) => tx.metadata?.lead_event_id === tamperLead.eventId)
+    expect(tamperTx, 'the tampered reward must land in a wallet').toBeTruthy()
+    expect(tamperTx?.user_id, 'reward owner is derived from the referral code, not the injected field').toBe(OWNER_USER_ID)
+    // The injected invitee must NOT have received the tampered reward.
+    const inviteeWalletAfter = await fetchWalletAllowMissing(request, inviteeSession.token, INVITEE_USER_ID as string)
+    if (inviteeWalletAfter.status === 200) {
+      expect((inviteeWalletAfter.body.transactions || []).some((tx) => tx.metadata?.lead_event_id === tamperLead.eventId)).toBeFalsy()
+    }
 
     await login(page, OWNER_EMAIL as string, OWNER_PASSWORD as string)
     await page.waitForURL(/\/dashboard/, { timeout: 20000 })
@@ -401,16 +474,16 @@ test.describe('Referral Engine — import, parts, and container journey (Stage-5
 async function apiLogin(request: import('@playwright/test').APIRequestContext, email: string, password: string): Promise<AuthSession> {
   const apiBase = API_BASE as string
   const res = await request.post(`${apiBase}/api/auth/login`, { data: { email, password } })
+  expect(res.status(), `login should succeed for ${email}`).toBe(200)
   const body = (await res.json()) as {
     token?: string
     accessToken?: string
     session?: { access_token?: string }
     user?: { id?: string }
   }
-  return {
-    token: body.token || body.accessToken || body.session?.access_token || '',
-    user: { id: body.user?.id || '' },
-  }
+  const token = body.token || body.accessToken || body.session?.access_token || ''
+  expect(token, `login should return a token for ${email}`).toBeTruthy()
+  return { token, user: { id: body.user?.id || '' } }
 }
 
 async function fetchAdminEvents(request: import('@playwright/test').APIRequestContext, token: string, eventType: string): Promise<ReferralEventRecord[]> {
@@ -478,6 +551,104 @@ async function fetchWalletStatus(
     headers: { Authorization: `Bearer ${token}` },
   })
   return res.status()
+}
+
+/** Fetch a wallet that may not exist; returns the status and a safe body (never throws on non-200). */
+async function fetchWalletAllowMissing(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  userId: string
+): Promise<{ status: number; body: WalletResponseBody }> {
+  const apiBase = API_BASE as string
+  const res = await request.get(`${apiBase}/api/referrals/wallets/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  let body: WalletResponseBody = {}
+  if (res.status() === 200) {
+    body = (await res.json()) as WalletResponseBody
+  }
+  return { status: res.status(), body }
+}
+
+/** Optional bearer header — an empty token yields an UNAUTHENTICATED request. */
+function authHeaders(token: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+/** POST an import-route create; returns only the HTTP status (for authz boundary checks). */
+async function importRouteCreateStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  routeKey: string
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/routes`, {
+    headers: authHeaders(token),
+    data: { origin: 'Japan', destination: 'Zimbabwe', flow_type: 'vehicle_import', route_key: routeKey, total_capacity: 1, unit_label: 'vehicles' },
+  })
+  return res.status()
+}
+
+async function importRouteCapacityStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  routeKey: string
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/routes/${encodeURIComponent(routeKey)}/capacity`, {
+    headers: authHeaders(token),
+    data: { total: 8, booked: 1 },
+  })
+  return res.status()
+}
+
+async function importQualifyStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  leadEventId: string,
+  payload: Record<string, unknown>
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/leads/${encodeURIComponent(leadEventId)}/qualify`, {
+    headers: authHeaders(token),
+    data: payload,
+  })
+  return res.status()
+}
+
+async function createImportLeadApi(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  payload: Record<string, unknown>
+): Promise<{ status: number; eventId: string }> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/leads`, {
+    headers: authHeaders(token),
+    data: payload,
+  })
+  let eventId = ''
+  if (res.ok()) {
+    const body = (await res.json()) as { event_id?: string }
+    eventId = body.event_id || ''
+  }
+  return { status: res.status(), eventId }
+}
+
+/** Qualify with an arbitrary (possibly tampered) payload; returns status + parsed body. */
+async function importQualifyRaw(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  leadEventId: string,
+  payload: Record<string, unknown>
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/leads/${encodeURIComponent(leadEventId)}/qualify`, {
+    headers: authHeaders(token),
+    data: payload,
+  })
+  let body: Record<string, unknown> = {}
+  try { body = (await res.json()) as Record<string, unknown> } catch { /* non-JSON */ }
+  return { status: res.status(), body }
 }
 
 function extractEventId(text: string | null): string {

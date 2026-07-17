@@ -231,7 +231,7 @@ export default function ReferralImportRoutes() {
             <Input type="number" placeholder="Requested capacity (container-space)" value={leadCapacity} onChange={(e) => setLeadCapacity(e.target.value)} data-testid="referral-import-lead-capacity" />
             <Input placeholder="Referral code" value={leadReferralCode} onChange={(e) => setLeadReferralCode(e.target.value)} data-testid="referral-import-lead-referral-code" />
             <Input placeholder="Lead reference" value={leadReference} onChange={(e) => setLeadReference(e.target.value)} data-testid="referral-import-lead-reference" />
-            <Input placeholder="Contact user ID" value={leadContactUserId} onChange={(e) => setLeadContactUserId(e.target.value)} data-testid="referral-import-lead-contact-user-id" />
+            <Input placeholder="Referred participant user ID" value={leadContactUserId} onChange={(e) => setLeadContactUserId(e.target.value)} data-testid="referral-import-lead-contact-user-id" />
             <Input placeholder="Part request (parts import)" value={leadPartName} onChange={(e) => setLeadPartName(e.target.value)} data-testid="referral-import-lead-part-name" />
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <input type="checkbox" checked={allowWaitlist} onChange={(e) => setAllowWaitlist(e.target.checked)} data-testid="referral-import-lead-allow-waitlist" />
@@ -251,7 +251,10 @@ export default function ReferralImportRoutes() {
               <Input placeholder="Milestone *" value={milestone} onChange={(e) => setMilestone(e.target.value)} data-testid="referral-import-qualify-milestone" />
               <Input type="number" placeholder="Reward amount" value={rewardAmount} onChange={(e) => setRewardAmount(e.target.value)} data-testid="referral-import-qualify-reward-amount" />
             </div>
-            <Input placeholder="Referred user ID" value={qualifyReferredUserId} onChange={(e) => setQualifyReferredUserId(e.target.value)} data-testid="referral-import-qualify-referred-user-id" />
+            <Input placeholder="Referred participant ID for self-referral check" value={qualifyReferredUserId} onChange={(e) => setQualifyReferredUserId(e.target.value)} data-testid="referral-import-qualify-referred-user-id" />
+            <p className="text-xs text-gray-500" data-testid="referral-import-qualify-owner-note">
+              The reward owner is derived from the validated referral code. This field cannot select or change the reward owner.
+            </p>
             <Input placeholder="Result reference" value={qualifyResultReference} onChange={(e) => setQualifyResultReference(e.target.value)} data-testid="referral-import-qualify-result-reference" />
             <Button variant="outline" onClick={onQualify} data-testid="referral-import-qualify-submit">Qualify</Button>
             {qualifyMsg && <p className="text-sm text-gray-600" data-testid="referral-import-qualify-message">{qualifyMsg}</p>}
