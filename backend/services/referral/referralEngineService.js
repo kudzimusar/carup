@@ -88,8 +88,42 @@ function normalizePublicAppUrl(value) {
   }
 }
 
-function hostnameIncludes(value, pattern) {
-  return String(value || '').toLowerCase().includes(pattern);
+function publicAppHostname(value) {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  try {
+    return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).hostname.toLowerCase();
+  } catch {
+    return raw.toLowerCase().replace(/^https?:\/\//, '').split('/')[0];
+  }
+}
+
+function isTrustedStagingVercelHost(value) {
+  const host = publicAppHostname(value);
+  return host === 'carup-staging.vercel.app'
+    || host === 'carup-backend-staging.vercel.app'
+    || /^carup-staging-[a-z0-9-]+\.vercel\.app$/.test(host)
+    || /^carup-backend-staging-[a-z0-9-]+\.vercel\.app$/.test(host);
+}
+
+function isTrustedBackendVercelHost(value) {
+  const host = publicAppHostname(value);
+  return host === 'carup-backend.vercel.app'
+    || host === 'carup-backend-staging.vercel.app'
+    || /^carup-backend-[a-z0-9-]+\.vercel\.app$/.test(host)
+    || /^carup-backend-staging-[a-z0-9-]+\.vercel\.app$/.test(host);
+}
+
+function hasVercelRuntimeSignal(env = {}) {
+  return Boolean(
+    env.VERCEL
+      || env.VERCEL_ENV
+      || env.VERCEL_TARGET_ENV
+      || env.VERCEL_PROJECT_PRODUCTION_URL
+      || env.VERCEL_BRANCH_URL
+      || env.VERCEL_URL
+  );
 }
 
 export function resolveReferralPublicAppUrl(options = {}, env = process.env) {
@@ -104,24 +138,29 @@ export function resolveReferralPublicAppUrl(options = {}, env = process.env) {
   if (explicit) return explicit;
 
   const projectName = String(env.VERCEL_PROJECT_NAME || env.CARUP_VERCEL_PROJECT || '').toLowerCase();
-  const productionHost = String(env.VERCEL_PROJECT_PRODUCTION_URL || '').toLowerCase();
-  const deploymentHost = String(env.VERCEL_BRANCH_URL || env.VERCEL_URL || '').toLowerCase();
+  const productionHost = env.VERCEL_PROJECT_PRODUCTION_URL || '';
+  const branchHost = env.VERCEL_BRANCH_URL || '';
+  const deploymentHost = env.VERCEL_URL || '';
+  const vercelTargetEnv = String(env.VERCEL_TARGET_ENV || '').toLowerCase();
+  const vercelEnv = String(env.VERCEL_ENV || '').toLowerCase();
   const appEnv = String(env.CARUP_ENV || env.APP_ENV || env.NODE_ENV || '').toLowerCase();
   const isStagingProject =
-    hostnameIncludes(projectName, 'staging')
-    || hostnameIncludes(productionHost, 'carup-staging')
-    || hostnameIncludes(deploymentHost, 'carup-staging')
+    isTrustedStagingVercelHost(productionHost)
+    || isTrustedStagingVercelHost(branchHost)
+    || isTrustedStagingVercelHost(deploymentHost)
+    || /^carup(-backend)?-staging$/.test(projectName)
+    || vercelTargetEnv === 'staging'
     || appEnv === 'staging';
 
-  if (env.VERCEL_ENV === 'preview') {
-    const previewUrl = normalizePublicAppUrl(env.VERCEL_BRANCH_URL || env.VERCEL_URL);
-    if (previewUrl && !hostnameIncludes(previewUrl, 'carup-backend')) return previewUrl;
+  if (vercelEnv === 'preview') {
+    const previewUrl = normalizePublicAppUrl(branchHost || deploymentHost);
+    if (previewUrl && isTrustedStagingVercelHost(previewUrl) && !isTrustedBackendVercelHost(previewUrl)) return previewUrl;
     if (isStagingProject) return DEFAULT_STAGING_PUBLIC_APP_URL;
   }
 
   if (isStagingProject) return DEFAULT_STAGING_PUBLIC_APP_URL;
 
-  if (appEnv === 'development' || appEnv === 'dev' || appEnv === 'test') {
+  if (!hasVercelRuntimeSignal(env) && (appEnv === 'development' || appEnv === 'dev' || appEnv === 'test')) {
     return DEFAULT_LOCAL_PUBLIC_APP_URL;
   }
 

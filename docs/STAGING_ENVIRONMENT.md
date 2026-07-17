@@ -74,6 +74,13 @@ The backend resolver also infers `https://carup-staging.vercel.app` when it is r
 staging project such as `carup-backend-staging`, but the explicit env var is preferred for auditability.
 Caller-supplied share-kit options must not override this trusted public origin.
 
+When no explicit public origin is configured, the backend uses documented Vercel runtime signals only:
+`VERCEL`, `VERCEL_ENV`, `VERCEL_TARGET_ENV`, `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL`, and
+`VERCEL_URL`. Canonical staging is detected from exact trusted Vercel hostnames such as
+`carup-staging.vercel.app`, `carup-backend-staging.vercel.app`, `carup-staging-*.vercel.app`, and
+`carup-backend-staging-*.vercel.app`. A deployed Vercel process must never fall back to localhost just
+because `NODE_ENV=test`; local fallback is reserved for processes with no Vercel runtime signals.
+
 ## Verification
 
 ```sh
