@@ -1,6 +1,7 @@
 import { createEscrow, updateEscrowStatus } from '../safepay/escrowService.js';
 import { addEvent } from '../blockchain/blockchainService.js';
 import { supabase } from '../../db/supabase.js';
+import { marketplaceReferralBridge } from '../marketplace/marketplaceReferralBridgeService.js';
 
 /**
  * Register all domain event listeners/subscribers into the background outbox worker
@@ -8,6 +9,13 @@ import { supabase } from '../../db/supabase.js';
  * @param {object} worker - The singleton eventWorker instance
  */
 export function registerDomainListeners(worker) {
+  worker.subscribe('marketplace.inquiry.referral_bridge_requested', async (payload) => {
+    if (!payload?.inquiry?.id || !payload?.inquiry?.referral_code) return;
+    await marketplaceReferralBridge.bridgeInquiryToReferralLead({
+      inquiry: payload.inquiry,
+      actor: payload.actor || {},
+    });
+  });
   
   // 1. VEHICLE_RESERVED domain event subscriber
   worker.subscribe('VEHICLE_RESERVED', async (payload, pgClient, tenantId) => {

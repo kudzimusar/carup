@@ -9,14 +9,11 @@
  * defaults intact (a disabled feature never becomes enabled because a fetch
  * failed).
  */
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { EffectiveFeatureState } from '@/config/featureRegistry'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
 import { useAuth } from '@/context/AuthContext'
-
-export type EffectiveStateMap = Record<string, EffectiveFeatureState>
-
-const FeatureGovernanceContext = createContext<EffectiveStateMap>({})
+import { FeatureGovernanceContext, type EffectiveStateMap } from './featureGovernanceStore'
 
 const NAV_COHORT_KEY = 'carup_nav_cohort'
 
@@ -114,9 +111,4 @@ export function FeatureGovernanceLoader({ children }: { children: ReactNode }) {
   // Only expose states that belong to the current identity.
   const value = loaded.key === authKey ? loaded.map : {}
   return <FeatureGovernanceProvider value={value}>{children}</FeatureGovernanceProvider>
-}
-
-/** Effective feature states (empty until governance hydration lands). */
-export function useFeatureEffectiveStates(): EffectiveStateMap {
-  return useContext(FeatureGovernanceContext)
 }

@@ -14,6 +14,34 @@
     "betaCapable": true
   },
   {
+    "id": "admin.communications",
+    "domain": "admin",
+    "route": "/admin/communications",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.communications-alias",
+    "domain": "admin",
+    "route": "/dashboard/admin/communications",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.evidence",
     "domain": "evidence",
     "route": "/admin/evidence",
@@ -171,6 +199,20 @@
     "id": "admin.users",
     "domain": "admin",
     "route": "/admin/users",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.verification",
+    "domain": "trust",
+    "route": "/admin/verification",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin"
@@ -807,6 +849,20 @@
     "id": "owner.ai",
     "domain": "commerce",
     "route": "/dashboard/ai",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "owner"
+    ],
+    "immutableRoles": [
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "owner.communications",
+    "domain": "info",
+    "route": "/dashboard/communications",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "owner"

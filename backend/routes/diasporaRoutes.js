@@ -290,8 +290,8 @@ router.post('/reservations/:id/cancel', auth, asyncHandler(async (req, res) => r
 // Shipments
 router.get('/shipments', auth, asyncHandler(async (req, res) => res.json({ data: await listShipments({ importOrderId: req.query.importOrderId, status: req.query.status, ...pagination(req) }, req.userContext) })));
 router.post('/shipments', auth, asyncHandler(async (req, res) => res.status(201).json(await createShipment(req.body, req.userContext, req))));
-router.get('/shipments/:id', auth, asyncHandler(async (req, res) => res.json(await getShipment(req.params.id))));
-router.get('/shipments/:id/timeline', auth, asyncHandler(async (req, res) => res.json({ data: await getShipmentTimeline(req.params.id) })));
+router.get('/shipments/:id', auth, asyncHandler(async (req, res) => res.json(await getShipment(req.params.id, req.userContext))));
+router.get('/shipments/:id/timeline', auth, asyncHandler(async (req, res) => res.json({ data: await getShipmentTimeline(req.params.id, req.userContext) })));
 router.patch('/shipments/:id/stage', auth, asyncHandler(async (req, res) => res.json(await updateShipmentStage(req.params.id, req.body, req.userContext, req))));
 
 // Compliance

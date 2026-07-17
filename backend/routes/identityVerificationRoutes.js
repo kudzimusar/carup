@@ -2,6 +2,7 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import {
   createVerificationSession,
+  getLatestVerificationSessionForUser,
   getVerificationSession,
   submitVerificationSession,
   uploadVerificationSessionImage,
@@ -32,6 +33,13 @@ router.post('/api/identity/verification-sessions/:sessionId/upload/:side', autho
 
 router.post('/api/identity/verification-sessions/:sessionId/submit', authorizeRole(), asyncHandler(async (req, res) => {
   const session = await submitVerificationSession(undefined, req.userContext, req.params.sessionId, { req });
+  res.json({ success: true, session });
+}));
+
+// ENTRY PREFLIGHT: the applicant's latest session — registered BEFORE the
+// :sessionId route so "latest" is never captured as an id.
+router.get('/api/identity/verification-sessions/latest', authorizeRole(), asyncHandler(async (req, res) => {
+  const session = await getLatestVerificationSessionForUser(undefined, req.userContext);
   res.json({ success: true, session });
 }));
 

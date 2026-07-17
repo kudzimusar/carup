@@ -73,11 +73,20 @@ import fraudRouter from './routes/fraudRoutes.js';
 import dealerRouter from './routes/dealerRoutes.js';
 import eligibilityRouter from './routes/eligibilityRoutes.js';
 import escrowTrustRouter from './routes/escrowTrustRoutes.js';
+import providerPlatformRouter from './routes/providerPlatformRoutes.js';
+// Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
+import governmentActivationRouter from './routes/governmentActivationRoutes.js';
+import insurerRouter from './routes/insurerRoutes.js';
+import lenderRouter from './routes/lenderRoutes.js';
+import escrowProviderRouter from './routes/escrowProviderRoutes.js';
+import mobileCertificationRouter from './routes/mobileCertificationRoutes.js';
 import intelligenceRouter from './routes/intelligenceRoutes.js';
 import reportRouter from './routes/reportRoutes.js';
 import governanceRouter from './routes/governanceRoutes.js';
 import marketplaceRouter from './routes/marketplaceRoutes.js';
 import marketplaceAdminRouter from './routes/marketplaceAdminRoutes.js';
+import communicationRouter from './routes/communicationRoutes.js';
+import adminCommunicationRouter from './routes/adminCommunicationRoutes.js';
 import complianceRouter from './routes/complianceRoutes.js';
 import financeRouter from './routes/financeRoutes.js';
 import diasporaRouter from './routes/diasporaRoutes.js';
@@ -85,8 +94,11 @@ import trustFactRouter from './routes/trustFactRoutes.js';
 import identityVerificationRouter from './routes/identityVerificationRoutes.js';
 import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
+import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
+import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
+import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
 
 dotenv.config();
@@ -124,10 +136,22 @@ app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensit
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 
-// Capture the raw request body so provider webhooks (e.g. Phase 8 billing,
-// SafeTrade payment) can verify HMAC signatures over the exact bytes received.
-app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
-app.use(express.urlencoded({ limit: '15mb', extended: true }));
+// Capture the exact raw request bytes for webhook paths so in-service HMAC signature
+// verification checks the real payload the sender signed. The global parsers run before any
+// route-level parser, so route-level `verify` callbacks never fire — this is the single place
+// raw bytes are available. The '/webhook' substring covers the Full Activation provider webhooks
+// (Phase 8 billing, SafeTrade payment) AND the communications-engine webhooks
+// (/api/communications/webhooks/...); scoped so ordinary request bodies are not buffered as strings.
+const captureWebhookRawBody = (req, _res, buf) => {
+  const u = req.originalUrl || req.url || '';
+  // The communications-engine pattern is covered by the substring but kept explicit — it is a
+  // source-level contract asserted by communication-engine.test.js.
+  if (u.includes('/webhook') || /^\/api\/communications\/webhooks\/[^/]+\/[^/]+(?:$|[/?#])/.test(u)) {
+    req.rawBody = buf.toString('utf8');
+  }
+};
+app.use(express.json({ limit: '15mb', verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
+app.use(express.urlencoded({ limit: '15mb', extended: true, verify: (req, _res, buf) => captureWebhookRawBody(req, _res, buf) }));
 app.use(csrfMiddleware);
 
 // Signed CSRF token route
@@ -139,7 +163,8 @@ app.get('/api/security/csrf-token', (req, res) => {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 3600000 * 2
+    maxAge: 3600000 * 2,
+    path: '/',
   });
   res.json({ csrfToken: token });
 });
@@ -202,6 +227,8 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(adminRouter);
+app.use(communicationRouter());
+app.use(adminCommunicationRouter());
 app.use(marketplaceRouter);
 app.use(marketplaceAdminRouter);
 app.use(vehiclesRouter);
@@ -215,6 +242,13 @@ app.use(fraudRouter);
 app.use(dealerRouter);
 app.use(eligibilityRouter);
 app.use(escrowTrustRouter);
+app.use(providerPlatformRouter);
+// Full Activation — provider capability workflows (government / insurer / lender / escrow / mobile cert)
+app.use(governmentActivationRouter);
+app.use(insurerRouter);
+app.use(lenderRouter);
+app.use(escrowProviderRouter);
+app.use(mobileCertificationRouter);
 app.use(intelligenceRouter);
 app.use(reportRouter);
 app.use(governanceRouter);
@@ -224,6 +258,8 @@ app.use(trustFactRouter);
 app.use(identityVerificationRouter);
 app.use(featureGovernanceRouter);
 app.use(navigationAnalyticsRouter);
+app.use(identityVerificationAdminRouter);
+app.use(partsentryReviewRouter);
 
 // Mount isolated Diaspora Trade bounded context
 app.use('/api/diaspora', diasporaRouter);
@@ -242,6 +278,7 @@ if (connectionError) {
   
   // Start Event-Driven Outbox Background Worker and register listeners
   registerDomainListeners(eventWorker);
+  registerCommunicationListeners(eventWorker);
   eventWorker.start(1000); // Concurrency-safe interval poller (1s)
 }
 
@@ -1437,6 +1474,126 @@ app.get('/api/compliance/reports', authorizeRole(['government', 'admin']), async
 // --- COMPLIANCE REGISTRY VERIFICATIONS MOVED TO MODULAR ROUTER ---
 
 // --- ADMIN TELEMETRY & USER SERVICES MOVED TO MODULAR ROUTER ---
+
+function renderPublicLegalPage({ title, description, sections }) {
+  const sectionHtml = sections.map((section) => `
+    <section>
+      <h2>${section.heading}</h2>
+      <p>${section.body}</p>
+    </section>
+  `).join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title} | CarUp</title>
+  <meta name="description" content="${description}">
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #f8fafc; color: #0f172a; }
+    header { background: #020617; color: white; padding: 56px 24px; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 24px 64px; }
+    .wrap { max-width: 920px; margin: 0 auto; }
+    .eyebrow { color: #fed7aa; font-size: 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { font-size: clamp(32px, 6vw, 56px); line-height: 1; margin: 16px 0; }
+    h2 { font-size: 22px; margin: 0 0 10px; }
+    p { font-size: 16px; line-height: 1.7; color: #475569; margin: 0; }
+    header p { color: #cbd5e1; max-width: 720px; }
+    section { background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin: 18px 0; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+    a { color: #c2410c; font-weight: 700; }
+    footer { border-top: 1px solid #e2e8f0; color: #64748b; padding: 24px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="eyebrow">CarUp Legal</div>
+      <h1>${title}</h1>
+      <p>${description}</p>
+    </div>
+  </header>
+  <main>${sectionHtml}</main>
+  <footer>CarUp Automotive Intelligence Private Limited - legal@carup.co.zw</footer>
+</body>
+</html>`;
+}
+
+app.get('/privacy-policy', (_req, res) => {
+  res.type('html').set('Cache-Control', 'public, max-age=300').send(renderPublicLegalPage({
+    title: 'Privacy Policy',
+    description: 'CarUp explains how we collect, use, protect, and process account, marketplace, vehicle, communication, and support data.',
+    sections: [
+      {
+        heading: 'Data We Collect',
+        body: 'CarUp may collect account details, contact information, vehicle listing information, verification evidence, communication records, support requests, and technical metadata needed to operate the platform.',
+      },
+      {
+        heading: 'How We Use Data',
+        body: 'We use data to provide marketplace services, vehicle trust and verification tools, SafePay workflows, customer support, communication delivery, fraud prevention, compliance, and platform security.',
+      },
+      {
+        heading: 'Sharing and Protection',
+        body: 'We do not sell personal data. We share limited data only with service providers, regulators, payment or verification partners, or other parties when required to operate the service, protect users, or comply with law.',
+      },
+      {
+        heading: 'Your Choices',
+        body: 'Users can request access, correction, or deletion of eligible personal data by contacting privacy@carup.co.zw or legal@carup.co.zw. See the User Data Deletion page for deletion instructions.',
+      },
+    ],
+  }));
+});
+
+app.get('/terms', (_req, res) => {
+  res.type('html').set('Cache-Control', 'public, max-age=300').send(renderPublicLegalPage({
+    title: 'Terms of Service',
+    description: 'These terms govern access to and use of the CarUp platform, including marketplace, vehicle verification, communication, and trust services.',
+    sections: [
+      {
+        heading: 'Use of the Platform',
+        body: 'Users must provide accurate information, follow marketplace and verification rules, and avoid fraudulent, unsafe, unlawful, or misleading activity.',
+      },
+      {
+        heading: 'Vehicle and Transaction Information',
+        body: 'CarUp provides trust, verification, marketplace, and communication tools. Users remain responsible for reviewing listings, documents, legal requirements, and transaction terms before acting.',
+      },
+      {
+        heading: 'Accounts and Communications',
+        body: 'By using CarUp, users may receive operational messages through supported channels such as WhatsApp, email, or in-app notifications where allowed by law and user preferences.',
+      },
+      {
+        heading: 'Contact',
+        body: 'Questions about these terms can be sent to legal@carup.co.zw or support@carup.co.zw.',
+      },
+    ],
+  }));
+});
+
+app.get('/data-deletion', (_req, res) => {
+  res.type('html').set('Cache-Control', 'public, max-age=300').send(renderPublicLegalPage({
+    title: 'User Data Deletion Instructions',
+    description: 'CarUp users can request deletion or anonymization of eligible personal data connected to their account and communications.',
+    sections: [
+      {
+        heading: 'How to Request Deletion',
+        body: 'Email privacy@carup.co.zw or legal@carup.co.zw with the subject "Data Deletion Request" and include your account email, phone number, or communication channel so we can verify ownership.',
+      },
+      {
+        heading: 'What We Delete',
+        body: 'After verification, we delete or anonymize eligible account details, contact identifiers, communication identifiers, profile data, and support records where deletion is legally and technically permitted.',
+      },
+      {
+        heading: 'What May Be Retained',
+        body: 'Some audit, payment, fraud-prevention, vehicle-history, safety, compliance, and legal records may be retained in minimized or anonymized form when needed for platform integrity or legal obligations.',
+      },
+      {
+        heading: 'Timing',
+        body: 'We aim to acknowledge deletion requests within 7 business days and complete eligible deletion or anonymization actions within 30 days unless a legal, safety, or security exception applies.',
+      },
+    ],
+  }));
+});
 
 // ✅ Root welcome endpoint to prevent 'Cannot GET /'
 app.get('/', (req, res) => {

@@ -110,8 +110,8 @@ export default function NavigationAnalyticsPanel() {
         authHeaders,
       })
       setData(res)
-    } catch (err: any) {
-      const msg = String(err?.message || '')
+    } catch (err) {
+      const msg = String((err as { message?: string })?.message || '')
       if (/forbidden|unauthorized|403|401/i.test(msg)) setPermissionDenied(true)
       else setError(msg || 'Failed to load navigation analytics')
       setData(null)
@@ -120,7 +120,12 @@ export default function NavigationAnalyticsPanel() {
     }
   }, [authHeaders, from, to, feature])
 
-  useEffect(() => { load() }, [load])
+  // Defer the fetch to a microtask so `load()`'s initial setState runs just
+  // AFTER the effect commits rather than synchronously within it (avoids the
+  // cascading-render pattern flagged by react-hooks/set-state-in-effect).
+  // Behaviour is unchanged: the fetch still starts on mount and whenever `load`
+  // changes, and `loading` already defaults to true so first paint is identical.
+  useEffect(() => { queueMicrotask(load) }, [load])
 
   const totals = data?.totals
   const noData = !!data && (totals?.events ?? 0) === 0

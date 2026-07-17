@@ -36,6 +36,7 @@ const HEADER_TITLES: Record<string, string> = {
   escrow: 'SafePay Escrows',
   marketplace: 'CarUp Vehicles',
   referral: 'Refer & Earn',
+  communications: 'Communications',
   more: 'More',
 };
 
@@ -136,6 +137,7 @@ export default function TabLayout() {
         <Tabs.Screen name="escrow" options={optionsFor('escrow')} />
         <Tabs.Screen name="marketplace" options={optionsFor('marketplace')} />
         <Tabs.Screen name="referral" options={optionsFor('referral')} />
+        <Tabs.Screen name="communications" options={optionsFor('communications')} />
         <Tabs.Screen
           name="more"
           options={{

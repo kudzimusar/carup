@@ -99,14 +99,14 @@ function identityOf(h: AuthHeaders): string {
 
 function resolveBaseUrl(): string {
   const configured =
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) || undefined
+    (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_URL) || undefined
   const hostname =
     typeof window !== 'undefined' && window.location ? window.location.hostname : undefined
   return resolveApiBaseUrl(configured, hostname)
 }
 
 function buildVersion(): string {
-  const mode = (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE) || 'web'
+  const mode = (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string | undefined> }).env?.MODE) || 'web'
   return `web-${String(mode).slice(0, 32)}`
 }
 
@@ -140,7 +140,7 @@ export class NavigationAnalytics {
     this.started = true
     if (typeof setInterval === 'function') {
       this.timer = setInterval(() => { void this.flush() }, FLUSH_INTERVAL_MS)
-      if (this.timer && typeof (this.timer as any).unref === 'function') (this.timer as any).unref()
+      if (this.timer && typeof (this.timer as { unref?: () => void }).unref === 'function') (this.timer as { unref?: () => void }).unref?.()
     }
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
       document.addEventListener('visibilitychange', () => {

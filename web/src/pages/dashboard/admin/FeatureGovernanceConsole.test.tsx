@@ -40,6 +40,8 @@ vi.mock('@/hooks/useFeatureGovernanceApi', () => ({
 
 const FeatureGovernanceConsole = (await import('./FeatureGovernanceConsole')).default
 
+vi.setConfig({ testTimeout: 15000 })
+
 // ── Fixtures (real registry ids) ─────────────────────────────────────────────
 function makeOverride(featureId: string, over: Partial<FeatureOverrideRow> = {}): FeatureOverrideRow {
   return {

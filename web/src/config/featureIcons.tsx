@@ -10,6 +10,7 @@
 import {
   LayoutDashboard,
   Car,
+  FileSearch,
   FileText,
   Wrench,
   Shield,
@@ -55,6 +56,7 @@ type IconComponent = ComponentType<{ className?: string; size?: number | string 
 export const ICON_MAP: Record<LucideIconName, IconComponent> = {
   LayoutDashboard,
   Car,
+  FileSearch,
   FileText,
   Wrench,
   Shield,

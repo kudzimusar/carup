@@ -28,6 +28,7 @@ const ICON_MAP: Record<string, IoniconName> = {
   Shield: 'shield-checkmark-outline',
   Home: 'home-outline',
   Gift: 'gift-outline',
+  MessageSquare: 'chatbubbles-outline',
   FileText: 'document-text-outline',
   Wrench: 'construct-outline',
   Building2: 'business-outline',
