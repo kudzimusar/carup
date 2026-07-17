@@ -113,6 +113,8 @@ interface WalletTransactionRecord {
   id: string
   user_id?: string
   status?: string
+  amount?: number
+  currency?: string
   metadata?: {
     lead_event_id?: string
   }
@@ -240,6 +242,162 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
   })
 })
 
+test.describe('Referral Engine — import, parts, and container journey (Stage-5 acceptance)', () => {
+  test.skip(
+    !ADMIN_EMAIL || !OWNER_EMAIL || !INVITEE_EMAIL || !INVITEE_USER_ID || !OWNER_USER_ID || !API_BASE,
+    'set E2E_UAT_ADMIN_*, E2E_UAT_OWNER_*, E2E_UAT_INVITEE_*, E2E_UAT_INVITEE_USER_ID, E2E_UAT_OWNER_USER_ID and E2E_UAT_API_BASE_URL to run Stage 5'
+  )
+
+  test('admin UI creates import routes/leads and qualifies pending owner rewards', async ({ page, request }) => {
+    test.setTimeout(240_000)
+
+    expect(API_BASE).not.toMatch(/carup-backend\.vercel\.app\/?$/)
+    const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+    const runTag = `REFV1-STAGING-S5-${stamp}Z`
+    const slug = runTag.toLowerCase()
+
+    const adminSession = await apiLogin(request, ADMIN_EMAIL as string, process.env.E2E_UAT_ADMIN_PASSWORD as string)
+    const ownerSession = await apiLogin(request, OWNER_EMAIL as string, process.env.E2E_UAT_OWNER_PASSWORD as string)
+    const inviteeSession = await apiLogin(request, INVITEE_EMAIL as string, process.env.E2E_UAT_INVITEE_PASSWORD as string)
+
+    const bundle = await createImportBundle(request, adminSession.token, {
+      code: `${runTag}-CODE`,
+      campaign_name: `${runTag} Import Acceptance`,
+      owner_user_id: OWNER_USER_ID as string,
+      flow_type: 'parts_import',
+      route_origin: 'Japan',
+      route_destination: 'Zimbabwe',
+    })
+    const referralCode = bundle.code?.code || `${runTag}-CODE`
+    expect(bundle.code?.owner_user_id).toBe(OWNER_USER_ID)
+
+    await login(page, ADMIN_EMAIL as string, process.env.E2E_UAT_ADMIN_PASSWORD as string)
+    await page.waitForURL(/\/(admin|dashboard)/, { timeout: 20000 })
+    await page.goto('/admin/referrals/import-routes')
+    await expect(page).toHaveURL(/\/admin\/referrals\/import-routes/)
+
+    const vehicleRouteKey = `${slug}-vehicle`
+    await page.getByTestId('referral-import-route-origin').fill('Japan')
+    await page.getByTestId('referral-import-route-destination').fill('Zimbabwe')
+    await page.getByTestId('referral-import-route-flow').selectOption('vehicle_import')
+    await page.getByTestId('referral-import-route-key-input').fill(vehicleRouteKey)
+    await page.getByTestId('referral-import-route-total-capacity').fill('8')
+    await page.getByTestId('referral-import-route-unit-label').fill('vehicles')
+    await page.getByTestId('referral-import-route-create').click()
+    await expect(page.getByTestId('referral-import-route-message')).toContainText(vehicleRouteKey, { timeout: 20000 })
+    await page.reload()
+    await page.getByTestId('referral-import-status-route-key').fill(vehicleRouteKey)
+    await page.getByTestId('referral-import-status-check').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/total:\s*8/i, { timeout: 20000 })
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/booked:\s*0/i)
+    await page.getByTestId('referral-import-capacity-total').fill('8')
+    await page.getByTestId('referral-import-capacity-booked').fill('8')
+    await page.getByTestId('referral-import-capacity-update').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/booked:\s*8/i, { timeout: 20000 })
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/available:\s*0/i)
+
+    await page.getByTestId('referral-import-lead-route-key').fill('')
+    await page.getByTestId('referral-import-lead-flow').selectOption('parts_import')
+    await page.getByTestId('referral-import-lead-capacity').fill('')
+    await page.getByTestId('referral-import-lead-referral-code').fill(referralCode)
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-PARTS-LEAD`)
+    await page.getByTestId('referral-import-lead-contact-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-lead-part-name').fill('replacement engine')
+    await page.getByTestId('referral-import-lead-create').click()
+    const partsLeadMessage = page.getByTestId('referral-import-lead-message')
+    await expect(partsLeadMessage).toContainText(/Lead created/i, { timeout: 20000 })
+    const partsLeadId = extractEventId(await partsLeadMessage.textContent())
+    expect(partsLeadId).toBeTruthy()
+
+    await page.getByTestId('referral-import-qualify-lead-event-id').fill(partsLeadId)
+    await page.getByTestId('referral-import-qualify-milestone').fill('parts_order_paid')
+    await page.getByTestId('referral-import-qualify-reward-amount').fill('10')
+    await page.getByTestId('referral-import-qualify-referred-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-qualify-result-reference').fill(`${runTag}-PARTS-PAID`)
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/reward_created:\s*true/i, { timeout: 20000 })
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/already exists/i, { timeout: 20000 })
+
+    const containerRouteKey = `${slug}-container`
+    await page.getByTestId('referral-import-route-origin').fill('Japan')
+    await page.getByTestId('referral-import-route-destination').fill('Zimbabwe')
+    await page.getByTestId('referral-import-route-flow').selectOption('container_space')
+    await page.getByTestId('referral-import-route-key-input').fill(containerRouteKey)
+    await page.getByTestId('referral-import-route-total-capacity').fill('30')
+    await page.getByTestId('referral-import-route-unit-label').fill('CBM')
+    await page.getByTestId('referral-import-route-create').click()
+    await expect(page.getByTestId('referral-import-route-message')).toContainText(containerRouteKey, { timeout: 20000 })
+    await page.getByTestId('referral-import-status-route-key').fill(containerRouteKey)
+    await page.getByTestId('referral-import-status-check').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/total:\s*30/i, { timeout: 20000 })
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/booked:\s*0/i)
+
+    await page.getByTestId('referral-import-lead-route-key').fill(containerRouteKey)
+    await page.getByTestId('referral-import-lead-flow').selectOption('container_space')
+    await page.getByTestId('referral-import-lead-capacity').fill('5')
+    await page.getByTestId('referral-import-lead-referral-code').fill(referralCode)
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-CONTAINER-VALID`)
+    await page.getByTestId('referral-import-lead-contact-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-lead-part-name').fill('')
+    await page.getByTestId('referral-import-lead-create').click()
+    await expect(partsLeadMessage).toContainText(/waitlisted:\s*false/i, { timeout: 20000 })
+    const containerLeadId = extractEventId(await partsLeadMessage.textContent())
+    expect(containerLeadId).toBeTruthy()
+
+    await page.getByTestId('referral-import-capacity-total').fill('30')
+    await page.getByTestId('referral-import-capacity-booked').fill('28')
+    await page.getByTestId('referral-import-capacity-update').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/available:\s*2/i, { timeout: 20000 })
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-CONTAINER-OVER`)
+    await page.getByTestId('referral-import-lead-capacity').fill('5')
+    if (await page.getByTestId('referral-import-lead-allow-waitlist').isChecked()) {
+      await page.getByTestId('referral-import-lead-allow-waitlist').uncheck()
+    }
+    await page.getByTestId('referral-import-lead-create').click()
+    await expect(page.getByTestId('referral-import-lead-message')).toContainText(/exceeds|capacity|available/i, { timeout: 20000 })
+
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-CONTAINER-WAITLIST`)
+    await page.getByTestId('referral-import-lead-allow-waitlist').check()
+    await page.getByTestId('referral-import-lead-create').click()
+    await expect(page.getByTestId('referral-import-lead-message')).toContainText(/waitlisted:\s*true/i, { timeout: 20000 })
+    const waitlistedLeadId = extractEventId(await page.getByTestId('referral-import-lead-message').textContent())
+    expect(waitlistedLeadId).toBeTruthy()
+
+    await page.getByTestId('referral-import-qualify-lead-event-id').fill(containerLeadId)
+    await page.getByTestId('referral-import-qualify-milestone').fill('deposit_paid')
+    await page.getByTestId('referral-import-qualify-reward-amount').fill('10')
+    await page.getByTestId('referral-import-qualify-referred-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-qualify-result-reference').fill(`${runTag}-CONTAINER-DEPOSIT`)
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/reward_created:\s*true/i, { timeout: 20000 })
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/already exists/i, { timeout: 20000 })
+
+    const wallet = await fetchWallet(request, ownerSession.token, OWNER_USER_ID as string)
+    const stage5Transactions = (wallet.transactions || []).filter((tx) => tx.metadata?.lead_event_id === partsLeadId || tx.metadata?.lead_event_id === containerLeadId)
+    expect(stage5Transactions).toHaveLength(2)
+    expect(stage5Transactions.every((tx) => tx.user_id === OWNER_USER_ID && tx.status === 'pending')).toBeTruthy()
+    expect(stage5Transactions.map((tx) => tx.metadata?.lead_event_id).sort()).toEqual([containerLeadId, partsLeadId].sort())
+    expect(await fetchWalletStatus(request, inviteeSession.token, INVITEE_USER_ID as string)).not.toBe(200)
+
+    await login(page, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 })
+    await page.goto('/dashboard/referrals')
+    for (const tx of stage5Transactions) {
+      await expect(page.getByTestId(`referral-wallet-transaction-${tx.id}`)).toBeVisible({ timeout: 20000 })
+      await expect(page.getByTestId(`referral-wallet-transaction-status-${tx.id}`)).toContainText(/pending/i)
+    }
+    const disputeOptions = await page.getByTestId('referral-dispute-transaction-select').locator('option').allTextContents()
+    for (const tx of stage5Transactions) {
+      const option = disputeOptions.find((text) => text.includes(tx.id.slice(-4)))
+      expect(option).toBeTruthy()
+      expect(option).toMatch(/USD|\$/i)
+      expect(option).toMatch(/pending/i)
+    }
+  })
+})
+
 async function apiLogin(request: import('@playwright/test').APIRequestContext, email: string, password: string): Promise<AuthSession> {
   const apiBase = API_BASE as string
   const res = await request.post(`${apiBase}/api/auth/login`, { data: { email, password } })
@@ -285,4 +443,44 @@ async function fetchOwnerDisputes(
   })
   expect(res.ok()).toBeTruthy()
   return res.json()
+}
+
+async function createImportBundle(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  data: Record<string, unknown>
+): Promise<{
+  code?: {
+    code?: string
+    id?: string
+    owner_user_id?: string
+  }
+  campaign?: {
+    id?: string
+  }
+}> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/referral-bundles`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data,
+  })
+  expect(res.ok()).toBeTruthy()
+  return res.json()
+}
+
+async function fetchWalletStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  userId: string
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.get(`${apiBase}/api/referrals/wallets/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return res.status()
+}
+
+function extractEventId(text: string | null): string {
+  const match = (text || '').match(/event_id:\s*([0-9a-f-]{36})/i)
+  return match?.[1] || ''
 }
