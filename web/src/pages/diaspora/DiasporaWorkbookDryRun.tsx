@@ -436,6 +436,7 @@ export default function DiasporaWorkbookDryRun() {
 
   useEffect(() => {
     if (authLoading || !canView) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTemplate()
   }, [authLoading, canView, loadTemplate])
 

@@ -81,7 +81,7 @@ export default function DiasporaSafeTradeDetail() {
 
   // Depend on stable primitives (not `load`): useCarUpApi() returns a fresh object each render, so a
   // `load` dependency would recreate it every render and loop the effect forever.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, id])
 
   if (!flagEnabled) {
