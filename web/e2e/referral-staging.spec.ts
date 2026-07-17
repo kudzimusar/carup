@@ -1,4 +1,6 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Locator } from '@playwright/test'
+import { promises as fs } from 'node:fs'
+import { assertStage5StagingApiTarget, stage5ShouldSkip } from '../src/lib/stage5CredentialGate'
 
 // Referral Engine browser UAT.
 //
@@ -80,6 +82,8 @@ const INVITEE_USER_ID = process.env.E2E_UAT_INVITEE_USER_ID
 const OWNER_USER_ID = process.env.E2E_UAT_OWNER_USER_ID
 const CONTROLLED_CODE = process.env.E2E_UAT_REFERRAL_CODE
 const API_BASE = process.env.E2E_UAT_API_BASE_URL
+const STAGING_SUPABASE_REF = 'eoyenigwevnxwwhyhaer'
+const PRODUCTION_SUPABASE_REF = 'vhmnajoeicasaigiophh'
 
 interface StoredAttribution {
   referral_code?: string
@@ -113,6 +117,8 @@ interface WalletTransactionRecord {
   id: string
   user_id?: string
   status?: string
+  amount?: number
+  currency?: string
   metadata?: {
     lead_event_id?: string
   }
@@ -128,6 +134,30 @@ interface OwnerDisputeRecord {
 
 interface OwnerDisputesResponseBody {
   disputes: OwnerDisputeRecord[]
+}
+
+interface Stage5Evidence {
+  run_tag: string
+  campaign_id: string
+  code_id: string
+  referral_code: string
+  vehicle_route_key: string
+  vehicle_route_event_id: string
+  parts_lead_event_id: string
+  parts_wallet_transaction_id: string
+  container_route_key: string
+  container_route_event_id: string
+  container_lead_event_id: string
+  container_wallet_transaction_id: string
+  waitlisted_lead_event_id: string
+  tamper_lead_event_id: string
+  tamper_wallet_transaction_id: string
+  owner_user_id: string
+  invitee_user_id: string
+  api_base_url: string
+  api_hostname: string
+  verified_supabase_ref: string
+  production_supabase_ref_contacted: false
 }
 
 test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remediation)', () => {
@@ -240,19 +270,297 @@ test.describe('Referral Engine — closed owner/invitee journey (Stage-4 remedia
   })
 })
 
+test.describe('Referral Engine — import, parts, and container journey (Stage-5 acceptance)', () => {
+  // Every credential AND identifier the Stage 5 journey uses must be present —
+  // including all three passwords — or it skips deliberately instead of passing
+  // undefined to login. stage5ShouldSkip() is unit-tested so this gate does not drift.
+  test.skip(
+    stage5ShouldSkip(process.env),
+    'set all E2E_UAT_ADMIN_*, E2E_UAT_OWNER_*, E2E_UAT_INVITEE_*, user IDs and E2E_UAT_API_BASE_URL to run Stage 5'
+  )
+
+  test('admin UI creates import routes/leads and qualifies pending owner rewards', async ({ page, request }) => {
+    test.setTimeout(240_000)
+
+    // Fail closed before any authentication or destructive staging write.
+    const stage5ApiTarget = assertStage5StagingApiTarget(API_BASE)
+    expect(stage5ApiTarget.hostname).not.toContain(PRODUCTION_SUPABASE_REF)
+    const health = await request.get(`${stage5ApiTarget.origin}/api/health`)
+    expect(health.status(), 'staging backend health must be readable before writes').toBe(200)
+    const healthBody = await health.json()
+    expect(healthBody?.status).toBe('UP')
+    expect(healthBody?.supabase?.status).toBe('healthy')
+
+    const stamp = new Date().toISOString().replace(/[-:.]/g, '').slice(0, 15)
+    const runTag = `REFV1-STAGING-S5-${stamp}Z`
+    const slug = runTag.toLowerCase()
+
+    const adminSession = await apiLogin(request, ADMIN_EMAIL as string, ADMIN_PASSWORD as string)
+    const ownerSession = await apiLogin(request, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    const inviteeSession = await apiLogin(request, INVITEE_EMAIL as string, INVITEE_PASSWORD as string)
+
+    const bundle = await createImportBundle(request, adminSession.token, {
+      code: `${runTag}-CODE`,
+      campaign_name: `${runTag} Import Acceptance`,
+      owner_user_id: OWNER_USER_ID as string,
+      flow_type: 'parts_import',
+      route_origin: 'Japan',
+      route_destination: 'Zimbabwe',
+    })
+    const referralCode = bundle.code?.code || `${runTag}-CODE`
+    expect(bundle.campaign?.id).toBeTruthy()
+    expect(bundle.code?.id).toBeTruthy()
+    expect(bundle.code?.owner_user_id).toBe(OWNER_USER_ID)
+
+    await login(page, ADMIN_EMAIL as string, ADMIN_PASSWORD as string)
+    await page.waitForURL(/\/(admin|dashboard)/, { timeout: 20000 })
+    await page.goto('/admin/referrals/import-routes')
+    await expect(page).toHaveURL(/\/admin\/referrals\/import-routes/)
+
+    const vehicleRouteKey = `${slug}-vehicle`
+    await page.getByTestId('referral-import-route-origin').fill('Japan')
+    await page.getByTestId('referral-import-route-destination').fill('Zimbabwe')
+    await page.getByTestId('referral-import-route-flow').selectOption('vehicle_import')
+    await page.getByTestId('referral-import-route-key-input').fill(vehicleRouteKey)
+    await page.getByTestId('referral-import-route-total-capacity').fill('8')
+    await page.getByTestId('referral-import-route-unit-label').fill('vehicles')
+    await page.getByTestId('referral-import-route-create').click()
+    const routeMessage = page.getByTestId('referral-import-route-message')
+    await expect(routeMessage).toContainText(vehicleRouteKey, { timeout: 20000 })
+    const vehicleRouteEventId = extractEventId(await routeMessage.textContent())
+    expect(vehicleRouteEventId).toBeTruthy()
+    await page.reload()
+    await page.getByTestId('referral-import-status-route-key').fill(vehicleRouteKey)
+    await page.getByTestId('referral-import-status-check').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/total:\s*8/i, { timeout: 20000 })
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/booked:\s*0/i)
+    await page.getByTestId('referral-import-capacity-total').fill('8')
+    await page.getByTestId('referral-import-capacity-booked').fill('8')
+    await page.getByTestId('referral-import-capacity-update').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/booked:\s*8/i, { timeout: 20000 })
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/available:\s*0/i)
+
+    await page.getByTestId('referral-import-lead-route-key').fill('')
+    await page.getByTestId('referral-import-lead-flow').selectOption('parts_import')
+    await page.getByTestId('referral-import-lead-capacity').fill('')
+    await page.getByTestId('referral-import-lead-referral-code').fill(referralCode)
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-PARTS-LEAD`)
+    await page.getByTestId('referral-import-lead-contact-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-lead-part-name').fill('replacement engine')
+    await page.getByTestId('referral-import-lead-create').click()
+    const leadMessage = page.getByTestId('referral-import-lead-message')
+    await expect(leadMessage).toContainText(/Lead created/i, { timeout: 20000 })
+    const partsLeadId = await waitForMessageEventId(leadMessage, [], /waitlisted:\s*false/i)
+    expect(partsLeadId).toBeTruthy()
+
+    await page.getByTestId('referral-import-qualify-lead-event-id').fill(partsLeadId)
+    await page.getByTestId('referral-import-qualify-milestone').fill('parts_order_paid')
+    await page.getByTestId('referral-import-qualify-reward-amount').fill('10')
+    await page.getByTestId('referral-import-qualify-referred-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-qualify-result-reference').fill(`${runTag}-PARTS-PAID`)
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/reward_created:\s*true/i, { timeout: 20000 })
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/already exists/i, { timeout: 20000 })
+
+    const containerRouteKey = `${slug}-container`
+    await page.getByTestId('referral-import-route-origin').fill('Japan')
+    await page.getByTestId('referral-import-route-destination').fill('Zimbabwe')
+    await page.getByTestId('referral-import-route-flow').selectOption('container_space')
+    await page.getByTestId('referral-import-route-key-input').fill(containerRouteKey)
+    await page.getByTestId('referral-import-route-total-capacity').fill('30')
+    await page.getByTestId('referral-import-route-unit-label').fill('CBM')
+    await page.getByTestId('referral-import-route-create').click()
+    await expect(routeMessage).toContainText(containerRouteKey, { timeout: 20000 })
+    const containerRouteEventId = extractEventId(await routeMessage.textContent())
+    expect(containerRouteEventId).toBeTruthy()
+    await page.getByTestId('referral-import-status-route-key').fill(containerRouteKey)
+    await page.getByTestId('referral-import-status-check').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/total:\s*30/i, { timeout: 20000 })
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/booked:\s*0/i)
+
+    await page.getByTestId('referral-import-lead-route-key').fill(containerRouteKey)
+    await page.getByTestId('referral-import-lead-flow').selectOption('container_space')
+    await page.getByTestId('referral-import-lead-capacity').fill('5')
+    await page.getByTestId('referral-import-lead-referral-code').fill(referralCode)
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-CONTAINER-VALID`)
+    await page.getByTestId('referral-import-lead-contact-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-lead-part-name').fill('')
+    await page.getByTestId('referral-import-lead-create').click()
+    const containerLeadId = await waitForMessageEventId(leadMessage, [partsLeadId], /waitlisted:\s*false/i)
+    expect(containerLeadId).toBeTruthy()
+
+    await page.getByTestId('referral-import-capacity-total').fill('30')
+    await page.getByTestId('referral-import-capacity-booked').fill('28')
+    await page.getByTestId('referral-import-capacity-update').click()
+    await expect(page.getByTestId('referral-import-status-text')).toContainText(/available:\s*2/i, { timeout: 20000 })
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-CONTAINER-OVER`)
+    await page.getByTestId('referral-import-lead-capacity').fill('5')
+    if (await page.getByTestId('referral-import-lead-allow-waitlist').isChecked()) {
+      await page.getByTestId('referral-import-lead-allow-waitlist').uncheck()
+    }
+    await page.getByTestId('referral-import-lead-create').click()
+    await expect(page.getByTestId('referral-import-lead-message')).toContainText(/exceeds|capacity|available/i, { timeout: 20000 })
+
+    await page.getByTestId('referral-import-lead-reference').fill(`${runTag}-CONTAINER-WAITLIST`)
+    await page.getByTestId('referral-import-lead-allow-waitlist').check()
+    await page.getByTestId('referral-import-lead-create').click()
+    await expect(page.getByTestId('referral-import-lead-message')).toContainText(/waitlisted:\s*true/i, { timeout: 20000 })
+    const waitlistedLeadId = await waitForMessageEventId(leadMessage, [partsLeadId, containerLeadId], /waitlisted:\s*true/i)
+    expect(waitlistedLeadId).toBeTruthy()
+
+    await page.getByTestId('referral-import-qualify-lead-event-id').fill(containerLeadId)
+    await page.getByTestId('referral-import-qualify-milestone').fill('deposit_paid')
+    await page.getByTestId('referral-import-qualify-reward-amount').fill('10')
+    await page.getByTestId('referral-import-qualify-referred-user-id').fill(INVITEE_USER_ID as string)
+    await page.getByTestId('referral-import-qualify-result-reference').fill(`${runTag}-CONTAINER-DEPOSIT`)
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/reward_created:\s*true/i, { timeout: 20000 })
+    await page.getByTestId('referral-import-qualify-submit').click()
+    await expect(page.getByTestId('referral-import-qualify-message')).toContainText(/already exists/i, { timeout: 20000 })
+
+    // (1) Owner wallet holds EXACTLY the two Stage 5 rewards for the captured leads.
+    const wallet = await fetchWallet(request, ownerSession.token, OWNER_USER_ID as string)
+    const stage5Transactions = (wallet.transactions || []).filter((tx) => tx.metadata?.lead_event_id === partsLeadId || tx.metadata?.lead_event_id === containerLeadId)
+    expect(stage5Transactions).toHaveLength(2)
+    // (2) Every captured transaction: user_id === OWNER_USER_ID and status === pending.
+    expect(stage5Transactions.every((tx) => tx.user_id === OWNER_USER_ID && tx.status === 'pending')).toBeTruthy()
+    expect(stage5Transactions.map((tx) => tx.metadata?.lead_event_id).sort()).toEqual([containerLeadId, partsLeadId].sort())
+    const partsTransaction = stage5Transactions.find((tx) => tx.metadata?.lead_event_id === partsLeadId)
+    const containerTransaction = stage5Transactions.find((tx) => tx.metadata?.lead_event_id === containerLeadId)
+    expect(partsTransaction?.id).toBeTruthy()
+    expect(containerTransaction?.id).toBeTruthy()
+    // (4) Admin is NOT the wallet-transaction owner.
+    expect(stage5Transactions.every((tx) => tx.user_id !== adminSession.user.id)).toBeTruthy()
+
+    // (3) The invitee token CANNOT read the OWNER wallet — the real security
+    // boundary (an invitee reading its OWN wallet is legitimately allowed).
+    expect(await fetchWalletStatus(request, inviteeSession.token, OWNER_USER_ID as string)).toBe(403)
+
+    // (5) The invitee MAY have an unrelated wallet; if it exists it must contain
+    // NO transaction whose metadata.lead_event_id matches either Stage 5 lead.
+    // We do NOT require the invitee's own wallet to be absent.
+    const inviteeWallet = await fetchWalletAllowMissing(request, inviteeSession.token, INVITEE_USER_ID as string)
+    if (inviteeWallet.status === 200) {
+      const leaked = (inviteeWallet.body.transactions || []).filter(
+        (tx) => tx.metadata?.lead_event_id === partsLeadId || tx.metadata?.lead_event_id === containerLeadId
+      )
+      expect(leaked, 'invitee wallet must not contain any Stage 5 reward').toHaveLength(0)
+    }
+
+    // Negative authorization boundaries (owner is NOT an operator/admin).
+    expect(
+      await importRouteCreateStatus(request, ownerSession.token, `${slug}-owner-denied`),
+      'owner must not create an import route'
+    ).toBe(403)
+    expect(
+      await importRouteCapacityStatus(request, ownerSession.token, vehicleRouteKey),
+      'owner must not update import route capacity'
+    ).toBe(403)
+    expect(
+      await importQualifyStatus(request, ownerSession.token, partsLeadId, { milestone: 'parts_order_paid', reward_amount: 10 }),
+      'owner must not qualify an import lead'
+    ).toBe(403)
+    expect(
+      await importRouteCreateStatus(request, '', `${slug}-unauth-denied`),
+      'unauthenticated import administration must be rejected'
+    ).toBe(401)
+
+    // (6) Tampering: qualify a fresh owner-code lead while injecting caller-supplied
+    // reward-owner-like fields. The backend derives the owner from the persisted
+    // referral attribution/code, so the resulting reward must STILL belong to
+    // OWNER_USER_ID — never the injected invitee.
+    const tamperLead = await createImportLeadApi(request, adminSession.token, {
+      flow_type: 'parts_import',
+      referral_code: referralCode,
+      lead_reference: `${runTag}-TAMPER-LEAD`,
+      contact: { user_id: INVITEE_USER_ID as string },
+      part_request: { part_name: 'tamper engine' },
+    })
+    expect(tamperLead.eventId).toBeTruthy()
+    const tamperQualify = await importQualifyRaw(request, adminSession.token, tamperLead.eventId, {
+      milestone: 'parts_order_paid',
+      reward_amount: 10,
+      result_reference: `${runTag}-TAMPER-PAID`,
+      // Injected caller-supplied ownership fields — MUST be ignored by the backend.
+      owner_user_id: INVITEE_USER_ID,
+      reward_owner_user_id: INVITEE_USER_ID,
+      wallet_owner_id: INVITEE_USER_ID,
+      referred_user_id: INVITEE_USER_ID,
+    })
+    expect(tamperQualify.status, 'tampered qualify still succeeds on the server-derived owner').toBe(200)
+    const walletAfterTamper = await fetchWallet(request, ownerSession.token, OWNER_USER_ID as string)
+    const tamperTx = (walletAfterTamper.transactions || []).find((tx) => tx.metadata?.lead_event_id === tamperLead.eventId)
+    expect(tamperTx, 'the tampered reward must land in a wallet').toBeTruthy()
+    expect(tamperTx?.user_id, 'reward owner is derived from the referral code, not the injected field').toBe(OWNER_USER_ID)
+    expect(tamperTx?.id).toBeTruthy()
+    // The injected invitee must NOT have received the tampered reward.
+    const inviteeWalletAfter = await fetchWalletAllowMissing(request, inviteeSession.token, INVITEE_USER_ID as string)
+    if (inviteeWalletAfter.status === 200) {
+      expect((inviteeWalletAfter.body.transactions || []).some((tx) => tx.metadata?.lead_event_id === tamperLead.eventId)).toBeFalsy()
+    }
+
+    await login(page, OWNER_EMAIL as string, OWNER_PASSWORD as string)
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 })
+    await page.goto('/dashboard/referrals')
+    for (const tx of stage5Transactions) {
+      await expect(page.getByTestId(`referral-wallet-transaction-${tx.id}`)).toBeVisible({ timeout: 20000 })
+      await expect(page.getByTestId(`referral-wallet-transaction-status-${tx.id}`)).toContainText(/pending/i)
+    }
+    const disputeOptions = await page.getByTestId('referral-dispute-transaction-select').locator('option').allTextContents()
+    for (const tx of stage5Transactions) {
+      const option = disputeOptions.find((text) => text.includes(tx.id.slice(-4)))
+      expect(option).toBeTruthy()
+      expect(option).toMatch(/USD|\$/i)
+      expect(option).toMatch(/pending/i)
+    }
+
+    const evidence: Stage5Evidence = {
+      run_tag: runTag,
+      campaign_id: bundle.campaign?.id || '',
+      code_id: bundle.code?.id || '',
+      referral_code: referralCode,
+      vehicle_route_key: vehicleRouteKey,
+      vehicle_route_event_id: vehicleRouteEventId,
+      parts_lead_event_id: partsLeadId,
+      parts_wallet_transaction_id: partsTransaction?.id || '',
+      container_route_key: containerRouteKey,
+      container_route_event_id: containerRouteEventId,
+      container_lead_event_id: containerLeadId,
+      container_wallet_transaction_id: containerTransaction?.id || '',
+      waitlisted_lead_event_id: waitlistedLeadId,
+      tamper_lead_event_id: tamperLead.eventId,
+      tamper_wallet_transaction_id: tamperTx?.id || '',
+      owner_user_id: OWNER_USER_ID as string,
+      invitee_user_id: INVITEE_USER_ID as string,
+      api_base_url: stage5ApiTarget.origin,
+      api_hostname: stage5ApiTarget.hostname,
+      verified_supabase_ref: STAGING_SUPABASE_REF,
+      production_supabase_ref_contacted: false,
+    }
+    expect(Object.values(evidence).every((value) => value !== '')).toBeTruthy()
+    const evidencePath = test.info().outputPath('stage5-evidence.json')
+    await fs.writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8')
+    await test.info().attach('stage5-evidence.json', {
+      path: evidencePath,
+      contentType: 'application/json',
+    })
+  })
+})
+
 async function apiLogin(request: import('@playwright/test').APIRequestContext, email: string, password: string): Promise<AuthSession> {
   const apiBase = API_BASE as string
   const res = await request.post(`${apiBase}/api/auth/login`, { data: { email, password } })
+  expect(res.status(), `login should succeed for ${email}`).toBe(200)
   const body = (await res.json()) as {
     token?: string
     accessToken?: string
     session?: { access_token?: string }
     user?: { id?: string }
   }
-  return {
-    token: body.token || body.accessToken || body.session?.access_token || '',
-    user: { id: body.user?.id || '' },
-  }
+  const token = body.token || body.accessToken || body.session?.access_token || ''
+  expect(token, `login should return a token for ${email}`).toBeTruthy()
+  return { token, user: { id: body.user?.id || '' } }
 }
 
 async function fetchAdminEvents(request: import('@playwright/test').APIRequestContext, token: string, eventType: string): Promise<ReferralEventRecord[]> {
@@ -285,4 +593,155 @@ async function fetchOwnerDisputes(
   })
   expect(res.ok()).toBeTruthy()
   return res.json()
+}
+
+async function createImportBundle(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  data: Record<string, unknown>
+): Promise<{
+  code?: {
+    code?: string
+    id?: string
+    owner_user_id?: string
+  }
+  campaign?: {
+    id?: string
+  }
+}> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/referral-bundles`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data,
+  })
+  expect(res.ok()).toBeTruthy()
+  return res.json()
+}
+
+async function fetchWalletStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  userId: string
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.get(`${apiBase}/api/referrals/wallets/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return res.status()
+}
+
+/** Fetch a wallet that may not exist; returns the status and a safe body (never throws on non-200). */
+async function fetchWalletAllowMissing(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  userId: string
+): Promise<{ status: number; body: WalletResponseBody }> {
+  const apiBase = API_BASE as string
+  const res = await request.get(`${apiBase}/api/referrals/wallets/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  let body: WalletResponseBody = {}
+  if (res.status() === 200) {
+    body = (await res.json()) as WalletResponseBody
+  }
+  return { status: res.status(), body }
+}
+
+/** Optional bearer header — an empty token yields an UNAUTHENTICATED request. */
+function authHeaders(token: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+/** POST an import-route create; returns only the HTTP status (for authz boundary checks). */
+async function importRouteCreateStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  routeKey: string
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/routes`, {
+    headers: authHeaders(token),
+    data: { origin: 'Japan', destination: 'Zimbabwe', flow_type: 'vehicle_import', route_key: routeKey, total_capacity: 1, unit_label: 'vehicles' },
+  })
+  return res.status()
+}
+
+async function importRouteCapacityStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  routeKey: string
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/routes/${encodeURIComponent(routeKey)}/capacity`, {
+    headers: authHeaders(token),
+    data: { total: 8, booked: 1 },
+  })
+  return res.status()
+}
+
+async function importQualifyStatus(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  leadEventId: string,
+  payload: Record<string, unknown>
+): Promise<number> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/leads/${encodeURIComponent(leadEventId)}/qualify`, {
+    headers: authHeaders(token),
+    data: payload,
+  })
+  return res.status()
+}
+
+async function createImportLeadApi(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  payload: Record<string, unknown>
+): Promise<{ status: number; eventId: string }> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/leads`, {
+    headers: authHeaders(token),
+    data: payload,
+  })
+  let eventId = ''
+  if (res.ok()) {
+    const body = (await res.json()) as { event_id?: string }
+    eventId = body.event_id || ''
+  }
+  return { status: res.status(), eventId }
+}
+
+/** Qualify with an arbitrary (possibly tampered) payload; returns status + parsed body. */
+async function importQualifyRaw(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  leadEventId: string,
+  payload: Record<string, unknown>
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const apiBase = API_BASE as string
+  const res = await request.post(`${apiBase}/api/referrals/import-campaigns/leads/${encodeURIComponent(leadEventId)}/qualify`, {
+    headers: authHeaders(token),
+    data: payload,
+  })
+  let body: Record<string, unknown> = {}
+  try { body = (await res.json()) as Record<string, unknown> } catch { /* non-JSON */ }
+  return { status: res.status(), body }
+}
+
+function extractEventId(text: string | null): string {
+  const match = (text || '').match(/event_id:\s*([0-9a-f-]{36})/i)
+  return match?.[1] || ''
+}
+
+async function waitForMessageEventId(locator: Locator, excludedIds: string[] = [], requiredText?: RegExp): Promise<string> {
+  let latest = ''
+  await expect.poll(async () => {
+    const text = await locator.textContent()
+    if (requiredText && !requiredText.test(text || '')) return ''
+    const id = extractEventId(text)
+    if (!id || excludedIds.includes(id)) return ''
+    latest = id
+    return id
+  }, { timeout: 20000 }).toMatch(/[0-9a-f-]{36}/i)
+  return latest
 }
