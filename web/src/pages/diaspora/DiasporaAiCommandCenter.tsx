@@ -43,6 +43,7 @@ export default function DiasporaAiCommandCenter() {
 
   useEffect(() => {
     if (authLoading || !canView) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCommands()
   }, [authLoading, canView, loadCommands])
 

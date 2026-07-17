@@ -1,8 +1,10 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
-const buyerUser = { id: 'buyer-1', name: 'Buyer', email: 'buyer@carup.test', role: 'owner' }
-const sellerUser = { id: 'seller-1', name: 'Seller', email: 'seller@carup.test', role: 'dealer' }
-const mechanicUser = { id: 'mech-1', name: 'Mech', email: 'mech@carup.test', role: 'mechanic' }
+type TestUser = { id: string; name: string; email: string; role: string }
+
+const buyerUser: TestUser = { id: 'buyer-1', name: 'Buyer', email: 'buyer@carup.test', role: 'owner' }
+const sellerUser: TestUser = { id: 'seller-1', name: 'Seller', email: 'seller@carup.test', role: 'dealer' }
+const mechanicUser: TestUser = { id: 'mech-1', name: 'Mech', email: 'mech@carup.test', role: 'mechanic' }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin || '*'
@@ -16,17 +18,36 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) })
 }
 
-async function loginAs(page: Page, user: any, token = 'mock-token') {
+async function loginAs(page: Page, user: TestUser, token = 'mock-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
     window.localStorage.setItem('carup_token', token)
   }, { user, token })
 }
 
-interface RfqState { orders: any[]; quotes: any[]; acceptPayloads: any[]; quotePayloads: any[]; seq: number }
+interface Rfq { published: boolean; publishedAt?: string; acceptedQuoteId?: string }
+interface Order {
+  id: string
+  order_type: string
+  origin_country: string
+  requested_make?: string | null
+  requested_model?: string | null
+  status: string
+  metadata: { rfq: Rfq }
+}
+interface Quote {
+  id: string
+  import_order_id: string
+  seller_id?: string
+  quote_amount: number
+  quote_currency: string
+  status: string
+}
+interface QuotePayload { quote_amount: number; submit?: boolean; idempotencyKey?: string }
+interface RfqState { orders: Order[]; quotes: Quote[]; acceptPayloads: unknown[]; quotePayloads: QuotePayload[]; seq: number }
 function initialState(): RfqState { return { orders: [], quotes: [], acceptPayloads: [], quotePayloads: [], seq: 0 } }
 
-async function mockRfqApi(page: Page, state: RfqState, user: any) {
+async function mockRfqApi(page: Page, state: RfqState, user: TestUser) {
   await page.context().route('**/api/auth/me', (r) => fulfillJson(r, { user }))
   await page.context().route('**/api/security/csrf-token', (r) => fulfillJson(r, { csrfToken: 'mock-csrf' }))
 
