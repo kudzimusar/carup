@@ -21,6 +21,7 @@ import {
   DIASPORA_INQUIRY_TYPES,
 } from './marketplaceEventTypes.js';
 import { marketplaceReferralBridge } from './marketplaceReferralBridgeService.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 
 const TABLE = 'marketplace_inquiries';
 const MAX_MESSAGE_LEN = 2000;
@@ -143,6 +144,8 @@ async function resolveListingSeller(client, vin) {
  */
 export async function createInquiry(client, payload = {}, actor = null, deps = {}) {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
+  const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
+  const persistCommunicationEvent = deps.emitCommunicationEvent || emitDomainEvent;
 
   const inquiryType = String(payload.inquiry_type || '').trim();
   if (!MARKETPLACE_INQUIRY_TYPES.includes(inquiryType)) {
@@ -227,7 +230,31 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     throw new DatabaseError('Failed to record inquiry.', { reason: error.message });
   }
 
-  // Best-effort referral emission — never blocks or fails the inquiry.
+  // Referral V1 Stage-4 invariant: a valid referral-attributed inquiry must bridge
+  // to exactly one qualifiable lead before this request succeeds. The outbox row is
+  // written first as an idempotent recovery path; the synchronous bridge gives the
+  // caller the lead id immediately and prevents "successful inquiry, lost lead".
+  let referralLeadEventId = null;
+  let referralBridgeResult = null;
+  if (row.referral_code) {
+    try {
+      await persistDomainEvent(null, 'marketplace.inquiry.referral_bridge_requested', {
+        inquiry: inserted,
+        actor: buyerId ? { actor_user_id: buyerId, id: buyerId, actor_type: 'user' } : {},
+      }, sellerTenantId || null);
+      referralBridgeResult = await referralBridge.bridgeInquiryToReferralLead({
+        inquiry: inserted,
+        actor: buyerId ? { actor_user_id: buyerId, id: buyerId, actor_type: 'user' } : {},
+      });
+      referralLeadEventId = referralBridgeResult?.lead_event_id || null;
+    } catch (error) {
+      throw new DatabaseError('Failed to create referral lead for attributed inquiry.', { reason: error.message, inquiry_id: inserted.id });
+    }
+  }
+
+  // Best-effort referral event emission — never blocks or fails a non-referral inquiry.
+  // For referral-coded inquiries this reuses the bridge validation result, so one
+  // inquiry produces one code-validation event rather than bridge + emission duplicates.
   const eventType = INQUIRY_TYPE_TO_REFERRAL_EVENT[inquiryType] || 'marketplace_inquiry_created';
   await referralBridge.emitMarketplaceReferralEvent({
     eventType,
@@ -238,9 +265,26 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     sourceChannel,
     actor: buyerId ? { actor_user_id: buyerId, id: buyerId, actor_type: 'user' } : {},
     metadata: { inquiry_type: inquiryType },
+    validation: referralBridgeResult?.validation || null,
   });
 
-  return toPublicInquiry(inserted);
+  // Best-effort bridge into the canonical communication fabric. Marketplace
+  // remains the source of truth; communication only creates threads/alerts.
+  persistCommunicationEvent(null, 'marketplace.inquiry.created', {
+    inquiryId: inserted.id,
+    listingId: listingId || null,
+    inquiry_type: inquiryType,
+    recipientUserId: sellerId || buyerId || null,
+    buyerId,
+    sellerId,
+    source_channel: sourceChannel,
+    referral_code: row.referral_code || null,
+    campaign_code: row.campaign_code || null,
+  }, sellerTenantId || null).catch(() => {});
+
+  // Additive: expose the bridged referral lead id (null when no valid code) without changing the
+  // existing public inquiry shape.
+  return { ...toPublicInquiry(inserted), referral_lead_event_id: referralLeadEventId };
 }
 
 /** Seller/dealer view of inquiries they own (by seller_id or tenant). */

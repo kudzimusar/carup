@@ -58,7 +58,17 @@ password for `vhmnajoeicasaigiophh` at the cutover gate.
    `AUTHORIZE VEHICLE TRUST PRODUCTION CUTOVER`. Migrations 11–16 then apply to production (adapters
    fail-closed; CAPABILITIES_LIVE unset), PR #103 merges to main.
 
+## PRODUCTION CUTOVER RESULT (2026-07-02/03)
+
+- **Access method:** Supabase CLI (owner `supabase login`) → `supabase link --project-ref vhmnajoeicasaigiophh` → `supabase db query --linked` (Management API; no DB password handled). Identity verified pre-mutation (341 vehicles / 103 tables).
+- **Backup/recovery position:** ACTIVE_HEALTHY project; pre-cutover ledger (7 entries) + 0-of-17 trust tables recorded; all 16 migrations additive with tested Down sections.
+- **Migrations:** **16/16 applied** — SHA-256-verified per file, Up-only, one transaction each, in order, zero errors (runner: `database/scripts/apply_migrations_production.mjs`).
+- **DB verification:** ledger 16/16 · 31/31 trust tables · 2 views · 26 append-only triggers · RLS 15/15 sensitive tables · 12 policies · 0 anon grants on control-plane · 9 FKs. Advisors: **0 P0/P1 introduced** (26 RLS-off findings are pre-existing legacy tables; 2 SECURITY-DEFINER views are the intentional public-safe projections — P2 documented).
+- **Release merge:** PR #103 merged with `--match-head-commit 6f0987661435177d9c7ab7bdaaf047847dcc5c4a` → **main `ef7a432395523a1037789a12761480825d9c6fdc`**; FE + BE production deployments Ready from that commit.
+- **Hotfix during smoke (Phase 10):** pre-existing app-wide gap — `JWT_SECRET` missing on carup-backend production → CSRF endpoint 500 → all mutations blocked. Owner set a fresh `JWT_SECRET` + redeployed (zero blast radius: CSRF-only secret, DB-based sessions).
+- **Production smoke: 21/21 PASS** (`database/scripts/production_smoke.mjs`) — health; anon 401; admin lists 5 adapters; **fail-closed confirmed live** (adapters `mode=unavailable`, verify → `unavailable`, coverage never `source_connected`); unified decision separated; fraud evaluate + queue + non-privileged 403; insurance/finance gated safe states; escrow fail-closed session; partner key issued once, trust-summary redacted (finance stripped), missing-key 401, scope 403; persistence + partner audit verified in `vhmnajoeicasaigiophh`. Logs: 0 CSRF failures / 0 5xx / 0 staging refs.
+- **UAT hygiene:** sessions deleted, partner keys revoked, UAT users demoted/unverified; labelled draft vehicle + append-only audit retained (immutability working as designed).
+- **Still disabled (no live provider credentials/contracts):** live ZIMRA/CVR/ZINARA/VID/CID, real insurer/lender calls, real-money escrow, all sandbox providers (`CAPABILITIES_LIVE` unset — fail-closed).
+
 ## Final status
-**VEHICLE TRUST OS DIFFERENTIATED MVP — all mandatory engineering complete, tested, and staging-applied;
-deploy pipeline repaired; remaining gates are the interactive deployed-UAT browser pass and the
-owner production-authorization phrase.**
+**VEHICLE TRUST OS DIFFERENTIATED MVP LIVE — PRODUCTION SMOKE GREEN**

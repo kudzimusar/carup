@@ -76,7 +76,7 @@ async function governanceHeaders(): Promise<Record<string, string>> {
  */
 export type FetchEffectiveStatesResult =
   | { ok: true; map: NativeEffectiveStateMap }
-  | { ok: false; map: NativeEffectiveStateMap };
+  | { ok: false; map: NativeEffectiveStateMap; unauthorized?: boolean };
 
 /**
  * Fetch the effective feature states for the current session. NEVER throws.
@@ -96,7 +96,16 @@ export async function fetchEffectiveStates(): Promise<FetchEffectiveStatesResult
   try {
     const headers = await governanceHeaders();
     const response = await fetch(url, { headers });
-    if (!response.ok) return { ok: false, map: {} };
+    if (!response.ok) {
+      // 401/403 means the SESSION is invalid (stale/expired token), which is a
+      // different failure class from network/5xx: the caller must clear the
+      // invalid auth and route to login instead of showing a dead-end retry.
+      return {
+        ok: false,
+        map: {},
+        unauthorized: response.status === 401 || response.status === 403,
+      };
+    }
 
     let body: unknown;
     try {

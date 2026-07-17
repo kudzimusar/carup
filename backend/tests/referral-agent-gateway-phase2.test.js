@@ -31,6 +31,17 @@ function createHarness() {
 const agentActor = Object.freeze({ actor_user_id: 'agent-user-1', actor_role: 'agent', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'whatsapp', session_id: 'session-1' });
 const buyerActor = Object.freeze({ actor_user_id: 'buyer-1', actor_role: 'member', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'mobile', session_id: 'session-buyer' });
 const operatorActor = Object.freeze({ actor_user_id: 'seller-1', actor_role: 'seller', actor_tenant_id: 'tenant-1', actor_type: 'agent', gateway_trusted: true, surface: 'web', session_id: 'session-seller' });
+const shareOverrideTampering = Object.freeze({
+  baseUrl: 'https://carup.app',
+  base_url: 'https://carup.app',
+  publicAppUrl: 'https://carup.app',
+  public_app_url: 'https://carup.app',
+  PUBLIC_APP_URL: 'https://carup.app',
+  VITE_PUBLIC_APP_URL: 'https://carup.app',
+  CARUP_PUBLIC_BASE_URL: 'https://carup.app',
+  CARUP_PUBLIC_APP_URL: 'https://carup.app',
+  env: { PUBLIC_APP_URL: 'https://carup.app' },
+});
 
 test('Phase 2 routes expose a single secured agent gateway entrypoint', () => {
   for (const marker of ["router.get('/agent/tools'", "router.post('/agent/triage'", "router.post('/agent/execute'", 'CARUP_AGENT_GATEWAY_SECRET', 'isUserIdFallbackAllowed', 'referralAgentGatewayServiceSafe']) {
@@ -96,6 +107,33 @@ test('share-kit generation supports dry-run and operator-persisted assets', asyn
   const persisted = await gateway.executeTool({ tool: 'generate_share_kit', input: { code: 'share-phase2-code', persist: true } }, operatorActor);
   assert.equal(persisted.result.persisted, true);
   assert.equal((await repository.list(REFERRAL_TABLES.shareAssets)).length, 1);
+});
+
+test('share-kit generation ignores caller-supplied public origins in dry-run and persisted paths', async () => {
+  const { repository, referralService, gateway } = createHarness();
+  referralService.shareOptions = { baseUrl: 'https://carup-staging.vercel.app', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' };
+  gateway.shareOptions = { baseUrl: 'https://carup-staging.vercel.app', whatsappNumber: '263771000000', telegramBot: 'CarUpBot' };
+  await referralService.createReferralCode({ owner_user_id: 'seller-1', code: 'gateway-stage-safe', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'web' }, operatorActor);
+
+  const dryRun = await gateway.executeTool({
+    tool: 'generate_share_kit',
+    input: { code: 'gateway-stage-safe', channel: 'web', options: shareOverrideTampering },
+  }, agentActor);
+  assert.equal(dryRun.result.persisted, false);
+  assert.equal(dryRun.result.share_kit.short_referral_url, 'https://carup-staging.vercel.app/r/GATEWAY-STAGE-SAFE');
+  assert.equal(dryRun.result.share_kit.short_referral_url.startsWith('https://carup.app/'), false);
+  assert.equal(dryRun.result.share_kit.short_referral_url.startsWith('http://localhost'), false);
+
+  const persisted = await gateway.executeTool({
+    tool: 'generate_share_kit',
+    input: { code: 'gateway-stage-safe', channel: 'web', persist: true, options: shareOverrideTampering },
+  }, operatorActor);
+  assert.equal(persisted.result.persisted, true);
+  const shareAssets = await repository.list(REFERRAL_TABLES.shareAssets);
+  assert.equal(shareAssets.length, 1);
+  assert.equal(shareAssets[0].payload.short_referral_url, 'https://carup-staging.vercel.app/r/GATEWAY-STAGE-SAFE');
+  assert.equal(shareAssets[0].payload.short_referral_url.startsWith('https://carup.app/'), false);
+  assert.equal(shareAssets[0].payload.short_referral_url.startsWith('http://localhost'), false);
 });
 
 test('wallet explanation is read-only and scoped to self or admin', async () => {

@@ -16,6 +16,7 @@ export type VerificationOutcomeStatus =
   | 'backend_pending'
   | 'ocr_failed'
   | 'needs_review'
+  | 'retry_requested'
   | 'incomplete'
   | 'rejected';
 
@@ -27,12 +28,22 @@ export interface VerificationState {
   processingError: string | null;
   verificationStatus: VerificationOutcomeStatus;
   verificationSessionId: string | null;
+  /** Raw backend session status, used with the shared status map for copy. */
+  verificationSessionStatus: string | null;
+  /** True while a manual status refresh request is in flight. */
+  isRefreshing: boolean;
   setCapturedFront: (uri: string | null) => void;
   setCapturedBack: (uri: string | null) => void;
   setCapturedSelfie: (uri: string | null) => void;
   setOcrResult: (result: OcrResult | null) => void;
   setProcessingError: (error: string | null) => void;
-  setVerificationOutcome: (status: VerificationOutcomeStatus, sessionId?: string | null, error?: string | null) => void;
+  setVerificationOutcome: (
+    status: VerificationOutcomeStatus,
+    sessionId?: string | null,
+    error?: string | null,
+    sessionStatus?: string | null,
+  ) => void;
+  setRefreshing: (refreshing: boolean) => void;
   hasRequiredImages: (doubleSided: boolean) => boolean;
   clear: () => void;
 }
@@ -45,16 +56,20 @@ export const useVerificationStore = create<VerificationState>((set, get) => ({
   processingError: null,
   verificationStatus: 'idle',
   verificationSessionId: null,
+  verificationSessionStatus: null,
+  isRefreshing: false,
   setCapturedFront: (uri) => set({ capturedFront: uri }),
   setCapturedBack: (uri) => set({ capturedBack: uri }),
   setCapturedSelfie: (uri) => set({ capturedSelfie: uri }),
   setOcrResult: (result) => set({ ocrResult: result }),
   setProcessingError: (error) => set({ processingError: error }),
-  setVerificationOutcome: (status, sessionId = null, error = null) => set({
+  setVerificationOutcome: (status, sessionId = null, error = null, sessionStatus = null) => set({
     verificationStatus: status,
     verificationSessionId: sessionId,
     processingError: error,
+    verificationSessionStatus: sessionStatus,
   }),
+  setRefreshing: (refreshing) => set({ isRefreshing: refreshing }),
   hasRequiredImages: (doubleSided) => {
     const state = get();
     if (!state.capturedFront) return false;
@@ -70,5 +85,7 @@ export const useVerificationStore = create<VerificationState>((set, get) => ({
     processingError: null,
     verificationStatus: 'idle',
     verificationSessionId: null,
+    verificationSessionStatus: null,
+    isRefreshing: false,
   }),
 }));

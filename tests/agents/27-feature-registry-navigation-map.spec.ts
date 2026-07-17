@@ -120,16 +120,19 @@ test.describe('Feature Registry & Navigation Map', () => {
       }
 
       // Expected dashboard-sidebar item counts per role.
-      // Reconciled 2026-07-03 to the live registry after the Vehicle Trust OS production
-      // cutover merged into main (WS-A/B fraud queue + dealer compliance console, trust-network
-      // buyer/dealer surfaces, etc.) and the Diaspora Trade OS Final Closure merged its base:
-      // owner/dealer/government/admin counts drifted again as those tools were registered.
-      expect(result.roleItemCounts['owner']).toBe(15);
-      expect(result.roleItemCounts['dealer']).toBe(11);
+      // Reconciled 2026-07-04 by recomputing getDashboardItems(role).length against the MERGED
+      // PR#90 registry: main's Trust OS cutover + Agent 8 Communications + Phase 7C Identity
+      // Verification, ON TOP OF the full Diaspora Trade OS program surface (Trade Profile, Stock
+      // Manager, Reverse RFQ, AI Command Center, Container Co-Loading, Drive, Subscription,
+      // SafeTrade, Workbook consoles). Higher than the PR#81 base (owner 16 / admin 23) because
+      // PR#90 registers the Phase 8/9/10 diaspora tools too. Always recompute from the live
+      // registry, never hand-add.
+      expect(result.roleItemCounts['owner']).toBe(19);
+      expect(result.roleItemCounts['dealer']).toBe(14);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
-      expect(result.roleItemCounts['government']).toBe(10);
-      expect(result.roleItemCounts['admin']).toBe(21);
+      expect(result.roleItemCounts['government']).toBe(12);
+      expect(result.roleItemCounts['admin']).toBe(26);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

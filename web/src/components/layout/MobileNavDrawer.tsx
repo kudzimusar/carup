@@ -16,8 +16,16 @@ import { useAuth } from '@/context/AuthContext'
 import { getMobileNavigation, type ResolvedNavItem } from '@/config/navigationManifest'
 import { getAllRoles, getRoleMetadata, getDashboardRoute, type NavigationContext } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
-import { useFeatureEffectiveStates } from '@/context/FeatureGovernanceContext'
+import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import type { UserRole } from '@shared/types'
+
+// Hoisted to module scope so its identity is stable across renders (a component
+// declared inside the parent's render body would be recreated every render).
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">{children}</p>
+  )
+}
 
 /**
  * Registry-driven mobile navigation drawer (Milestone 4).
@@ -89,10 +97,6 @@ export default function MobileNavDrawer() {
       </Link>
     )
   }
-
-  const SectionLabel = ({ children }: { children: React.ReactNode }) => (
-    <p className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">{children}</p>
-  )
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
