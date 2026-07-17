@@ -54,7 +54,6 @@ export function SafeTradeDisputes({ transactionId, disputes, actions, viewerId =
   // visibleEvidence() below is defense-in-depth. Depend on stable primitives (the dispute-id set +
   // refreshTick), not the fresh `api` object, to avoid a re-render loop.
   const disputeIdsKey = disputes.map((d) => d.id).join(',')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -67,6 +66,8 @@ export function SafeTradeDisputes({ transactionId, disputes, actions, viewerId =
       if (!cancelled) setEvidenceByDispute(Object.fromEntries(entries))
     })()
     return () => { cancelled = true }
+    // Depend on the stable disputeIdsKey (+refreshTick), not the fresh `api` object or `disputes` array identity, to avoid a re-fetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disputeIdsKey, refreshTick])
 
   async function run(fn: () => Promise<unknown>, success: string) {

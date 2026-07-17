@@ -145,7 +145,7 @@ export default function DiasporaStockPassport() {
 
   // Depend on stable primitives (not `load`/`api`): useCarUpApi() returns a fresh object each render,
   // so depending on the api object (or a callback derived from it) would loop the effect forever.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, id])
 
   if (authLoading || (loading && !hasLoaded)) {

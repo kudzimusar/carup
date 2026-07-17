@@ -69,6 +69,7 @@ export function SubscriptionActions({
   // Plans may arrive AFTER first render (the parent renders this while still loading). Seed the
   // selection once a real default becomes available so the action controls are operable.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!selectedPlan && firstTarget) setSelectedPlan(firstTarget)
   }, [firstTarget, selectedPlan])
 

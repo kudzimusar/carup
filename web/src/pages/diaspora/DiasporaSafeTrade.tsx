@@ -57,7 +57,7 @@ export default function DiasporaSafeTrade() {
   }, [api, canView, statusFilter])
 
   // Depend on stable primitives (not `load`): useCarUpApi() returns a fresh object each render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, statusFilter])
 
   const filtered = useMemo(() => cases.filter((c) => {
