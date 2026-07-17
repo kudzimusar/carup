@@ -100,5 +100,31 @@ describe('ReferralImportRoutes', () => {
         result_reference: 'REFV1-STAGING-S5-PAID',
       })
     )
+
+    // TRUST BOUNDARY: neither submitted payload may carry a caller-supplied
+    // reward-owner field. Reward ownership is derived server-side from the
+    // validated referral code — the admin UI cannot select or change it.
+    const OWNER_FIELDS = ['owner_user_id', 'reward_owner_user_id', 'wallet_owner_id']
+    const leadPayload = createReferralImportLead.mock.calls[0][0]
+    const qualifyPayload = qualifyReferralImportLead.mock.calls[0][1]
+    for (const field of OWNER_FIELDS) {
+      expect(leadPayload, `lead payload must not carry ${field}`).not.toHaveProperty(field)
+      expect(qualifyPayload, `qualify payload must not carry ${field}`).not.toHaveProperty(field)
+    }
+  })
+
+  it('shows the reward-owner trust-boundary note and clarified participant labels', () => {
+    render(<ReferralImportRoutes />)
+    expect(screen.getByTestId('referral-import-qualify-owner-note').textContent).toMatch(
+      /reward owner is derived from the validated referral code/i
+    )
+    expect(screen.getByTestId('referral-import-lead-contact-user-id')).toHaveAttribute(
+      'placeholder',
+      'Referred participant user ID'
+    )
+    expect(screen.getByTestId('referral-import-qualify-referred-user-id')).toHaveAttribute(
+      'placeholder',
+      'Referred participant ID for self-referral check'
+    )
   })
 })
