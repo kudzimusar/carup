@@ -24,7 +24,7 @@ External providers: Unchanged.
 Production cutover: Not authorized.
 ```
 
-Stage 4's canonical staging functional acceptance remains **PASS**. Stage 5 is blocked until the production deployment-governance incident is contained by an owner-approved deployment-control change.
+Stage 4's canonical staging functional acceptance remains **PASS**. The production deployment-governance incident is now contained by the owner-approved production branch control recorded below; Stage 5 may proceed on canonical staging only.
 
 ## Stage ledger
 
@@ -35,8 +35,8 @@ Stage 4's canonical staging functional acceptance remains **PASS**. Stage 5 is b
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
 | 4 — Owner/invitee correct-attribution journey | **PASS** — staging functional acceptance; production-runtime incident recorded | Runtime deployment occurred; DB/data/providers unchanged |
-| 5 — Import/container referral journey | BLOCKED — production deployment-governance incident must be contained before Stage 5 starts | No new changes |
-| 6 — Simulated channel-attribution integration | NOT STARTED | No |
+| 5 — Import/container referral journey | **FAIL** — P1 remediation PR required before canonical-staging acceptance can pass | No new changes |
+| 6 — Simulated channel-attribution integration | BLOCKED — Stage 5 must pass first | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
 | 8 — Owner physical-device mobile gate | NOT STARTED | No |
 | 9 — Read-only production preflight | LOCKED | No |
@@ -1073,3 +1073,126 @@ Emergency hotfix path: branch from the last approved production SHA, apply the h
 Rollback path: redeploy or promote the last approved `release/production` deployment for the affected Vercel project, then verify production health and aliases read-only. Rollback must be explicitly owner-approved because it changes production runtime state.
 
 No Vercel production settings were changed by this ledger correction.
+
+## 13. Production deployment-governance containment — PASS
+
+- Recorded: `2026-07-17`
+- Result: **PASS**
+- Production changed during containment verification: **No**
+- Stage impact: Stage 5 is unblocked for canonical-staging acceptance and has moved to **IN PROGRESS**.
+
+```text
+Production deployment-governance containment: PASS
+
+carup Production Branch:
+release/production
+
+carup-backend Production Branch:
+release/production
+
+Production anchor:
+8c980544cddf00a6c6689ef6e7e9f6269bb3addb
+
+Post-containment main:
+2c22527916d19aa0a88d1aa45f48e21f5fec04ee
+
+Post-containment behavior:
+main created Preview deployments for carup and carup-backend;
+main deployed canonically to carup-staging and carup-backend-staging;
+production aliases stayed on the production anchor.
+
+Production Referral database:
+0 referral_* tables
+
+Production writes:
+none
+
+External providers:
+unchanged
+```
+
+Read-only verification confirmed `origin/release/production` remained at `8c980544cddf00a6c6689ef6e7e9f6269bb3addb`, `origin/main` was `2c22527916d19aa0a88d1aa45f48e21f5fec04ee`, and `origin/release/production...origin/main` was `0 1`. Canonical staging continued to deploy from `main`; the production `carup` and `carup-backend` deployment records for the post-containment `main` commit were Preview deployments, while production aliases remained attached to the production anchor. The production Supabase project `vhmnajoeicasaigiophh` still contained zero public `referral_*` tables.
+
+---
+
+# Stage 5 — Import/container referral journey
+
+- Started: `2026-07-17`
+- Gate result: **FAIL — P1 remediation required**
+- Production changed: **No**
+- Production database writes: **None**
+- Production deployments, aliases, rollbacks, environment variables, and settings changed: **None**
+- External providers changed: **No**
+- Tested baseline: `2c22527916d19aa0a88d1aa45f48e21f5fec04ee`
+- Branch opened for remediation: `test/referral-v1-stage5-import-container-acceptance`
+
+## Stage 5 preflight
+
+Read-only preflight confirmed the Stage 5 run was bounded to canonical staging:
+
+```text
+Canonical staging frontend: https://carup-staging.vercel.app
+Canonical staging backend:  https://carup-backend-staging.vercel.app
+Staging Supabase:           eoyenigwevnxwwhyhaer
+Production anchor:          8c980544cddf00a6c6689ef6e7e9f6269bb3addb
+Production referral tables: 0
+```
+
+The staging frontend bundle targeted the staging backend and contained no production Supabase ref and no service-role credential material. GitHub/Vercel deployment records showed post-containment `main` deployments for `carup` and `carup-backend` were Preview deployments while canonical staging deployed from `main`.
+
+## P1 finding — import admin UI cannot carry referral attribution
+
+The deployed V1 import-route backend supports the required Stage 5 primitives: import route pages, capacity status/update, import referral bundles, import lead creation, waitlist behavior, and rewardable qualification milestones (`parts_order_paid`, `deposit_paid`). The backend import and hardening suites pass.
+
+However, the canonical staging admin UI at `/admin/referrals/import-routes` did not expose the safe fields needed for the real browser journey to create an attributed parts/container lead and qualify that exact lead:
+
+```text
+missing on lead creation:
+referral_code
+lead_reference
+contact.user_id
+part_request
+
+missing on qualification:
+referred_user_id
+result_reference
+
+missing on route creation:
+route_key for unique prefixed Stage 5 evidence records
+```
+
+Without those controls, a browser-created parts/container lead cannot prove server-derived owner attribution from `referral_codes.owner_user_id`, and the complete Stage 5 UI journey cannot prove the pending benefit belongs to `u_uat_ref_owner_2026`. Replacing this with an API-only or administrator-created substitute would weaken the acceptance contract, so Stage 5 is recorded as **FAIL / P1** until the UI remediation is merged, deployed to canonical staging, and re-run.
+
+## Remediation prepared
+
+Branch `test/referral-v1-stage5-import-container-acceptance` adds the missing V1 admin controls without introducing Stage 6, Wave A, PR #105, production settings, provider activation, payouts, or new referral business concepts:
+
+- route creation can submit an optional `route_key`;
+- import lead creation can submit `referral_code`, `lead_reference`, `contact.user_id`, and a parts request label;
+- import lead qualification can submit `referred_user_id` and `result_reference`;
+- stable test IDs were added for the Stage 5 browser journey;
+- a focused frontend regression proves the UI forwards those fields to the existing API hook;
+- a credential-gated Stage 5 Playwright journey was added to exercise route creation, capacity full state, parts lead qualification, container lead waitlist/rejection, duplicate qualification, correct-owner wallet attribution, and owner wallet visibility after the remediation is deployed.
+
+## Stage 5 evidence summary
+
+```text
+Stage: Stage 5 — Import/container referral journey
+Exact SHA: 2c22527916d19aa0a88d1aa45f48e21f5fec04ee plus remediation branch changes
+Environment: canonical staging preflight only; no successful closed Stage 5 browser run yet
+P0 defects: 0
+P1 defects: 1 — admin import UI lacks required attribution/qualification fields for the real Stage 5 browser journey
+Automated backend import tests: PASS
+Focused frontend remediation test: PASS
+Credentialed closed Stage 5 journey: NOT RUN / BLOCKED until remediation is merged and deployed to canonical staging
+Production changed: No
+External providers changed: No
+Gate result: FAIL — P1 remediation required
+Next single action: review and merge the focused Stage 5 remediation PR, then re-run canonical-staging R-IMP-01…15
+```
+
+## Stage 5 decision
+
+# FAIL
+
+Stage 5 is blocked by a browser-journey integration gap in the V1 admin import surface. The backend reward/capacity engine remains covered by automated tests, but the acceptance gate requires the real deployed UI to carry referral attribution and qualification fields through the journey. Stage 6 remains blocked and not started.
