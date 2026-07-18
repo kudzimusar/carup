@@ -439,3 +439,17 @@ advisors.
 storage/advisors, real concurrency tests) and any E2E-against-staging are **not executable this loop**.
 Migration #16 is authored, additive, `-- +migrate Down`-scripted, and ledger-recorded, ready to apply
 staging-first once EB-1 is lifted. Production Supabase untouched.
+
+## Deployed-browser UAT (2026-07-18, run `uat-20260718`)
+
+Real-Chromium acceptance against a **deployed PR #90 preview stack** (Vercel previews of
+`carup-staging` + `carup-backend-staging`, backend connected to the real carup-staging Supabase;
+staging aliases + production untouched): **28 passed · 12 skipped · 0 failed** across desktop +
+mobile Chromium — public marketplace, buyer vehicle-import through Order Passport, security/isolation
+(URL-substitution, spoofed-role API denial, cross-tenant empty list), expected-OFF surfaces. Every
+skip is a named operator gate (staging migrations #11–#17 pending — proven live by the
+`idempotency_key does not exist` boundary; verified-seller + reviewer identities unprovisionable via
+fail-closed public APIs). Full evidence: `docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md`.
+Suite: `playwright.staging.config.ts` + `tests/agents/32..35-diaspora-staging-browser-*.spec.ts`
+(freshness-gated via `STAGING_EXPECTED_BUNDLE`; re-run after the operator's staging apply + aliased
+deploy to auto-unskip the gated journeys). Verdict: **GO WITH KNOWN LIMITATIONS.**

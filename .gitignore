@@ -42,3 +42,7 @@ backend/tests/realpg/node_modules/
 backend/tests/realpg/.pgdata-acl/
 backend/tests/realpg/.pgdata-foundation/
 backend/tests/realpg/.pgdata-pubveh/
+.env.staging.local
+.env.vercel.*
+.staging-auth/
+test-results/staging-uat-*
