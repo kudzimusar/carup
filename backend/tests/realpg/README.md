@@ -5,6 +5,13 @@ Two standalone real-Postgres harnesses (neither part of CI `node --test`; both n
 
 - **`reservation-idempotency-realpg.mjs`** — atomic `FOR UPDATE` reservation-approval concurrency +
   migration #16 idempotency (documented below).
+- **`foundation-acl-realpg.mjs`** — the **foundation** mutation-boundary hardening proof (SEC-DB-2).
+  Creates all 27 foundation tables + the real helper functions, simulates the pre-hardening broad
+  grants/FOR-ALL policies (real policy names), applies the **actual compensating migration
+  `20260718100000` verbatim** (so any SQL error fails the test), and proves **11/11 (2026-07-18):**
+  migration applies clean; authenticated + anon denied writes on all 27 tables + 11 lifecycle/immutable
+  probes (42501); cross-tenant SELECT=0; same-tenant SELECT preserved; service_role writes succeed;
+  the helper actor-spoofing guard rejects a foreign tenant-membership probe.
 - **`phase8-9-acl-realpg.mjs`** — the Phase 8/9 **mutation-boundary hardening** proof. Creates the real
   `anon`/`authenticated`/`service_role` roles (service_role with `BYPASSRLS`, as Supabase configures
   it) + the real `diaspora_trade_os_*` helper functions, applies the hardened RLS policies + grants,
