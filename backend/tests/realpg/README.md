@@ -5,6 +5,13 @@ Two standalone real-Postgres harnesses (neither part of CI `node --test`; both n
 
 - **`reservation-idempotency-realpg.mjs`** — atomic `FOR UPDATE` reservation-approval concurrency +
   migration #16 idempotency (documented below).
+- **`public-vehicle-rls-realpg.mjs`** — the SEC-DB-2 **correction** regression. Applies the corrected
+  migration verbatim and proves **11/11 (2026-07-18):** anon can execute `current_tenant_id()`; the
+  public `vehicles.tenant_vehicles_isolation` policy evaluates for anon with no permission error
+  (public `tenant_id IS NULL` vehicle visible, tenant-private hidden); authenticated tenant access
+  valid; all six Diaspora authz helpers anon-denied (42501; PUBLIC+anon revoked, authenticated+
+  service_role granted); all 27 foundation tables still write-denied; `is_platform_admin` keeps the
+  original `lower(coalesce(role))` normalization (mixed-case 'Admin' still admin).
 - **`foundation-acl-realpg.mjs`** — the **foundation** mutation-boundary hardening proof (SEC-DB-2).
   Creates all 27 foundation tables + the real helper functions, simulates the pre-hardening broad
   grants/FOR-ALL policies (real policy names), applies the **actual compensating migration
