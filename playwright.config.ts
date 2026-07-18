@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/agents',
+  // The deployed-STAGING acceptance suite (32–35-diaspora-staging-browser-*) talks to real staging
+  // URLs and must only run via playwright.staging.config.ts — never in the local/CI default run.
+  testIgnore: /diaspora-staging-browser/,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
