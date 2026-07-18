@@ -208,8 +208,12 @@ BEGIN
 END
 $trg$;
 
--- (b) 013 helper is_diaspora_platform_admin(): pin search_path if it lacks it (defensive recreate is
---     avoided — we only ALTER config, never change the body). Revoke anon EXECUTE.
+-- (b) Diaspora AUTHORIZATION helpers: pin search_path (ALTER SET only — never changes the body) and
+--     revoke anon EXECUTE. current_tenant_id() is deliberately NOT in this list — see block (b2):
+--     the PUBLIC marketplace policy vehicles.tenant_vehicles_isolation calls it (`tenant_id =
+--     current_tenant_id() OR tenant_id IS NULL`), so anon must keep EXECUTE or every anonymous
+--     vehicle browse fails at policy evaluation. This mirrors the explicit decision already recorded
+--     in 20260620232827 ("current_tenant_id() KEEPS its existing (anon-inclusive) EXECUTE grants").
 DO $help$
 DECLARE r record;
 BEGIN
@@ -218,17 +222,48 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='public' AND p.proname IN (
       'is_diaspora_platform_admin','diaspora_trade_os_is_platform_admin','diaspora_trade_os_is_tenant_member',
-      'diaspora_trade_os_can_access_row','diaspora_trade_os_current_user_id','diaspora_can_access_order','current_tenant_id')
+      'diaspora_trade_os_can_access_row','diaspora_trade_os_current_user_id','diaspora_can_access_order')
   LOOP
     -- Pin search_path (idempotent — ALTER SET is safe to repeat and never changes the body).
     EXECUTE format('ALTER FUNCTION public.%I(%s) SET search_path = public, pg_temp', r.proname, r.sig);
-    -- anon must never call an authz helper.
+    -- Neither PUBLIC (the implicit default EXECUTE grant every function gets at CREATE) nor anon may
+    -- call a Diaspora authz helper — revoking only anon would leave anon executable via PUBLIC.
+    EXECUTE format('REVOKE ALL ON FUNCTION public.%I(%s) FROM PUBLIC', r.proname, r.sig);
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
       EXECUTE format('REVOKE ALL ON FUNCTION public.%I(%s) FROM anon', r.proname, r.sig);
+    END IF;
+    -- authenticated keeps EXECUTE (the RLS SELECT predicates call these helpers); backend service_role
+    -- keeps EXECUTE. Mirrors phase1b's original REVOKE-PUBLIC + GRANT authenticated/service_role.
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO authenticated', r.proname, r.sig);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO service_role', r.proname, r.sig);
     END IF;
   END LOOP;
 END
 $help$;
+
+-- (b2) current_tenant_id(): the shared tenant-context helper consumed by the PUBLIC vehicles
+--      marketplace policy. Explicit, unambiguous posture — search_path pinned; EXECUTE for anon,
+--      authenticated AND service_role (no PUBLIC-wide grant); body untouched.
+DO $ctid$
+BEGIN
+  IF to_regprocedure('public.current_tenant_id()') IS NOT NULL THEN
+    ALTER FUNCTION public.current_tenant_id() SET search_path = public, pg_temp;
+    REVOKE ALL ON FUNCTION public.current_tenant_id() FROM PUBLIC;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+      GRANT EXECUTE ON FUNCTION public.current_tenant_id() TO anon;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+      GRANT EXECUTE ON FUNCTION public.current_tenant_id() TO authenticated;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+      GRANT EXECUTE ON FUNCTION public.current_tenant_id() TO service_role;
+    END IF;
+  END IF;
+END
+$ctid$;
 
 -- (c) Actor-spoofing guard: an authenticated caller must only be able to evaluate THEIR OWN identity
 --     through the membership/admin helpers. RLS always passes current_user_id(); the backend
@@ -242,13 +277,37 @@ AS $$
     AND EXISTS (SELECT 1 FROM public.tenant_users tu WHERE tu.user_id = actor_id AND tu.tenant_id = requested_tenant_id)
 $$;
 
+-- Role comparison preserves the ORIGINAL phase1b normalization — lower(coalesce(u.role, '')) — so an
+-- 'Admin'/'ADMIN' row keeps its admin status (a bare u.role IN (...) would be accidentally
+-- case-sensitive and silently demote such users).
 CREATE OR REPLACE FUNCTION public.diaspora_trade_os_is_platform_admin(actor_id text DEFAULT public.diaspora_trade_os_current_user_id())
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
 AS $$
   SELECT actor_id IS NOT NULL
     AND (public.diaspora_trade_os_current_user_id() IS NULL OR actor_id = public.diaspora_trade_os_current_user_id())
-    AND EXISTS (SELECT 1 FROM public.users u WHERE u.id = actor_id AND u.role IN ('admin','platform_admin','super_admin'))
+    AND EXISTS (SELECT 1 FROM public.users u WHERE u.id = actor_id AND lower(coalesce(u.role, '')) IN ('admin','platform_admin','super_admin'))
 $$;
+
+-- Re-assert the ACL posture on both recreated helpers (CREATE OR REPLACE preserves prior ACLs, but the
+-- final grants must be unambiguous): no PUBLIC, no anon; authenticated (RLS) + service_role only.
+DO $recreated_acl$
+BEGIN
+  REVOKE ALL ON FUNCTION public.diaspora_trade_os_is_tenant_member(text, uuid) FROM PUBLIC;
+  REVOKE ALL ON FUNCTION public.diaspora_trade_os_is_platform_admin(text) FROM PUBLIC;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
+    REVOKE ALL ON FUNCTION public.diaspora_trade_os_is_tenant_member(text, uuid) FROM anon;
+    REVOKE ALL ON FUNCTION public.diaspora_trade_os_is_platform_admin(text) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+    GRANT EXECUTE ON FUNCTION public.diaspora_trade_os_is_tenant_member(text, uuid) TO authenticated;
+    GRANT EXECUTE ON FUNCTION public.diaspora_trade_os_is_platform_admin(text) TO authenticated;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+    GRANT EXECUTE ON FUNCTION public.diaspora_trade_os_is_tenant_member(text, uuid) TO service_role;
+    GRANT EXECUTE ON FUNCTION public.diaspora_trade_os_is_platform_admin(text) TO service_role;
+  END IF;
+END
+$recreated_acl$;
 
 -- +migrate Down
 -- Rollback / remediation notes: this migration only tightens access (REVOKEs + SELECT-only policies +
