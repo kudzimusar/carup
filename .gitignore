@@ -40,3 +40,4 @@ supabase/.temp/
 backend/tests/realpg/.pgdata-proof/
 backend/tests/realpg/node_modules/
 backend/tests/realpg/.pgdata-acl/
+backend/tests/realpg/.pgdata-foundation/
