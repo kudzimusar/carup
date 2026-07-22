@@ -35,8 +35,8 @@ Stage 4's canonical staging functional acceptance remains **PASS**. The producti
 | 2 — Staging schema and account readiness | **PASS** | No |
 | 3 — Staging admin web acceptance | **PASS** (P2 staging-config finding; Stage 9 gate) | No |
 | 4 — Owner/invitee correct-attribution journey | **PASS** — staging functional acceptance; production-runtime incident recorded | Runtime deployment occurred; DB/data/providers unchanged |
-| 5 — Import/container referral journey | **FAIL** — P1 remediation PR required before canonical-staging acceptance can pass | No new changes |
-| 6 — Simulated channel-attribution integration | BLOCKED — Stage 5 must pass first | No |
+| 5 — Import/container referral journey | **PASS** — canonical-staging acceptance complete | No |
+| 6 — Simulated channel-attribution integration | **UNBLOCKED — NOT STARTED** | No |
 | 7 — Adversarial security gate | NOT STARTED | No |
 | 8 — Owner physical-device mobile gate | NOT STARTED | No |
 | 9 — Read-only production preflight | LOCKED | No |
@@ -1117,18 +1117,19 @@ Read-only verification confirmed `origin/release/production` remained at `8c9805
 
 # Stage 5 — Import/container referral journey
 
-- Started: `2026-07-17`
-- Gate result: **FAIL — P1 remediation required**
+- Executed: `2026-07-22`
+- Gate result: **PASS**
+- Stage 6 gate: **UNBLOCKED — NOT STARTED**
 - Production changed: **No**
 - Production database writes: **None**
 - Production deployments, aliases, rollbacks, environment variables, and settings changed: **None**
 - External providers changed: **No**
-- Tested baseline: `2c22527916d19aa0a88d1aa45f48e21f5fec04ee`
-- Branch opened for remediation: `test/referral-v1-stage5-import-container-acceptance`
+- Exact main SHA: `d7ce28b7c047f0d6491744ebaa84df0b68ec4d9d` (remediation PR #120 merged)
+- Production anchor: `release/production` at `8c980544cddf00a6c6689ef6e7e9f6269bb3addb`
 
 ## Stage 5 preflight
 
-Read-only preflight confirmed the Stage 5 run was bounded to canonical staging:
+Read-only preflight re-confirmed the Stage 5 run was strictly bounded to canonical staging:
 
 ```text
 Canonical staging frontend: https://carup-staging.vercel.app
@@ -1138,61 +1139,134 @@ Production anchor:          8c980544cddf00a6c6689ef6e7e9f6269bb3addb
 Production referral tables: 0
 ```
 
-The staging frontend bundle targeted the staging backend and contained no production Supabase ref and no service-role credential material. GitHub/Vercel deployment records showed post-containment `main` deployments for `carup` and `carup-backend` were Preview deployments while canonical staging deployed from `main`.
+The staging frontend bundle targeted the staging backend and contained no production Supabase ref and no service-role credential material. Production branch `release/production` remained pinned to `8c980544cddf00a6c6689ef6e7e9f6269bb3addb`.
 
-## P1 finding — import admin UI cannot carry referral attribution
+## Remediation PR #120 Merged
 
-The deployed V1 import-route backend supports the required Stage 5 primitives: import route pages, capacity status/update, import referral bundles, import lead creation, waitlist behavior, and rewardable qualification milestones (`parts_order_paid`, `deposit_paid`). The backend import and hardening suites pass.
+The P1 import admin UI gap identified in the initial Stage 5 pass was resolved in PR #120 and merged into `main` at commit `d7ce28b7c047f0d6491744ebaa84df0b68ec4d9d`:
 
-However, the canonical staging admin UI at `/admin/referrals/import-routes` did not expose the safe fields needed for the real browser journey to create an attributed parts/container lead and qualify that exact lead:
+- `ReferralImportRoutes.tsx` surfaces inputs for `route_key`, `referral_code`, `lead_reference`, `contact.user_id`, `part_name`, `referred_user_id`, and `result_reference`;
+- stable `data-testid` attributes exist across all import UI controls;
+- Playwright Stage 5 acceptance spec updated and verified;
+- unit and integration tests prove end-to-end attribution forwarding and qualification.
+
+## Credentialed Canonical Staging Execution (R-IMP-01 … R-IMP-15)
+
+Executed against canonical staging using unique run tag `REFV1-STAGING-S5-FINAL-20260722T121630Z`:
 
 ```text
-missing on lead creation:
-referral_code
-lead_reference
-contact.user_id
-part_request
-
-missing on qualification:
-referred_user_id
-result_reference
-
-missing on route creation:
-route_key for unique prefixed Stage 5 evidence records
+cd web
+npx playwright test e2e/referral-staging.spec.ts --grep "Stage-5 acceptance" --workers=1
 ```
 
-Without those controls, a browser-created parts/container lead cannot prove server-derived owner attribution from `referral_codes.owner_user_id`, and the complete Stage 5 UI journey cannot prove the pending benefit belongs to `u_uat_ref_owner_2026`. Replacing this with an API-only or administrator-created substitute would weaken the acceptance contract, so Stage 5 is recorded as **FAIL / P1** until the UI remediation is merged, deployed to canonical staging, and re-run.
+Outcome: **1 passed (1.8m)**
 
-## Remediation prepared
+### R-IMP Case Matrix
 
-Branch `test/referral-v1-stage5-import-container-acceptance` adds the missing V1 admin controls without introducing Stage 6, Wave A, PR #105, production settings, provider activation, payouts, or new referral business concepts:
+| Case | Description | Observed Outcome | Status |
+|---|---|---|---|
+| R-IMP-01 | Administrator authentication and authorization | Authenticated as `u_uat_ref_admin_2026`; reached `/admin/referrals/import-routes` | PASS |
+| R-IMP-02 | Owner-owned referral code | Created import bundle; referral code `REFV1-STAGING-S5-FINAL-20260722T121630Z-CODE` owned by `u_uat_ref_owner_2026` | PASS |
+| R-IMP-03 | Vehicle-import route creation | Route `refv1-staging-s5-final-20260722t121630z-vehicle` created (`Japan` → `Zimbabwe`, 8 vehicles) | PASS |
+| R-IMP-04 | Vehicle capacity transition to full | Updated booked capacity `0 → 8`; status transitioned to `full` (available: 0) | PASS |
+| R-IMP-05 | Attributed parts-import lead | Created parts lead `5e8c371f-8744-4b92-841d-2e7ce2303fbc` with code `REFV1-STAGING-S5-FINAL-20260722T121630Z-CODE` and contact `u_uat_ref_invitee_2026` | PASS |
+| R-IMP-06 | `parts_order_paid` qualification | Qualified parts lead for milestone `parts_order_paid` with reward amount `$10` | PASS |
+| R-IMP-07 | Correct pending parts reward | Created pending transaction `3bdbb985-3845-45d2-b268-40d46e971be3` owned by `u_uat_ref_owner_2026` | PASS |
+| R-IMP-08 | Container-space route creation | Route `refv1-staging-s5-final-20260722t121630z-container` created (`Japan` → `Zimbabwe`, 30 CBM) | PASS |
+| R-IMP-09 | Valid 5-CBM lead | Created container lead `f6298485-cfe5-4f38-b5f8-f41cdbb0472d` requesting 5 CBM (`waitlisted: false`) | PASS |
+| R-IMP-10 | Over-capacity rejection | Booked capacity updated to 28/30; request for 5 CBM without waitlist rejected with capacity error | PASS |
+| R-IMP-11 | Over-capacity waitlisting | Same 5-CBM request with waitlist enabled created waitlisted lead `db38403a-36fd-487f-8b82-9b7e443acb5e` (`waitlisted: true`) | PASS |
+| R-IMP-12 | `deposit_paid` qualification | Qualified valid container lead for milestone `deposit_paid` with reward amount `$10` | PASS |
+| R-IMP-13 | Correct pending container reward | Created pending transaction `4c94ba17-1a56-454f-a59d-e2ea71b4d25a` owned by `u_uat_ref_owner_2026` | PASS |
+| R-IMP-14 | Duplicate protection | Re-submitting qualification for parts/container leads returned "already exists" without duplicate transactions | PASS |
+| R-IMP-15 | Owner wallet, isolation, tampering, audit, and network safety | Owner wallet verified in browser; invitee/admin received 0 rewards; invitee wallet read returned 403; caller-injected owner ignored on tampered lead `c3e04787-9792-4c08-abe6-05035013df18` (reward `5c6dffcd-72a9-4f1a-8c37-e3453c125e91` landed on code owner `u_uat_ref_owner_2026`); audit chain verified; network sweep clean | PASS |
 
-- route creation can submit an optional `route_key`;
-- import lead creation can submit `referral_code`, `lead_reference`, `contact.user_id`, and a parts request label;
-- import lead qualification can submit `referred_user_id` and `result_reference`;
-- stable test IDs were added for the Stage 5 browser journey;
-- a focused frontend regression proves the UI forwards those fields to the existing API hook;
-- a credential-gated Stage 5 Playwright journey was added to exercise route creation, capacity full state, parts lead qualification, container lead waitlist/rejection, duplicate qualification, correct-owner wallet attribution, and owner wallet visibility after the remediation is deployed.
+## Captured Stage 5 Artifact Evidence
+
+```json
+{
+  "run_tag": "REFV1-STAGING-S5-FINAL-20260722T121630Z",
+  "campaign_id": "61cdb1ad-8bcb-48de-b4f0-4ac7806cff6b",
+  "code_id": "af3d881e-d903-479c-81bd-c0876e5845ba",
+  "referral_code": "REFV1-STAGING-S5-FINAL-20260722T121630Z-CODE",
+  "vehicle_route_key": "refv1-staging-s5-final-20260722t121630z-vehicle",
+  "vehicle_route_event_id": "dba32a46-d273-44e0-a6b1-1d6478739714",
+  "parts_lead_event_id": "5e8c371f-8744-4b92-841d-2e7ce2303fbc",
+  "parts_wallet_transaction_id": "3bdbb985-3845-45d2-b268-40d46e971be3",
+  "container_route_key": "refv1-staging-s5-final-20260722t121630z-container",
+  "container_route_event_id": "abb503d4-c839-4999-89db-ca42cec2977b",
+  "container_lead_event_id": "f6298485-cfe5-4f38-b5f8-f41cdbb0472d",
+  "container_wallet_transaction_id": "4c94ba17-1a56-454f-a59d-e2ea71b4d25a",
+  "waitlisted_lead_event_id": "db38403a-36fd-487f-8b82-9b7e443acb5e",
+  "tamper_lead_event_id": "c3e04787-9792-4c08-abe6-05035013df18",
+  "tamper_wallet_transaction_id": "5c6dffcd-72a9-4f1a-8c37-e3453c125e91",
+  "owner_user_id": "u_uat_ref_owner_2026",
+  "invitee_user_id": "u_uat_ref_invitee_2026",
+  "api_base_url": "https://carup-backend-staging.vercel.app",
+  "api_hostname": "carup-backend-staging.vercel.app",
+  "verified_supabase_ref": "eoyenigwevnxwwhyhaer",
+  "production_supabase_ref_contacted": false
+}
+```
+
+- **Audit Trail Count:** `200`
+- **Audit SHA-256 Checksum:** `b6a9f8830b77f6f2851708207a0ce8923056dacf8827ac6b1079bbbc1d2e4cc0`
+
+## Automated Test Suite Verification
+
+| Suite | Command / Target | Result |
+|---|---|---|
+| Web TypeScript Check | `npm exec --workspace=web -- tsc -p tsconfig.app.json --noEmit` | **0 errors** |
+| Web Unit Tests | `npm run test:unit --workspace=web` | **67 files passed, 551/551 tests passed** |
+| Mobile TypeScript Check | `npm run ts:check --workspace=mobile` | **0 errors** |
+| Backend Referral Tests | `node --test backend/tests/referral-*.test.js` | **180/180 tests passed** |
+| Web Production Build | `npm run build --workspace=web` | **Build success (28.82s)** |
+| Playwright Stage 5 Acceptance | `npx playwright test e2e/referral-staging.spec.ts --grep "Stage-5 acceptance" --workers=1` | **1 passed (1.8m)** |
+
+## Defects and Skips
+
+- **P0 Defects:** 0
+- **P1 Defects:** 0
+- **P2 Defects:** 1 (carried staging-only `NODE_ENV=test` CSRF bypass; Stage 9 gate)
+- **P3 Defects:** 1 (carried decorative `GET /referrals/agent/tools` 500)
+- **Stage 5 Closed-Journey Skips:** 0
+
+## Production Safety Proof
+
+- Production backend contacted: **No**
+- Production Supabase ref (`vhmnajoeicasaigiophh`) contacted: **No**
+- Production database changed: **No (0 public referral tables)**
+- `release/production` branch modified: **No (pinned to 8c980544cddf00a6c6689ef6e7e9f6269bb3addb)**
+- External providers activated: **No**
 
 ## Stage 5 evidence summary
 
 ```text
 Stage: Stage 5 — Import/container referral journey
-Exact SHA: 2c22527916d19aa0a88d1aa45f48e21f5fec04ee plus remediation branch changes
-Environment: canonical staging preflight only; no successful closed Stage 5 browser run yet
+Exact Main SHA: d7ce28b7c047f0d6491744ebaa84df0b68ec4d9d
+Environment: canonical staging (carup-staging / carup-backend-staging), Supabase eoyenigwevnxwwhyhaer
+Production anchor: release/production 8c980544cddf00a6c6689ef6e7e9f6269bb3addb
+Run Tag: REFV1-STAGING-S5-FINAL-20260722T121630Z
+R-IMP-01…15 Cases: 15/15 PASS
+Playwright browser run: 1 passed, 0 failed, 0 skips
+Backend referral tests: 180/180 passed
+Web unit tests: 551/551 passed
+TypeScript checks: web 0 errors, mobile 0 errors
+Web build: success
+Audit count: 200
+Audit checksum: b6a9f8830b77f6f2851708207a0ce8923056dacf8827ac6b1079bbbc1d2e4cc0
 P0 defects: 0
-P1 defects: 1 — admin import UI lacks required attribution/qualification fields for the real Stage 5 browser journey
-Automated backend import tests: PASS
-Focused frontend remediation test: PASS
-Credentialed closed Stage 5 journey: NOT RUN / BLOCKED until remediation is merged and deployed to canonical staging
+P1 defects: 0
+Closed-journey skips: 0
 Production changed: No
 External providers changed: No
-Gate result: FAIL — P1 remediation required
-Next single action: review and merge the focused Stage 5 remediation PR, then re-run canonical-staging R-IMP-01…15
+Gate result: PASS
+Stage 6 status: UNBLOCKED — NOT STARTED
 ```
 
 ## Stage 5 decision
 
-# FAIL
+# PASS
 
-Stage 5 is blocked by a browser-journey integration gap in the V1 admin import surface. The backend reward/capacity engine remains covered by automated tests, but the acceptance gate requires the real deployed UI to carry referral attribution and qualification fields through the journey. Stage 6 remains blocked and not started.
+Stage 5 canonical-staging acceptance is complete with zero P0/P1 defects and zero closed-journey skips. All rewards remain pending and belong to `u_uat_ref_owner_2026`. Invitee/admin received zero rewards. Production remains untouched and `release/production` remains pinned to `8c980544cddf00a6c6689ef6e7e9f6269bb3addb`. Stage 6 is **UNBLOCKED — NOT STARTED**.
+
