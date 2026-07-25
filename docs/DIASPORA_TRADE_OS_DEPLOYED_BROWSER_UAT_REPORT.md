@@ -100,3 +100,46 @@ bugs fixed) and provisioning genuinely-verified identities. Production was never
 (UI merchandising editor / full seller publish-and-downstream chain) and LOW items are documented and do
 not block the gate; they are tracked for the next iteration. Final production cutover remains a separate,
 explicitly-authorized step (apply #11–#18 to production, promote PR #90) and is out of scope here.
+
+
+---
+
+## Addendum (2026-07-26, run `uat-20260726-final`) — seller/parts gap CLOSED
+
+**Verdict: READY FOR OWNER MERGE APPROVAL.** The prior MED gap (Stock Manager could not publish a
+UI-created draft) is closed and proven end-to-end on the canonical aliased staging.
+
+| Item | Value |
+| --- | --- |
+| Release-candidate PR #90 head | `c33dd16` (draft, stacked on PR #81 `bbcf421`) |
+| Aliased FE / bundle | `https://carup-staging.vercel.app` · `index-yYPmJ_bE.js` |
+| Aliased BE | `https://carup-backend-staging.vercel.app` (Supabase carup-staging; UP) |
+| Chromium | 148 · desktop + Pixel-5 mobile |
+
+**Change:** Stock-Manager "Merchandising details" editor (non-published items only) exposing exactly the
+publish-validator fields (`unit_price`, `currency`, `condition`, `vehicle_make`, `part_number`) via the
+existing `PATCH /diaspora/stock/:id`; backend optimistic-concurrency guard (`expected_updated_at` →
+`409 STALE_STOCK_VERSION`). Quantities/tenant/verification/publication stay server/ledger-owned.
+
+**Totals: 42 passed / 0 failed / 0 skipped / 0 flaky** (both viewports); 0 unexpected console errors,
+0 API 5xx. New/updated evidence:
+- **Seller merchandise → genuine publish → Stock Passport** ✅ (ledger balance unchanged by the edit).
+- **Full parts chain**: buyer demand → publish RFQ → seller quote → buyer accept → **Order Passport
+  reflects the parts transaction** ✅ (two real sessions, no mocks).
+- Backend 762/755/0/7 (4 new: edit→publish, stale→409, cross-seller denied, protected-field escalation
+  denied); vitest 623/623; real-PG ACL 48/48; migration sanity 1/1; web build ✓; tsc 0.
+
+**Staging integrity after the change:** migrations #11–#18 recorded 8/8; 5 atomic RPCs service_role-only
++ search_path incl. `extensions`; import_orders anon=NONE; sensitive buckets private; vehicle-images
+public; no workbook-export bucket; SafeTrade/Drive/Trade-Graph UI OFF; confirmed workbook import disabled.
+
+**Findings:** P0=0, P1=0. **MED:** none open for seller/parts (PARTS-1 CLOSED). The deeper
+container-reservation → shipment-stage → reviewer-approval → delivery legs of the parts chain are covered
+by backend + real-PG suites but were not driven end-to-end through the browser this pass (documented as a
+non-blocking follow-up). **LOW:** 12 unindexed FKs (perf); mobile table cell/button overlap (cosmetic;
+force-click used); staging outbox backlog (pre-existing).
+
+**Credential rotation:** staging DB password rotation is the OWNER's action; the temporary local
+connection file still exists on the operator machine and must be deleted + the password reset.
+**CR-1:** remains OPEN (hardcoded prod-ref + `postgres://` URIs in tracked files) and still blocks
+production cutover — NOT closed by the staging rotation. Production Supabase untouched.
