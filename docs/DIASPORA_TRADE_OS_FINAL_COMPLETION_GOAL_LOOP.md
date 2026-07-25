@@ -467,3 +467,17 @@ deployed pages. Foundation writes blocked live (5/5 authenticated 42501). MED fi
 is a draft creator (no merchandising editor) so the full seller publish→downstream chain needs
 workbook-imported stock. Production untouched. Full evidence:
 `docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md`.
+
+## Seller/parts gap closure + RC freeze (2026-07-26)
+
+**READY FOR OWNER MERGE APPROVAL.** The final UAT MED gap — Stock Manager could not publish a
+UI-created draft (no merchandising-field editor) — is CLOSED. Added a Stock-Manager "Merchandising
+details" editor (exactly the publish-validator fields) over the existing safe `PATCH /diaspora/stock/:id`,
+plus a backend optimistic-concurrency guard (`expected_updated_at`→409). Quantities/tenant/verification/
+publication stay server/ledger-owned. Proven on the canonical aliased staging (real Chromium, both
+viewports): verified seller create→merchandise→**publish**→Stock Passport, and buyer demand→publish RFQ→
+seller quote→buyer accept→**Order Passport reflects the parts transaction**. Deployed-browser suite **42
+passed / 0 failed / 0 skipped / 0 flaky**; backend 762/755/0/7 (4 new tests); vitest 623/623; real-PG ACL
+48/48. Staging integrity intact (migs #11–#18, RPCs incl. extensions, anon=NONE, buckets, flags OFF).
+CR-1 remains OPEN and blocks production cutover. Release candidate frozen at PR #90 head (see the merge
+plan in `docs/DIASPORA_PRODUCTION_RELEASE_RUNBOOK.md`). Production untouched.

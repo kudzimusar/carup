@@ -11,8 +11,8 @@
 | Secrets rotated | 🔒 | External |
 | History remediated | 🔒 | Approval to rewrite + force re-clone |
 | Secret scanning expanded | 🟡 | CI secret-scan guard exists; extend to remediated paths |
-| Security advisors reviewed | ⬜ | Run after each staging apply |
-| RLS reviewed / RPC grants verified | 🟡 | Pattern established (H7 grants); re-verify per new table |
+| Security advisors reviewed | 🟡→✅(staging) | Advisor-equivalent sweep clean on carup-staging after #11–#18 (no RLS-off, no SECURITY DEFINER w/o search_path, no anon mutation/authz RPCs, no USING(true) write policies); official dashboard advisors still recommended pre-prod |
+| RLS reviewed / RPC grants verified | ✅(staging) | Live on carup-staging: foundation anon=NONE/authenticated=SELECT-only, 5/5 real authenticated writes denied (42501), 5 atomic RPCs service_role-only + search_path incl. extensions (#18), all 15 phase8/9/10 tables RLS-on |
 | Rate limits verified | ⬜ | Add for new endpoints (§70) |
 | CSRF/CORS/session boundaries | 🟡 | `securityMiddleware.js` exists; verify new routes |
 | Upload security verified | ⬜ | XLSX + evidence + dispute uploads (§69) |
