@@ -1,0 +1,247 @@
+# Diaspora Trade OS — Phases 3–7 Progress Ledger
+
+> Durable session memory. Updated after every milestone commit so another agent can resume without
+> guessing. Directive: `docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_MASTER_DIRECTIVE.md`.
+
+- **Program branch**: `claude/diaspora-phases-3-7-program`
+- **Base**: `main` @ `3ac2ff23a60f545bbafed8d4d256277209f3adf9` (Phase 2C)
+- **PR**: #81 (draft, unmerged) — https://github.com/kudzimusar/carup/pull/81
+- **Production Supabase touched**: NO
+- **`stash@{0}` touched**: NO
+- **Unrelated workstreams touched**: NO
+- **Migrations applied anywhere**: NO (one additive Phase 3 migration file created, not applied)
+- **Dependencies added**: NONE
+
+## Status Summary
+
+> **Hardening note (2026-06-21):** The feature breadth below was delivered with mock-tested
+> coverage. A hardening program (PR #81, `docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_HARDENING_DIRECTIVE.md`)
+> is converting it to merge-ready, database-safe, authorization-safe, integration-proven code. Until
+> the hardening gates pass, treat the items below as **IMPLEMENTED — HARDENING IN PROGRESS**, not
+> production-safe. Atomicity, guaranteed audit, concurrency safety, and live Drive are NOT yet proven.
+> Live progress: `docs/DIASPORA_PHASES_3_TO_7_HARDENING_PROGRESS.md`.
+
+| Phase | Title | State | Commit |
+| --- | --- | --- | --- |
+| Discovery | Audit + ledger + draft PR | DONE | `1b3395e` |
+| 3 | Online Stock & Supply Documents | IMPLEMENTED — HARDENING IN PROGRESS | `94b6dce` |
+| 4 | Buyer Orders & Reverse RFQ | IMPLEMENTED — HARDENING IN PROGRESS | `0c8f6b7` |
+| 5 | AI Command Hardening | IMPLEMENTED — HARDENING IN PROGRESS | `93ca439` |
+| 6 | Container Co-Loading | IMPLEMENTED — HARDENING IN PROGRESS | `4d7e79c` |
+| 7 | Google Drive Integration | SCAFFOLD/MOCK-COMPLETE — LIVE GOOGLE ACTIVATION NOT IMPLEMENTED | `900f02c` |
+
+## Feature-breadth acceptance (mock-tested, pre-hardening)
+
+- Backend diaspora suite: 275 pass / 0 fail / 3 skipped (live Supabase integration).
+- TypeScript clean · route-validation 7/7 · Playwright 38 pass (20 new + 18 Phase 2C regression) ·
+  `npm run build` OK (pre-existing chunk-size warning only).
+- These results prove API/UI breadth with an in-memory mock client; they do NOT prove transactional
+  atomicity, concurrency safety, applied migrations, or live integration. Those are the hardening
+  gates (see hardening ledger).
+
+State legend: NOT STARTED · IN PROGRESS · CODE-COMPLETE · CODE-COMPLETE PENDING EXTERNAL ACTIVATION · BLOCKED · DONE.
+
+---
+
+## Milestone: Discovery Baseline
+
+- **Objective**: Verify baseline, create program branch, audit reusable surfaces and schema, open
+  draft PR.
+- **Repository findings**: See `docs/DIASPORA_PHASES_3_TO_7_DISCOVERY.md`. Phase 3–7 tables already
+  exist (Phase 1B foundation migration); remaining work is service/route/frontend/test layers.
+- **Schema findings**: All target tables present; only additive `idempotency_key` on
+  `diaspora_stock_ledger` anticipated.
+- **Files changed**: `docs/DIASPORA_PHASES_3_TO_7_DISCOVERY.md`,
+  `docs/DIASPORA_PHASES_3_TO_7_PROGRESS.md`, `docs/CARUP_WORKSTREAM_SEPARATION_AND_HANDOFF.md`
+  (Phase 2C reconciled to merged).
+- **Migration status**: none yet.
+- **Endpoints**: none yet.
+- **Frontend routes**: none yet.
+- **Tests run**: n/a (docs only).
+- **Known limitations**: none.
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 3 — stock ledger + supply documents.
+
+---
+
+## Milestone: Phase 3 — Online Stock & Supply Documents
+
+- **Objective**: Seller-facing, ledger-backed stock + controlled supply-document publication.
+- **Repository findings**: Tables `diaspora_stock_items`, `diaspora_stock_ledger`,
+  `diaspora_supply_documents` already exist (Phase 1B). No existing service/route layer; built here.
+- **Schema findings / migration**: additive migration
+  `database/migrations/20260620120000_diaspora_phase3_stock_ledger_idempotency.sql` adds
+  `idempotency_key` + partial unique index `(stock_item_id, idempotency_key)` and a time index.
+  **Not applied to production.**
+- **Files changed**:
+  - `backend/tests/helpers/mockSupabase.js` (shared in-memory mock client)
+  - `backend/services/diaspora/diasporaServiceUtils.js` (resolveClient + sealed appendAudit)
+  - `backend/constants/diaspora/diasporaStockConstants.js`
+  - `backend/services/diaspora/diasporaStockLedgerService.js`
+  - `backend/services/diaspora/diasporaStockService.js`
+  - `backend/services/diaspora/diasporaSupplyDocumentService.js`
+  - `backend/routes/diasporaStockRoutes.js` (+ mounted in `backend/routes/diasporaRoutes.js`)
+  - `backend/tests/diaspora-stock.test.js`
+  - `web/src/types/index.ts` (stock/supply types)
+  - `web/src/hooks/useCarUpApi.ts` (11 stock/supply methods)
+  - `web/src/lib/apiClient.ts` (normalize nested `{error:{message}}` → actionable copy)
+  - `web/src/pages/diaspora/DiasporaStockManager.tsx`
+  - `web/src/App.tsx` (`/diaspora/stock`), `web/src/config/featureRegistry.ts` (`diaspora.stock-manager`)
+  - `web/e2e/diaspora-stock-supply.spec.ts`
+- **Endpoints added**: `GET/POST /api/diaspora/stock`, `GET/PATCH /api/diaspora/stock/:id`,
+  `GET/POST /api/diaspora/stock/:id/ledger`, `POST /api/diaspora/stock/:id/reserve`,
+  `POST /api/diaspora/stock/:id/release-reservation`, `GET/POST /api/diaspora/supply-documents`,
+  `GET/PATCH /api/diaspora/supply-documents/:id`, `POST .../publish`, `POST .../unpublish`.
+- **Frontend routes added**: `/diaspora/stock` (roles dealer/admin + platform/reviewer at runtime).
+- **Security/integrity**: tenant + ownership scoping on every endpoint; quantities change only via
+  ledger; available never negative; reservations bounded by availability; idempotent movements;
+  ADJUST_WITH_APPROVAL gated to reviewer/admin + approval metadata; sealed audit on every mutation.
+- **Tests run / results**: backend `node --test backend/tests/diaspora-stock.test.js` → 12/12 pass;
+  e2e `diaspora-stock-supply.spec.ts` → 3/3 pass; tsc OK; route-validation 7/7; Phase 2C regression
+  18/18; `npm run build` OK (existing chunk-size warning only).
+- **Known limitations**: balances are transactionally maintained on the item row from ledger events
+  (not recomputed per-read); concurrency relies on Supabase row updates (acceptable for current load).
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 4 — Buyer Orders & Reverse RFQ.
+
+## Milestone: Phase 4 — Buyer Orders & Reverse RFQ
+
+- **Objective**: Buyer demand documents, deterministic matching, seller RFQ responses, transactional
+  + idempotent single-quote acceptance.
+- **Repository findings / schema**: Reuses `diaspora_import_orders` + `diaspora_import_quotes`. RFQ
+  lifecycle stored in `metadata.rfq` (additive, no migration). Quote logical SUBMITTED maps to DB
+  `ISSUED` to satisfy the existing CHECK constraint.
+- **Files changed**:
+  - `backend/constants/diaspora/diasporaRfqConstants.js`
+  - `backend/services/diaspora/diasporaDemandSupplyMatchingService.js` (explainable scoring)
+  - `backend/services/diaspora/diasporaBuyerOrderService.js`
+  - `backend/services/diaspora/diasporaRfqService.js`
+  - `backend/routes/diasporaBuyerOrderRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-rfq.test.js`
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaReverseRfq.tsx`
+  - `web/src/App.tsx` (`/diaspora/rfq`), `web/src/config/featureRegistry.ts` (`diaspora.reverse-rfq`)
+  - `web/e2e/diaspora-reverse-rfq.spec.ts`
+- **Endpoints added**: `GET/POST /api/diaspora/buyer-orders`, `GET/PATCH /buyer-orders/:id`,
+  `POST /buyer-orders/:id/publish-rfq`, `GET /buyer-orders/:id/matches`,
+  `POST /buyer-orders/:id/quotes`, `POST /buyer-orders/:id/accept-quote`, `GET /rfqs`,
+  `PATCH /quotes/:id`, `POST /quotes/:id/submit`, `POST /quotes/:id/withdraw`.
+- **Frontend routes added**: `/diaspora/rfq` (owner/dealer/admin; runtime buyer/seller split).
+- **Security/integrity**: buyers see only own orders; sellers see only published RFQs (not own);
+  matching excludes unavailable/private stock; quote submit idempotent on key; acceptance is
+  transactional (rejects siblings) + idempotent; only DRAFT quotes editable; sealed audit on
+  publish/accept/submit. No payment-release/compliance controls exposed.
+- **Tests run / results**: backend `diaspora-rfq.test.js` → 11/11 pass; e2e
+  `diaspora-reverse-rfq.spec.ts` → 4/4 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations**: matching is deterministic over published stock (no AI scoring, by design);
+  participant-table access not used here (buyer/tenant/reviewer scoping instead).
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 5 — AI Command Hardening.
+
+## Milestone: Phase 5 — AI Command Hardening
+
+- **Objective**: Controlled AI command pipeline — text → draft action with risk gates; high-risk
+  execution blocked; AI never directly mutates domain records.
+- **Repository findings / schema**: `diaspora_ai_commands` exists (Phase 1B). No migration needed.
+- **Files changed**:
+  - `backend/constants/diaspora/diasporaAiConstants.js` (risk tiers, intent catalogue)
+  - `backend/services/diaspora/diasporaAiIntentParser.js` (deterministic parser)
+  - `backend/services/diaspora/diasporaAiCommandService.js` (pipeline + execution adapter)
+  - `backend/routes/diasporaAiCommandRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-ai-command.test.js`
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaAiCommandCenter.tsx`
+  - `web/src/App.tsx` (`/diaspora/ai-commands`), `web/src/config/featureRegistry.ts` (`diaspora.ai-command-center`)
+  - `web/e2e/diaspora-ai-command-center.spec.ts`
+- **Endpoints added**: `POST /api/diaspora/ai-commands/parse`, `POST/GET /ai-commands`,
+  `GET /ai-commands/:id`, `POST /ai-commands/:id/{confirm,approve,reject,execute}`.
+- **Frontend routes added**: `/diaspora/ai-commands` (dealer/admin/government).
+- **Security/integrity**: LOW → draft-only auto; MEDIUM → confirmation required; HIGH → reviewer
+  approval but **execution always blocked** (even when approved). Execution re-validates
+  permission/risk/gate (never parse-time auth). Low-confidence/ambiguous → NEEDS_REVIEW (cannot
+  execute). Duplicate fingerprint de-dupe. RESERVE_STOCK executes only via the ledger (no direct
+  quantity write). AI cannot release escrow / approve compliance / verify documents / complete
+  shipments / override ledger. Tenant + requester isolation. Sealed audit at every step.
+- **Tests run / results**: backend `diaspora-ai-command.test.js` → 12/12 pass; e2e
+  `diaspora-ai-command-center.spec.ts` → 5/5 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations**: deterministic keyword parser only (LLM adapter seam documented, not wired);
+  voice input is reported as unavailable (text-only this phase, per directive §21).
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 6 — Container Co-Loading.
+
+## Milestone: Phase 6 — Container Co-Loading
+
+- **Objective**: Shared-container marketplace with authoritative server-side capacity rules.
+- **Repository findings / schema**: `diaspora_container_shipments` + `diaspora_cargo_reservations`
+  exist. No migration needed. New endpoints use a `/container-marketplace` prefix to avoid shadowing
+  the legacy `/containers` and `/reservations` routes (depended on by `diaspora-reservation-auth.test.js`).
+- **Files changed**:
+  - `backend/services/diaspora/diasporaContainerMarketplaceService.js`
+  - `backend/routes/diasporaContainerMarketplaceRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-container-marketplace.test.js`
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaContainerMarketplace.tsx`
+  - `web/src/App.tsx` (`/diaspora/containers`), `web/src/config/featureRegistry.ts` (`diaspora.container-marketplace`)
+  - `web/e2e/diaspora-container-marketplace.spec.ts`
+- **Endpoints added**: `GET/POST /api/diaspora/container-marketplace/containers`,
+  `GET /container-marketplace/containers/:id/capacity`,
+  `GET/POST /container-marketplace/containers/:id/reservations`,
+  `POST /container-marketplace/containers/:id/close-booking`,
+  `POST /container-marketplace/reservations/:id/{approve,reject,cancel}`.
+- **Frontend routes added**: `/diaspora/containers` (owner/dealer/admin/government).
+- **Capacity rules**: USED = Σ approved volume; AVAILABLE = total − used; FILL = used/total;
+  READY_TO_CLOSE ≥ 0.90; FULL ≥ 0.98. Pending reservations do not consume; approval recomputes from
+  the approved set and rejects overfill (so concurrent approvals can't overfill); cancel/reject
+  release capacity; optional weight enforcement; zero/negative total invalid; closing booking ≠
+  shipment completion. Participant-safe reservation listing. Sealed audit on every transition.
+- **Tests run / results**: backend `diaspora-container-marketplace.test.js` → 12/12 pass; e2e
+  `diaspora-container-marketplace.spec.ts` → 4/4 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations**: true serialization of concurrent approvals would need a DB transaction/
+  constraint; the recompute-then-check closes the obvious overfill gap at the service layer.
+- **Blockers**: none.
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Phase 7 — Google Drive Integration.
+
+## Milestone: Phase 7 — Google Drive Integration
+
+- **Objective**: Secure, provider-abstracted Drive integration for user-owned trade documents.
+- **State**: CODE-COMPLETE PENDING EXTERNAL ACTIVATION (mocked flows pass; live Google needs real
+  OAuth credentials + the Google API client — an explicit external step, documented, never faked).
+- **Repository findings / schema**: `diaspora_drive_connections` + `diaspora_drive_files` exist
+  (Phase 1B). No migration needed.
+- **Files changed**:
+  - `backend/constants/diaspora/diasporaDriveConstants.js`
+  - `backend/services/diaspora/drive/driveProvider.js` (interface + MockDriveProvider + factory)
+  - `backend/services/diaspora/drive/googleDriveProvider.js` (real auth-URL; ops gated on activation)
+  - `backend/services/diaspora/diasporaDriveSyncService.js`
+  - `backend/routes/diasporaDriveRoutes.js` (+ mounted in `diasporaRoutes.js`)
+  - `backend/tests/diaspora-drive.test.js`
+  - `backend/env.example` (Drive env vars, no real values)
+  - `web/src/types/index.ts`, `web/src/hooks/useCarUpApi.ts`
+  - `web/src/pages/diaspora/DiasporaDriveConnections.tsx`
+  - `web/src/App.tsx` (`/diaspora/drive`), `web/src/config/featureRegistry.ts` (`diaspora.drive-connections`)
+  - `web/e2e/diaspora-drive-connections.spec.ts`
+- **Endpoints added**: `GET /api/diaspora/drive/status`, `GET /drive/google/authorize`,
+  `GET /drive/google/callback`, `POST /drive/disconnect`, `GET /drive/files`, `POST /drive/upload`,
+  `POST /drive/export`, `POST /drive/sync`.
+- **Frontend routes added**: `/diaspora/drive` (owner/dealer/admin).
+- **Security**: minimal `drive.file` scope; signed OAuth state bound to the initiating user (tampered/
+  foreign state rejected); tokens never persisted (only an opaque `credential_reference`) and never
+  returned to the frontend or logged; revoked token → REVOKED/reconnect; provider errors sanitized;
+  disconnect revokes + drops the local reference; per-user isolation; feature-flag gate;
+  mockable provider for tests. Truthful XLSX-export limitation surfaced in UI.
+- **Env vars required** (no real values; see `backend/env.example`): `DIASPORA_DRIVE_ENABLED`,
+  `DIASPORA_DRIVE_MOCK`, `DIASPORA_DRIVE_STATE_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+  `GOOGLE_DRIVE_REDIRECT_URI`.
+- **Tests run / results**: backend `diaspora-drive.test.js` → 12/12 pass; e2e
+  `diaspora-drive-connections.spec.ts` → 4/4 pass; tsc OK; route-validation 7/7; build OK.
+- **Known limitations / external blocker**: live Google Drive requires user-supplied OAuth
+  credentials, the Google API client dependency, and an authorized end-to-end test. No dependency was
+  added. OneDrive is interface-only. Binary XLSX→Drive parity deferred (Phase 2C is JSON-only).
+- **Blockers**: live activation requires real Google OAuth credentials (user-provided).
+- **Commit SHA**: _set on commit_.
+- **Next milestone**: Final regression + handoff docs; keep PR draft.
