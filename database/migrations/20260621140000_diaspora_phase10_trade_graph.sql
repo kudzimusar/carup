@@ -232,9 +232,14 @@ CREATE TABLE IF NOT EXISTS public.trade_graph_materialized_summaries (
   updated_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
+-- Dedup the CURRENT summary per (tenant, node, type): the live row is the one with valid_until IS
+-- NULL; superseded versions get valid_until stamped. A predicate of `valid_until > now()` cannot be
+-- used here (index predicates must be IMMUTABLE — now() is STABLE), and is unnecessary: expiry is
+-- represented by setting valid_until, so `valid_until IS NULL` is the exact, time-independent
+-- "currently valid" set.
 CREATE UNIQUE INDEX IF NOT EXISTS trade_graph_materialized_summaries_dedup
   ON public.trade_graph_materialized_summaries (tenant_id, node_id, summary_type)
-  WHERE valid_until IS NULL OR valid_until > timezone('utc'::text, now());
+  WHERE valid_until IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_trade_graph_materialized_summaries_validity
   ON public.trade_graph_materialized_summaries (tenant_id, valid_until DESC);
