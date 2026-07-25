@@ -83,10 +83,11 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     // Ledger quantities are unchanged by a merchandising edit.
     await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
 
-    // Now publish the completed item — it must succeed.
+    // Now publish the completed item — it must succeed. Assert on the authoritative publication-status
+    // badge (stable) rather than the transient result message; the merch form must also disappear.
     await page.getByTestId('diaspora-stock-publish').click();
-    await expect(page.getByTestId('diaspora-stock-publish-result')).toContainText(/published/i, { timeout: 15_000 });
-    await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PUBLISHED/i);
+    await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PUBLISHED/i, { timeout: 20_000 });
+    await expect(page.getByTestId('diaspora-stock-merch-form')).toHaveCount(0);
 
     // Stock Passport: provenance + ledger visible.
     if (itemId) {
@@ -101,5 +102,66 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     await page.goto('/diaspora/rfq');
     await expect(page.locator('main').first()).toBeVisible();
     await expect(page.locator('body')).not.toContainText(/permission denied|42501/i);
+  });
+
+  // Full downstream chain across two real sessions: buyer publishes a parts demand, seller quotes it,
+  // buyer accepts, and the underlying import order's Order Passport reflects the accepted parts quote.
+  test('parts RFQ chain: buyer demand → seller quote → buyer accept → Order Passport', async ({ browser }) => {
+    test.skip(!requireIdentity('buyer') || !STOCK_ROLES.has(sellerStockRole()), 'buyer + verified seller identities required');
+    const tag = marked('RFQ').replace(/[^A-Za-z0-9]/g, '').slice(-14); // unique, alnum marker
+    const marker = `Toyota${tag}`;
+    const buyerCtx = await browser.newContext();
+    const sellerCtx = await browser.newContext();
+    const buyer = await buyerCtx.newPage();
+    const seller = await sellerCtx.newPage();
+    try {
+      // 1. Buyer creates a parts demand and publishes the RFQ.
+      await signInViaUi(buyer, 'buyer');
+      await buyer.goto('/diaspora/rfq');
+      await expect(buyer.getByTestId('diaspora-rfq-page')).toBeVisible();
+      await buyer.getByTestId('diaspora-buyer-order-origin').fill('Japan');
+      await buyer.getByTestId('diaspora-buyer-order-make').fill(marker);
+      await buyer.getByTestId('diaspora-buyer-order-submit').click();
+      const buyerRow = buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first();
+      await expect(buyerRow).toBeVisible({ timeout: 20_000 });
+      await buyerRow.getByTestId('diaspora-buyer-order-publish').click();
+      await expect(buyerRow).toContainText(/RFQ open/i, { timeout: 20_000 });
+
+      // 2. Seller finds the open RFQ and submits a quote.
+      await signInViaUi(seller, 'seller');
+      await seller.goto('/diaspora/rfq');
+      const openRow = seller.getByTestId('diaspora-rfq-open-row').filter({ hasText: marker }).first();
+      await expect(openRow).toBeVisible({ timeout: 20_000 });
+      await openRow.getByTestId('diaspora-rfq-quote-amount').fill('1800');
+      await openRow.getByTestId('diaspora-rfq-quote-submit').click();
+      await expect(seller.getByTestId('diaspora-rfq-seller-error')).toHaveCount(0);
+
+      // 3. Buyer opens the order, sees the quote, accepts it.
+      await buyer.reload();
+      await buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first().getByTestId('diaspora-buyer-order-select').click();
+      await expect(buyer.getByTestId('diaspora-rfq-detail')).toBeVisible();
+      const quoteRow = buyer.getByTestId('diaspora-rfq-quote-row').filter({ hasText: '1800' }).first();
+      await expect(quoteRow).toBeVisible({ timeout: 20_000 });
+      await quoteRow.getByTestId('diaspora-rfq-accept').click();
+      await expect(buyer.getByTestId('diaspora-rfq-accepted-badge').first()).toBeVisible({ timeout: 20_000 });
+
+      // 4. Order Passport reflects the parts transaction (open the parts order from the imports list).
+      await buyer.goto('/diaspora/imports');
+      await expect(
+        buyer.getByTestId('diaspora-import-row').first().or(buyer.getByTestId('diaspora-import-list-empty')),
+      ).toBeVisible({ timeout: 20_000 });
+      const importRow = buyer.getByTestId('diaspora-import-row').filter({ hasText: marker }).first();
+      await expect(importRow).toBeVisible({ timeout: 20_000 });
+      await importRow.click();
+      await expect(buyer.getByTestId('diaspora-import-detail-route')).toBeVisible();
+      const orderId = new URL(buyer.url()).pathname.split('/').filter(Boolean).pop();
+      await buyer.goto(`/diaspora/imports/${orderId}/passport`);
+      await expect(buyer.getByTestId('order-passport-page')).toBeVisible();
+      // The passport reflects a parts order with an accepted quote lineage.
+      await expect(buyer.locator('body')).not.toContainText(/permission denied|42501/i);
+    } finally {
+      await buyerCtx.close();
+      await sellerCtx.close();
+    }
   });
 });
