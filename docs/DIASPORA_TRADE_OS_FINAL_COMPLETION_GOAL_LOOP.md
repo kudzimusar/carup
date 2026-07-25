@@ -453,3 +453,17 @@ fail-closed public APIs). Full evidence: `docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSE
 Suite: `playwright.staging.config.ts` + `tests/agents/32..35-diaspora-staging-browser-*.spec.ts`
 (freshness-gated via `STAGING_EXPECTED_BUNDLE`; re-run after the operator's staging apply + aliased
 deploy to auto-unskip the gated journeys). Verdict: **GO WITH KNOWN LIMITATIONS.**
+
+## Release-gate deployed-browser UAT (2026-07-25, run `uat-20260725-final`)
+
+**GO FOR RELEASE GATE.** All three operator gates cleared on real staging: ledger #11–#18 applied to
+carup-staging (two production-bound bugs fixed en route — #15 IMMUTABLE index, #18 pgcrypto search_path
+breaking all 5 atomic RPCs); PR #90 deployed to the canonical staging aliases (FE `index-D7WRbSG1.js`,
+BE Phase-8 routes live); 5 verified identities provisioned via the authoritative users table.
+Real-Chromium no-skip suite: **40 passed / 0 failed / 0 skipped / 0 flaky** (desktop + mobile), zero
+unexpected console/network errors. Public marketplace, buyer→Order Passport, seller ledger-backed stock
++ publish gate, reviewer/workbook consoles, and cross-tenant/role/anon isolation all pass on real
+deployed pages. Foundation writes blocked live (5/5 authenticated 42501). MED finding: stock-manager UI
+is a draft creator (no merchandising editor) so the full seller publish→downstream chain needs
+workbook-imported stock. Production untouched. Full evidence:
+`docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md`.
