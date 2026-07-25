@@ -4,7 +4,7 @@
  * Draft stock items, descriptive updates (never quantity overwrite), tenant-scoped list/detail, and
  * reserve / release that delegate to the immutable ledger.
  */
-import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
+import { NotFoundError, ValidationError, ForbiddenError, ConflictError } from '../../utils/errors.js';
 import {
   STOCK_CONDITIONS,
   STOCK_EXPORT_READINESS,
@@ -173,6 +173,20 @@ export async function updateStockItem(id, payload = {}, userContext = {}, option
   const { req = null } = options;
 
   const previous = await getStockItem(id, context, options);
+
+  // Optimistic concurrency: if the client sends the version it last saw and the row has since moved,
+  // reject with 409 instead of silently clobbering a concurrent edit. Optional (backwards compatible).
+  if (payload.expected_updated_at != null) {
+    const seen = String(payload.expected_updated_at);
+    const current = String(previous.updated_at);
+    if (seen !== current) {
+      throw new ConflictError('Stock item was modified by someone else. Reload and re-apply your changes.', {
+        code: 'STALE_STOCK_VERSION',
+        expected_updated_at: seen,
+        current_updated_at: current,
+      });
+    }
+  }
 
   for (const key of ['quantity_on_hand', 'quantity_reserved', 'quantity', 'initial_quantity']) {
     if (key in payload) {

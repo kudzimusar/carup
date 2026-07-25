@@ -47,6 +47,53 @@ test('direct quantity overwrite is rejected on update', async () => {
   );
 });
 
+test('seller can edit own draft merchandising details, then publish succeeds', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Radiator', initial_quantity: 4 }, seller, { supabaseClient: client });
+  const edited = await stock.updateStockItem(item.id, {
+    part_name: 'Radiator', unit_price: 250, currency: 'USD', condition: 'USED', vehicle_make: 'Toyota',
+  }, seller, { supabaseClient: client });
+  assert.equal(Number(edited.unit_price), 250);
+  assert.equal(edited.vehicle_make, 'Toyota');
+  // quantities untouched by the edit (still ledger-derived)
+  assert.equal(Number(edited.quantity_on_hand), 4);
+  const published = await stock.publishStockItem(edited.id, {}, seller, { supabaseClient: client });
+  assert.equal(String(published.publication_status).toUpperCase(), 'PUBLISHED');
+});
+
+test('merchandising edit enforces optimistic-concurrency (stale version → 409 conflict)', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Belt' }, seller, { supabaseClient: client });
+  const current = await stock.getStockItem(item.id, seller, { supabaseClient: client });
+  await assert.rejects(
+    () => stock.updateStockItem(item.id, { unit_price: 10, expected_updated_at: '1999-01-01T00:00:00.000Z' }, seller, { supabaseClient: client }),
+    (err) => err.statusCode === 409 && /modified by someone else/i.test(err.message),
+  );
+  // Correct version token succeeds.
+  const ok = await stock.updateStockItem(item.id, { unit_price: 10, expected_updated_at: current.updated_at }, seller, { supabaseClient: client });
+  assert.equal(Number(ok.unit_price), 10);
+});
+
+test('seller cannot edit another seller\'s draft (ownership enforced)', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Mirror' }, seller, { supabaseClient: client });
+  await assert.rejects(
+    () => stock.updateStockItem(item.id, { unit_price: 5 }, otherSeller, { supabaseClient: client }),
+    (err) => /access|forbidden|not found/i.test(err.message),
+  );
+});
+
+test('merchandising edit cannot escalate protected fields (tenant / verification / publication)', async () => {
+  const client = freshClient();
+  const item = await stock.createStockItem({ part_name: 'Hose' }, seller, { supabaseClient: client });
+  for (const bad of [{ tenant_id: 'other-tenant' }, { verification_status: 'VERIFIED' }, { publication_status: 'PUBLISHED' }]) {
+    await assert.rejects(
+      () => stock.updateStockItem(item.id, bad, seller, { supabaseClient: client }),
+      /protected and cannot be set directly/i,
+    );
+  }
+});
+
 test('ledger movements compute quantities and reservations correctly', async () => {
   const client = freshClient();
   const item = await stock.createStockItem({ part_name: 'Alternator', initial_quantity: 20 }, seller, { supabaseClient: client });

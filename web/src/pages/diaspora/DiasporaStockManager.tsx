@@ -53,6 +53,17 @@ export default function DiasporaStockManager() {
   const [publishMessage, setPublishMessage] = useState('')
   const [publishError, setPublishError] = useState('')
 
+  // merchandising edit form (the fields the publish-completeness validator requires; quantities,
+  // tenant, verification and publication remain server/ledger-owned and are never sent here)
+  const [editPartNumber, setEditPartNumber] = useState('')
+  const [editVehicleMake, setEditVehicleMake] = useState('')
+  const [editCondition, setEditCondition] = useState('')
+  const [editUnitPrice, setEditUnitPrice] = useState('')
+  const [editCurrency, setEditCurrency] = useState('USD')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editMessage, setEditMessage] = useState('')
+  const [editError, setEditError] = useState('')
+
   // supply document form
   const [docNumber, setDocNumber] = useState('')
   const [docTitle, setDocTitle] = useState('')
@@ -102,12 +113,50 @@ export default function DiasporaStockManager() {
     void loadDocs()
   }, [authLoading, canView, loadList, loadDocs])
 
+  const syncEditForm = (item: DiasporaStockItem) => {
+    setEditPartNumber(item.part_number || '')
+    setEditVehicleMake(item.vehicle_make || '')
+    setEditCondition(item.condition || '')
+    setEditUnitPrice(item.unit_price != null ? String(item.unit_price) : '')
+    setEditCurrency(item.currency || 'USD')
+    setEditMessage('')
+    setEditError('')
+  }
+
   const selectItem = async (item: DiasporaStockItem) => {
     setSelected(item)
     setActionError('')
     setPublishMessage('')
     setPublishError('')
+    syncEditForm(item)
     await loadLedger(item.id)
+  }
+
+  const handleSaveMerchandising = async () => {
+    if (editSaving || !selected) return
+    setEditMessage('')
+    setEditError('')
+    setEditSaving(true)
+    try {
+      const updated = await api.updateDiasporaStockItem(selected.id, {
+        part_name: selected.part_name,
+        part_number: editPartNumber.trim() || undefined,
+        vehicle_make: editVehicleMake.trim() || undefined,
+        condition: editCondition || undefined,
+        unit_price: editUnitPrice ? Number(editUnitPrice) : undefined,
+        currency: editCurrency || undefined,
+        // Optimistic-concurrency guard: reject if the row moved since we loaded it.
+        expected_updated_at: selected.updated_at,
+      })
+      setSelected(updated)
+      syncEditForm(updated)
+      setEditMessage('Merchandising details saved.')
+      await loadList()
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Unable to save merchandising details')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   const handlePublishToggle = async () => {
@@ -327,13 +376,54 @@ export default function DiasporaStockManager() {
         {/* Detail + ledger + supply docs */}
         <div className="space-y-4">
           {selected ? (
-            <section className="rounded-md border border-gray-200 bg-white p-5" data-testid="diaspora-stock-detail">
+            <section className="rounded-md border border-gray-200 bg-white p-5" data-testid="diaspora-stock-detail" data-stock-id={selected.id}>
               <h2 className="text-lg font-semibold text-gray-950">{selected.part_name}</h2>
               <div className="mt-3 grid grid-cols-3 gap-3">
                 <div className="rounded-md border border-gray-200 p-3"><p className="text-xs uppercase text-gray-500">On hand</p><p className="text-2xl font-semibold" data-testid="diaspora-stock-balance-onhand">{balances.onHand}</p></div>
                 <div className="rounded-md border border-gray-200 p-3"><p className="text-xs uppercase text-gray-500">Reserved</p><p className="text-2xl font-semibold" data-testid="diaspora-stock-balance-reserved">{balances.reserved}</p></div>
                 <div className="rounded-md border border-gray-200 p-3"><p className="text-xs uppercase text-gray-500">Available</p><p className="text-2xl font-semibold" data-testid="diaspora-stock-balance-available">{balances.available}</p></div>
               </div>
+
+              {/* Merchandising details — the fields the publish-completeness validator requires.
+                  Server-derived seller/tenant/verification and ledger quantities are never sent. */}
+              {(selected.publication_status || '').toUpperCase() !== 'PUBLISHED' && (
+                <div className="mt-4 rounded-md border border-gray-200 p-3" data-testid="diaspora-stock-merch-form">
+                  <p className="text-sm font-medium text-gray-900">Merchandising details</p>
+                  <p className="mt-0.5 text-xs text-gray-500">Complete these to publish. Quantities change only through the ledger.</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-xs text-gray-600" htmlFor="merch-unit-price">Unit price</label>
+                      <Input id="merch-unit-price" type="number" min="0" step="0.01" value={editUnitPrice} onChange={(e) => setEditUnitPrice(e.target.value)} data-testid="diaspora-stock-merch-unit-price" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600" htmlFor="merch-currency">Currency</label>
+                      <Input id="merch-currency" value={editCurrency} onChange={(e) => setEditCurrency(e.target.value.toUpperCase())} data-testid="diaspora-stock-merch-currency" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600" htmlFor="merch-condition">Condition</label>
+                      <select id="merch-condition" className="mt-1 block w-full rounded-md border border-gray-300 px-2 py-2 text-sm" value={editCondition} onChange={(e) => setEditCondition(e.target.value)} data-testid="diaspora-stock-merch-condition">
+                        <option value="">Select…</option>
+                        {['NEW', 'USED', 'REFURBISHED', 'FOR_PARTS'].map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600" htmlFor="merch-vehicle-make">Vehicle make</label>
+                      <Input id="merch-vehicle-make" value={editVehicleMake} onChange={(e) => setEditVehicleMake(e.target.value)} data-testid="diaspora-stock-merch-vehicle-make" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs text-gray-600" htmlFor="merch-part-number">Part number (or provide vehicle make / OEM)</label>
+                      <Input id="merch-part-number" value={editPartNumber} onChange={(e) => setEditPartNumber(e.target.value)} data-testid="diaspora-stock-merch-part-number" />
+                    </div>
+                  </div>
+                  <Button size="sm" className="mt-3" onClick={handleSaveMerchandising} disabled={editSaving} data-testid="diaspora-stock-merch-save">
+                    {editSaving ? 'Saving…' : 'Save merchandising details'}
+                  </Button>
+                  <p aria-live="polite" className="mt-1 text-sm">
+                    {editMessage && <span className="font-medium text-green-700" data-testid="diaspora-stock-merch-result">{editMessage}</span>}
+                    {editError && <span className="font-medium text-red-700" data-testid="diaspora-stock-merch-error">{editError}</span>}
+                  </p>
+                </div>
+              )}
 
               <div className="mt-4 rounded-md border border-gray-200 p-3">
                 <div className="flex flex-wrap items-center gap-2">

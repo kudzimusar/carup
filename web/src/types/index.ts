@@ -682,6 +682,8 @@ export interface DiasporaStockItemPayload {
   initial_quantity?: number;
   supply_document_id?: string;
   metadata?: Record<string, unknown>;
+  /** Optimistic-concurrency token (the row's last-seen updated_at); a mismatch yields 409. */
+  expected_updated_at?: string;
 }
 
 export interface DiasporaStockLedgerEntry {
