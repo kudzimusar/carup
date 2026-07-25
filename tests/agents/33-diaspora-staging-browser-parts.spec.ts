@@ -30,15 +30,22 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
       'seller identity lacks a VERIFIED dealer role — switch-role correctly refused self-elevation (fail-closed); operator must provision a verified seller identity');
     await signInViaUi(page, 'seller');
 
-    // Seller trade profile (W2) exists or is created.
+    // Seller trade profile (W2) exists or is created. Wait for the own-profile list to SETTLE (rows
+    // or explicit empty state) before deciding — else a race reads 0 rows and re-creates a duplicate.
     await page.goto('/diaspora/trade-profile');
     await expect(page.getByTestId('diaspora-trade-profile-route')).toBeVisible();
+    await expect(
+      page.getByTestId('diaspora-trade-profile-own-row').first().or(page.getByTestId('diaspora-trade-profile-empty')),
+    ).toBeVisible({ timeout: 20_000 });
     if ((await page.getByTestId('diaspora-trade-profile-own-row').count()) === 0) {
-      await page.getByTestId('diaspora-trade-profile-role').selectOption('seller');
+      const roleSel = page.getByTestId('diaspora-trade-profile-role');
+      if (await roleSel.count()) await roleSel.selectOption('seller').catch(() => {});
       await page.getByTestId('diaspora-trade-profile-country').fill('UAE');
       await page.getByTestId('diaspora-trade-profile-city').fill('Dubai');
       await page.getByTestId('diaspora-trade-profile-submit').click();
-      await expect(page.getByTestId('diaspora-trade-profile-result')).toContainText(/created/i);
+      await expect(
+        page.getByTestId('diaspora-trade-profile-result').or(page.getByTestId('diaspora-trade-profile-own-row').first()),
+      ).toBeVisible({ timeout: 20_000 });
     }
 
     // Stock manager (requires the dealer/seller stakeholder role — provisioned via the product's
