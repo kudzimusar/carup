@@ -48,8 +48,9 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
       ).toBeVisible({ timeout: 20_000 });
     }
 
-    // Stock manager (requires the dealer/seller stakeholder role — provisioned via the product's
-    // real /api/auth/switch-role during identity setup). Real testids from DiasporaStockManager.tsx.
+    // Stock manager. Real testids from DiasporaStockManager.tsx. The create form ("New draft stock")
+    // takes part name + opening quantity only — the opening balance is seeded THROUGH THE LEDGER
+    // (diaspora_append_stock_movement_atomic), never a direct quantity write.
     await page.goto('/diaspora/stock');
     await expect(page.getByTestId('diaspora-stock-page')).toBeVisible();
     const name = marked('Brake pads');
@@ -58,19 +59,35 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     await page.getByTestId('diaspora-stock-create-submit').click();
     await expect(page.getByTestId('diaspora-stock-row').filter({ hasText: name }).first()).toBeVisible({ timeout: 20_000 });
 
-    // Manage the created item (supply evidence / publish live inside the manage panel).
+    // Select the item; the detail panel's balances are DERIVED FROM THE LEDGER (proves quantities are
+    // not directly overwritten — the opening 10 came from the atomic movement RPC).
     await page.getByTestId('diaspora-stock-row').filter({ hasText: name }).getByTestId('diaspora-stock-select').click();
-    const publish = page.getByRole('button', { name: /publish/i }).first();
-    if (await publish.count()) {
-      await publish.click();
-      await expect(page.getByText(/published/i).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('diaspora-stock-detail')).toBeVisible();
+    await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
+    await expect(page.getByTestId('diaspora-stock-balance-available')).toHaveText('10');
+    await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PRIVATE|DRAFT/i);
+
+    // Publish: the stock-manager UI is a DRAFT creator (no merchandising-field editor), so a UI-only
+    // draft is intentionally not publishable — publishing surfaces the completeness gate (fail-closed).
+    // A fully-merchandised item (via workbook import) publishes; either real outcome is asserted here.
+    await page.getByTestId('diaspora-stock-publish').click();
+    const publishOutcome = page.getByTestId('diaspora-stock-publish-result').or(page.getByTestId('diaspora-stock-publish-error'));
+    await expect(publishOutcome).toBeVisible({ timeout: 15_000 });
+    const published = (await page.getByTestId('diaspora-stock-publication-status').innerText()).toUpperCase().includes('PUBLISHED');
+    if (!published) {
+      // Prove the guard is the completeness gate, not an unexpected failure.
+      await expect(page.getByTestId('diaspora-stock-publish-error')).toContainText(/missing required fields|not PUBLISHED/i);
     }
 
-    // Stock Passport: provenance + ledger visible; quantities derive from ledger entries.
+    // Stock Passport: provenance + ledger visible (the draft already has its opening ledger entry).
+    const itemId = await page.getByTestId('diaspora-stock-detail').getAttribute('data-stock-id').catch(() => null);
     const passportLink = page.locator('a[href*="/passport"]').first();
     if (await passportLink.count()) {
       await passportLink.click();
       await expect(page.locator('main').first()).toBeVisible();
+      await expect(page.getByText(/ledger/i).first()).toBeVisible();
+    } else if (itemId) {
+      await page.goto(`/diaspora/stock/${itemId}/passport`);
       await expect(page.getByText(/ledger/i).first()).toBeVisible();
     }
   });
