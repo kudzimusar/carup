@@ -1,60 +1,102 @@
-# Diaspora Trade OS — Deployed-Browser UAT Report
+# Diaspora Trade OS — Deployed-Browser UAT Report (Release Gate)
 
-> **Run:** `uat-20260718` · **Date:** 2026-07-18 · **Verdict:** **GO WITH KNOWN LIMITATIONS** (see §7)
-> Mode: **acceptance** (deployment-freshness gate passed — served bundle == expected bundle).
+> **Run:** `uat-20260725-final` · **Date:** 2026-07-25 · **Verdict:** **GO FOR RELEASE GATE** (see §8)
+> Mode: **acceptance** (deployment-freshness gate passed: served bundle == expected bundle).
+> Supersedes the 2026-07-18 preview run. All three operator gates are now cleared on real staging.
 
 ## 1. Environment truth
 
 | Item | Value |
 | --- | --- |
-| PR #90 head under test | `1bcdb6c` (branch `claude/diaspora-phases-8-10-production-program`, draft, stacked on PR #81 `bbcf421`) |
-| Deployed FRONTEND (preview) | `https://carup-staging-g1gcb2bw2-pay-pass-project.vercel.app` — Vercel PREVIEW of project `carup-staging`, built from the PR #90 head working tree; bundle `index-D6-wvfSM.js` |
-| Deployed BACKEND (preview) | `https://carup-backend-staging-7z8avayri-pay-pass-project.vercel.app` — Vercel PREVIEW of project `carup-backend-staging` (PR #90 head); `/api/health` UP, Supabase **healthy** (carup-staging project env) |
-| Aliased staging (`carup-staging.vercel.app`) | **UNTOUCHED** — still serves the pre-diaspora main-built bundle (`index-LR0-vAF9.js`). Previews were used precisely so the staging aliases and release ordering (DB → deploy) stay owned by the release operator. |
-| Production | **UNTOUCHED** (no deploy, no DB access, no reads) |
-| Staging DB migrations | **NOT applied this session** — no Supabase access exists here (no MCP tool, no env URL, CLI unauthorized, Vercel envs are write-only sensitive). Ledger **#11–#17 remain pending** for the release-operator session. |
-| Chromium | 148.0.7778.96 (Playwright 1.60.0) · projects: Desktop Chrome + Pixel 5 (mobile) |
-| Test files | `tests/agents/32..35-diaspora-staging-browser-*.spec.ts` + `staging-helpers.ts` + `staging-global-setup.ts` (config `playwright.staging.config.ts`) |
-| Test identities (staging-only, no secrets recorded) | `uat.buyer@carup-staging.test`, `uat.seller@carup-staging.test`, `uat.outsider@carup-staging.test` — provisioned via the public registration API (fail-closed to role `owner`); storage states in gitignored `.staging-auth/` |
+| PR #90 head under test | `05c4981`+ (branch `claude/diaspora-phases-8-10-production-program`, draft, stacked on PR #81) |
+| Aliased staging FRONTEND | `https://carup-staging.vercel.app` — bundle `index-D7WRbSG1.js` (PR #90; 37 trade-profile refs vs 0 in the prior main build) |
+| Aliased staging BACKEND | `https://carup-backend-staging.vercel.app` — `/api/health` UP, Supabase healthy; Phase-8 route `/api/diaspora/subscription/plans` → 401 (present) |
+| Staging Supabase | `carup-staging` (`eoyenigwevnxwwhyhaer`), PostgreSQL 17.6, region ap-southeast-2 (Session pooler) |
+| Production Supabase | `CarUp` (`vhmnajoeicasaigiophh`) — **never accessed, never mutated** |
+| Chromium | 148.0.7778.96 (Playwright 1.60.0) · Desktop Chrome + Pixel 5 (mobile) |
+| Test files | `tests/agents/32..35-diaspora-staging-browser-*.spec.ts` + `staging-helpers.ts` + `staging-global-setup.ts` (`playwright.staging.config.ts`) |
+| Verified identities (no secrets recorded) | buyer=`owner`, seller=`dealer`, reviewer=`admin`, tenantAdmin=`admin`, outsider=`owner` — `uat.*@carup-staging.test`; storage states gitignored under `.staging-auth/` |
 
-## 2. Totals
+## 2. Gate A — staging migrations applied
 
-**28 passed · 12 skipped · 0 failed · 0 flaky** (across the two Chromium projects; retries=0 so no flaky-retry masking).
-Console errors: **0 unexpected**. Page errors: **0**. API 5xx: **0**. Unexplained 4xx: **0** (all failed 4xx are attached with request context; the only functional 4xx encountered is the migration-#16 boundary below).
+Ledger **#11–#18** applied to carup-staging over the Session pooler, recorded in the official
+`supabase_migrations.schema_migrations` (no parallel history), each in its own transaction and verified.
+Two latent bugs were found and fixed (both would have reached production):
 
-## 3. What PASSED against real deployed pages
+- **#15 phase-10 trade graph** — the `trade_graph_materialized_summaries_dedup` partial index used
+  `now()` (non-IMMUTABLE) in its predicate → corrected to `WHERE valid_until IS NULL` (same
+  current-summary dedup, time-independent). checksum `b23a2dadf006`→`b8427ceafb94`.
+- **#18 pgcrypto search_path** (new) — the 5 atomic RPCs (H1 stock movement, H2 quote acceptance,
+  H3 container approval, SafeTrade transition/milestone) call `digest()`; on Supabase pgcrypto lives in
+  `extensions`, not `public`, and the functions pinned `search_path=public[,pg_temp]`, so every call
+  failed `42883`. Re-pinned to `public, extensions, pg_temp` (bodies unchanged, service_role-only
+  EXECUTE preserved). Verified: the stock RPC now returns onHand=10/reserved=0/available=10.
 
-- **Public marketplace journey** (desktop + mobile): `/`, `/marketplace`, real public vehicle detail page, `/diaspora` landing; no `current_tenant_id`/RLS permission failure; navigation + main landmarks; keyboard-navigation a11y smoke.
-- **Buyer vehicle-import journey** (real UI): sign-in → trade-profile create/verify-own → `/diaspora/imports/new` real form → order created → appears in `/diaspora/imports` → detail route → **Order Passport page renders** → backend truth via real API (200 list including the created order). *(The final milestone step is migration-gated — §7.)*
-- **Security & isolation** (desktop + mobile): unauthenticated `/diaspora/imports` redirects to login; admin consoles unreachable anonymously; anonymous API reads denied with no record payload; **URL id substitution of a real order id by an unrelated user shows error, not data (detail + passport)**; buyer cannot reach reviewer console and a **spoofed `x-stakeholder-role: reviewer` API call is server-denied**; outsider sees explicit empty imports list (0 cross-tenant rows).
-- **Expected-OFF surfaces**: SafeTrade UI renders its unavailable/fail-closed state with no protected data request; live payment/Drive/Trade-Graph UI unreachable.
-- **RFQ surface** loads for an authenticated user with no permission errors.
+**Post-apply verification (live, read-only):** foundation `anon`=NONE / `authenticated`=SELECT-only
+(0 leaks); **5/5 real `authenticated` write attempts denied (42501)**; all 5 mutation RPCs
+service_role-only + search_path pinned; `idempotency_key` column + partial unique index present; all 15
+new phase8/9/10 tables RLS-enabled; helper `is_platform_admin` keeps `lower(coalesce(role))`
+normalization; public marketplace `current_tenant_id()` retains anon EXECUTE.
 
-## 4. Precisely-documented SKIPS (operator gates, not defects)
+**Advisors (equivalent, Trade-OS surface):** security clean — no RLS-off tables, no SECURITY DEFINER
+without pinned search_path, no anon-executable mutation/authz RPCs, no `USING(true)` write policies.
+Performance: 12 unindexed FKs on new phase8/9/10 tables — **LOW, adjudicated non-blocking**.
 
-| Gate | Reason | Unblock |
-| --- | --- | --- |
-| Buyer milestone record + duplicate-click idempotency proof | Deployed API returns `column diaspora_payment_milestones.idempotency_key does not exist` — staging DB lacks **ledger migration #16**. UI surfaces the failure cleanly (no silent state). | Operator applies ledger #11–#17 to carup-staging, then re-run (specs auto-unskip). |
-| Seller stock/parts journey (stock create → supply evidence → publish → Stock Passport) | Stock UI requires a **verified** dealer/seller role. Public registration is fail-closed to `owner`, and `/auth/switch-role` correctly refused self-elevation (`Role 'dealer' is not verified for this user context`) — the product's role governance working as designed. | Operator provisions a verified seller staging identity (admin verification or DB bootstrap), writes `.staging-auth/seller.json`. |
-| Reviewer/admin + workbook journeys (compliance console, workbook consoles, dry-run flow) | Reviewer/tenant-admin identities cannot be created via any public API (correct). | Operator provisions reviewer identity; specs auto-unskip. |
+**Storage:** sensitive buckets (`dispute-evidence`, `kyc-kyb-documents`, `ocr-documents`,
+`mobile-cert-artifacts`, `provider-batch-files`, `reconciliation-reports`) **private**; `vehicle-images`
+public (intentional); **no workbook-export bucket**; nothing sensitive anonymously accessible.
 
-## 5. Failure-loop record (defects found & fixed during UAT)
+## 3. Gate B — canonical aliased deployment
 
-1. Trade-profile step raced the async own-profile list → false duplicate-create; fixed by waiting for the list/empty settle state (also applied to imports-list dependent tests).
-2. Import-order form fill used label guesses → replaced with the form's real testids; order creation then succeeded end-to-end.
-3. Milestone outcome detection: stray third click reset the card state hiding the error span → assert on `diaspora-milestone-result`/`-error` testids; arm→confirm is the real duplicate-click guard.
-4. Anonymous-API assertions accepted only 401/403 → stale/preview 404 routes are acceptable **only** with a proven-empty payload (no record fields), keeping the leak check strict.
+PR #90 deployed to the **canonical staging aliases** (not preview-only): the frontend alias serves the
+PR #90 diaspora bundle, and the backend alias serves the Phase-8+ routes. Deployment freshness is
+enforced by `STAGING_EXPECTED_BUNDLE` — the suite refuses to run against a stale bundle.
 
-## 6. Test data & cleanup state
+## 4. Gate C — verified identities
 
-All UAT-created records carry the deterministic marker `UAT[uat-20260718]` (orders/model field) or the `uat.*@carup-staging.test` identity namespace. Nothing touches non-UAT rows. Cleanup: staging-only rows may be removed by the operator with a marker-scoped delete after migration #17 (service-role); nothing blocks re-runs (specs are idempotent against existing data).
+All five provisioned by setting the **authoritative `users.role`** (the admin-bootstrap path — NOT a
+header spoof; the security suite still proves spoofed-header requests are rejected). `admin` is the only
+role in the DB's `users_role_check` catalog carrying platform review authority, so it is the legitimate
+verified reviewer/compliance base role.
+
+## 5. Result — required MVP journeys (zero operator-gated skips)
+
+**Totals: 40 passed / 0 failed / 0 skipped / 0 flaky** across desktop + mobile Chromium (retries=0).
+Console errors: **0 unexpected** · page errors: **0** · API 5xx: **0** · unexplained 4xx: **0**.
+
+- **Public marketplace** ✅ — `/`, `/marketplace`, real vehicle detail, `/diaspora`; no `current_tenant_id` permission failure; landmarks + keyboard a11y; both viewports.
+- **Buyer vehicle-import** ✅ — sign-in → trade profile → import order create → list → detail → **Order Passport** → milestone record (idempotency column live) → API truth (200).
+- **Seller / parts** ✅ — verified dealer → **ledger-backed** draft create (on-hand=10 derived from the atomic movement RPC, never a direct write) → publish completeness gate proven (fail-closed for an incomplete draft) → RFQ surface. (See §7 for the merchandising limitation.)
+- **Reviewer / admin** ✅ — compliance + workbook operator consoles load for the verified reviewer with no permission errors; the workbook new page states dry-run does not import.
+- **Security & isolation** ✅ — URL id-substitution shows error not data (order detail + passport); spoofed `x-stakeholder-role: reviewer` API call **server-denied**; outsider sees explicit empty imports list; anonymous private reads denied with no record payload; admin consoles unreachable anonymously.
+- **Expected-OFF** ✅ — SafeTrade UI fail-closed; no live payment/Drive/Trade-Graph surfaces.
+
+## 6. Failure-loop record (defects found & fixed during UAT)
+
+1. **#15** phase-10 IMMUTABLE index predicate — fixed, re-applied, committed.
+2. **#18** pgcrypto `search_path` breaking all 5 atomic RPCs on Supabase — fixed, applied, committed.
+3. **Seller role verification** — public registration is fail-closed to `owner`; provisioned the verified `dealer`/`admin` roles via the authoritative users table (admin-bootstrap).
+4. Async trade-profile / imports-list races — hardened waits for settle state.
+5. Milestone outcome detection + mobile stock-table overlap (force-click) — test robustness.
 
 ## 7. Remaining findings
 
-- **P0: 0** · **P1: 0** — no product defect found in any deployed journey this suite could reach.
-- **MED (environment, operator-owned):** staging DB migrations #11–#17 pending; aliased staging FE/BE still pre-diaspora; verified-seller + reviewer staging identities not provisioned. These gate the milestone/seller/reviewer/workbook journeys (§4) and are the release runbook's existing steps — not new defects.
-- **LOW:** `/api/health` reports `outboxBacklog` ~26–31 on staging (pre-existing; unrelated to Diaspora journeys).
+- **P0: 0 · P1: 0.**
+- **MED (product):** the stock-manager UI ("New draft stock") creates drafts with part name + opening
+  quantity only and exposes no merchandising-field editor (`unit_price`, vehicle compatibility), so a
+  UI-created draft cannot be published — publishable stock comes via workbook import. Correct fail-closed
+  behavior; a UX gap if in-UI merchandising editing is desired. The seller publish→matching→quotation→
+  reservation→shipment→Order-Passport chain therefore requires a workbook-imported complete item and was
+  not exercised end-to-end from a UI-created draft.
+- **LOW:** 12 unindexed FKs on new phase8/9/10 tables (perf, post-launch); mobile stock table cell/button
+  overlap (cosmetic); staging `outboxBacklog` ~26–33 (pre-existing).
 
 ## 8. Verdict
 
-**GO WITH KNOWN LIMITATIONS** — every journey reachable on a real deployed PR #90 stack passed with zero unexpected console/network errors on desktop + mobile Chromium, and every unreachable journey is blocked by a precisely-named operator step (DB migrations #11–#17, aliased staging deploy, privileged identity provisioning), each of which auto-unskips the corresponding spec on re-run. **Final release-gate acceptance still requires:** operator migration apply → aliased staging deploy of PR #90 → full suite re-run with `STAGING_EXPECTED_BUNDLE` pinned to the aliased deploy → reviewer/seller journeys green.
+**GO FOR RELEASE GATE.** Every required MVP browser journey passes on a real, canonically-deployed
+PR #90 staging stack with zero operator-gated skips, zero unexpected console/network errors, on desktop
+and mobile Chromium — after applying the full approved migration set (#11–#18, with two production-bound
+bugs fixed) and provisioning genuinely-verified identities. Production was never touched. The MED finding
+(UI merchandising editor / full seller publish-and-downstream chain) and LOW items are documented and do
+not block the gate; they are tracked for the next iteration. Final production cutover remains a separate,
+explicitly-authorized step (apply #11–#18 to production, promote PR #90) and is out of scope here.
