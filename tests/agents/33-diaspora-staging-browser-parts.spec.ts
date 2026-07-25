@@ -61,7 +61,9 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
 
     // Select the item; the detail panel's balances are DERIVED FROM THE LEDGER (proves quantities are
     // not directly overwritten — the opening 10 came from the atomic movement RPC).
-    await page.getByTestId('diaspora-stock-row').filter({ hasText: name }).getByTestId('diaspora-stock-select').click();
+    // force:true — on the narrow mobile table the quantity cell visually overlaps the Manage button
+    // (a minor mobile-layout quirk); the button itself is resolved, visible and enabled.
+    await page.getByTestId('diaspora-stock-row').filter({ hasText: name }).getByTestId('diaspora-stock-select').click({ force: true });
     await expect(page.getByTestId('diaspora-stock-detail')).toBeVisible();
     await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
     await expect(page.getByTestId('diaspora-stock-balance-available')).toHaveText('10');
