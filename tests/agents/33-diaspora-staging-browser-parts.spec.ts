@@ -68,28 +68,30 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
     await expect(page.getByTestId('diaspora-stock-balance-available')).toHaveText('10');
     await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PRIVATE|DRAFT/i);
+    const itemId = await page.getByTestId('diaspora-stock-detail').getAttribute('data-stock-id');
 
-    // Publish: the stock-manager UI is a DRAFT creator (no merchandising-field editor), so a UI-only
-    // draft is intentionally not publishable — publishing surfaces the completeness gate (fail-closed).
-    // A fully-merchandised item (via workbook import) publishes; either real outcome is asserted here.
+    // Complete the merchandising details required by the publish-completeness validator, through the
+    // real seller edit form (PATCH /diaspora/stock/:id). Quantities/tenant/verification are never sent.
+    await expect(page.getByTestId('diaspora-stock-merch-form')).toBeVisible();
+    await page.getByTestId('diaspora-stock-merch-unit-price').fill('250');
+    await page.getByTestId('diaspora-stock-merch-currency').fill('USD');
+    await page.getByTestId('diaspora-stock-merch-condition').selectOption('USED');
+    await page.getByTestId('diaspora-stock-merch-vehicle-make').fill('Toyota');
+    await page.getByTestId('diaspora-stock-merch-part-number').fill(marked('BP-001'));
+    await page.getByTestId('diaspora-stock-merch-save').click();
+    await expect(page.getByTestId('diaspora-stock-merch-result')).toContainText(/saved/i, { timeout: 15_000 });
+    // Ledger quantities are unchanged by a merchandising edit.
+    await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
+
+    // Now publish the completed item — it must succeed.
     await page.getByTestId('diaspora-stock-publish').click();
-    const publishOutcome = page.getByTestId('diaspora-stock-publish-result').or(page.getByTestId('diaspora-stock-publish-error'));
-    await expect(publishOutcome).toBeVisible({ timeout: 15_000 });
-    const published = (await page.getByTestId('diaspora-stock-publication-status').innerText()).toUpperCase().includes('PUBLISHED');
-    if (!published) {
-      // Prove the guard is the completeness gate, not an unexpected failure.
-      await expect(page.getByTestId('diaspora-stock-publish-error')).toContainText(/missing required fields|not PUBLISHED/i);
-    }
+    await expect(page.getByTestId('diaspora-stock-publish-result')).toContainText(/published/i, { timeout: 15_000 });
+    await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PUBLISHED/i);
 
-    // Stock Passport: provenance + ledger visible (the draft already has its opening ledger entry).
-    const itemId = await page.getByTestId('diaspora-stock-detail').getAttribute('data-stock-id').catch(() => null);
-    const passportLink = page.locator('a[href*="/passport"]').first();
-    if (await passportLink.count()) {
-      await passportLink.click();
-      await expect(page.locator('main').first()).toBeVisible();
-      await expect(page.getByText(/ledger/i).first()).toBeVisible();
-    } else if (itemId) {
+    // Stock Passport: provenance + ledger visible.
+    if (itemId) {
       await page.goto(`/diaspora/stock/${itemId}/passport`);
+      await expect(page.locator('main').first()).toBeVisible();
       await expect(page.getByText(/ledger/i).first()).toBeVisible();
     }
   });
