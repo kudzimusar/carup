@@ -76,3 +76,45 @@ deploy → smoke → monitored rollout → rollback if any gate fails (see rollb
 ## Approvals required (must all be explicit)
 EB-1 staging secret · EB-2 Drive OAuth+vault (only if enabling live Drive) · EB-3 live billing ·
 EB-4 real-money SafeTrade + legal · **EB-5 production migration/deploy** · CR-1 credential closure.
+
+## Owner-controlled merge plan (prepared 2026-07-26 — DO NOT execute without owner authorization)
+
+**Release candidate:** PR #90 head `300528a` (branch `claude/diaspora-phases-8-10-production-program`,
+base = `claude/diaspora-phases-3-7-program`). **Depends on** PR #81 head `bbcf421` (base `main`).
+Both draft + MERGEABLE, 0 unresolved review threads, CI green. Do NOT merge, retarget, rebase, squash or
+force-push without explicit owner authorization.
+
+### A. PR #81 (Diaspora Phases 3–7) → main — merge FIRST
+- **Final head:** `bbcf421`; **base:** `main` (`d7ce28b`).
+- **Diff vs main:** 74 files (diaspora phases 3–7 + referral + the diaspora wiring in `web/src/App.tsx`,
+  `useCarUpApi.ts`, `types/index.ts`, `featureRegistry.ts`, `shared/navigation/feature-manifest.json`,
+  `backend/env.example`). No unrelated files.
+- **CI:** Lint·Types·Build·Tests ✅, Secret scan ✅, Dependency audit ✅, all 4 Vercel deploys ✅.
+- **Review:** resolve/approve per policy (reviewDecision currently empty → needs owner approval).
+- **Merge method:** **merge commit** (preserve history; no squash/rebase per freeze constraints).
+- **Rollback point:** `main@d7ce28b` (revert the merge commit if needed).
+- **Post-merge verification:** `git fetch && git checkout main && npm ci && npm run build`; backend
+  `node --test backend/tests/diaspora-*.test.js`; confirm Vercel production build green; do NOT deploy
+  production Supabase migrations yet (EB-5 / CR-1).
+
+### B. PR #90 (Phases 8–10 + gap closure) — AFTER PR #81 merges
+- **Expected new base:** `main` (once PR #81 is in main). **Retargeting alone is sufficient IF** GitHub
+  shows PR #90 MERGEABLE against main after PR #81 merges (the branch already contains PR #81's commits as
+  ancestors, so the delta is only the phase 8–10 + gap-closure commits).
+- **If GitHub reports conflicts:** a **non-destructive rebase** onto `main` is required — but only with
+  owner authorization; expected conflict files are the shared wiring touched by both PRs
+  (`web/src/App.tsx`, `web/src/hooks/useCarUpApi.ts`, `web/src/types/index.ts`,
+  `shared/navigation/feature-manifest.json`). Resolve by keeping BOTH PRs' additive entries (union), never
+  dropping either side's routes/hooks/types.
+- **No unrelated-work loss:** PR #90's diff over PR #81 is exclusively diaspora phase 8–10 migrations,
+  services, the seller merchandising editor, the realpg + staging test harnesses, and docs — verify with
+  `git diff bbcf421...300528a --name-only` before retarget.
+- **CI + staging rerun after retarget/rebase:** re-run the Diaspora Phases 3-7 Validation gate; re-run the
+  deployed-browser suite against the redeployed aliased staging with `STAGING_EXPECTED_BUNDLE` pinned to
+  the new bundle (must stay 42/0/0).
+- **Production migration ordering (EB-5, separate authorization):** apply ledger **#11 → #18 in order** to
+  production Supabase (`vhmnajoeicasaigiophh`) via the official mechanism BEFORE promoting the PR #90
+  frontend/backend. **BLOCKED by CR-1** (hardcoded prod-ref + `postgres://` URIs in tracked files) and by
+  staging DB password rotation — both must close first.
+- **Rollback point:** `main` prior to the PR #90 merge; production migrations #11–#18 have no destructive
+  down (restore-from-backup posture — see the rollback runbook).
