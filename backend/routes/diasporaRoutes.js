@@ -2,9 +2,15 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
+import diasporaStockRouter from './diasporaStockRoutes.js';
+import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
+import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
+import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRoutes.js';
+import diasporaDriveRouter from './diasporaDriveRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
+import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
 import { createTradeProfile, listTradeProfiles, getTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
 import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
@@ -31,6 +37,21 @@ function pagination(req) {
 
 // Phase 1A: Diaspora Workbook Center. Mounted inside /api/diaspora by server.js.
 router.use(diasporaWorkbookRouter);
+
+// Phase 3: Online stock, immutable stock ledger, and supply documents.
+router.use(diasporaStockRouter);
+
+// Phase 4: Buyer orders, Reverse RFQ marketplace, and quote selection.
+router.use(diasporaBuyerOrderRouter);
+
+// Phase 5: AI command center (draft actions, risk gates; high-risk execution blocked).
+router.use(diasporaAiCommandRouter);
+
+// Phase 6: Container co-loading marketplace (authoritative server-side capacity rules).
+router.use(diasporaContainerMarketplaceRouter);
+
+// Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
+router.use(diasporaDriveRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {
@@ -83,6 +104,18 @@ router.post('/import-orders/:id/payment-milestones', auth, asyncHandler(async (r
 
 router.post('/import-orders/:id/vehicle-import-record', reviewerAuth, asyncHandler(async (req, res) => {
   res.status(201).json(await linkVehicleImportRecord(req.params.id, req.body, req.userContext, req));
+}));
+
+// Cross-border ownership handoff — links a ZIMBABWE_READY order + VERIFIED vehicle_import_record into
+// the canonical CarUp vehicle identity and appends the immutable per-VIN timeline event. The SERVICE is
+// the authority boundary (platform admin/reviewer or the order's tenant admin; idempotent; VIN-conflict
+// safe); reviewerAuth here is the coarse route filter only. GET is participant-readable status.
+router.post('/import-orders/:id/ownership-handoff', reviewerAuth, asyncHandler(async (req, res) => {
+  res.json(await completeOwnershipHandoff(req.params.id, req.body || {}, req.userContext, { req }));
+}));
+
+router.get('/import-orders/:id/ownership-handoff', auth, asyncHandler(async (req, res) => {
+  res.json(await getOwnershipHandoffStatus(req.params.id, req.userContext, { req }));
 }));
 
 router.get('/import-orders/:id/government-footprint', auth, asyncHandler(async (req, res) => {

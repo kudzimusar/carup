@@ -10,9 +10,15 @@ Codex
 
 ## Current Completion State
 
-CarUp Diaspora Trade OS is complete through Phase 2B: Operator Console UX Stabilization.
+CarUp Diaspora Trade OS is complete through Phase 2C: Workbook Intake and Dry-Run UI.
 
-Phase 2C Workbook Intake and Dry-Run UI is in progress.
+Phase 2C Workbook Intake and Dry-Run UI was squash-merged to `main` via PR #78
+(merge commit `3ac2ff23a60f545bbafed8d4d256277209f3adf9`).
+
+Phases 3–7 (online stock & supply documents, buyer orders & Reverse RFQ, AI command hardening,
+container co-loading, Google Drive integration) are in progress on branch
+`claude/diaspora-phases-3-7-program` per
+`docs/CLAUDE_CODE_DIASPORA_PHASES_3_TO_7_MASTER_DIRECTIVE.md`.
 
 Latest completed Diaspora UI commit:
 
@@ -128,9 +134,10 @@ Phase 2B does not add live import, retry execution, rollback execution, AI execu
 
 ### Phase 2C - Workbook Intake and Dry-Run UI
 
-Phase 2C is in progress.
+Phase 2C is complete and merged to `main` (PR #78, merge commit
+`3ac2ff23a60f545bbafed8d4d256277209f3adf9`).
 
-Current scope:
+Delivered scope:
 
 - JSON-only workbook file intake.
 - JSON paste/edit intake.
@@ -156,7 +163,8 @@ These workstreams must remain separate from Diaspora Trade OS unless an explicit
 
 ### Option A - Codex: Diaspora Phase 2C Workbook Upload/Dry-Run UI
 
-In progress on branch `codex/diaspora-phase-2c-workbook-dry-run-ui`.
+Complete and merged to `main` (PR #78). Superseded by Phases 3–7 (branch
+`claude/diaspora-phases-3-7-program`).
 
 ### Option B - Codex: Diaspora Phase 1J Backend Readiness Checklist
 

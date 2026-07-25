@@ -493,6 +493,395 @@ export interface DiasporaWorkbookDryRunResult {
   [key: string]: unknown;
 }
 
+// ── Phase 3: Stock & Supply Documents ───────────────────────────────────────
+export interface DiasporaStockBalances {
+  onHand: number;
+  reserved: number;
+  available: number;
+}
+
+export interface DiasporaStockItem {
+  id: string;
+  tenant_id?: string | null;
+  seller_trade_profile_id?: string | null;
+  supply_document_id?: string | null;
+  sku?: string | null;
+  part_name: string;
+  part_number?: string | null;
+  oem_number?: string | null;
+  aftermarket_number?: string | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  vehicle_year_min?: number | null;
+  vehicle_year_max?: number | null;
+  condition?: string;
+  origin_country?: string | null;
+  origin_city?: string | null;
+  warehouse_location?: string | null;
+  quantity_on_hand?: number;
+  quantity_reserved?: number;
+  unit_cost?: number | string | null;
+  unit_price?: number | string | null;
+  currency?: string;
+  export_readiness_status?: string;
+  verification_status?: string;
+  publication_status?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+  balances?: DiasporaStockBalances;
+  [key: string]: unknown;
+}
+
+export interface DiasporaStockItemPayload {
+  part_name: string;
+  sku?: string;
+  part_number?: string;
+  oem_number?: string;
+  aftermarket_number?: string;
+  vehicle_make?: string;
+  vehicle_model?: string;
+  vehicle_year_min?: number;
+  vehicle_year_max?: number;
+  condition?: string;
+  origin_country?: string;
+  origin_city?: string;
+  warehouse_location?: string;
+  unit_cost?: number;
+  unit_price?: number;
+  currency?: string;
+  export_readiness_status?: string;
+  initial_quantity?: number;
+  supply_document_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaStockLedgerEntry {
+  id: string;
+  stock_item_id: string;
+  action_type: string;
+  quantity_delta?: number;
+  quantity_before?: number;
+  quantity_after?: number;
+  currency?: string;
+  notes?: string | null;
+  approval_status?: string;
+  execution_status?: string;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  created_by?: string | null;
+  [key: string]: unknown;
+}
+
+export interface DiasporaStockMovementPayload {
+  action: string;
+  quantity: number;
+  reason?: string;
+  idempotencyKey?: string;
+  importOrderId?: string;
+  reservationRef?: string;
+  approval?: { approvedBy?: string; note?: string };
+  source?: string;
+}
+
+export interface DiasporaStockMovementResult {
+  ledgerEntry: DiasporaStockLedgerEntry;
+  stockItem: DiasporaStockItem;
+  idempotentReplay?: boolean;
+}
+
+export interface DiasporaSupplyDocument {
+  id: string;
+  tenant_id?: string | null;
+  seller_trade_profile_id?: string | null;
+  document_number: string;
+  title: string;
+  status: string;
+  origin_country?: string | null;
+  origin_city?: string | null;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  verification_status?: string;
+  publication_status?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaSupplyDocumentPayload {
+  document_number: string;
+  title: string;
+  origin_country?: string;
+  origin_city?: string;
+  valid_from?: string;
+  valid_until?: string;
+  seller_trade_profile_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// ── Phase 4: Buyer Orders & Reverse RFQ ─────────────────────────────────────
+export interface DiasporaRfqMeta {
+  published?: boolean;
+  publishedAt?: string;
+  acceptedQuoteId?: string;
+  acceptedAt?: string;
+}
+
+export interface DiasporaQuote {
+  id: string;
+  import_order_id: string;
+  seller_id?: string | null;
+  quote_amount: number | string;
+  quote_currency?: string;
+  valid_until?: string | null;
+  inclusions?: unknown[];
+  exclusions?: unknown[];
+  status: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaBuyerOrder {
+  id: string;
+  tenant_id?: string | null;
+  buyer_id?: string | null;
+  order_type: string;
+  origin_country: string;
+  origin_city?: string | null;
+  destination_country?: string;
+  destination_city?: string | null;
+  requested_make?: string | null;
+  requested_model?: string | null;
+  requested_year_min?: number | null;
+  requested_year_max?: number | null;
+  budget_amount?: number | string | null;
+  budget_currency?: string;
+  status: string;
+  metadata?: { urgency?: string; requested_part_number?: string | null; rfq?: DiasporaRfqMeta; [key: string]: unknown };
+  quotes?: DiasporaQuote[];
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaBuyerOrderPayload {
+  order_type: string;
+  origin_country: string;
+  origin_city?: string;
+  destination_country?: string;
+  destination_city?: string;
+  requested_make?: string;
+  requested_model?: string;
+  requested_year_min?: number;
+  requested_year_max?: number;
+  requested_part_number?: string;
+  budget_amount?: number;
+  budget_currency?: string;
+  urgency?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaMatchCandidate {
+  stockItemId: string;
+  partName: string;
+  sku?: string | null;
+  vehicleMake?: string | null;
+  vehicleModel?: string | null;
+  available: number;
+  unitPrice?: number | string | null;
+  currency?: string;
+  sellerTradeProfileId?: string | null;
+  score: number;
+  reasons: string[];
+}
+
+export interface DiasporaQuotePayload {
+  quote_amount: number;
+  quote_currency?: string;
+  valid_until?: string;
+  inclusions?: unknown[];
+  exclusions?: unknown[];
+  submit?: boolean;
+  idempotencyKey?: string;
+  stockItemId?: string;
+  leadTimeDays?: number;
+  shippingTerms?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaAcceptQuoteResult {
+  order: DiasporaBuyerOrder;
+  acceptedQuote: DiasporaQuote;
+  idempotentReplay?: boolean;
+}
+
+// ── Phase 5: AI Command Hardening ───────────────────────────────────────────
+export interface DiasporaAiParseResult {
+  intent: string | null;
+  action?: string | null;
+  risk?: string | null;
+  riskTier?: string | null;
+  confidence: number;
+  entities: Record<string, unknown>;
+  missing?: string[];
+  ambiguous: boolean;
+  reasons: string[];
+  candidates?: string[];
+  normalized?: string;
+}
+
+export interface DiasporaAiCommand {
+  id: string;
+  raw_command: string;
+  intent: string;
+  risk_level: string;
+  confidence_score: number;
+  target_entity_id?: string | null;
+  extracted_entities?: Record<string, unknown>;
+  proposed_action?: Record<string, unknown>;
+  approval_status: string;
+  execution_status: string;
+  error_message?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+  executed_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface DiasporaAiCommandCreateResult {
+  command: DiasporaAiCommand;
+  parse: DiasporaAiParseResult;
+  duplicate?: boolean;
+}
+
+export interface DiasporaAiExecuteResult {
+  command: DiasporaAiCommand;
+  result?: Record<string, unknown> | null;
+  idempotentReplay?: boolean;
+}
+
+// ── Phase 6: Container Co-Loading ───────────────────────────────────────────
+export interface DiasporaContainerCapacity {
+  totalVolume: number;
+  usedVolume: number;
+  availableVolume: number;
+  fillPercent: number;
+  readyToClose: boolean;
+  full: boolean;
+  overfilled: boolean;
+}
+
+export interface DiasporaMarketplaceContainer {
+  id: string;
+  tenant_id?: string | null;
+  origin_country?: string;
+  origin_city?: string;
+  destination_country?: string;
+  destination_city?: string;
+  departure_date?: string;
+  booking_deadline?: string;
+  container_type?: string;
+  total_capacity_volume?: number;
+  used_capacity_volume?: number;
+  available_capacity_volume?: number;
+  status: string;
+  coordinator_id?: string | null;
+  metadata?: { capacity?: Partial<DiasporaContainerCapacity>; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface DiasporaContainerCapacityResult {
+  container: DiasporaMarketplaceContainer;
+  capacity: DiasporaContainerCapacity;
+}
+
+export interface DiasporaMarketplaceReservation {
+  id: string;
+  container_id: string;
+  import_order_id?: string | null;
+  buyer_id?: string | null;
+  cargo_type?: string;
+  estimated_volume: number;
+  estimated_weight?: number | null;
+  currency?: string;
+  reservation_status: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface DiasporaMarketplaceContainerPayload {
+  origin_country: string;
+  origin_city: string;
+  destination_country: string;
+  destination_city: string;
+  departure_date: string;
+  booking_deadline: string;
+  container_type?: string;
+  total_capacity_volume: number;
+  total_capacity_weight?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface DiasporaReservationRequestPayload {
+  estimated_volume: number;
+  estimated_weight?: number;
+  import_order_id?: string;
+  cargo_type?: string;
+  currency?: string;
+  cargo_description?: string;
+  source?: string;
+}
+
+export interface DiasporaReservationActionResult {
+  reservation: DiasporaMarketplaceReservation;
+  capacity: DiasporaContainerCapacity;
+}
+
+// ── Phase 7: Google Drive Integration ───────────────────────────────────────
+export interface DiasporaDriveConnection {
+  id?: string;
+  provider?: string;
+  providerAccountEmail?: string | null;
+  rootFolderId?: string | null;
+  rootFolderUrl?: string | null;
+  scopes?: string[];
+  accessStatus?: string;
+  lastSyncAt?: string | null;
+  revokedAt?: string | null;
+  connected?: boolean;
+}
+
+export interface DiasporaDriveStatus {
+  enabled: boolean;
+  provider: string;
+  scopes: string[];
+  connection: DiasporaDriveConnection | null;
+  onedrive: { available: boolean; note?: string };
+  workbookExport: { xlsx: boolean; note?: string };
+}
+
+export interface DiasporaDriveAuthUrl {
+  url: string;
+  scopes: string[];
+  state: string;
+}
+
+export interface DiasporaDriveFile {
+  id: string;
+  provider?: string;
+  driveFileId?: string;
+  driveFileUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+  checksumSha256?: string | null;
+  linkedEntityType?: string;
+  linkedEntityId?: string;
+  syncStatus?: string;
+  lastSyncAt?: string | null;
+}
+
 // 3. WorkOrder
 export interface WorkOrder {
   id: string;

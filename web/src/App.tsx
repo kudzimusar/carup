@@ -49,6 +49,11 @@ import {
 } from './pages/diaspora/DiasporaTrade'
 import DiasporaWorkbookDryRun from './pages/diaspora/DiasporaWorkbookDryRun'
 import DiasporaWorkbookOperatorConsole from './pages/diaspora/DiasporaWorkbookOperatorConsole'
+import DiasporaStockManager from './pages/diaspora/DiasporaStockManager'
+import DiasporaReverseRfq from './pages/diaspora/DiasporaReverseRfq'
+import DiasporaAiCommandCenter from './pages/diaspora/DiasporaAiCommandCenter'
+import DiasporaContainerMarketplace from './pages/diaspora/DiasporaContainerMarketplace'
+import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -249,6 +254,11 @@ export default function App() {
           <Route path="/diaspora/imports/:id" element={<DiasporaImportDetail />} />
           <Route path="/diaspora/imports/:id/documents" element={<DiasporaImportDocuments />} />
           <Route path="/diaspora/imports/:id/shipment" element={<DiasporaImportShipment />} />
+          <Route path="/diaspora/stock" element={<DiasporaStockManager />} />
+          <Route path="/diaspora/rfq" element={<DiasporaReverseRfq />} />
+          <Route path="/diaspora/ai-commands" element={<DiasporaAiCommandCenter />} />
+          <Route path="/diaspora/containers" element={<DiasporaContainerMarketplace />} />
+          <Route path="/diaspora/drive" element={<DiasporaDriveConnections />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />

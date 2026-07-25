@@ -73,6 +73,33 @@ import type {
   DiasporaWorkbookDryRunResult,
   DiasporaWorkbookTemplateDownloadStatus,
   DiasporaWorkbookTemplateSchemaResponse,
+  DiasporaStockItem,
+  DiasporaStockItemPayload,
+  DiasporaStockLedgerEntry,
+  DiasporaStockMovementPayload,
+  DiasporaStockMovementResult,
+  DiasporaSupplyDocument,
+  DiasporaSupplyDocumentPayload,
+  DiasporaBuyerOrder,
+  DiasporaBuyerOrderPayload,
+  DiasporaQuote,
+  DiasporaQuotePayload,
+  DiasporaMatchCandidate,
+  DiasporaAcceptQuoteResult,
+  DiasporaAiParseResult,
+  DiasporaAiCommand,
+  DiasporaAiCommandCreateResult,
+  DiasporaAiExecuteResult,
+  DiasporaMarketplaceContainer,
+  DiasporaMarketplaceContainerPayload,
+  DiasporaContainerCapacityResult,
+  DiasporaMarketplaceReservation,
+  DiasporaReservationRequestPayload,
+  DiasporaReservationActionResult,
+  DiasporaDriveStatus,
+  DiasporaDriveAuthUrl,
+  DiasporaDriveFile,
+  DiasporaDriveConnection,
   VehicleHistoryReportData,
   ReportVersionResponse,
   ReportShareLinkResponse,
@@ -1061,6 +1088,232 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // ── Phase 3: Stock & Supply Documents ──
+  const fetchDiasporaStockItems = useCallback(async (filters?: Record<string, string | number | undefined>): Promise<DiasporaStockItem[]> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    const response = await request<{ data: DiasporaStockItem[] }>(`/diaspora/stock${query}`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaStockItem = useCallback(async (id: string): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const createDiasporaStockItem = useCallback(async (payload: DiasporaStockItemPayload): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>('/diaspora/stock', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaStockItem = useCallback(async (id: string, payload: Partial<DiasporaStockItemPayload>): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaStockLedger = useCallback(async (id: string): Promise<DiasporaStockLedgerEntry[]> => {
+    const response = await request<{ data: DiasporaStockLedgerEntry[] }>(`/diaspora/stock/${encodeURIComponent(id)}/ledger`)
+    return response.data || []
+  }, [request])
+
+  const appendDiasporaStockMovement = useCallback(async (id: string, payload: DiasporaStockMovementPayload): Promise<DiasporaStockMovementResult> => {
+    const response = await request<{ data: DiasporaStockMovementResult }>(`/diaspora/stock/${encodeURIComponent(id)}/ledger`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaSupplyDocuments = useCallback(async (filters?: Record<string, string | undefined>): Promise<DiasporaSupplyDocument[]> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    const response = await request<{ data: DiasporaSupplyDocument[] }>(`/diaspora/supply-documents${query}`)
+    return response.data || []
+  }, [request])
+
+  const createDiasporaSupplyDocument = useCallback(async (payload: DiasporaSupplyDocumentPayload): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>('/diaspora/supply-documents', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaSupplyDocument = useCallback(async (id: string, payload: Partial<DiasporaSupplyDocumentPayload>): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>(`/diaspora/supply-documents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const publishDiasporaSupplyDocument = useCallback(async (id: string): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>(`/diaspora/supply-documents/${encodeURIComponent(id)}/publish`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const unpublishDiasporaSupplyDocument = useCallback(async (id: string): Promise<DiasporaSupplyDocument> => {
+    const response = await request<{ data: DiasporaSupplyDocument }>(`/diaspora/supply-documents/${encodeURIComponent(id)}/unpublish`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // ── Phase 4: Buyer Orders & Reverse RFQ ──
+  const fetchDiasporaBuyerOrders = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
+    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/buyer-orders')
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaBuyerOrder = useCallback(async (id: string): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}`)
+    return response.data
+  }, [request])
+
+  const createDiasporaBuyerOrder = useCallback(async (payload: DiasporaBuyerOrderPayload): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>('/diaspora/buyer-orders', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const updateDiasporaBuyerOrder = useCallback(async (id: string, payload: Partial<DiasporaBuyerOrderPayload>): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const publishDiasporaRfq = useCallback(async (id: string): Promise<DiasporaBuyerOrder> => {
+    const response = await request<{ data: DiasporaBuyerOrder }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}/publish-rfq`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaOrderMatches = useCallback(async (id: string): Promise<DiasporaMatchCandidate[]> => {
+    const response = await request<{ data: DiasporaMatchCandidate[] }>(`/diaspora/buyer-orders/${encodeURIComponent(id)}/matches`)
+    return response.data || []
+  }, [request])
+
+  const acceptDiasporaQuote = useCallback(async (orderId: string, quoteId: string): Promise<DiasporaAcceptQuoteResult> => {
+    const response = await request<{ data: DiasporaAcceptQuoteResult }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/accept-quote`, { method: 'POST', body: JSON.stringify({ quoteId }) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaRfqs = useCallback(async (): Promise<DiasporaBuyerOrder[]> => {
+    const response = await request<{ data: DiasporaBuyerOrder[] }>('/diaspora/rfqs')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaQuote = useCallback(async (orderId: string, payload: DiasporaQuotePayload): Promise<{ quote: DiasporaQuote; idempotentReplay?: boolean }> => {
+    const response = await request<{ data: { quote: DiasporaQuote; idempotentReplay?: boolean } }>(`/diaspora/buyer-orders/${encodeURIComponent(orderId)}/quotes`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const submitDiasporaQuote = useCallback(async (quoteId: string): Promise<DiasporaQuote> => {
+    const response = await request<{ data: DiasporaQuote }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}/submit`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const withdrawDiasporaQuote = useCallback(async (quoteId: string): Promise<{ withdrawn: boolean }> => {
+    const response = await request<{ data: { withdrawn: boolean } }>(`/diaspora/quotes/${encodeURIComponent(quoteId)}/withdraw`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // ── Phase 5: AI Command Center ──
+  const parseDiasporaAiCommand = useCallback(async (rawCommand: string): Promise<DiasporaAiParseResult> => {
+    const response = await request<{ data: DiasporaAiParseResult }>('/diaspora/ai-commands/parse', { method: 'POST', body: JSON.stringify({ rawCommand }) })
+    return response.data
+  }, [request])
+
+  const createDiasporaAiCommand = useCallback(async (rawCommand: string): Promise<DiasporaAiCommandCreateResult> => {
+    const response = await request<{ data: DiasporaAiCommandCreateResult }>('/diaspora/ai-commands', { method: 'POST', body: JSON.stringify({ rawCommand }) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaAiCommands = useCallback(async (): Promise<DiasporaAiCommand[]> => {
+    const response = await request<{ data: DiasporaAiCommand[] }>('/diaspora/ai-commands')
+    return response.data || []
+  }, [request])
+
+  const confirmDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiCommand> => {
+    const response = await request<{ data: DiasporaAiCommand }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const approveDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiCommand> => {
+    const response = await request<{ data: DiasporaAiCommand }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const rejectDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiCommand> => {
+    const response = await request<{ data: DiasporaAiCommand }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const executeDiasporaAiCommand = useCallback(async (id: string): Promise<DiasporaAiExecuteResult> => {
+    const response = await request<{ data: DiasporaAiExecuteResult }>(`/diaspora/ai-commands/${encodeURIComponent(id)}/execute`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // ── Phase 6: Container Co-Loading Marketplace ──
+  const fetchDiasporaMarketplaceContainers = useCallback(async (): Promise<DiasporaMarketplaceContainer[]> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer[] }>('/diaspora/container-marketplace/containers')
+    return response.data || []
+  }, [request])
+
+  const createDiasporaMarketplaceContainer = useCallback(async (payload: DiasporaMarketplaceContainerPayload): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>('/diaspora/container-marketplace/containers', { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const fetchDiasporaContainerCapacity = useCallback(async (id: string): Promise<DiasporaContainerCapacityResult> => {
+    const response = await request<{ data: DiasporaContainerCapacityResult }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/capacity`)
+    return response.data
+  }, [request])
+
+  const fetchDiasporaContainerReservations = useCallback(async (id: string): Promise<DiasporaMarketplaceReservation[]> => {
+    const response = await request<{ data: DiasporaMarketplaceReservation[] }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/reservations`)
+    return response.data || []
+  }, [request])
+
+  const requestDiasporaReservation = useCallback(async (containerId: string, payload: DiasporaReservationRequestPayload): Promise<DiasporaMarketplaceReservation> => {
+    const response = await request<{ data: DiasporaMarketplaceReservation }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(containerId)}/reservations`, { method: 'POST', body: JSON.stringify(payload) })
+    return response.data
+  }, [request])
+
+  const approveDiasporaMarketplaceReservation = useCallback(async (id: string): Promise<DiasporaReservationActionResult> => {
+    const response = await request<{ data: DiasporaReservationActionResult }>(`/diaspora/container-marketplace/reservations/${encodeURIComponent(id)}/approve`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const rejectDiasporaMarketplaceReservation = useCallback(async (id: string): Promise<DiasporaReservationActionResult> => {
+    const response = await request<{ data: DiasporaReservationActionResult }>(`/diaspora/container-marketplace/reservations/${encodeURIComponent(id)}/reject`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaMarketplaceReservation = useCallback(async (id: string): Promise<DiasporaReservationActionResult> => {
+    const response = await request<{ data: DiasporaReservationActionResult }>(`/diaspora/container-marketplace/reservations/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const closeDiasporaContainerBooking = useCallback(async (id: string): Promise<DiasporaMarketplaceContainer> => {
+    const response = await request<{ data: DiasporaMarketplaceContainer }>(`/diaspora/container-marketplace/containers/${encodeURIComponent(id)}/close-booking`, { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  // ── Phase 7: Google Drive Integration ──
+  const fetchDiasporaDriveStatus = useCallback(async (): Promise<DiasporaDriveStatus> => {
+    const response = await request<{ data: DiasporaDriveStatus }>('/diaspora/drive/status')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaDriveAuthorizeUrl = useCallback(async (): Promise<DiasporaDriveAuthUrl> => {
+    const response = await request<{ data: DiasporaDriveAuthUrl }>('/diaspora/drive/google/authorize')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaDriveFiles = useCallback(async (): Promise<DiasporaDriveFile[]> => {
+    const response = await request<{ data: DiasporaDriveFile[] }>('/diaspora/drive/files')
+    return response.data || []
+  }, [request])
+
+  const disconnectDiasporaDrive = useCallback(async (): Promise<DiasporaDriveConnection> => {
+    const response = await request<{ data: DiasporaDriveConnection }>('/diaspora/drive/disconnect', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const syncDiasporaDrive = useCallback(async (): Promise<DiasporaDriveConnection> => {
+    const response = await request<{ data: DiasporaDriveConnection }>('/diaspora/drive/sync', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
     return request('/security/report-stolen', {
       method: 'POST',
@@ -1798,6 +2051,49 @@ export function useCarUpApi() {
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
     runDiasporaWorkbookDryRun,
+    fetchDiasporaStockItems,
+    fetchDiasporaStockItem,
+    createDiasporaStockItem,
+    updateDiasporaStockItem,
+    fetchDiasporaStockLedger,
+    appendDiasporaStockMovement,
+    fetchDiasporaSupplyDocuments,
+    createDiasporaSupplyDocument,
+    updateDiasporaSupplyDocument,
+    publishDiasporaSupplyDocument,
+    unpublishDiasporaSupplyDocument,
+    fetchDiasporaBuyerOrders,
+    fetchDiasporaBuyerOrder,
+    createDiasporaBuyerOrder,
+    updateDiasporaBuyerOrder,
+    publishDiasporaRfq,
+    fetchDiasporaOrderMatches,
+    acceptDiasporaQuote,
+    fetchDiasporaRfqs,
+    createDiasporaQuote,
+    submitDiasporaQuote,
+    withdrawDiasporaQuote,
+    parseDiasporaAiCommand,
+    createDiasporaAiCommand,
+    fetchDiasporaAiCommands,
+    confirmDiasporaAiCommand,
+    approveDiasporaAiCommand,
+    rejectDiasporaAiCommand,
+    executeDiasporaAiCommand,
+    fetchDiasporaMarketplaceContainers,
+    createDiasporaMarketplaceContainer,
+    fetchDiasporaContainerCapacity,
+    fetchDiasporaContainerReservations,
+    requestDiasporaReservation,
+    approveDiasporaMarketplaceReservation,
+    rejectDiasporaMarketplaceReservation,
+    cancelDiasporaMarketplaceReservation,
+    closeDiasporaContainerBooking,
+    fetchDiasporaDriveStatus,
+    fetchDiasporaDriveAuthorizeUrl,
+    fetchDiasporaDriveFiles,
+    disconnectDiasporaDrive,
+    syncDiasporaDrive,
     reportStolen,
     checkStolen,
     fetchDealerReputation,
