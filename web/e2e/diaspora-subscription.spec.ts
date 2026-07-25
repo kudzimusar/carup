@@ -11,9 +11,17 @@ import { expect, test, type Page, type Route } from '@playwright/test'
  * running server was built with, so the spec is valid in both modes.
  */
 
-const owner = { id: 'o-1', name: 'Owner', email: 'o@carup.test', role: 'owner', active_tenant_id: 'tenant-1' }
-const dealer = { id: 'd-1', name: 'Dealer', email: 'd@carup.test', role: 'dealer', active_tenant_id: 'tenant-1' }
-const admin = { id: 'a-1', name: 'Tenant Admin', email: 'a@carup.test', role: 'admin', active_tenant_id: 'tenant-1' }
+interface SubscriptionTestUser {
+  id: string
+  name: string
+  email: string
+  role: 'owner' | 'dealer' | 'admin'
+  active_tenant_id: string | null
+}
+
+const owner: SubscriptionTestUser = { id: 'o-1', name: 'Owner', email: 'o@carup.test', role: 'owner', active_tenant_id: 'tenant-1' }
+const dealer: SubscriptionTestUser = { id: 'd-1', name: 'Dealer', email: 'd@carup.test', role: 'dealer', active_tenant_id: 'tenant-1' }
+const admin: SubscriptionTestUser = { id: 'a-1', name: 'Tenant Admin', email: 'a@carup.test', role: 'admin', active_tenant_id: 'tenant-1' }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin || '*'
@@ -22,7 +30,7 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) })
 }
 
-async function loginAs(page: Page, user: any, token = 'mock-token') {
+async function loginAs(page: Page, user: SubscriptionTestUser, token = 'mock-token') {
   await page.addInitScript(({ user, token }) => {
     window.localStorage.setItem('carup_user', JSON.stringify(user))
     window.localStorage.setItem('carup_token', token)
@@ -49,7 +57,7 @@ interface SubState {
   missingTenant?: boolean
 }
 
-async function mockApi(page: Page, user: any, state: SubState) {
+async function mockApi(page: Page, user: SubscriptionTestUser, state: SubState) {
   await page.context().route('**/api/auth/me', (r) => fulfillJson(r, { user }))
   await page.context().route('**/api/security/csrf-token', (r) => fulfillJson(r, { csrfToken: 'mock-csrf' }))
 
@@ -299,7 +307,7 @@ test.describe('Diaspora Subscription (Phase 8)', () => {
   })
 
   test('missing tenant context shows the tenant-context state', async ({ page }) => {
-    const noTenant = { ...owner, active_tenant_id: null }
+    const noTenant: SubscriptionTestUser = { ...owner, active_tenant_id: null }
     await loginAs(page, noTenant)
     await mockApi(page, noTenant, { planKey: 'free', status: 'active', synthetic: true, cancelAtPeriodEnd: false, active: true, missingTenant: true })
     await gotoSubscription(page)
