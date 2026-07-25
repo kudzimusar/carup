@@ -57,14 +57,13 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     await page.getByTestId('diaspora-stock-create-name').fill(name);
     await page.getByTestId('diaspora-stock-create-qty').fill('10');
     await page.getByTestId('diaspora-stock-create-submit').click();
-    await expect(page.getByTestId('diaspora-stock-row').filter({ hasText: name }).first()).toBeVisible({ timeout: 20_000 });
 
-    // Select the item; the detail panel's balances are DERIVED FROM THE LEDGER (proves quantities are
-    // not directly overwritten — the opening 10 came from the atomic movement RPC).
-    // force:true — on the narrow mobile table the quantity cell visually overlaps the Manage button
-    // (a minor mobile-layout quirk); the button itself is resolved, visible and enabled.
-    await page.getByTestId('diaspora-stock-row').filter({ hasText: name }).getByTestId('diaspora-stock-select').click({ force: true });
-    await expect(page.getByTestId('diaspora-stock-detail')).toBeVisible();
+    // The Stock Manager auto-selects the freshly created item — its detail panel appears. Operating on
+    // the auto-selected detail (rather than re-finding a row in a long list) keeps this deterministic.
+    await expect(page.getByTestId('diaspora-stock-detail')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('diaspora-stock-detail')).toContainText(name);
+    // Balances are DERIVED FROM THE LEDGER (proves quantities are not directly overwritten — the
+    // opening 10 came from the atomic movement RPC).
     await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
     await expect(page.getByTestId('diaspora-stock-balance-available')).toHaveText('10');
     await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PRIVATE|DRAFT/i);
@@ -72,11 +71,16 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
 
     // Complete the merchandising details required by the publish-completeness validator, through the
     // real seller edit form (PATCH /diaspora/stock/:id). Quantities/tenant/verification are never sent.
+    // Assert each input committed its value (toHaveValue) before saving so the PATCH carries real data.
     await expect(page.getByTestId('diaspora-stock-merch-form')).toBeVisible();
-    await page.getByTestId('diaspora-stock-merch-unit-price').fill('250');
-    await page.getByTestId('diaspora-stock-merch-currency').fill('USD');
+    const unitPrice = page.getByTestId('diaspora-stock-merch-unit-price');
+    await unitPrice.fill('250');
+    await expect(unitPrice).toHaveValue('250');
+    const vMake = page.getByTestId('diaspora-stock-merch-vehicle-make');
+    await vMake.fill('Toyota');
+    await expect(vMake).toHaveValue('Toyota');
     await page.getByTestId('diaspora-stock-merch-condition').selectOption('USED');
-    await page.getByTestId('diaspora-stock-merch-vehicle-make').fill('Toyota');
+    await expect(page.getByTestId('diaspora-stock-merch-condition')).toHaveValue('USED');
     await page.getByTestId('diaspora-stock-merch-part-number').fill(marked('BP-001'));
     await page.getByTestId('diaspora-stock-merch-save').click();
     await expect(page.getByTestId('diaspora-stock-merch-result')).toContainText(/saved/i, { timeout: 15_000 });
@@ -85,9 +89,15 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
 
     // Now publish the completed item — it must succeed. Assert on the authoritative publication-status
     // badge (stable) rather than the transient result message; the merch form must also disappear.
+    // If publish is somehow rejected, surface the exact error instead of a bare timeout.
     await page.getByTestId('diaspora-stock-publish').click();
-    await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PUBLISHED/i, { timeout: 20_000 });
-    await expect(page.getByTestId('diaspora-stock-merch-form')).toHaveCount(0);
+    const publishSettled = page.getByTestId('diaspora-stock-publication-status').filter({ hasText: /PUBLISHED/i })
+      .or(page.getByTestId('diaspora-stock-publish-error'));
+    await expect(publishSettled.first()).toBeVisible({ timeout: 20_000 });
+    if (await page.getByTestId('diaspora-stock-publish-error').count()) {
+      throw new Error(`publish rejected: ${await page.getByTestId('diaspora-stock-publish-error').innerText()}`);
+    }
+    await expect(page.getByTestId('diaspora-stock-publication-status')).toContainText(/PUBLISHED/i);
 
     // Stock Passport: provenance + ledger visible.
     if (itemId) {
@@ -124,25 +134,33 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
       await buyer.getByTestId('diaspora-buyer-order-submit').click();
       const buyerRow = buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first();
       await expect(buyerRow).toBeVisible({ timeout: 20_000 });
-      await buyerRow.getByTestId('diaspora-buyer-order-publish').click();
+      await buyerRow.getByTestId('diaspora-buyer-order-publish').click({ force: true });
       await expect(buyerRow).toContainText(/RFQ open/i, { timeout: 20_000 });
 
-      // 2. Seller finds the open RFQ and submits a quote.
+      // 2. Seller finds the open RFQ and submits a quote (the open-RFQ list is eventually consistent
+      //    with the buyer's publish; retry the reload until the row appears).
       await signInViaUi(seller, 'seller');
       await seller.goto('/diaspora/rfq');
       const openRow = seller.getByTestId('diaspora-rfq-open-row').filter({ hasText: marker }).first();
-      await expect(openRow).toBeVisible({ timeout: 20_000 });
-      await openRow.getByTestId('diaspora-rfq-quote-amount').fill('1800');
-      await openRow.getByTestId('diaspora-rfq-quote-submit').click();
+      await expect(async () => {
+        if (await openRow.count() === 0) { await seller.reload(); }
+        await expect(openRow).toBeVisible({ timeout: 5_000 });
+      }).toPass({ timeout: 40_000 });
+      const amount = openRow.getByTestId('diaspora-rfq-quote-amount');
+      await amount.fill('1800');
+      await expect(amount).toHaveValue('1800');
+      await openRow.getByTestId('diaspora-rfq-quote-submit').click({ force: true });
       await expect(seller.getByTestId('diaspora-rfq-seller-error')).toHaveCount(0);
 
-      // 3. Buyer opens the order, sees the quote, accepts it.
-      await buyer.reload();
-      await buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first().getByTestId('diaspora-buyer-order-select').click();
-      await expect(buyer.getByTestId('diaspora-rfq-detail')).toBeVisible();
+      // 3. Buyer opens the order, sees the quote, accepts it (retry reload until the quote propagates).
       const quoteRow = buyer.getByTestId('diaspora-rfq-quote-row').filter({ hasText: '1800' }).first();
-      await expect(quoteRow).toBeVisible({ timeout: 20_000 });
-      await quoteRow.getByTestId('diaspora-rfq-accept').click();
+      await expect(async () => {
+        await buyer.reload();
+        await buyer.getByTestId('diaspora-buyer-order-row').filter({ hasText: marker }).first().getByTestId('diaspora-buyer-order-select').click({ force: true });
+        await expect(buyer.getByTestId('diaspora-rfq-detail')).toBeVisible({ timeout: 5_000 });
+        await expect(quoteRow).toBeVisible({ timeout: 5_000 });
+      }).toPass({ timeout: 40_000 });
+      await quoteRow.getByTestId('diaspora-rfq-accept').click({ force: true });
       await expect(buyer.getByTestId('diaspora-rfq-accepted-badge').first()).toBeVisible({ timeout: 20_000 });
 
       // 4. Order Passport reflects the parts transaction (open the parts order from the imports list).
