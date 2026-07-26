@@ -46,9 +46,25 @@ jobs:
       # this compares PR vs base by stable path/rule/severity and fails only on regressions.
       # No global rule disables, no `|| true`.
       - name: Lint regression gate (no new errors/warnings vs base)
+        id: lint-regression
+        continue-on-error: true
         env:
           LINT_BASE_REF: origin/${{ github.base_ref || 'main' }}
-        run: node scripts/lint-baseline-gate.mjs
+        run: |
+          set -o pipefail
+          node scripts/lint-baseline-gate.mjs 2>&1 | tee lint-baseline-output.txt
+
+      - name: Upload lint regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-baseline-output
+          path: lint-baseline-output.txt
+          retention-days: 7
+
+      - name: Enforce lint regression result
+        if: steps.lint-regression.outcome == 'failure'
+        run: exit 1
 
       # Everything below runs AFTER the regression gate.
       - name: Web typecheck

@@ -293,8 +293,108 @@ export function approveCargoReservationAtomic(params, { table, nextId, faults })
   };
 }
 
+/**
+ * Mirrors diaspora_reserve_usage_atomic (Phase 8).
+ *
+ * The in-memory mock cannot execute the SQL function, so this JS reference reproduces its contract:
+ * locks/creates the (tenant, feature, period) meter row, enforces used + amount <= quota_limit, writes
+ * a RESERVED reservation, and is idempotent on (tenant, feature, idempotency_key) — a replay returns the
+ * prior result WITHOUT double counting. Keep in lockstep with:
+ *   database/migrations/20260621120000_diaspora_phase8_subscription_entitlements.sql
+ * True row-locking concurrency is proven against real PostgreSQL in the staging integration suite.
+ */
+export function reserveUsageAtomic(params, { table, nextId }) {
+  const ts = new Date(2026, 5, 21).toISOString();
+  const meters = table('diaspora_usage_meters');
+  const reservations = table('diaspora_usage_reservations');
+
+  if (!params.p_tenant_id) fail('DIASPORA_USAGE/TENANT_REQUIRED');
+  if (!params.p_feature_key) fail('DIASPORA_USAGE/FEATURE_REQUIRED');
+  if (!params.p_idempotency_key) fail('DIASPORA_USAGE/IDEMPOTENCY_KEY_REQUIRED');
+  const amount = Number(params.p_amount);
+  if (!(amount > 0)) fail('DIASPORA_USAGE/INVALID_AMOUNT');
+
+  const tenant = String(params.p_tenant_id);
+  const quotaLimit = Number(params.p_quota_limit);
+
+  // Idempotent replay on (tenant, feature, idempotency_key).
+  const existing = reservations.find(
+    (r) => String(r.tenant_id) === tenant
+      && r.feature_key === params.p_feature_key
+      && r.idempotency_key === params.p_idempotency_key,
+  );
+  if (existing) {
+    const meterRow = meters.find(
+      (m) => String(m.tenant_id) === tenant && m.feature_key === params.p_feature_key && String(m.period_start) === String(params.p_period_start),
+    );
+    const used = Number(meterRow?.used_count ?? existing.amount);
+    return {
+      reserved: existing.amount,
+      used,
+      remaining: Math.max(quotaLimit - used, 0),
+      reservationId: existing.id,
+      status: existing.status,
+      idempotentReplay: true,
+    };
+  }
+
+  // Lock/create the meter row for this period.
+  let meter = meters.find(
+    (m) => String(m.tenant_id) === tenant && m.feature_key === params.p_feature_key && String(m.period_start) === String(params.p_period_start),
+  );
+  if (!meter) {
+    meter = {
+      id: nextId('meter'),
+      tenant_id: tenant,
+      feature_key: params.p_feature_key,
+      period_start: params.p_period_start,
+      period_end: params.p_period_end ?? null,
+      used_count: 0,
+      created_at: ts,
+      updated_at: ts,
+    };
+    meters.push(meter);
+  }
+
+  const used = Number(meter.used_count || 0);
+  const newUsed = used + amount;
+
+  // Enforce the ceiling (a non-positive limit means the feature has no quota at all).
+  if (!(quotaLimit > 0) || newUsed > quotaLimit) {
+    fail(`DIASPORA_USAGE/QUOTA_EXCEEDED: feature ${params.p_feature_key} used ${used} requested ${amount} limit ${quotaLimit}`);
+  }
+
+  meter.used_count = newUsed;
+  meter.updated_at = ts;
+
+  const reservation = {
+    id: nextId('rsv'),
+    tenant_id: tenant,
+    user_id: params.p_user_id ?? null,
+    feature_key: params.p_feature_key,
+    amount,
+    idempotency_key: params.p_idempotency_key,
+    status: 'RESERVED',
+    period_start: params.p_period_start,
+    period_end: params.p_period_end ?? null,
+    created_at: ts,
+    updated_at: ts,
+  };
+  reservations.push(reservation);
+
+  return {
+    reserved: amount,
+    used: newUsed,
+    remaining: Math.max(quotaLimit - newUsed, 0),
+    reservationId: reservation.id,
+    status: 'RESERVED',
+    idempotentReplay: false,
+  };
+}
+
 export const DIASPORA_RPCS = {
   diaspora_append_stock_movement_atomic: appendStockMovementAtomic,
   diaspora_accept_quote_atomic: acceptQuoteAtomic,
   diaspora_approve_cargo_reservation_atomic: approveCargoReservationAtomic,
+  diaspora_reserve_usage_atomic: reserveUsageAtomic,
 };

@@ -1,0 +1,142 @@
+name: Diaspora Deployed Staging UAT
+
+# Real Chromium acceptance against the exact PR #90 Vercel staging previews.
+# This workflow never touches production. Canonical staging-alias promotion is a separate
+# release gate after this immutable candidate proves green.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/diaspora-deployed-staging-uat.yml'
+      - 'backend/**'
+      - 'database/**'
+      - 'docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md'
+      - 'playwright.staging.config.ts'
+      - 'tests/agents/**'
+      - 'web/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diaspora-deployed-staging-uat
+  cancel-in-progress: true
+
+jobs:
+  deployed-staging-uat:
+    if: github.head_ref == 'claude/diaspora-phases-8-10-production-program'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      STAGING_WEB_URL: https://carup-staging-git-claude-diaspora-phase-dd3d1b-pay-pass-project.vercel.app
+      STAGING_API_URL: https://carup-backend-staging-git-claude-diaspo-3f3baf-pay-pass-project.vercel.app/api
+      STAGING_RUN_ID: merge-revalidation-${{ github.sha }}
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require the staging database operator secret
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; deployed acceptance cannot run.'
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Freeze the exact candidate bundle for this run
+        run: |
+          html="$(curl --fail --silent --show-error --location "$STAGING_WEB_URL/")"
+          bundle="$(printf '%s' "$html" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
+          if [ -z "$bundle" ]; then
+            echo '::error::The PR #90 staging preview did not expose a Vite entry bundle.'
+            exit 1
+          fi
+          echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
+          echo "Frozen the exact PR #90 staging-preview bundle for this run: $bundle"
+
+      - name: Rotate staging-only UAT identities for this run
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+
+          const dbUrl = process.env.DIASPORA_STAGING_DATABASE_URL || '';
+          const expectedRef = process.env.EXPECTED_STAGING_PROJECT_REF;
+          if (!dbUrl.includes(expectedRef)) {
+            throw new Error('Refusing identity setup: database URL is not the approved carup-staging project.');
+          }
+
+          const password = crypto.randomBytes(30).toString('base64url');
+          const salt = crypto.randomBytes(16).toString('hex');
+          const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key));
+          });
+          const passwordHash = `scrypt:${salt}:${derived.toString('hex')}`;
+          const identities = [
+            ['uat.buyer@carup-staging.test', 'owner'],
+            ['uat.seller@carup-staging.test', 'dealer'],
+            ['uat.reviewer@carup-staging.test', 'admin'],
+            ['uat.tenant-admin@carup-staging.test', 'admin'],
+            ['uat.outsider@carup-staging.test', 'owner'],
+          ];
+
+          const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+          await client.connect();
+          try {
+            await client.query('BEGIN');
+            for (const [email, role] of identities) {
+              const result = await client.query(
+                'update public.users set password_hash = $1, role = $2 where email = $3 returning id',
+                [passwordHash, role, email],
+              );
+              if (result.rowCount !== 1) throw new Error(`Missing staging UAT identity: ${email}`);
+            }
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            await client.end();
+          }
+
+          const envNames = [
+            'STAGING_UAT_BUYER_PASSWORD',
+            'STAGING_UAT_SELLER_PASSWORD',
+            'STAGING_UAT_REVIEWER_PASSWORD',
+            'STAGING_UAT_TENANT_ADMIN_PASSWORD',
+            'STAGING_UAT_OUTSIDER_PASSWORD',
+          ];
+          fs.appendFileSync(process.env.GITHUB_ENV, envNames.map((name) => `${name}=${password}`).join('\n') + '\n', { mode: 0o600 });
+          console.log('Five staging-only UAT identities were rotated and role-verified without printing credentials.');
+          NODE
+
+      - name: Run deployed desktop and mobile Chromium acceptance
+        run: npx playwright test --config=playwright.staging.config.ts
+
+      - name: Upload deployed-UAT evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diaspora-deployed-staging-uat-${{ github.run_id }}
+          path: |
+            test-results/staging-env-truth.json
+            test-results/staging-uat-results.json
+            test-results/staging-uat-html
+            test-results/staging-uat-artifacts
+          if-no-files-found: warn
+          retention-days: 14

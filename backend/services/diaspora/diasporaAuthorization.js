@@ -207,6 +207,42 @@ export function assertCanTransitionImportOrder(order, participants, nextStatus, 
   }
 }
 
+/**
+ * Subscription MANAGEMENT (checkout / portal / change-plan / cancel) is restricted to trusted
+ * subscription managers — billing is a tenant-level financial control, not a per-record operation:
+ *   - a platform admin / super-admin (PLATFORM_ADMIN_ROLES) may manage any tenant's subscription; OR
+ *   - a tenant admin (TENANT_ADMIN_ROLES) acting on their OWN tenant may manage that tenant's
+ *     subscription.
+ * Ordinary tenant members (buyer/seller/dealer/mechanic/bank/manager/…) AND platform/government
+ * reviewers are READ-ONLY: a reviewer must not change or cancel billing merely because they can
+ * review other records. Server-derived roles only — the client x-stakeholder-role and any
+ * client-submitted tenant id are never trusted; the auth middleware already rejects an x-tenant-id
+ * without a verified tenant_users membership, so userContext.tenantId is a confirmed-membership tenant.
+ * Cross-tenant management is denied (the target tenant must equal the caller's own tenant unless
+ * platform admin).
+ */
+export function canManageSubscription(userContext = {}, tenantId = null) {
+  const target = normalizeId(tenantId);
+  if (!target) return false;
+  if (isPlatformAdmin(userContext)) return true;
+  const tenantRole = String(userContext.tenantRole ?? userContext.tenant_role ?? '').toLowerCase();
+  const userTenantId = normalizeId(userContext.tenantId ?? userContext.tenant_id);
+  return Boolean(userTenantId && userTenantId === target) && TENANT_ADMIN_ROLES.has(tenantRole);
+}
+
+export function assertCanManageSubscription(userContext = {}, tenantId = null) {
+  const ctx = requireUserContext(userContext);
+  if (!normalizeId(tenantId)) {
+    throw new ValidationError('A tenant context is required to manage a subscription');
+  }
+  if (!canManageSubscription(ctx, tenantId)) {
+    throw new ForbiddenError('You are not authorized to manage this tenant subscription', {
+      code: 'SUBSCRIPTION_MANAGEMENT_FORBIDDEN',
+      requiredRole: 'tenant admin or platform admin',
+    });
+  }
+}
+
 export function redactTradeDocumentStorage(document) {
   if (!document) return document;
   const {

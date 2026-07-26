@@ -132,6 +132,18 @@ export interface DiasporaImportOrder {
   updated_at?: string;
   metadata?: Record<string, unknown>;
   diaspora_trade_documents?: DiasporaTradeDocument[];
+  diaspora_payment_milestones?: DiasporaPaymentMilestone[];
+  diaspora_import_quotes?: DiasporaImportOrderQuoteSummary[];
+}
+
+/** Embedded quote summary on getImportOrder responses (used for the milestone cap display). */
+export interface DiasporaImportOrderQuoteSummary {
+  id: string;
+  seller_id?: string | null;
+  status?: string | null;
+  quote_amount?: number | string | null;
+  quote_currency?: string | null;
+  created_at?: string | null;
 }
 
 export interface DiasporaImportOrderPayload {
@@ -198,6 +210,122 @@ export interface DiasporaComplianceReview {
   status: string;
   review_type?: string;
   created_at?: string;
+}
+
+/** Government-document footprint row (GET /diaspora/import-orders/:id/government-footprint). */
+export interface DiasporaGovernmentDocument {
+  category: string;
+  status: string;
+  requiredForZimbabweReady?: boolean;
+  documentId?: string | null;
+  verifiedAt?: string | null;
+}
+
+/** Sealed diaspora audit row (GET /diaspora/import-orders/:id/audit). Read-only history. */
+export interface DiasporaAuditEntry {
+  id: string;
+  import_order_id?: string | null;
+  action: string;
+  actor_id?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  created_at?: string | null;
+  cryptographic_seal?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** Shipment stage event (GET /diaspora/shipments/:id/timeline). */
+export interface DiasporaShipmentStageEvent {
+  id: string;
+  shipment_id?: string;
+  stage: string;
+  notes?: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
+}
+
+/** Diaspora trade profile (GET /diaspora/trade-profiles/:id) — seller/buyer identity + trust. */
+export interface DiasporaTradeProfile {
+  id: string;
+  user_id?: string | null;
+  tenant_id?: string | null;
+  organization_id?: string | null;
+  display_name?: string | null;
+  profile_type?: string | null;
+  role_type?: string | null;
+  verification_status?: string | null;
+  trust_score?: number | null;
+  completed_shipments_count?: number | null;
+  dispute_count?: number | null;
+  rating_average?: number | null;
+  country?: string | null;
+  city?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** Create payload for a trade profile. Self-service callers omit user_id (server derives it) and
+ * cannot set verification_status/trust_score — those are reviewer-only. */
+export interface DiasporaTradeProfileInput {
+  role_type: string;
+  country: string;
+  city: string;
+  organization_id?: string | null;
+  user_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** Self-service editable subset (non-authoritative fields only). expected_updated_at is the
+ * optimistic-concurrency token — the server rejects the update if the row changed since read. */
+export interface DiasporaTradeProfileUpdate {
+  country?: string;
+  city?: string;
+  organization_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  expected_updated_at?: string | null;
+}
+
+/** A non-custodial payment milestone reference record — CarUp never moves money for this. */
+export interface DiasporaPaymentMilestone {
+  id: string;
+  import_order_id: string;
+  tenant_id?: string | null;
+  milestone_type: string;
+  amount: number;
+  currency: string;
+  due_date?: string | null;
+  status: string;
+  external_reference?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+/** Create payload for a payment milestone. */
+export interface DiasporaPaymentMilestoneInput {
+  milestone_type: string;
+  amount: number;
+  currency?: string;
+  due_date?: string | null;
+  external_reference?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/** Ownership handoff status (GET /diaspora/import-orders/:id/ownership-handoff). */
+export interface DiasporaOwnershipHandoffStatus {
+  handedOff: boolean;
+  vehicleVin?: string | null;
+  evidence?: Array<Record<string, unknown>>;
+}
+
+/** Ownership handoff result (POST /diaspora/import-orders/:id/ownership-handoff). */
+export interface DiasporaOwnershipHandoffResult {
+  idempotentReplay?: boolean;
+  vehicle?: { vin?: string; id?: string; [key: string]: unknown } | null;
+  handedOff?: boolean;
+  [key: string]: unknown;
 }
 
 export interface DiasporaContainerShipment {
@@ -554,6 +682,8 @@ export interface DiasporaStockItemPayload {
   initial_quantity?: number;
   supply_document_id?: string;
   metadata?: Record<string, unknown>;
+  /** Optimistic-concurrency token (the row's last-seen updated_at); a mismatch yields 409. */
+  expected_updated_at?: string;
 }
 
 export interface DiasporaStockLedgerEntry {
@@ -880,6 +1010,100 @@ export interface DiasporaDriveFile {
   linkedEntityId?: string;
   syncStatus?: string;
   lastSyncAt?: string | null;
+}
+
+// ── Phase 8: Subscription & Entitlements (tenant plan + per-user overrides) ──
+// Plan/feature catalog is config-driven on the backend (constants/diaspora/diasporaEntitlements.js);
+// the UI NEVER hardcodes the catalog and always renders from the API responses below.
+export type PlanEntitlements = Record<string, boolean | number>;
+
+export interface Plan {
+  planKey: string;
+  name: string;
+  tier: string;
+  sortOrder: number;
+  description: string;
+  entitlements: PlanEntitlements;
+}
+
+export interface SubscriptionStatus {
+  tenantId: string;
+  planKey: string;
+  status: string;
+  synthetic: boolean;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  active: boolean;
+}
+
+export type EffectiveEntitlements = Record<string, boolean | number>;
+
+export interface UsageEntry {
+  featureKey: string;
+  planKey?: string;
+  limit: number | null;
+  used: number;
+  reserved?: number;
+  remaining: number | null;
+  metered?: boolean;
+  unlimited?: boolean;
+  available?: boolean;
+  periodStart?: string;
+}
+
+export interface UsageResponse {
+  tenantId: string;
+  periodStart: string;
+  usage: UsageEntry[];
+}
+
+// A normalized, SAFE-to-render denial. Parsed from a backend 4xx (whose body is
+// { success:false, error:{ code, message, ... } }) or a network/transport failure. NEVER carries
+// db details, stack traces, internal tenant ids, raw provider errors, or secrets.
+export type EntitlementDenialCategory =
+  | 'feature-unavailable-on-plan'
+  | 'quota-exhausted'
+  | 'inactive-subscription'
+  | 'tenant-context-missing'
+  | 'external-activation-unavailable'
+  | 'ordinary-authorization-failure'
+  | 'network-or-server-failure';
+
+export interface StructuredEntitlementDenial {
+  category: EntitlementDenialCategory;
+  /** Human-readable, already-safe summary line. */
+  message: string;
+  /** The operation the user attempted (e.g. "manage subscription"), when known. */
+  requestedOperation?: string;
+  /** Canonical feature key the operation required, when known. */
+  requiredFeature?: string;
+  /** The caller's current plan key, when known. */
+  currentPlan?: string;
+  /** The lowest plan that grants the required feature, when known (upgrade target). */
+  requiredPlan?: string | null;
+  /** Remaining quota for the feature, when the backend provided it. */
+  remaining?: number | null;
+  /** Whether upgrading to a higher plan can unblock the operation. */
+  upgradeEligible?: boolean;
+  /** Whether retrying may succeed (transient network/server failure). */
+  retryable?: boolean;
+}
+
+export interface SandboxBillingActionResponse {
+  /** Opaque sandbox session/snapshot identifier (no secrets, no provider tokens). */
+  id?: string;
+  provider?: string;
+  sandbox?: boolean;
+  planKey?: string;
+  plan_key?: string;
+  status?: string;
+  url?: string;
+  cancel_at_period_end?: boolean;
+  cancelAtPeriodEnd?: boolean;
+  current_period_end?: string | null;
+  currentPeriodEnd?: string | null;
+  [key: string]: unknown;
 }
 
 // 3. WorkOrder
@@ -1622,6 +1846,210 @@ export interface ApiMutationResponse {
   [key: string]: unknown;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 22. Phase 9 — SafeTrade (escrow/assurance overlay) — INTEGRATION-OWNED TYPES
+//
+// These mirror the real backend API shapes (see backend/services/diaspora/safetrade/*). The
+// transaction/milestone/dispute rows are the snake_case DB rows returned verbatim by the read
+// routes; the eligibility/release verdicts + available-action projection are the explainable
+// envelopes returned by their pure services. The UI is NON-CUSTODIAL: it renders action controls
+// ONLY from SafeTradeAvailableAction[] (GET /:id/available-actions) and never duplicates the
+// 16-state transition table. SafeTrade is sandbox payment-state simulation only.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The 16 canonical SafeTrade lifecycle/design states (constants/diaspora/diasporaSafeTradeStatuses.js). */
+export type SafeTradeState =
+  | 'DRAFT'
+  | 'ELIGIBILITY_PENDING'
+  | 'AWAITING_BUYER_COMMITMENT'
+  | 'AWAITING_SELLER_COMMITMENT'
+  | 'PAYMENT_PENDING'
+  | 'PAYMENT_HELD'
+  | 'DOCUMENTS_PENDING'
+  | 'COMPLIANCE_REVIEW'
+  | 'SHIPMENT_IN_PROGRESS'
+  | 'DELIVERY_CONFIRMATION_PENDING'
+  | 'COMPLETED'
+  | 'DISPUTED'
+  | 'SUSPENDED'
+  | 'CANCELLED'
+  | 'REFUND_PENDING'
+  | 'REFUNDED';
+
+/** The coarse DB transaction status (the migration CHECK enum) carried on the transaction row. */
+export type SafeTradeDbStatus =
+  | 'DRAFT'
+  | 'INITIATED'
+  | 'FUNDS_PENDING'
+  | 'FUNDS_HELD'
+  | 'IN_PROGRESS'
+  | 'RELEASE_REVIEW'
+  | 'RELEASE_AUTHORIZED'
+  | 'SETTLED'
+  | 'COMPLETED'
+  | 'DISPUTED'
+  | 'SUSPENDED'
+  | 'CANCELLED'
+  | 'REFUND_REVIEW'
+  | 'REFUNDED';
+
+/** The SafeTrade transaction row (diaspora_safetrade_transactions). */
+export interface SafeTradeTransaction {
+  id: string;
+  tenant_id: string | null;
+  import_order_id: string;
+  accepted_quote_id: string | null;
+  buyer_id: string | null;
+  seller_id: string | null;
+  currency: string;
+  total_amount: number;
+  status: SafeTradeDbStatus | string;
+  payment_provider: string;
+  live_payment: boolean;
+  policy_version: string;
+  idempotency_key?: string | null;
+  metadata?: {
+    safetrade?: {
+      deliveryConfirmed?: boolean;
+      paymentRequested?: boolean;
+      shipmentStarted?: boolean;
+      securityHold?: boolean;
+      lastEvent?: string;
+      createdVia?: string;
+    } | null;
+    delivery?: { buyerConfirmed?: boolean } | null;
+    [key: string]: unknown;
+  } | null;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  deleted_at?: string | null;
+}
+
+/** A single SafeTrade timeline/audit row (diaspora_import_audit_log filtered to SAFETRADE_* actions). */
+export interface SafeTradeTimelineEvent {
+  id?: string;
+  action: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  actor_id?: string | null;
+  previous_state?: Record<string, unknown> | null;
+  new_state?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  source?: string | null;
+}
+
+/** A safe, role-redacted evidence reference attached to an eligibility/release verdict. */
+export interface SafeTradeEvidenceRef {
+  kind: string;
+  table: string;
+  recordId: string | null;
+  observed: Record<string, unknown>;
+  satisfied: boolean;
+}
+
+/** A single explainable eligibility/release blocker. */
+export interface SafeTradeBlocker {
+  code: string;
+  message: string;
+  severity: 'BLOCK' | string;
+  evidenceRef: SafeTradeEvidenceRef | null;
+  remediation: string;
+  policyClause: string;
+  denialCode?: string;
+}
+
+/** The eligibility verdict envelope (diasporaSafeTradeEligibilityService.evaluateEligibility). */
+export interface SafeTradeEligibilityVerdict {
+  eligible: boolean;
+  blockers: SafeTradeBlocker[];
+  evidenceRefs: SafeTradeEvidenceRef[];
+  policyVersion: string;
+  evaluatedAt: string;
+}
+
+export type SafeTradeRiskTier = 'LOW' | 'STANDARD' | 'HIGH';
+
+/** The release-policy verdict envelope (diasporaSafeTradeReleasePolicyService.evaluateRelease). */
+export interface SafeTradeReleaseEvaluation {
+  eligible: boolean;
+  blockers: SafeTradeBlocker[];
+  evidenceRefs: SafeTradeEvidenceRef[];
+  policyVersion: string;
+  evaluatedAt: string;
+  requiresApproval: boolean;
+  riskTier: SafeTradeRiskTier;
+  providerMode: 'sandbox' | 'live' | string;
+}
+
+/** The recorded release-evaluation row returned by POST /:id/evaluate-release. */
+export interface SafeTradeReleaseEvaluationRecord {
+  id: string;
+  transaction_id: string;
+  milestone_id: string | null;
+  eligible: boolean;
+  blockers: SafeTradeBlocker[];
+  evidence_refs: SafeTradeEvidenceRef[];
+  requires_reviewer: boolean;
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | string;
+  policy_version: string;
+  evaluated_by: string;
+  evaluated_at: string;
+}
+
+export interface SafeTradeEvaluateReleaseResponse {
+  evaluation: SafeTradeReleaseEvaluationRecord;
+  verdict: SafeTradeReleaseEvaluation;
+}
+
+/** A SafeTrade milestone row (diaspora_safetrade_milestones). Money states are SANDBOX simulation. */
+export interface SafeTradeMilestone {
+  id: string;
+  transaction_id: string;
+  tenant_id?: string | null;
+  milestone_type: string;
+  sequence: number;
+  amount: number;
+  currency: string;
+  /** Sandbox-simulated escrow status: DUE, FUNDS_PENDING, FUNDED, HELD, RELEASE_AUTHORIZED, RELEASED, REFUNDED, etc. */
+  status: string;
+  payer?: string | null;
+  payee?: string | null;
+  due_trigger?: string | null;
+  release_trigger?: string | null;
+  evidence_requirements?: string[] | null;
+  provider_reference?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** A SafeTrade dispute case row (diaspora_safetrade_disputes). */
+export interface SafeTradeDispute {
+  id: string;
+  tenant_id?: string | null;
+  transaction_id: string;
+  milestone_id: string | null;
+  import_order_id?: string | null;
+  raised_by?: string | null;
+  raised_by_role?: 'BUYER' | 'SELLER' | 'REVIEWER' | 'ADMIN' | 'SYSTEM' | string;
+  category: string;
+  reason: string;
+  status: 'OPEN' | 'UNDER_REVIEW' | 'AWAITING_INFO' | 'RESOLVED' | 'REJECTED' | 'WITHDRAWN' | 'CANCELLED' | string;
+  resolution?: string | null;
+  resolution_notes?: string | null;
+  assigned_reviewer_id?: string | null;
+  assigned_at?: string | null;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+  hold_placed?: boolean;
+  policy_version?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 // ── Vehicle Life Intelligence: Temporal Comparison + Disclosure (M3) ──────────
 // Buyer-facing, PUBLIC-SAFE shapes only. The backend projects reviewer-confirmed
 // findings/conflicts through publicSafeFinding/publicSafeConflict
@@ -1944,6 +2372,112 @@ export interface Dispute {
   response_deadline?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+/** A dispute evidence row (diaspora_safetrade_dispute_evidence) — already privacy-redacted server-side. */
+export interface SafeTradeDisputeEvidence {
+  id: string;
+  dispute_id: string;
+  transaction_id?: string | null;
+  evidence_type: string;
+  author_id?: string | null;
+  author_role?: string | null;
+  visibility: 'PARTICIPANTS' | 'REVIEWERS_ONLY' | 'AUTHOR_ONLY' | string;
+  statement?: string | null;
+  document_ref?: string | null;
+  evidence_refs?: unknown[];
+  created_at?: string | null;
+}
+
+/** Stable disabled-reason taxonomy (diasporaSafeTradeAvailableActions SAFETRADE_DISABLED_REASON_CODES). */
+export type SafeTradeDisabledReasonCode =
+  | 'WRONG_ROLE'
+  | 'WRONG_STATE'
+  | 'DISPUTE_ACTIVE'
+  | 'NEEDS_EVALUATION'
+  | 'NEEDS_REVIEWER'
+  | 'LIVE_PAYMENT_DISABLED'
+  | 'HELD_FUNDS_BOUNDARY'
+  | 'NOT_ELIGIBLE'
+  | 'DISABLED';
+
+/**
+ * A single safe, server-derived available-action descriptor (computeAvailableActions output). The UI
+ * renders controls ONLY from these — backend stays authoritative on submit.
+ */
+export interface SafeTradeAvailableAction {
+  actionKey: string;
+  labelKey: string;
+  permitted: boolean;
+  disabledReasonCode: SafeTradeDisabledReasonCode | null;
+  confirmationRequired: boolean;
+  reviewerRequired: boolean;
+  sandboxOnly: boolean;
+  requiredEvidenceCategories: string[];
+}
+
+/** The ALLOWLISTED set of lifecycle commit events accepted by POST /:id/commit. */
+export type SafeTradeCommitEvent =
+  | 'RUN_ELIGIBILITY'
+  | 'BUYER_COMMIT'
+  | 'SELLER_COMMIT'
+  | 'REQUEST_PAYMENT'
+  | 'HOLD_PAYMENT'
+  | 'ATTACH_DOCUMENTS'
+  | 'SUBMIT_COMPLIANCE'
+  | 'COMPLIANCE_PASS'
+  | 'COMPLIANCE_FAIL'
+  | 'BEGIN_SHIPMENT'
+  | 'MARK_ARRIVED'
+  | 'AWAIT_DELIVERY'
+  | 'CONFIRM_DELIVERY'
+  | 'SUSPEND'
+  | 'RESUME';
+
+export interface SafeTradeCommitPayload {
+  event: SafeTradeCommitEvent;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+  idempotencyKey?: string;
+}
+
+/** Generic transition/commit result envelope (transition service). */
+export interface SafeTradeActionResponse {
+  transaction?: SafeTradeTransaction | null;
+  milestone?: SafeTradeMilestone | null;
+  event?: string;
+  idempotentReplay?: boolean;
+  observational?: boolean;
+  provider?: { name?: string; status?: string; idempotentReplay?: boolean; [key: string]: unknown };
+  reputationEligibilityEvent?: { event: string; transactionId: string; wroteReputation: boolean } | null;
+}
+
+/** Create-transaction result (POST /safetrade). */
+export interface SafeTradeCreateResponse {
+  transaction: SafeTradeTransaction;
+  idempotentReplay: boolean;
+}
+
+/** Open-dispute result (POST /:id/disputes). */
+export interface SafeTradeDisputeOpenResponse {
+  dispute: SafeTradeDispute;
+  transaction?: SafeTradeTransaction | null;
+  idempotentReplay: boolean;
+  holdPlaced: boolean;
+  hold?: unknown;
+}
+
+/** Resolve-dispute result (POST /disputes/:id/resolve). */
+export interface SafeTradeDisputeResolveResponse {
+  dispute: SafeTradeDispute;
+  resolution: string;
+  money?: unknown;
+}
+
+/** Paginated list envelope (GET /safetrade). */
+export interface SafeTradeListResponse {
+  data: SafeTradeTransaction[];
+  pagination: { limit: number; offset: number };
 }
 
 // Public-safe projection returned to non-privileged callers from

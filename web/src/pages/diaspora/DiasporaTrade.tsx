@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
 
 const requiredDocuments = [
@@ -878,20 +879,175 @@ function useDiasporaOrder(orderId?: string) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => {
+  const reload = useCallback(async () => {
     if (!orderId) return
-    fetchDiasporaImportOrder(orderId)
-      .then(setOrder)
-      .catch(err => setError(err instanceof Error ? err.message : 'Unable to load import order'))
-      .finally(() => setLoading(false))
+    try {
+      setOrder(await fetchDiasporaImportOrder(orderId))
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load import order')
+    } finally {
+      setLoading(false)
+    }
   }, [fetchDiasporaImportOrder, orderId])
 
-  return { order, loading, error }
+  useEffect(() => {
+    // reload() only sets state after awaits — same async data-fetch-on-mount pattern as ShipmentContent.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void reload()
+  }, [reload])
+
+  return { order, loading, error, reload }
+}
+
+// Truncate server-thrown Error messages for inline display (apiClient throws message-only Errors).
+function truncateMessage(err: unknown, fallback: string) {
+  const message = err instanceof Error && err.message ? err.message : fallback
+  return message.length > 200 ? `${message.slice(0, 200)}…` : message
+}
+
+// Privileged-only operational shortcuts on the import detail page. Backend authorization is the
+// real boundary (403s surface below); this section is convenience for reviewers/admins.
+function ReviewerActionsCard({ orderId, onRefresh }: { orderId: string; onRefresh: () => Promise<void> }) {
+  const { user } = useAuth()
+  const { assignDiasporaSeller, transitionDiasporaImportOrder, linkDiasporaVehicleImportRecord, completeDiasporaOwnershipHandoff } = useCarUpApi()
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [sellerId, setSellerId] = useState('')
+  const [vin, setVin] = useState('')
+  const [chassis, setChassis] = useState('')
+
+  if (!adminRoles.has(user?.role || '')) return null
+
+  const run = async (fn: () => Promise<string>, errorPrefix = '') => {
+    if (busy) return
+    setBusy(true)
+    setResult('')
+    setActionError('')
+    try {
+      setResult(await fn())
+      await onRefresh()
+    } catch (err) {
+      setActionError(`${errorPrefix}${truncateMessage(err, 'Action failed')}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white" data-testid="diaspora-order-reviewer-actions">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        onClick={() => setOpen(prev => !prev)}
+        aria-expanded={open}
+        data-testid="diaspora-reviewer-actions-toggle"
+      >
+        <span className="flex items-center gap-2 text-base font-semibold text-gray-900">
+          <ShieldCheck className="h-4 w-4 text-orange-600" /> Reviewer actions
+        </span>
+        <span className="text-sm text-orange-600">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <div className="space-y-4 border-t border-gray-100 px-4 py-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              placeholder="Seller ID"
+              value={sellerId}
+              onChange={event => setSellerId(event.target.value)}
+              className="w-64"
+              data-testid="diaspora-reviewer-seller-input"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !sellerId.trim()}
+              onClick={() => run(async () => {
+                await assignDiasporaSeller(orderId, { sellerId: sellerId.trim() })
+                return 'Seller assigned.'
+              })}
+              data-testid="diaspora-reviewer-assign-seller"
+            >
+              Assign seller
+            </Button>
+          </div>
+          <div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => run(async () => {
+                await transitionDiasporaImportOrder(orderId, { nextStatus: 'ZIMBABWE_READY' })
+                return 'Order marked Zimbabwe Ready.'
+              }, 'Blocked: ')}
+              data-testid="diaspora-reviewer-zimbabwe-ready"
+            >
+              Mark Zimbabwe Ready
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              placeholder="Vehicle VIN"
+              value={vin}
+              onChange={event => setVin(event.target.value)}
+              className="w-56"
+              data-testid="diaspora-reviewer-vin-input"
+            />
+            <Input
+              placeholder="Chassis number (optional)"
+              value={chassis}
+              onChange={event => setChassis(event.target.value)}
+              className="w-56"
+              data-testid="diaspora-reviewer-chassis-input"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !vin.trim()}
+              onClick={() => run(async () => {
+                await linkDiasporaVehicleImportRecord(orderId, {
+                  vehicle_vin: vin.trim(),
+                  chassis_number: chassis.trim() || undefined,
+                  verification_status: 'VERIFIED',
+                })
+                return 'Vehicle import record linked.'
+              })}
+              data-testid="diaspora-reviewer-link-vehicle"
+            >
+              Link vehicle record
+            </Button>
+          </div>
+          <div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => run(async () => {
+                const handoff = await completeDiasporaOwnershipHandoff(orderId)
+                return handoff.idempotentReplay
+                  ? 'Ownership handoff already completed (idempotent replay).'
+                  : 'Ownership handoff completed.'
+              })}
+              data-testid="diaspora-reviewer-complete-handoff"
+            >
+              Complete ownership handoff
+            </Button>
+          </div>
+          <p aria-live="polite" className="text-sm">
+            {result && <span className="font-medium text-green-700" data-testid="diaspora-reviewer-result">{result}</span>}
+            {actionError && <span className="font-medium text-red-700" data-testid="diaspora-reviewer-error">{actionError}</span>}
+          </p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function DiasporaImportDetail() {
   const { id } = useParams()
-  const { order, loading, error } = useDiasporaOrder(id)
+  const { order, loading, error, reload } = useDiasporaOrder(id)
 
   return (
     <RequireDiasporaAuth>
@@ -913,6 +1069,15 @@ export function DiasporaImportDetail() {
                 <Link to={`/diaspora/imports/${order.id}/shipment`}>Shipment</Link>
               </Button>
             </div>
+            <PaymentMilestonesCard
+              orderId={order.id}
+              milestones={order.diaspora_payment_milestones || []}
+              quotes={order.diaspora_import_quotes || []}
+              budgetAmount={order.budget_amount}
+              budgetCurrency={order.budget_currency}
+              onRefresh={reload}
+            />
+            <ReviewerActionsCard orderId={order.id} onRefresh={reload} />
           </div>
         )}
       </div>
@@ -1387,18 +1552,44 @@ export function DiasporaImportShipment() {
 
 export function DiasporaComplianceAdmin() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
-  const { fetchDiasporaComplianceReviews } = useCarUpApi()
+  const { fetchDiasporaComplianceReviews, createDiasporaComplianceReview, approveDiasporaComplianceReview, flagDiasporaComplianceReview } = useCarUpApi()
   const [rows, setRows] = useState<DiasporaComplianceReview[]>([])
   const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [createOrderId, setCreateOrderId] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
+  const [actionError, setActionError] = useState('')
   const role = user?.role || ''
   const canView = useMemo(() => isAuthenticated && adminRoles.has(role), [isAuthenticated, role])
 
-  useEffect(() => {
-    if (!canView) return
+  const refresh = useCallback(() => {
     fetchDiasporaComplianceReviews()
       .then(setRows)
       .finally(() => setLoading(false))
-  }, [canView, fetchDiasporaComplianceReviews])
+  }, [fetchDiasporaComplianceReviews])
+
+  useEffect(() => {
+    if (!canView) return
+    refresh()
+  }, [canView, refresh])
+
+  // Shared busy guard for create/approve/flag; backend authorization remains the real boundary.
+  const runAction = async (fn: () => Promise<unknown>, successMessage: string) => {
+    if (busy) return
+    setBusy(true)
+    setActionMessage('')
+    setActionError('')
+    try {
+      await fn()
+      setActionMessage(successMessage)
+      refresh()
+    } catch (err) {
+      setActionError(truncateMessage(err, 'Action failed'))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (authLoading) {
     return <div className="py-16 text-center text-orange-600" data-testid="diaspora-compliance-loading">Loading compliance access...</div>
@@ -1420,6 +1611,38 @@ export function DiasporaComplianceAdmin() {
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8" data-testid="diaspora-compliance-admin-route">
       <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100" data-testid="diaspora-compliance-status-badge">Reviewer</Badge>
       <h1 className="mt-3 text-2xl font-bold text-gray-950">Diaspora compliance</h1>
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Import order ID"
+          value={createOrderId}
+          onChange={event => setCreateOrderId(event.target.value)}
+          className="w-64"
+          data-testid="diaspora-compliance-create-input"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={busy || !createOrderId.trim()}
+          onClick={() => runAction(async () => {
+            await createDiasporaComplianceReview({ importOrderId: createOrderId.trim() })
+            setCreateOrderId('')
+          }, 'Compliance review created.')}
+          data-testid="diaspora-compliance-create"
+        >
+          Create review
+        </Button>
+        <Input
+          placeholder="Notes (optional, applied on Approve/Flag)"
+          value={notes}
+          onChange={event => setNotes(event.target.value)}
+          className="w-80"
+          data-testid="diaspora-compliance-notes-input"
+        />
+      </div>
+      <p aria-live="polite" className="mt-2 text-sm">
+        {actionMessage && <span className="font-medium text-green-700" data-testid="diaspora-compliance-action-result">{actionMessage}</span>}
+        {actionError && <span className="font-medium text-red-700" data-testid="diaspora-compliance-action-error">{actionError}</span>}
+      </p>
       {loading ? (
         <div className="mt-6 text-orange-600" data-testid="diaspora-compliance-table-loading">Loading compliance reviews...</div>
       ) : (
@@ -1427,9 +1650,29 @@ export function DiasporaComplianceAdmin() {
           {rows.length === 0 ? (
             <div className="px-4 py-8 text-center text-gray-500" data-testid="diaspora-compliance-empty">No compliance reviews found.</div>
           ) : rows.map(row => (
-            <div key={row.id} className="flex justify-between gap-4 px-4 py-3" data-testid="diaspora-compliance-row">
+            <div key={row.id} className="flex flex-wrap items-center justify-between gap-4 px-4 py-3" data-testid="diaspora-compliance-row">
               <span className="font-medium text-gray-900">{row.import_order_id || row.id}</span>
-              <Badge variant="outline">{labelize(row.status)}</Badge>
+              <span className="flex items-center gap-2">
+                <Badge variant="outline">{labelize(row.status)}</Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => runAction(() => approveDiasporaComplianceReview(row.id, notes.trim() ? { notes: notes.trim() } : {}), 'Review approved.')}
+                  data-testid={`diaspora-compliance-approve-${row.id}`}
+                >
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => runAction(() => flagDiasporaComplianceReview(row.id, notes.trim() ? { notes: notes.trim() } : {}), 'Review flagged.')}
+                  data-testid={`diaspora-compliance-flag-${row.id}`}
+                >
+                  Flag
+                </Button>
+              </span>
             </div>
           ))}
         </div>
