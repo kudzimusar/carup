@@ -95,7 +95,10 @@ jobs:
             ['uat.outsider@carup-staging.test', 'owner'],
           ];
 
-          const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+          // Strip any sslmode query param: it would override the explicit ssl config below and make
+          // pg verify Supabase's self-signed chain, failing the connection from CI runners.
+          const cleanedDbUrl = dbUrl.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          const client = new pg.Client({ connectionString: cleanedDbUrl, ssl: { rejectUnauthorized: false } });
           await client.connect();
           try {
             await client.query('BEGIN');
