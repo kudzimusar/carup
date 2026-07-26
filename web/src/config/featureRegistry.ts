@@ -15,6 +15,25 @@
 
 import type { UserRole } from '@shared/types'
 
+// ── Phase 8 feature flag ────────────────────────────────────────────────────
+// Diaspora Subscription UI is OFF by default (fail closed). When OFF the nav entry is hidden
+// (isHidden) AND the page renders an explicit unavailable state; the App.tsx route always exists so
+// the feature works the moment the flag is turned ON. Distinct from the backend enforcement flag
+// (DIASPORA_SUBSCRIPTION_ENFORCEMENT) and from any billing-live switch.
+// Optional-chain `import.meta.env`: in the browser/Vite + Vitest it is defined; in the Playwright
+// Node test runner (which imports this registry transitively) `import.meta.env` is undefined, so we
+// must default to OFF (fail closed) instead of throwing at module-eval.
+const SUBSCRIPTION_UI_ENABLED = import.meta.env?.VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED === 'true'
+
+// ── Phase 9 feature flag ────────────────────────────────────────────────────
+// Diaspora SafeTrade UI is OFF by default (fail closed). When OFF the nav entry is hidden (isHidden)
+// AND the page renders an explicit unavailable state; the App.tsx routes always exist so the feature
+// works the moment the flag is turned ON. Distinct from the backend master gate
+// (DIASPORA_SAFETRADE_ENABLED) and the live-payment switch (DIASPORA_SAFETRADE_LIVE_PAYMENT) — it
+// NEVER enables real money movement (SafeTrade is sandbox payment-state simulation only). Same
+// optional-chain rationale as SUBSCRIPTION_UI_ENABLED (Playwright Node runner has no import.meta.env).
+const SAFETRADE_UI_ENABLED = import.meta.env?.VITE_DIASPORA_SAFETRADE_UI_ENABLED === 'true'
+
 // ── Domain taxonomy ────────────────────────────────────────────────────────
 export type FeatureDomain =
   | 'commerce'
@@ -174,6 +193,8 @@ export type LucideIconName =
   | 'MapPin'
   | 'Building2'
   | 'Settings'
+  | 'CreditCard'
+  | 'ShieldCheck'
   | 'ShoppingCart'
   | 'Package'
   | 'Phone'
@@ -819,6 +840,16 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Tag',
   },
   {
+    id: 'diaspora.trade-profile',
+    label: 'Trade Profile',
+    route: '/diaspora/trade-profile',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'UserCog',
+  },
+  {
     id: 'diaspora.reverse-rfq',
     label: 'Reverse RFQ',
     route: '/diaspora/rfq',
@@ -857,6 +888,37 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     placements: ['dashboard_sidebar'],
     requiresAuth: true,
     icon: 'Building2',
+  },
+  {
+    id: 'diaspora.subscription',
+    label: 'Subscription',
+    route: '/diaspora/subscription',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'CreditCard',
+    description: 'Diaspora plan, entitlements, usage and sandbox billing',
+    // Flag OFF (default) hides the nav entry AND keeps route-validation green (activeFeatures filters
+    // out isHidden). The /diaspora/subscription route in App.tsx always exists, so flipping the flag ON
+    // (isHidden:false) surfaces the entry without adding a duplicate route.
+    isHidden: !SUBSCRIPTION_UI_ENABLED,
+  },
+  {
+    id: 'diaspora.safetrade',
+    label: 'SafeTrade',
+    route: '/diaspora/safetrade',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ShieldCheck',
+    description: 'SafeTrade assurance coordination + sandbox payment-state simulation (non-custodial)',
+    // Flag OFF (default) hides the nav entry AND keeps route-validation green (activeFeatures filters
+    // out isHidden). The /diaspora/safetrade route in App.tsx always exists, so flipping the flag ON
+    // (isHidden:false) surfaces the entry without adding a duplicate route. The /:id detail route is
+    // a sub-route (not a registry entry), matching the import-detail pattern.
+    isHidden: !SAFETRADE_UI_ENABLED,
   },
   {
     id: 'shared.settings',

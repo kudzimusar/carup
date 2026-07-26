@@ -140,8 +140,8 @@ app.use('/api/safepay/create', rateLimiter({ max: 5, windowMs: 60 * 1000, isSens
 // verification checks the real payload the sender signed. The global parsers run before any
 // route-level parser, so route-level `verify` callbacks never fire — this is the single place
 // raw bytes are available. The '/webhook' substring covers the Full Activation provider webhooks
-// AND the communications-engine webhooks (/api/communications/webhooks/...); scoped so ordinary
-// request bodies are not buffered as strings.
+// (Phase 8 billing, SafeTrade payment) AND the communications-engine webhooks
+// (/api/communications/webhooks/...); scoped so ordinary request bodies are not buffered as strings.
 const captureWebhookRawBody = (req, _res, buf) => {
   const u = req.originalUrl || req.url || '';
   // The communications-engine pattern is covered by the substring but kept explicit — it is a

@@ -2,16 +2,20 @@ import express from 'express';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { ValidationError } from '../utils/errors.js';
 import diasporaWorkbookRouter from './diasporaWorkbookRoutes.js';
+import diasporaWorkbookXlsxRouter from './diasporaWorkbookXlsxRoutes.js';
 import diasporaStockRouter from './diasporaStockRoutes.js';
 import diasporaBuyerOrderRouter from './diasporaBuyerOrderRoutes.js';
 import diasporaAiCommandRouter from './diasporaAiCommandRoutes.js';
 import diasporaContainerMarketplaceRouter from './diasporaContainerMarketplaceRoutes.js';
 import diasporaDriveRouter from './diasporaDriveRoutes.js';
+import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
+import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
+import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
 import { completeOwnershipHandoff, getOwnershipHandoffStatus } from '../services/diaspora/diasporaOwnershipHandoffService.js';
-import { createTradeProfile, listTradeProfiles, getTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
+import { createTradeProfile, listTradeProfiles, getTradeProfile, getOwnTradeProfiles, submitTradeProfileForReview, updateTradeProfile, verifyTradeProfile, suspendTradeProfile } from '../services/diaspora/diasporaTradeProfileService.js';
 import { createTradeDocument, listTradeDocuments, getTradeDocument, getTradeDocumentWithStorage, recordDocumentExtraction, verifyTradeDocument, rejectTradeDocument } from '../services/diaspora/diasporaDocumentService.js';
 import { createContainerShipment, listContainerShipments, getContainerShipment, transitionContainer } from '../services/diaspora/diasporaContainerService.js';
 import { createCargoReservation, listCargoReservations, updateReservationStatus } from '../services/diaspora/diasporaReservationService.js';
@@ -38,6 +42,9 @@ function pagination(req) {
 // Phase 1A: Diaspora Workbook Center. Mounted inside /api/diaspora by server.js.
 router.use(diasporaWorkbookRouter);
 
+// Track W: real .xlsx template download, base64 upload dry-run (reuses JSON validation), and export.
+router.use(diasporaWorkbookXlsxRouter);
+
 // Phase 3: Online stock, immutable stock ledger, and supply documents.
 router.use(diasporaStockRouter);
 
@@ -52,6 +59,20 @@ router.use(diasporaContainerMarketplaceRouter);
 
 // Phase 7: Provider-abstracted Drive integration (feature-flagged; tokens never exposed).
 router.use(diasporaDriveRouter);
+
+// Phase 8: Subscription gate — plans, status, entitlements, usage, sandbox billing + idempotent webhook.
+// Enforcement on protected ops is gated by DIASPORA_SUBSCRIPTION_ENFORCEMENT (default OFF).
+router.use('/subscription', diasporaSubscriptionRoutes);
+
+// Phase 9: SafeTrade trade-assurance overlay (state machine, eligibility, milestones, release
+// policy, disputes, delivery). Sandbox-only payments; gated behind DIASPORA_SAFETRADE_ENABLED (off).
+router.use(diasporaSafeTradeRouter);
+
+// Phase 10: Trade Graph intelligence (tenant-safe, event-derived, AI-redacted reads + admin rebuild).
+// Mounted UNDER the '/trade-graph' prefix so the router's internal feature-gate (DIASPORA_TRADE_GRAPH,
+// default off → 404) is scoped to this prefix and cannot shadow sibling diaspora routes (the SafeTrade
+// route-shadowing lesson: a blanket gate at the diaspora root 404s everything).
+router.use('/trade-graph', diasporaTradeGraphRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {
@@ -98,6 +119,9 @@ router.get('/import-orders/:id/audit', auth, asyncHandler(async (req, res) => {
   res.json({ data: await listDiasporaAudit({ importOrderId: req.params.id, limit: Number(req.query.limit || 100) }) });
 }));
 
+// Payment milestone — a non-custodial reference record, not a payment API. `auth` is the coarse
+// route filter; addPaymentMilestone reuses getImportOrder's own access gate (owner/participant/
+// tenant-admin/reviewer) as the authority boundary, same convention as ownership-handoff above.
 router.post('/import-orders/:id/payment-milestones', auth, asyncHandler(async (req, res) => {
   res.status(201).json(await addPaymentMilestone(req.params.id, req.body, req.userContext, req));
 }));
@@ -122,16 +146,22 @@ router.get('/import-orders/:id/government-footprint', auth, asyncHandler(async (
   res.json({ data: await getGovernmentFootprint(req.params.id) });
 }));
 
-// Trade Profiles
+// Trade Profiles — self-service for buyers/sellers/suppliers (own profile only); reviewerAuth-gated
+// verify/suspend is the coarse route filter, the service itself is the authority boundary (mirrors
+// the ownership-handoff route convention above).
 router.get('/trade-profiles', auth, asyncHandler(async (req, res) => {
-  res.json({ data: await listTradeProfiles({ roleType: req.query.roleType, verificationStatus: req.query.verificationStatus, country: req.query.country, ...pagination(req) }) });
+  res.json({ data: await listTradeProfiles({ roleType: req.query.roleType, verificationStatus: req.query.verificationStatus, country: req.query.country, ...pagination(req) }, req.userContext) });
 }));
 
 router.post('/trade-profiles', auth, asyncHandler(async (req, res) => {
   res.status(201).json(await createTradeProfile(req.body, req.userContext, req));
 }));
 
-router.get('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeProfile(req.params.id))));
+// /me MUST be registered before /:id, or Express matches 'me' as an :id.
+router.get('/trade-profiles/me', auth, asyncHandler(async (req, res) => res.json({ data: await getOwnTradeProfiles(req.userContext) })));
+router.get('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await getTradeProfile(req.params.id, req.userContext))));
+router.patch('/trade-profiles/:id', auth, asyncHandler(async (req, res) => res.json(await updateTradeProfile(req.params.id, req.body, req.userContext, req))));
+router.post('/trade-profiles/:id/submit-review', auth, asyncHandler(async (req, res) => res.json(await submitTradeProfileForReview(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-profiles/:id/verify', reviewerAuth, asyncHandler(async (req, res) => res.json(await verifyTradeProfile(req.params.id, req.body, req.userContext, req))));
 router.post('/trade-profiles/:id/suspend', reviewerAuth, asyncHandler(async (req, res) => res.json(await suspendTradeProfile(req.params.id, req.body, req.userContext, req))));
 

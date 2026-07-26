@@ -10,6 +10,8 @@ import { RFQ_URGENCY } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isOrderOwner, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { matchSupplyForOrder } from './diasporaDemandSupplyMatchingService.js';
+import { withEntitlement } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
 const QUOTES = 'diaspora_import_quotes';
@@ -155,13 +157,26 @@ export async function publishRfq(id, userContext = {}, options = {}) {
   const order = await loadOrder(client, id, context, { mutate: true });
 
   if (!order.destination_country) throw new ValidationError('Cannot publish RFQ without a destination_country');
-  if (order.metadata?.rfq?.published) return order; // idempotent
+  if (order.metadata?.rfq?.published) return order; // idempotent — already an open RFQ, no new quota
 
-  const metadata = { ...(order.metadata || {}), rfq: { ...(order.metadata?.rfq || {}), published: true, publishedAt: new Date().toISOString() } };
-  const { data, error } = await client.from(ORDERS).update({ metadata, status: 'QUOTE_ISSUED', updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', id).select().single();
-  if (error) throw new ValidationError(`Failed to publish RFQ: ${error.message}`);
-  await appendAudit(client, { importOrderId: id, actorId: context.id, tenantId: data.tenant_id, action: 'RFQ_PUBLISHED', resourceType: 'diaspora_import_order', resourceId: id, previousState: order, newState: data, req });
-  return data;
+  // Phase 8 (M2): gate opening an RFQ on the diaspora.rfq.create feature and reserve a
+  // diaspora.rfq.max_open slot. Flag-gated — a no-op (identical behavior) when enforcement is OFF; a
+  // failed DB write/audit releases the reserved slot so it is never permanently consumed.
+  return withEntitlement(client, {
+    tenantId: order.tenant_id ?? context.tenantId ?? null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.RFQ_CREATE,
+    quotaFeatureKey: FEATURE_KEYS.RFQ_MAX_OPEN,
+    amount: 1,
+    idempotencyKey: `rfq-publish:${id}`,
+    req,
+  }, async () => {
+    const metadata = { ...(order.metadata || {}), rfq: { ...(order.metadata?.rfq || {}), published: true, publishedAt: new Date().toISOString() } };
+    const { data, error } = await client.from(ORDERS).update({ metadata, status: 'QUOTE_ISSUED', updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', id).select().single();
+    if (error) throw new ValidationError(`Failed to publish RFQ: ${error.message}`);
+    await appendAudit(client, { importOrderId: id, actorId: context.id, tenantId: data.tenant_id, action: 'RFQ_PUBLISHED', resourceType: 'diaspora_import_order', resourceId: id, previousState: order, newState: data, req });
+    return data;
+  });
 }
 
 export async function getOrderMatches(id, userContext = {}, options = {}) {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, type AuthHeaders } from '@/lib/apiClient'
+import { apiRequest, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, extractApiErrorMessage, fetchCsrfToken, type AuthHeaders } from '@/lib/apiClient'
 import {
   fetchVerificationReviewQueue as fetchVerificationReviewQueueRequest,
   fetchVerificationSessionDetail as fetchVerificationSessionDetailRequest,
@@ -59,6 +59,16 @@ import type {
   DiasporaImportOrderPayload,
   DiasporaTradeDocument,
   DiasporaComplianceReview,
+  DiasporaGovernmentDocument,
+  DiasporaAuditEntry,
+  DiasporaShipmentStageEvent,
+  DiasporaTradeProfile,
+  DiasporaTradeProfileInput,
+  DiasporaTradeProfileUpdate,
+  DiasporaPaymentMilestone,
+  DiasporaPaymentMilestoneInput,
+  DiasporaOwnershipHandoffStatus,
+  DiasporaOwnershipHandoffResult,
   DiasporaCargoReservation,
   DiasporaCargoReservationPayload,
   DiasporaShipment,
@@ -100,6 +110,26 @@ import type {
   DiasporaDriveAuthUrl,
   DiasporaDriveFile,
   DiasporaDriveConnection,
+  Plan,
+  SubscriptionStatus,
+  EffectiveEntitlements,
+  UsageResponse,
+  SandboxBillingActionResponse,
+  SafeTradeTransaction,
+  SafeTradeTimelineEvent,
+  SafeTradeEligibilityVerdict,
+  SafeTradeMilestone,
+  SafeTradeDispute,
+  SafeTradeDisputeEvidence,
+  SafeTradeAvailableAction,
+  SafeTradeActionResponse,
+  SafeTradeCommitPayload,
+  SafeTradeCommitEvent,
+  SafeTradeCreateResponse,
+  SafeTradeListResponse,
+  SafeTradeEvaluateReleaseResponse,
+  SafeTradeDisputeOpenResponse,
+  SafeTradeDisputeResolveResponse,
   VehicleHistoryReportData,
   ReportVersionResponse,
   ReportShareLinkResponse,
@@ -980,6 +1010,187 @@ export function useCarUpApi() {
     return response.data || []
   }, [request])
 
+  // --- Final-closure operability + passport reads. Backend stays authoritative on every action;
+  // these controls are convenience — hidden/disabled UI is never the security boundary. ---
+  const fetchDiasporaGovernmentFootprint = useCallback(async (importOrderId: string): Promise<DiasporaGovernmentDocument[]> => {
+    const response = await request<{ data: DiasporaGovernmentDocument[] }>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/government-footprint`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaOrderAudit = useCallback(async (importOrderId: string): Promise<DiasporaAuditEntry[]> => {
+    const response = await request<{ data: DiasporaAuditEntry[] }>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/audit`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaShipmentTimeline = useCallback(async (shipmentId: string): Promise<DiasporaShipmentStageEvent[]> => {
+    const response = await request<{ data: DiasporaShipmentStageEvent[] }>(`/diaspora/shipments/${encodeURIComponent(shipmentId)}/timeline`)
+    return response.data || []
+  }, [request])
+
+  const fetchDiasporaTradeProfile = useCallback(async (id: string): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}`)
+  }, [request])
+
+  const fetchOwnDiasporaTradeProfiles = useCallback(async (): Promise<DiasporaTradeProfile[]> => {
+    const response = await request<{ data: DiasporaTradeProfile[] }>('/diaspora/trade-profiles/me')
+    return response.data || []
+  }, [request])
+
+  const submitDiasporaTradeProfileForReview = useCallback(async (id: string, payload: { notes?: string } = {}): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}/submit-review`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const listDiasporaTradeProfiles = useCallback(async (filters: { roleType?: string; verificationStatus?: string; country?: string } = {}): Promise<DiasporaTradeProfile[]> => {
+    const params = new URLSearchParams()
+    if (filters.roleType) params.set('roleType', filters.roleType)
+    if (filters.verificationStatus) params.set('verificationStatus', filters.verificationStatus)
+    if (filters.country) params.set('country', filters.country)
+    const qs = params.toString()
+    const response = await request<{ data: DiasporaTradeProfile[] }>(`/diaspora/trade-profiles${qs ? `?${qs}` : ''}`)
+    return response.data || []
+  }, [request])
+
+  const createDiasporaTradeProfile = useCallback(async (payload: DiasporaTradeProfileInput): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>('/diaspora/trade-profiles', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const updateDiasporaTradeProfile = useCallback(async (id: string, payload: DiasporaTradeProfileUpdate): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const verifyDiasporaTradeProfile = useCallback(async (id: string, payload: { trust_score?: number; notes?: string } = {}): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}/verify`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const suspendDiasporaTradeProfile = useCallback(async (id: string, payload: { reason?: string; notes?: string } = {}): Promise<DiasporaTradeProfile> => {
+    return request<DiasporaTradeProfile>(`/diaspora/trade-profiles/${encodeURIComponent(id)}/suspend`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const addDiasporaPaymentMilestone = useCallback(async (importOrderId: string, payload: DiasporaPaymentMilestoneInput): Promise<DiasporaPaymentMilestone> => {
+    return request<DiasporaPaymentMilestone>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/payment-milestones`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  // Tenant-scoped, DATABASE-sourced workbook export. Streams a binary .xlsx from the backend (built
+  // from live DB rows the caller is allowed to see) and triggers a browser download. Uses a raw
+  // fetch (not the JSON `request` helper) because the response is a binary blob, not JSON, but
+  // fetches a CSRF token the same way apiRequest does for unsafe methods. The request body carries
+  // templateType + optional safe filters — NEVER data rows.
+  const downloadDiasporaWorkbookDbExport = useCallback(async (templateType: string, filters: { createdFrom?: string; createdTo?: string } = {}): Promise<void> => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+    const csrfToken = await fetchCsrfToken(BASE_URL, authHeaders)
+
+    const res = await fetch(`${BASE_URL}/diaspora/workbook/xlsx/export-from-db`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'content-type': 'application/json', 'x-csrf-token': csrfToken },
+      credentials: 'include',
+      body: JSON.stringify({ templateType, filters }),
+    })
+    if (!res.ok) {
+      let message = `Export failed (${res.status})`
+      try {
+        const body = await res.json()
+        message = extractApiErrorMessage(body) || message
+      } catch {
+        // non-JSON error body; keep the status message
+      }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `diaspora-${templateType}-db-export.xlsx`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }, [token, user])
+
+  const assignDiasporaSeller = useCallback(async (importOrderId: string, payload: { sellerId: string; roleType?: string; notes?: string }): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/assign-seller`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const transitionDiasporaImportOrder = useCallback(async (importOrderId: string, payload: { nextStatus: string; metadata?: Record<string, unknown> }): Promise<DiasporaImportOrder> => {
+    return request<DiasporaImportOrder>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/stages`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const createDiasporaComplianceReview = useCallback(async (payload: { importOrderId: string; reviewType?: string; notes?: string }): Promise<DiasporaComplianceReview> => {
+    return request<DiasporaComplianceReview>('/diaspora/compliance', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const approveDiasporaComplianceReview = useCallback(async (id: string, payload: { notes?: string } = {}): Promise<DiasporaComplianceReview> => {
+    return request<DiasporaComplianceReview>(`/diaspora/compliance/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const flagDiasporaComplianceReview = useCallback(async (id: string, payload: { notes?: string } = {}): Promise<DiasporaComplianceReview> => {
+    return request<DiasporaComplianceReview>(`/diaspora/compliance/${encodeURIComponent(id)}/flag`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const linkDiasporaVehicleImportRecord = useCallback(async (importOrderId: string, payload: { vehicle_vin?: string; chassis_number?: string; verification_status?: string; metadata?: Record<string, unknown> }): Promise<Record<string, unknown>> => {
+    return request<Record<string, unknown>>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/vehicle-import-record`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const completeDiasporaOwnershipHandoff = useCallback(async (importOrderId: string, payload: { idempotencyKey?: string } = {}): Promise<DiasporaOwnershipHandoffResult> => {
+    return request<DiasporaOwnershipHandoffResult>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/ownership-handoff`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }, [request])
+
+  const fetchDiasporaOwnershipHandoffStatus = useCallback(async (importOrderId: string): Promise<DiasporaOwnershipHandoffStatus> => {
+    return request<DiasporaOwnershipHandoffStatus>(`/diaspora/import-orders/${encodeURIComponent(importOrderId)}/ownership-handoff`)
+  }, [request])
+
+  const publishDiasporaStockItem = useCallback(async (id: string): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}/publish`, { method: 'POST' })
+    return response.data
+  }, [request])
+
+  const unpublishDiasporaStockItem = useCallback(async (id: string): Promise<DiasporaStockItem> => {
+    const response = await request<{ data: DiasporaStockItem }>(`/diaspora/stock/${encodeURIComponent(id)}/unpublish`, { method: 'POST' })
+    return response.data
+  }, [request])
+
   // --- Container reservation + shipment tracking (read-path + buyer reservation request) ---
   const fetchDiasporaReservations = useCallback(async (importOrderId: string): Promise<DiasporaCargoReservation[]> => {
     const response = await request<{ data: DiasporaCargoReservation[] }>(`/diaspora/reservations?importOrderId=${encodeURIComponent(importOrderId)}`)
@@ -1312,6 +1523,189 @@ export function useCarUpApi() {
   const syncDiasporaDrive = useCallback(async (): Promise<DiasporaDriveConnection> => {
     const response = await request<{ data: DiasporaDriveConnection }>('/diaspora/drive/sync', { method: 'POST', body: JSON.stringify({}) })
     return response.data
+  }, [request])
+
+  // ── Phase 8: Subscription, entitlements & sandbox billing ──
+  // Reads are tenant-scoped to any authenticated user; management actions are server-gated (Gate S8-A
+  // returns 403 for non-managers — the backend remains authoritative).
+  const getDiasporaSubscriptionPlans = useCallback(async (): Promise<Plan[]> => {
+    const response = await request<{ data: Plan[] }>('/diaspora/subscription/plans')
+    return response.data || []
+  }, [request])
+
+  const getDiasporaSubscriptionStatus = useCallback(async (): Promise<SubscriptionStatus> => {
+    const response = await request<{ data: SubscriptionStatus }>('/diaspora/subscription/status')
+    return response.data
+  }, [request])
+
+  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlements> => {
+    const response = await request<{ data: EffectiveEntitlements }>('/diaspora/subscription/entitlements')
+    return response.data || {}
+  }, [request])
+
+  const getDiasporaUsage = useCallback(async (): Promise<UsageResponse> => {
+    const response = await request<{ data: UsageResponse }>('/diaspora/subscription/usage')
+    return response.data
+  }, [request])
+
+  const createDiasporaCheckout = useCallback(async (planKey: string): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/checkout', { method: 'POST', body: JSON.stringify({ planKey }) })
+    return response.data
+  }, [request])
+
+  const createDiasporaBillingPortal = useCallback(async (): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/portal', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
+  const changeDiasporaPlan = useCallback(async (planKey: string): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/change-plan', { method: 'POST', body: JSON.stringify({ planKey }) })
+    return response.data
+  }, [request])
+
+  const cancelDiasporaSubscription = useCallback(async (atPeriodEnd: boolean): Promise<SandboxBillingActionResponse> => {
+    const response = await request<{ data: SandboxBillingActionResponse }>('/diaspora/subscription/cancel', { method: 'POST', body: JSON.stringify({ atPeriodEnd }) })
+    return response.data
+  }, [request])
+
+  // ── Phase 9: SafeTrade (escrow/assurance overlay) — sandbox payment-state simulation only ──
+  // The UI renders action controls ONLY from getSafeTradeAvailableActions; the backend stays
+  // authoritative on every submit. Money never moves through a live provider (sandbox + fail-closed).
+  // An idempotency key is forwarded as the x-idempotency-key header on every consequential mutation
+  // so a duplicate submit is a safe no-op replay backend-side (defense-in-depth with the UI guard).
+  const idemHeaders = (idempotencyKey?: string): Record<string, string> =>
+    idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}
+
+  const getSafeTradeCases = useCallback(async (filters?: { status?: string; importOrderId?: string; limit?: number; offset?: number }): Promise<SafeTradeListResponse> => {
+    const query = filters
+      ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return request<SafeTradeListResponse>(`/diaspora/safetrade${query}`)
+  }, [request])
+
+  const getSafeTradeCase = useCallback(async (id: string): Promise<SafeTradeTransaction> => {
+    return request<SafeTradeTransaction>(`/diaspora/safetrade/${encodeURIComponent(id)}`)
+  }, [request])
+
+  const getSafeTradeTimeline = useCallback(async (id: string): Promise<SafeTradeTimelineEvent[]> => {
+    const response = await request<{ data: SafeTradeTimelineEvent[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/timeline`)
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeEligibility = useCallback(async (id: string): Promise<SafeTradeEligibilityVerdict> => {
+    return request<SafeTradeEligibilityVerdict>(`/diaspora/safetrade/${encodeURIComponent(id)}/eligibility`)
+  }, [request])
+
+  const getSafeTradeMilestones = useCallback(async (id: string): Promise<SafeTradeMilestone[]> => {
+    const response = await request<{ data: SafeTradeMilestone[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/milestones`)
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeDisputes = useCallback(async (id: string): Promise<SafeTradeDispute[]> => {
+    const response = await request<{ data: SafeTradeDispute[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/disputes`)
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeAvailableActions = useCallback(async (id: string): Promise<SafeTradeAvailableAction[]> => {
+    const response = await request<{ data: SafeTradeAvailableAction[] }>(`/diaspora/safetrade/${encodeURIComponent(id)}/available-actions`)
+    return response.data || []
+  }, [request])
+
+  const createSafeTrade = useCallback(async (payload: { importOrderId: string; sellerId?: string | null; currency?: string; totalAmount: number; idempotencyKey?: string }): Promise<SafeTradeCreateResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeCreateResponse>('/diaspora/safetrade', {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  // commit accepts ONLY an allowlisted SafeTradeCommitEvent (no untyped commit(event:string)).
+  const commitSafeTrade = useCallback(async (id: string, payload: SafeTradeCommitPayload): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/commit`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const defineSafeTradeMilestones = useCallback(async (id: string, milestones: Array<Record<string, unknown>>, idempotencyKey?: string): Promise<unknown> => {
+    return request(`/diaspora/safetrade/${encodeURIComponent(id)}/milestones`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify({ milestones }),
+    })
+  }, [request])
+
+  const evaluateSafeTradeRelease = useCallback(async (id: string, payload?: { milestoneId?: string }): Promise<SafeTradeEvaluateReleaseResponse> => {
+    return request<SafeTradeEvaluateReleaseResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/evaluate-release`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    })
+  }, [request])
+
+  const requestSafeTradeRelease = useCallback(async (id: string, payload?: { milestoneId?: string; operation?: string; evaluationId?: string; event?: SafeTradeCommitEvent; reason?: string; idempotencyKey?: string }): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload || {}
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/request-release`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  // approve-release requires a prior evaluation reference (evaluationId) for the bare RELEASE_ESCROW path.
+  const approveSafeTradeRelease = useCallback(async (id: string, payload: { evaluationId?: string; milestoneId?: string; operation?: string; reason?: string; idempotencyKey?: string }): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/approve-release`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const cancelSafeTrade = useCallback(async (id: string, payload?: { reason?: string; idempotencyKey?: string }): Promise<SafeTradeActionResponse> => {
+    const { idempotencyKey, ...body } = payload || {}
+    return request<SafeTradeActionResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/cancel`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const openSafeTradeDispute = useCallback(async (id: string, payload: { category: string; reason: string; milestoneId?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeOpenResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeDisputeOpenResponse>(`/diaspora/safetrade/${encodeURIComponent(id)}/disputes`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  const addSafeTradeDisputeEvidence = useCallback(async (disputeId: string, payload: { evidenceType?: string; statement?: string; documentRef?: string; visibility?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeEvidence> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeDisputeEvidence>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/evidence`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
+  }, [request])
+
+  // ST-4B: read the server-redacted dispute evidence timeline. The backend (listEvidence) is the privacy
+  // boundary — it denies non-participants (403) and strips REVIEWERS_ONLY / others' AUTHOR_ONLY rows for
+  // ordinary participants. Returns [] on the (fail-closed) empty case.
+  const getSafeTradeDisputeEvidence = useCallback(async (disputeId: string): Promise<SafeTradeDisputeEvidence[]> => {
+    const response = await request<{ data: SafeTradeDisputeEvidence[] }>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/evidence`)
+    return response.data || []
+  }, [request])
+
+  const resolveSafeTradeDispute = useCallback(async (disputeId: string, payload: { resolution: string; milestoneId?: string; evaluationId?: string; notes?: string; idempotencyKey?: string }): Promise<SafeTradeDisputeResolveResponse> => {
+    const { idempotencyKey, ...body } = payload
+    return request<SafeTradeDisputeResolveResponse>(`/diaspora/safetrade/disputes/${encodeURIComponent(disputeId)}/resolve`, {
+      method: 'POST',
+      headers: idemHeaders(idempotencyKey),
+      body: JSON.stringify(body),
+    })
   }, [request])
 
   const reportStolen = useCallback(async (vin: string, policeReportNumber: string, ownerId: string): Promise<any> => {
@@ -2035,6 +2429,29 @@ export function useCarUpApi() {
     verifyDiasporaTradeDocument,
     rejectDiasporaTradeDocument,
     fetchDiasporaComplianceReviews,
+    fetchDiasporaGovernmentFootprint,
+    fetchDiasporaOrderAudit,
+    fetchDiasporaShipmentTimeline,
+    fetchDiasporaTradeProfile,
+    fetchOwnDiasporaTradeProfiles,
+    submitDiasporaTradeProfileForReview,
+    listDiasporaTradeProfiles,
+    createDiasporaTradeProfile,
+    updateDiasporaTradeProfile,
+    verifyDiasporaTradeProfile,
+    suspendDiasporaTradeProfile,
+    addDiasporaPaymentMilestone,
+    downloadDiasporaWorkbookDbExport,
+    assignDiasporaSeller,
+    transitionDiasporaImportOrder,
+    createDiasporaComplianceReview,
+    approveDiasporaComplianceReview,
+    flagDiasporaComplianceReview,
+    linkDiasporaVehicleImportRecord,
+    completeDiasporaOwnershipHandoff,
+    fetchDiasporaOwnershipHandoffStatus,
+    publishDiasporaStockItem,
+    unpublishDiasporaStockItem,
     fetchDiasporaReservations,
     fetchDiasporaShipments,
     fetchDiasporaOpenContainers,
@@ -2094,6 +2511,33 @@ export function useCarUpApi() {
     fetchDiasporaDriveFiles,
     disconnectDiasporaDrive,
     syncDiasporaDrive,
+    getDiasporaSubscriptionPlans,
+    getDiasporaSubscriptionStatus,
+    getDiasporaEntitlements,
+    getDiasporaUsage,
+    createDiasporaCheckout,
+    createDiasporaBillingPortal,
+    changeDiasporaPlan,
+    cancelDiasporaSubscription,
+    // ── Phase 9: SafeTrade ──
+    getSafeTradeCases,
+    getSafeTradeCase,
+    getSafeTradeTimeline,
+    getSafeTradeEligibility,
+    getSafeTradeMilestones,
+    getSafeTradeDisputes,
+    getSafeTradeAvailableActions,
+    createSafeTrade,
+    commitSafeTrade,
+    defineSafeTradeMilestones,
+    evaluateSafeTradeRelease,
+    requestSafeTradeRelease,
+    approveSafeTradeRelease,
+    cancelSafeTrade,
+    openSafeTradeDispute,
+    addSafeTradeDisputeEvidence,
+    getSafeTradeDisputeEvidence,
+    resolveSafeTradeDispute,
     reportStolen,
     checkStolen,
     fetchDealerReputation,

@@ -1,0 +1,9 @@
+{
+  "name": "diaspora-realpg-proof",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Standalone real-Postgres proof (not part of CI node --test). See README.md.",
+  "scripts": { "proof": "node reservation-idempotency-realpg.mjs" },
+  "dependencies": { "embedded-postgres": "^18.4.0-beta.17", "pg": "^8.22.0" }
+}

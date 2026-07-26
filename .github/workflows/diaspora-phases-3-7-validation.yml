@@ -86,6 +86,12 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Start web dev server
+        env:
+          # UI-8/UI-9: enable the subscription + SafeTrade UIs so their e2e run the full experience.
+          # Both flags are OFF by default (fail-closed) in prod; route-validation (vitest) runs with
+          # them off and stays green. Neither enables live billing or live SafeTrade payment.
+          VITE_DIASPORA_SUBSCRIPTION_UI_ENABLED: 'true'
+          VITE_DIASPORA_SAFETRADE_UI_ENABLED: 'true'
         run: |
           npm run dev --workspace=web &
           for i in $(seq 1 60); do
@@ -93,7 +99,7 @@ jobs:
             sleep 2
           done
 
-      - name: Playwright (Phase 2C + Phases 3-7)
+      - name: Playwright (Phase 2C + Phases 3-7 + UI-8 subscription + UI-9 safetrade + passports)
         run: |
           npx playwright test --config web/playwright.config.ts \
             web/e2e/diaspora-workbook-dry-run.spec.ts \
@@ -102,7 +108,10 @@ jobs:
             web/e2e/diaspora-reverse-rfq.spec.ts \
             web/e2e/diaspora-ai-command-center.spec.ts \
             web/e2e/diaspora-container-marketplace.spec.ts \
-            web/e2e/diaspora-drive-connections.spec.ts
+            web/e2e/diaspora-drive-connections.spec.ts \
+            web/e2e/diaspora-subscription.spec.ts \
+            web/e2e/diaspora-safetrade.spec.ts \
+            web/e2e/diaspora-passports.spec.ts
 
       - name: Upload Playwright report on failure
         if: failure()

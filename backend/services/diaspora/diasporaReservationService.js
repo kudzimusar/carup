@@ -1,6 +1,6 @@
 import { supabase } from '../../db/supabase.js';
 import { RESERVATION_STATUSES, IMPORT_ORDER_STATUSES, CONTAINER_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
-import { DatabaseError, NotFoundError, ValidationError } from '../../utils/errors.js';
+import { DatabaseError, NotFoundError, ValidationError, ForbiddenError } from '../../utils/errors.js';
 import { validateReservationPayload } from '../../validators/diaspora/diasporaSchemas.js';
 import { writeDiasporaAudit } from './diasporaAuditService.js';
 import { transitionImportOrder } from './diasporaWorkflowService.js';
@@ -18,6 +18,25 @@ async function fetchReservation(id) {
   const { data, error } = await supabase.from('diaspora_cargo_reservations').select('*').eq('id', id).is('deleted_at', null).single();
   if (error || !data) throw new NotFoundError('Diaspora cargo reservation not found');
   return data;
+}
+
+const APPROVE_RPC = 'diaspora_approve_cargo_reservation_atomic';
+
+// Maps the atomic RPC's sanitized DIASPORA_CONTAINER/<code> exception into this route's existing
+// error vocabulary (mirrors diasporaContainerMarketplaceService.translateApprovalError).
+function translateReservationApprovalError(error) {
+  const raw = String(error?.message || 'Reservation approval failed');
+  const marker = raw.indexOf('DIASPORA_CONTAINER/');
+  const code = marker >= 0 ? raw.slice(marker + 'DIASPORA_CONTAINER/'.length).split(/[:\s]/)[0] : '';
+  switch (code) {
+    case 'NOT_FOUND_RESERVATION': return new NotFoundError('Reservation not found');
+    case 'NOT_FOUND_CONTAINER': return new NotFoundError('Container not found');
+    case 'FORBIDDEN': return new ForbiddenError('Only logistics reviewers/admins can approve reservations');
+    case 'NOT_REQUESTED': return new ValidationError('Only REQUESTED reservations can be approved');
+    case 'OVERFILL': return new ValidationError('Approving this reservation would overfill the container');
+    case 'WEIGHT_OVERFILL': return new ValidationError('Approving this reservation would exceed container weight capacity');
+    default: return new ValidationError('Reservation approval could not be applied');
+  }
 }
 
 // Authorize against the import order the reservation belongs to, reusing the trusted server context
@@ -124,10 +143,46 @@ export async function updateReservationStatus(id, nextStatus, userContext = {}, 
     throw new ValidationError('Unsupported reservation status transition.');
   }
   const context = requireUserContext(userContext);
+
+  // Approval is routed through the atomic, container-serialized RPC (H3): it locks the container row,
+  // recomputes used capacity from the authoritative APPROVED set, and rejects overfill in one
+  // transaction. This replaces the former read-then-write-in-JS capacity update, which raced under
+  // concurrent approvals. Reject/cancel below do not touch capacity and are unaffected.
+  if (nextStatus === RESERVATION_STATUSES.APPROVED) {
+    const { data, error } = await supabase.rpc(APPROVE_RPC, {
+      p_reservation_id: id,
+      p_actor_id: context.id,
+      p_actor_is_privileged: isPlatformAdmin(context) || isPlatformReviewer(context),
+      p_actor_tenant_role: context.tenantRole || null,
+      p_actor_tenant_id: context.tenantId || null,
+    });
+    if (error) throw translateReservationApprovalError(error);
+    if (!data?.reservation) throw new ValidationError('Reservation approval returned no result');
+    const reservation = data.reservation;
+
+    try {
+      await transitionImportOrder({ importOrderId: reservation.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.CONTAINER_BOOKED, actorId: userContext?.id, userContext, metadata: { reservationId: id }, req });
+    } catch (err) {
+      console.warn('Skipping automatic CONTAINER_BOOKED transition:', err.message);
+    }
+
+    // The atomic RPC already writes the CARGO_RESERVATION_APPROVED critical-audit row inside its own
+    // transaction (matching diasporaContainerMarketplaceService.approveReservation), so we do NOT write
+    // a second audit row here — doing so double-counted the event and, being un-guarded after a
+    // committed approval, could surface a post-commit audit hiccup as a spurious 500. The real-time
+    // event emit is best-effort: a failure must never fail an already-committed approval.
+    try {
+      await emitDiasporaEvent(`DIASPORA_CARGO_RESERVATION_${nextStatus}`, { reservationId: id, importOrderId: reservation.import_order_id, status: nextStatus }, reservation.tenant_id);
+    } catch (err) {
+      console.warn('Reservation approved; post-commit event emit failed:', err.message);
+    }
+    return reservation;
+  }
+
   const previous = await fetchReservation(id);
 
-  // Authorize by server-derived role, not the client header. Approve/reject is reviewer/admin only;
-  // cancel is allowed for the reservation owner or a reviewer/admin.
+  // Authorize by server-derived role, not the client header. Reject is reviewer/admin only; cancel is
+  // allowed for the reservation owner or a reviewer/admin.
   if (nextStatus === RESERVATION_STATUSES.CANCELLED) {
     assertCanCancelReservation(previous, context);
   } else {
@@ -145,19 +200,6 @@ export async function updateReservationStatus(id, nextStatus, userContext = {}, 
     .select()
     .single();
   if (error) throw new DatabaseError(error.message);
-
-  if (nextStatus === RESERVATION_STATUSES.APPROVED) {
-    const { data: container } = await supabase.from('diaspora_container_shipments').select('*').eq('id', previous.container_id).single();
-    if (container) {
-      const used = Number(container.used_capacity_volume || 0) + Number(previous.estimated_volume || 0);
-      await supabase.from('diaspora_container_shipments').update({ used_capacity_volume: used, available_capacity_volume: Math.max(Number(container.total_capacity_volume) - used, 0), updated_at: new Date().toISOString() }).eq('id', container.id);
-    }
-    try {
-      await transitionImportOrder({ importOrderId: previous.import_order_id, nextStatus: IMPORT_ORDER_STATUSES.CONTAINER_BOOKED, actorId: userContext?.id, userContext, metadata: { reservationId: id }, req });
-    } catch (err) {
-      console.warn('Skipping automatic CONTAINER_BOOKED transition:', err.message);
-    }
-  }
 
   await writeDiasporaAudit({ importOrderId: data.import_order_id, tenantId: data.tenant_id, actorId: userContext?.id, action: `CARGO_RESERVATION_${nextStatus}`, resourceType: 'diaspora_cargo_reservation', resourceId: id, previousState: previous, newState: data, req });
   await emitDiasporaEvent(`DIASPORA_CARGO_RESERVATION_${nextStatus}`, { reservationId: id, importOrderId: data.import_order_id, status: nextStatus }, data.tenant_id);

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Ban,
   ClipboardList,
+  Download,
   FileText,
   History,
   Loader2,
@@ -581,7 +582,12 @@ export default function DiasporaWorkbookOperatorConsole() {
     addDiasporaWorkbookOperatorNote,
     setDiasporaWorkbookOperatorHold,
     clearDiasporaWorkbookOperatorHold,
+    downloadDiasporaWorkbookDbExport,
   } = useCarUpApi()
+
+  const [exportType, setExportType] = useState('enterprise')
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
 
   const [filters, setFilters] = useState({
     status: '',
@@ -794,8 +800,48 @@ export default function DiasporaWorkbookOperatorConsole() {
             <RefreshCw className={`mr-2 h-4 w-4 ${dashboardLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          <div className="flex items-center gap-2" data-testid="diaspora-workbook-db-export">
+            <select
+              className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+              value={exportType}
+              onChange={event => setExportType(event.target.value)}
+              aria-label="Export template type"
+              data-testid="diaspora-workbook-db-export-type"
+            >
+              <option value="enterprise">Enterprise</option>
+              <option value="buyer">Buyer</option>
+              <option value="seller">Seller</option>
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={exporting}
+              data-testid="diaspora-workbook-db-export-button"
+              onClick={async () => {
+                if (exporting) return
+                setExporting(true)
+                setExportError('')
+                try {
+                  await downloadDiasporaWorkbookDbExport(exportType)
+                } catch (err) {
+                  setExportError(err instanceof Error ? err.message : 'Export failed')
+                } finally {
+                  setExporting(false)
+                }
+              }}
+            >
+              {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              Export data (.xlsx)
+            </Button>
+          </div>
         </div>
       </div>
+      {exportError && (
+        <Alert className="mt-3 border-red-200" data-testid="diaspora-workbook-db-export-error">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{exportError}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="mt-6 grid gap-3 rounded-md border border-gray-200 bg-white p-4 md:grid-cols-3 xl:grid-cols-6">
         <label htmlFor="diaspora-workbook-status-filter" className="flex flex-col gap-1 text-xs font-medium text-gray-600 md:col-span-1 xl:col-span-2">

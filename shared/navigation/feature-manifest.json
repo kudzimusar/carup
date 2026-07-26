@@ -544,6 +544,26 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.safetrade",
+    "domain": "diaspora",
+    "route": "/diaspora/safetrade",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.stock-manager",
     "domain": "diaspora",
     "route": "/diaspora/stock",
@@ -555,6 +575,44 @@
     "immutableRoles": [
       "admin",
       "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.subscription",
+    "domain": "diaspora",
+    "route": "/diaspora/subscription",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.trade-profile",
+    "domain": "diaspora",
+    "route": "/diaspora/trade-profile",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
     ],
     "requiresAuth": true,
     "betaCapable": true

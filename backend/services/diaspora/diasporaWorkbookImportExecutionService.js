@@ -202,6 +202,25 @@ function makeExecutedResult(action, targetRecordId) {
   };
 }
 
+function makeRolledBackResult(record, compensated, compensationError = null) {
+  return {
+    rowId: record.rowId || null,
+    sheetName: record.sheetName || null,
+    workbookRowNumber: record.workbookRowNumber || null,
+    targetTable: record.targetTable || null,
+    targetRecordId: null,
+    status: compensated ? 'rolledBack' : 'rolledBackFailed',
+    action: record.action || null,
+    message: compensated
+      ? 'Draft record was rolled back (compensated) after an atomic workbook import failure.'
+      : 'Draft record could not be automatically rolled back; manual review required.',
+    blockedReason: null,
+    errorCode: compensated ? 'ROLLED_BACK_ATOMIC_IMPORT' : 'COMPENSATION_FAILED',
+    compensated: Boolean(compensated),
+    compensationError,
+  };
+}
+
 function makeAlreadyExecutedResult(action) {
   return {
     rowId: action.rowId || null,
@@ -485,6 +504,77 @@ async function insertDraftRecord(client, table, payload) {
   return data;
 }
 
+// Every Phase 1F draft target table carries a deleted_at column (verified against
+// database/migrations/013_diaspora_trade_schema.sql and the phase1b foundation migration),
+// so compensation always soft-deletes. The hard-delete branch is a defensive fallback for any
+// future draft target that lacks soft-delete support; it never removes pre-existing rows because
+// it only ever targets an id created in this exact run.
+const DRAFT_TARGETS_WITH_SOFT_DELETE = PHASE_1F_DRAFT_TARGETS;
+
+async function compensateCreatedDraftRecord(client, record, userContext = {}) {
+  const { targetTable, targetRecordId } = record;
+  if (!targetTable || !targetRecordId) return 'noop';
+
+  if (DRAFT_TARGETS_WITH_SOFT_DELETE.has(targetTable)) {
+    const { error } = await client
+      .from(targetTable)
+      .update({ deleted_at: new Date().toISOString(), updated_by: actorId(userContext) })
+      .eq('id', targetRecordId)
+      .is('deleted_at', null);
+    if (error) {
+      throw new DatabaseError('Failed to compensate workbook draft record.', safeDatabaseDetails(targetTable, 'compensate_soft_delete', error));
+    }
+    return 'soft_deleted';
+  }
+
+  const { error } = await client
+    .from(targetTable)
+    .delete()
+    .eq('id', targetRecordId);
+  if (error) {
+    throw new DatabaseError('Failed to compensate workbook draft record.', safeDatabaseDetails(targetTable, 'compensate_delete', error));
+  }
+  return 'hard_deleted';
+}
+
+// Compensating rollback: undo every draft record created in THIS run (last-created first) so any
+// linked drafts unwind before their parents. Individual compensation failures are captured in
+// compensationErrors instead of thrown, so the batch can still finalize as FAILED and operators
+// see exactly which drafts could not be reversed.
+async function compensateWorkbookDraftImport(client, createdRecords = [], userContext = {}) {
+  const compensationErrors = [];
+  const compensatedRowIds = new Set();
+  let softDeleted = 0;
+  let hardDeleted = 0;
+
+  for (let index = createdRecords.length - 1; index >= 0; index -= 1) {
+    const record = createdRecords[index];
+    try {
+      const mode = await compensateCreatedDraftRecord(client, record, userContext);
+      if (mode === 'soft_deleted') softDeleted += 1;
+      else if (mode === 'hard_deleted') hardDeleted += 1;
+      compensatedRowIds.add(record.rowId);
+    } catch (error) {
+      compensationErrors.push({
+        targetTable: record.targetTable || null,
+        targetRecordId: record.targetRecordId || null,
+        rowId: record.rowId || null,
+        errorCode: error.code || 'COMPENSATION_FAILED',
+        dbErrorCode: error.details?.errorCode || null,
+        message: error.message || 'Compensation delete failed.',
+      });
+    }
+  }
+
+  return {
+    attempted: createdRecords.length,
+    softDeleted,
+    hardDeleted,
+    compensationErrors,
+    compensatedRowIds,
+  };
+}
+
 export async function executeWorkbookImportAction(action, batch, userContext = {}, options = {}) {
   assertAuthenticated(userContext);
   if (rowAlreadyExecuted(action.row)) return makeAlreadyExecutedResult(action);
@@ -510,6 +600,7 @@ export async function markWorkbookRowExecutionResult(rowId, result, userContext 
   if (!rowId) throw new ValidationError('Workbook row id is required to mark execution result.');
   const client = options.supabaseClient || await defaultSupabaseClient();
   const success = result.status === 'executed' || result.status === 'alreadyExecuted';
+  const rolledBack = result.status === 'rolledBack' || result.status === 'rolledBackFailed';
   const importResult = {
     phase: '1F',
     success,
@@ -519,6 +610,8 @@ export async function markWorkbookRowExecutionResult(rowId, result, userContext 
     blockedReason: result.blockedReason || null,
     errorCode: result.errorCode || null,
     draftImportExecuted: result.status === 'executed',
+    rolledBack,
+    compensationError: result.compensationError || null,
     liveImportExecuted: false,
     aiExecuted: false,
     executedAt: new Date().toISOString(),
@@ -529,6 +622,10 @@ export async function markWorkbookRowExecutionResult(rowId, result, userContext 
     updated_by: actorId(userContext),
   };
   if (result.targetRecordId) updatePayload.target_record_id = result.targetRecordId;
+  // A successfully compensated draft no longer exists, so clear the pointer. A failed
+  // compensation (rolledBackFailed) intentionally keeps target_record_id so the orphaned draft
+  // stays discoverable for manual review.
+  if (result.status === 'rolledBack') updatePayload.target_record_id = null;
 
   const { data, error } = await client
     .from('diaspora_workbook_import_rows')
@@ -600,6 +697,76 @@ function finalStatusForResults(counts) {
   return WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT;
 }
 
+// Atomic (all-or-nothing) finalizer. Invoked only when a draft action fails while atomic mode is
+// on. It compensates every draft created earlier in the run, re-marks those rows as rolled back,
+// and forces the batch to FAILED_DRAFT_IMPORT with a summary that proves the net-applied record
+// count (drafts that survived) — zero on a clean compensation.
+async function finalizeAtomicRollback({
+  client,
+  batch,
+  plan,
+  previousStatus,
+  results,
+  createdRecords,
+  atomicFailure,
+  userContext,
+}) {
+  const compensation = await compensateWorkbookDraftImport(client, createdRecords, userContext);
+
+  for (const record of createdRecords) {
+    const compensated = compensation.compensatedRowIds.has(record.rowId);
+    const compensationError = compensation.compensationErrors.find((entry) => entry.rowId === record.rowId) || null;
+    const rolledBackResult = makeRolledBackResult(record, compensated, compensationError);
+    const index = results.findIndex((entry) => entry.rowId === record.rowId && entry.status === 'executed');
+    if (index > -1) results[index] = rolledBackResult;
+    await markWorkbookRowExecutionResult(record.rowId, rolledBackResult, userContext, { supabaseClient: client });
+  }
+
+  const counts = resultCounts(results);
+  const rolledBackDrafts = compensation.softDeleted + compensation.hardDeleted;
+  const summary = {
+    totalActions: plan.actions.length,
+    atomic: true,
+    rollbackPerformed: true,
+    canRollback: true,
+    failedAction: {
+      rowId: atomicFailure.result.rowId || null,
+      targetTable: atomicFailure.result.targetTable || null,
+      errorCode: atomicFailure.result.errorCode || null,
+    },
+    attemptedDrafts: compensation.attempted,
+    rolledBackDrafts,
+    softDeletedDrafts: compensation.softDeleted,
+    hardDeletedDrafts: compensation.hardDeleted,
+    compensationErrors: compensation.compensationErrors,
+    // Drafts that could NOT be undone survive as net-applied state; zero on a clean rollback.
+    netAppliedRecords: compensation.compensationErrors.length,
+    ...counts,
+  };
+
+  await markWorkbookBatchExecutionResult(batch.id, {
+    nextStatus: WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT,
+    previousMetadata: batch.metadata,
+    draftImportExecuted: false,
+    summary,
+  }, userContext, { supabaseClient: client });
+
+  return {
+    batchId: batch.id,
+    previousStatus,
+    nextStatus: WORKBOOK_IMPORT_STATUSES.FAILED_DRAFT_IMPORT,
+    draftImportExecuted: false,
+    liveImportExecuted: false,
+    aiExecuted: false,
+    atomic: true,
+    rollbackPerformed: true,
+    canRollback: true,
+    compensationErrors: compensation.compensationErrors,
+    totals: summary,
+    results,
+  };
+}
+
 async function listAllWorkbookImportRows(batchId, userContext, options = {}) {
   const rows = [];
   let offset = 0;
@@ -633,9 +800,14 @@ export async function executeDiasporaWorkbookDraftImport(batchId, userContext = 
     summary: { started: true, phase: '1F' },
   }, userContext, { supabaseClient: client });
 
+  // Atomic (all-or-nothing) draft execution is ON by default. It is the safe default because a
+  // failed multi-row draft import must not leave partial draft state behind. Callers can opt out
+  // with options.atomic === false to preserve the legacy best-effort behavior.
+  const atomic = options.atomic !== false;
   const rowById = new Map(rows.map((row) => [row.id, row]));
-  const executionContext = { recordIdMap: new Map() };
+  const executionContext = { recordIdMap: new Map(), createdRecords: [] };
   const results = [];
+  let atomicFailure = null;
 
   for (const action of plan.actions) {
     const row = rowById.get(action.rowId) || null;
@@ -663,13 +835,46 @@ export async function executeDiasporaWorkbookDraftImport(batchId, userContext = 
     }
 
     results.push(result);
+    // Track only rows this run actually created, so compensation can undo exactly those and never
+    // touch pre-existing data. Skipped/blocked/alreadyExecuted rows created nothing.
+    if (result.status === 'executed' && result.targetRecordId && result.targetTable) {
+      executionContext.createdRecords.push({
+        targetTable: result.targetTable,
+        targetRecordId: result.targetRecordId,
+        rowId: result.rowId,
+        sheetName: result.sheetName,
+        workbookRowNumber: result.workbookRowNumber,
+        action: result.action,
+      });
+    }
     await markWorkbookRowExecutionResult(action.rowId, result, userContext, { supabaseClient: client });
+
+    // A hard failure (insert error) — not a safe skip/block — trips the atomic rollback.
+    if (atomic && result.status === 'failed') {
+      atomicFailure = { action, result };
+      break;
+    }
+  }
+
+  if (atomic && atomicFailure) {
+    return finalizeAtomicRollback({
+      client,
+      batch,
+      plan,
+      previousStatus,
+      results,
+      createdRecords: executionContext.createdRecords,
+      atomicFailure,
+      userContext,
+    });
   }
 
   const counts = resultCounts(results);
   const nextStatus = finalStatusForResults(counts);
   const summary = {
     totalActions: plan.actions.length,
+    atomic,
+    rollbackPerformed: false,
     ...counts,
   };
   await markWorkbookBatchExecutionResult(batch.id, {
@@ -686,6 +891,8 @@ export async function executeDiasporaWorkbookDraftImport(batchId, userContext = 
     draftImportExecuted: counts.executedDrafts > 0,
     liveImportExecuted: false,
     aiExecuted: false,
+    atomic,
+    rollbackPerformed: false,
     totals: summary,
     results,
   };
