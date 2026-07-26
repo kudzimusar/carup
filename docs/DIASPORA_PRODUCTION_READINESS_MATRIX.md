@@ -3,6 +3,8 @@
 > Tracks §76–§82 gates. Status: ✅ done / 🟡 in progress / ⬜ not started / 🔒 external-approval-gated.
 > Production Supabase `vhmnajoeicasaigiophh` is **forbidden** until explicit release authorization (EB-5).
 
+> **Canonical staging UAT (2026-07-26):** RC `9164500` promoted to the canonical staging aliases (`carup-staging.vercel.app` FE `dpl_4KyUxUD8…`, `carup-backend-staging.vercel.app` BE `dpl_E9LERYkM8…`); frontend calls only the canonical staging backend (0 production refs); deployed Chromium suite **42/0/0/0**. Production untouched; CR-1 still OPEN.
+
 ## §76 Security gate
 
 | Item | Status | Notes |
