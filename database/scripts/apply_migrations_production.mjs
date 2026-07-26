@@ -1,6 +1,6 @@
 /**
  * Production migration runner — applies the 16 approved Up-only migrations to CarUp
- * production (vhmnajoeicasaigiophh) via `supabase db query --linked` (Supabase Management
+ * production (ref supplied via PRODUCTION_PROJECT_REF) via `supabase db query --linked` (Supabase Management
  * API; the CLI is linked to production and authenticated — no DB password handled here).
  *
  * Safety:
@@ -11,7 +11,7 @@
  *   - records a ledger row per applied migration;
  *   - never prints credentials.
  *
- * Guard: refuses to run unless the linked ref is exactly vhmnajoeicasaigiophh.
+ * Guard: refuses to run unless the linked ref matches PRODUCTION_PROJECT_REF exactly.
  */
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
@@ -22,7 +22,13 @@ import crypto from 'crypto';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const MIG = join(ROOT, 'database', 'migrations');
 const TMP = join(ROOT, 'database', 'scripts', '.prod_mig_tmp.sql');
-const PROD = 'vhmnajoeicasaigiophh';
+// CR-1: the production project ref must be provided explicitly — no hardcoded fallback. The
+// identity guard below still refuses to run unless the CLI-linked ref matches this value exactly.
+const PROD = process.env.PRODUCTION_PROJECT_REF;
+if (!PROD || !/^[a-z0-9]{20}$/.test(PROD)) {
+  console.error('PRODUCTION_PROJECT_REF (20-char Supabase ref) is required; refusing to run.');
+  process.exit(2);
+}
 
 const MANIFEST = [
   ['20260621120000_vehicle_life_evidence_taxonomy_provenance.sql', '983393661b71d518'],

@@ -124,13 +124,13 @@ https://vhmnajoeicasaigiophh.supabase.co
 A direct staging database URL has this structure:
 
 ```text
-postgresql://postgres:[STAGING_DB_PASSWORD]@db.eoyenigwevnxwwhyhaer.supabase.co:5432/postgres
+postgresql://postgres:[ROTATED-SEE-CR1]@db.eoyenigwevnxwwhyhaer.supabase.co:5432/postgres
 ```
 
 A direct production database URL has this structure:
 
 ```text
-postgresql://postgres:[PRODUCTION_DB_PASSWORD]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres
+postgresql://postgres:[ROTATED-SEE-CR1]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres
 ```
 
 The passwords are different secrets and must be obtained securely from the respective project settings.

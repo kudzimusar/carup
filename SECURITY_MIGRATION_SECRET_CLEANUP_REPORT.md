@@ -13,7 +13,7 @@ A security audit on the database schema migration script `scripts/migrate-to-sup
    * `SUPABASE_SERVICE_ROLE_KEY`: Hardcoded to a highly privileged sandbox administrative bypass JWT token string starting with `'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'`.
 2. **PostgreSQL Database Connection Parameters** (Line 63):
    * Printed database push instructions contained a live, hardcoded database administration password `'HVYbYVb1x2ErqzH4'` inside the command:
-     `npx supabase db push --db-url postgresql://postgres:HVYbYVb1x2ErqzH4@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres`
+     `npx supabase db push --db-url postgresql://postgres:[ROTATED-SEE-CR1]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres`
 
 ---
 

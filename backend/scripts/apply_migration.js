@@ -8,12 +8,19 @@ const __dirname = path.dirname(__filename);
 
 const { Client } = pg;
 
+// CR-1: this script fails closed — it never embeds or falls back to any hardcoded database URL.
+const CONNECTION_STRING = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+if (!CONNECTION_STRING) {
+  console.error('SUPABASE_DB_URL or DATABASE_URL is required; refusing to run without an explicit target.');
+  process.exit(2);
+}
+
 const client = new Client({
-  connectionString: (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL) // Trying standard connection string. Actually the user provided this one: postgresql://postgres:[REDACTED-USE-ENV]@db.vhmnajoeicasaigiophh.supabase.co:5432/postgres
+  connectionString: CONNECTION_STRING
 });
 
 const clientReal = new Client({
-    connectionString: (process.env.SUPABASE_DB_URL || process.env.DATABASE_URL)
+    connectionString: CONNECTION_STRING
 })
 
 async function runMigration() {
