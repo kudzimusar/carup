@@ -272,9 +272,42 @@ async function main() {
   r = await asRole(url, 'service_role', null, `SELECT public.diaspora_reserve_usage_atomic()`);
   rec('service_role CAN execute the usage-mutation RPC', r.ok, r.ok ? 'ok' : r.msg);
 
+  // ═══ Ledger #20: diaspora_oauth_states (H6 shipped RLS-enable ONLY — no grants, no policies;
+  //     every privilege came from Supabase default grants; contract is anon=NONE,
+  //     authenticated=NONE, service_role full, zero policies) ═══
+  await admin.query(`CREATE TABLE public.diaspora_oauth_states (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), state_hash text, expires_at timestamptz)`);
+  await admin.query(`ALTER TABLE public.diaspora_oauth_states ENABLE ROW LEVEL SECURITY`); // exactly what #10 shipped
+  rec('#20 GAP REPRODUCED: default grants leave anon privileged on diaspora_oauth_states',
+    (await privs(admin, 'diaspora_oauth_states', 'anon')).length > 0);
+  const MIGRATION_20 = fileURLToPath(new URL(
+    '../../../database/migrations/20260727090000_diaspora_oauth_states_client_grant_hardening.sql', import.meta.url));
+  const mig20 = readFileSync(MIGRATION_20, 'utf8');
+  const up20 = mig20.split(/^-- \+migrate Down/m)[0].replace(/^-- \+migrate Up\s*/m, '');
+  await admin.query('BEGIN'); await admin.query(up20); await admin.query('COMMIT');
+  await admin.query('BEGIN'); await admin.query(up20); await admin.query('COMMIT');
+  rec(`#20 applied verbatim + idempotent (sha256:12=${createHash('sha256').update(mig20).digest('hex').slice(0, 12)})`, true);
+  const oaAnon = await privs(admin, 'diaspora_oauth_states', 'anon');
+  const oaAuth = await privs(admin, 'diaspora_oauth_states', 'authenticated');
+  const oaSvc = await privs(admin, 'diaspora_oauth_states', 'service_role');
+  const oaMaint = (await admin.query(
+    `SELECT has_table_privilege('anon','public.diaspora_oauth_states','MAINTAIN') a, has_table_privilege('authenticated','public.diaspora_oauth_states','MAINTAIN') b`)).rows[0];
+  const oaRls = (await admin.query(`SELECT relrowsecurity r FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='diaspora_oauth_states'`)).rows[0].r;
+  const oaPols = (await admin.query(`SELECT count(*)::int n FROM pg_policies WHERE schemaname='public' AND tablename='diaspora_oauth_states'`)).rows[0].n;
+  rec('post-#20: anon has ZERO privileges on diaspora_oauth_states', oaAnon.length === 0);
+  rec('post-#20: authenticated has ZERO privileges on diaspora_oauth_states', oaAuth.length === 0);
+  rec('post-#20: service_role retains CRUD on diaspora_oauth_states', ['DELETE', 'INSERT', 'SELECT', 'UPDATE'].every((p) => oaSvc.includes(p)));
+  rec('post-#20: MAINTAIN absent from client roles', !oaMaint.a && !oaMaint.b);
+  rec('post-#20: RLS enabled, zero policies (default-deny) unchanged', oaRls && oaPols === 0);
+  r = await asRole(url, 'anon', null, `SELECT count(*) FROM diaspora_oauth_states`);
+  rec('#20: anon SELECT denied at the GRANT layer', !r.ok && r.code === '42501', r.ok ? 'unexpectedly allowed' : r.code);
+  r = await asRole(url, 'authenticated', 'memberA', `SELECT count(*) FROM diaspora_oauth_states`);
+  rec('#20: authenticated SELECT denied at the GRANT layer', !r.ok && r.code === '42501', r.ok ? 'unexpectedly allowed' : r.code);
+  r = await asRole(url, 'service_role', null, `INSERT INTO diaspora_oauth_states(state_hash) VALUES ('h')`);
+  rec('#20: service_role CAN write the nonce store', r.ok && r.rowCount === 1, r.ok ? 'ok' : r.msg);
+
   await admin.end(); await epg.stop();
   const passed = results.filter((x) => x.ok).length;
-  console.log(`\n════ PHASE 8/9/10 ACL + #19 PROOF: ${passed}/${results.length} passed ════`);
+  console.log(`\n════ PHASE 8/9/10 ACL + #19/#20 PROOF: ${passed}/${results.length} passed ════`);
   if (passed !== results.length) process.exit(1);
 }
 main().catch(async (e) => { console.error('HARNESS ERROR:', e.message); try { await epg.stop(); } catch {} process.exit(2); });
