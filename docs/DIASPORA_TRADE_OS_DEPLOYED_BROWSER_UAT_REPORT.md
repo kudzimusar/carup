@@ -162,3 +162,9 @@ mutated (logins failed closed).
 (`carup-backend-staging-git-…/api`). A fresh branch build now bakes the correct staging backend into the
 frontend preview, so UI sign-in and all authenticated journeys route to the staging backend. This commit
 triggers the rebuild + a clean UAT re-run.
+
+**Rebuild race note:** the first post-repair workflow run froze `index-C7sJWEdB.js` — the pre-repair
+bundle — because its freeze step executed before Vercel finished rebuilding the frontend preview with
+the branch-scoped `VITE_API_URL`. That run is invalid by construction (it measured the stale routing).
+This commit re-triggers the workflow now that the preview stably serves the repaired bundle
+(`index-hPNRWWpt.js`, verified: 7 staging-backend refs, 0 production refs).
