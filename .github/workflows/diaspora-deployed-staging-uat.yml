@@ -1,8 +1,8 @@
 name: Diaspora Deployed Staging UAT
 
-# Real Chromium acceptance against the canonical staging aliases.
-# This workflow never touches production. It is intentionally restricted to the
-# Diaspora release-candidate branch and serializes access to shared staging data.
+# Real Chromium acceptance against the exact PR #90 Vercel staging previews.
+# This workflow never touches production. Canonical staging-alias promotion is a separate
+# release gate after this immutable candidate proves green.
 on:
   pull_request:
     branches: [main]
@@ -21,8 +21,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: diaspora-canonical-staging-uat
-  cancel-in-progress: false
+  group: diaspora-deployed-staging-uat
+  cancel-in-progress: true
 
 jobs:
   deployed-staging-uat:
@@ -30,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      STAGING_WEB_URL: https://carup-staging.vercel.app
-      STAGING_API_URL: https://carup-backend-staging.vercel.app/api
+      STAGING_WEB_URL: https://carup-staging-git-claude-diaspora-phase-dd3d1b-pay-pass-project.vercel.app
+      STAGING_API_URL: https://carup-backend-staging-git-claude-diaspo-3f3baf-pay-pass-project.vercel.app/api
       STAGING_RUN_ID: merge-revalidation-${{ github.sha }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
@@ -56,13 +56,16 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Resolve frozen staging bundle
+      - name: Freeze the exact candidate bundle for this run
         run: |
-          # Frozen from the canonical staging alias after PR #90 was retargeted to main.
-          # The global setup fails closed if the alias serves any other bundle.
-          bundle="index-DR_Xzg3q.js"
+          html="$(curl --fail --silent --show-error --location "$STAGING_WEB_URL/")"
+          bundle="$(printf '%s' "$html" | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)"
+          if [ -z "$bundle" ]; then
+            echo '::error::The PR #90 staging preview did not expose a Vite entry bundle.'
+            exit 1
+          fi
           echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
-          echo "Using the frozen retargeted release-candidate bundle."
+          echo "Frozen the exact PR #90 staging-preview bundle for this run: $bundle"
 
       - name: Rotate staging-only UAT identities for this run
         shell: bash
