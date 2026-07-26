@@ -1,0 +1,46 @@
+name: Diaspora Ledger 19 Staging Grant Hardening
+
+# Applies EXACTLY ledger #19 (20260726120000_diaspora_phase8_9_10_client_grant_hardening.sql) to
+# carup-staging and verifies the full ACL contract. Single-purpose and fail-closed: the apply script
+# pins the migration name + frozen checksum, positively requires the staging project ref, and refuses
+# the production ref. Idempotent — re-dispatch re-verifies without re-applying. Never prints the
+# connection URL. Owner-authorized 2026-07-26 ("APPROVE #19 PHASE-8/9/10 HARDENING").
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diaspora-staging-19-grant-hardening
+  cancel-in-progress: false
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require the staging database operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; cannot apply #19.'
+            exit 1
+          fi
+
+      # Pinned driver version (matches the backend's pg); installed WITHOUT the secret in scope.
+      - name: Install pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts pg@8.21.0
+
+      # The secret is scoped to this single step, not the whole job.
+      - name: Apply ledger 19 and verify the ACL contract
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: node backend/scripts/diaspora-staging-apply-19.mjs
