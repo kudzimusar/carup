@@ -127,10 +127,17 @@ async function main() {
   }
   if ((await policySnapshot(c)) !== policiesBefore) errs.push('pg_policies changed — #19 must not touch policies');
   if ((await rowCounts(c)) !== countsBefore) errs.push('row counts changed — #19 must not touch data');
-  // Belt: table-level checks cannot see residual COLUMN-level grants.
+  // Belt: table-level checks cannot see residual COLUMN-level grants. True column ACLs live in
+  // pg_attribute.attacl (information_schema.role_column_grants also EXPANDS table-level grants
+  // per column, so it cannot distinguish them — the legitimate authenticated table SELECT would
+  // false-positive there).
   const colGrants = (await c.query(
-    `SELECT count(*)::int n FROM information_schema.role_column_grants
-     WHERE table_schema='public' AND table_name = ANY($1) AND grantee IN ('anon','authenticated')`, [TABLES])).rows[0].n;
+    `SELECT count(*)::int n FROM pg_class k
+       JOIN pg_namespace ns ON ns.oid = k.relnamespace
+       JOIN pg_attribute a ON a.attrelid = k.oid AND a.attacl IS NOT NULL
+       CROSS JOIN LATERAL aclexplode(a.attacl) acl
+       JOIN pg_roles r ON r.oid = acl.grantee
+     WHERE ns.nspname='public' AND k.relname = ANY($1) AND r.rolname IN ('anon','authenticated')`, [TABLES])).rows[0].n;
   if (colGrants !== 0) errs.push(`${colGrants} residual column-level client grants remain`);
   // Belt: PG17 MAINTAIN is invisible to information_schema — check it explicitly.
   for (const t of TABLES) {
