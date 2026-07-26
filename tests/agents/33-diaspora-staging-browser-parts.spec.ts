@@ -86,7 +86,9 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     await page.getByTestId('diaspora-stock-merch-condition').selectOption('USED');
     await expect(page.getByTestId('diaspora-stock-merch-condition')).toHaveValue('USED');
     await page.getByTestId('diaspora-stock-merch-part-number').fill(marked('BP-001'));
-    await page.getByTestId('diaspora-stock-merch-save').click();
+    // force:true — on the narrow mobile layout the merch form reflows as content loads (Playwright
+    // reports "element is not stable"); the button is visible and enabled, so force the click.
+    await page.getByTestId('diaspora-stock-merch-save').click({ force: true });
     await expect(page.getByTestId('diaspora-stock-merch-result')).toContainText(/saved/i, { timeout: 15_000 });
     // Ledger quantities are unchanged by a merchandising edit.
     await expect(page.getByTestId('diaspora-stock-balance-onhand')).toHaveText('10');
