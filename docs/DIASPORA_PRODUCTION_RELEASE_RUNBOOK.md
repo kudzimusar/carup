@@ -118,3 +118,15 @@ force-push without explicit owner authorization.
   staging DB password rotation — both must close first.
 - **Rollback point:** `main` prior to the PR #90 merge; production migrations #11–#18 have no destructive
   down (restore-from-backup posture — see the rollback runbook).
+
+## Canonical staging promotion record (2026-07-26)
+
+RC application SHA `91645006f4d3d025ad62a8bcede0aab2cb1175af` (tag `rc/diaspora-9164500`) promoted to the
+**staging** Vercel projects' production target (NOT the `carup`/`carup-backend` production projects):
+- Frontend `carup-staging.vercel.app` — `dpl_4KyUxUD8R3GENj4jqGHcJq3QbCDr`, bundle `index-yYPmJ_bE.js`,
+  built with `VITE_API_URL=https://carup-backend-staging.vercel.app/api` (0 production-backend refs).
+- Backend `carup-backend-staging.vercel.app` — `dpl_E9LERYkM8Md9fhFUTvPEKbjmke3n`, `/api/health` UP,
+  Supabase `eoyenigwevnxwwhyhaer`.
+Canonical deployed Chromium UAT (both viewports, acceptance mode): **42/0/0/0**. Production untouched;
+CR-1 OPEN. Owner merge of PR #90 is the next gate (`APPROVE MERGE PR #90`); production cutover (EB-5) and
+CR-1 history rewrite remain separately unauthorized.

@@ -168,3 +168,28 @@ bundle — because its freeze step executed before Vercel finished rebuilding th
 the branch-scoped `VITE_API_URL`. That run is invalid by construction (it measured the stale routing).
 This commit re-triggers the workflow now that the preview stably serves the repaired bundle
 (`index-hPNRWWpt.js`, verified: 7 staging-backend refs, 0 production refs).
+
+---
+
+## Addendum (2026-07-26) — CANONICAL staging promotion + release-gate UAT
+
+**Verdict: READY FOR OWNER MERGE APPROVAL.** Release candidate promoted to the **canonical** staging
+aliases (not previews) and re-validated green.
+
+| Item | Value |
+| --- | --- |
+| RC application SHA (frozen) | `91645006f4d3d025ad62a8bcede0aab2cb1175af` · tag `rc/diaspora-9164500` |
+| Canonical FRONTEND | `https://carup-staging.vercel.app` · deployment `dpl_4KyUxUD8R3GENj4jqGHcJq3QbCDr` (carup-staging-aujansm1h) · bundle `index-yYPmJ_bE.js` |
+| Canonical BACKEND | `https://carup-backend-staging.vercel.app` · deployment `dpl_E9LERYkM8Md9fhFUTvPEKbjmke3n` (carup-backend-staging-komsp04f2) · `/api/health` UP |
+| Frontend API routing | `VITE_API_URL=https://carup-backend-staging.vercel.app/api`; bundle contains **7 canonical-BE refs, 0 `carup-backend.vercel.app/api` (production) refs** |
+| Staging Supabase | `eoyenigwevnxwwhyhaer`; migrations #11–#18 recorded 8/8; 5 atomic RPCs service_role-only + `extensions` in search_path; `diaspora_import_orders` anon=NONE; sensitive buckets private; vehicle-images public; no workbook-export bucket |
+| Expected-OFF | SafeTrade / Trade Graph UI unavailable; live billing / live Drive / real-money SafeTrade / confirmed workbook import / UI-10 remain OFF (asserted by the suite) |
+| Deployed Chromium suite | `STAGING_WEB_URL=carup-staging.vercel.app`, `STAGING_API_URL=carup-backend-staging.vercel.app/api`, `STAGING_EXPECTED_BUNDLE=index-yYPmJ_bE.js`, run `canonical-promotion-9164500`, mode **acceptance** |
+| **Totals** | **42 passed / 0 failed / 0 skipped / 0 flaky**; 0 unexpected console errors; 0 page errors; 0 API 5xx; 0 unexplained 4xx |
+| Production | `carup` / `carup-backend` Vercel + production Supabase `vhmnajoeicasaigiophh` **untouched** |
+| CR-1 | remains **OPEN** — blocks production cutover (separate CR-1 remediation phase, owner-gated) |
+
+The prior "preview routing" state is superseded: the canonical frontend now calls only the canonical
+staging backend and derives from RC `9164500`. Local == remote; all 15 stashes preserved
+(`diaspora-wip-preserved-cc42b41` / `refs/preserved/diaspora-wip-cc42b41` unchanged). PR #90 remains
+draft/unmerged pending explicit owner approval.
