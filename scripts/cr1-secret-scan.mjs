@@ -16,6 +16,7 @@ const PROD_REF = ['vhmnajoeicasa', 'igiophh'].join('');
 const PROD_REF_ALLOWLIST = new Set([
   'scripts/cr1-secret-scan.mjs',
   'backend/scripts/diaspora-staging-apply-verify.mjs',   // FORBIDDEN_PROD_REF deny constant
+  'backend/scripts/diaspora-staging-apply-19.mjs',      // FORBIDDEN_PROD_REF deny constant
   'backend/scripts/uat/referral-uat-guard.mjs',          // PRODUCTION_SUPABASE_REF deny constant
   'backend/scripts/seed-uat-referral-users.mjs',         // safety comments describing the deny guard
   'backend/scripts/uat/README.md',
