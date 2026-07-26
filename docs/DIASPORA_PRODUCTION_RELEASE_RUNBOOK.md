@@ -130,3 +130,12 @@ RC application SHA `91645006f4d3d025ad62a8bcede0aab2cb1175af` (tag `rc/diaspora-
 Canonical deployed Chromium UAT (both viewports, acceptance mode): **42/0/0/0**. Production untouched;
 CR-1 OPEN. Owner merge of PR #90 is the next gate (`APPROVE MERGE PR #90`); production cutover (EB-5) and
 CR-1 history rewrite remain separately unauthorized.
+
+## CR-1 closure record (2026-07-26)
+
+CR-1 CLOSED: PR #122 merged; credentials rotated (owner); authorized history rewrite executed
+(credential password components → `[ROTATED-SEE-CR1]`; production project ref intentionally preserved);
+74/74 branches force-with-lease pushed; fresh-clone full-history credential scan = 0; blocking CR-1
+scanner in CI. **All pre-rewrite SHAs are invalid — every collaborator/worktree must re-clone or
+hard-reset to the rewritten refs.** Production migrations #11–#18 and production deploys remain
+separately unauthorized (EB-5). Evidence: docs/security/CR1_EXECUTION_LEDGER.md.

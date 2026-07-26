@@ -59,3 +59,6 @@ Rollback re-exposes the (already-rotated, dead) values — acceptable because ro
 
 Production Supabase access, production migrations (#11–#18), production deploys (EB-5), and any change
 to the merged Diaspora release content.
+
+---
+**STATUS (2026-07-26): EXECUTED under explicit owner authorization.** 901 commits rewritten; 72→0 credential URIs; prod ref preserved (owner scope correction); 74/74 branches lease-pushed; fresh-clone full-history scan = 0. See docs/security/CR1_EXECUTION_LEDGER.md.

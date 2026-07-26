@@ -9,9 +9,9 @@
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Credential incident closed | 🔒 CR-1 | Rotate (DB owner) + history purge approval required |
-| Secrets rotated | 🔒 | External |
-| History remediated | 🔒 | Approval to rewrite + force re-clone |
+| Credential incident closed | ✅ CR-1 CLOSED (2026-07-26) | Rotation + authorized history rewrite executed; fresh-clone full-history scan 0; blocking scanner in CI (see docs/security/CR1_EXECUTION_LEDGER.md) |
+| Secrets rotated | ✅ | Staging + production DB passwords rotated by owner (2026-07-26) |
+| History remediated | ✅ | filter-repo executed under explicit authorization; re-clone required and documented |
 | Secret scanning expanded | 🟡 | CI secret-scan guard exists; extend to remediated paths |
 | Security advisors reviewed | 🟡→✅(staging) | Advisor-equivalent sweep clean on carup-staging after #11–#18 (no RLS-off, no SECURITY DEFINER w/o search_path, no anon mutation/authz RPCs, no USING(true) write policies); official dashboard advisors still recommended pre-prod |
 | RLS reviewed / RPC grants verified | ✅(staging) | Live on carup-staging: foundation anon=NONE/authenticated=SELECT-only, 5/5 real authenticated writes denied (42501), 5 atomic RPCs service_role-only + search_path incl. extensions (#18), all 15 phase8/9/10 tables RLS-on |

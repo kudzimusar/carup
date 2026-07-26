@@ -31,3 +31,6 @@
 Rotate **before or together with** the history rewrite. Rewriting history without rotating leaves the
 old values valid; rotating without rewriting leaves dead values in history (acceptable interim state —
 the rewrite then removes residue).
+
+---
+**STATUS (2026-07-26): EXECUTED.** Rotation performed by the owner (staging verified; first attempt caught ineffective and redone; GitHub secret re-set after an invalid value was detected from CI). See docs/security/CR1_EXECUTION_LEDGER.md.
