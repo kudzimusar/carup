@@ -96,7 +96,8 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     // Now publish the completed item — it must succeed. Assert on the authoritative publication-status
     // badge (stable) rather than the transient result message; the merch form must also disappear.
     // If publish is somehow rejected, surface the exact error instead of a bare timeout.
-    await page.getByTestId('diaspora-stock-publish').click();
+    // force:true — on mobile the stock-list cells overlap the detail-panel buttons and intercept the click.
+    await page.getByTestId('diaspora-stock-publish').click({ force: true });
     const publishSettled = page.getByTestId('diaspora-stock-publication-status').filter({ hasText: /PUBLISHED/i })
       .or(page.getByTestId('diaspora-stock-publish-error'));
     await expect(publishSettled.first()).toBeVisible({ timeout: 20_000 });
