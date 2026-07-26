@@ -143,3 +143,22 @@ force-click used); staging outbox backlog (pre-existing).
 connection file still exists on the operator machine and must be deleted + the password reset.
 **CR-1:** remains OPEN (hardcoded prod-ref + `postgres://` URIs in tracked files) and still blocks
 production cutover — NOT closed by the staging rotation. Production Supabase untouched.
+
+---
+
+## Addendum (2026-07-26) — staging-preview frontend→backend routing repair
+
+After PR #90 was retargeted to `main`, the "Diaspora Deployed Staging UAT" workflow ran the Chromium
+suite against the branch **Vercel previews** and 26/42 failed — every authenticated journey, while all
+public journeys passed. Root cause: the frontend preview for this branch was built **without
+`VITE_API_URL`**, so `resolveApiBaseUrl()` fell through to `DEFAULT_PRODUCTION_API_BASE_URL`
+(`https://carup-backend.vercel.app/api`) — the frontend preview was calling the **production** backend,
+where the staging UAT identities do not exist, so every UI sign-in failed. No production data was
+mutated (logins failed closed).
+
+**Repair (staging Vercel project only — production untouched):** added `VITE_API_URL` to the
+**carup-staging** project's **Preview** environment, scoped to git branch
+`claude/diaspora-phases-8-10-production-program`, pointing at the branch's backend preview
+(`carup-backend-staging-git-…/api`). A fresh branch build now bakes the correct staging backend into the
+frontend preview, so UI sign-in and all authenticated journeys route to the staging backend. This commit
+triggers the rebuild + a clean UAT re-run.
