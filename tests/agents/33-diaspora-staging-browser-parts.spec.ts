@@ -6,29 +6,33 @@
  * ledger-driven reservation → Stock Passport provenance, and that stock quantities move ONLY via
  * the ledger (no direct overwrite).
  */
-import { readFileSync } from 'node:fs';
-import { stagingTest as test, expect, signInViaUi, requireIdentity, marked, IDENTITIES } from './staging-helpers';
+import type { Page } from '@playwright/test';
+import { stagingTest as test, expect, signInViaUi, requireIdentity, marked } from './staging-helpers';
 
 /** Stock management gates on a verified dealer/seller stakeholder role. Public registration is
  *  fail-closed to 'owner' and /auth/switch-role refuses roles not VERIFIED for the user — correct
  *  governance, which means a stock-capable seller identity must be provisioned by the release
- *  operator (admin verification or DB bootstrap). Until then these stages skip with that reason. */
-function sellerStockRole(): string {
-  try {
-    const state = JSON.parse(readFileSync(IDENTITIES.seller.state, 'utf8'));
-    const ls = Object.fromEntries(state.origins[0].localStorage.map((e: { name: string; value: string }) => [e.name, e.value]));
-    return (JSON.parse(ls.carup_user).role || '').toLowerCase();
-  } catch { return ''; }
-}
+ *  operator (admin verification or DB bootstrap). */
 const STOCK_ROLES = new Set(['dealer', 'admin', 'platform_admin', 'super_admin', 'government', 'reviewer']);
+
+async function authenticatedRole(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    try {
+      return String(JSON.parse(localStorage.getItem('carup_user') || '{}').role || '').toLowerCase();
+    } catch {
+      return '';
+    }
+  });
+}
 
 test.describe('Seller / parts journey (real UI, real API)', () => {
   test.skip(!requireIdentity('seller'), 'staging seller identity not provisioned yet (run staging-create-test-identities.mjs, export STAGING_UAT_* env)');
 
   test('seller creates stock, attaches supply evidence, publishes, and the Stock Passport shows provenance + ledger', async ({ page }) => {
-    test.skip(!STOCK_ROLES.has(sellerStockRole()),
-      'seller identity lacks a VERIFIED dealer role — switch-role correctly refused self-elevation (fail-closed); operator must provision a verified seller identity');
     await signInViaUi(page, 'seller');
+    const sellerRole = await authenticatedRole(page);
+    test.skip(!STOCK_ROLES.has(sellerRole),
+      `seller identity lacks a VERIFIED stock role (received ${sellerRole || 'none'}) — operator must provision a verified seller identity`);
 
     // Seller trade profile (W2) exists or is created. Wait for the own-profile list to SETTLE (rows
     // or explicit empty state) before deciding — else a race reads 0 rows and re-creates a duplicate.
@@ -117,7 +121,7 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
   // Full downstream chain across two real sessions: buyer publishes a parts demand, seller quotes it,
   // buyer accepts, and the underlying import order's Order Passport reflects the accepted parts quote.
   test('parts RFQ chain: buyer demand → seller quote → buyer accept → Order Passport', async ({ browser }) => {
-    test.skip(!requireIdentity('buyer') || !STOCK_ROLES.has(sellerStockRole()), 'buyer + verified seller identities required');
+    test.skip(!requireIdentity('buyer') || !requireIdentity('seller'), 'buyer + seller identities required');
     const tag = marked('RFQ').replace(/[^A-Za-z0-9]/g, '').slice(-14); // unique, alnum marker
     const marker = `Toyota${tag}`;
     const buyerCtx = await browser.newContext();
@@ -125,6 +129,12 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
     const buyer = await buyerCtx.newPage();
     const seller = await sellerCtx.newPage();
     try {
+      // Verify the seller's authoritative role before creating any new buyer demand.
+      await signInViaUi(seller, 'seller');
+      const sellerRole = await authenticatedRole(seller);
+      test.skip(!STOCK_ROLES.has(sellerRole),
+        `seller identity lacks a VERIFIED stock role (received ${sellerRole || 'none'})`);
+
       // 1. Buyer creates a parts demand and publishes the RFQ.
       await signInViaUi(buyer, 'buyer');
       await buyer.goto('/diaspora/rfq');
@@ -139,7 +149,6 @@ test.describe('Seller / parts journey (real UI, real API)', () => {
 
       // 2. Seller finds the open RFQ and submits a quote (the open-RFQ list is eventually consistent
       //    with the buyer's publish; retry the reload until the row appears).
-      await signInViaUi(seller, 'seller');
       await seller.goto('/diaspora/rfq');
       const openRow = seller.getByTestId('diaspora-rfq-open-row').filter({ hasText: marker }).first();
       await expect(async () => {
