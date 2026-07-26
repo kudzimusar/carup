@@ -1,6 +1,6 @@
 /**
  * Production-safe smoke journey — exercises the REAL production backend
- * (carup-backend.vercel.app) against the REAL production DB (vhmnajoeicasaigiophh) with
+ * (URL supplied via PRODUCTION_BACKEND_URL) against the REAL production DB (ref supplied via PRODUCTION_PROJECT_REF) with
  * clearly-labelled synthetic UAT data. Confirms fail-closed source/eligibility behaviour,
  * auth/RLS boundaries, partner redaction, audit, and persistence. Cleans up seeded rows.
  *
@@ -14,8 +14,13 @@ import { dirname, join } from 'path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TMP = join(ROOT, 'database', 'scripts', '.prod_smoke_tmp.sql');
-const BE = process.env.BE || 'https://carup-backend.vercel.app';
-const PROD = 'vhmnajoeicasaigiophh';
+// CR-1: no implicit production fallbacks — the operator supplies both targets explicitly.
+const BE = process.env.PRODUCTION_BACKEND_URL;
+const PROD = process.env.PRODUCTION_PROJECT_REF;
+if (!BE || !PROD || !/^[a-z0-9]{20}$/.test(PROD)) {
+  console.error('PRODUCTION_BACKEND_URL and PRODUCTION_PROJECT_REF are required; refusing to run.');
+  process.exit(2);
+}
 
 const TS = Date.now();
 const ADMIN = `uat-prod-admin-${TS}`, OWNER = `uat-prod-owner-${TS}`, OTHER = `uat-prod-other-${TS}`;
