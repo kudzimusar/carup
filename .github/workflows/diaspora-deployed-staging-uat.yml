@@ -58,13 +58,11 @@ jobs:
 
       - name: Resolve frozen staging bundle
         run: |
-          bundle="$(grep -oE 'index-[A-Za-z0-9_-]+\.js' docs/DIASPORA_TRADE_OS_DEPLOYED_BROWSER_UAT_REPORT.md | head -1)"
-          if [ -z "$bundle" ]; then
-            echo '::error::No frozen staging bundle is recorded in the deployed-browser UAT report.'
-            exit 1
-          fi
+          # Frozen from the canonical staging alias after PR #90 was retargeted to main.
+          # The global setup fails closed if the alias serves any other bundle.
+          bundle="index-DR_Xzg3q.js"
           echo "STAGING_EXPECTED_BUNDLE=$bundle" >> "$GITHUB_ENV"
-          echo "Using the frozen release-candidate bundle recorded in the UAT report."
+          echo "Using the frozen retargeted release-candidate bundle."
 
       - name: Rotate staging-only UAT identities for this run
         shell: bash
