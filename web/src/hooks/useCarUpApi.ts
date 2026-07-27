@@ -127,6 +127,12 @@ import type {
   SafeTradeCommitEvent,
   SafeTradeCreateResponse,
   SafeTradeListResponse,
+  // ST-3 operator surfaces (Issue #127)
+  SafeTradeApproval,
+  SafeTradeOperation,
+  SafeTradeOutboxBacklog,
+  SafeTradeOutboxDeadLetter,
+  SafeTradeOutboxDrainSummary,
   // UI-10 · Trade Graph dashboard (Issue #127)
   TradeGraphSummary,
   TradeGraphProjectionStatus,
@@ -1625,6 +1631,62 @@ export function useCarUpApi() {
     })
   }, [request])
 
+  // ── ST-3 operator surfaces (Issue #127) ──
+  // Approvals (item #2), the reconciliation queue (item #3) and the transactional outbox (item #1).
+  // Every one of these is re-authorized server-side; the UI shows what the server was willing to
+  // return and disables what it says the viewer may not do.
+
+  const getSafeTradeApprovals = useCallback(async (): Promise<SafeTradeApproval[]> => {
+    const response = await request<{ data: SafeTradeApproval[] }>('/diaspora/safetrade/approvals')
+    return response.data || []
+  }, [request])
+
+  const approveSafeTradeDecision = useCallback(async (approvalId: string, notes?: string): Promise<SafeTradeApproval> => {
+    const response = await request<{ data: SafeTradeApproval }>(`/diaspora/safetrade/approvals/${encodeURIComponent(approvalId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ notes: notes || null }),
+    })
+    return response.data
+  }, [request])
+
+  const rejectSafeTradeDecision = useCallback(async (approvalId: string, reason?: string): Promise<SafeTradeApproval> => {
+    const response = await request<{ data: SafeTradeApproval }>(`/diaspora/safetrade/approvals/${encodeURIComponent(approvalId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || null }),
+    })
+    return response.data
+  }, [request])
+
+  const getSafeTradeReconciliationQueue = useCallback(async (): Promise<SafeTradeOperation[]> => {
+    const response = await request<{ data: SafeTradeOperation[] }>('/diaspora/safetrade/reconciliation')
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeOutboxBacklog = useCallback(async (): Promise<SafeTradeOutboxBacklog> => {
+    const response = await request<{ data: SafeTradeOutboxBacklog }>('/diaspora/safetrade/outbox')
+    return response.data
+  }, [request])
+
+  const getSafeTradeOutboxDeadLetters = useCallback(async (): Promise<SafeTradeOutboxDeadLetter[]> => {
+    const response = await request<{ data: SafeTradeOutboxDeadLetter[] }>('/diaspora/safetrade/outbox/dead-letters')
+    return response.data || []
+  }, [request])
+
+  const drainSafeTradeOutbox = useCallback(async (): Promise<SafeTradeOutboxDrainSummary> => {
+    const response = await request<{ data: SafeTradeOutboxDrainSummary }>('/diaspora/safetrade/outbox/drain', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const replaySafeTradeOutboxEvent = useCallback(async (id: string): Promise<unknown> => {
+    return request(`/diaspora/safetrade/outbox/dead-letters/${encodeURIComponent(id)}/replay`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  }, [request])
+
   const getSafeTradeCases = useCallback(async (filters?: { status?: string; importOrderId?: string; limit?: number; offset?: number }): Promise<SafeTradeListResponse> => {
     const query = filters
       ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
@@ -2576,6 +2638,15 @@ export function useCarUpApi() {
     getTradeGraphContainerOpportunities,
     getTradeGraphDemandSignals,
     rebuildTradeGraph,
+    // ── ST-3 operator surfaces ──
+    getSafeTradeApprovals,
+    approveSafeTradeDecision,
+    rejectSafeTradeDecision,
+    getSafeTradeReconciliationQueue,
+    getSafeTradeOutboxBacklog,
+    getSafeTradeOutboxDeadLetters,
+    drainSafeTradeOutbox,
+    replaySafeTradeOutboxEvent,
     // ── Phase 9: SafeTrade ──
     getSafeTradeCases,
     getSafeTradeCase,

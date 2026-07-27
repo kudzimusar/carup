@@ -564,6 +564,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.safetrade-operations",
+    "domain": "diaspora",
+    "route": "/diaspora/safetrade/operations",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.stock-manager",
     "domain": "diaspora",
     "route": "/diaspora/stock",

@@ -2599,3 +2599,88 @@ export interface TradeGraphRebuildResponse {
   nodesRebuilt?: number;
   edgesRebuilt?: number;
 }
+
+// ─── ST-3 operator surfaces (Issue #127) ───────────────────────────────────
+// Maker-checker approvals (#2), the provider/ledger reconciliation queue (#3) and the transactional
+// outbox (#1). Note what these DON'T carry: no participant identifiers, no provider payloads, no
+// outbox event bodies. The server shapes them that way; the UI cannot re-introduce what it never gets.
+
+export interface SafeTradeApproval {
+  id: string;
+  transaction_id: string;
+  milestone_id: string | null;
+  decision_type: 'release' | 'refund' | 'partial_refund' | 'dispute_resolution' | string;
+  risk_level: string;
+  amount: number | null;
+  currency: string | null;
+  requested_by: string;
+  requested_at: string;
+  requested_reason: string | null;
+  expires_at: string | null;
+  state: 'pending' | 'approved' | 'rejected' | 'expired' | 'consumed' | string;
+  approved_by?: string | null;
+  /** Server-computed: false when the viewer is the requester. Display only — the DB and RPC enforce it. */
+  canApprove?: boolean;
+  selfApprovalBlocked?: boolean;
+}
+
+export interface SafeTradeOperationUserState {
+  state: string;
+  userMessage: string;
+  /** False for anything unresolved. There is deliberately no path from unresolved to "success". */
+  settled: boolean;
+}
+
+export interface SafeTradeOperation {
+  id: string;
+  tenant_id: string;
+  transaction_id: string | null;
+  milestone_id: string | null;
+  operation: string;
+  state: string;
+  provider: string;
+  provider_ref: string | null;
+  provider_status: string | null;
+  amount: number | null;
+  currency: string | null;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_error_code: string | null;
+  last_error: string | null;
+  requested_at: string;
+  dispatched_at: string | null;
+  confirmed_at: string | null;
+  userState?: SafeTradeOperationUserState;
+}
+
+export interface SafeTradeOutboxBacklog {
+  pending: number;
+  retrying: number;
+  deadLettered: number;
+  /** The number that actually matters — a small count with a very old head is a stalled drainer. */
+  oldestPendingAgeSeconds: number | null;
+}
+
+export interface SafeTradeOutboxDeadLetter {
+  id: string;
+  tenant_id: string | null;
+  transaction_id: string | null;
+  milestone_id: string | null;
+  event_type: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  next_attempt_at: string | null;
+  payloadWithheld: boolean;
+  payloadWithheldReason: string;
+}
+
+export interface SafeTradeOutboxDrainSummary {
+  claimed: number;
+  dispatched: number;
+  failed: number;
+  deadLettered: number;
+  noHandler: number;
+  results: { id: string; eventType: string; outcome: string; error?: string }[];
+}

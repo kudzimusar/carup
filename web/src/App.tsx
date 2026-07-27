@@ -61,6 +61,7 @@ import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
 import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
 import DiasporaTradeGraph from './pages/diaspora/DiasporaTradeGraph'
+import DiasporaSafeTradeOperations from './pages/diaspora/DiasporaSafeTradeOperations'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -276,6 +277,9 @@ export default function App() {
               nav entry without adding a duplicate route; with the flag off the page renders an
               explicit unavailable state and fetches nothing. */}
           <Route path="/diaspora/trade-graph" element={<DiasporaTradeGraph />} />
+          {/* ST-3 operator console (Issue #127). Reviewer/admin only; the page renders its own
+              access-denied state and the backend re-authorizes every call. */}
+          <Route path="/diaspora/safetrade/operations" element={<DiasporaSafeTradeOperations />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />

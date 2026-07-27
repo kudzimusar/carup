@@ -931,6 +931,20 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     isHidden: !SAFETRADE_UI_ENABLED,
   },
   {
+    id: 'diaspora.safetrade-operations',
+    label: 'SafeTrade Operations',
+    route: '/diaspora/safetrade/operations',
+    domain: 'diaspora',
+    roles: ['admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ShieldAlert',
+    description: 'Approvals awaiting a second reviewer, unconfirmed operations and the event backlog',
+    // Shares the SafeTrade UI flag: an operations console for a surface that is switched off would
+    // only ever show empty queues. Hidden by default (fail closed); the route always exists.
+    isHidden: !SAFETRADE_UI_ENABLED,
+  },
+  {
     id: 'diaspora.trade-graph',
     label: 'Trade Graph',
     route: '/diaspora/trade-graph',

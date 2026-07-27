@@ -137,12 +137,14 @@ test.describe('Feature Registry & Navigation Map', () => {
       // does not appear in any navigation surface while VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED is off.
       // (isLifecycleAccessible('hidden') is true, which is why the page renders its own explicit
       // unavailable state rather than 404ing.)
+      // Recomputed 2026-07-28 (Issue #127, ST-3): `diaspora.safetrade-operations` adds ONE
+      // dashboard_sidebar entry for roles admin / government, so those two rise by 1 again.
       expect(result.roleItemCounts['owner']).toBe(20);
       expect(result.roleItemCounts['dealer']).toBe(15);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
-      expect(result.roleItemCounts['government']).toBe(13);
-      expect(result.roleItemCounts['admin']).toBe(27);
+      expect(result.roleItemCounts['government']).toBe(14);
+      expect(result.roleItemCounts['admin']).toBe(28);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid
