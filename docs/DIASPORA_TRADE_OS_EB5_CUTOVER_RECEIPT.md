@@ -60,9 +60,11 @@ production backend) → diaspora entry. **Console: 0 errors, 0 warnings.** All A
 
 ## 5. Residual findings (recorded, out of authorized scope)
 
-1. **`diaspora_oauth_states`** (ledger #10, H6) carries the same Supabase default anon grants #19
+1. ~~**`diaspora_oauth_states`** (ledger #10, H6) carries the same Supabase default anon grants #19
    removed elsewhere. Inert: RLS enabled with **zero policies** (default-deny) and 0 rows. Close
-   via a #20 under its own authorization.
+   via a #20 under its own authorization.~~ **CLOSED (2026-07-27)** by ledger #20
+   (`20260727090000_diaspora_oauth_states_client_grant_hardening`, PR #126) — see
+   `docs/DIASPORA_TRADE_OS_20_OAUTH_STATES_CLOSURE_RECEIPT.md`.
 2. Repo-convention hardening candidates flagged by review (not changed here): GitHub Actions
    pinned by tag (`@v4`) rather than commit SHA; `workflow_dispatch` usable from any ref;
    Supabase pooler TLS verified via credential/ref checks rather than CA pinning
