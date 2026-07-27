@@ -113,7 +113,16 @@ export const DEFAULT_PLAN_KEY = 'free';
  *   diaspora_buyer  — buyer requests, RFQ create, workbook download/upload, limited AI, drive connect.
  *   seller          — stock create/publish, RFQ respond, seller workbook, seller AI, drive connect.
  *   trade_pro       — bulk import/export, drive sync, container reservations, higher quotas, analytics.
- *   enterprise      — everything + API access, audit export, advanced graph, highest/unlimited quotas.
+ *   enterprise      — everything: audit export, advanced graph, highest/unlimited quotas.
+ *
+ * UNAVAILABLE KEYS. diaspora.api.access is false on EVERY plan, deliberately. There is no diaspora
+ * public/partner API surface in this codebase for it to gate — the one partner API that exists serves
+ * vehicle identity/trust and has no diaspora routes. Enterprise used to claim it, which meant the plan
+ * sold a capability no route implements and no guard protects: an enterprise tenant reading their own
+ * entitlements was told `diaspora.api.access: true` about an API that does not exist. Selling it back
+ * requires building the surface AND wiring the guard, at which point the value returns here. Until
+ * then the key stays in FEATURE_KEYS (so the registry must keep accounting for it) and false
+ * everywhere (so nothing advertises it). See diasporaGatedOperations.js — ENFORCEMENT_MODES.UNAVAILABLE.
  */
 export const PLAN_CATALOG = Object.freeze({
   free: Object.freeze({
@@ -228,7 +237,7 @@ export const PLAN_CATALOG = Object.freeze({
     name: 'Enterprise Partner',
     tier: 'enterprise',
     sort_order: 40,
-    description: 'API access, branch/staff management, advanced dashboards, dedicated trade operations.',
+    description: 'Branch/staff management, advanced dashboards, dedicated trade operations, highest quotas.',
     entitlements: Object.freeze({
       [FEATURE_KEYS.WORKBOOK_DOWNLOAD]: true,
       [FEATURE_KEYS.WORKBOOK_UPLOAD]: true,
@@ -245,13 +254,37 @@ export const PLAN_CATALOG = Object.freeze({
       [FEATURE_KEYS.CONTAINER_MANAGE]: true,
       [FEATURE_KEYS.DRIVE_CONNECT]: true,
       [FEATURE_KEYS.DRIVE_EXPORT]: true,
-      [FEATURE_KEYS.API_ACCESS]: true,
+      // false, like every other plan: no diaspora API surface exists to gate. See the UNAVAILABLE
+      // KEYS note above — this is a withdrawn claim, not an oversight.
+      [FEATURE_KEYS.API_ACCESS]: false,
       [FEATURE_KEYS.AUDIT_EXPORT]: true,
       [FEATURE_KEYS.SAFETRADE_CREATE]: true,
       [FEATURE_KEYS.GRAPH_ADVANCED]: true,
     }),
   }),
 });
+
+/**
+ * Keys that no plan grants, by design, because nothing implements them yet.
+ *
+ * This list is what stops the two failure modes from being confused with each other. A key granted by
+ * no plan is normally THE ZERO-LIMIT TRAP — enforcement that denies every tenant while looking
+ * correct. A key that is deliberately unavailable looks identical from the data. Naming them here
+ * makes the difference explicit and checkable in both directions: an unavailable key must be granted
+ * by NO plan, and every other key must be granted by at least one.
+ */
+export const UNAVAILABLE_FEATURE_KEYS = Object.freeze([
+  FEATURE_KEYS.API_ACCESS,
+]);
+
+export function isUnavailableFeature(featureKey) {
+  return UNAVAILABLE_FEATURE_KEYS.includes(featureKey);
+}
+
+/** Keys a plan can actually sell — everything a customer could be charged for must be enforced. */
+export function sellableFeatureKeys() {
+  return Object.values(FEATURE_KEYS).filter((key) => !isUnavailableFeature(key));
+}
 
 export const PLAN_KEYS = Object.freeze(Object.keys(PLAN_CATALOG));
 

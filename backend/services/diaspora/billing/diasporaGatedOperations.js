@@ -3,15 +3,29 @@
  *
  * "Complete entitlement enforcement across the documented gated operations" is only checkable if the
  * documented set is written down somewhere a test can read. This module is that place: one entry per
- * feature key, naming the operation it guards, where the guard lives, and — for the keys that are NOT
- * enforced — the specific reason, so an unwired key is a recorded decision rather than an oversight
- * nobody noticed.
+ * feature key, naming the operation it guards and where the guard lives.
  *
- * THE ZERO-LIMIT TRAP. A feature key that is absent from PLAN_CATALOG resolves to `undefined`, which
- * the resolver treats as 0 / false, which denies every tenant on every plan. From the outside that is
- * indistinguishable from correct enforcement: the guard runs, the denial is explainable, the tests
- * pass, and every customer is locked out of a feature they paid for. `assertRegistryIntegrity()` runs
- * at import time and refuses to load a registry containing a key that no plan grants.
+ * THE RULE, since Issue #127 phase 2C. For every key in PLAN_CATALOG exactly one of these is true:
+ *
+ *   (1) a reachable operation enforces it through the entitlement GUARD, or
+ *   (2) the capability is explicitly UNAVAILABLE and no plan grants it.
+ *
+ * There is no third option any more. A key that a plan SELLS and no route guards used to be
+ * permitted here as long as it carried a written reason — but a reason is not a control, and the
+ * customer is still being charged for something nothing protects. assertRegistryIntegrity() now
+ * refuses to load such a registry, so the gap cannot be reintroduced by adding a comment.
+ *
+ * TWO OPPOSITE TRAPS, which look identical in the data and are caught separately:
+ *
+ *   THE ZERO-LIMIT TRAP — a key no plan grants, enforced anyway. It resolves to `undefined`, which
+ *   the resolver reads as 0/false, which denies EVERY tenant on EVERY plan. From outside it is
+ *   indistinguishable from correct enforcement: the guard runs, the denial is explainable, the tests
+ *   pass, and every paying customer is locked out.
+ *
+ *   THE HOLLOW CLAIM — a key a plan grants with nothing behind it. The tenant is told they have the
+ *   capability, and no route implements it.
+ *
+ * UNAVAILABLE is how a not-yet-built capability is declared without becoming either one.
  *
  * Enforcement itself always goes through the entitlement GUARD (requireFeature /
  * reserveQuotaForFeature / withEntitlement), never through the raw usage service. The guard is what
@@ -24,6 +38,7 @@ import {
   PLAN_KEYS,
   METERED_FEATURE_KEYS,
   lowestPlanGranting,
+  isUnavailableFeature,
 } from '../../../constants/diaspora/diasporaEntitlements.js';
 import { requireFeature, reserveQuotaForFeature, withEntitlement } from '../diasporaEntitlementGuard.js';
 
@@ -32,12 +47,25 @@ export const ENFORCEMENT_MODES = Object.freeze({
   BOOLEAN: 'boolean',            // requireFeature only
   BOOLEAN_PLUS_QUOTA: 'boolean+quota', // requireFeature + reserveQuotaForFeature (or withEntitlement)
   QUOTA_ONLY: 'quota',           // the key IS the quota (a cap, not a capability)
-  NOT_ENFORCED: 'not-enforced',  // deliberately unwired, with a reason
+  /**
+   * The capability does not exist yet, so there is nothing to guard AND nothing may sell it.
+   *
+   * This is not a softer NOT_ENFORCED. It carries the opposite data invariant: an UNAVAILABLE key
+   * must be granted by NO plan, where every other key must be granted by at least one. That pairing
+   * is what stops "we haven't built it" from decaying into "a plan promises it and no route checks",
+   * which is the failure this registry exists to make impossible.
+   */
+  UNAVAILABLE: 'unavailable',
 });
 
 /**
- * The registry. `site` is the function that carries the guard; `reason` is required whenever
- * mode is NOT_ENFORCED.
+ * The registry. `site` names the function that carries the guard; `note` records a decision worth
+ * explaining (why a gate sits where it does); `reason` is required on an UNAVAILABLE entry.
+ *
+ * NOT_ENFORCED is deliberately left in ENFORCEMENT_MODES but is no longer usable: a key with no
+ * enforcement is either sold (which assertRegistryIntegrity refuses) or granted by no plan (which the
+ * zero-limit trap check refuses first). It survives so the failure message can name the mistake, and
+ * so the coverage test can construct the mistake and prove the gate fires.
  */
 export const GATED_OPERATIONS = Object.freeze([
   {
@@ -132,54 +160,72 @@ export const GATED_OPERATIONS = Object.freeze([
   },
   {
     featureKey: FEATURE_KEYS.DRIVE_CONNECT,
-    operation: 'Connect a Google Drive account',
-    mode: ENFORCEMENT_MODES.NOT_ENFORCED,
-    site: null,
-    reason: 'The Drive connect/export surface is being rebuilt in a separate lane (OAuth/PKCE, vault, '
-      + 'durable sync). Wiring a guard into files under active reconstruction would collide; the guard '
-      + 'belongs at the connect boundary that lane creates.',
+    operation: 'Connect a Google Drive account (start authorization / complete the OAuth callback)',
+    mode: ENFORCEMENT_MODES.BOOLEAN,
+    site: 'diasporaDriveSyncService.getAuthorizationUrl + diasporaDriveSyncService.handleOAuthCallback',
+    note: 'Both halves carry the gate. They are separately reachable routes, so gating only the '
+      + 'authorize call would let a caller holding a state string finish the connection anyway.',
   },
   {
     featureKey: FEATURE_KEYS.DRIVE_EXPORT,
-    operation: 'Export to Google Drive',
-    mode: ENFORCEMENT_MODES.NOT_ENFORCED,
-    site: null,
-    reason: 'Same lane as DRIVE_CONNECT — the export path runs through the durable sync layer being '
-      + 'rebuilt there, and the correct gate is at the export boundary that lane defines rather than '
-      + 'at a call site that is about to move.',
+    operation: 'Write platform content to Google Drive (upload and export)',
+    mode: ENFORCEMENT_MODES.BOOLEAN,
+    site: 'diasporaDriveSyncService.uploadDriveFile (the funnel exportToDrive also calls)',
+    note: 'Gated at the funnel, not at exportToDrive. exportToDrive only formats a payload and calls '
+      + 'uploadDriveFile, so POST /drive/upload reaches the identical provider write — a gate on the '
+      + 'export route alone would be bypassable by choosing the other route.',
   },
   {
     featureKey: FEATURE_KEYS.GRAPH_ADVANCED,
-    operation: 'Trade-graph intelligence reads (demand signals, container opportunities, risk exposure)',
-    mode: ENFORCEMENT_MODES.NOT_ENFORCED,
-    site: null,
-    reason: 'The trade-graph services take a node-postgres pgClient, not a supabase client, and their '
-      + 'shared context guard is synchronous. Enforcing correctly means making that guard async across '
-      + 'ten call sites, which is a refactor of another subsystem rather than billing work. The '
-      + 'backend capability flag DIASPORA_TRADE_GRAPH is OFF, so the entire surface 404s today.',
+    operation: 'Trade-graph reads: traversal, order path/blockers, demand signals, container opportunities, risk exposure',
+    mode: ENFORCEMENT_MODES.BOOLEAN,
+    site: 'diasporaTradeGraphRoutes router-level entitlement middleware',
+    note: 'One router-level gate rather than nine per-route calls, so a read route added later '
+      + 'inherits it. POST /rebuild and GET /dead-letters are exempt: they are platform-admin '
+      + 'operational repair/triage, and gating them on the target tenant\'s plan would let a billing '
+      + 'decision block fixing a broken projection.',
   },
   {
     featureKey: FEATURE_KEYS.API_ACCESS,
     operation: 'Programmatic API access',
-    mode: ENFORCEMENT_MODES.NOT_ENFORCED,
+    mode: ENFORCEMENT_MODES.UNAVAILABLE,
     site: null,
     reason: 'No diaspora public/partner API surface exists to gate. The only partner API in the '
-      + 'codebase serves vehicle identity/trust and has no diaspora routes. The key remains a plan '
-      + 'differentiator (enterprise vs trade_pro) with nothing to enforce it against yet.',
+      + 'codebase serves vehicle identity/trust and has no diaspora routes. It was previously true on '
+      + 'the enterprise plan, which meant the plan sold a capability no route implements — an '
+      + 'enterprise tenant reading their own entitlements was told they had an API that does not '
+      + 'exist. The claim is withdrawn (false on every plan) rather than enforced against nothing. '
+      + 'Restoring it requires building the surface AND wiring the guard, together.',
   },
 ]);
+
+/** The plans that actually grant a key. Empty means nobody is being sold it. */
+export function planGrants(featureKey) {
+  return PLAN_KEYS.filter((planKey) => {
+    const value = PLAN_CATALOG[planKey].entitlements[featureKey];
+    return value === true || (typeof value === 'number' && value > 0);
+  });
+}
+
+const UNGUARDED_MODES = new Set([ENFORCEMENT_MODES.NOT_ENFORCED, ENFORCEMENT_MODES.UNAVAILABLE]);
 
 /**
  * Integrity check, run at import time.
  *
- * Refuses a registry that would silently deny everyone. Also refuses an unwired entry with no reason,
- * because "not enforced" without a reason is how a gap becomes permanent.
+ * Refuses, in one place, every way the registry could lie:
+ *   · a key no plan grants but something enforces (the zero-limit trap — denies everyone);
+ *   · a key a plan grants but nothing enforces (the hollow claim — sold and unprotected);
+ *   · an UNAVAILABLE declaration that disagrees with UNAVAILABLE_FEATURE_KEYS;
+ *   · a canonical feature key that never made it into the registry at all.
+ *
+ * Takes the operations array so a test can hand it a deliberately broken registry and see it throw —
+ * a guard rail nobody has watched fire is a guard rail nobody knows is connected.
  */
-export function assertRegistryIntegrity() {
+export function assertRegistryIntegrity(operations = GATED_OPERATIONS) {
   const known = new Set(Object.values(FEATURE_KEYS));
   const seen = new Set();
 
-  for (const entry of GATED_OPERATIONS) {
+  for (const entry of operations) {
     if (!known.has(entry.featureKey)) {
       throw new Error(`Gated-operations registry references an unknown feature key: ${entry.featureKey}`);
     }
@@ -188,22 +234,59 @@ export function assertRegistryIntegrity() {
     }
     seen.add(entry.featureKey);
 
+    const granting = planGrants(entry.featureKey);
+
+    if (entry.mode === ENFORCEMENT_MODES.UNAVAILABLE) {
+      // The inverse invariant. An unavailable capability that a plan still grants is the hollow claim
+      // this mode exists to prevent: the customer is told they have it, and no route implements it.
+      if (granting.length > 0) {
+        throw new Error(
+          `Feature key ${entry.featureKey} is marked UNAVAILABLE but plan(s) ${granting.join(', ')} still `
+          + 'grant it. A plan must not advertise a capability that no route implements.',
+        );
+      }
+      // The registry must also agree with the constants module, so the two cannot drift apart.
+      if (!isUnavailableFeature(entry.featureKey)) {
+        throw new Error(
+          `Feature key ${entry.featureKey} is UNAVAILABLE here but absent from UNAVAILABLE_FEATURE_KEYS `
+          + 'in diasporaEntitlements.js. The two must be declared together.',
+        );
+      }
+      if (!entry.reason) {
+        throw new Error(`Unavailable operation ${entry.featureKey} has no recorded reason`);
+      }
+      continue;
+    }
+
+    if (isUnavailableFeature(entry.featureKey)) {
+      throw new Error(
+        `Feature key ${entry.featureKey} is listed in UNAVAILABLE_FEATURE_KEYS but the registry gives it `
+        + `mode ${entry.mode}. Remove it from one or the other.`,
+      );
+    }
+
     // THE zero-limit trap: a key no plan grants denies every tenant on every plan while looking correct.
-    const grantedByAPlan = PLAN_KEYS.some((planKey) => {
-      const value = PLAN_CATALOG[planKey].entitlements[entry.featureKey];
-      return value === true || (typeof value === 'number' && value > 0);
-    });
-    if (!grantedByAPlan) {
+    if (granting.length === 0) {
       throw new Error(
         `Feature key ${entry.featureKey} is granted by NO plan in PLAN_CATALOG. Enforcing it would deny `
         + 'every tenant on every plan while looking like correct enforcement.',
       );
     }
 
-    if (entry.mode === ENFORCEMENT_MODES.NOT_ENFORCED && !entry.reason) {
-      throw new Error(`Gated operation ${entry.featureKey} is unenforced with no recorded reason`);
+    if (entry.mode === ENFORCEMENT_MODES.NOT_ENFORCED) {
+      if (!entry.reason) {
+        throw new Error(`Gated operation ${entry.featureKey} is unenforced with no recorded reason`);
+      }
+      // A key a plan SELLS and no route guards is the exact defect this program set out to close.
+      // Recording a reason for it is no longer sufficient — the reason would be an excuse for
+      // charging for something that is not protected.
+      throw new Error(
+        `Feature key ${entry.featureKey} is sold by plan(s) ${granting.join(', ')} but has no enforcement `
+        + 'boundary. Either guard it, or mark it UNAVAILABLE and remove it from every plan.',
+      );
     }
-    if (entry.mode !== ENFORCEMENT_MODES.NOT_ENFORCED && !entry.site) {
+
+    if (!entry.site) {
       throw new Error(`Gated operation ${entry.featureKey} claims enforcement but names no site`);
     }
   }
@@ -222,12 +305,35 @@ assertRegistryIntegrity();
 
 /** Entries that are actually wired. */
 export function enforcedOperations() {
-  return GATED_OPERATIONS.filter((e) => e.mode !== ENFORCEMENT_MODES.NOT_ENFORCED);
+  return GATED_OPERATIONS.filter((e) => !UNGUARDED_MODES.has(e.mode));
 }
 
 /** Entries deliberately left unwired, with their reasons. */
 export function unenforcedOperations() {
   return GATED_OPERATIONS.filter((e) => e.mode === ENFORCEMENT_MODES.NOT_ENFORCED);
+}
+
+/** Entries whose capability does not exist and which therefore no plan may grant. */
+export function unavailableOperations() {
+  return GATED_OPERATIONS.filter((e) => e.mode === ENFORCEMENT_MODES.UNAVAILABLE);
+}
+
+/** Entries at least one plan grants — everything a customer can be charged for. */
+export function sellableOperations(operations = GATED_OPERATIONS) {
+  return operations.filter((e) => planGrants(e.featureKey).length > 0);
+}
+
+/**
+ * The one question a coverage report has to answer: is anything SOLD but not GUARDED?
+ *
+ * Counting enforced-vs-unenforced keys does not answer it. A key can be unenforced and harmless
+ * (nothing sells it) or unenforced and serious (four plans sell it). This returns only the second
+ * kind, which is the set that must always be empty.
+ */
+export function sellableWithoutEnforcement(operations = GATED_OPERATIONS) {
+  return sellableOperations(operations)
+    .filter((e) => UNGUARDED_MODES.has(e.mode))
+    .map((e) => ({ featureKey: e.featureKey, operation: e.operation, soldBy: planGrants(e.featureKey) }));
 }
 
 export function gatedOperationFor(featureKey) {
@@ -238,12 +344,17 @@ export function gatedOperationFor(featureKey) {
 export function entitlementCoverage() {
   const enforced = enforcedOperations();
   const unenforced = unenforcedOperations();
+  const unavailable = unavailableOperations();
   return {
     total: GATED_OPERATIONS.length,
     enforced: enforced.length,
     unenforced: unenforced.length,
+    unavailable: unavailable.length,
+    sellable: sellableOperations().length,
     meteredKeys: [...METERED_FEATURE_KEYS],
     gaps: unenforced.map((e) => ({ featureKey: e.featureKey, operation: e.operation, reason: e.reason })),
+    withdrawn: unavailable.map((e) => ({ featureKey: e.featureKey, operation: e.operation, reason: e.reason })),
+    soldWithoutEnforcement: sellableWithoutEnforcement(),
     lowestPlanGranting: Object.fromEntries(
       GATED_OPERATIONS.map((e) => [e.featureKey, lowestPlanGranting(e.featureKey)]),
     ),

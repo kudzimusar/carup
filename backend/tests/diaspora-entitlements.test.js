@@ -90,10 +90,12 @@ test('seller plan allows stock.publish but denies api.access', async () => {
   assert.equal(publish.allowed, true);
   const api = await ent.checkFeature(client, { tenantId: TENANT_A, featureKey: FEATURE_KEYS.API_ACCESS });
   assert.equal(api.allowed, false);
-  assert.equal(api.requiredPlan, 'enterprise');
+  // No plan grants it any more, so there is no plan to upsell to. `null` is the honest answer;
+  // naming 'enterprise' would tell a seller that paying more buys an API that does not exist.
+  assert.equal(api.requiredPlan, null);
 });
 
-test('Trade Pro gets container + higher rfq quota; Enterprise gets api.access', async () => {
+test('Trade Pro gets container + higher rfq quota; NO plan grants api.access', async () => {
   const pro = clientWith({ subscriptions: [subscriptionRow(TENANT_A, 'trade_pro')] });
   const container = await ent.checkFeature(pro, { tenantId: TENANT_A, featureKey: FEATURE_KEYS.CONTAINER_RESERVE });
   assert.equal(container.allowed, true);
@@ -101,8 +103,11 @@ test('Trade Pro gets container + higher rfq quota; Enterprise gets api.access', 
   assert.equal(proRfqQuota.limit, 100);
 
   const ent2 = clientWith({ subscriptions: [subscriptionRow(TENANT_B, 'enterprise')] });
+  // Enterprise used to claim api.access. There is no diaspora API surface, so the claim was withdrawn
+  // rather than enforced against nothing — an enterprise tenant is no longer told they have an API
+  // that no route implements.
   const api = await ent.checkFeature(ent2, { tenantId: TENANT_B, featureKey: FEATURE_KEYS.API_ACCESS });
-  assert.equal(api.allowed, true);
+  assert.equal(api.allowed, false);
   const entRfqQuota = await ent.checkQuota(ent2, { tenantId: TENANT_B, featureKey: FEATURE_KEYS.RFQ_MAX_OPEN });
   assert.equal(entRfqQuota.limit, 1000);
 });

@@ -34,6 +34,9 @@ import {
 } from '../../constants/diaspora/diasporaDriveConstants.js';
 import { requireUserContext, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendCriticalAudit } from './diasporaServiceUtils.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 import { getDriveProvider, DriveProviderError } from './drive/driveProvider.js';
 import { resolveVault, redactSecretMaterial, CREDENTIAL_PURPOSES } from './drive/credentialVault.js';
 // Side-effect import: registers the managed vault backends so `resolveVault()` can return one.
@@ -214,6 +217,17 @@ export async function getAuthorizationUrl(userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   if (!isDriveEnabled()) throw new ValidationError('Drive integration is disabled');
   const client = await resolveClient(options);
+
+  // diaspora.drive.connect — gated at the point authorization STARTS, before a PKCE verifier is put
+  // in the vault or a nonce row is written, so a denied tenant leaves no state behind to clean up.
+  // The callback below carries the same gate: the two halves are separately reachable HTTP routes,
+  // and gating only the first would let a caller who already holds a state string finish the connect.
+  await requireFeature(client, {
+    tenantId: context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.DRIVE_CONNECT,
+  });
+
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
   // Tenant-SCOPED when a tenant is known: a managed vault returns a view that carries the binding on
   // every call, so "remember to pass the tenant" stops being a per-call-site discipline. The
@@ -282,6 +296,16 @@ export async function handleOAuthCallback({ code, state } = {}, userContext = {}
   if (!code) throw new ValidationError('Missing authorization code');
 
   const client = await resolveClient(options);
+
+  // The second half of the diaspora.drive.connect gate. A state string issued while the tenant was
+  // entitled must not still complete the connection after the plan changed — and this route is
+  // reachable on its own, so it cannot rely on the authorize call having been checked.
+  await requireFeature(client, {
+    tenantId: context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.DRIVE_CONNECT,
+  });
+
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
   // Same tenant scoping as `getAuthorizationUrl`: the verifier was stored under this tenant, so a
   // managed vault refuses to hand it back while acting for another one.
@@ -485,6 +509,20 @@ export async function uploadDriveFile(payload = {}, userContext = {}, options = 
   const context = requireUserContext(userContext);
   if (!isDriveEnabled()) throw new ValidationError('Drive integration is disabled');
   const client = await resolveClient(options);
+
+  // diaspora.drive.export — gated HERE, at the single funnel through which platform content leaves
+  // for Drive, rather than on exportToDrive alone. exportToDrive adds no capability of its own: it
+  // formats a payload and calls this function. A gate only there would be enforcement theatre,
+  // because POST /drive/upload reaches the identical provider write with caller-chosen content.
+  //
+  // The entity type is deliberately NOT part of the decision. It arrives in the request body, and a
+  // gate that branched on it would be a gate the client configures.
+  await requireFeature(client, {
+    tenantId: context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.DRIVE_EXPORT,
+  });
+
   const connection = await activeConnectionOrThrow(client, context);
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
 
