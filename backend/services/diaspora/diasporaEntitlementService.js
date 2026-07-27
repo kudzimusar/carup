@@ -389,56 +389,42 @@ export async function commitUsage(supabase, { reservationId, actor = null, req =
  */
 export async function releaseUsage(supabase, { reservationId, actor = null, req = null } = {}) {
   if (!reservationId) throw new ValidationError('reservationId is required to release usage');
-  const reservation = await loadReservation(supabase, reservationId);
-  if (reservation.status === 'RELEASED') {
-    return { reservationId, status: 'RELEASED', idempotentReplay: true };
-  }
-  if (reservation.status === 'COMMITTED') {
-    throw new ValidationError('A committed reservation cannot be released');
-  }
 
-  // Decrement the meter for this period by the reserved amount (never below zero).
-  const { data: meter, error: meterError } = await supabase
-    .from(METERS_TABLE)
-    .select('*')
-    .eq('tenant_id', reservation.tenant_id)
-    .eq('feature_key', reservation.feature_key)
-    .eq('period_start', reservation.period_start)
-    .maybeSingle();
-  if (meterError && meterError.code && meterError.code !== 'PGRST116') {
-    throw new DatabaseError(`Failed to read meter on release: ${meterError.message}`);
-  }
-  if (meter) {
-    const newUsed = Math.max(Number(meter.used_count || 0) - Number(reservation.amount || 0), 0);
-    const { error: updErr } = await supabase
-      .from(METERS_TABLE)
-      .update({ used_count: newUsed, updated_at: new Date().toISOString() })
-      .eq('id', meter.id)
-      .select()
-      .single();
-    if (updErr) throw new DatabaseError(`Failed to decrement meter on release: ${updErr.message}`);
-  }
-
-  const { data, error } = await supabase
-    .from(RESERVATIONS_TABLE)
-    .update({ status: 'RELEASED', updated_at: new Date().toISOString() })
-    .eq('id', reservationId)
-    .select()
-    .single();
-  if (error) throw new DatabaseError(`Failed to release reservation: ${error.message}`);
-
-  await appendCriticalAudit(supabase, {
-    actorId: actor || reservation.user_id || null,
-    tenantId: reservation.tenant_id,
-    action: 'ENTITLEMENT_USAGE_RELEASED',
-    resourceType: 'diaspora_usage_reservation',
-    resourceId: String(reservationId),
-    previousState: { status: reservation.status },
-    newState: { status: 'RELEASED' },
-    metadata: { featureKey: reservation.feature_key, amount: reservation.amount },
-    req,
+  // Ledger #25. This used to be a read-modify-write across two tables with no lock: read the
+  // reservation, read the meter, write used_count = max(used - amount, 0), write the status. Two
+  // releases of the SAME reservation racing each other both passed the status check (neither had
+  // flipped it yet), both read the same used_count, and both wrote the same decrement — the meter
+  // gave back `amount` once but was credited for it twice, INFLATING remaining quota so a tenant
+  // could exceed their plan.
+  //
+  // The RPC does the whole sequence in one transaction under a row lock, so the second caller blocks
+  // and then observes RELEASED as an idempotent no-op. The audit row is written inside that same
+  // transaction, so a released reservation cannot exist without its record.
+  const { data, error } = await supabase.rpc('diaspora_release_usage_atomic', {
+    p_reservation_id: reservationId,
+    p_actor_id: actor || null,
+    p_correlation_id: requestCorrelationId(req),
   });
-  return { reservationId, status: 'RELEASED', idempotentReplay: false, reservation: data };
+
+  if (error) {
+    const message = String(error.message || '');
+    if (message.includes('CANNOT_RELEASE_COMMITTED')) {
+      throw new ValidationError('A committed reservation cannot be released');
+    }
+    if (message.includes('RESERVATION_NOT_FOUND')) {
+      throw new ValidationError('Reservation not found');
+    }
+    throw new DatabaseError(`Failed to release reservation: ${message}`);
+  }
+
+  return {
+    reservationId,
+    status: 'RELEASED',
+    idempotentReplay: Boolean(data?.idempotentReplay),
+    reservation: data?.reservation ?? null,
+    meterBefore: data?.meterBefore ?? null,
+    meterAfter: data?.meterAfter ?? null,
+  };
 }
 
 /**
