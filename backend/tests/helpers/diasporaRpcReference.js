@@ -392,9 +392,93 @@ export function reserveUsageAtomic(params, { table, nextId }) {
   };
 }
 
+/**
+ * Mirrors diaspora_release_usage_atomic (ledger #25).
+ *
+ * The SQL takes the reservation FOR UPDATE, then the meter FOR UPDATE, decrements with
+ * GREATEST(used - amount, 0), flips the status and writes the audit row — all in one transaction.
+ * This reference reproduces the observable contract: a released reservation is an idempotent no-op
+ * (it does NOT decrement a second time), a COMMITTED reservation cannot be released, the meter is
+ * located by the RESERVATION's own tenant/feature/period rather than by caller input, and the audit
+ * row exists for every release that actually happened.
+ *
+ * Keep in lockstep with database/migrations/20260730090000_diaspora_atomic_quota_release.sql
+ */
+export function releaseUsageAtomic(params, { table, nextId }) {
+  const ts = new Date(2026, 5, 21).toISOString();
+  const reservations = table('diaspora_usage_reservations');
+  const meters = table('diaspora_usage_meters');
+  const audit = table('diaspora_import_audit_log');
+
+  const reservation = reservations.find((r) => String(r.id) === String(params.p_reservation_id));
+  if (!reservation) fail('DIASPORA_ENTITLEMENT/RESERVATION_NOT_FOUND');
+
+  if (reservation.status === 'RELEASED') {
+    return {
+      reservationId: params.p_reservation_id,
+      status: 'RELEASED',
+      idempotentReplay: true,
+      meterBefore: null,
+      meterAfter: null,
+    };
+  }
+  if (reservation.status === 'COMMITTED') fail('DIASPORA_ENTITLEMENT/CANNOT_RELEASE_COMMITTED');
+
+  // The meter is found through the RESERVATION's own scope. A caller cannot name another tenant's
+  // meter, because the caller never names a meter at all.
+  const meter = meters.find(
+    (m) => String(m.tenant_id) === String(reservation.tenant_id)
+      && m.feature_key === reservation.feature_key
+      && String(m.period_start) === String(reservation.period_start),
+  );
+
+  let before = null;
+  let after = null;
+  if (meter) {
+    before = Number(meter.used_count || 0);
+    after = Math.max(before - Number(reservation.amount || 0), 0); // GREATEST(..., 0)
+    meter.used_count = after;
+    meter.updated_at = ts;
+  }
+
+  reservation.status = 'RELEASED';
+  reservation.updated_at = ts;
+
+  audit.push({
+    id: nextId('aud'),
+    tenant_id: reservation.tenant_id,
+    actor_id: params.p_actor_id ?? null,
+    action: 'ENTITLEMENT_USAGE_RELEASED',
+    resource_type: 'diaspora_usage_reservation',
+    resource_id: String(params.p_reservation_id),
+    previous_state: { status: 'RESERVED', meterUsed: before },
+    new_state: { status: 'RELEASED', meterUsed: after },
+    metadata: {
+      featureKey: reservation.feature_key,
+      amount: reservation.amount,
+      correlationId: params.p_correlation_id ?? null,
+    },
+    cryptographic_seal: seal(
+      params.p_actor_id, 'ENTITLEMENT_USAGE_RELEASED', 'diaspora_usage_reservation',
+      params.p_reservation_id, ts,
+    ),
+    created_at: ts,
+  });
+
+  return {
+    reservationId: params.p_reservation_id,
+    status: 'RELEASED',
+    idempotentReplay: false,
+    meterBefore: before,
+    meterAfter: after,
+    reservation: { ...reservation },
+  };
+}
+
 export const DIASPORA_RPCS = {
   diaspora_append_stock_movement_atomic: appendStockMovementAtomic,
   diaspora_accept_quote_atomic: acceptQuoteAtomic,
   diaspora_approve_cargo_reservation_atomic: approveCargoReservationAtomic,
   diaspora_reserve_usage_atomic: reserveUsageAtomic,
+  diaspora_release_usage_atomic: releaseUsageAtomic,
 };

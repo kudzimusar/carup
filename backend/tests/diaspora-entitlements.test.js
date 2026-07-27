@@ -217,6 +217,31 @@ test('releaseUsage after a simulated failed domain op frees the quota', async ()
   assert.equal(meter.used_count, 0);
 });
 
+test('releaseUsage writes its audit row and passes the request correlation id through', async () => {
+  // Ledger #25 moved release into an RPC whose audit INSERT sits inside the same transaction as the
+  // decrement. That guarantee is only real if the service actually REACHES the RPC: the correlation-id
+  // helper was called but never imported, so every release threw ReferenceError before the RPC ran.
+  const client = clientWith({ subscriptions: [subscriptionRow(TENANT_A, 'trade_pro')] });
+  const r = await ent.reserveUsage(client, {
+    tenantId: TENANT_A, userId: 'u1', featureKey: FEATURE_KEYS.WORKBOOK_BULK_IMPORT,
+    amount: 3, idempotencyKey: 'imp-audit',
+  });
+  const released = await ent.releaseUsage(client, {
+    reservationId: r.reservationId,
+    actor: 'u1',
+    req: { headers: { 'x-correlation-id': 'corr-release-1' } },
+  });
+  assert.equal(released.status, 'RELEASED');
+  assert.equal(released.meterBefore, 3);
+  assert.equal(released.meterAfter, 0);
+
+  const row = client._rows('diaspora_import_audit_log')
+    .find((a) => a.action === 'ENTITLEMENT_USAGE_RELEASED');
+  assert.ok(row, 'a released reservation must not exist without its audit record');
+  assert.equal(row.metadata.correlationId, 'corr-release-1');
+  assert.equal(row.tenant_id, TENANT_A);
+});
+
 test('commitUsage is idempotent and a committed reservation cannot be released', async () => {
   const client = clientWith({ subscriptions: [subscriptionRow(TENANT_A, 'trade_pro')] });
   const r = await ent.reserveUsage(client, { tenantId: TENANT_A, userId: 'u1', featureKey: FEATURE_KEYS.WORKBOOK_BULK_IMPORT, amount: 1, idempotencyKey: 'imp-commit' });

@@ -16,7 +16,7 @@
  *    values come from diaspora_subscription_plans when present, else the PLAN_CATALOG fallback.
  */
 import { ValidationError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
-import { appendCriticalAudit } from './diasporaServiceUtils.js';
+import { appendCriticalAudit, requestCorrelationId } from './diasporaServiceUtils.js';
 import {
   FEATURE_KEYS,
   ENTITLEMENT_TYPES,
