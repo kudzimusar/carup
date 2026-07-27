@@ -279,6 +279,43 @@ fail. Earlier reports of "11 pre-existing failures" should be read that way.
 
 ---
 
+
+### Full Playwright sweep at this checkpoint
+
+**295 passed · 0 failed · 0 flaky · 5 skipped** across all 47 e2e spec files (44 minutes). Combined
+with the table above, the directive's step 3 (combined local closure gate) is **complete and green**.
+
+### Two directive item-5 defects are still OPEN (verified in source, not assumed)
+
+Both were catalogued in §3c and neither has been fixed. They are ordinary engineering, blocked on
+nothing:
+
+1. **`releaseUsage` is a non-atomic read-modify-write.** `diasporaEntitlementService.js` still does
+   `.select('*')` then computes `Math.max(used_count - amount, 0)` in JS and writes it back. Two
+   concurrent releases both read the same value and both write it, permanently inflating remaining
+   quota. Reservation is atomic (it goes through the `SECURITY DEFINER` RPC with `FOR UPDATE`);
+   release is not. The fix is an RPC or a conditional update, mirroring the reservation path.
+2. **A soft-deleted entitlement override can never be re-granted.** `applyAdminOverride` looks the
+   row up with `.is('deleted_at', null)` and inserts when it finds none, but
+   `uq_diaspora_user_override (tenant_id, user_id, feature_key)` has **no** `WHERE deleted_at IS
+   NULL` predicate — so the insert hits 23505 and surfaces as a 500. That user can never regain that
+   feature. Fix is an upsert on the conflict target, or a partial unique index (a migration).
+   `mockSupabase` does not register this table's unique index, so no test can currently catch it.
+
+### Staging (steps 4-6) is blocked on an owner action, not on engineering
+
+`.github/workflows/diaspora-staging-gtm-migrations.yml` exists only on this branch. GitHub requires a
+`workflow_dispatch` workflow to be present on the **default branch** before it can be dispatched —
+which is exactly why the #19 and #20 staging workflows worked (both were on `main` first). The only
+local alternative needs `DIASPORA_STAGING_DATABASE_URL`, which exists solely as a GitHub secret; all
+local credential files were deleted at EB-5 closure by design.
+
+So applying ledgers #21/#22/#23/#24 to canonical staging requires one of: merging PR #129 (forbidden
+by the directive), cherry-picking the workflow to `main`, or the owner supplying the staging
+credential. All three are owner actions.
+
+---
+
 ## 4. What is fail-closed right now
 
 | Surface | State |
