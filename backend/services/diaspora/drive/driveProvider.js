@@ -10,20 +10,30 @@ import crypto from 'crypto';
 import { DRIVE_PROVIDERS, DRIVE_SCOPES } from '../../../constants/diaspora/diasporaDriveConstants.js';
 
 export class DriveProviderError extends Error {
-  constructor(message, code = 'DRIVE_PROVIDER_ERROR') {
-    // Sanitized message only — never include tokens or raw provider stack traces.
+  /**
+   * @param {string} message sanitized text only — never a token, never a raw provider stack trace
+   * @param {string} code    our own vocabulary (REVOKED, RATE_LIMITED, NOT_FOUND, …)
+   * @param {{retryable?:boolean, status?:number|null, cause?:string|null}} [meta]
+   *   `retryable` is what the durable sync queue reads to decide between backoff and dead-letter, so
+   *   it is part of the error contract rather than something inferred from message text later.
+   */
+  constructor(message, code = 'DRIVE_PROVIDER_ERROR', meta = {}) {
     super(message);
     this.name = 'DriveProviderError';
     this.code = code;
+    this.retryable = Boolean(meta.retryable);
+    this.status = meta.status ?? null;
+    // A short cause CODE (never an object, never a stack) purely for operator triage.
+    this.causeCode = meta.cause ?? null;
   }
 }
 
 export class DriveProvider {
   get name() { return 'base'; }
   // eslint-disable-next-line no-unused-vars
-  buildAuthorizationUrl(_state, _scopes) { throw new DriveProviderError('not implemented'); }
+  buildAuthorizationUrl(_state, _scopes, _pkce) { throw new DriveProviderError('not implemented'); }
   // eslint-disable-next-line no-unused-vars
-  async exchangeAuthorizationCode(_code) { throw new DriveProviderError('not implemented'); }
+  async exchangeAuthorizationCode(_code, _context) { throw new DriveProviderError('not implemented'); }
   // eslint-disable-next-line no-unused-vars
   async refreshAccessToken(_credentialReference) { throw new DriveProviderError('not implemented'); }
   // eslint-disable-next-line no-unused-vars
@@ -51,19 +61,36 @@ export class MockDriveProvider extends DriveProvider {
 
   get name() { return DRIVE_PROVIDERS.GOOGLE; }
 
-  buildAuthorizationUrl(state, scopes = DRIVE_SCOPES) {
+  buildAuthorizationUrl(state, scopes = DRIVE_SCOPES, pkce = {}) {
     const params = new URLSearchParams({ response_type: 'code', scope: scopes.join(' '), state, access_type: 'offline' });
+    // Mirror the real provider's PKCE parameters so a flow test against the mock still proves the
+    // service issued a challenge.
+    if (pkce?.codeChallenge) {
+      params.set('code_challenge', pkce.codeChallenge);
+      params.set('code_challenge_method', pkce.codeChallengeMethod || 'S256');
+    }
     return `https://mock-drive.local/o/oauth2/auth?${params.toString()}`;
   }
 
-  async exchangeAuthorizationCode(code) {
+  async exchangeAuthorizationCode(code, context = {}) {
     if (!code) throw new DriveProviderError('Missing authorization code', 'INVALID_CODE');
+    // The mock verifies PKCE when the caller supplies it, so the service's verifier plumbing is
+    // exercised even on the mock path.
+    if (context.expectedCodeChallenge && context.codeVerifier) {
+      const derived = crypto.createHash('sha256').update(String(context.codeVerifier)).digest('base64')
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      if (derived !== context.expectedCodeChallenge) {
+        throw new DriveProviderError('PKCE verification failed', 'PKCE_MISMATCH');
+      }
+    }
     const credentialReference = `mockref_${crypto.createHash('sha256').update(String(code)).digest('hex').slice(0, 24)}`;
     this._tokens.set(credentialReference, { accessToken: `mock-access-${this._seq++}`, revoked: false });
     return {
       providerAccountEmail: 'mock-user@example.com',
       providerAccountId: 'mock-account-1',
       credentialReference,
+      vaultBackend: 'env_dev',
+      keyVersion: 'mock-v1',
       scopes: DRIVE_SCOPES,
       expiresAt: '2026-12-31T00:00:00.000Z',
     };
@@ -117,11 +144,22 @@ export function getSharedMockProvider() {
   return sharedMock;
 }
 
+/**
+ * Pick the provider for this call.
+ *
+ * `options.driveProvider` (a whole provider) and `options.transport` / `options.vault` (the two
+ * seams inside the real provider) are the injection points. Tests use the transport seam wherever
+ * possible, because that exercises the REAL provider — request shapes, error mapping and all — with
+ * only the socket replaced.
+ */
 export async function getDriveProvider(providerName = DRIVE_PROVIDERS.GOOGLE, options = {}) {
   if (options.driveProvider) return options.driveProvider; // test injection
   const { shouldUseMockProvider, assertDriveProductionSafety } = await import('../../../constants/diaspora/diasporaDriveConstants.js');
   assertDriveProductionSafety(); // reject DIASPORA_DRIVE_MOCK in production (fail closed)
-  if (shouldUseMockProvider()) return getSharedMockProvider();
+  if (shouldUseMockProvider() && !options.transport) return getSharedMockProvider();
   const { GoogleDriveProvider } = await import('./googleDriveProvider.js');
-  return new GoogleDriveProvider();
+  return new GoogleDriveProvider({
+    transport: options.transport || null,
+    vault: options.vault || null,
+  });
 }
