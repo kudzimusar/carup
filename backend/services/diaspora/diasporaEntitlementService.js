@@ -83,20 +83,51 @@ function syntheticFreeSubscription(tenantId) {
   };
 }
 
-/** Pull the entitlement map for a plan_key: prefer the DB catalog row, fall back to PLAN_CATALOG. */
+/**
+ * Pull the entitlement map for a plan_key: prefer the DB catalog row, fall back to PLAN_CATALOG.
+ *
+ * This filtered `.is('deleted_at', null)`, and `diaspora_subscription_plans` HAS NO SUCH COLUMN.
+ * Ledger #12 creates it with id / plan_key / name / tier / description / price_config / entitlements
+ * / is_active / sort_order / metadata / created_at / updated_at, and no later migration adds one.
+ * PostgREST compiles that filter straight into SQL, Postgres raises 42703, and the error branch below
+ * was an empty `if` containing only a comment — so nothing threw, nothing logged, `data` was null, and
+ * EVERY read fell through to the config catalog.
+ *
+ * The documented contract was therefore inverted: the DB catalog was unreachable and the
+ * `source: 'db'` branch was dead code in production. An operator who edited a plan's entitlements in
+ * the database — to raise a pilot tenant's allowance, say — would see the old limit enforced, the old
+ * limit reported by GET /entitlements, and no error anywhere. Every guarded operation also paid a
+ * failed round-trip per check.
+ *
+ * No test could catch it: mockSupabase's `.is(col, null)` matches rows whose value is nullish, and a
+ * column that does not exist on a row reads as `undefined` — so the mock returned the seeded plan
+ * where PostgREST returns a 400.
+ *
+ * `is_active` is the column that actually expresses "this plan is retired", so that is what is
+ * filtered on now. A genuine DB fault is logged rather than swallowed: falling back to config is
+ * still right (a catalog outage must not deny a paying tenant their plan), but doing it SILENTLY is
+ * exactly how this survived.
+ */
 async function resolvePlanEntitlements(supabase, planKey) {
   const { data, error } = await supabase
     .from(PLANS_TABLE)
     .select('*')
     .eq('plan_key', planKey)
-    .is('deleted_at', null)
+    .eq('is_active', true)
     .maybeSingle();
-  // A missing catalog table/row is non-fatal: the config catalog is the source of truth fallback.
+  // PGRST116 is "no rows", an ordinary answer. Anything else is a real fault that the fallback below
+  // hides from the caller, so it must at least be visible in the logs.
   if (error && error.code && error.code !== 'PGRST116') {
-    // surfaced only for genuine DB faults, not "no rows"
-    if (!/not found/i.test(error.message || '')) {
-      // fall through to config fallback rather than failing the whole check
-    }
+    // eslint-disable-next-line no-console
+    console.warn(JSON.stringify({
+      level: 'WARN',
+      category: 'DIASPORA_ENTITLEMENT',
+      message: 'plan.catalog.read_failed',
+      planKey,
+      code: error.code,
+      detail: String(error.message || '').slice(0, 200),
+      effect: 'falling back to the PLAN_CATALOG config for this check',
+    }));
   }
   if (data && data.entitlements && typeof data.entitlements === 'object') {
     return { entitlements: data.entitlements, source: 'db', planName: data.name, tier: data.tier };
