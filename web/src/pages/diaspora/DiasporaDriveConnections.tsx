@@ -138,8 +138,8 @@ export default function DiasporaDriveConnections() {
       )}
 
       {status && status.enabled && (
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <section className="rounded-md border border-gray-200 bg-white p-5" data-testid="diaspora-drive-status">
+        <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-2">
+          <section className="min-w-0 rounded-md border border-gray-200 bg-white p-5" data-testid="diaspora-drive-status">
             <h2 className="text-lg font-semibold text-gray-950">Connection</h2>
             <div className="mt-2">
               {connected ? (
@@ -155,7 +155,9 @@ export default function DiasporaDriveConnections() {
 
             <div className="mt-3 rounded-md border border-gray-200 p-3">
               <p className="text-xs font-medium uppercase text-gray-500">Requested scopes</p>
-              <ul className="mt-1 list-disc pl-5 text-xs text-gray-600" data-testid="diaspora-drive-scopes">
+              {/* Scope URLs have no spaces, so without break-all a single one is wider than a
+                  390px viewport and drags the whole section past the page edge. */}
+              <ul className="mt-1 list-disc break-all pl-5 text-xs text-gray-600" data-testid="diaspora-drive-scopes">
                 {(status.scopes || []).map((s) => <li key={s}>{s}</li>)}
               </ul>
             </div>
@@ -195,9 +197,11 @@ export default function DiasporaDriveConnections() {
             </p>
           </section>
 
-          <section className="rounded-md border border-gray-200 bg-white p-5">
+          <section className="min-w-0 rounded-md border border-gray-200 bg-white p-5">
             <h2 className="text-lg font-semibold text-gray-950">Linked files</h2>
-            <div className="mt-3 rounded-md border border-gray-200" data-testid="diaspora-drive-files">
+            {/* Wide content scrolls inside its own container; the page body must never scroll
+                horizontally (the linked-entity column overflows a 390px viewport otherwise). */}
+            <div className="mt-3 overflow-x-auto rounded-md border border-gray-200" data-testid="diaspora-drive-files">
               <Table>
                 <TableHeader><TableRow><TableHead>File</TableHead><TableHead>Linked to</TableHead><TableHead>Sync</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -239,10 +243,10 @@ export default function DiasporaDriveConnections() {
                     return (
                       <li
                         key={a.id}
-                        className={`rounded-md border p-3 text-xs ${d.tone === 'failed' ? 'border-red-200 bg-red-50' : d.tone === 'ok' ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}
+                        className={`min-w-0 break-words rounded-md border p-3 text-xs ${d.tone === 'failed' ? 'border-red-200 bg-red-50' : d.tone === 'ok' ? 'border-green-200 bg-green-50' : 'border-gray-200 bg-gray-50'}`}
                         data-testid={`diaspora-drive-attempt-${a.state}`}
                       >
-                        <span className="flex items-center gap-2 font-medium">
+                        <span className="flex min-w-0 flex-wrap items-center gap-2 font-medium">
                           {d.tone === 'failed'
                             ? <XCircle className="h-3.5 w-3.5 text-red-700" aria-hidden="true" />
                             : d.tone === 'ok'
