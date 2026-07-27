@@ -392,9 +392,73 @@ export function reserveUsageAtomic(params, { table, nextId }) {
   };
 }
 
+
+/**
+ * Ledger #25 — diaspora_release_usage_atomic.
+ *
+ * Mirrors database/migrations/20260730090000_diaspora_atomic_quota_release.sql. The property that
+ * matters is the one the old read-modify-write lacked: a release of an ALREADY-RELEASED reservation
+ * decrements nothing. Modelling that here means the service tests exercise the real contract rather
+ * than a permissive stand-in.
+ */
+export function releaseUsageAtomic(params, { table, nextId }) {
+  const reservations = table('diaspora_usage_reservations');
+  const meters = table('diaspora_usage_meters');
+  const audit = table('diaspora_import_audit_log');
+  const ts = new Date(2026, 5, 21, 13, 0, 0).toISOString();
+
+  const res = reservations.find((r) => r.id === params.p_reservation_id);
+  if (!res) fail('DIASPORA_ENTITLEMENT/RESERVATION_NOT_FOUND');
+
+  // Idempotent replay — the whole point of the row lock.
+  if (res.status === 'RELEASED') {
+    return { reservationId: params.p_reservation_id, status: 'RELEASED', idempotentReplay: true, meterBefore: null, meterAfter: null };
+  }
+  if (res.status === 'COMMITTED') fail('DIASPORA_ENTITLEMENT/CANNOT_RELEASE_COMMITTED');
+
+  // The meter is located from the RESERVATION's own scope, never caller input.
+  const meter = meters.find((m) => m.tenant_id === res.tenant_id
+    && m.feature_key === res.feature_key
+    && String(m.period_start) === String(res.period_start));
+
+  let before = null; let after = null;
+  if (meter) {
+    before = Number(meter.used_count || 0);
+    after = Math.max(before - Number(res.amount || 0), 0); // GREATEST(...,0)
+    meter.used_count = after;
+    meter.updated_at = ts;
+  }
+
+  res.status = 'RELEASED';
+  res.updated_at = ts;
+
+  audit.push({
+    id: nextId('audit'),
+    tenant_id: res.tenant_id,
+    actor_id: params.p_actor_id ?? null,
+    action: 'ENTITLEMENT_USAGE_RELEASED',
+    resource_type: 'diaspora_usage_reservation',
+    resource_id: String(params.p_reservation_id),
+    previous_state: { status: 'RESERVED', meterUsed: before },
+    new_state: { status: 'RELEASED', meterUsed: after },
+    metadata: { featureKey: res.feature_key, amount: res.amount, correlationId: params.p_correlation_id ?? null },
+    created_at: ts,
+  });
+
+  return {
+    reservationId: params.p_reservation_id,
+    status: 'RELEASED',
+    idempotentReplay: false,
+    meterBefore: before,
+    meterAfter: after,
+    reservation: { ...res },
+  };
+}
+
 export const DIASPORA_RPCS = {
   diaspora_append_stock_movement_atomic: appendStockMovementAtomic,
   diaspora_accept_quote_atomic: acceptQuoteAtomic,
   diaspora_approve_cargo_reservation_atomic: approveCargoReservationAtomic,
   diaspora_reserve_usage_atomic: reserveUsageAtomic,
+  diaspora_release_usage_atomic: releaseUsageAtomic,
 };
