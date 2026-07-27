@@ -140,8 +140,11 @@ export default function DiasporaTradeGraph() {
     }
   }, [api, canView, isOperator])
 
-  // Depend on stable primitives: useCarUpApi() returns a fresh object every render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Depend on stable primitives, not on `load`: useCarUpApi() returns a fresh object every render, so
+  // depending on the callback would refetch on every render. `set-state-in-effect` is expected here —
+  // this is a fetch-on-mount that necessarily sets loading/error/data state — and is suppressed the
+  // same way as the sibling Diaspora pages.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, isOperator])
 
   const onRebuild = useCallback(async () => {
