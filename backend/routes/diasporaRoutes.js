@@ -11,6 +11,7 @@ import diasporaDriveRouter from './diasporaDriveRoutes.js';
 import diasporaSubscriptionRoutes from './diasporaSubscriptionRoutes.js';
 import diasporaSafeTradeRouter from './diasporaSafeTradeRoutes.js';
 import diasporaTradeGraphRouter from './diasporaTradeGraphRoutes.js';
+import diasporaSchedulerRouter from './diasporaSchedulerRoutes.js';
 import { listDiasporaAudit } from '../services/diaspora/diasporaAuditService.js';
 import { createImportOrder, listImportOrders, getImportOrder, assignSeller, addQuote, addPaymentMilestone, linkVehicleImportRecord } from '../services/diaspora/diasporaImportOrderService.js';
 import { transitionImportOrder } from '../services/diaspora/diasporaWorkflowService.js';
@@ -73,6 +74,12 @@ router.use(diasporaSafeTradeRouter);
 // default off → 404) is scoped to this prefix and cannot shadow sibling diaspora routes (the SafeTrade
 // route-shadowing lesson: a blanket gate at the diaspora root 404s everything).
 router.use('/trade-graph', diasporaTradeGraphRouter);
+
+// Phase 2E: durable scheduled execution (ledger #26). Mounted UNDER '/scheduler' so the dispatch
+// endpoint's secret gate is scoped to this prefix and cannot shadow sibling diaspora routes. Every
+// job is OFF by default — both the deployment flag and the database `enabled` column must be set —
+// and the dispatch route answers 503 when no DIASPORA_SCHEDULER_SECRET/CRON_SECRET is configured.
+router.use('/scheduler', diasporaSchedulerRouter);
 
 // Import Orders
 router.get('/import-orders', auth, asyncHandler(async (req, res) => {

@@ -36,6 +36,11 @@ export const UNIQUE_INDEXES = Object.freeze({
   diaspora_drive_sync_attempts: [['tenant_id', 'idempotency_key']],
   // ledger #12 — diaspora_billing_provider_events: UNIQUE (provider, event_id)
   diaspora_billing_provider_events: [['provider', 'event_id']],
+  // ledger #27 — diaspora_subscription_renewals: UNIQUE (tenant_id, subscription_id, period_end).
+  // The renewal sweep's idempotency IS this index: a second sweep in the same period must lose the
+  // insert race rather than record a second due renewal, and on the other side of that window is a
+  // duplicate charge.
+  diaspora_subscription_renewals: [['tenant_id', 'subscription_id', 'period_end']],
 });
 
 export function createMockSupabase(seed = {}, options = {}) {
