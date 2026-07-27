@@ -1,0 +1,61 @@
+name: Diaspora GTM Staging Migrations (#21/#22/#23)
+
+# Applies the go-to-market ledgers to carup-staging (ref eoyenigwevnxwwhyhaer) in order, each in its
+# own transaction with its official supabase_migrations row, and verifies the full ACL/RLS/EXECUTE
+# contract for every object. Owner-dispatched only. Never touches production — the script refuses any
+# URL containing the production ref and requires the staging ref positively.
+#
+# Re-dispatch is safe: a ledger already recorded switches to verify-only, so a re-run after a partial
+# failure resumes at the first unapplied migration and re-proves the ones already in place.
+on:
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: 'Verify only — never apply (yes/no)'
+        required: false
+        default: 'no'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diaspora-staging-gtm-migrations
+  cancel-in-progress: false
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require the staging database operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; cannot apply the GTM ledgers.'
+            exit 1
+          fi
+
+      # Pinned driver, installed WITHOUT the secret in scope.
+      - name: Install pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts pg@8.21.0
+
+      # The secret is scoped to this single step, not the whole job.
+      - name: Apply and verify ledgers #21/#22/#23
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          # Optional explicit trust anchor. Absent, the script verifies against Node's bundled public
+          # roots — it does NOT disable verification.
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+        run: |
+          if [ "${{ github.event.inputs.verify_only }}" = "yes" ]; then
+            node backend/scripts/diaspora-staging-apply-gtm.mjs --verify
+          else
+            node backend/scripts/diaspora-staging-apply-gtm.mjs
+          fi
