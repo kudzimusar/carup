@@ -122,18 +122,33 @@ async function probe(
  * Positive control for the probe itself.
  *
  * Every refusal assertion in this file is only meaningful if the probe reaches the deployment AS AN
- * AUTHENTICATED USER. This calls an endpoint the signed-in identity is entitled to and requires a
- * 2xx. If auth ever breaks — a renamed storage key, a changed header, an expired fixture identity —
- * this fails loudly instead of letting every downstream 401 masquerade as a fail-closed gate.
+ * AUTHENTICATED USER. If auth breaks — a renamed storage key, a changed header, an expired fixture
+ * identity — this fails loudly instead of letting every downstream 401 masquerade as a fail-closed
+ * gate.
+ *
+ * THE CANARY MUST BE TENANT-AGNOSTIC, and the first version was not. It used
+ * `GET /diaspora/subscription/status`, which answers 400 "An x-tenant-id context is required" for a
+ * user with no tenant — and the staging fixtures ARE tenantless, because `switch-role` is fail-closed
+ * and public registration yields a plain owner. So the control failed against a deployment where the
+ * probe was in fact perfectly authenticated: it had conflated "not authenticated" with
+ * "authenticated but tenantless", which is a different thing and not a reason to distrust the file.
+ *
+ * `GET /diaspora/subscription/plans` is the right canary. It needs a session and no tenant, and it
+ * discriminates cleanly against the live deployment: 401 anonymous, 200 authenticated.
+ *
+ * The assertion is `not 401` rather than `< 400` for the same reason. Any answer other than "I do not
+ * know who you are" proves the identity was accepted — a 400 about missing business context or a 403
+ * about permissions both mean the request got PAST authentication, which is all this control needs.
  */
 async function assertProbeIsAuthenticated(page: import('@playwright/test').Page) {
-  const [me] = await probe(page, [{ path: '/diaspora/subscription/status' }]);
+  const [me] = await probe(page, [{ path: '/diaspora/subscription/plans' }]);
+  expect(me.status, `the probe never reached the deployment: ${me.body.slice(0, 200)}`).not.toBe(0);
   expect(
     me.status,
-    `the probe is NOT authenticated (GET /diaspora/subscription/status -> ${me.status}). Every ` +
+    `the probe is NOT authenticated (GET /diaspora/subscription/plans -> ${me.status}). Every ` +
       '"refusal" this file observes would then be an ordinary 401 from the auth middleware rather ' +
       `than a fail-closed gate, and the whole file would pass having verified nothing. Body: ${me.body.slice(0, 300)}`,
-  ).toBeLessThan(400);
+  ).not.toBe(401);
 }
 
 /** A refusal only counts when the route it came from exists and was reached. */

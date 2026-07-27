@@ -66,8 +66,22 @@ export default function DiasporaSubscription() {
     }
   }, [api, canView])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, load])
+  // Depend on stable primitives, not on `load`.
+  //
+  // `useCarUpApi()` returns a FRESH OBJECT on every render, so `load` — a useCallback keyed on
+  // `[api, canView]` — also changes identity on every render. Depending on it here made the effect
+  // re-fire after each of its own setState calls: load → setState → render → new api → new load →
+  // effect → load, unbounded. On the deployed staging candidate that held the page permanently in its
+  // "Loading subscription…" state while issuing subscription requests continuously.
+  //
+  // Caught by the DEPLOYED browser matrix (spec 36 asserts no surface is left permanently loading),
+  // not by any local test: the loop needs real network latency to be observable, and jsdom resolves
+  // mocked promises too fast for the spinner ever to be sampled.
+  //
+  // Same defect PR #130 fixed on DiasporaTradeProfile and the Drive lane fixed on
+  // DiasporaDriveConnections. The sibling pages carry this comment for the identical reason.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView])
 
   // ── Sandbox action handlers (manager-only UI; backend authoritative) ──
   const wrapAction = useCallback(
