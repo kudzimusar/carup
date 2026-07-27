@@ -222,12 +222,34 @@ function tlsConfig() {
     console.warn('WARNING: this connection can be intercepted. Use it only to diagnose a certificate chain, never routinely.');
     return { rejectUnauthorized: false };
   }
-  const ca = process.env.DIASPORA_STAGING_CA_CERT;
-  if (ca && ca.includes('BEGIN CERTIFICATE')) {
+
+  // An explicitly supplied PEM wins, so an operator can override without a code change — for
+  // example after a root rotation, before the bundled copy is updated.
+  const supplied = process.env.DIASPORA_STAGING_CA_CERT;
+  if (supplied && supplied.includes('BEGIN CERTIFICATE')) {
     console.log('TLS: verifying against the supplied DIASPORA_STAGING_CA_CERT trust anchor.');
-    return { rejectUnauthorized: true, ca };
+    return { rejectUnauthorized: true, ca: supplied };
   }
-  console.log("TLS: verifying against Node's bundled public roots.");
+
+  // Supabase's Postgres endpoints chain to a SELF-SIGNED Supabase root that is not in Node's public
+  // root store, so verifying with default roots fails with "self-signed certificate in certificate
+  // chain" — which is exactly what the first staging preflight hit.
+  //
+  // The repository's older appliers answered that with `rejectUnauthorized: false`, which does not
+  // solve it: it stops checking, and a connection that does not verify can be intercepted. Pinning
+  // Supabase's published root instead makes verification genuinely succeed, and against ONE known
+  // anchor rather than every public CA on the internet — stronger than either alternative.
+  try {
+    const bundled = readFileSync(fileURLToPath(new URL('../../database/certs/supabase-prod-ca-2021.crt', import.meta.url)), 'utf8');
+    if (bundled.includes('BEGIN CERTIFICATE')) {
+      console.log('TLS: verifying against the bundled Supabase Root 2021 CA (database/certs/).');
+      return { rejectUnauthorized: true, ca: bundled };
+    }
+  } catch {
+    // Fall through: a missing bundle must not silently disable verification.
+  }
+
+  console.log("TLS: verifying against Node's bundled public roots (no Supabase anchor found).");
   return { rejectUnauthorized: true };
 }
 
