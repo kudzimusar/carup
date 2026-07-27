@@ -82,6 +82,45 @@ jobs:
       - name: Migration verification (isolated PGlite Postgres)
         run: node database/test/migration_pglite_check.mjs
 
+      # The backend suite runs against an in-memory mock, and a mock that models a constraint is a
+      # statement about the mock. What these harnesses catch are properties only real PostgreSQL
+      # has: an ACL under Supabase's ALTER DEFAULT PRIVILEGES hazard, a UNIQUE index's missing
+      # predicate raising 23505, FOR UPDATE actually serialising two callers, a pinned search_path,
+      # and PG17's MAINTAIN privilege, which information_schema cannot report at all.
+      #
+      # Every one of them already existed and was only ever run by hand, so a regression in any
+      # could have reached staging unnoticed.
+      #
+      # Globbed rather than listed, so a harness added alongside the next ledger is picked up
+      # instead of forgotten. A glob matching nothing would make the step silently pass, so zero
+      # matches is an explicit failure.
+      - name: Diaspora ledger harnesses (real PostgreSQL via PGlite)
+        shell: bash
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          harnesses=(database/test/diaspora_*_check.mjs)
+          if [ ${#harnesses[@]} -eq 0 ]; then
+            echo '::error::no database/test/diaspora_*_check.mjs harnesses matched; refusing to pass vacuously'
+            exit 1
+          fi
+          echo "Running ${#harnesses[@]} ledger harnesses."
+          failed=0
+          for h in "${harnesses[@]}"; do
+            echo "── $h ──"
+            # Keep going after a failure so one broken ledger does not hide the state of the rest,
+            # then fail the step once at the end.
+            if ! node "$h"; then
+              echo "::error file=$h::ledger harness FAILED"
+              failed=$((failed + 1))
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::$failed of ${#harnesses[@]} ledger harnesses failed"
+            exit 1
+          fi
+          echo "All ${#harnesses[@]} ledger harnesses passed."
+
       - name: git diff --check (whitespace / conflict markers)
         run: git diff --check HEAD~1 HEAD || true
 

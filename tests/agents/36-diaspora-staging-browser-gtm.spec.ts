@@ -27,7 +27,7 @@
  * spec 37.
  */
 import { readFileSync } from 'node:fs';
-import { stagingTest as test, expect, signInViaUi, requireIdentity, WEB_URL } from './staging-helpers';
+import { stagingTest as test, expect, signInViaUi, requireIdentity, WEB_URL, API_URL } from './staging-helpers';
 
 interface EnvTruth {
   runId: string;
@@ -268,5 +268,49 @@ test.describe('deployment-wide', () => {
     }
     await page.goto('/');
     await expect(page).toHaveTitle(/.+/);
+  });
+
+  test('the deployed frontend calls the STAGING backend, never production', async ({ page }) => {
+    // This is the single most important assertion in the file, and it is not hypothetical.
+    //
+    // `resolveApiBaseUrl` falls back to the PRODUCTION backend for any non-localhost host when
+    // VITE_API_URL is unset — a deliberate safe default for the real product, and a trap for a
+    // preview deployment. A branch preview built without that variable therefore serves a UI that
+    // looks like staging and talks to production. Every probe in spec 37 would then be issued
+    // against production, including POSTs.
+    //
+    // The fallback URL is assembled from char codes precisely so a bundle CANNOT be scanned for it,
+    // so static inspection cannot answer this. Only observing where the running app actually sends
+    // its requests can.
+    const expectedOrigin = new URL(API_URL).origin;
+    const seen = new Set<string>();
+
+    page.on('request', (req) => {
+      const url = req.url();
+      if (url.includes('/api/')) seen.add(new URL(url).origin);
+    });
+
+    await page.goto('/login');
+    // Any authenticated-app bootstrap issues API calls; give them a moment to be observed.
+    await page.waitForLoadState('networkidle').catch(() => undefined);
+    if (seen.size === 0) {
+      await page.goto('/diaspora/subscription');
+      await page.waitForLoadState('networkidle').catch(() => undefined);
+    }
+
+    expect(
+      seen.size,
+      'the deployed frontend issued no API request at all, so where it points was never observed. ' +
+        'Treat this as a failure rather than a pass: an unobserved target is not a safe target.',
+    ).toBeGreaterThan(0);
+
+    for (const origin of seen) {
+      expect(
+        origin,
+        `the deployed frontend called ${origin} but STAGING_API_URL is ${expectedOrigin}. If those ` +
+          'differ, VITE_API_URL was not set for this deployment and the run is hitting the production ' +
+          'backend. Set it for the branch and redeploy before running acceptance.',
+      ).toBe(expectedOrigin);
+    }
   });
 });
