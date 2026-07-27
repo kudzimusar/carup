@@ -292,7 +292,11 @@ test('sandbox webhook verification accepts a correctly signed body and rejects a
   const crypto = await import('node:crypto');
   const provider = new billing.SandboxBillingProvider();
   const body = JSON.stringify({ id: 'evt_1', type: 'subscription.updated' });
-  const sig = crypto.createHmac('sha256', 'diaspora-billing-dev-webhook-secret').update(body).digest('hex');
+  // Derive the key instead of repeating a literal. Hard-coding it is what kept the leaked shared
+  // default invisible to this suite: the test held the same public constant an attacker would, so a
+  // forged signature and a legitimate one were indistinguishable to these assertions.
+  const { billingWebhookSecret } = await import('../constants/diaspora/diasporaBillingConstants.js');
+  const sig = crypto.createHmac('sha256', billingWebhookSecret()).update(body).digest('hex');
   const ok = await provider.verifyWebhook({ rawBody: body, signature: sig });
   assert.equal(ok.verified, true);
   assert.equal(ok.eventId, 'evt_1');

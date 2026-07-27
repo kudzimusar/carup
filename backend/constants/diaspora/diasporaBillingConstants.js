@@ -67,12 +67,31 @@ export function shouldUseSandboxBilling() {
   return !provider || !APPROVED_LIVE_PROVIDERS.includes(provider);
 }
 
-/** Secret used to verify provider webhook signatures. Fail closed in production. */
+/**
+ * Secret used to verify provider webhook signatures. Fail closed everywhere a real request can
+ * reach the route.
+ *
+ * This previously fell back to a hard-coded literal whenever NODE_ENV !== 'production'. That literal
+ * is committed to this repository, and the webhook it protects is the only endpoint in the billing
+ * surface that writes authoritative subscription state: it has no auth middleware, is deliberately
+ * CSRF-exempt, and writes through the RLS-bypassing service-role client. Worse, because
+ * APPROVED_LIVE_PROVIDERS is empty the SANDBOX provider is selected in EVERY environment, so its
+ * HMAC check — keyed on this secret — is the real authentication for that route.
+ *
+ * Net effect: any deployment whose NODE_ENV was 'staging', 'preview', 'development' or unset would
+ * accept a forged webhook from anyone who had read this file, moving an arbitrary tenant onto any
+ * plan. The signature verified correctly because the attacker held the same key we did.
+ *
+ * NODE_ENV==='test' keeps a fixed key so the suite stays hermetic — the only context with no real
+ * tenant data and no externally reachable route.
+ */
 export function billingWebhookSecret() {
   const secret = process.env.DIASPORA_BILLING_WEBHOOK_SECRET;
   if (secret) return secret;
-  if (isProduction()) {
-    throw new Error('DIASPORA_BILLING_WEBHOOK_SECRET is required in production');
-  }
-  return 'diaspora-billing-dev-webhook-secret';
+  if (process.env.NODE_ENV === 'test') return 'diaspora-billing-test-webhook-secret';
+  throw new Error(
+    'DIASPORA_BILLING_WEBHOOK_SECRET is required to verify billing webhooks. Refusing to fall back '
+    + 'to a shared default: this secret is the only credential protecting an unauthenticated, '
+    + 'CSRF-exempt route that writes subscription state.',
+  );
 }

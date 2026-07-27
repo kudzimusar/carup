@@ -139,6 +139,78 @@ are written from the seam; the checksum ones were guard-checked and fail against
 
 ---
 
+## 3c. Step 3 Phase-1 discovery — three billing defects fixed, the rest catalogued (2026-07-28)
+
+Adversarial discovery of the subscription surface (directive Phase 1) mapped the system end-to-end
+and audited it for vacuous tests. **Three defects were fixed immediately** because Phase 1 requires
+fixing P0/P1 before building; the remainder are catalogued here as the Step 3 work list.
+
+### Fixed in this checkpoint
+
+1. **P0 — the webhook's only credential was a literal committed to this repository.**
+   `billingWebhookSecret()` fell back to a hard-coded string whenever `NODE_ENV !== 'production'`.
+   That route (`POST /api/diaspora/subscription/webhook`) has **no auth middleware**, is deliberately
+   **CSRF-exempt**, and writes authoritative subscription state through the **RLS-bypassing
+   service-role client**. And because `APPROVED_LIVE_PROVIDERS` is empty, the *sandbox* provider is
+   selected in **every** environment — so its HMAC check, keyed on that secret, is the real
+   authentication everywhere. Any deployment with `NODE_ENV` of `staging`, `preview`, `development`
+   or unset would therefore accept a forged webhook from anyone who had read this file, moving an
+   arbitrary tenant onto any plan; the signature verified because the attacker held our key. Now
+   fails closed outside `NODE_ENV==='test'`. The duplicate literal in
+   `diaspora-entitlements.test.js` — which is *why* the suite could never catch this — now derives
+   the key instead.
+2. **P0 — a failed apply blackholed the event permanently.** Webhook idempotency keyed on **row
+   existence**, but the row is written *before* the state is applied and `processed_at` stamped
+   *after*. Any failure in between (a status the CHECK rejects — providers emit `canceled`, the CHECK
+   only accepts `cancelled`; an unknown `plan_key` hitting the FK; the partial-unique collision
+   between concurrent deliveries) left the provider retrying into a permanent
+   `200 alreadyProcessed`, with `processed_at` NULL and nothing scanning for it. A cancellation lost
+   that way leaves the tenant on a paid plan forever. Idempotency now keys on **completed work**, and
+   a retry claims the existing row rather than colliding with `uq_diaspora_billing_event`.
+3. **P1 — cancellation and expiry did nothing at all.** `resolveSubscription` decided access from
+   `status` alone. Nothing in this system ever transitions a row out of `active`: there is no
+   scheduler, and an at-period-end cancellation intentionally **keeps** status `active` (that is what
+   it means). So a tenant who cancelled — and was told "access continues until the period ends" —
+   kept the full paid entitlement set permanently, as did a tenant whose period simply lapsed. Access
+   is now decided by `grantsAccessNow(row)`, which honours `current_period_end` alongside status
+   while preserving status-only behaviour for open-ended rows.
+
+Tests: `backend/tests/diaspora-billing-security-contract.test.js`, 13 assertions, **guard-checked —
+12 of 13 fail against the previous implementation.**
+
+### Catalogued, NOT yet fixed — the Step 3 work list
+
+| # | Severity | Defect |
+|---|---|---|
+| 1 | P0 | Ledger #21's `occurred_at` / `provider_sequence` / `superseded` columns — added specifically for out-of-order handling — are **unused**. The webhook is last-write-wins on arrival order, so a retried older event re-grants a cancelled plan. SafeTrade already does this correctly and is the reference. |
+| 2 | P1 | Only **4 of 19** feature keys are ever passed to the entitlement guard. Turning `DIASPORA_SUBSCRIPTION_ENFORCEMENT` on leaves Drive, audit export, advanced graph, AI, containers and API access ungated — the paid tiers are unsellable. |
+| 3 | P1 | `diaspora.ai.execute_medium` is advertised as metered and surfaced by `GET /usage`, but **nothing ever meters it**. The exhausted-quota and unlimited UI states are proven only against fixtures the server cannot produce. |
+| 4 | P1 | A soft-deleted entitlement override can **never be re-granted**: the lookup filters `deleted_at IS NULL` but the UNIQUE constraint has no such predicate, so the re-insert 23505s into a 500. |
+| 5 | P1 | `releaseUsage` decrements the meter with a non-atomic JS read-modify-write; concurrent releases permanently inflate remaining quota. Reservation is atomic; release is not. |
+| 6 | P1 | **No idempotency key** on checkout / portal / change-plan / cancel. SafeTrade forwards `x-idempotency-key`; the subscription methods do not. |
+| 7 | P1 | **No audit row on any subscription state change** — not on checkout, plan change, cancellation, or webhook apply. Only usage commit/release/override are audited. |
+| 8 | P1 | `diaspora_billing_reconciliation_runs` exists in ledger #21 and is written by **nothing**. There is no drift detection between provider state and our rows. |
+| 9 | P2 | `successUrl`/`cancelUrl` accepted verbatim with no allow-list — an open-redirect surface the moment a live provider is approved. |
+| 10 | P2 | A verified webhook with no `tenantId` is ACKed, marked processed and silently discarded; the provider never resends. |
+| 11 | P2 | The SQL plan seed and `PLAN_CATALOG` duplicate the entitlement matrix with **no parity test**; production reads the DB branch, every route test reads the config branch. |
+
+### Mock-fidelity gaps that make whole classes of billing assertion vacuous
+
+`backend/tests/helpers/mockSupabase.js`: `select()` ignores its column list; `.or()`, `.gte()`,
+`.lte()`, `.gt()`, `.lt()` are **no-ops** (every range/period/expiry filter silently dropped);
+`.delete()` falls through to the select path and deletes nothing; `.upsert()` is aliased to `insert`
+with the conflict target ignored; CHECK constraints, foreign keys and RLS are absent entirely; and
+`eq(col, null)` *matches* NULL rows where Postgres matches none. Only 5 tables have UNIQUE indexes
+registered — **not** `diaspora_subscriptions`, `diaspora_user_entitlement_overrides`,
+`diaspora_usage_meters` or `diaspora_usage_reservations`, all of which have real UNIQUE constraints.
+Defects 2, 4 and 5 above are individually invisible to this mock.
+
+Also: nine backend test files abort on import when `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are
+unset, hiding **190 tests** and silently lowering the totals. CI sets them; local runs typically do
+not, which is exactly when the loss is invisible.
+
+---
+
 ## 4. What is fail-closed right now
 
 | Surface | State |

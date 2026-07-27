@@ -200,14 +200,29 @@ router.post('/webhook', asyncHandler(async (req, res) => {
   const eventId = verification.eventId;
   if (!eventId) throw new ValidationError('Webhook payload is missing an event id');
 
-  // Idempotency: try to claim the event by its unique (provider, event_id). A duplicate is a no-op.
+  // Idempotency keys on COMPLETED work, not on row existence.
+  //
+  // The event row is written before the state is applied, and `processed_at` is stamped after. This
+  // check previously returned alreadyProcessed on the mere presence of the row, so any failure
+  // between those two writes — a status the DB CHECK rejects (providers emit 'canceled'; the CHECK
+  // only accepts 'cancelled'), an unknown plan_key hitting the FK, or the partial-unique collision
+  // between two concurrent deliveries — permanently blackholed the event: the route 4xx'd, the
+  // provider retried, and every retry was answered 200 "already processed" while `processed_at`
+  // stayed NULL and nothing scanned for it. A cancellation lost that way leaves the tenant on a paid
+  // plan forever.
+  //
+  // Re-processing an unfinished event is safe: applying the same authoritative snapshot twice is
+  // idempotent by construction, and the row is claimed rather than re-inserted.
   const existing = await findEvent(supabase, provider, eventId);
-  if (existing) {
+  if (existing?.processed_at) {
     return res.status(200).json({ received: true, alreadyProcessed: true, eventId });
   }
 
-  // Record the event first (the unique constraint is the dedupe guard against concurrent replays).
-  const eventRow = await insertEvent(supabase, {
+  // Record the event before applying anything (the unique constraint is the dedupe guard against
+  // concurrent replays). On a retry of an event whose apply previously failed, the row already
+  // exists and is claimed rather than re-inserted — inserting again would violate
+  // uq_diaspora_billing_event and turn a legitimate retry into a 400.
+  const eventRow = existing || await insertEvent(supabase, {
     provider,
     eventId,
     eventType: verification.eventType,

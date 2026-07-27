@@ -109,10 +109,31 @@ export async function resolveSubscription(supabase, tenantId) {
     throw new DatabaseError(`Failed to resolve subscription: ${error.message}`);
   }
   const rows = Array.isArray(data) ? data : (data ? [data] : []);
-  const active = rows.find((row) => isSubscriptionActiveState(row.status));
+  const active = rows.find((row) => grantsAccessNow(row));
   if (active) return active;
   // No access-granting subscription: callers still get Free-tier capabilities.
   return syntheticFreeSubscription(id);
+}
+
+/**
+ * Does this subscription row grant access *right now*?
+ *
+ * Status alone is not sufficient, and treating it as sufficient made cancellation and expiry no-ops.
+ * Nothing in this system ever transitions a row out of 'active': there is no scheduler or job, and
+ * the provider deliberately KEEPS status 'active' for an at-period-end cancellation — that is what
+ * "cancel at period end" means. So a tenant who cancelled, and was told "access continues until the
+ * period ends", kept the full paid entitlement set permanently; so did a tenant whose billing period
+ * simply lapsed. The subscription could never end.
+ *
+ * The period end is therefore authoritative alongside status. A row with no period end retains the
+ * previous status-only behaviour, which is what the synthetic Free subscription and any open-ended
+ * row depend on.
+ */
+export function grantsAccessNow(row, now = new Date()) {
+  if (!row || !isSubscriptionActiveState(row.status)) return false;
+  const periodEnd = row.current_period_end ? new Date(row.current_period_end) : null;
+  if (!periodEnd || Number.isNaN(periodEnd.getTime())) return true;
+  return periodEnd.getTime() > now.getTime();
 }
 
 /** Per-user overrides for a tenant/user, as a feature_key -> value map. */
