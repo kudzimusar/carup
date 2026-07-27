@@ -147,10 +147,20 @@ router.post('/jobs/:jobKey/run', operatorAuth, asyncHandler(async (req, res) => 
   const { jobKey } = req.params;
   if (!listSchedulerJobKeys().includes(jobKey)) throw new ValidationError(`Unknown scheduler job: ${jobKey}`);
 
+  // `diaspora_scheduler_runs.tenant_id` is `uuid`. This accepted any string, so a typo claimed the
+  // lease and THEN failed the run insert with 22P02 — stranding the lease for its whole window. The
+  // service now releases in a `finally` so that is no longer a stranding bug, but a caller deserves
+  // a 400 naming the problem rather than a 500 from the driver, and refusing here means the lease is
+  // never taken at all.
+  const rawTenantId = req.body?.tenantId ? String(req.body.tenantId) : null;
+  if (rawTenantId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawTenantId)) {
+    throw new ValidationError('tenantId must be a UUID');
+  }
+
   const result = await runScheduledJob({
     jobKey,
     trigger: SCHEDULER_TRIGGERS.OPERATOR,
-    tenantId: req.body?.tenantId ? String(req.body.tenantId) : null,
+    tenantId: rawTenantId,
     initiatedBy: req.userContext?.id || null,
     correlationId: req.correlationId || req.headers['x-correlation-id'] || null,
     limit: req.body?.limit ? Math.min(Number(req.body.limit) || 100, 500) : null,

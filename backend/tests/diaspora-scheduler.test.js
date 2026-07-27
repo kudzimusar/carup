@@ -731,3 +731,103 @@ test('a future next_attempt_at means not yet — backoff is honoured, not ignore
   assert.equal(called, 0);
   assert.equal(result.replayed, 0);
 });
+
+// ── The lease must come back even when BOOKKEEPING fails ────────────────────
+//
+// These exist because their absence hid a real defect. Only the handler was ever guarded: openRun,
+// closeRun and the release RPC itself sat outside any try/finally, so a throw in any of them meant
+// `diaspora_scheduler_release_atomic` — the ONLY release call site in the codebase — was never
+// reached and the job stayed `state='leased'` for its whole lease window with no run row to explain
+// why. Every existing failure test made the HANDLER throw, which is the one failure that was caught.
+//
+// It was reachable with no infrastructure failure: the operator route took `tenantId` as a free
+// string while diaspora_scheduler_runs.tenant_id is `uuid`, so one typo claimed the lease and then
+// failed the insert.
+
+test('a failure INSERTING the run row still releases the lease', async () => {
+  const { db, model } = harness({ seed: { enabled: true } });
+  const rows = db._rows(SCHEDULED_JOBS_TABLE);
+
+  // Make the run-row insert fail the way PostgREST fails on a non-uuid tenant_id.
+  const realFrom = db.from.bind(db);
+  db.from = (table) => {
+    if (table !== SCHEDULER_RUNS_TABLE) return realFrom(table);
+    return {
+      insert: () => ({
+        select: () => ({
+          single: async () => ({ data: null, error: { code: '22P02', message: 'invalid input syntax for type uuid: "acme"' } }),
+        }),
+      }),
+    };
+  };
+
+  let handlerRan = false;
+  await assert.rejects(() => scheduler.runScheduledJob({
+    jobKey: JOB,
+    trigger: SCHEDULER_TRIGGERS.OPERATOR,
+    registry: registryWith(async () => { handlerRan = true; return { processed: 1 }; }),
+    supabaseClient: db,
+    now: NOW,
+    env: ENABLED_ENV,
+  }));
+
+  assert.equal(handlerRan, false, 'the handler must not run when its run row could not be opened');
+  const job = rows.find((r) => r.job_key === JOB);
+  assert.notEqual(job.state, 'leased', `the lease was STRANDED: ${JSON.stringify(job)}`);
+  assert.equal(job.lease_owner, null, 'lease_owner must be cleared when the lease is released');
+});
+
+test('a failure in the RELEASE RPC is surfaced, not reported as a clean run', async () => {
+  const { db, model } = harness({ seed: { enabled: true } });
+
+  const realRpc = db.rpc.bind(db);
+  db.rpc = async (name, params) => {
+    if (name === 'diaspora_scheduler_release_atomic') {
+      return { data: null, error: { code: '08006', message: 'connection terminated' } };
+    }
+    return realRpc(name, params);
+  };
+
+  // The work succeeded but the lease could not be settled. Reporting success here would claim a clean
+  // run while the job is stranded — exactly the state the finally block exists to prevent.
+  await assert.rejects(
+    () => scheduler.runScheduledJob({
+      jobKey: JOB,
+      trigger: SCHEDULER_TRIGGERS.OPERATOR,
+      registry: registryWith(async () => ({ processed: 3 })),
+      supabaseClient: db,
+      now: NOW,
+      env: ENABLED_ENV,
+    }),
+    /connection terminated/,
+  );
+});
+
+test('finished_at reflects real elapsed time, not the start instant', async () => {
+  const { db } = harness({ seed: { enabled: true } });
+  const runs = db._rows(SCHEDULER_RUNS_TABLE);
+
+  // No `now` injected, so the service uses the real clock at both ends. `finished_at` used to be a
+  // copy of the START instant, so every run reported a zero-second duration AND the release was told
+  // the job finished when it began — putting next_run_at in the past for any run longer than its
+  // interval, and backdating last_success_at by the whole duration.
+  await scheduler.runScheduledJob({
+    jobKey: JOB,
+    trigger: SCHEDULER_TRIGGERS.OPERATOR,
+    registry: registryWith(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return { processed: 1 };
+    }),
+    supabaseClient: db,
+    env: ENABLED_ENV,
+  });
+
+  const row = runs[runs.length - 1];
+  assert.ok(row, 'a run row was recorded');
+  const elapsed = Date.parse(row.finished_at) - Date.parse(row.started_at);
+  assert.ok(
+    elapsed >= 20,
+    `finished_at - started_at was ${elapsed}ms for a handler that slept 25ms; the end time is being ` +
+      'copied from the start instant',
+  );
+});

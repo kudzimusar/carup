@@ -155,55 +155,106 @@ export async function runScheduledJob({
     return { ran: false, jobKey, reason: claim?.reason || SCHEDULER_SKIP_REASONS.LOCKED, detail: claim || null };
   }
 
-  const run = await openRun(supabase, {
-    jobKey, tenantId, trigger, leaseOwner: workerId, correlationId, initiatedBy, startedAt: clock,
-  });
-
+  // ── EVERYTHING BELOW HOLDS A LEASE ────────────────────────────────────────────────────────────
+  //
+  // Only the handler used to be guarded. openRun, closeRun and the release RPC itself sat outside any
+  // try/finally, so a throw in ANY of them meant `diaspora_scheduler_release_atomic` — the only
+  // release call site in the codebase — was never reached, and the job stayed `state='leased'` for
+  // the full lease window with no run row to explain why.
+  //
+  // That was reachable with no infrastructure failure at all. The operator route accepts `tenantId`
+  // as a free string (`req.body?.tenantId ? String(...) : null`, no validation) and
+  // `diaspora_scheduler_runs.tenant_id` is `uuid`, so POST /scheduler/jobs/<key>/run with
+  // {"tenantId":"acme"} claims the lease and then openRun raises 22P02. For the next lease window
+  // every scheduled dispatch of that job answers LEASED and does nothing, and a second operator
+  // attempt is refused the same way.
+  //
+  // The release now runs in a `finally`, so the lease comes back whatever happens.
+  let run = null;
   let outcome = null;
   let failure = null;
+  let release = null;
+  let bookkeepingError = null;
+  let counts = normalizeCounts(null);
+
   try {
-    outcome = await definition.handler({
-      supabase,
-      supabaseClient: supabase,
-      jobKey,
-      tenantId,
-      runId: run?.id || null,
-      correlationId,
-      trigger,
-      now: clock,
-      limit: limit ?? schedulerBatchLimit(jobKey, env),
-      env,
-      ...handlerContext,
-    });
-  } catch (err) {
-    failure = err;
+    try {
+      run = await openRun(supabase, {
+        jobKey, tenantId, trigger, leaseOwner: workerId, correlationId, initiatedBy, startedAt: clock,
+      });
+    } catch (err) {
+      // A run row is bookkeeping. Losing it must not cost the lease as well — but it must not be
+      // silently discarded either, so it becomes this run's failure.
+      failure = err;
+    }
+
+    if (!failure) {
+      try {
+        outcome = await definition.handler({
+          supabase,
+          supabaseClient: supabase,
+          jobKey,
+          tenantId,
+          runId: run?.id || null,
+          correlationId,
+          trigger,
+          now: clock,
+          limit: limit ?? schedulerBatchLimit(jobKey, env),
+          env,
+          ...handlerContext,
+        });
+      } catch (err) {
+        failure = err;
+      }
+    }
+  } finally {
+    // REAL elapsed time unless a clock was injected.
+    //
+    // `finishedAt` used to be a copy of `clock`, taken BEFORE the handler ran. So every row in the
+    // durable run history reported a zero-second duration — in the table built to answer "why is this
+    // job slow" — and, worse, the same value was passed as `p_now` to the release: on success
+    // `next_run_at = started_at + interval`, which for any run longer than its own interval is
+    // already in the PAST when written, making the job immediately due again instead of one interval
+    // later, and backdating `last_success_at` by the full run duration so freshness over-reports
+    // staleness. Tests that inject `now` still get a deterministic value.
+    const finishedAt = now ? new Date(now) : new Date();
+    counts = normalizeCounts(outcome);
+
+    if (run?.id) {
+      try {
+        await closeRun(supabase, run.id, {
+          state: failure ? SCHEDULER_RUN_STATES.FAILED : SCHEDULER_RUN_STATES.COMPLETED,
+          finished_at: finishedAt.toISOString(),
+          processed_count: counts.processed,
+          failed_count: counts.failed,
+          dead_lettered_count: counts.deadLettered,
+          last_error: failure ? safeError(failure.message) : null,
+          detail: failure ? { error: safeError(failure.message, 300) } : (counts.detail || {}),
+        });
+      } catch (err) {
+        // Recorded, never rethrown from a `finally`: that would replace the real diagnosis with a
+        // bookkeeping error, and the lease still has to come back.
+        bookkeepingError = bookkeepingError || err;
+      }
+    }
+
+    try {
+      release = await callRpc(supabase, RELEASE_RPC, {
+        p_job_key: jobKey,
+        p_owner: workerId,
+        p_succeeded: !failure,
+        p_error: failure ? safeError(failure.message) : null,
+        p_error_code: failure ? String(failure.code || 'SCHEDULED_JOB_FAILED').slice(0, 64) : null,
+        p_run_id: run?.id || null,
+        p_max_failures: schedulerMaxFailures(env),
+        p_backoff_base_seconds: schedulerBackoffBaseSeconds(env),
+        p_backoff_max_seconds: schedulerBackoffMaxSeconds(env),
+        p_now: finishedAt.toISOString(),
+      });
+    } catch (err) {
+      bookkeepingError = bookkeepingError || err;
+    }
   }
-
-  const finishedAt = new Date(clock.getTime());
-  const counts = normalizeCounts(outcome);
-
-  await closeRun(supabase, run?.id, {
-    state: failure ? SCHEDULER_RUN_STATES.FAILED : SCHEDULER_RUN_STATES.COMPLETED,
-    finished_at: finishedAt.toISOString(),
-    processed_count: counts.processed,
-    failed_count: counts.failed,
-    dead_lettered_count: counts.deadLettered,
-    last_error: failure ? safeError(failure.message) : null,
-    detail: failure ? { error: safeError(failure.message, 300) } : (counts.detail || {}),
-  });
-
-  const release = await callRpc(supabase, RELEASE_RPC, {
-    p_job_key: jobKey,
-    p_owner: workerId,
-    p_succeeded: !failure,
-    p_error: failure ? safeError(failure.message) : null,
-    p_error_code: failure ? String(failure.code || 'SCHEDULED_JOB_FAILED').slice(0, 64) : null,
-    p_run_id: run?.id || null,
-    p_max_failures: schedulerMaxFailures(env),
-    p_backoff_base_seconds: schedulerBackoffBaseSeconds(env),
-    p_backoff_max_seconds: schedulerBackoffMaxSeconds(env),
-    p_now: finishedAt.toISOString(),
-  });
 
   if (failure) {
     // The failure is recorded and the job has backed off. It is re-thrown so a manual operator run
@@ -212,7 +263,16 @@ export async function runScheduledJob({
     failure.schedulerJobKey = jobKey;
     failure.schedulerRunId = run?.id || null;
     failure.schedulerRelease = release;
+    failure.schedulerReleaseError = bookkeepingError ? safeError(bookkeepingError.message) : null;
     throw failure;
+  }
+
+  if (bookkeepingError) {
+    // The work succeeded but the lease or run row could not be settled. Silence here would report a
+    // clean run while the job is stranded, which is the state this whole block exists to prevent.
+    bookkeepingError.schedulerJobKey = jobKey;
+    bookkeepingError.schedulerRunId = run?.id || null;
+    throw bookkeepingError;
   }
 
   return {
