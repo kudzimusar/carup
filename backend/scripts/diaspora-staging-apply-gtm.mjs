@@ -111,6 +111,22 @@ const LEDGERS = [
       'diaspora_safetrade_outbox_settle_atomic',
     ],
   },
+  {
+    n: 24,
+    version: '20260729090000',
+    name: 'diaspora_billing_test_mode_closure',
+    sha12: '28aa8c6d7807',
+    tables: ['diaspora_billing_checkout_sessions'],
+    functions: [],
+    requiresTables: ['diaspora_billing_provider_events', 'diaspora_billing_reconciliation_runs'],
+    extraColumns: [
+      ['diaspora_billing_provider_events', 'superseded_by'],
+      ['diaspora_billing_provider_events', 'correlation_id'],
+      ['diaspora_billing_provider_events', 'attempts'],
+      ['diaspora_billing_provider_events', 'last_error'],
+      ['diaspora_billing_provider_events', 'dead_lettered'],
+    ],
+  },
 ];
 
 const fail = (msg) => { console.error(`FAIL-CLOSED: ${msg}`); process.exit(1); };
