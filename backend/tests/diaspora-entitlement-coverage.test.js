@@ -30,6 +30,7 @@ const { DIASPORA_RPCS } = await import('./helpers/diasporaRpcReference.js');
 const registry = await import('../services/diaspora/billing/diasporaGatedOperations.js');
 const {
   FEATURE_KEYS, PLAN_CATALOG, PLAN_KEYS, METERED_FEATURE_KEYS,
+  UNAVAILABLE_FEATURE_KEYS, isUnavailableFeature, sellableFeatureKeys,
 } = await import('../constants/diaspora/diasporaEntitlements.js');
 
 const stock = await import('../services/diaspora/diasporaStockService.js');
@@ -85,9 +86,10 @@ test('every canonical feature key appears in the gated-operations registry', () 
   assert.equal(registered.size, Object.keys(FEATURE_KEYS).length);
 });
 
-test('THE ZERO-LIMIT TRAP: every registered key is granted by at least one plan', () => {
+test('THE ZERO-LIMIT TRAP: every key that is not UNAVAILABLE is granted by at least one plan', () => {
   // A key no plan grants denies every tenant on every plan while looking like correct enforcement.
   for (const entry of registry.GATED_OPERATIONS) {
+    if (entry.mode === registry.ENFORCEMENT_MODES.UNAVAILABLE) continue;
     const granted = PLAN_KEYS.some((planKey) => {
       const value = PLAN_CATALOG[planKey].entitlements[entry.featureKey];
       return value === true || (typeof value === 'number' && value > 0);
@@ -96,17 +98,98 @@ test('THE ZERO-LIMIT TRAP: every registered key is granted by at least one plan'
   }
 });
 
-test('the registry refuses to load a key that no plan grants', () => {
-  // Proving the guard rail actually fires, not merely that today's data happens to be fine.
-  const original = PLAN_CATALOG.free.entitlements[FEATURE_KEYS.WORKBOOK_DOWNLOAD];
-  assert.equal(original, true, 'workbook.download is the plan floor');
-  assert.equal(registry.assertRegistryIntegrity(), true);
+// ── THE COVERAGE GATE ────────────────────────────────────────────────────────────────────────────
+//
+// This is the test the whole registry exists to make possible. Everything else here checks the
+// registry's internal consistency; this one checks the product claim.
+
+test('COVERAGE: nothing a plan SELLS is left without an enforcement boundary', () => {
+  const sold = registry.sellableWithoutEnforcement();
+  assert.deepEqual(sold, [],
+    `these keys are sold by a plan and guarded by nothing: ${JSON.stringify(sold, null, 2)}`);
 });
 
-test('every unenforced key carries a written reason', () => {
-  for (const gap of registry.unenforcedOperations()) {
-    assert.ok(gap.reason && gap.reason.length > 40,
-      `${gap.featureKey} is unenforced without a substantive reason`);
+test('COVERAGE: every sellable feature key resolves to a guard site', () => {
+  // Approached from the constants side rather than the registry side, so a key that a plan grants but
+  // that never made it into the registry at all is caught here too.
+  for (const key of sellableFeatureKeys()) {
+    const entry = registry.gatedOperationFor(key);
+    assert.ok(entry, `${key} is sellable but absent from the gated-operations registry`);
+    assert.notEqual(entry.mode, registry.ENFORCEMENT_MODES.NOT_ENFORCED,
+      `${key} is sellable but unenforced`);
+    assert.notEqual(entry.mode, registry.ENFORCEMENT_MODES.UNAVAILABLE,
+      `${key} is marked unavailable yet a plan grants it`);
+    assert.ok(entry.site, `${key} claims enforcement but names no site`);
+  }
+});
+
+test('COVERAGE: the gate FIRES — a sold-but-unguarded key is refused, not merely reported', () => {
+  // Proving the rail works, not that today's data happens to be fine. A registry where drive.export
+  // (sold by trade_pro and enterprise) is downgraded to "unenforced, with a reason" must be rejected:
+  // the reason is not a control.
+  const doctored = registry.GATED_OPERATIONS.map((e) => (
+    e.featureKey === FEATURE_KEYS.DRIVE_EXPORT
+      ? { ...e, mode: registry.ENFORCEMENT_MODES.NOT_ENFORCED, site: null, reason: 'x'.repeat(80) }
+      : e));
+  assert.throws(
+    () => registry.assertRegistryIntegrity(doctored),
+    /no enforcement boundary|Either guard it/,
+  );
+  assert.deepEqual(
+    registry.sellableWithoutEnforcement(doctored).map((g) => g.featureKey),
+    [FEATURE_KEYS.DRIVE_EXPORT],
+  );
+});
+
+test('COVERAGE: the gate FIRES the other way — an UNAVAILABLE key a plan still grants is refused', () => {
+  // The hollow claim. stock.create is granted by seller/trade_pro/enterprise, so declaring it
+  // unavailable while leaving those grants in place must not load.
+  const doctored = registry.GATED_OPERATIONS.map((e) => (
+    e.featureKey === FEATURE_KEYS.STOCK_CREATE
+      ? { ...e, mode: registry.ENFORCEMENT_MODES.UNAVAILABLE, site: null, reason: 'x'.repeat(80) }
+      : e));
+  assert.throws(
+    () => registry.assertRegistryIntegrity(doctored),
+    /marked UNAVAILABLE but plan\(s\).*still grant it/s,
+  );
+});
+
+// ── UNAVAILABLE keys ────────────────────────────────────────────────────────────────────────────
+
+test('an UNAVAILABLE key is granted by NO plan, on every plan in the catalog', () => {
+  for (const entry of registry.unavailableOperations()) {
+    for (const planKey of PLAN_KEYS) {
+      const value = PLAN_CATALOG[planKey].entitlements[entry.featureKey];
+      assert.ok(value === false || value === 0 || value === undefined,
+        `plan ${planKey} still advertises ${entry.featureKey}, which nothing implements`);
+    }
+  }
+});
+
+test('the registry and UNAVAILABLE_FEATURE_KEYS name exactly the same keys', () => {
+  // Two declarations that can drift apart are one declaration plus a bug waiting to happen.
+  assert.deepEqual(
+    registry.unavailableOperations().map((e) => e.featureKey).sort(),
+    [...UNAVAILABLE_FEATURE_KEYS].sort(),
+  );
+  for (const key of UNAVAILABLE_FEATURE_KEYS) assert.equal(isUnavailableFeature(key), true);
+});
+
+test('diaspora.api.access is the withdrawn claim, and it is withdrawn everywhere', () => {
+  // Named explicitly: it was true on enterprise, which meant the plan sold an API that does not exist.
+  assert.equal(isUnavailableFeature(FEATURE_KEYS.API_ACCESS), true);
+  assert.equal(PLAN_CATALOG.enterprise.entitlements[FEATURE_KEYS.API_ACCESS], false);
+  assert.doesNotMatch(PLAN_CATALOG.enterprise.description, /API/i,
+    'the enterprise plan description must not advertise API access either');
+});
+
+// ── Registry hygiene ────────────────────────────────────────────────────────────────────────────
+
+test('the registry loads, and every unavailable entry carries a written reason', () => {
+  assert.equal(registry.assertRegistryIntegrity(), true);
+  for (const entry of registry.unavailableOperations()) {
+    assert.ok(entry.reason && entry.reason.length > 40,
+      `${entry.featureKey} is unavailable without a substantive reason`);
   }
 });
 
@@ -116,11 +199,15 @@ test('every enforced key names the site that carries the guard', () => {
   }
 });
 
-test('coverage reports the honest split, including the remaining gaps', () => {
+test('coverage reports the honest split, with zero remaining gaps', () => {
   const coverage = registry.entitlementCoverage();
   assert.equal(coverage.total, Object.keys(FEATURE_KEYS).length);
-  assert.equal(coverage.enforced + coverage.unenforced, coverage.total);
-  assert.ok(coverage.gaps.every((g) => g.reason));
+  assert.equal(coverage.enforced + coverage.unenforced + coverage.unavailable, coverage.total);
+  assert.equal(coverage.unenforced, 0, 'phase 2C closed every sold-but-unguarded key');
+  assert.deepEqual(coverage.gaps, []);
+  assert.deepEqual(coverage.soldWithoutEnforcement, []);
+  assert.equal(coverage.sellable, sellableFeatureKeys().length);
+  assert.ok(coverage.withdrawn.every((w) => w.reason));
   // The two metered keys are the ones the usage meter actually counts.
   assert.deepEqual([...coverage.meteredKeys].sort(), [...METERED_FEATURE_KEYS].sort());
 });
