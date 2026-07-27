@@ -120,9 +120,21 @@ export function isOpaqueReference(reference) {
  * duration of a request (see `withSecretRedaction`) and every outbound string passes through here.
  */
 const registeredSecrets = new Set();
+/**
+ * Bounded, FIFO. A long-lived process refreshes access tokens for every connected user forever, so an
+ * unbounded set would both leak memory and make every redaction pass slower over time. Evicting the
+ * oldest is safe: shape-based redaction still covers anything that ages out, and a token that old has
+ * expired anyway.
+ */
+const MAX_REGISTERED_SECRETS = 256;
 
 export function registerSecretForRedaction(secret) {
-  if (typeof secret === 'string' && secret.length >= 8) registeredSecrets.add(secret);
+  if (typeof secret !== 'string' || secret.length < 8) return;
+  if (registeredSecrets.has(secret)) return;
+  if (registeredSecrets.size >= MAX_REGISTERED_SECRETS) {
+    registeredSecrets.delete(registeredSecrets.values().next().value);
+  }
+  registeredSecrets.add(secret);
 }
 
 export function clearRegisteredSecrets() {
