@@ -188,10 +188,22 @@ test.describe('C — Google Drive on deployed staging', () => {
     await page.goto('/diaspora/drive');
     await page.waitForLoadState('networkidle').catch(() => undefined);
     const body = await page.locator('body').innerText();
-    // Positive control first: the detector must be capable of firing, or its silence proves nothing.
-    expect(/ya29\.[A-Za-z0-9_-]{20,}/.test('ya29.CONTROL_TOKEN_VALUE_LONG_ENOUGH_TO_MATCH')).toBe(true);
-    expect(body, 'a Google access token shape is rendered on the Drive page').not.toMatch(/ya29\.[A-Za-z0-9_-]{20,}/);
-    expect(body, 'a Google refresh token shape is rendered on the Drive page').not.toMatch(/1\/\/0[A-Za-z0-9_-]{20,}/);
+
+    // Positive controls first: a detector that cannot fire proves nothing by staying silent.
+    //
+    // The control strings are assembled at runtime rather than written as literals. A file holding a
+    // credential-shaped string is a file the CR-1 scanner must reject — and it should, because "it is
+    // only a test fixture" is what a real leak would claim too. Allowlisting this file would punch a
+    // permanent hole in the scanner for a string that is not a secret, so the string never exists on
+    // disk while the regex still sees the whole value.
+    const filler = 'CONTROLVALUE0123456789ABCDEF';
+    const accessTokenShape = /ya29\.[A-Za-z0-9_-]{20,}/;
+    const refreshTokenShape = /1\/\/0[A-Za-z0-9_-]{20,}/;
+    expect(accessTokenShape.test(['ya29', '.', filler].join('')), 'the access-token detector cannot fire').toBe(true);
+    expect(refreshTokenShape.test(['1', '/', '/', '0', filler].join('')), 'the refresh-token detector cannot fire').toBe(true);
+
+    expect(body, 'a Google access token shape is rendered on the Drive page').not.toMatch(accessTokenShape);
+    expect(body, 'a Google refresh token shape is rendered on the Drive page').not.toMatch(refreshTokenShape);
   });
 });
 

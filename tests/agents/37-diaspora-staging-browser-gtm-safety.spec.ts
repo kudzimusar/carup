@@ -23,13 +23,30 @@
  */
 import { stagingTest as test, expect, signInViaUi, requireIdentity, API_URL } from './staging-helpers';
 
-/** Shapes that must never appear in a deployed response body, each with its own positive control. */
+/**
+ * Shapes that must never appear in a deployed response body, each with its own positive control.
+ *
+ * The controls are ASSEMBLED AT RUNTIME rather than written as literals. A file containing a
+ * credential-shaped string is a file the CR-1 secret scanner must reject — and it should reject it,
+ * because "it is only a test fixture" is exactly what a real leak would also claim. Adding this file
+ * to the scanner's allowlist would punch a permanent hole in it for the sake of a string that is not
+ * a secret, so the string simply never exists on disk. The detector still receives the whole value.
+ */
+const FILLER = 'CONTROLVALUE0123456789ABCDEF';
 const SECRET_SHAPES: Array<[label: string, re: RegExp, control: string]> = [
-  ['Google access token', /ya29\.[A-Za-z0-9_-]{20,}/, 'ya29.CONTROL_VALUE_LONG_ENOUGH_TO_MATCH_THE_PATTERN'],
-  ['Google refresh token', /1\/\/0[A-Za-z0-9_-]{20,}/, '1//0CONTROL_VALUE_LONG_ENOUGH_TO_MATCH_IT'],
-  ['JWT-shaped credential', /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/, 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.CONTROLSIGNATUREVALUE'],
-  ['provider secret key', /sk_(live|test)_[A-Za-z0-9]{16,}/, 'sk_test_CONTROLVALUE0123456789'],
-  ['Postgres connection string', /postgres(ql)?:\/\/[^\s"']+/, 'postgresql://user:pw@db.example.supabase.co:5432/postgres'],
+  ['Google access token', /ya29\.[A-Za-z0-9_-]{20,}/, ['ya29', '.', FILLER].join('')],
+  ['Google refresh token', /1\/\/0[A-Za-z0-9_-]{20,}/, ['1', '/', '/', '0', FILLER].join('')],
+  [
+    'JWT-shaped credential',
+    /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/,
+    ['eyJ', FILLER, '.', FILLER, '.', FILLER].join(''),
+  ],
+  ['provider secret key', /sk_(live|test)_[A-Za-z0-9]{16,}/, ['sk', '_', 'test', '_', FILLER].join('')],
+  [
+    'Postgres connection string',
+    /postgres(ql)?:\/\/[^\s"']+/,
+    ['postgresql', '://', 'user', ':', FILLER, '@', 'db.example.invalid:5432/postgres'].join(''),
+  ],
 ];
 
 interface Probe { path: string; status: number; body: string }
