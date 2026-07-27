@@ -152,6 +152,29 @@ const LEDGERS = [
     singleOverload: ['diaspora_release_usage_atomic'],
   },
   {
+    n: 26,
+    version: '20260731090000',
+    name: 'diaspora_entitlement_override_regrant',
+    sha12: '93ab8f5ee95a',
+    tables: [],
+    functions: [
+      'diaspora_apply_entitlement_override_atomic',
+      'diaspora_revoke_entitlement_override_atomic',
+    ],
+    // The apply RPC locks the soft-deleted override row and resolves its ON CONFLICT against
+    // ledger #12's uq_diaspora_user_override; both RPCs write their audit row in the same
+    // transaction. Ledger #12 itself is not edited.
+    requiresTables: [
+      'diaspora_user_entitlement_overrides',
+      'diaspora_import_audit_log',
+    ],
+    extraColumns: [],
+    singleOverload: [
+      'diaspora_apply_entitlement_override_atomic',
+      'diaspora_revoke_entitlement_override_atomic',
+    ],
+  },
+  {
     n: 27,
     version: '20260731100000',
     name: 'diaspora_scheduler_leases',
