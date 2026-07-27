@@ -28,7 +28,7 @@
  * NOTHING HERE MOVES MONEY. Live paths are exercised precisely to the point of their refusal, which
  * is the whole assertion: the request is made, and the deployment says no.
  */
-import { stagingTest as test, expect, signInViaUi, requireIdentity, API_URL } from './staging-helpers';
+import { stagingTest as test, expect, signInViaUi, requireIdentity, API_URL, WEB_URL } from './staging-helpers';
 
 /**
  * Shapes that must never appear in a deployed response body, each with its own positive control.
@@ -77,15 +77,36 @@ async function probe(
   page: import('@playwright/test').Page,
   reqs: Array<{ path: string; method?: string; body?: unknown }>,
 ): Promise<Probe[]> {
+  // The page must be ON THE APP ORIGIN before anything is evaluated.
+  //
+  // A test that probes a public endpoint without signing in never navigates, so the context is still
+  // `about:blank` — an OPAQUE origin. Two things then break, and both look like product failures when
+  // they are not: reading localStorage throws `SecurityError`, and `fetch` to the API is rejected by
+  // CORS before it leaves the browser, surfacing as status 0 "unreachable". The health-endpoint
+  // secret sweep reported red on both counts while its detectors had never run.
+  //
+  // Navigating first is also more faithful: it is the origin a real user's requests come from, which
+  // is the whole point of probing through the browser rather than with a bare HTTP client.
+  if (!page.url().startsWith(WEB_URL)) {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+  }
   return page.evaluate(async ({ api, reqs }) => {
     // Mirror web/src/lib/apiClient.ts: identity headers from localStorage, then a CSRF token bound
     // to that identity for unsafe methods. A token fetched anonymously is guest-bound and rejected.
-    const readUser = () => {
-      try { return JSON.parse(localStorage.getItem('carup_user') || 'null'); } catch { return null; }
+    // localStorage may be UNREACHABLE, not merely empty. On a page that has not navigated to the
+    // app origin — `about:blank`, which is where a test that probes a public endpoint without signing
+    // in starts — reading it throws `SecurityError: Access is denied for this document`. That threw
+    // out of page.evaluate and ERRORED the test before a single assertion ran, which is worse than a
+    // failure: the health-endpoint secret sweep reported red while its detectors had never executed.
+    // An unauthenticated probe is a legitimate mode here, so absence of a session is handled, not
+    // treated as a fault.
+    const readStorage = (key: string): string | null => {
+      try { return localStorage.getItem(key); } catch { return null; }
     };
     const auth: Record<string, string> = {};
-    const user = readUser();
-    const token = localStorage.getItem('carup_token');
+    let user: { id?: string; tenantId?: string } | null = null;
+    try { user = JSON.parse(readStorage('carup_user') || 'null'); } catch { user = null; }
+    const token = readStorage('carup_token');
     if (user?.id) auth['x-user-id'] = String(user.id);
     if (token) auth['x-session-token'] = token;
     if (user?.tenantId) auth['x-tenant-id'] = String(user.tenantId);
@@ -215,8 +236,35 @@ test.describe('live-risk surfaces refuse on the deployment', () => {
       { path: '/diaspora/safetrade/00000000-0000-0000-0000-000000000000' },
     ]);
 
-    expect(list.status, 'the SafeTrade router is not mounted on this deployment').not.toBe(404);
     expect(list.status, `SafeTrade list is unreachable: ${list.body.slice(0, 200)}`).not.toBe(0);
+
+    // A 404 here has TWO meanings and they are not interchangeable.
+    //
+    // The backend capability gate (`DIASPORA_SAFETRADE_ENABLED`) 404s the ENTIRE SafeTrade surface
+    // when off — that is the fail-closed state this file exists to confirm, and it announces itself:
+    // `{"error":"SafeTrade is not enabled"}`. A route that simply does not exist answers with the
+    // generic RESOURCE_NOT_FOUND envelope instead.
+    //
+    // The first version asserted `not 404` outright, which failed on the deployment for the very
+    // reason the test is named after: SafeTrade IS fail-closed there. That is the same mistake as the
+    // authentication canary above — a refusal read as an absence.
+    const capabilityOff = /SafeTrade is not enabled/i.test(list.body);
+    if (list.status === 404 && capabilityOff) {
+      // Strongest available evidence: with the capability off, the detail route must be closed too.
+      // A surface that 404s its list while still serving individual records would be a gate in name
+      // only.
+      expect(
+        detail.status,
+        `the SafeTrade LIST is capability-disabled but the DETAIL route answered ${detail.status}: ` +
+          `${detail.body.slice(0, 200)}`,
+      ).toBe(404);
+      return;
+    }
+    expect(
+      list.status,
+      `SafeTrade returned 404 without the capability-disabled marker, so the router is genuinely ` +
+        `absent rather than fail-closed: ${list.body.slice(0, 200)}`,
+    ).not.toBe(404);
 
     // Participant-scoped read of an id the caller does not own: it must refuse, and it must refuse
     // deliberately rather than by crashing — a 500 here would mean the scoping check threw instead

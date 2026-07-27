@@ -89,12 +89,38 @@ test.describe('Cross-tenant and role isolation (authenticated)', () => {
   });
 });
 
-test.describe('Expected-OFF surfaces stay fail-closed', () => {
-  test('SafeTrade and Trade Graph UI remain unavailable with flags off', async ({ page }) => {
+test.describe('Flag-gated surfaces report a stated outcome, whichever way the flag is set', () => {
+  test('SafeTrade renders EITHER its unavailable notice OR the real surface — never a blank page', async ({ page }) => {
     test.skip(!requireIdentity('buyer'), 'staging identities not provisioned yet');
     await signInViaUi(page, 'buyer');
     await page.goto('/diaspora/safetrade');
-    await expect(page.getByText(/unavailable|not available|coming soon|disabled/i).first()).toBeVisible();
+
+    // This test used to assert the unavailable notice unconditionally, while its name said "with
+    // flags off" — but it never CHECKED the flag, it assumed it. That made it a test of one
+    // deployment's configuration rather than of the product's behaviour, and it failed the moment
+    // Issue #127's Phase 8 turned VITE_DIASPORA_SAFETRADE_UI_ENABLED on in order to exercise
+    // SafeTrade at all. Two specs cannot both be right about a flag that has one value.
+    //
+    // The invariant that holds in BOTH configurations, and the one actually worth protecting, is
+    // that the page states its outcome: off -> it says so; on -> it renders the real surface, its
+    // loaded-empty state, or a stated error. What must never happen is a blank page, a permanent
+    // spinner, or a fabricated surface that implies data the flag has not enabled.
+    const unavailable = page.getByTestId('safetrade-unavailable');
+    const listPage = page.getByTestId('safetrade-list-page');
+    const empty = page.getByTestId('safetrade-list-empty');
+    const errored = page.getByTestId('safetrade-list-error');
+
+    await expect(unavailable.or(listPage).or(empty).or(errored).first()).toBeVisible({ timeout: 20_000 });
+
+    // Whichever branch rendered, it must have SETTLED. A surface stuck loading is the failure a
+    // deployed check exists to catch and is invisible to a local unit test.
+    await expect(page.getByTestId('safetrade-list-loading')).toHaveCount(0, { timeout: 25_000 });
+
+    // And the two branches are mutually exclusive: "unavailable" alongside a rendered list would
+    // mean the gate is decorative.
+    if (await unavailable.isVisible()) {
+      await expect(listPage).toHaveCount(0);
+    }
     void IDENTITIES;
   });
 });
