@@ -104,6 +104,41 @@ behavioural harness, not by review.
 
 ---
 
+## 3b. Deliverable B was not actually working (found 2026-07-28, fixed in `ee38004`)
+
+Specifying the import UI against the shipped API surfaced three P0 defects in the confirmed-import
+backend. **All three passed the existing 31 tests.** They are the same shape as the three in §3: two
+sides of a contract, each correct alone, with nothing asserting the join.
+
+1. **Nothing was ever applied.** `executeWorkbookImportAction` reports through `status` +
+   `targetRecordId`; it has never had an `executed` boolean or a `recordId`. The orchestrator read
+   exactly those two, so `result?.executed` was permanently `undefined` and **every** row — including
+   rows whose draft record was successfully inserted — was receipted as a *skip*. `applied` stayed
+   empty, so compensation had nothing to reverse while the inserted rows stayed in the database, and
+   a half-applied run still reported *"every applied row was reversed. Nothing was imported."* That
+   is precisely the outcome compensation exists to prevent, and precisely the claim §1 said this
+   feature must never make. The seam is now an exported pure function, `classifyExecutionResult`.
+2. **Every `.xlsx` upload was unconfirmable.** The upload route hashes the raw bytes and passes
+   `sourceChecksum` as an *option*; persistence only read the checksum out of the client *payload*.
+   Uploaded batches therefore persisted with `checksum_sha256 = NULL`, and `POST /confirm` refuses a
+   batch with no recorded checksum (`BATCH_CHECKSUM_MISSING`). The entire upload path was dead.
+   Persistence now honours the server-computed value and prefers it over a client-declared one.
+3. **Receipts authorized the session but never the batch.** `/receipts`, `/receipts.csv` and
+   `/interrupted-imports` ran on `authorizeRole()` alone — "any authenticated user" — and
+   `listReceipts` drops its tenant filter entirely when the request carries no `x-tenant-id`. The
+   backend uses the service-role client, so RLS did not backstop it: a request without that header
+   could read another organisation's receipts by batch id. Receipts now authorize through
+   `getDiasporaWorkbookImportBatch` and scope to that batch's own tenant; the tenant-wide list fails
+   closed.
+
+**Why the suite missed all three:** the only `appliedRows` assertion in
+`diaspora-workbook-confirmed-import.test.js` runs against an **empty row set**, where "0 applied" is
+true whether the feature works or not — and nothing asserted the shape of the value crossing the
+executor→orchestrator seam. The 9 new tests in `diaspora-workbook-confirmed-import-contract.test.js`
+are written from the seam; the checksum ones were guard-checked and fail against the previous code.
+
+---
+
 ## 4. What is fail-closed right now
 
 | Surface | State |
@@ -128,10 +163,32 @@ Directive step order was 1 → 2 → 3 → 4 → 5. Progress against it:
 | Step | State |
 |---|---|
 | **1 — ST-3 item #1 complete** | **DONE.** Ledger #23 atomic RPCs, outbox drainer with lease/backoff/dead-letter, operator console, maker-checker request flow. 42 real-Postgres assertions, 20 drainer service tests, 19 console component tests, 14 Chromium. |
-| **2 — Confirmed workbook import** | **BACKEND DONE** (confirmation + execution + quota + receipts + compensation + recovery + CSV, 31 tests, routes wired). **NOT DONE: the import UI and its Chromium journeys.** |
+| **2 — Confirmed workbook import** | **BACKEND DONE, and corrected 2026-07-28 (`ee38004`).** The earlier "backend done" claim was wrong in three ways that all passed the 31 tests — see §3b. Confirmation + execution + quota + receipts + compensation + recovery + CSV, now 40 tests, routes wired. **NOT DONE: the import UI and its Chromium journeys.** |
 | **3 — Subscription billing (test mode)** | **NOT STARTED.** |
 | **4 — Google Drive engineering** | **NOT STARTED.** |
 | **5 — Staging apply / deploy / deployed matrix** | **NOT STARTED.** Ledgers #21, #22 and #23 remain unapplied everywhere. |
+
+### Checkpoint 3 (2026-07-28, `ee38004`) — where the next session resumes
+
+Directive step 2's backend is now genuinely done rather than nominally done (§3b). **The next action
+is unchanged and unstarted: the confirmed-import UI.** Nothing in steps 3, 4 or 5 has begun.
+
+Backend suite at this checkpoint: **2213 tests · 2190 pass · 11 fail · 12 skipped**. All 11 failures
+are in `verification-ocr-provenance.test.js` / the OCR identity suite, are unrelated to this work,
+and were reproduced at branch HEAD with these fixes stashed — they are pre-existing, not a
+regression, and remain to be triaged separately. Note the suite needs
+`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `JWT_SECRET` exported or ~10 files abort on import and
+the totals silently drop by ~190 tests.
+
+Two API facts a UI author needs that are **not** obvious from the routes:
+- Receipt `row_number` is an ordinal in plan order, not the workbook row. `action.rowNumber` and
+  `action.row` do not exist on plan actions (they expose `workbookRowNumber`), so the
+  `receipts.length + 1` fallback always wins. Label it "Row (order)" or join via `row_id`.
+- `CONFIRMED_IMPORT_STATUSES.CONFIRMED` is declared but never written, and there is **no endpoint to
+  list or re-fetch a confirmation**. After `POST /confirm` the batch still reads
+  `VALIDATED`/`READY_FOR_REVIEW`. If the client loses `confirmationId`, the recovery path is to
+  re-`POST /confirm` with a **fresh** idempotency key, which returns the live confirmation with
+  `idempotentReplay: true`.
 
 ### Exact next actions, in order
 
