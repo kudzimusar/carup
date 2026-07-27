@@ -392,56 +392,76 @@ export function reserveUsageAtomic(params, { table, nextId }) {
   };
 }
 
-
 /**
- * Ledger #25 — diaspora_release_usage_atomic.
+ * Mirrors diaspora_release_usage_atomic (ledger #25).
  *
- * Mirrors database/migrations/20260730090000_diaspora_atomic_quota_release.sql. The property that
- * matters is the one the old read-modify-write lacked: a release of an ALREADY-RELEASED reservation
- * decrements nothing. Modelling that here means the service tests exercise the real contract rather
- * than a permissive stand-in.
+ * The SQL takes the reservation FOR UPDATE, then the meter FOR UPDATE, decrements with
+ * GREATEST(used - amount, 0), flips the status and writes the audit row — all in one transaction.
+ * This reference reproduces the observable contract: a released reservation is an idempotent no-op
+ * (it does NOT decrement a second time), a COMMITTED reservation cannot be released, the meter is
+ * located by the RESERVATION's own tenant/feature/period rather than by caller input, and the audit
+ * row exists for every release that actually happened.
+ *
+ * Keep in lockstep with database/migrations/20260730090000_diaspora_atomic_quota_release.sql
  */
 export function releaseUsageAtomic(params, { table, nextId }) {
+  const ts = new Date(2026, 5, 21).toISOString();
   const reservations = table('diaspora_usage_reservations');
   const meters = table('diaspora_usage_meters');
   const audit = table('diaspora_import_audit_log');
-  const ts = new Date(2026, 5, 21, 13, 0, 0).toISOString();
 
-  const res = reservations.find((r) => r.id === params.p_reservation_id);
-  if (!res) fail('DIASPORA_ENTITLEMENT/RESERVATION_NOT_FOUND');
+  const reservation = reservations.find((r) => String(r.id) === String(params.p_reservation_id));
+  if (!reservation) fail('DIASPORA_ENTITLEMENT/RESERVATION_NOT_FOUND');
 
-  // Idempotent replay — the whole point of the row lock.
-  if (res.status === 'RELEASED') {
-    return { reservationId: params.p_reservation_id, status: 'RELEASED', idempotentReplay: true, meterBefore: null, meterAfter: null };
+  if (reservation.status === 'RELEASED') {
+    return {
+      reservationId: params.p_reservation_id,
+      status: 'RELEASED',
+      idempotentReplay: true,
+      meterBefore: null,
+      meterAfter: null,
+    };
   }
-  if (res.status === 'COMMITTED') fail('DIASPORA_ENTITLEMENT/CANNOT_RELEASE_COMMITTED');
+  if (reservation.status === 'COMMITTED') fail('DIASPORA_ENTITLEMENT/CANNOT_RELEASE_COMMITTED');
 
-  // The meter is located from the RESERVATION's own scope, never caller input.
-  const meter = meters.find((m) => m.tenant_id === res.tenant_id
-    && m.feature_key === res.feature_key
-    && String(m.period_start) === String(res.period_start));
+  // The meter is found through the RESERVATION's own scope. A caller cannot name another tenant's
+  // meter, because the caller never names a meter at all.
+  const meter = meters.find(
+    (m) => String(m.tenant_id) === String(reservation.tenant_id)
+      && m.feature_key === reservation.feature_key
+      && String(m.period_start) === String(reservation.period_start),
+  );
 
-  let before = null; let after = null;
+  let before = null;
+  let after = null;
   if (meter) {
     before = Number(meter.used_count || 0);
-    after = Math.max(before - Number(res.amount || 0), 0); // GREATEST(...,0)
+    after = Math.max(before - Number(reservation.amount || 0), 0); // GREATEST(..., 0)
     meter.used_count = after;
     meter.updated_at = ts;
   }
 
-  res.status = 'RELEASED';
-  res.updated_at = ts;
+  reservation.status = 'RELEASED';
+  reservation.updated_at = ts;
 
   audit.push({
-    id: nextId('audit'),
-    tenant_id: res.tenant_id,
+    id: nextId('aud'),
+    tenant_id: reservation.tenant_id,
     actor_id: params.p_actor_id ?? null,
     action: 'ENTITLEMENT_USAGE_RELEASED',
     resource_type: 'diaspora_usage_reservation',
     resource_id: String(params.p_reservation_id),
     previous_state: { status: 'RESERVED', meterUsed: before },
     new_state: { status: 'RELEASED', meterUsed: after },
-    metadata: { featureKey: res.feature_key, amount: res.amount, correlationId: params.p_correlation_id ?? null },
+    metadata: {
+      featureKey: reservation.feature_key,
+      amount: reservation.amount,
+      correlationId: params.p_correlation_id ?? null,
+    },
+    cryptographic_seal: seal(
+      params.p_actor_id, 'ENTITLEMENT_USAGE_RELEASED', 'diaspora_usage_reservation',
+      params.p_reservation_id, ts,
+    ),
     created_at: ts,
   });
 
@@ -451,7 +471,7 @@ export function releaseUsageAtomic(params, { table, nextId }) {
     idempotentReplay: false,
     meterBefore: before,
     meterAfter: after,
-    reservation: { ...res },
+    reservation: { ...reservation },
   };
 }
 
