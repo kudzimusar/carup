@@ -13,6 +13,7 @@ import {
   uploadDriveFile,
   exportToDrive,
   syncDrive,
+  getEntitySyncAttempts,
 } from '../services/diaspora/diasporaDriveSyncService.js';
 
 const router = express.Router();
@@ -44,6 +45,11 @@ router.post('/drive/export', auth, asyncHandler(async (req, res) => {
 }));
 router.post('/drive/sync', auth, asyncHandler(async (req, res) => {
   res.json({ data: await syncDrive(req.userContext, { req }) });
+}));
+// The durable answer to "did my document actually reach Drive?" — queued, retrying, or dead-lettered.
+// Scoped to the caller's tenant inside the service; no attempt row for another tenant is reachable.
+router.get('/drive/sync-attempts/:entityType/:entityId', auth, asyncHandler(async (req, res) => {
+  res.json({ data: await getEntitySyncAttempts({ entityType: req.params.entityType, entityId: req.params.entityId }, req.userContext, { req }) });
 }));
 
 export default router;
