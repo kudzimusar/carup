@@ -272,9 +272,105 @@ async function main() {
   r = await asRole(url, 'service_role', null, `SELECT public.diaspora_reserve_usage_atomic()`);
   rec('service_role CAN execute the usage-mutation RPC', r.ok, r.ok ? 'ok' : r.msg);
 
+  // ═══ Ledger #20: diaspora_oauth_states (H6 shipped RLS-enable ONLY — no grants, no policies;
+  //     every privilege came from Supabase default grants; contract is anon=NONE,
+  //     authenticated=NONE, service_role full, RLS enabled, EXACTLY zero policies) ═══
+  const OA = 'diaspora_oauth_states';
+  await admin.query(`CREATE TABLE public.${OA} (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), state_hash text, expires_at timestamptz)`);
+  await admin.query(`ALTER TABLE public.${OA} ENABLE ROW LEVEL SECURITY`); // exactly what #10 shipped
+  rec('#20 GAP REPRODUCED: default grants leave anon privileged on diaspora_oauth_states',
+    (await privs(admin, OA, 'anon')).length > 0);
+
+  // The #20 verifier — same contract the staging/production appliers enforce. EFFECTIVE privileges
+  // via has_table_privilege (direct role_table_grants checks miss PUBLIC inheritance), PUBLIC
+  // relacl/attacl entries (aclexplode grantee=0 — an inner join on pg_roles would drop them),
+  // absolute zero-policy invariant, RLS, service_role CRUD.
+  const PG17_TABLE_PRIVS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'];
+  async function effectivePrivs(role) {
+    const held = [];
+    for (const p of PG17_TABLE_PRIVS) {
+      if ((await admin.query(`SELECT has_table_privilege($1, 'public.${OA}', $2) h`, [role, p])).rows[0].h) held.push(p);
+    }
+    return held;
+  }
+  async function verify20() {
+    const v = [];
+    const anonEff = await effectivePrivs('anon');
+    if (anonEff.length) v.push(`anon holds EFFECTIVE ${anonEff.join(',')}`);
+    const authEff = await effectivePrivs('authenticated');
+    if (authEff.length) v.push(`authenticated holds EFFECTIVE ${authEff.join(',')}`);
+    const svcEff = await effectivePrivs('service_role');
+    if (!['DELETE', 'INSERT', 'SELECT', 'UPDATE'].every((p) => svcEff.includes(p))) v.push(`service_role missing effective CRUD (${svcEff.join(',')})`);
+    const pubAcl = (await admin.query(
+      `SELECT count(*)::int n FROM pg_class k CROSS JOIN LATERAL aclexplode(k.relacl) acl
+       WHERE k.oid = 'public.${OA}'::regclass AND acl.grantee = 0`)).rows[0].n;
+    if (pubAcl !== 0) v.push(`PUBLIC holds ${pubAcl} table ACL entries in relacl`);
+    const rls20 = (await admin.query(`SELECT relrowsecurity r FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='${OA}'`)).rows[0].r;
+    if (!rls20) v.push('RLS disabled');
+    const pols = (await admin.query(`SELECT count(*)::int n FROM pg_policies WHERE schemaname='public' AND tablename='${OA}'`)).rows[0].n;
+    if (pols !== 0) v.push(`zero-policy invariant violated: ${pols} policies (expected 0)`);
+    const colAcl = (await admin.query(
+      `SELECT count(*)::int n FROM pg_class k
+         JOIN pg_namespace ns ON ns.oid = k.relnamespace
+         JOIN pg_attribute a ON a.attrelid = k.oid AND a.attacl IS NOT NULL
+         CROSS JOIN LATERAL aclexplode(a.attacl) acl
+         LEFT JOIN pg_roles pr ON pr.oid = acl.grantee
+       WHERE ns.nspname='public' AND k.relname='${OA}' AND (acl.grantee = 0 OR pr.rolname IN ('anon','authenticated'))`)).rows[0].n;
+    if (colAcl !== 0) v.push(`${colAcl} residual column-level client/PUBLIC grants`);
+    return v;
+  }
+
+  // Zero-policy invariant pre-gate (absolute): the appliers abort BEFORE applying if any policy exists.
+  const polsPre = (await admin.query(`SELECT count(*)::int n FROM pg_policies WHERE schemaname='public' AND tablename='${OA}'`)).rows[0].n;
+  rec('#20 pre-apply zero-policy invariant holds (0 policies before apply)', polsPre === 0, `${polsPre} policies`);
+
+  const MIGRATION_20 = fileURLToPath(new URL(
+    '../../../database/migrations/20260727090000_diaspora_oauth_states_client_grant_hardening.sql', import.meta.url));
+  const mig20 = readFileSync(MIGRATION_20, 'utf8');
+  const up20 = mig20.split(/^-- \+migrate Down/m)[0].replace(/^-- \+migrate Up\s*/m, '');
+  await admin.query('BEGIN'); await admin.query(up20); await admin.query('COMMIT');
+  await admin.query('BEGIN'); await admin.query(up20); await admin.query('COMMIT');
+  rec(`#20 applied verbatim + idempotent (sha256:12=${createHash('sha256').update(mig20).digest('hex').slice(0, 12)})`, true);
+
+  // Post-#20 contract, granular then full.
+  const anonEffPost = await effectivePrivs('anon');
+  rec('post-#20: anon holds ZERO EFFECTIVE privileges (all 8 PG17 privs, incl. PUBLIC inheritance)', anonEffPost.length === 0, anonEffPost.join(',') || 'none');
+  const authEffPost = await effectivePrivs('authenticated');
+  rec('post-#20: authenticated holds ZERO EFFECTIVE privileges (all 8 PG17 privs)', authEffPost.length === 0, authEffPost.join(',') || 'none');
+  rec('post-#20: PUBLIC holds no table ACL entry (relacl grantee=0)', (await verify20()).every((x) => !x.startsWith('PUBLIC')), '');
+  const svcEffPost = await effectivePrivs('service_role');
+  rec('post-#20: service_role retains effective CRUD', ['DELETE', 'INSERT', 'SELECT', 'UPDATE'].every((p) => svcEffPost.includes(p)), svcEffPost.join(','));
+  const clean = await verify20();
+  rec('post-#20: FULL verifier contract clean (0 violations)', clean.length === 0, clean.join('; ') || 'clean');
+
+  // ── ADVERSARIAL: the verifier must REJECT bad states, not just pass good ones ──
+  await admin.query(`GRANT UPDATE, TRIGGER ON public.${OA} TO PUBLIC`);
+  const vPublic = await verify20();
+  rec('#20 ADVERSARIAL: verifier rejects UPDATE+TRIGGER granted to PUBLIC (effective via inheritance + relacl)',
+    vPublic.some((x) => x.includes('UPDATE')) && vPublic.some((x) => x.includes('TRIGGER')) && vPublic.some((x) => x.startsWith('PUBLIC')),
+    `${vPublic.length} violations flagged`);
+  await admin.query(`REVOKE ALL ON public.${OA} FROM PUBLIC`);
+
+  await admin.query(`CREATE POLICY adversarial_probe ON public.${OA} FOR SELECT TO authenticated USING (true)`);
+  const vPolicy = await verify20();
+  rec('#20 ADVERSARIAL: verifier rejects a pre-existing policy (zero-policy invariant)',
+    vPolicy.some((x) => x.includes('zero-policy invariant')), `${vPolicy.length} violations flagged`);
+  await admin.query(`DROP POLICY adversarial_probe ON public.${OA}`);
+
+  const cleanAgain = await verify20();
+  rec('post-#20: contract clean again after restoring the hardened state', cleanAgain.length === 0, cleanAgain.join('; ') || 'clean');
+
+  // Behavior at the grant layer.
+  r = await asRole(url, 'anon', null, `SELECT count(*) FROM ${OA}`);
+  rec('#20: anon SELECT denied at the GRANT layer', !r.ok && r.code === '42501', r.ok ? 'unexpectedly allowed' : r.code);
+  r = await asRole(url, 'authenticated', 'memberA', `SELECT count(*) FROM ${OA}`);
+  rec('#20: authenticated SELECT denied at the GRANT layer', !r.ok && r.code === '42501', r.ok ? 'unexpectedly allowed' : r.code);
+  r = await asRole(url, 'service_role', null, `INSERT INTO ${OA}(state_hash) VALUES ('h')`);
+  rec('#20: service_role CAN write the nonce store', r.ok && r.rowCount === 1, r.ok ? 'ok' : r.msg);
+
   await admin.end(); await epg.stop();
   const passed = results.filter((x) => x.ok).length;
-  console.log(`\n════ PHASE 8/9/10 ACL + #19 PROOF: ${passed}/${results.length} passed ════`);
+  console.log(`\n════ PHASE 8/9/10 ACL + #19/#20 PROOF: ${passed}/${results.length} passed ════`);
   if (passed !== results.length) process.exit(1);
 }
 main().catch(async (e) => { console.error('HARNESS ERROR:', e.message); try { await epg.stop(); } catch {} process.exit(2); });
