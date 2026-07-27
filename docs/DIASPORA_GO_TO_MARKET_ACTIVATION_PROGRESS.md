@@ -15,7 +15,7 @@
 | Deliverable | Status | Evidence |
 |---|---|---|
 | **A — UI-10 Trade Graph dashboard** | **Implemented and verified** (flags OFF) | 18 backend + 19 web-unit + 17 Playwright/Chromium tests; direct Chromium inspection |
-| **B — Confirmed workbook import** | **BACKEND COMPLETE; UI + Chromium NOT DONE.** Confirmation, execution state machine, quotas, entitlements, receipts, compensation, recovery and CSV export all implemented and tested | 31 service tests; ledger #21 constraints proven in the 106/106 real-Postgres run; routes live |
+| **B — Confirmed workbook import** | **COMPLETE** (2026-07-28). Backend + UI + Chromium. Flags OFF | 31 service + 9 contract + 23 helper tests; 24 Chromium; ledger #21 constraints in the 106/106 real-Postgres run |
 | **C — Live Google Drive** | **Schema only**, plus vault-reference safety | ledger #21 `diaspora_credential_references` + its anti-secret constraints |
 | **D — Live subscription billing** | **Correctness fix only** (webhook CSRF); live provider not implemented | webhook now reaches its handler; reconciliation table unused |
 | **E — SafeTrade ST-3 closure** | **ALL FOUR ITEMS CLOSED END-TO-END** (2026-07-28). Sandbox only; live money still fail-closed | ledgers #22/#23 + services + operator console; 42 + 29 real-Postgres assertions, 51 service tests, 14 Chromium |
@@ -155,70 +155,72 @@ are written from the seam; the checksum ones were guard-checked and fail against
 
 ---
 
-## 4b. RESUME POINT (Owner Continuation Directive v2)
+## 4b. RESUME POINT (Owner Continuation Directive v2 — checkpoint 4)
 
-Branch `claude/diaspora-go-to-market-activation`, PR **#129**. Resume from the head of that branch.
-Directive step order was 1 → 2 → 3 → 4 → 5. Progress against it:
+Branch `claude/diaspora-go-to-market-activation`, PR **#129**, head `ada0b21`.
+**Reconciled with main:** the branch contains merge commit `0137c77` (PR #130) and is **0 behind**.
+PR #129 is **MERGEABLE**.
 
 | Step | State |
 |---|---|
-| **1 — ST-3 item #1 complete** | **DONE.** Ledger #23 atomic RPCs, outbox drainer with lease/backoff/dead-letter, operator console, maker-checker request flow. 42 real-Postgres assertions, 20 drainer service tests, 19 console component tests, 14 Chromium. |
-| **2 — Confirmed workbook import** | **BACKEND DONE, and corrected 2026-07-28 (`ee38004`).** The earlier "backend done" claim was wrong in three ways that all passed the 31 tests — see §3b. Confirmation + execution + quota + receipts + compensation + recovery + CSV, now 40 tests, routes wired. **NOT DONE: the import UI and its Chromium journeys.** |
+| **1 — ST-3 item #1 complete** | **DONE.** |
+| **2 — Confirmed workbook import** | **DONE** — backend, UI and Chromium. |
 | **3 — Subscription billing (test mode)** | **NOT STARTED.** |
 | **4 — Google Drive engineering** | **NOT STARTED.** |
-| **5 — Staging apply / deploy / deployed matrix** | **NOT STARTED.** Ledgers #21, #22 and #23 remain unapplied everywhere. |
+| **5 — Staging apply / deploy / deployed matrix** | **NOT STARTED.** Ledgers #21, #22, #23 remain unapplied everywhere. |
 
-### Checkpoint 3 (2026-07-28, `ee38004`) — where the next session resumes
+### PR #130 reconciliation
 
-Directive step 2's backend is now genuinely done rather than nominally done (§3b). **The next action
-is unchanged and unstarted: the confirmed-import UI.** Nothing in steps 3, 4 or 5 has begun.
+The two changesets were disjoint — PR #130 touched four files, this branch touched 47, none shared —
+so the merge had no conflicts and both sides landed whole. Verified afterwards that the four PR #130
+files are **byte-identical to origin/main**, and that all five named protections are present:
+OwnerDashboard truthful empty/unavailable states, the disabled mock OCR control, the
+DiasporaTradeProfile bounded request lifecycle, 429 manual-retry, and optimistic concurrency. Their
+two regression suites (28 tests) now gate this branch and pass.
 
-Backend suite at this checkpoint: **2213 tests · 2190 pass · 11 fail · 12 skipped**. All 11 failures
-are in `verification-ocr-provenance.test.js` / the OCR identity suite, are unrelated to this work,
-and were reproduced at branch HEAD with these fixes stashed — they are pre-existing, not a
-regression, and remain to be triaged separately. Note the suite needs
-`SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `JWT_SECRET` exported or ~10 files abort on import and
-the totals silently drop by ~190 tests.
+### Two test-environment findings
 
-Two API facts a UI author needs that are **not** obvious from the routes:
-- Receipt `row_number` is an ordinal in plan order, not the workbook row. `action.rowNumber` and
-  `action.row` do not exist on plan actions (they expose `workbookRowNumber`), so the
-  `receipts.length + 1` fallback always wins. Label it "Row (order)" or join via `row_id`.
-- `CONFIRMED_IMPORT_STATUSES.CONFIRMED` is declared but never written, and there is **no endpoint to
-  list or re-fetch a confirmation**. After `POST /confirm` the batch still reads
-  `VALIDATED`/`READY_FOR_REVIEW`. If the client loses `confirmationId`, the recovery path is to
-  re-`POST /confirm` with a **fresh** idempotency key, which returns the live confirmation with
-  `idempotentReplay: true`.
+- **The "11 pre-existing OCR failures" are an environment artifact, not a defect.** They appear only
+  when `ALLOW_OCR_MOCK=true` is absent. CI sets it (`.github/workflows/ci.yml:30`). With it:
+  **2213 / 2201 pass / 0 fail / 12 skipped**. Without it: 2213 / 2190 / 11 — exactly the reported
+  numbers. There is nothing to triage.
+- **`dealer-routes.test.js` has an intermittent full-suite flake.** Observed failing once in three
+  full-suite runs ("dealer creates own profile (201) then reads it back"), passing 9/9 in isolation
+  and in the two subsequent full runs. The file is untouched by both this branch and PR #130, so it
+  is pre-existing cross-test pollution, not a merge regression. Recorded rather than dismissed.
 
 ### Exact next actions, in order
 
-1. **Confirmed-import UI** at `/diaspora/imports` (or a new route): upload → dry-run preview with
-   row-level errors → explicit confirm bound to the displayed checksum → result view reading
-   `GET /workbook/import-batches/:id/receipts` → CSV download. The API is complete and typed; the
-   endpoints are `POST .../confirm`, `POST .../execute`, `GET .../receipts`, `GET .../receipts.csv`,
-   `GET /workbook/interrupted-imports`.
-2. **Confirmed-import Chromium suite**: clean dry-run → confirm → import; invalid rows blocked before
-   confirm; changed workbook invalidates confirmation; duplicate submit/reload/retry; quota denial and
-   release; mid-run failure with compensation; cross-tenant denial; mobile; receipt + audit visibility.
-3. **Step 3 (billing)**, **step 4 (Drive)**, **step 5 (staging)** as specified in the directive.
+1. **Step 3 — subscription billing in provider test mode**: provider ADR, provider-neutral adapter,
+   durable webhook ledger, reconciliation, out-of-order events, full entitlement enforcement,
+   observability, Chromium.
+2. **Step 4 — Google Drive**: injectable Google API transport, production-safe vault interface, test
+   adapter, OAuth/PKCE, durable sync, refresh/revocation/reconnect, UI, token-absence proof, Chromium.
+3. **Step 5 — staging**: apply ledgers #21/#22/#23, verify every DB contract, deploy staging with
+   sandbox/test flags, exercise UI-10 against real staging data, run the deployed Chromium matrix.
 
 ### Non-obvious things a resumer needs to know
 
-- `import_status` on `diaspora_workbook_import_batches` is plain `text` with **no CHECK constraint**,
-  so the confirmed-import states needed no migration.
-- The confirmed-import quota key is the **existing** `diaspora.workbook.bulk_import`. Do not invent a
-  new feature key: one absent from `PLAN_CATALOG` resolves to a zero limit and denies every tenant on
-  every plan, which is indistinguishable from correct enforcement.
-- Use `reserveQuotaForFeature` from the entitlement **guard**, not `reserveUsage` directly — the guard
-  returns a no-op handle when `DIASPORA_SUBSCRIPTION_ENFORCEMENT` is off, which is the default.
-- Two shared-mock fidelity gaps were fixed and matter for any new test: `select()` now honours the
-  column list, and `.in()` now actually filters. Both previously made whole classes of assertion pass
-  vacuously.
-- Playwright suites need the dev server started with the relevant flag, e.g.
-  `VITE_DIASPORA_SAFETRADE_UI_ENABLED=true VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED=true npm run dev --workspace=web`.
+- `diaspora_workbook_import_batches.import_status` is plain `text` with **no CHECK constraint**.
+- The confirmed-import quota key is the **existing** `diaspora.workbook.bulk_import`. A key absent
+  from `PLAN_CATALOG` resolves to a zero limit and denies every tenant on every plan — indistinguishable
+  from correct enforcement.
+- Use `reserveQuotaForFeature` from the entitlement **guard**, not `reserveUsage`: the guard returns a
+  no-op handle when `DIASPORA_SUBSCRIPTION_ENFORCEMENT` is off, which is the default.
+- Receipt `row_number` is an ordinal in plan order, **not** the workbook row. The UI labels it
+  "Row (order)" for that reason.
+- There is **no endpoint to re-fetch a confirmation**. If the client loses `confirmationId`, re-POST
+  `/confirm` with a fresh idempotency key and read `idempotentReplay: true`.
+- Three shared-mock fidelity gaps have been fixed and matter for any new test: `select()` now honours
+  the column list, `.in()` now filters, and registered unique indexes now raise 23505. Each previously
+  made a whole class of assertion pass vacuously.
+- Playwright needs the dev server started with the relevant flags, e.g.
+  `VITE_DIASPORA_WORKBOOK_IMPORT_UI_ENABLED=true VITE_DIASPORA_SAFETRADE_UI_ENABLED=true VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED=true npm run dev --workspace=web`.
 - Adding a `dashboard_sidebar` registry entry breaks the hardcoded per-role counts in
-  `tests/agents/27-feature-registry-navigation-map.spec.ts` and requires
-  `node scripts/generate-feature-manifest.mjs`. Both are expected; recompute rather than hand-add.
+  `tests/agents/27-feature-registry-navigation-map.spec.ts` and needs
+  `node scripts/generate-feature-manifest.mjs`. Recompute; never hand-add.
+- **Vercel builds are rate-limited at the account level** ("retry in 24 hours", observed 2026-07-28).
+  This blocks step 5's staging deploy independently of code.
 
 ---
 
@@ -226,7 +228,7 @@ Two API facts a UI author needs that are **not** obvious from the routes:
 
 **Engineering (no external dependency — implementable now):**
 
-- Deliverable **B**: backend DONE. Remaining: the import UI and its Playwright journeys.
+- Deliverable **B**: **DONE** — backend, UI and the 24-scenario Chromium matrix.
 - Deliverable **C** (sandbox half): vault adapter over `diaspora_credential_references`, the real
   Google Drive provider implemented against the API with an injectable HTTP transport, durable sync
   attempts with retry/backoff, connect/disconnect/reconnect UI states, token-absence proofs.
