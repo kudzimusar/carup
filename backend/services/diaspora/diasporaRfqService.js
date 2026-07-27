@@ -8,6 +8,9 @@ import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/erro
 import { QUOTE_DB_STATUSES, QUOTE_EDITABLE_FIELDS } from '../../constants/diaspora/diasporaRfqConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const ORDERS = 'diaspora_import_orders';
 const QUOTES = 'diaspora_import_quotes';
@@ -62,6 +65,14 @@ export async function createQuote(orderId, payload = {}, userContext = {}, optio
     const dup = (existingList || []).find((q) => q.metadata?.idempotencyKey === idempotencyKey);
     if (dup) return { quote: dup, idempotentReplay: true };
   }
+
+  // Gate on diaspora.rfq.respond, AFTER the idempotent-replay return above so a client retry is never
+  // re-evaluated (and, once quotas attach to this key, never re-charged).
+  await requireFeature(client, {
+    tenantId: order.tenant_id || context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.RFQ_RESPOND,
+  });
 
   const row = {
     tenant_id: order.tenant_id || context.tenantId || null,
@@ -122,6 +133,14 @@ export async function submitQuoteById(quoteId, userContext = {}, options = {}) {
   const { req = null } = options;
   const previous = await loadOwnedQuote(client, quoteId, context);
   if (previous.status !== QUOTE_DB_STATUSES.DRAFT) throw new ValidationError(`Only DRAFT quotes can be submitted (status: ${previous.status})`);
+
+  // A draft can be created before a downgrade and submitted after it, so submission is gated too —
+  // otherwise the draft path is a way around the entitlement on responding to RFQs.
+  await requireFeature(client, {
+    tenantId: previous.tenant_id || context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.RFQ_RESPOND,
+  });
 
   const { data, error } = await client.from(QUOTES).update({ status: QUOTE_DB_STATUSES.SUBMITTED, updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', quoteId).select().single();
   if (error) throw new ValidationError(`Failed to submit quote: ${error.message}`);

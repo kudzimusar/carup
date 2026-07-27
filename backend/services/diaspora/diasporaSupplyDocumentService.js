@@ -12,7 +12,7 @@ import {
 } from '../../constants/diaspora/diasporaStockConstants.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
-import { withEntitlement } from './diasporaEntitlementGuard.js';
+import { requireFeature, withEntitlement } from './diasporaEntitlementGuard.js';
 import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const STORAGE = 'diaspora_supply_documents';
@@ -43,6 +43,15 @@ export async function createSupplyDocument(payload = {}, userContext = {}, optio
   if (!payload.title || !String(payload.title).trim()) {
     throw new ValidationError('title is required');
   }
+
+  // Gate on diaspora.stock.create AFTER validation, so an invalid payload still fails with its
+  // existing 400 rather than a confusing 403. No quota is reserved: stock.max_items is a
+  // point-in-time ceiling reserved at PUBLISH, and reserving it here too would double-count.
+  await requireFeature(client, {
+    tenantId: context.tenantId || payload.tenant_id || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.STOCK_CREATE,
+  });
 
   const row = {
     tenant_id: context.tenantId || payload.tenant_id || null,

@@ -1,13 +1,33 @@
 import { ValidationError } from '../../utils/errors.js';
 import { validateDiasporaWorkbookDryRun } from './diasporaWorkbookValidationService.js';
 import { persistDiasporaWorkbookDryRun } from './diasporaWorkbookPersistenceService.js';
+import { resolveClient } from './diasporaServiceUtils.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 export function runDiasporaWorkbookDryRun(payload = {}, userContext = {}) {
   return validateDiasporaWorkbookDryRun(payload, userContext);
 }
 
+/**
+ * The single upload funnel: BOTH upload routes (JSON dry-run and base64 .xlsx dry-run) come through
+ * here, so this is the one place diaspora.workbook.upload needs gating. Gating the two routes
+ * separately would be two chances to forget.
+ *
+ * The validation runs first and is deliberately NOT gated: telling a user their workbook is malformed
+ * costs nothing and is more useful than a plan error. What is gated is PERSISTING it.
+ */
 export async function runAndPersistDiasporaWorkbookDryRun(payload = {}, userContext = {}, options = {}) {
   const dryRun = validateDiasporaWorkbookDryRun(payload, userContext);
+
+  const client = await resolveClient(options);
+  await requireFeature(client, {
+    tenantId: userContext.tenantId || null,
+    userId: userContext.id || userContext.userId || null,
+    featureKey: FEATURE_KEYS.WORKBOOK_UPLOAD,
+  });
+
   const persistence = await persistDiasporaWorkbookDryRun(payload, dryRun, userContext, options);
 
   return {

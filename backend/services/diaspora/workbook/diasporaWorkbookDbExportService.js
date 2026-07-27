@@ -35,6 +35,9 @@ import {
 import { resolveClient } from '../diasporaServiceUtils.js';
 import { writeDiasporaAudit } from '../diasporaAuditService.js';
 import { exportWorkbook } from './diasporaWorkbookXlsxService.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature } from '../diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../../constants/diaspora/diasporaEntitlements.js';
 import { sha256Checksum } from './diasporaWorkbookUploadSecurity.js';
 
 // Owner columns consulted when a non-privileged caller has no tenant context. A row is "owned" if
@@ -219,6 +222,16 @@ export async function exportWorkbookFromDatabase(templateType, userContext, opti
   const maxRowsPerSheet = resolveRowCeiling(options.maxRowsPerSheet);
   const client = await resolveClient(options);
   const privileged = isPlatformAdmin(context) || isPlatformReviewer(context);
+
+  // Gate bulk data extraction on diaspora.audit.export. This is a whole-tenant export of live trade
+  // data, which the plan catalog places at trade_pro ("bulk workbook import/export") — not the free
+  // blank-template download, which is a different key. Gated BEFORE any query runs, so a denied caller
+  // never causes the read load.
+  await requireFeature(client, {
+    tenantId: context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.AUDIT_EXPORT,
+  });
 
   const rowsBySheet = {};
   const rowCounts = {};
