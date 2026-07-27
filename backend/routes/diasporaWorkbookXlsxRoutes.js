@@ -27,6 +27,12 @@ import {
 } from '../services/diaspora/workbook/diasporaWorkbookXlsxService.js';
 import { exportWorkbookFromDatabase } from '../services/diaspora/workbook/diasporaWorkbookDbExportService.js';
 import { runAndPersistDiasporaWorkbookDryRun } from '../services/diaspora/diasporaWorkbookSyncService.js';
+import { resolveClient } from '../services/diaspora/diasporaServiceUtils.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+// The template generator is pure and carries no user context, so the download gate belongs here —
+// the route handler is the first place a tenant and an actor both exist.
+import { requireFeature } from '../services/diaspora/diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../constants/diaspora/diasporaEntitlements.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -50,6 +56,14 @@ function decodeBase64Workbook(fileBase64) {
 // GET /workbook/template.xlsx?type=... -> downloadable template.
 router.get('/workbook/template.xlsx', auth, asyncHandler(async (req, res) => {
   const templateType = req.query.type || req.query.templateType;
+  // diaspora.workbook.download is the plan FLOOR (true on every plan including free), so this gate
+  // denies nobody today. It is wired anyway because the only thing that can deny it is an explicit
+  // per-user override — a deliberate admin action that should actually take effect.
+  await requireFeature(await resolveClient({}), {
+    tenantId: req.userContext?.tenantId || null,
+    userId: req.userContext?.id || null,
+    featureKey: FEATURE_KEYS.WORKBOOK_DOWNLOAD,
+  });
   const buffer = await generateTemplate(templateType, { now: new Date().toISOString() });
   const filename = `diaspora-${String(templateType || 'template')}-template.xlsx`;
   res.setHeader('Content-Type', XLSX_UPLOAD_MIME);

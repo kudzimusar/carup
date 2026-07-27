@@ -107,9 +107,13 @@ test('OFF: free-plan tenant can still publish an RFQ; no usage meter/reservation
 // ── enforcement ON: free-plan denied with explainable denial ───────────────────────────────────
 
 test('ON: free-plan tenant denied stock publish with explainable denial (requiredPlan + featureKey)', async () => {
-  enforcement(true);
   const client = clientWith({ diaspora_subscriptions: [seedSubscription(TENANT_A, 'free')] });
+  // The document is created with enforcement OFF: creation is now itself gated on
+  // diaspora.stock.create, which the free plan does not grant, so building the fixture under
+  // enforcement would fail at the wrong step. This is also the realistic scenario — a tenant that
+  // created stock on a paid plan and has since dropped to free.
   const doc = await makePublishableDoc(client);
+  enforcement(true);
   await assert.rejects(
     () => supply.publishSupplyDocument(doc.id, sellerA, { supabaseClient: client }),
     (err) => {

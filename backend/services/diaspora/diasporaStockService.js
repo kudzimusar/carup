@@ -20,6 +20,11 @@ import { requireUserContext, isPlatformAdmin, isPlatformReviewer, normalizeId } 
 import { resolveClient, appendAudit, paging } from './diasporaServiceUtils.js';
 import { appendStockMovement, deriveBalances } from './diasporaStockLedgerService.js';
 import { STOCK_LEDGER_ACTIONS } from '../../constants/diaspora/diasporaStockConstants.js';
+// Entitlement enforcement goes through the GUARD, never the raw usage service. The guard is a
+// byte-identical no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off (the default), so wiring these
+// call sites changes nothing until enforcement is deliberately switched on.
+import { requireFeature, withEntitlement } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const STORAGE = 'diaspora_stock_items';
 
@@ -71,6 +76,16 @@ export async function createStockItem(payload = {}, userContext = {}, options = 
 
   const initialQty = Number(payload.initial_quantity || 0);
   if (initialQty < 0) throw new ValidationError('initial_quantity cannot be negative');
+
+  // Gate on diaspora.stock.create AFTER validation, so an invalid payload still fails with the same
+  // 400 it always did rather than a confusing 403. No quota is reserved here: the point-in-time
+  // ceiling (stock.max_items) is reserved by the PUBLISH paths, and reserving it again on create
+  // would double-count the same item against the tenant's allowance.
+  await requireFeature(client, {
+    tenantId: context.tenantId || payload.tenant_id || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.STOCK_CREATE,
+  });
 
   const row = {
     tenant_id: context.tenantId || payload.tenant_id || null,
@@ -282,29 +297,45 @@ export async function publishStockItem(id, payload = {}, userContext = {}, optio
     }
   }
 
-  const { data, error } = await client
-    .from(STORAGE)
-    .update({
-      publication_status: STOCK_PUBLICATION_STATUSES.PUBLISHED,
-      updated_by: context.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new ValidationError(`Failed to publish stock item: ${error.message}`);
-
-  await appendAudit(client, {
-    actorId: context.id,
-    tenantId: data.tenant_id,
-    action: 'STOCK_ITEM_PUBLISHED',
-    resourceType: 'diaspora_stock_item',
-    resourceId: id,
-    previousState: previous,
-    newState: data,
+  // Gate publish on diaspora.stock.publish and reserve a diaspora.stock.max_items slot — the same
+  // pairing publishSupplyDocument uses. This path was previously ungated, so a tenant could reach the
+  // marketplace by publishing individual stock items while the supply-document route was enforced:
+  // an enforcement gap that looks like working enforcement from the outside.
+  //
+  // The guard sits AFTER the idempotent-replay return above, so a replay never reserves a second slot.
+  return withEntitlement(client, {
+    tenantId: previous.tenant_id ?? context.tenantId ?? null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.STOCK_PUBLISH,
+    quotaFeatureKey: FEATURE_KEYS.STOCK_MAX_ITEMS,
+    amount: 1,
+    idempotencyKey: `stock-item-publish:${id}`,
     req,
+  }, async () => {
+    const { data, error } = await client
+      .from(STORAGE)
+      .update({
+        publication_status: STOCK_PUBLICATION_STATUSES.PUBLISHED,
+        updated_by: context.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw new ValidationError(`Failed to publish stock item: ${error.message}`);
+
+    await appendAudit(client, {
+      actorId: context.id,
+      tenantId: data.tenant_id,
+      action: 'STOCK_ITEM_PUBLISHED',
+      resourceType: 'diaspora_stock_item',
+      resourceId: id,
+      previousState: previous,
+      newState: data,
+      req,
+    });
+    return { ...data, balances: deriveBalances(data), idempotentReplay: false };
   });
-  return { ...data, balances: deriveBalances(data), idempotentReplay: false };
 }
 
 /**
