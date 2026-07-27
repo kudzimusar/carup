@@ -663,3 +663,48 @@ test('ROUTE: a checkout records a durable session row so abandonment is measurab
   assert.equal(sessions[0].state, 'open');
   assert.ok(sessions[0].session_ref);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stale-claim reclaim (integration of two independently-developed fixes, Issue #127)
+//
+// Two lanes fixed the same defect differently. The billing lane replaced SELECT-then-INSERT with
+// claim-by-INSERT, which closes the concurrency race; a parallel fix made an unprocessed row
+// re-processable, which closes the blackhole where an apply that died after the INSERT was answered
+// "already processed" on every subsequent retry — leaving, for a cancellation, a tenant on a paid
+// plan forever.
+//
+// Taking either alone loses the other. The row cannot distinguish "in flight" from "died partway", so
+// age does: under the lease it is a concurrent duplicate, over it the apply is presumed dead.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('an unprocessed claim OVER the lease is re-claimed, so a provider retry is not blackholed', async () => {
+  const db = client();
+  await ledger.claimBillingEvent({ provider: PROVIDER, eventId: 'evt-stale', tenantId: TENANT_A, supabaseClient: db });
+
+  // The apply died before stamping processed_at, and the provider retries much later.
+  const row = db._rows('diaspora_billing_provider_events').find((r) => r.event_id === 'evt-stale');
+  row.created_at = new Date(Date.now() - ledger.BILLING_CLAIM_LEASE_MS - 60_000).toISOString();
+  row.processed_at = null;
+
+  const retry = await ledger.claimBillingEvent({
+    provider: PROVIDER, eventId: 'evt-stale', tenantId: TENANT_A, supabaseClient: db,
+  });
+  assert.equal(retry.claimed, true, 'a dead apply must be re-claimed, not answered "already processed"');
+  assert.equal(retry.reclaimed, true);
+  assert.equal(retry.duplicate, false);
+  assert.equal(db._rows('diaspora_billing_provider_events').length, 1, 'and no second row is inserted');
+});
+
+test('a PROCESSED claim over the lease is still a duplicate — completed work is never re-applied', async () => {
+  const db = client();
+  await ledger.claimBillingEvent({ provider: PROVIDER, eventId: 'evt-done', tenantId: TENANT_A, supabaseClient: db });
+  const row = db._rows('diaspora_billing_provider_events').find((r) => r.event_id === 'evt-done');
+  row.created_at = new Date(Date.now() - ledger.BILLING_CLAIM_LEASE_MS - 60_000).toISOString();
+  row.processed_at = new Date().toISOString();
+
+  const again = await ledger.claimBillingEvent({
+    provider: PROVIDER, eventId: 'evt-done', tenantId: TENANT_A, supabaseClient: db,
+  });
+  assert.equal(again.claimed, false);
+  assert.equal(again.duplicate, true);
+});

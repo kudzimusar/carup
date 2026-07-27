@@ -86,6 +86,16 @@ export function sanitizeLedgerError(message) {
  *   claimed=true, superseded  → recorded for audit but older than what is already applied; do NOT apply.
  *   orderable=false           → the provider supplied no ordering signal; arrival order is all we have.
  */
+/**
+ * How long a claimed-but-unprocessed event is presumed to be in flight.
+ *
+ * Under this, a second delivery of the same event is a concurrent duplicate and must not be applied
+ * again. Over it, the first apply is presumed dead and the event is re-claimed so a provider retry is
+ * not silently discarded. Providers retry over minutes to hours, so a few minutes separates the two
+ * cases comfortably without leaving a genuinely failed event stuck for long.
+ */
+export const BILLING_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
 export async function claimBillingEvent({
   provider,
   eventId,
@@ -130,23 +140,33 @@ export async function claimBillingEvent({
     // Losing the INSERT race IS the de-duplication. Anything else is a genuine failure and must not be
     // swallowed into a false "already processed" — that would drop a real event silently.
     if (error.code === UNIQUE_VIOLATION || /duplicate key|uq_diaspora_billing_event/i.test(error.message || '')) {
-      // Losing the INSERT race means a row exists — but NOT necessarily that it was ever processed.
+      // Losing the INSERT race means a row exists — but NOT necessarily that it was ever processed,
+      // and the two cases need opposite treatment.
       //
-      // The row is written before the state is applied and `processed_at` is stamped after, so any
+      // The row is written before the state is applied and `processed_at` is stamped after, so a
       // failure in between (a status the DB CHECK rejects — providers emit 'canceled' while the CHECK
-      // accepts 'cancelled' — an unknown plan_key hitting the FK, or a concurrent-delivery collision)
-      // leaves a claimed row with processed_at NULL. Answering every retry "already processed" would
-      // permanently blackhole that event: the provider keeps retrying, we keep saying 200, and nothing
-      // ever scans for it. A cancellation lost that way leaves a tenant on a paid plan forever.
+      // accepts 'cancelled' — or an unknown plan_key hitting the FK) leaves a claimed row that was
+      // never processed. Answering every later retry "already processed" blackholes that event: the
+      // provider keeps retrying, we keep returning 200, and nothing ever scans for it. A cancellation
+      // lost that way leaves a tenant on a paid plan forever.
       //
-      // So an UNFINISHED row is handed back as CLAIMED, for reprocessing. Re-applying an authoritative
-      // provider snapshot is idempotent by construction, so replaying it is safe; silently dropping it
-      // is not. Only a row with processed_at set is a true duplicate.
+      // But an unprocessed row can ALSO mean a concurrent delivery is applying it right now. Handing
+      // that back as claimed would let two requests apply the same event at once.
+      //
+      // The row alone cannot distinguish them, so age does: a claim younger than
+      // BILLING_CLAIM_LEASE_MS is presumed in flight and answered as a duplicate; an older one whose
+      // apply never completed is presumed dead and is re-claimed for reprocessing. Re-applying an
+      // authoritative provider snapshot is idempotent by construction, so a replay is safe; silently
+      // dropping the event is not.
       const existing = await findBillingEvent(supabase, provider, eventId);
       if (existing && !existing.processed_at) {
-        return { claimed: true, duplicate: false, superseded: false, orderable, event: existing, supersededBy: null, reclaimed: true };
+        const claimedAt = Date.parse(existing.created_at ?? '');
+        const stale = Number.isFinite(claimedAt) && (Date.now() - claimedAt) > BILLING_CLAIM_LEASE_MS;
+        if (stale) {
+          return { claimed: true, duplicate: false, superseded: false, orderable, event: existing, supersededBy: null, reclaimed: true };
+        }
       }
-      return { claimed: false, duplicate: true, superseded: false, orderable, event: existing || null, supersededBy: null };
+      return { claimed: false, duplicate: true, superseded: false, orderable, event: null, supersededBy: null };
     }
     throw new Error(`Failed to record billing provider event: ${error.message}`);
   }

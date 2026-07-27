@@ -107,7 +107,11 @@ export function createMockSupabase(seed = {}, options = {}) {
         }
         const inserted = items.map((p) => {
           const row = { id: p.id || nextId(`${table}`), ...p };
-          if (row.created_at === undefined) row.created_at = new Date(2026, 5, 20).toISOString();
+          // Match Postgres `DEFAULT now()`. A FIXED past timestamp made every inserted row look
+          // ancient, so any age-based logic (claim leases, backlog staleness) silently took the
+          // "stale" branch in every test and could never be exercised correctly. Tests that care
+          // about a specific timestamp already set created_at explicitly, which still wins.
+          if (row.created_at === undefined) row.created_at = new Date().toISOString();
           rows.push(row);
           return { ...row };
         });
