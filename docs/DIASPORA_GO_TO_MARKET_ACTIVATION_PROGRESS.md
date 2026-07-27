@@ -211,6 +211,74 @@ not, which is exactly when the loss is invisible.
 
 ---
 
+
+## 3d. Closure checkpoint (2026-07-28) — both UI lanes integrated and proven in Chromium
+
+Integrator head at this checkpoint: see the PR. Work added in this pass, all on the integration
+branch, with the concurrent-writer conflict that preceded it resolved (single writer confirmed).
+
+### Billing operator UI (Deliverable D tail)
+
+The backend had shipped `/reconcile`, `/reconciliation-runs` and `/billing-health` with **no UI
+consuming any of them** — four durable signals existed and nothing surfaced. `BillingOperationsPanel`
+renders them under one rule: **a route that responds is not a healthy system.** Reconciliation
+FRESHNESS is judged independently of mismatch counts, because a scheduler that quietly stopped
+reports the same "0 mismatches" as a healthy one, and nothing else in the system notices provider
+drift. Never-run and stale both read as failed and raise a needs-operator state; dead-lettered
+provider events are terminal and say so. The panel is unconditionally labelled test mode, removes
+itself entirely on a 403 rather than rendering a misleading empty dashboard, loads once per mount,
+and a double-clicked Reconcile issues exactly one POST.
+
+### Drive status + durable-sync UI (integration request #3)
+
+Types mirroring `sanitizeSyncAttempt` (no token field on any of them by design), the
+`sync-attempts` reader, `activation.pending` rendering "Drive is not yet activated" and **hiding**
+Connect (which without owner credentials could only fail `NOT_CONFIGURED`), and the distinction the
+backend provides preserved: `dead_lettered` is a failure needing user action, never a
+warning-coloured "syncing"; `failed` with a `nextAttemptAt` is the retrying case.
+
+### Defects found and fixed while doing it
+
+1. **P0 — the Drive page carried the same unbounded request loop PR #130 fixed.** It held the
+   aggregate `useCarUpApi()` object and derived its effect deps from it. Proven: 7 of the new tests
+   fail against that pattern, six by 5-second infinite-loop timeout.
+2. Three **responsive** defects, all pre-existing: an unbroken 42-character scope URL widened the
+   Connection section past a 390px viewport; grid items default to `min-width:auto` and could not
+   shrink (held at 412px in a 390px viewport — `min-w-0` is the fix); the linked-files table had no
+   overflow container.
+3. Two **test** defects that produced misleading results rather than honest failures: a flag guard
+   that checked `count()` before React mounted (flaky skip instead of a real run), and a
+   `'**/api/**'` catch-all registered LAST — Playwright resolves the last matching route, so it
+   silently overrode the CSRF mock and the reconcile POST failed with "Could not establish a secure
+   session", surfacing only as a missing element.
+
+The overflow assertions now name the offending element, width and text. The first two attempts at
+that fix were wrong precisely because a bare boolean said nothing about which node was too wide.
+
+### Combined local closure gate at this checkpoint
+
+| Gate | Result |
+|---|---|
+| Backend (`ALLOW_OCR_MOCK=true`, canonical env) | **2496 tests · 2484 pass · 0 fail · 12 skipped** |
+| Web unit | **81 files · 744 tests · 0 fail** |
+| Real PostgreSQL — ledger #21 GTM foundation | **106 / 106** |
+| Real PostgreSQL — billing (#24) | **36 / 36** |
+| Real PostgreSQL — Drive vault reference | **76 / 76** |
+| Real PostgreSQL — ST-3 (#22) | **29 / 29** |
+| Real PostgreSQL — ST-3 item 1 (#23) | **42 / 42** |
+| TypeScript | clean |
+| Production web build | clean |
+| CR-1 secret scan | clean (1571 tracked files) |
+| Chromium — new Drive sync-state matrix | **10 / 10** (desktop + mobile) |
+| Chromium — new billing operations matrix | **12 / 12** (desktop + mobile) |
+| Chromium — existing Drive + subscription suites | **22 / 22** |
+
+**Note on the OCR failures reported in earlier checkpoints:** they were an environment artifact of
+running without `ALLOW_OCR_MOCK=true`, not defects. With the canonical env the backend suite is 0
+fail. Earlier reports of "11 pre-existing failures" should be read that way.
+
+---
+
 ## 4. What is fail-closed right now
 
 | Surface | State |
