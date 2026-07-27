@@ -127,6 +127,11 @@ import type {
   SafeTradeCommitEvent,
   SafeTradeCreateResponse,
   SafeTradeListResponse,
+  // Confirmed workbook import (Issue #127)
+  WorkbookImportConfirmation,
+  WorkbookImportReceipt,
+  WorkbookImportExecutionResult,
+  WorkbookInterruptedBatch,
   // ST-3 operator surfaces (Issue #127)
   SafeTradeApproval,
   SafeTradeOperation,
@@ -1587,6 +1592,63 @@ export function useCarUpApi() {
   const idemHeaders = (idempotencyKey?: string): Record<string, string> =>
     idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}
 
+  // ── Confirmed workbook import (Deliverable B, Issue #127) ──
+  // Two calls, deliberately separate: /confirm mints a token bound to the exact workbook previewed,
+  // /execute spends it. A single combined call would have nothing to compare against, so "the
+  // workbook changed since you confirmed" would be undetectable.
+
+  const confirmWorkbookImport = useCallback(async (
+    batchId: string,
+    workbookChecksum: string,
+    idempotencyKey: string,
+  ): Promise<{ data: WorkbookImportConfirmation; idempotentReplay: boolean }> => {
+    return request<{ data: WorkbookImportConfirmation; idempotentReplay: boolean }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/confirm`,
+      { method: 'POST', body: JSON.stringify({ workbookChecksum, idempotencyKey }) },
+    )
+  }, [request])
+
+  const executeWorkbookImport = useCallback(async (
+    batchId: string,
+    confirmationId: string,
+  ): Promise<WorkbookImportExecutionResult> => {
+    const response = await request<{ data: WorkbookImportExecutionResult }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/execute`,
+      { method: 'POST', body: JSON.stringify({ confirmationId }) },
+    )
+    return response.data
+  }, [request])
+
+  /**
+   * The dry-run batch summary the confirm step reads.
+   *
+   * Returned loosely typed on purpose: the summary endpoint predates this feature and its shape is
+   * owned by the operator-console surface, so the page narrows the handful of fields it needs rather
+   * than asserting a contract this feature does not control.
+   */
+  const getDiasporaWorkbookImportBatchSummary = useCallback(async (batchId: string): Promise<unknown> => {
+    const response = await request<{ data?: unknown }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/summary`,
+    )
+    return (response as { data?: unknown })?.data ?? response
+  }, [request])
+
+  const getWorkbookImportReceipts = useCallback(async (batchId: string): Promise<WorkbookImportReceipt[]> => {
+    const response = await request<{ data: WorkbookImportReceipt[] }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/receipts`,
+    )
+    return response.data || []
+  }, [request])
+
+  const getWorkbookInterruptedImports = useCallback(async (): Promise<WorkbookInterruptedBatch[]> => {
+    const response = await request<{ data: WorkbookInterruptedBatch[] }>('/diaspora/workbook/interrupted-imports')
+    return response.data || []
+  }, [request])
+
+  /** Path only — the page builds an authenticated download rather than a bare anchor. */
+  const workbookReceiptCsvPath = useCallback((batchId: string): string =>
+    `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/receipts.csv`, [])
+
   // ── UI-10: Trade Graph dashboard (Issue #127) ──
   // Read-only by construction. There is deliberately NO client method that writes a node or an edge:
   // the graph is derived from recorded events by the backend projection and the API exposes no write
@@ -2630,6 +2692,13 @@ export function useCarUpApi() {
     createDiasporaBillingPortal,
     changeDiasporaPlan,
     cancelDiasporaSubscription,
+    // ── Confirmed workbook import ──
+    getDiasporaWorkbookImportBatchSummary,
+    confirmWorkbookImport,
+    executeWorkbookImport,
+    getWorkbookImportReceipts,
+    getWorkbookInterruptedImports,
+    workbookReceiptCsvPath,
     // ── UI-10: Trade Graph dashboard ──
     getTradeGraphSummary,
     getTradeGraphProjectionStatus,

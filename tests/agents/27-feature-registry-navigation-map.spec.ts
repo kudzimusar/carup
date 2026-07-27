@@ -139,12 +139,14 @@ test.describe('Feature Registry & Navigation Map', () => {
       // unavailable state rather than 404ing.)
       // Recomputed 2026-07-28 (Issue #127, ST-3): `diaspora.safetrade-operations` adds ONE
       // dashboard_sidebar entry for roles admin / government, so those two rise by 1 again.
+      // Recomputed 2026-07-28 (Issue #127, Deliverable B): `diaspora.workbook-import` adds ONE
+      // dashboard_sidebar entry for roles admin / dealer.
       expect(result.roleItemCounts['owner']).toBe(20);
-      expect(result.roleItemCounts['dealer']).toBe(15);
+      expect(result.roleItemCounts['dealer']).toBe(16);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
       expect(result.roleItemCounts['government']).toBe(14);
-      expect(result.roleItemCounts['admin']).toBe(28);
+      expect(result.roleItemCounts['admin']).toBe(29);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

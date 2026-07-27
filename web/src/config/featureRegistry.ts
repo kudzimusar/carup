@@ -43,6 +43,12 @@ const SAFETRADE_UI_ENABLED = import.meta.env?.VITE_DIASPORA_SAFETRADE_UI_ENABLED
 // imports this registry transitively and has no import.meta.env).
 const TRADE_GRAPH_UI_ENABLED = import.meta.env?.VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED === 'true'
 
+// ── Confirmed workbook import flag (Issue #127) ─────────────────────────────
+// OFF by default (fail closed). Hides the nav entry; the App.tsx route always exists and the page
+// renders an explicit unavailable state. Distinct from the backend, which refuses an unconfirmed
+// import regardless, and from the `diaspora.workbook.bulk_import` entitlement.
+const WORKBOOK_IMPORT_UI_ENABLED = import.meta.env?.VITE_DIASPORA_WORKBOOK_IMPORT_UI_ENABLED === 'true'
+
 // ── Domain taxonomy ────────────────────────────────────────────────────────
 export type FeatureDomain =
   | 'commerce'
@@ -929,6 +935,18 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     // (isHidden:false) surfaces the entry without adding a duplicate route. The /:id detail route is
     // a sub-route (not a registry entry), matching the import-detail pattern.
     isHidden: !SAFETRADE_UI_ENABLED,
+  },
+  {
+    id: 'diaspora.workbook-import',
+    label: 'Import Workbook',
+    route: '/diaspora/workbook/import',
+    domain: 'diaspora',
+    roles: ['admin', 'dealer'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    description: 'Review a dry run, confirm exactly what you reviewed, then import',
+    isHidden: !WORKBOOK_IMPORT_UI_ENABLED,
   },
   {
     id: 'diaspora.safetrade-operations',

@@ -62,6 +62,7 @@ import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
 import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
 import DiasporaTradeGraph from './pages/diaspora/DiasporaTradeGraph'
 import DiasporaSafeTradeOperations from './pages/diaspora/DiasporaSafeTradeOperations'
+import DiasporaConfirmedImport from './pages/diaspora/DiasporaConfirmedImport'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -280,6 +281,9 @@ export default function App() {
           {/* ST-3 operator console (Issue #127). Reviewer/admin only; the page renders its own
               access-denied state and the backend re-authorizes every call. */}
           <Route path="/diaspora/safetrade/operations" element={<DiasporaSafeTradeOperations />} />
+          {/* Confirmed workbook import (Issue #127). Route always exists; the page renders its own
+              unavailable state when the UI flag is off. */}
+          <Route path="/diaspora/workbook/import" element={<DiasporaConfirmedImport />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />

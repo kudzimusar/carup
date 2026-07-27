@@ -2684,3 +2684,65 @@ export interface SafeTradeOutboxDrainSummary {
   noHandler: number;
   results: { id: string; eventType: string; outcome: string; error?: string }[];
 }
+
+// ─── Confirmed workbook import (Deliverable B, Issue #127) ─────────────────
+
+export interface WorkbookImportConfirmation {
+  id: string;
+  tenant_id: string;
+  batch_id: string;
+  workbook_checksum: string;
+  dry_run_revision: number;
+  confirmed_by: string;
+  confirmed_at: string;
+  expires_at: string;
+  idempotency_key: string;
+  state: 'pending' | 'consumed' | 'expired' | 'invalidated' | string;
+  row_count: number | null;
+}
+
+export interface WorkbookImportReceipt {
+  id: string;
+  batch_id: string;
+  /**
+   * An ORDINAL in plan order — NOT the workbook's own row number. Plan actions expose
+   * `workbookRowNumber`, which the orchestrator does not carry through, so this counts 1..n over the
+   * plan. Labelled "Row (order)" in the UI so nobody reconciles it against their spreadsheet.
+   */
+  row_number: number;
+  sheet_name: string | null;
+  outcome: 'accepted' | 'rejected' | 'skipped' | 'compensated' | 'pending' | string;
+  entity_type: string | null;
+  entity_ref: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  compensated_at: string | null;
+  attempt: number;
+  created_at: string;
+}
+
+export interface WorkbookImportExecutionResult {
+  /** True ONLY when every row applied. Never rendered as success on any other value. */
+  imported: boolean;
+  batchId: string;
+  confirmationId: string;
+  status: string;
+  appliedRows?: number;
+  compensatedRows?: number;
+  compensationFailures?: number;
+  failedAtRow?: number;
+  errorCode?: string;
+  receipts?: number;
+  userMessage: string;
+}
+
+export interface WorkbookInterruptedBatch {
+  id: string;
+  tenantId: string;
+  status: string;
+  totalRows: number | null;
+  updatedAt: string | null;
+  confirmedImport: Record<string, unknown> | null;
+  /** True for NEEDS_OPERATOR: partly applied and not fully reversible. Never offer a retry. */
+  needsHuman: boolean;
+}

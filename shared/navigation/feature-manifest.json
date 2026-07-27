@@ -670,6 +670,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.workbook-import",
+    "domain": "diaspora",
+    "route": "/diaspora/workbook/import",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.workbook-operator-console",
     "domain": "diaspora",
     "route": "/admin/diaspora/workbooks",
