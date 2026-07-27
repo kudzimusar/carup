@@ -34,6 +34,15 @@ const SUBSCRIPTION_UI_ENABLED = import.meta.env?.VITE_DIASPORA_SUBSCRIPTION_UI_E
 // optional-chain rationale as SUBSCRIPTION_UI_ENABLED (Playwright Node runner has no import.meta.env).
 const SAFETRADE_UI_ENABLED = import.meta.env?.VITE_DIASPORA_SAFETRADE_UI_ENABLED === 'true'
 
+// ── UI-10 feature flag (Issue #127) ─────────────────────────────────────────
+// Diaspora Trade Graph dashboard is OFF by default (fail closed). When OFF the nav entry is hidden
+// (isHidden) AND the page renders an explicit unavailable state; the App.tsx route always exists so
+// the feature works the moment the flag is turned ON. Distinct from the backend capability gate
+// (DIASPORA_TRADE_GRAPH), which makes the whole API surface 404 when off, and from the separate AI
+// insight flag. Same optional-chain rationale as the two flags above (the Playwright Node runner
+// imports this registry transitively and has no import.meta.env).
+const TRADE_GRAPH_UI_ENABLED = import.meta.env?.VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED === 'true'
+
 // ── Domain taxonomy ────────────────────────────────────────────────────────
 export type FeatureDomain =
   | 'commerce'
@@ -208,6 +217,7 @@ export type LucideIconName =
   | 'Store'
   | 'ScrollText'
   | 'Lock'
+  | 'Share2'
 
 // ── Core registry item ─────────────────────────────────────────────────────
 export interface FeatureRegistryItem {
@@ -919,6 +929,21 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     // (isHidden:false) surfaces the entry without adding a duplicate route. The /:id detail route is
     // a sub-route (not a registry entry), matching the import-detail pattern.
     isHidden: !SAFETRADE_UI_ENABLED,
+  },
+  {
+    id: 'diaspora.trade-graph',
+    label: 'Trade Graph',
+    route: '/diaspora/trade-graph',
+    domain: 'diaspora',
+    roles: ['owner', 'dealer', 'admin', 'government'],
+    placements: ['dashboard_sidebar'],
+    requiresAuth: true,
+    icon: 'Share2',
+    description: 'How your orders, stock, containers, shipments and SafeTrade cases connect',
+    // Flag OFF (default) hides the nav entry AND keeps route-validation green (activeFeatures filters
+    // out isHidden). The /diaspora/trade-graph route in App.tsx always exists, so flipping the flag ON
+    // surfaces the entry without adding a duplicate route.
+    isHidden: !TRADE_GRAPH_UI_ENABLED,
   },
   {
     id: 'shared.settings',

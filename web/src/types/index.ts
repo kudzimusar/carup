@@ -2521,3 +2521,81 @@ export interface DisputeMutationResponse {
   success: boolean;
   dispute: Dispute;
 }
+
+// ─── UI-10 · Diaspora Trade Graph dashboard (Issue #127) ────────────────────
+// These mirror backend/services/diaspora/tradegraph/diasporaTradeGraphHealthService.js exactly.
+// Note what is ABSENT: no entity ids, no node `data`, no raw event payloads. The dashboard reads are
+// shaped so they cannot carry participant data in the first place, rather than relying on a
+// redaction step that a later change could bypass.
+
+export type TradeGraphHealthState = 'HEALTHY' | 'DEGRADED' | 'STALLED' | 'UNKNOWN' | 'EMPTY';
+
+export interface TradeGraphTypeCount {
+  type: string;
+  count: number;
+}
+
+export interface TradeGraphCounts {
+  nodes: TradeGraphTypeCount[];
+  edges: TradeGraphTypeCount[];
+  totalNodes: number;
+  totalEdges: number;
+}
+
+export interface TradeGraphProjectionStatus {
+  hasCheckpoint: boolean;
+  health: TradeGraphHealthState;
+  lastEventId: string | null;
+  lastEventAt: string | null;
+  /** Seconds since the last event the projection actually PROCESSED (not since its last heartbeat). */
+  lagSeconds: number | null;
+  deadLetterCount: number;
+  replayCount: number;
+  replayRequired: boolean;
+  projectionVersion: string | null;
+  updatedAt: string | null;
+}
+
+export interface TradeGraphRebuildRecord {
+  id: string;
+  status: string;
+  requested_at: string | null;
+  completed_at: string | null;
+  events_processed: number | null;
+  events_failed: number | null;
+  nodes_rebuilt: number | null;
+  edges_rebuilt: number | null;
+  reason: string | null;
+}
+
+export interface TradeGraphSummary {
+  counts: TradeGraphCounts;
+  projection: TradeGraphProjectionStatus;
+  lastRebuild: TradeGraphRebuildRecord | null;
+  health: TradeGraphHealthState;
+  /** Server-computed, so the UI never duplicates the staleness thresholds. */
+  stale: boolean;
+}
+
+export interface TradeGraphDeadLetter {
+  id: string;
+  eventId: string;
+  eventType: string;
+  retryCount: number;
+  createdAt: string | null;
+  lastRetryAt: string | null;
+  errorMessage: string | null;
+  /** Always true — raw payloads are never returned. Surfaced so the UI can explain the empty detail. */
+  payloadWithheld: boolean;
+  payloadWithheldReason: string;
+}
+
+export interface TradeGraphRebuildResponse {
+  status: string;
+  tenantId?: string;
+  rebuildId?: string;
+  eventsProcessed?: number;
+  eventsFailed?: number;
+  nodesRebuilt?: number;
+  edgesRebuilt?: number;
+}

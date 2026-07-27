@@ -598,6 +598,26 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.trade-graph",
+    "domain": "diaspora",
+    "route": "/diaspora/trade-graph",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.trade-profile",
     "domain": "diaspora",
     "route": "/diaspora/trade-profile",

@@ -127,6 +127,11 @@ import type {
   SafeTradeCommitEvent,
   SafeTradeCreateResponse,
   SafeTradeListResponse,
+  // UI-10 · Trade Graph dashboard (Issue #127)
+  TradeGraphSummary,
+  TradeGraphProjectionStatus,
+  TradeGraphDeadLetter,
+  TradeGraphRebuildResponse,
   SafeTradeEvaluateReleaseResponse,
   SafeTradeDisputeOpenResponse,
   SafeTradeDisputeResolveResponse,
@@ -1576,6 +1581,50 @@ export function useCarUpApi() {
   const idemHeaders = (idempotencyKey?: string): Record<string, string> =>
     idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}
 
+  // ── UI-10: Trade Graph dashboard (Issue #127) ──
+  // Read-only by construction. There is deliberately NO client method that writes a node or an edge:
+  // the graph is derived from recorded events by the backend projection and the API exposes no write
+  // path, so the frontend cannot author graph state even by mistake. The one mutation below
+  // (rebuild) only asks the server to RE-DERIVE from the authoritative outbox.
+
+  const getTradeGraphSummary = useCallback(async (): Promise<TradeGraphSummary> => {
+    return request<TradeGraphSummary>('/diaspora/trade-graph/summary')
+  }, [request])
+
+  const getTradeGraphProjectionStatus = useCallback(async (): Promise<TradeGraphProjectionStatus> => {
+    return request<TradeGraphProjectionStatus>('/diaspora/trade-graph/projection/status')
+  }, [request])
+
+  const getTradeGraphDeadLetters = useCallback(async (limit?: number): Promise<TradeGraphDeadLetter[]> => {
+    const query = limit ? `?limit=${encodeURIComponent(String(limit))}` : ''
+    const response = await request<{ data: TradeGraphDeadLetter[] }>(`/diaspora/trade-graph/dead-letters${query}`)
+    return response.data || []
+  }, [request])
+
+  const getTradeGraphRiskExposure = useCallback(async (): Promise<unknown> => {
+    return request('/diaspora/trade-graph/risk/exposure')
+  }, [request])
+
+  const getTradeGraphContainerOpportunities = useCallback(async (): Promise<unknown> => {
+    return request('/diaspora/trade-graph/containers/opportunities')
+  }, [request])
+
+  const getTradeGraphDemandSignals = useCallback(async (): Promise<unknown> => {
+    return request('/diaspora/trade-graph/stock/demand-signals')
+  }, [request])
+
+  /**
+   * Admin-only rebuild. The server re-derives the graph from the authoritative outbox; it is
+   * rate-limited and audited there. The idempotency key makes a double-click a safe no-op.
+   */
+  const rebuildTradeGraph = useCallback(async (payload: { reason?: string; idempotencyKey?: string } = {}): Promise<TradeGraphRebuildResponse> => {
+    return request<TradeGraphRebuildResponse>('/diaspora/trade-graph/rebuild', {
+      method: 'POST',
+      body: JSON.stringify({ reason: payload.reason || 'operator_dashboard_rebuild' }),
+      headers: idemHeaders(payload.idempotencyKey),
+    })
+  }, [request])
+
   const getSafeTradeCases = useCallback(async (filters?: { status?: string; importOrderId?: string; limit?: number; offset?: number }): Promise<SafeTradeListResponse> => {
     const query = filters
       ? '?' + new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
@@ -2519,6 +2568,14 @@ export function useCarUpApi() {
     createDiasporaBillingPortal,
     changeDiasporaPlan,
     cancelDiasporaSubscription,
+    // ── UI-10: Trade Graph dashboard ──
+    getTradeGraphSummary,
+    getTradeGraphProjectionStatus,
+    getTradeGraphDeadLetters,
+    getTradeGraphRiskExposure,
+    getTradeGraphContainerOpportunities,
+    getTradeGraphDemandSignals,
+    rebuildTradeGraph,
     // ── Phase 9: SafeTrade ──
     getSafeTradeCases,
     getSafeTradeCase,

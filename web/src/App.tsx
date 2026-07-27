@@ -60,6 +60,7 @@ import DiasporaDriveConnections from './pages/diaspora/DiasporaDriveConnections'
 import DiasporaSubscription from './pages/diaspora/DiasporaSubscription'
 import DiasporaSafeTrade from './pages/diaspora/DiasporaSafeTrade'
 import DiasporaSafeTradeDetail from './pages/diaspora/DiasporaSafeTradeDetail'
+import DiasporaTradeGraph from './pages/diaspora/DiasporaTradeGraph'
 
 // Auth Pages
 import Login from './pages/auth/Login'
@@ -271,6 +272,10 @@ export default function App() {
           <Route path="/diaspora/subscription" element={<DiasporaSubscription />} />
           <Route path="/diaspora/safetrade" element={<DiasporaSafeTrade />} />
           <Route path="/diaspora/safetrade/:id" element={<DiasporaSafeTradeDetail />} />
+          {/* UI-10 (Issue #127). The route always exists so flipping the UI flag on surfaces the
+              nav entry without adding a duplicate route; with the flag off the page renders an
+              explicit unavailable state and fetches nothing. */}
+          <Route path="/diaspora/trade-graph" element={<DiasporaTradeGraph />} />
           <Route path="/admin/diaspora/compliance" element={<DiasporaComplianceAdmin />} />
           <Route path="/admin/diaspora/workbooks" element={<DiasporaWorkbookOperatorConsole />} />
           <Route path="/admin/diaspora/workbooks/new" element={<DiasporaWorkbookDryRun />} />
