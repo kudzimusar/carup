@@ -6,7 +6,7 @@
 > what is true so that nothing here can be mistaken for an activation receipt.
 >
 > Branch: `claude/diaspora-go-to-market-activation` · Baseline: `afb3736` (exact `origin/main` at start)
-> Date: 2026-07-27, updated 2026-07-28 (Owner Continuation Directive v2)
+> Date: 2026-07-27, updated 2026-07-28 (Owner Continuation Directive v2 — checkpoint 2)
 
 ---
 
@@ -15,7 +15,7 @@
 | Deliverable | Status | Evidence |
 |---|---|---|
 | **A — UI-10 Trade Graph dashboard** | **Implemented and verified** (flags OFF) | 18 backend + 19 web-unit + 17 Playwright/Chromium tests; direct Chromium inspection |
-| **B — Confirmed workbook import** | **NEXT (step 2).** Schema only; service, route and UI unwritten | ledger #21 tables exist and are verified; no code reads them yet |
+| **B — Confirmed workbook import** | **BACKEND COMPLETE; UI + Chromium NOT DONE.** Confirmation, execution state machine, quotas, entitlements, receipts, compensation, recovery and CSV export all implemented and tested | 31 service tests; ledger #21 constraints proven in the 106/106 real-Postgres run; routes live |
 | **C — Live Google Drive** | **Schema only**, plus vault-reference safety | ledger #21 `diaspora_credential_references` + its anti-secret constraints |
 | **D — Live subscription billing** | **Correctness fix only** (webhook CSRF); live provider not implemented | webhook now reaches its handler; reconciliation table unused |
 | **E — SafeTrade ST-3 closure** | **ALL FOUR ITEMS CLOSED END-TO-END** (2026-07-28). Sandbox only; live money still fail-closed | ledgers #22/#23 + services + operator console; 42 + 29 real-Postgres assertions, 51 service tests, 14 Chromium |
@@ -120,12 +120,56 @@ behavioural harness, not by review.
 
 ---
 
+## 4b. RESUME POINT (Owner Continuation Directive v2)
+
+Branch `claude/diaspora-go-to-market-activation`, PR **#129**. Resume from the head of that branch.
+Directive step order was 1 → 2 → 3 → 4 → 5. Progress against it:
+
+| Step | State |
+|---|---|
+| **1 — ST-3 item #1 complete** | **DONE.** Ledger #23 atomic RPCs, outbox drainer with lease/backoff/dead-letter, operator console, maker-checker request flow. 42 real-Postgres assertions, 20 drainer service tests, 19 console component tests, 14 Chromium. |
+| **2 — Confirmed workbook import** | **BACKEND DONE** (confirmation + execution + quota + receipts + compensation + recovery + CSV, 31 tests, routes wired). **NOT DONE: the import UI and its Chromium journeys.** |
+| **3 — Subscription billing (test mode)** | **NOT STARTED.** |
+| **4 — Google Drive engineering** | **NOT STARTED.** |
+| **5 — Staging apply / deploy / deployed matrix** | **NOT STARTED.** Ledgers #21, #22 and #23 remain unapplied everywhere. |
+
+### Exact next actions, in order
+
+1. **Confirmed-import UI** at `/diaspora/imports` (or a new route): upload → dry-run preview with
+   row-level errors → explicit confirm bound to the displayed checksum → result view reading
+   `GET /workbook/import-batches/:id/receipts` → CSV download. The API is complete and typed; the
+   endpoints are `POST .../confirm`, `POST .../execute`, `GET .../receipts`, `GET .../receipts.csv`,
+   `GET /workbook/interrupted-imports`.
+2. **Confirmed-import Chromium suite**: clean dry-run → confirm → import; invalid rows blocked before
+   confirm; changed workbook invalidates confirmation; duplicate submit/reload/retry; quota denial and
+   release; mid-run failure with compensation; cross-tenant denial; mobile; receipt + audit visibility.
+3. **Step 3 (billing)**, **step 4 (Drive)**, **step 5 (staging)** as specified in the directive.
+
+### Non-obvious things a resumer needs to know
+
+- `import_status` on `diaspora_workbook_import_batches` is plain `text` with **no CHECK constraint**,
+  so the confirmed-import states needed no migration.
+- The confirmed-import quota key is the **existing** `diaspora.workbook.bulk_import`. Do not invent a
+  new feature key: one absent from `PLAN_CATALOG` resolves to a zero limit and denies every tenant on
+  every plan, which is indistinguishable from correct enforcement.
+- Use `reserveQuotaForFeature` from the entitlement **guard**, not `reserveUsage` directly — the guard
+  returns a no-op handle when `DIASPORA_SUBSCRIPTION_ENFORCEMENT` is off, which is the default.
+- Two shared-mock fidelity gaps were fixed and matter for any new test: `select()` now honours the
+  column list, and `.in()` now actually filters. Both previously made whole classes of assertion pass
+  vacuously.
+- Playwright suites need the dev server started with the relevant flag, e.g.
+  `VITE_DIASPORA_SAFETRADE_UI_ENABLED=true VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED=true npm run dev --workspace=web`.
+- Adding a `dashboard_sidebar` registry entry breaks the hardcoded per-role counts in
+  `tests/agents/27-feature-registry-navigation-map.spec.ts` and requires
+  `node scripts/generate-feature-manifest.mjs`. Both are expected; recompute rather than hand-add.
+
+---
+
 ## 5. Remaining work before Issue #127 can close
 
 **Engineering (no external dependency — implementable now):**
 
-- Deliverable **B**: confirmation service, execution state machine with compensation, per-row
-  receipts, downloadable result workbook, operator recovery controls, UI, Playwright journeys.
+- Deliverable **B**: backend DONE. Remaining: the import UI and its Playwright journeys.
 - Deliverable **C** (sandbox half): vault adapter over `diaspora_credential_references`, the real
   Google Drive provider implemented against the API with an injectable HTTP transport, durable sync
   attempts with retry/backoff, connect/disconnect/reconnect UI states, token-absence proofs.
