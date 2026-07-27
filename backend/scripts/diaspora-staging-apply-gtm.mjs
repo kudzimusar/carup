@@ -3,8 +3,8 @@
  * Diaspora Trade OS — GTM ledger apply + verify for canonical staging (carup-staging, ref
  * eoyenigwevnxwwhyhaer). Issue #127.
  *
- * Applies the go-to-market ledgers IN ORDER — #21 through #25, and any later GTM migration declared
- * in LEDGERS below — each in its own transaction together with its official
+ * Applies the go-to-market ledgers IN ORDER — #21 onward, exactly as declared in LEDGERS below —
+ * each in its own transaction together with its official
  * supabase_migrations.schema_migrations row. Fail-closed throughout: a checksum drift, a version
  * collision, a missing prerequisite or a failed post-apply contract stops the run and records nothing
  * for the migration that failed.
@@ -150,6 +150,30 @@ const LEDGERS = [
     // Three parameters carry defaults, so a second definition with a different signature would make
     // every named-argument call from Supabase ambiguous at runtime rather than at deploy time.
     singleOverload: ['diaspora_release_usage_atomic'],
+  },
+  {
+    n: 27,
+    version: '20260731100000',
+    name: 'diaspora_scheduler_leases',
+    sha12: 'ab15e7d98192',
+    tables: [
+      'diaspora_scheduled_jobs',
+      'diaspora_scheduler_runs',
+      'diaspora_subscription_renewals',
+    ],
+    functions: [
+      'diaspora_scheduler_claim_atomic',
+      'diaspora_scheduler_release_atomic',
+    ],
+    // The renewal sweep reads subscriptions, but the MIGRATION carries no foreign key to them — so it
+    // applies against any schema and only the service needs the table. Listing it here keeps the
+    // apply order honest about what must exist before the scheduler is useful.
+    requiresTables: ['diaspora_subscriptions'],
+    extraColumns: [],
+    singleOverload: [
+      'diaspora_scheduler_claim_atomic',
+      'diaspora_scheduler_release_atomic',
+    ],
   },
 ];
 

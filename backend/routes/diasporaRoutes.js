@@ -75,10 +75,13 @@ router.use(diasporaSafeTradeRouter);
 // route-shadowing lesson: a blanket gate at the diaspora root 404s everything).
 router.use('/trade-graph', diasporaTradeGraphRouter);
 
-// Phase 2E: durable scheduled execution (ledger #26). Mounted UNDER '/scheduler' so the dispatch
+// Phase 2E: durable scheduled execution (ledger #27). Mounted UNDER '/scheduler' so the dispatch
 // endpoint's secret gate is scoped to this prefix and cannot shadow sibling diaspora routes. Every
-// job is OFF by default — both the deployment flag and the database `enabled` column must be set —
-// and the dispatch route answers 503 when no DIASPORA_SCHEDULER_SECRET/CRON_SECRET is configured.
+// job is OFF by default and turning one on takes two independent acts — the deployment flag AND the
+// database `enabled` column — so the second is a kill switch an operator can pull mid-incident
+// without a redeploy. While the deployment flag is unset the dispatch route answers
+// 200 {dispatched:false, SCHEDULER_DISABLED} with or without a credential, running nothing and
+// opening no database connection, so a cron can be wired ahead of activation without going red.
 router.use('/scheduler', diasporaSchedulerRouter);
 
 // Import Orders

@@ -1,0 +1,84 @@
+name: 'Diaspora Scheduler Dispatch'
+
+# Ticks the Diaspora scheduler so its five durable jobs — billing reconciliation, the checkout
+# abandonment sweep, billing event retry, Drive sync retry and subscription renewal detection — can
+# actually run. Every one of them was implemented and operator-triggerable with nothing calling it on
+# a timer, which is the same as not having them.
+#
+# WHY A WORKFLOW AND NOT A vercel.json CRON
+# -----------------------------------------
+# The deployment runs on Vercel's Hobby plan (confirmed via the API: billing.plan = hobby), where
+# cron jobs are limited to two per project and fire once per day. A `*/15` expression there is either
+# rejected or silently coerced to daily, and a schedule that claims fifteen minutes while running
+# daily is worse than no schedule at all — the freshness signals would report a healthy scheduler
+# while jobs sat undone for hours. GitHub's scheduler has no such limit, so the tick lives here until
+# the account moves to a plan where vercel.json can express the real interval.
+#
+# WHY IT IS SAFE TO LAND BEFORE ANYTHING IS TURNED ON
+# ---------------------------------------------------
+# Turning a job on deliberately takes TWO independent acts: the environment flag for that job, and
+# `UPDATE diaspora_scheduled_jobs SET enabled = true`. With neither done, the dispatch endpoint
+# answers `200 {dispatched:false, reason:"SCHEDULER_DISABLED"}` and runs nothing. So this workflow
+# can exist, and can even fire, long before anyone decides to activate a single job.
+#
+# WHY A MISSING SECRET SKIPS INSTEAD OF FAILING
+# ---------------------------------------------
+# A scheduled workflow that fails every fifteen minutes because a secret was never configured turns
+# the repository permanently red, and a permanently red repository is one nobody reads — including
+# when something real breaks. Absent configuration is therefore reported and skipped. A configured
+# dispatch that FAILS still fails loudly, which is the case that matters.
+on:
+  schedule:
+    # Every 15 minutes. GitHub queues rather than guarantees this; the scheduler's own
+    # next_run_at/interval_seconds decide what actually runs, so a late tick delays work rather than
+    # duplicating it.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# Read-only. This workflow never writes to the repository.
+permissions:
+  contents: read
+
+# Never overlap. Two concurrent ticks would both attempt to claim, and while the claim is atomic
+# (FOR UPDATE + lease) there is no reason to spend the contention.
+concurrency:
+  group: diaspora-scheduler-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # Repository environment, so any configured reviewer approval or wait timer applies here too.
+    environment: staging
+
+    steps:
+      # No checkout: this job runs one HTTP request and has no reason to have the repository — or a
+      # GITHUB_TOKEN written into .git/config — on disk.
+      - name: Dispatch due Diaspora scheduled jobs
+        env:
+          BASE_URL: ${{ secrets.DIASPORA_API_BASE_URL }}
+          SCHEDULER_SECRET: ${{ secrets.DIASPORA_SCHEDULER_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BASE_URL:-}" ]; then
+            echo 'SKIPPED — DIASPORA_API_BASE_URL is not configured; nothing to dispatch.'
+            exit 0
+          fi
+          if [ -z "${SCHEDULER_SECRET:-}" ]; then
+            echo 'SKIPPED — DIASPORA_SCHEDULER_SECRET is not configured; the endpoint would refuse anyway.'
+            exit 0
+          fi
+
+          # --fail-with-body so a 4xx/5xx fails the job AND prints the reason. Plain --fail hides the
+          # body, which is the only place the endpoint says WHY it refused.
+          # The secret travels in a header, never in the URL: a URL reaches proxy logs, browser
+          # history and Referer headers; a header does not.
+          curl --fail-with-body -sS --max-time 120 -X POST \
+            -H "x-diaspora-scheduler-secret: ${SCHEDULER_SECRET}" \
+            -H 'content-type: application/json' \
+            "${BASE_URL%/}/api/diaspora/scheduler/internal/run"
+          echo
+          echo 'Dispatch completed. A 200 with dispatched:false and SCHEDULER_DISABLED is the expected result while the scheduler is off.'

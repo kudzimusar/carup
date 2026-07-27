@@ -23,6 +23,19 @@ jobs:
     env:
       NODE_ENV: test
       DIASPORA_DRIVE_MOCK: 'true'
+      # Test-only placeholders, identical to ci.yml. NEVER real secrets.
+      #
+      # backend/db/supabase.js throws at MODULE SCOPE when these are absent, and several diaspora
+      # test files reach it through a STATIC import chain. ESM hoists static imports, so an in-file
+      # `process.env.X ||= …` guard cannot help — the process is already dead before the guard runs.
+      # Without these, the affected files abort on import and are reported as whole-file failures
+      # ("not ok N - …/diaspora-workbook.test.js") with the real cause buried in a stack trace. That
+      # is exactly how run 30275157681 failed while the same three files passed locally.
+      SUPABASE_URL: http://localhost:54321
+      SUPABASE_SERVICE_ROLE_KEY: test-service-role-key
+      SUPABASE_ANON_KEY: test-anon-key
+      JWT_SECRET: test-jwt-secret
+      ALLOW_OCR_MOCK: 'true'
     steps:
       - uses: actions/checkout@v4
 
