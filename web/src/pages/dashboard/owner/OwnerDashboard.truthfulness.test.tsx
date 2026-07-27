@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 /**
@@ -16,6 +16,13 @@ const fetchSafePayEscrows = vi.fn()
 const fetchOwnedVehicles = vi.fn()
 const fetchNotifications = vi.fn()
 const runOcrParsing = vi.fn()
+
+// Capture every toast so a fabricated "document uploaded/parsed" success cannot slip back in.
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+vi.mock('sonner', () => ({
+  toast: { success: toastSuccess, error: toastError },
+}))
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: () => ({
@@ -159,5 +166,65 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     expect(SRC).not.toContain('>92.5%<')
     expect(SRC).not.toContain('ZIMRA Customs Cleared Form 21.pdf')
     expect(SRC).not.toContain('NicozDiamond Policy.pdf')
+  })
+})
+
+/**
+ * Owner-review blocker (2026-07-27): the "Upload & Parse Logbook" control called the OCR endpoint
+ * with a hardcoded mock payload, so a user who never selected a file still received a success
+ * message and a fabricated document row. Labelling that row "Not stored" did not make the operation
+ * truthful — the click itself fabricated the event. The control is now disabled and no simulated
+ * upload path exists.
+ */
+describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () => {
+  it('the source contains no mock OCR payload and no OCR call at all', () => {
+    expect(SRC).not.toContain('MOCK_BASE64_DOCUMENT_DATA')
+    expect(SRC).not.toContain('MOCK_BASE64')
+    expect(SRC).not.toContain('runOcrParsing')
+    expect(SRC).not.toContain('handleOcrUpload')
+  })
+
+  it('never calls runOcrParsing — on mount or from the upload control', async () => {
+    renderFreshDashboard()
+    await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
+    expect(runOcrParsing).not.toHaveBeenCalled()
+
+    // The control is disabled, so a click cannot start a document operation without a real file.
+    const button = screen.getByTestId('ocr-upload-btn') as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    await act(async () => { fireEvent.click(button) })
+
+    expect(runOcrParsing).not.toHaveBeenCalled()
+  })
+
+  it('emits no success message claiming a document was uploaded or parsed', async () => {
+    renderFreshDashboard()
+    await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
+    await act(async () => { fireEvent.click(screen.getByTestId('ocr-upload-btn')) })
+
+    const claims = toastSuccess.mock.calls.flat().join(' ')
+    expect(claims).not.toMatch(/upload|parsed|document|verified/i)
+    // The source must not contain a document-success toast either.
+    expect(SRC).not.toMatch(/toast\.success\([^)]*(?:parsed|uploaded|Document)/i)
+  })
+
+  it('cannot render a fabricated parsed-document row', async () => {
+    const { container } = renderFreshDashboard()
+    await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
+    await act(async () => { fireEvent.click(screen.getByTestId('ocr-upload-btn')) })
+
+    expect(container.querySelector('[data-testid^="doc-row-"]')).toBeNull()
+    expect(container.textContent).not.toContain('Parsed logbook')
+    expect(container.textContent).not.toContain('AI Verified')
+    expect(container.textContent).not.toContain('Not stored')
+  })
+
+  it('keeps the truthful empty state and explains that upload is unavailable', async () => {
+    renderFreshDashboard()
+    await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
+
+    expect(screen.getByTestId('document-vault-empty').textContent).toMatch(/No documents uploaded yet/i)
+    expect(screen.getByTestId('document-vault-unavailable').textContent)
+      .toMatch(/not available from this dashboard yet/i)
   })
 })

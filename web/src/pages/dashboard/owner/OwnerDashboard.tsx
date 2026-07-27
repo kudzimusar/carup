@@ -24,13 +24,8 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Notification, Escrow } from '@/types'
 
-// Session-only record of a document the user just parsed. Nothing is seeded: this dashboard has no
-// authoritative per-user document store, so the vault starts empty and only ever shows what this
-// session actually parsed — never a sample filename presented as a stored, verified record.
-type ParsedDocument = { id: string; name: string; type: string; date: string }
-
 export default function OwnerDashboard() {
-  const { runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
+  const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
   const { user } = useAuth()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -48,8 +43,6 @@ export default function OwnerDashboard() {
   // Onboarding & settings states
   const [lowBandwidth, setLowBandwidth] = useState(false)
   const [whatsappLinked, setWhatsappLinked] = useState(true)
-  const [ocrLoading, setOcrLoading] = useState(false)
-  const [documents, setDocuments] = useState<ParsedDocument[]>([])
 
   // SafePay escrow is the only authoritative money source this dashboard has. There is no
   // per-user wallet/ledger endpoint and no per-user trust-score endpoint, so those cards must
@@ -80,27 +73,6 @@ export default function OwnerDashboard() {
     loadEscrows()
     return () => { mounted = false }
   }, [fetchSafePayEscrows])
-
-  const handleOcrUpload = async () => {
-    setOcrLoading(true)
-    try {
-      await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_DOCUMENT_DATA')
-      toast.success('Document parsed. It is not stored on your account yet.')
-      setDocuments(prev => [
-        {
-          id: `ocr-${Date.now()}`,
-          name: 'Parsed logbook',
-          type: 'PDF',
-          date: new Date().toLocaleDateString(),
-        },
-        ...prev,
-      ])
-    } catch {
-      toast.error('Failed to parse document.')
-    } finally {
-      setOcrLoading(false)
-    }
-  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -259,48 +231,32 @@ export default function OwnerDashboard() {
             </CardContent>
           </Card>
 
-          {/* AI OCR Digital Document Vault */}
+          {/* Digital Document Vault.
+              The upload control is disabled on purpose. It previously called the OCR endpoint with a
+              hardcoded mock payload, so a user who never chose a file still got a success toast and a
+              fabricated document row. There is no per-user document store to upload into yet, so the
+              honest state is an unavailable control and an empty vault — not a simulated upload. */}
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg">Digital Document Vault</CardTitle>
               <Button
                 size="sm"
-                onClick={handleOcrUpload}
-                disabled={ocrLoading}
+                disabled
                 data-testid="ocr-upload-btn"
-                className="bg-orange-500 hover:bg-orange-600 text-white gap-1 text-xs font-semibold"
+                title="Document upload is not available from this dashboard yet"
+                className="gap-1 text-xs font-semibold"
               >
                 <Upload className="w-3.5 h-3.5" />
-                {ocrLoading ? 'Scanning Document...' : 'Upload & Parse Logbook'}
+                Upload unavailable
               </Button>
             </CardHeader>
             <CardContent className="space-y-3" data-testid="document-vault-list">
-              {documents.length === 0 && (
-                <p data-testid="document-vault-empty" className="text-xs text-gray-500 py-2">
-                  No documents uploaded yet.
-                </p>
-              )}
-              {documents.map((doc, idx) => (
-                <div
-                  key={doc.id || idx}
-                  data-testid={`doc-row-${doc.id || idx}`}
-                  className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100/50 rounded-xl transition-all border border-gray-100 text-xs"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-4 h-4 text-orange-500 shrink-0" />
-                    <div>
-                      <p className="font-semibold text-gray-800">{doc.name}</p>
-                      <p className="text-[10px] text-gray-400">{doc.type} • Parsed: {doc.date}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      data-testid={`doc-verified-badge-${doc.id || idx}`}
-                      className="bg-gray-100 text-gray-600 shadow-none border-none"
-                    >Not stored</Badge>
-                  </div>
-                </div>
-              ))}
+              <p data-testid="document-vault-empty" className="text-xs text-gray-500 py-2">
+                No documents uploaded yet.
+              </p>
+              <p data-testid="document-vault-unavailable" className="text-[10px] text-gray-400">
+                Document upload is not available from this dashboard yet.
+              </p>
             </CardContent>
           </Card>
         </div>
