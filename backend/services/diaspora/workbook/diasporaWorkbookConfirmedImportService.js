@@ -86,6 +86,43 @@ export const RECEIPT_OUTCOME = Object.freeze({
   PENDING: 'pending',
 });
 
+/**
+ * The executor→orchestrator seam.
+ *
+ * `executeWorkbookImportAction` reports an outcome through `status` plus `targetRecordId` (see
+ * makeExecutedResult / makeSkippedResult / makeBlockedResult / makeAlreadyExecutedResult in
+ * diasporaWorkbookImportExecutionService). It has never exposed an `executed` boolean or a
+ * `recordId`, but this orchestrator read exactly those two fields — so `result?.executed` was
+ * permanently undefined and EVERY row, including rows whose draft record was successfully inserted,
+ * was classified as a skip. `applied` therefore stayed empty, which meant compensation had nothing
+ * to reverse while the inserted rows remained in the database, and a half-applied run still told the
+ * user "every applied row was reversed. Nothing was imported."
+ *
+ * It is exported and pure so the contract can be asserted directly, which is what the original tests
+ * could not do: they only ever executed an empty row set, where "0 rows applied" is true either way.
+ *
+ * `applied` means "this run created it, so this run may reverse it" — deliberately false for
+ * alreadyExecuted, where a previous run created the record and compensating it here would undo work
+ * this import never did.
+ */
+export function classifyExecutionResult(result) {
+  const recordId = result?.targetRecordId ?? null;
+  switch (result?.status) {
+    case 'executed':
+      return { outcome: RECEIPT_OUTCOME.ACCEPTED, applied: true, recordId, errorCode: null, errorMessage: null };
+    case 'alreadyExecuted':
+      return { outcome: RECEIPT_OUTCOME.ACCEPTED, applied: false, recordId, errorCode: null, errorMessage: null };
+    default:
+      return {
+        outcome: RECEIPT_OUTCOME.SKIPPED,
+        applied: false,
+        recordId: null,
+        errorCode: result?.errorCode || result?.blockedReason || 'ROW_SKIPPED',
+        errorMessage: result?.message || null,
+      };
+  }
+}
+
 function requireActor(userContext) {
   if (!userContext?.id) throw new ForbiddenError('A confirmed workbook import requires an authenticated user');
   return userContext;
@@ -241,6 +278,9 @@ export async function executeConfirmedWorkbookImport({
   });
 
   // ── 6. Apply, recording a receipt per row as it is decided ────────────────
+  //
+  // The executor→orchestrator seam is classifyExecutionResult (above). Reading it wrong is what made
+  // this loop record every applied row as a skip.
   const applied = [];
   const receipts = [];
   const executionContext = {};
@@ -266,19 +306,16 @@ export async function executeConfirmedWorkbookImport({
       const result = await executeWorkbookImportAction(action, batch, userContext, {
         supabaseClient: supabase, executionContext,
       });
-      if (result?.executed) {
-        applied.push({ table: action.targetTable, recordId: result.recordId, rowNumber });
-        receipts.push(await writeReceipt(supabase, {
-          ...base, outcome: RECEIPT_OUTCOME.ACCEPTED,
-          entityType: action.targetTable, entityRef: result.recordId || null,
-        }));
-      } else {
-        receipts.push(await writeReceipt(supabase, {
-          ...base, outcome: RECEIPT_OUTCOME.SKIPPED,
-          errorCode: result?.skipCode || result?.reason || 'ROW_SKIPPED',
-          errorMessage: result?.message || null,
-        }));
+      const decision = classifyExecutionResult(result);
+      if (decision.applied) {
+        applied.push({ table: action.targetTable, recordId: decision.recordId, rowNumber });
       }
+      receipts.push(await writeReceipt(supabase, decision.outcome === RECEIPT_OUTCOME.ACCEPTED
+        ? { ...base, outcome: RECEIPT_OUTCOME.ACCEPTED, entityType: action.targetTable, entityRef: decision.recordId }
+        : {
+          ...base, outcome: decision.outcome,
+          errorCode: decision.errorCode, errorMessage: decision.errorMessage,
+        }));
     } catch (e) {
       // The first hard failure stops the run. Continuing would apply more rows on top of a batch we
       // already know is going to be reversed.
@@ -433,7 +470,10 @@ export function buildReceiptCsv(receipts = []) {
  * blindly — its receipts say exactly how far it got — so this surfaces them for a human rather than
  * retrying automatically.
  */
-export async function listInterruptedBatches({ tenantId = null, supabaseClient = null } = {}) {
+export async function listInterruptedBatches({ tenantId = null, supabaseClient = null, requireTenant = false } = {}) {
+  // Fail closed. Without a tenant the query below is unscoped and would return every tenant's
+  // interrupted batches, so a caller that asks for tenant scoping and has none gets nothing.
+  if (requireTenant && !tenantId) return [];
   const supabase = await resolveClient({ supabaseClient });
   let query = supabase
     .from(BATCHES_TABLE)

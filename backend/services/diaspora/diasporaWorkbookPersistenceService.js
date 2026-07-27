@@ -26,15 +26,21 @@ function parseSheetsPayload(payload = {}) {
   return sheets && typeof sheets === 'object' && !Array.isArray(sheets) ? sheets : {};
 }
 
-function sourceMetadata(payload = {}) {
+// `options` carries values the CALLER computed rather than the client supplying — notably the
+// .xlsx upload route, which hashes the raw bytes itself and passes sourceChecksum/sourceFilename.
+// Those were previously ignored here, so every workbook uploaded as .xlsx persisted with
+// checksum_sha256 = NULL and could never be confirmed: POST /confirm refuses a batch with no
+// recorded checksum (BATCH_CHECKSUM_MISSING). A server-computed checksum is more trustworthy than
+// a client-declared one, so it wins.
+function sourceMetadata(payload = {}, options = {}) {
   const source = payload.source || payload.file || payload.workbookFile || {};
   return {
-    source_filename: source.filename || source.name || payload.sourceFilename || null,
+    source_filename: options.sourceFilename || source.filename || source.name || payload.sourceFilename || null,
     source_mime_type: source.mimeType || source.mimetype || payload.sourceMimeType || null,
     source_file_size_bytes: source.sizeBytes || source.size || payload.sourceFileSizeBytes || null,
     source_storage_path: source.storagePath || payload.sourceStoragePath || null,
     source_drive_file_id: source.driveFileId || payload.sourceDriveFileId || null,
-    checksum_sha256: source.checksumSha256 || source.sha256 || payload.checksumSha256 || null,
+    checksum_sha256: options.sourceChecksum || source.checksumSha256 || source.sha256 || payload.checksumSha256 || null,
   };
 }
 
@@ -114,7 +120,7 @@ export async function persistDiasporaWorkbookDryRun(payload = {}, dryRun = {}, u
   const client = options.supabaseClient || await defaultSupabaseClient();
   const tenantId = userContext.tenantId || null;
   const idempotencyKey = payload.idempotencyKey || payload.idempotency_key || dryRun.dryRunId;
-  const source = sourceMetadata(payload);
+  const source = sourceMetadata(payload, options);
   const diagnostics = buildWorkbookRowDiagnostics(payload, dryRun);
   const acceptedRows = countDiagnosticsByStatus(diagnostics, 'ACCEPTED');
   const warningRows = countDiagnosticsByStatus(diagnostics, 'WARNING');

@@ -209,22 +209,34 @@ router.post('/workbook/import-batches/:id/execute', auth, asyncHandler(async (re
 }));
 
 // GET /workbook/import-batches/:id/receipts — per-row outcomes.
+//
+// Authorize the BATCH, not merely the session. These two endpoints previously ran on `auth` alone —
+// which is "any authenticated user" — so batch ownership was never checked, and listReceipts skips
+// its tenant filter entirely when the caller sends no x-tenant-id. A request without that header
+// could therefore read any organisation's receipts by batch id, and because the backend uses the
+// service-role client, RLS does not backstop it. getDiasporaWorkbookImportBatch applies the same
+// reviewer/tenant/creator scope as the rest of the review surface (404 otherwise); scoping the
+// receipt query to the authorized batch's own tenant_id then holds regardless of request headers.
 router.get('/workbook/import-batches/:id/receipts', auth, asyncHandler(async (req, res) => {
-  const data = await listReceipts({ batchId: req.params.id, tenantId: req.userContext.tenantId });
+  const batch = await getDiasporaWorkbookImportBatch(req.params.id, req.userContext);
+  const data = await listReceipts({ batchId: batch.id, tenantId: batch.tenant_id });
   res.json({ data });
 }));
 
 // GET /workbook/import-batches/:id/receipts.csv — the downloadable result.
 router.get('/workbook/import-batches/:id/receipts.csv', auth, asyncHandler(async (req, res) => {
-  const receipts = await listReceipts({ batchId: req.params.id, tenantId: req.userContext.tenantId });
+  const batch = await getDiasporaWorkbookImportBatch(req.params.id, req.userContext);
+  const receipts = await listReceipts({ batchId: batch.id, tenantId: batch.tenant_id });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="import-result-${req.params.id}.csv"`);
   res.send(buildReceiptCsv(receipts));
 }));
 
 // GET /workbook/interrupted-imports — operator recovery view.
+// Tenant-wide, so it fails closed: with no tenant context the service returns nothing rather than
+// every tenant's interrupted batches.
 router.get('/workbook/interrupted-imports', auth, asyncHandler(async (req, res) => {
-  const data = await listInterruptedBatches({ tenantId: req.userContext.tenantId });
+  const data = await listInterruptedBatches({ tenantId: req.userContext.tenantId, requireTenant: true });
   res.json({ data });
 }));
 
