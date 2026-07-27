@@ -39,6 +39,8 @@ import { isPlatformAdmin } from '../services/diaspora/diasporaAuthorization.js';
 import { diasporaTradeGraphService } from '../services/diaspora/tradegraph/diasporaTradeGraphService.js';
 import { diasporaTradeIntelligence } from '../services/diaspora/tradegraph/diasporaTradeIntelligenceService.js';
 import { diasporaTradeGraphProjection } from '../services/diaspora/tradegraph/diasporaTradeGraphProjectionService.js';
+// UI-10 (Issue #127): graph summary / projection health / dead-letter reads for the dashboard.
+import { diasporaTradeGraphHealth } from '../services/diaspora/tradegraph/diasporaTradeGraphHealthService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -163,6 +165,42 @@ router.use((req, res, next) => {
   }
   return next();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI-10 — DASHBOARD SUMMARY / PROJECTION HEALTH / DEAD LETTERS (Issue #127)
+//
+// These three reads turn the Phase 10 backend into something an operator can trust. They return
+// counts and status only: no entity ids, no node `data`, no raw event payloads. That is a shape
+// choice rather than a redaction pass — a response that cannot carry PII cannot later regress into
+// leaking it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /summary — tenant graph summary: counts by type, projection health, last rebuild.
+router.get('/summary', auth, asyncHandler(async (req, res) => {
+  const tenantId = tenantOf(req);
+  const result = await withReadClient((pgClient) => diasporaTradeGraphHealth.tenantSummary(pgClient, tenantId));
+  res.json(result);
+}));
+
+// GET /projection/status — lag, last processed event, dead-letter count, replay state.
+router.get('/projection/status', auth, asyncHandler(async (req, res) => {
+  const tenantId = tenantOf(req);
+  const result = await withReadClient((pgClient) => diasporaTradeGraphHealth.projectionStatus(pgClient, tenantId));
+  res.json(result);
+}));
+
+// GET /dead-letters — operator triage view. Platform-admin only: the list reveals which event TYPES
+// are failing for a tenant, which is operational detail an ordinary member has no need for. Raw
+// payloads are never returned to anyone.
+router.get('/dead-letters', adminAuth, asyncHandler(async (req, res) => {
+  if (!isPlatformAdmin(req.userContext)) {
+    throw new ForbiddenError('Trade Graph dead letters are restricted to platform administrators');
+  }
+  const tenantId = tenantOf(req);
+  const result = await withReadClient((pgClient) =>
+    diasporaTradeGraphHealth.listDeadLetters(pgClient, tenantId, { limit: req.query.limit }));
+  res.json({ data: result });
+}));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTITY & NEIGHBORHOOD TRAVERSAL

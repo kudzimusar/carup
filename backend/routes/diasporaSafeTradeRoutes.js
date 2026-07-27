@@ -39,6 +39,24 @@ import {
 } from '../services/diaspora/safetrade/diasporaSafeTradeDisputeService.js';
 import { getSharedSandboxPaymentProvider } from '../services/diaspora/safetrade/safeTradePaymentProvider.js';
 import { computeAvailableActions } from '../services/diaspora/safetrade/diasporaSafeTradeAvailableActions.js';
+// ST-3 closure (Issue #127): durable provider-event ledger, maker-checker approvals and the operator
+// reconciliation queue. These replace the process-memory webhook Set and add the second-human gate.
+import {
+  claimProviderEvent,
+  markEventApplied,
+  markEventFailed,
+  listEventDeadLetters,
+} from '../services/diaspora/safetrade/diasporaSafeTradeEventLedgerService.js';
+import {
+  requestApproval,
+  approve as approveDecision,
+  reject as rejectDecision,
+  listPendingApprovals,
+} from '../services/diaspora/safetrade/diasporaSafeTradeApprovalService.js';
+import {
+  listReconciliationQueue,
+  describeOperationForUser,
+} from '../services/diaspora/safetrade/diasporaSafeTradeOperationService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -307,21 +325,95 @@ router.post('/safetrade/disputes/:id/resolve', reviewerAuth, asyncHandler(async 
   res.json(data);
 }));
 
-// ── Payment webhook (signature-verified + idempotent) ────────────────────────
+// ── Maker-checker approvals (ST-3 item 2 — Issue #127) ───────────────────────
+//
+// A high-risk release or refund needs two different humans. These routes are the MAKER's request and
+// the CHECKER's approval. The transition RPC re-verifies both halves under its row lock and consumes
+// the approval, so nothing here is the only thing standing between one human and the money.
 
-// In-memory de-dup ledger for already-processed webhook event ids (idempotent: a duplicate event is a
-// no-op success). A real deployment persists this; for the sandbox provider the event only reconciles
-// provider state and NEVER moves money on its own.
-const processedWebhookEvents = new Set();
+// GET /safetrade/approvals — the pending queue for the caller's own tenant.
+router.get('/safetrade/approvals', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await listPendingApprovals({
+    tenantId: req.userContext.tenantId,
+    userContext: req.userContext,
+  });
+  res.json({ data });
+}));
+
+// POST /safetrade/approvals — MAKER requests approval. The requester is the server-derived user; a
+// body-supplied requester would let one human play both roles.
+router.post('/safetrade/approvals', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await requestApproval({
+    tenantId: req.userContext.tenantId,
+    transactionId: req.body?.transactionId,
+    milestoneId: req.body?.milestoneId || null,
+    decisionType: req.body?.decisionType,
+    evaluationId: req.body?.evaluationId || null,
+    riskLevel: req.body?.riskLevel || 'HIGH',
+    amount: req.body?.amount ?? null,
+    currency: req.body?.currency || null,
+    reason: req.body?.reason || null,
+    userContext: req.userContext,
+    req,
+  });
+  res.status(201).json({ data });
+}));
+
+// POST /safetrade/approvals/:id/approve — CHECKER approves. Self-approval is refused.
+router.post('/safetrade/approvals/:id/approve', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await approveDecision({
+    approvalId: req.params.id,
+    userContext: req.userContext,
+    notes: req.body?.notes || null,
+    req,
+  });
+  res.json({ data });
+}));
+
+// POST /safetrade/approvals/:id/reject — CHECKER refuses.
+router.post('/safetrade/approvals/:id/reject', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await rejectDecision({
+    approvalId: req.params.id,
+    userContext: req.userContext,
+    reason: req.body?.reason || null,
+    req,
+  });
+  res.json({ data });
+}));
+
+// ── Operator reconciliation queue (ST-3 item 3) ──────────────────────────────
+//
+// Every operation that has not reached `ledger_applied` is money we cannot yet account for. Making it
+// visible is the difference between a reconciliation process and a silent discrepancy.
+router.get('/safetrade/reconciliation', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await listReconciliationQueue({ tenantId: req.userContext.tenantId });
+  res.json({ data: data.map((op) => ({ ...op, userState: describeOperationForUser(op) })) });
+}));
+
+// GET /safetrade/dead-letters — provider events that failed processing and need a human.
+router.get('/safetrade/dead-letters', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await listEventDeadLetters({ tenantId: req.userContext.tenantId });
+  res.json({ data });
+}));
+
+// ── Payment webhook (signature-verified + DURABLY idempotent) ────────────────
 
 // POST /safetrade/payment-webhook — verify the HMAC signature + anti-replay drift, then reconcile the
-// sandbox provider event idempotently. No auth middleware (providers cannot present a user session);
-// the HMAC signature IS the authentication. Returns 401 on a bad/late/missing signature.
+// provider event idempotently. No auth middleware (providers cannot present a user session); the HMAC
+// signature IS the authentication. Returns 401 on a bad/late/missing signature.
+//
+// ST-3 item 4: de-duplication is now a UNIQUE (provider, event_id) row in Postgres, not a
+// process-memory Set. The old Set was per-instance and per-deploy — under Fluid Compute each instance
+// kept its own copy, so one event could be processed once per instance, and a redeploy wiped the
+// memory entirely, making an hours-later duplicate look new. Out-of-order deliveries are recorded and
+// marked superseded rather than applied backwards.
 router.post('/safetrade/payment-webhook', express.json(), asyncHandler(async (req, res) => {
   const provider = getSharedSandboxPaymentProvider();
   const signature = req.headers['x-safetrade-signature'] || null;
   const timestamp = req.headers['x-safetrade-timestamp'] || null;
-  const rawBody = req.body;
+  // Prefer the exact bytes the provider signed; fall back to the parsed body only when no raw capture
+  // is available (the signature check itself is unchanged either way).
+  const rawBody = req.rawBody != null ? req.rawBody : req.body;
 
   const verified = await provider.verifyWebhook({
     rawBody,
@@ -332,16 +424,38 @@ router.post('/safetrade/payment-webhook', express.json(), asyncHandler(async (re
   if (!verified.verified) {
     return res.status(401).json({ error: 'invalid webhook signature' });
   }
-
-  // Idempotent: a duplicate event id is a no-op success (never reprocessed, never double-applied).
-  if (verified.eventId && processedWebhookEvents.has(verified.eventId)) {
-    return res.json({ ok: true, idempotentReplay: true, eventId: verified.eventId });
+  if (!verified.eventId) {
+    // An event with no id cannot be de-duplicated, so it cannot be processed safely at all.
+    return res.status(400).json({ error: 'webhook payload is missing an event id' });
   }
 
-  const effect = await provider.reconcileEvent({ event: verified });
-  if (verified.eventId) processedWebhookEvents.add(verified.eventId);
+  const claim = await claimProviderEvent({
+    provider: provider.name,
+    eventId: verified.eventId,
+    eventType: verified.eventType,
+    intentId: verified.intentId,
+    payload: verified.payload || {},
+    signatureVerified: true,
+    correlationId: requestCorrelationId(req),
+  });
 
-  return res.json({ ok: true, idempotentReplay: false, eventId: verified.eventId, effect });
+  if (claim.duplicate) {
+    return res.json({ ok: true, idempotentReplay: true, eventId: verified.eventId });
+  }
+  if (claim.superseded) {
+    // Durable and auditable, but deliberately not applied: newer state already won.
+    return res.json({ ok: true, idempotentReplay: false, superseded: true, eventId: verified.eventId });
+  }
+
+  try {
+    const effect = await provider.reconcileEvent({ event: verified });
+    await markEventApplied(claim.event.id);
+    return res.json({ ok: true, idempotentReplay: false, eventId: verified.eventId, effect });
+  } catch (e) {
+    // The event stays claimed (so a retry cannot double-apply) and lands in the dead-letter view.
+    await markEventFailed(claim.event.id, e.message, { deadLetter: true });
+    throw e;
+  }
 }));
 
 /**

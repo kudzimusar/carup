@@ -12,6 +12,32 @@
  * Rows are stored per table as plain objects. Inserts assign an id when missing. The builder is
  * thenable so `await client.from(t)...` resolves to `{ data, error }` exactly like supabase-js.
  */
+
+/**
+ * Unique indexes the mock enforces, mirroring the real migrations.
+ *
+ * Several services rely on Postgres raising 23505 as their concurrency-safe de-duplication mechanism:
+ * they INSERT and treat "you lost the race" as "already handled". A mock that accepts every insert
+ * makes those code paths untestable — worse, it makes a de-duplication test pass even if the
+ * constraint were dropped from the migration. Registering the index here means the fake fails the
+ * same way the database does.
+ *
+ * NULLs never collide (matching Postgres's default NULLS DISTINCT behaviour). Only the indexes listed
+ * here are enforced, so existing tests are unaffected.
+ */
+export const UNIQUE_INDEXES = Object.freeze({
+  // ledger #21 — diaspora_safetrade_provider_events: UNIQUE (provider, event_id)
+  diaspora_safetrade_provider_events: [['provider', 'event_id']],
+  // ledger #21 — diaspora_safetrade_operations: UNIQUE (tenant_id, idempotency_key)
+  diaspora_safetrade_operations: [['tenant_id', 'idempotency_key']],
+  // ledger #21 — diaspora_workbook_import_confirmations: UNIQUE (tenant_id, idempotency_key)
+  diaspora_workbook_import_confirmations: [['tenant_id', 'idempotency_key']],
+  // ledger #21 — diaspora_drive_sync_attempts: UNIQUE (tenant_id, idempotency_key)
+  diaspora_drive_sync_attempts: [['tenant_id', 'idempotency_key']],
+  // ledger #12 — diaspora_billing_provider_events: UNIQUE (provider, event_id)
+  diaspora_billing_provider_events: [['provider', 'event_id']],
+});
+
 export function createMockSupabase(seed = {}, options = {}) {
   const tables = {};
   for (const [name, rows] of Object.entries(seed)) {
@@ -56,6 +82,25 @@ export function createMockSupabase(seed = {}, options = {}) {
     function exec() {
       if (state.op === 'insert') {
         const items = Array.isArray(state.payload) ? state.payload : [state.payload];
+        // Enforce the registered unique indexes exactly as Postgres would (23505), so services whose
+        // de-duplication IS the constraint are actually exercised rather than trivially passing.
+        const uniques = UNIQUE_INDEXES[table];
+        if (uniques) {
+          for (const p of items) {
+            for (const cols of uniques) {
+              if (cols.some((c) => p[c] === undefined || p[c] === null)) continue; // NULLs never collide
+              if (rows.some((existing) => cols.every((c) => existing[c] === p[c]))) {
+                return {
+                  data: null,
+                  error: {
+                    code: '23505',
+                    message: `duplicate key value violates unique constraint on ${table} (${cols.join(', ')})`,
+                  },
+                };
+              }
+            }
+          }
+        }
         const inserted = items.map((p) => {
           const row = { id: p.id || nextId(`${table}`), ...p };
           if (row.created_at === undefined) row.created_at = new Date(2026, 5, 20).toISOString();
