@@ -15,8 +15,15 @@
  *    `/diaspora/safetrade/transactions` and `/diaspora/drive/connect`; neither route exists, and both
  *    "passed".
  * 2. **A detector that cannot fire proves nothing by staying silent.** Every secret pattern is first
- *    run against a positive control, so "no secrets found" means the detector looked and found none
- *    rather than that it was incapable of matching.
+ *    run against its own positive control, so "no secrets found" means the detector looked and found
+ *    none rather than that it was incapable of matching.
+ * 3. **A 401 is not a refusal either.** This is the same mistake as rule 1, one layer further in, and
+ *    it is the one that nearly shipped. The probe helper originally sent `credentials: 'include'` with
+ *    no headers — but this application has NO cookie session. Auth travels as `x-user-id` /
+ *    `x-session-token` headers read from localStorage, so every probe was ANONYMOUS and every 401 from
+ *    the auth middleware satisfied `expect(status).toBeGreaterThanOrEqual(400)` while proving nothing
+ *    about any gate. `assertProbeIsAuthenticated` now runs before every conclusion drawn from a
+ *    refusal, and requires a 2xx from an endpoint the signed-in identity is entitled to.
  *
  * NOTHING HERE MOVES MONEY. Live paths are exercised precisely to the point of their refusal, which
  * is the whole assertion: the request is made, and the deployment says no.
@@ -51,20 +58,55 @@ const SECRET_SHAPES: Array<[label: string, re: RegExp, control: string]> = [
 
 interface Probe { path: string; status: number; body: string }
 
-/** Issue requests from the authenticated browser context so they carry the deployment's real
- *  session and CSRF handling. A bare fetch would be rejected for the wrong reason. */
+/**
+ * Issue requests carrying the deployment's REAL authenticated identity.
+ *
+ * The first version of this helper sent `credentials: 'include'` and no headers, which is a third
+ * way to pass vacuously and the one that nearly shipped. This application has NO cookie session: the
+ * backend's only `res.cookie` is the CSRF token, and auth travels as `x-user-id` / `x-session-token`
+ * headers read from localStorage (`carup_user` / `carup_token`), with a CSRF token bound to exactly
+ * that identity. So `credentials:'include'` sent nothing at all, every probe was anonymous, and every
+ * 401 from the auth middleware satisfied `expect(status).toBeGreaterThanOrEqual(400)` while proving
+ * precisely nothing about the fail-closed gates the file is named for.
+ *
+ * It is the same mistake as the 404 case, one layer further in: a refusal only counts when the
+ * request reached the thing that is supposed to refuse it. `assertProbeIsAuthenticated` below is the
+ * control that makes that checkable rather than assumed.
+ */
 async function probe(
   page: import('@playwright/test').Page,
   reqs: Array<{ path: string; method?: string; body?: unknown }>,
 ): Promise<Probe[]> {
   return page.evaluate(async ({ api, reqs }) => {
+    // Mirror web/src/lib/apiClient.ts: identity headers from localStorage, then a CSRF token bound
+    // to that identity for unsafe methods. A token fetched anonymously is guest-bound and rejected.
+    const readUser = () => {
+      try { return JSON.parse(localStorage.getItem('carup_user') || 'null'); } catch { return null; }
+    };
+    const auth: Record<string, string> = {};
+    const user = readUser();
+    const token = localStorage.getItem('carup_token');
+    if (user?.id) auth['x-user-id'] = String(user.id);
+    if (token) auth['x-session-token'] = token;
+    if (user?.tenantId) auth['x-tenant-id'] = String(user.tenantId);
+
+    let csrf = '';
+    try {
+      const cr = await fetch(`${api}/security/csrf-token`, { credentials: 'include', headers: { ...auth } });
+      if (cr.ok) csrf = (await cr.json())?.csrfToken || '';
+    } catch { /* leave empty; the assertions below report what actually happened */ }
+
     const out: Array<{ path: string; status: number; body: string }> = [];
     for (const r of reqs) {
+      const method = r.method || 'GET';
+      const headers: Record<string, string> = { ...auth };
+      if (r.body) headers['Content-Type'] = 'application/json';
+      if (method !== 'GET' && csrf) headers['x-csrf-token'] = csrf;
       try {
         const res = await fetch(`${api}${r.path}`, {
-          method: r.method || 'GET',
+          method,
           credentials: 'include',
-          headers: r.body ? { 'Content-Type': 'application/json' } : undefined,
+          headers,
           body: r.body ? JSON.stringify(r.body) : undefined,
         });
         out.push({ path: r.path, status: res.status, body: (await res.text()).slice(0, 6000) });
@@ -74,6 +116,24 @@ async function probe(
     }
     return out;
   }, { api: API_URL, reqs });
+}
+
+/**
+ * Positive control for the probe itself.
+ *
+ * Every refusal assertion in this file is only meaningful if the probe reaches the deployment AS AN
+ * AUTHENTICATED USER. This calls an endpoint the signed-in identity is entitled to and requires a
+ * 2xx. If auth ever breaks — a renamed storage key, a changed header, an expired fixture identity —
+ * this fails loudly instead of letting every downstream 401 masquerade as a fail-closed gate.
+ */
+async function assertProbeIsAuthenticated(page: import('@playwright/test').Page) {
+  const [me] = await probe(page, [{ path: '/diaspora/subscription/status' }]);
+  expect(
+    me.status,
+    `the probe is NOT authenticated (GET /diaspora/subscription/status -> ${me.status}). Every ` +
+      '"refusal" this file observes would then be an ordinary 401 from the auth middleware rather ' +
+      `than a fail-closed gate, and the whole file would pass having verified nothing. Body: ${me.body.slice(0, 300)}`,
+  ).toBeLessThan(400);
 }
 
 /** A refusal only counts when the route it came from exists and was reached. */
@@ -100,6 +160,7 @@ test.describe('live-risk surfaces refuse on the deployment', () => {
 
   test('billing checkout refuses an unapproved live provider', async ({ page }) => {
     await signInViaUi(page, 'tenantAdmin');
+    await assertProbeIsAuthenticated(page);
     const [p] = await probe(page, [{
       path: '/diaspora/subscription/checkout',
       method: 'POST',
@@ -113,6 +174,7 @@ test.describe('live-risk surfaces refuse on the deployment', () => {
 
   test('the Drive authorize endpoint hands out no live consent URL without owner credentials', async ({ page }) => {
     await signInViaUi(page, 'tenantAdmin');
+    await assertProbeIsAuthenticated(page);
     const [p] = await probe(page, [{ path: '/diaspora/drive/google/authorize' }]);
 
     expect(p.status, 'the Drive authorize route does not exist on the deployment').not.toBe(404);
@@ -130,6 +192,7 @@ test.describe('live-risk surfaces refuse on the deployment', () => {
 
   test('SafeTrade refuses a read on a transaction the caller does not own', async ({ page }) => {
     await signInViaUi(page, 'tenantAdmin');
+    await assertProbeIsAuthenticated(page);
     // The list route establishes that the SafeTrade router is mounted at all. Without it, a 404 on
     // the detail probe below would be indistinguishable from a correct "no such transaction".
     const [list, detail] = await probe(page, [
@@ -153,6 +216,7 @@ test.describe('deployed API responses carry no secrets', () => {
 
   test('the Drive readers never return token material', async ({ page }) => {
     await signInViaUi(page, 'tenantAdmin');
+    await assertProbeIsAuthenticated(page);
     const probes = await probe(page, [
       { path: '/diaspora/drive/status' },
       { path: '/diaspora/drive/files' },
@@ -177,6 +241,7 @@ test.describe('deployed API responses carry no secrets', () => {
 
   test('the billing surfaces never return provider secrets', async ({ page }) => {
     await signInViaUi(page, 'tenantAdmin');
+    await assertProbeIsAuthenticated(page);
     const probes = await probe(page, [
       { path: '/diaspora/subscription/status' },
       { path: '/diaspora/subscription/billing-health' },
