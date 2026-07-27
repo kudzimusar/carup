@@ -15,7 +15,7 @@
  *  - Plan catalog is config-driven: the DB subscription row carries the plan_key; the entitlement
  *    values come from diaspora_subscription_plans when present, else the PLAN_CATALOG fallback.
  */
-import { ValidationError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
+import { ValidationError, ForbiddenError, DatabaseError, ConflictError, NotFoundError } from '../../utils/errors.js';
 import { appendCriticalAudit, requestCorrelationId } from './diasporaServiceUtils.js';
 import {
   FEATURE_KEYS,
@@ -35,6 +35,18 @@ const OVERRIDES_TABLE = 'diaspora_user_entitlement_overrides';
 const METERS_TABLE = 'diaspora_usage_meters';
 const RESERVATIONS_TABLE = 'diaspora_usage_reservations';
 const RESERVE_RPC = 'diaspora_reserve_usage_atomic';
+const APPLY_OVERRIDE_RPC = 'diaspora_apply_entitlement_override_atomic';
+const REVOKE_OVERRIDE_RPC = 'diaspora_revoke_entitlement_override_atomic';
+
+/** Outcomes the override RPCs report, so callers can distinguish a re-grant from an edit. */
+export const OVERRIDE_OUTCOMES = Object.freeze({
+  GRANTED: 'GRANTED',
+  REGRANTED: 'REGRANTED',
+  UPDATED: 'UPDATED',
+  UNCHANGED: 'UNCHANGED',
+  REVOKED: 'REVOKED',
+  ALREADY_REVOKED: 'ALREADY_REVOKED',
+});
 
 export const DENIAL_CODES = Object.freeze({
   NO_ACTIVE_SUBSCRIPTION: 'NO_ACTIVE_SUBSCRIPTION',
@@ -428,9 +440,70 @@ export async function releaseUsage(supabase, { reservationId, actor = null, req 
 }
 
 /**
- * applyAdminOverride — write/replace a per-user entitlement override. Restricted to a server-derived
- * platform/tenant admin (the caller passes `actor`; roles are never read from client headers here).
- * Writes a CRITICAL audit row (fail-loud) because an override changes a security decision.
+ * Server-derived admin gate for every override mutation.
+ *
+ * The role is read from the ACTOR the caller assembled server-side, never from a request body or a
+ * header, and a tenant admin is only an admin OF THEIR OWN TENANT — the tenantId compared here is the
+ * one the operation will act on, so a tenant admin cannot grant themselves anything in another tenant.
+ */
+function assertOverrideAdmin(actor, tenantId) {
+  if (!actor || !actor.id) {
+    throw new ValidationError('A server-derived admin actor is required to override entitlements');
+  }
+  const role = String(actor.platformRole ?? actor.tenantRole ?? actor.role ?? '').toLowerCase();
+  const isPlatformAdmin = ['admin', 'platform_admin', 'super_admin'].includes(role);
+  const isTenantAdmin = ['admin', 'administrator', 'tenant_admin'].includes(role)
+    && String(actor.tenantId ?? actor.tenant_id ?? '') === String(tenantId);
+  if (!isPlatformAdmin && !isTenantAdmin) {
+    throw new ForbiddenError('Only a platform or tenant admin may override entitlements');
+  }
+}
+
+/**
+ * Translate an override-RPC error into the right HTTP shape.
+ *
+ * 23505 is the specific failure this whole path exists to eliminate, so it gets its own branch: if it
+ * ever escapes the RPC's ON CONFLICT it means two writers genuinely collided, which is a 409 the
+ * caller can retry — never the generic 500 the previous read-then-insert produced, whose message
+ * named a constraint and told an operator nothing about what to do.
+ */
+function overrideRpcError(error, verb) {
+  const message = String(error?.message || '');
+  if (error?.code === '23505' || /duplicate key value|unique constraint/i.test(message)) {
+    return new ConflictError(
+      'This entitlement override was being changed concurrently. Retry the request.',
+      { code: 'ENTITLEMENT_OVERRIDE_CONFLICT' },
+    );
+  }
+  if (message.includes('OVERRIDE_NOT_FOUND')) {
+    return new NotFoundError('No entitlement override exists for that tenant, user and feature');
+  }
+  if (message.includes('ACTOR_REQUIRED')) {
+    return new ValidationError('A server-derived admin actor is required to override entitlements');
+  }
+  if (message.includes('TENANT_REQUIRED')) return new ValidationError('tenantId is required');
+  if (message.includes('USER_REQUIRED')) return new ValidationError('userId is required');
+  if (message.includes('FEATURE_REQUIRED')) return new ValidationError('featureKey is required');
+  if (message.includes('VALUE_REQUIRED')) return new ValidationError('value is required');
+  return new DatabaseError(`Failed to ${verb} entitlement override: ${message}`);
+}
+
+/**
+ * applyAdminOverride — grant, update or RE-GRANT a per-user entitlement override.
+ *
+ * The re-grant case is why this goes through an RPC (ledger #26). Overrides are soft-deleted, but the
+ * table's unique constraint on (tenant_id, user_id, feature_key) has no deleted_at predicate, so a
+ * revoked override keeps its unique slot forever. The old implementation looked only at non-deleted
+ * rows, could not see the tombstone, took the INSERT branch and hit 23505 — which surfaced as a 500.
+ * A revoked capability could therefore never be granted again, by anyone, through any path.
+ *
+ * diaspora_apply_entitlement_override_atomic locks the logical row (soft-deleted included), upserts
+ * ON CONFLICT clearing deleted_at, and writes the audit row in the SAME transaction, with a distinct
+ * action per outcome so a re-grant is visible as a re-grant.
+ *
+ * tenantId / userId / featureKey are the caller's server-derived arguments and are used verbatim by
+ * the RPC in both the lookup and the audit row; no row id is accepted, so no request can address
+ * another tenant's override.
  */
 export async function applyAdminOverride(supabase, {
   tenantId, userId, featureKey, value, actor, reason = null, req = null,
@@ -439,63 +512,59 @@ export async function applyAdminOverride(supabase, {
   requireFeatureKey(featureKey);
   if (!userId) throw new ValidationError('userId is required for an entitlement override');
   if (value === undefined) throw new ValidationError('value is required for an entitlement override');
-  if (!actor || !actor.id) throw new ValidationError('A server-derived admin actor is required to override entitlements');
-  const role = String(actor.platformRole ?? actor.tenantRole ?? actor.role ?? '').toLowerCase();
-  const isPlatformAdmin = ['admin', 'platform_admin', 'super_admin'].includes(role);
-  const isTenantAdmin = ['admin', 'administrator', 'tenant_admin'].includes(role)
-    && String(actor.tenantId ?? actor.tenant_id ?? '') === String(tenantId);
-  if (!isPlatformAdmin && !isTenantAdmin) {
-    throw new ForbiddenError('Only a platform or tenant admin may override entitlements');
-  }
+  assertOverrideAdmin(actor, tenantId);
 
-  const row = {
-    tenant_id: String(tenantId),
-    user_id: String(userId),
-    feature_key: featureKey,
-    value, // JSONB; stored as-is
-    reason,
-    created_by: actor.id,
-    updated_by: actor.id,
-  };
-
-  // Upsert-on-conflict semantics: replace any existing non-deleted override for this triple.
-  const { data: existingList } = await supabase
-    .from(OVERRIDES_TABLE)
-    .select('*')
-    .eq('tenant_id', String(tenantId))
-    .eq('user_id', String(userId))
-    .eq('feature_key', featureKey)
-    .is('deleted_at', null);
-  const existing = (existingList || [])[0];
-
-  let saved;
-  if (existing) {
-    const { data, error } = await supabase
-      .from(OVERRIDES_TABLE)
-      .update({ value, reason, updated_by: actor.id, updated_at: new Date().toISOString() })
-      .eq('id', existing.id)
-      .select()
-      .single();
-    if (error) throw new DatabaseError(`Failed to update entitlement override: ${error.message}`);
-    saved = data;
-  } else {
-    const { data, error } = await supabase.from(OVERRIDES_TABLE).insert(row).select().single();
-    if (error) throw new DatabaseError(`Failed to write entitlement override: ${error.message}`);
-    saved = data;
-  }
-
-  await appendCriticalAudit(supabase, {
-    actorId: actor.id,
-    tenantId: String(tenantId),
-    action: 'ENTITLEMENT_OVERRIDE_APPLIED',
-    resourceType: 'diaspora_user_entitlement_override',
-    resourceId: String(saved.id),
-    previousState: existing ? { value: existing.value } : null,
-    newState: { value },
-    metadata: { featureKey, userId: String(userId), reason },
-    req,
+  const { data, error } = await supabase.rpc(APPLY_OVERRIDE_RPC, {
+    p_tenant_id: String(tenantId),
+    p_user_id: String(userId),
+    p_feature_key: featureKey,
+    p_value: value,
+    p_actor_id: String(actor.id),
+    p_reason: reason,
+    p_correlation_id: requestCorrelationId(req),
   });
-  return saved;
+  if (error) throw overrideRpcError(error, 'write');
+
+  const saved = data?.override ?? null;
+  if (!saved) throw new DatabaseError('Entitlement override RPC returned no row');
+  return { ...saved, outcome: data.outcome, action: data.action };
+}
+
+/**
+ * revokeAdminOverride — withdraw a per-user entitlement override.
+ *
+ * This half simply did not exist: the service could grant but never take back, so every revoke came
+ * from data fixes or support tooling stamping deleted_at directly — which is exactly how a row ends up
+ * soft-deleted with nobody aware that the slot is now permanently blocked.
+ *
+ * Idempotent: revoking an already-revoked override is a no-op that does NOT rewrite deleted_at, so the
+ * timestamp keeps saying when the capability was actually withdrawn.
+ */
+export async function revokeAdminOverride(supabase, {
+  tenantId, userId, featureKey, actor, reason = null, req = null,
+} = {}) {
+  requireTenant(tenantId);
+  requireFeatureKey(featureKey);
+  if (!userId) throw new ValidationError('userId is required to revoke an entitlement override');
+  assertOverrideAdmin(actor, tenantId);
+
+  const { data, error } = await supabase.rpc(REVOKE_OVERRIDE_RPC, {
+    p_tenant_id: String(tenantId),
+    p_user_id: String(userId),
+    p_feature_key: featureKey,
+    p_actor_id: String(actor.id),
+    p_reason: reason,
+    p_correlation_id: requestCorrelationId(req),
+  });
+  if (error) throw overrideRpcError(error, 'revoke');
+
+  const revoked = data?.override ?? null;
+  return {
+    ...(revoked || {}),
+    outcome: data?.outcome ?? OVERRIDE_OUTCOMES.REVOKED,
+    action: data?.action ?? 'ENTITLEMENT_OVERRIDE_REVOKED',
+    idempotentReplay: Boolean(data?.idempotentReplay),
+  };
 }
 
 export const ENTITLEMENT_TABLES = Object.freeze({

@@ -41,6 +41,14 @@ export const UNIQUE_INDEXES = Object.freeze({
   // insert race rather than record a second due renewal, and on the other side of that window is a
   // duplicate charge.
   diaspora_subscription_renewals: [['tenant_id', 'subscription_id', 'period_end']],
+  // ledger #12 — diaspora_user_entitlement_overrides:
+  //   CONSTRAINT uq_diaspora_user_override UNIQUE (tenant_id, user_id, feature_key)
+  //
+  // Deliberately NOT deleted_at-aware, because the real constraint is not either. That is the whole
+  // bug ledger #26 exists to fix: a soft-deleted override keeps its unique slot, so re-granting it
+  // collides. A mock that accepted the insert would let the broken read-then-insert path pass its
+  // tests forever while the capability was, in production, ungrantable for the rest of time.
+  diaspora_user_entitlement_overrides: [['tenant_id', 'user_id', 'feature_key']],
 });
 
 export function createMockSupabase(seed = {}, options = {}) {

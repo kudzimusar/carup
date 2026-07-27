@@ -282,8 +282,9 @@ test('applyAdminOverride writes the override and a critical audit row', async ()
     actor: platformAdmin, reason: 'pilot partner',
   });
   assert.equal(saved.feature_key, FEATURE_KEYS.API_ACCESS);
+  assert.equal(saved.outcome, 'GRANTED');
   const audits = client._rows('diaspora_import_audit_log');
-  assert.ok(audits.some((a) => a.action === 'ENTITLEMENT_OVERRIDE_APPLIED' && a.actor_id === 'admin-1'));
+  assert.ok(audits.some((a) => a.action === 'ENTITLEMENT_OVERRIDE_GRANTED' && a.actor_id === 'admin-1'));
   // The override now takes effect for that user.
   const check = await ent.checkFeature(client, { tenantId: TENANT_A, userId: 'user-x', featureKey: FEATURE_KEYS.API_ACCESS });
   assert.equal(check.allowed, true);

@@ -475,10 +475,165 @@ export function releaseUsageAtomic(params, { table, nextId }) {
   };
 }
 
+/**
+ * Mirrors diaspora_apply_entitlement_override_atomic (ledger #26).
+ *
+ * The SQL locks the logical (tenant, user, feature) row — soft-deleted included — then upserts
+ * ON CONFLICT ON CONSTRAINT uq_diaspora_user_override, clearing deleted_at so a re-grant REVIVES the
+ * existing row instead of colliding with it, and writes the audit row in the same transaction with a
+ * distinct action per outcome.
+ *
+ * This reference reproduces that contract against the in-memory tables, which is why it writes the
+ * override row directly rather than through the mock's insert path: the RPC is a single upsert
+ * statement in Postgres, and routing it through an INSERT that the mock's unique index would reject
+ * would model the OLD broken sequence rather than the new one.
+ *
+ * Keep in lockstep with database/migrations/20260731090000_diaspora_entitlement_override_regrant.sql
+ */
+export function applyEntitlementOverrideAtomic(params, { table, nextId }) {
+  const ts = new Date().toISOString();
+  const overrides = table('diaspora_user_entitlement_overrides');
+  const audit = table('diaspora_import_audit_log');
+
+  if (!params.p_tenant_id) fail('DIASPORA_ENTITLEMENT/TENANT_REQUIRED');
+  if (!params.p_user_id) fail('DIASPORA_ENTITLEMENT/USER_REQUIRED');
+  if (!params.p_feature_key) fail('DIASPORA_ENTITLEMENT/FEATURE_REQUIRED');
+  if (params.p_value === undefined || params.p_value === null) fail('DIASPORA_ENTITLEMENT/VALUE_REQUIRED');
+  if (!params.p_actor_id) fail('DIASPORA_ENTITLEMENT/ACTOR_REQUIRED');
+
+  // The lookup ignores deleted_at exactly as the SQL does — that row is the one being revived.
+  const prev = overrides.find(
+    (r) => String(r.tenant_id) === String(params.p_tenant_id)
+      && String(r.user_id) === String(params.p_user_id)
+      && r.feature_key === params.p_feature_key,
+  );
+
+  let outcome;
+  if (!prev) outcome = 'GRANTED';
+  else if (prev.deleted_at) outcome = 'REGRANTED';
+  else if (JSON.stringify(prev.value) !== JSON.stringify(params.p_value)) outcome = 'UPDATED';
+  else outcome = 'UNCHANGED';
+
+  const previousState = prev
+    ? { value: prev.value, revoked: Boolean(prev.deleted_at), revokedAt: prev.deleted_at ?? null }
+    : null;
+
+  let row;
+  if (prev) {
+    prev.value = params.p_value;
+    prev.reason = params.p_reason ?? null;
+    prev.updated_by = params.p_actor_id;
+    prev.updated_at = ts;
+    prev.deleted_at = null; // ON CONFLICT ... DO UPDATE SET deleted_at = NULL
+    row = prev;
+  } else {
+    row = {
+      id: nextId('ovr'),
+      tenant_id: String(params.p_tenant_id),
+      user_id: String(params.p_user_id),
+      feature_key: params.p_feature_key,
+      value: params.p_value,
+      reason: params.p_reason ?? null,
+      created_by: params.p_actor_id,
+      updated_by: params.p_actor_id,
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+    };
+    overrides.push(row);
+  }
+
+  const action = {
+    GRANTED: 'ENTITLEMENT_OVERRIDE_GRANTED',
+    REGRANTED: 'ENTITLEMENT_OVERRIDE_REGRANTED',
+    UPDATED: 'ENTITLEMENT_OVERRIDE_UPDATED',
+    UNCHANGED: 'ENTITLEMENT_OVERRIDE_REAPPLIED',
+  }[outcome];
+
+  audit.push({
+    id: nextId('aud'),
+    tenant_id: String(params.p_tenant_id),
+    actor_id: params.p_actor_id,
+    action,
+    resource_type: 'diaspora_user_entitlement_override',
+    resource_id: String(row.id),
+    previous_state: previousState,
+    new_state: { value: row.value, revoked: false },
+    metadata: {
+      featureKey: params.p_feature_key,
+      userId: String(params.p_user_id),
+      outcome,
+      reason: params.p_reason ?? null,
+      correlationId: params.p_correlation_id ?? null,
+    },
+    cryptographic_seal: seal(params.p_actor_id, action, 'diaspora_user_entitlement_override', row.id, ts),
+    created_at: ts,
+  });
+
+  return { outcome, action, override: { ...row } };
+}
+
+/** Mirrors diaspora_revoke_entitlement_override_atomic (ledger #26). */
+export function revokeEntitlementOverrideAtomic(params, { table, nextId }) {
+  const ts = new Date().toISOString();
+  const overrides = table('diaspora_user_entitlement_overrides');
+  const audit = table('diaspora_import_audit_log');
+
+  if (!params.p_tenant_id) fail('DIASPORA_ENTITLEMENT/TENANT_REQUIRED');
+  if (!params.p_actor_id) fail('DIASPORA_ENTITLEMENT/ACTOR_REQUIRED');
+
+  const row = overrides.find(
+    (r) => String(r.tenant_id) === String(params.p_tenant_id)
+      && String(r.user_id) === String(params.p_user_id)
+      && r.feature_key === params.p_feature_key,
+  );
+  if (!row) fail('DIASPORA_ENTITLEMENT/OVERRIDE_NOT_FOUND');
+
+  if (row.deleted_at) {
+    // Already revoked. Re-stamping deleted_at would rewrite when the capability was withdrawn.
+    return {
+      outcome: 'ALREADY_REVOKED',
+      action: 'ENTITLEMENT_OVERRIDE_REVOKED',
+      idempotentReplay: true,
+      override: { ...row },
+    };
+  }
+
+  const previousValue = row.value;
+  row.deleted_at = ts;
+  row.reason = params.p_reason ?? row.reason ?? null;
+  row.updated_by = params.p_actor_id;
+  row.updated_at = ts;
+
+  audit.push({
+    id: nextId('aud'),
+    tenant_id: String(params.p_tenant_id),
+    actor_id: params.p_actor_id,
+    action: 'ENTITLEMENT_OVERRIDE_REVOKED',
+    resource_type: 'diaspora_user_entitlement_override',
+    resource_id: String(row.id),
+    previous_state: { value: previousValue, revoked: false },
+    new_state: { value: row.value, revoked: true, revokedAt: row.deleted_at },
+    metadata: {
+      featureKey: params.p_feature_key,
+      userId: String(params.p_user_id),
+      outcome: 'REVOKED',
+      reason: params.p_reason ?? null,
+      correlationId: params.p_correlation_id ?? null,
+    },
+    cryptographic_seal: seal(params.p_actor_id, 'ENTITLEMENT_OVERRIDE_REVOKED', 'diaspora_user_entitlement_override', row.id, ts),
+    created_at: ts,
+  });
+
+  return { outcome: 'REVOKED', action: 'ENTITLEMENT_OVERRIDE_REVOKED', idempotentReplay: false, override: { ...row } };
+}
+
 export const DIASPORA_RPCS = {
   diaspora_append_stock_movement_atomic: appendStockMovementAtomic,
   diaspora_accept_quote_atomic: acceptQuoteAtomic,
   diaspora_approve_cargo_reservation_atomic: approveCargoReservationAtomic,
   diaspora_reserve_usage_atomic: reserveUsageAtomic,
   diaspora_release_usage_atomic: releaseUsageAtomic,
+  diaspora_apply_entitlement_override_atomic: applyEntitlementOverrideAtomic,
+  diaspora_revoke_entitlement_override_atomic: revokeEntitlementOverrideAtomic,
 };
