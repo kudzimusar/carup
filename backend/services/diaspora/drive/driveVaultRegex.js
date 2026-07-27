@@ -22,22 +22,28 @@ export const VAULT_REFERENCE_MIN_LENGTH = 3;
 export const VAULT_REFERENCE_MAX_LENGTH = 512;
 
 /**
- * Exact mirror of the SQL CHECK. Split per alternative so the rejection message can name the class.
+ * Exact mirror of the SQL CHECK, split per alternative so a rejection can name the class.
+ *
  * SQL: `vault_reference !~ '^(1//|ya29\.|sk_live_|sk_test_|rk_live_|pk_live_|whsec_|AIza)'`
  *      `AND vault_reference !~ '^ey[A-Za-z0-9_-]+\.'`
  *      `AND vault_reference !~ '-----BEGIN'`
+ *
+ * `sql` is the fragment as it appears VERBATIM in the constraint definition Postgres reports, so the
+ * PGlite harness can assert its continued presence with a substring check. The first eight are
+ * alternatives inside one anchored `^(…)` group, which is why they carry no `^` of their own.
  */
 export const SQL_MIRROR_PATTERNS = Object.freeze([
-  { name: 'google oauth refresh token', sql: "^1//", pattern: /^1\/\// },
-  { name: 'google oauth access token', sql: '^ya29\\.', pattern: /^ya29\./ },
-  { name: 'stripe live secret key', sql: '^sk_live_', pattern: /^sk_live_/ },
-  { name: 'stripe test secret key', sql: '^sk_test_', pattern: /^sk_test_/ },
-  { name: 'stripe restricted key', sql: '^rk_live_', pattern: /^rk_live_/ },
-  { name: 'stripe publishable live key', sql: '^pk_live_', pattern: /^pk_live_/ },
-  { name: 'webhook signing secret', sql: '^whsec_', pattern: /^whsec_/ },
-  { name: 'google api key', sql: '^AIza', pattern: /^AIza/ },
-  { name: 'jwt', sql: '^ey[A-Za-z0-9_-]+\\.', pattern: /^ey[A-Za-z0-9_-]+\./ },
-  { name: 'pem private key block', sql: '-----BEGIN', pattern: /-----BEGIN/ },
+  { name: 'google oauth refresh token', sql: '1//', anchored: true, pattern: /^1\/\// },
+  { name: 'google oauth access token', sql: 'ya29\\.', anchored: true, pattern: /^ya29\./ },
+  { name: 'stripe live secret key', sql: 'sk_live_', anchored: true, pattern: /^sk_live_/ },
+  { name: 'stripe test secret key', sql: 'sk_test_', anchored: true, pattern: /^sk_test_/ },
+  { name: 'stripe restricted key', sql: 'rk_live_', anchored: true, pattern: /^rk_live_/ },
+  { name: 'stripe publishable live key', sql: 'pk_live_', anchored: true, pattern: /^pk_live_/ },
+  { name: 'webhook signing secret', sql: 'whsec_', anchored: true, pattern: /^whsec_/ },
+  { name: 'google api key', sql: 'AIza', anchored: true, pattern: /^AIza/ },
+  { name: 'jwt', sql: '^ey[A-Za-z0-9_-]+\\.', anchored: true, pattern: /^ey[A-Za-z0-9_-]+\./ },
+  // The only unanchored SQL clause: a PEM block anywhere in the value disqualifies it.
+  { name: 'pem private key block', sql: '-----BEGIN', anchored: false, pattern: /-----BEGIN/ },
 ]);
 
 /**
