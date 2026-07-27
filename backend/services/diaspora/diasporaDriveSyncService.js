@@ -71,6 +71,28 @@ const ENTITY_FOLDER = {
   export: 'Export Documents',
 };
 
+/**
+ * Hand the Drive provider a TENANT-SCOPED vault.
+ *
+ * `resolveVault({tenantId})` returns a `forTenant()` view so the binding travels WITH the vault
+ * instead of being a discipline every call site has to remember. That scoping reached the service's
+ * own vault calls (the PKCE verifier) but not the provider's — and the provider is where the REFRESH
+ * TOKENS live, the highest-value secret in this lane. `getDriveProvider(…, options)` received raw
+ * options, so in production `options.vault` was null and the provider resolved its own UNSCOPED
+ * default; every token load, rotation and destroy therefore ran unbound.
+ *
+ * This was not exploitable. `loadOwnConnection` / `activeConnectionOrThrow` mean the credential
+ * reference always comes from the caller's OWN connection row — a caller never names a reference at
+ * all, which is the same structural defence ledger #25 uses for meters. But the entire point of
+ * `forTenant()` is to make forgetting the tenant inexpressible, and a layer that quietly opts out of
+ * it makes that claim untrue exactly where it matters most.
+ *
+ * `resolveVault` already returns an injected `options.vault` (scoped), so test injection is unchanged.
+ */
+function tenantScoped(options, context) {
+  return { ...options, vault: resolveVault({ ...options, tenantId: context?.tenantId || null }) };
+}
+
 function b64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
@@ -228,7 +250,7 @@ export async function getAuthorizationUrl(userContext = {}, options = {}) {
     featureKey: FEATURE_KEYS.DRIVE_CONNECT,
   });
 
-  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
+  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, tenantScoped(options, context));
   // Tenant-SCOPED when a tenant is known: a managed vault returns a view that carries the binding on
   // every call, so "remember to pass the tenant" stops being a per-call-site discipline. The
   // in-memory adapter has no scoping and is handed back unchanged.
@@ -306,7 +328,7 @@ export async function handleOAuthCallback({ code, state } = {}, userContext = {}
     featureKey: FEATURE_KEYS.DRIVE_CONNECT,
   });
 
-  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
+  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, tenantScoped(options, context));
   // Same tenant scoping as `getAuthorizationUrl`: the verifier was stored under this tenant, so a
   // managed vault refuses to hand it back while acting for another one.
   const vault = resolveVault({ ...options, tenantId: context.tenantId || null });
@@ -423,7 +445,7 @@ export async function disconnectDrive(userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
   const connection = await loadOwnConnection(client, context);
-  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
+  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, tenantScoped(options, context));
 
   // Best effort at the provider; the local drop below happens regardless, because leaving a usable
   // credential behind after the user pressed "disconnect" is the worse failure.
@@ -524,7 +546,7 @@ export async function uploadDriveFile(payload = {}, userContext = {}, options = 
   });
 
   const connection = await activeConnectionOrThrow(client, context);
-  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
+  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, tenantScoped(options, context));
 
   const linkedEntityType = payload.linkedEntityType || 'export';
   const fileName = payload.fileName || `${linkedEntityType}-${Date.now()}.json`;
@@ -640,7 +662,7 @@ export async function syncDrive(userContext = {}, options = {}) {
   const context = requireUserContext(userContext);
   const client = await resolveClient(options);
   const connection = await loadOwnConnection(client, context);
-  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
+  const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, tenantScoped(options, context));
 
   if (!connection.credential_reference) return sanitizeConnection(connection);
 
