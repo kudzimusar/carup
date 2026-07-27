@@ -36,16 +36,18 @@ should be read as activation.
 
 | Deliverable | Implemented locally | Applied to staging | Deployed to staging | Deployed-UAT verified |
 |---|---|---|---|---|
-| **A — UI-10 Trade Graph dashboard** | ✅ | ❌ | ❌ | ❌ |
-| **B — Confirmed workbook import** | ✅ | ❌ | ❌ | ❌ |
-| **C — Google Drive** | ✅ test transport; live needs owner OAuth | ❌ | ❌ | ❌ |
-| **D — Subscription billing** | ✅ provider test mode; live needs a merchant account | ❌ | ❌ | ❌ |
-| **E — SafeTrade ST-3** | ✅ all four items | ❌ | ❌ | ❌ |
+| **A — UI-10 Trade Graph dashboard** | ✅ | ✅ | ✅ | ⚠ see §5c |
+| **B — Confirmed workbook import** | ✅ | ✅ | ✅ | ⚠ see §5c |
+| **C — Google Drive** | ✅ test transport; live needs owner OAuth | ✅ | ✅ | ⚠ see §5c |
+| **D — Subscription billing** | ✅ provider test mode; live needs a merchant account | ✅ | ✅ | ❌ **defect, §5c** |
+| **E — SafeTrade ST-3** | ✅ all four items | ✅ | ✅ | ⚠ see §5c |
 
-**Production: untouched.** No migration applied, no deploy, no live-risk flag enabled, no real money
-moved by anything in this branch.
+**Production: untouched.** No migration applied there, no deploy, no live-risk flag enabled, no real
+money moved by anything in this branch.
 
-Every column after the first is empty for a single reason, and it is not "not built" — see §5.
+Ledgers #21–#27 ARE applied to canonical staging and re-verified (§5). Both staging projects are
+deployed. The last column is not yet ticked because the deployed browser matrix found a real defect —
+see §5c — whose fix cannot be deployed until the Vercel daily quota resets.
 
 ---
 
@@ -168,6 +170,112 @@ fails against the pre-fix code.
 
 Rule 3 is now written into spec 37 beside the other two, because the pattern is what generalises: a
 refusal only counts when the request reached the thing that is supposed to refuse it.
+
+---
+
+## 5c. Deployed staging activation — what actually happened
+
+### Migrations: APPLIED and verified
+
+Canonical staging (`eoyenigwevnxwwhyhaer`, PostgreSQL **17.6**). Three dispatches, all preserved:
+
+| Run | Mode | Conclusion | Established |
+|---|---|---|---|
+| `30309378724` | verify | failure *(permitted)* | 7 checksums valid · bundled Supabase Root 2021 CA · TLS ON · `connected: db=postgres, pg=17.6` · positive staging-ref guard · no production reference · no version collision. Stopped only at `#23 prerequisite … missing` — created by #22, which verify mode declined to write. |
+| `30309507308` | apply | **success** | `APPLIED #21…#27 in one transaction; ledger row … recorded`, each followed by `contract verified`. |
+| `30309701351` | verify | **success** | All seven `already recorded — verify-only`, `"ok": true`. |
+| `30312117396` | verify | **success** | Re-confirmed after fixture cleanup. No re-application needed for a frontend-only fix. |
+
+### Deployment: both projects at `fff8813` — NOT the final candidate
+
+| | |
+|---|---|
+| Frontend | `dpl_DsNYf3u1Kxw6syLD8EVBCpcTN2Yo`, bundle `index-Bf8sPSsl.js` |
+| Backend | `dpl_5zLrD2w6gYNmhPAjZe6ikw6hQqAe`, aliased to `carup-backend-aca7.vercel.app` |
+
+The backend was **re-aliased rather than redeployed**: the frontend bundle bakes in
+`carup-backend-aca7`, and that alias pointed at an older build. Aliasing costs no deploy quota and is
+what makes "both deployments use the same candidate" true rather than nominal.
+
+### The defect the deployed matrix found
+
+`/diaspora/subscription` never left `subscription-loading`. The page held the aggregate object from
+`useCarUpApi()`, which returns a fresh object every render, so `load` changed identity every render
+and the mount effect depended on it: load → setState → render → new api → new load → effect → load,
+unbounded, issuing subscription requests continuously.
+
+**This is the third occurrence of this exact defect in this codebase.** PR #130 fixed it on
+`DiasporaTradeProfile`; the Drive lane fixed it on `DiasporaDriveConnections`; both siblings carry a
+comment naming the hazard. `DiasporaSubscription` was written against the same hook and missed it.
+
+Fixed at `543dd51`, guard-checked — 4 requests before, ≤2 after. The regression test asserts REQUEST
+COUNTS, because rendered text cannot see this and jsdom resolves mocked promises too fast for a
+spinner ever to be sampled.
+
+**The fix is NOT deployed.** Vercel returned `api-deployments-free-per-day` (more than 100), and Git
+integration is capped for the same reason. Until it is deployed and the matrix re-run, deliverable D
+is not UAT-verified and no terminal outcome is claimable.
+
+### Matrix results, and the corrections they forced
+
+| Run | Result |
+|---|---|
+| First (`gtm127`) | 78 tests · 58 passed · 16 failed · 4 skipped |
+| Second (`gtm127b`, corrected specs) | 78 tests · 67 passed · 7 failed · 4 skipped |
+| Spec 37 alone, after two further fixes | **14 / 14** |
+| Spec 32 alone, re-run | **14 / 14** |
+
+Of the original 16 failures, only **one test** was a product defect. The rest were defects in my own
+specs, and they shared a single shape worth naming: **a refusal read as an absence.**
+
+- **404 as "no gate"** — the first draft probed routes that do not exist; a 404 satisfied
+  `status >= 400` and proved nothing.
+- **401 as "gate refused me"** — the probes were anonymous, because this app has no cookie session and
+  auth travels in headers from localStorage. Every "refusal" was an ordinary auth rejection.
+- **400 as "not authenticated"** — the auth canary used a route requiring a tenant, and the staging
+  fixtures are tenantless because `switch-role` is fail-closed.
+- **404-disabled as "route missing"** — `DIASPORA_SAFETRADE_ENABLED` is off, so the backend 404s the
+  whole SafeTrade surface. That IS the fail-closed state the test exists to confirm; it now
+  distinguishes the capability marker from a generic route miss and asserts the stronger property
+  (the detail route must be closed too).
+
+Two further errors were environmental rather than assertional: the probe ran from `about:blank`, where
+reading localStorage throws `SecurityError` and `fetch` is refused by CORS as an opaque origin. The
+health-endpoint secret sweep reported **red while its detectors had never executed** — worse than a
+false pass, because it looks like evidence of a leak. `/health` is clean; nothing had looked.
+
+**Spec 34 was a premise conflict, not a defect.** It asserted SafeTrade shows "unavailable" *with
+flags off* but never checked the flag — and Phase 8 requires SafeTrade exercised, so the flag is on.
+Rewritten to assert the invariant that holds either way: the page states its outcome, settles, and the
+gate is not decorative. Strengthened, not weakened.
+
+**One failure was non-deterministic**: a 30-second `page.goto('/marketplace')` timeout on mobile only.
+Re-running spec 32 gave 14/14 and the URL answers in 0.13s. Recorded as infrastructure, after
+re-running rather than by assumption.
+
+### Staging cannot prove CSRF
+
+The staging backend runs `NODE_ENV=test`, which makes `csrfMiddleware` short-circuit **before** its
+exemption list. Proven by discriminator, not assumed: a POST to a NON-exempt route with no CSRF token
+returns `401 Unauthorized. No active user context.` (auth) rather than `403 CSRF token missing`.
+
+So the deployed matrix cannot demonstrate CSRF in either direction, and no claim here rests on it. The
+scheduler-dispatch CSRF fix (`f33cf9f`) remains correct for production, where the bypass does not
+apply; its test drives the middleware with `NODE_ENV` set explicitly to `production` and `staging`,
+which is the only way the exemption list is ever reached.
+
+### Fixture cleanup — proven
+
+Five synthetic identities, namespaced `+gtm127@carup-staging.test`. The import orders they created
+were retired to `CANCELLED` through the product's own `PATCH /import-orders/:id/stages` path — the
+product deliberately exposes no DELETE for trade records, which is correct for an auditable trade
+system. Proof was re-read from the server rather than taken from local bookkeeping:
+
+```
+buyer: total=4 live=0 [CANCELLED,CANCELLED,CANCELLED,CANCELLED]
+seller 0 · outsider 0 · reviewer 0 · tenant-admin 0
+liveRemaining: 0
+```
 
 ---
 
@@ -317,26 +425,29 @@ These cannot be performed from the repository, by this agent or any other.
 
 ## 11. Terminal outcome
 
-Issue #127 permits exactly two. **Neither has been reached**, and the reason has changed.
+Issue #127 permits exactly two. **Neither is claimed**, and the reason is now narrow and specific.
 
-- Not `GO-TO-MARKET ACTIVATION COMPLETE — CHROMIUM/PLAYWRIGHT VERIFIED`: nothing is applied to
-  staging, nothing is deployed, and no browser matrix has run against a deployment.
-- Not `GO-TO-MARKET ACTIVATION IMPLEMENTATION COMPLETE — OWNER EXTERNAL ACTIONS REQUIRED`: that
-  outcome asserts the remaining work is owner-only. It is *nearly* true now — §6 lists no open
-  ordinary engineering — but the staging lane is blocked on a **merge**, and a merge is an ordinary
-  action, not an external one. Claiming outcome B while a mergeable pull request sits open would be
-  the same species of overstatement this document was rewritten to remove.
+`GO-TO-MARKET ACTIVATION COMPLETE — CHROMIUM/PLAYWRIGHT VERIFIED` requires a **green deployed browser
+matrix**. No such run exists, because of a single external constraint:
 
-**The single thing standing between here and the staging lane** is landing PR #132 on `main`. The
-dispatcher only runs from the default branch, so the pin cannot take effect anywhere else. That merge
-applies nothing: the default mode is `verify`, and dispatching is a separate act.
+- the deployed candidate `fff8813` carries a confirmed defect — the `/diaspora/subscription` request
+  loop in §5c;
+- the candidate that fixes it **cannot be deployed**. Vercel answers
+  `api-deployments-free-per-day` (more than 100), and Git integration is capped for the same reason.
 
-Once it lands, the remaining sequence is entirely mechanical and needs no owner input: verify → apply
-→ verify against staging, deploy the exact candidate to the staging frontend and backend, run the
-deployed browser matrix (specs 32–37), clean up fixtures, and write the closure receipt.
+Everything else is done. Ledgers #21–#27 are applied to canonical staging and verified three times.
+Both staging projects are deployed and agree on their candidate. Fixture cleanup is proven with
+`liveRemaining: 0`. CI is green on the fix candidate — backend 2666 tests / 0 fail, all nine ledger
+harnesses passing in CI for the first time.
 
-What this branch is today: all five deliverables implemented and locally verified, **seven** audited
-migrations frozen and unapplied to every database, a staging runner that verifies TLS instead of
-ignoring it and can now actually detect a PUBLIC grant, five defects caught by adversarial review
-before any of it touched a database, and every risky surface left exactly as fail-closed as it was
-found.
+**Candidate lineage**, so the two are never confused:
+
+| | |
+|---|---|
+| Deployed now | `fff881371b995126af69c5825159f9707167dad0` — has the defect |
+| Owner-frozen fix | `543dd51f4a78eaccb4d9f0299e147689b44f6856` — fixes it, undeployed |
+| Local head | `ea39938` — `543dd51` plus TEST-ONLY corrections to spec 37, verified 14/14 against the live deployment. No product code changed after `543dd51`. |
+
+The remaining sequence needs no owner input: one controlled deployment of the fix candidate to both
+staging projects when the quota resets, verify the served bundle and backend identity correspond to
+it, re-run specs 32–37, clean any new fixtures, prove cleanup, re-run smoke, then publish the receipt.
