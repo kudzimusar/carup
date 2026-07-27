@@ -29,6 +29,9 @@ import { DRIVE_PROVIDERS, DRIVE_SCOPES } from '../../../constants/diaspora/diasp
 import { GoogleOAuthClient, configuredRedirectUris, assertExactRedirectUri, OAuthClientError } from './googleOAuthClient.js';
 import { createFetchTransport } from './httpTransport.js';
 import { resolveVault, redactSecretMaterial, CREDENTIAL_PURPOSES, registerSecretForRedaction } from './credentialVault.js';
+// Side-effect import: registers the managed vault backends so `resolveVault()` can return one. See
+// vaultBackends.js for why the core module must not import them itself.
+import './vaultBackends.js';
 
 export const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 export const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3/files';

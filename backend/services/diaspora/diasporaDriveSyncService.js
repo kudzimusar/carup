@@ -36,6 +36,8 @@ import { requireUserContext, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendCriticalAudit } from './diasporaServiceUtils.js';
 import { getDriveProvider, DriveProviderError } from './drive/driveProvider.js';
 import { resolveVault, redactSecretMaterial, CREDENTIAL_PURPOSES } from './drive/credentialVault.js';
+// Side-effect import: registers the managed vault backends so `resolveVault()` can return one.
+import './drive/vaultBackends.js';
 import { createPkcePair, deriveCodeChallenge, configuredRedirectUris } from './drive/googleOAuthClient.js';
 import {
   recordCredentialReference,
@@ -213,7 +215,10 @@ export async function getAuthorizationUrl(userContext = {}, options = {}) {
   if (!isDriveEnabled()) throw new ValidationError('Drive integration is disabled');
   const client = await resolveClient(options);
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
-  const vault = resolveVault(options);
+  // Tenant-SCOPED when a tenant is known: a managed vault returns a view that carries the binding on
+  // every call, so "remember to pass the tenant" stops being a per-call-site discipline. The
+  // in-memory adapter has no scoping and is handed back unchanged.
+  const vault = resolveVault({ ...options, tenantId: context.tenantId || null });
 
   // PKCE: the challenge is public and goes to Google; the verifier is secret and stays here, in the
   // vault, referenced from the state row by an opaque handle.
@@ -278,7 +283,9 @@ export async function handleOAuthCallback({ code, state } = {}, userContext = {}
 
   const client = await resolveClient(options);
   const provider = await getDriveProvider(DRIVE_PROVIDERS.GOOGLE, options);
-  const vault = resolveVault(options);
+  // Same tenant scoping as `getAuthorizationUrl`: the verifier was stored under this tenant, so a
+  // managed vault refuses to hand it back while acting for another one.
+  const vault = resolveVault({ ...options, tenantId: context.tenantId || null });
 
   // Signature + expiry + user/tenant binding, then one-time nonce consumption (replay rejected).
   const decoded = parseAndVerifyState(state, context.id, context.tenantId);
