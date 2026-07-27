@@ -177,11 +177,19 @@ for (const t of NEW_TABLES) {
       const { rows } = await db.query('SELECT has_table_privilege($1, $2, $3) AS h', [role, `public.${t}`, priv]);
       if (rows[0].h) held[role].push(priv);
     }
-    // PUBLIC is not a role has_table_privilege accepts; read it out of the ACL directly.
-    const { rows: aclRows } = await db.query(
-      `SELECT coalesce(array_to_string(relacl, ','), '') AS acl FROM pg_class
-       WHERE oid = $1::regclass`, [`public.${t}`]);
-    if (/(^|,)=[a-zA-Z]/.test(aclRows[0].acl)) held.PUBLIC.push(priv);
+    // PUBLIC, read with the same instrument as every other role.
+    //
+    // This previously joined relacl into a comma-separated string and matched /(^|,)=[a-zA-Z]/. That
+    // pattern is structurally unmatchable: the PUBLIC entry is grantee 0, prints with an EMPTY
+    // grantee name, and is always element ZERO — so after array_to_string it is preceded by nothing
+    // at all, and the `^` alternative only matches when PUBLIC holds the FIRST privilege listed. It
+    // also conflated "PUBLIC holds something" with "PUBLIC holds THIS privilege", since the same
+    // string was retested for every priv in the loop.
+    //
+    // `public` IS a name has_table_privilege accepts, and it reports the specific privilege. See
+    // database/test/diaspora_function_acl_detector_check.mjs for the reproduction.
+    const { rows: pub } = await db.query('SELECT has_table_privilege($1, $2, $3) AS h', ['public', `public.${t}`, priv]);
+    if (pub[0].h) held.PUBLIC.push(priv);
   }
   record(`ACL ${t}: PUBLIC = NONE`, held.PUBLIC.length === 0, `held=${held.PUBLIC.join(',')}`);
   record(`ACL ${t}: anon = NONE (incl. MAINTAIN)`, held.anon.length === 0, `held=${held.anon.join(',')}`);

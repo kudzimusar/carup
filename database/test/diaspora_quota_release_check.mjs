@@ -220,8 +220,26 @@ const release = (id, actor = 'user-1') => db.query(
       WHERE ns.nspname='public' AND p.proname='diaspora_release_usage_atomic'`);
   record('exactly one definition (no accidental overload)', rows.length === 1, `count=${rows.length}`);
   const acl = rows[0]?.acl || '';
-  record('anon and authenticated hold no EXECUTE', !/(^|,)anon=/.test(acl) && !/(^|,)authenticated=/.test(acl), `acl=${acl}`);
-  record('service_role holds EXECUTE', /service_role=X/.test(acl), `acl=${acl}`);
+
+  // EFFECTIVE privilege, not ACL text.
+  //
+  // This previously matched /(^|,)anon=/ and asserted nothing at all about PUBLIC. Both were wrong.
+  // An aclitem[] renders as `{entry,entry,...}` and the PUBLIC entry — grantee 0, printed with an
+  // empty grantee name — is always element ZERO, so it is preceded by `{`, never by a comma and never
+  // by start-of-string. And a role inherits EXECUTE through PUBLIC WITHOUT gaining an ACL entry of
+  // its own, so `anon=` can be absent while anon can execute. Reproduced on PostgreSQL 17.5:
+  //
+  //   proacl = {=X/web_user,web_user=X/web_user,service_role=X/web_user}   anon EXECUTE = true
+  //
+  // has_function_privilege answers the question that actually matters: can this role execute it,
+  // however the right was acquired. See database/test/diaspora_function_acl_detector_check.mjs.
+  const SIG = 'public.diaspora_release_usage_atomic(uuid,text,text)';
+  for (const role of ['anon', 'authenticated', 'public']) {
+    const { rows: p } = await db.query('SELECT has_function_privilege($1, $2, $3) h', [role, SIG, 'EXECUTE']);
+    record(`${role} holds NO effective EXECUTE`, p[0].h === false, `acl=${acl}`);
+  }
+  const { rows: svc } = await db.query('SELECT has_function_privilege($1, $2, $3) h', ['service_role', SIG, 'EXECUTE']);
+  record('service_role holds effective EXECUTE', svc[0].h === true, `acl=${acl}`);
   record('search_path is pinned and includes extensions', /extensions/.test(rows[0]?.cfg || ''), `cfg=${rows[0]?.cfg}`);
 }
 

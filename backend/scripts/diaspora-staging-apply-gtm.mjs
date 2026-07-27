@@ -262,9 +262,31 @@ async function verifyTableContract(c, table, errs) {
   if (colGrants !== 0) errs.push(`${table}: ${colGrants} residual column-level client/PUBLIC grants`);
 }
 
+/**
+ * Function contract, read as EFFECTIVE privilege rather than parsed out of ACL text.
+ *
+ * This previously read `p.proacl::text` and matched `/(^|,)=[a-zA-Z]/` for a PUBLIC grant. That
+ * pattern is structurally unmatchable. An aclitem[] renders as `{entry,entry,...}` and the PUBLIC
+ * entry — grantee 0, which prints with an EMPTY grantee name — is always element ZERO, so it is
+ * preceded by an opening brace, never by a comma and never by start-of-string. Reproduced on
+ * PostgreSQL 17.5 in database/test/diaspora_function_acl_detector_check.mjs:
+ *
+ *     proacl           = {=X/web_user,web_user=X/web_user,service_role=X/web_user}
+ *     anon has EXECUTE = true
+ *     the PUBLIC pattern matched = false
+ *
+ * The anon and authenticated checks did not compensate, because a role inherits EXECUTE THROUGH
+ * PUBLIC without ever gaining an ACL entry of its own. So a SECURITY DEFINER function shipped
+ * without its REVOKE line would have been executable by anon — running as the table owner, and
+ * therefore bypassing RLS — while this script printed "contract verified" and exited 0.
+ *
+ * has_function_privilege answers the question that actually matters: can this role execute it,
+ * however the right was acquired. It is the same instrument the table side has always used, which
+ * is exactly why the table side never had this hole.
+ */
 async function verifyFunctionContract(c, fn, errs, { singleOverload = false } = {}) {
   const { rows } = await c.query(
-    `SELECT p.oid::regprocedure::text sig, p.proacl::text acl, p.proconfig::text cfg
+    `SELECT p.oid AS oid, p.oid::regprocedure::text sig, p.proacl::text acl, p.proconfig::text cfg
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
       WHERE n.nspname='public' AND p.proname=$1`, [fn]);
   if (rows.length === 0) { errs.push(`${fn}(): missing`); return; }
@@ -272,12 +294,14 @@ async function verifyFunctionContract(c, fn, errs, { singleOverload = false } = 
     errs.push(`${fn}(): ${rows.length} overloads — a Supabase named-argument RPC call would be ambiguous`);
   }
   for (const r of rows) {
-    const acl = r.acl || '';
-    if (/(^|,)anon=/.test(acl)) errs.push(`${fn}(): anon holds EXECUTE`);
-    if (/(^|,)authenticated=/.test(acl)) errs.push(`${fn}(): authenticated holds EXECUTE`);
-    if (/(^|,)=[a-zA-Z]/.test(acl)) errs.push(`${fn}(): PUBLIC holds EXECUTE`);
-    if (!/service_role=X/.test(acl)) errs.push(`${fn}(): service_role missing EXECUTE (acl=${acl || 'default'})`);
-    if (!r.cfg || !/search_path/.test(r.cfg)) errs.push(`${fn}(): search_path not pinned`);
+    const acl = r.acl || 'default';
+    for (const role of ['anon', 'authenticated', 'public']) {
+      const { rows: p } = await c.query('SELECT has_function_privilege($1, $2::oid, $3) h', [role, r.oid, 'EXECUTE']);
+      if (p[0].h) errs.push(`${r.sig}: ${role} holds EFFECTIVE EXECUTE (acl=${acl})`);
+    }
+    const { rows: s } = await c.query('SELECT has_function_privilege($1, $2::oid, $3) h', ['service_role', r.oid, 'EXECUTE']);
+    if (!s[0].h) errs.push(`${r.sig}: service_role missing EFFECTIVE EXECUTE (acl=${acl})`);
+    if (!r.cfg || !/search_path/.test(r.cfg)) errs.push(`${r.sig}: search_path not pinned`);
   }
 }
 
