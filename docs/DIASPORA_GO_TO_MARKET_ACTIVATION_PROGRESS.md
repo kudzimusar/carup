@@ -227,72 +227,70 @@ not, which is exactly when the loss is invisible.
 
 ---
 
-## 4b. RESUME POINT (Owner Continuation Directive v2 — checkpoint 4)
+## 4b. RESUME POINT (Owner Continuation Directive v4 — checkpoint 5)
 
-Branch `claude/diaspora-go-to-market-activation`, PR **#129**, head `ada0b21`.
-**Reconciled with main:** the branch contains merge commit `0137c77` (PR #130) and is **0 behind**.
-PR #129 is **MERGEABLE**.
+Branch `claude/diaspora-go-to-market-activation`, PR **#129**, head `112b22b`. 0 behind main.
 
 | Step | State |
 |---|---|
-| **1 — ST-3 item #1 complete** | **DONE.** |
-| **2 — Confirmed workbook import** | **DONE** — backend, UI and Chromium. |
-| **3 — Subscription billing (test mode)** | **NOT STARTED.** |
-| **4 — Google Drive engineering** | **NOT STARTED.** |
-| **5 — Staging apply / deploy / deployed matrix** | **NOT STARTED.** Ledgers #21, #22, #23 remain unapplied everywhere. |
+| 1 — ST-3 item #1 | **DONE** |
+| 2 — Confirmed workbook import | **DONE** (backend + UI + Chromium) |
+| 3 — Subscription billing, test mode | **DONE** — see gaps below |
+| 4 — Google Drive | **DONE** — see gaps below |
+| 5 — Vercel staging deploy | **BLOCKED (owner)** — account quota |
+| 6 — Staging migrations + deployed matrix | **BLOCKED (owner)** — workflow not on default branch |
+| 7 — Fixture cleanup + receipt | depends on 5/6 |
 
-### PR #130 reconciliation
+### Combined gates at this head
 
-The two changesets were disjoint — PR #130 touched four files, this branch touched 47, none shared —
-so the merge had no conflicts and both sides landed whole. Verified afterwards that the four PR #130
-files are **byte-identical to origin/main**, and that all five named protections are present:
-OwnerDashboard truthful empty/unavailable states, the disabled mock OCR control, the
-DiasporaTradeProfile bounded request lifecycle, 429 manual-retry, and optimistic concurrency. Their
-two regression suites (28 tests) now gate this branch and pass.
+| Gate | Result |
+|---|---|
+| Backend (`ALLOW_OCR_MOCK=true`) | **2496 · 2484 pass · 0 fail · 12 skipped** |
+| Web unit | **78 files · 712 tests · 0 fail** |
+| Real Postgres 17.5 — five harnesses | **289 assertions · 0 failed** (#21 106 · #22 29 · #23 42 · drive-vault 76 · billing 36) |
+| Chromium — GTM suites | **55/55**, zero retries |
+| Chromium — subscription / drive (isolated, `--retries=0`) | **18/18** and **4/4** |
+| build · tsc · lint gate · CR-1 | clean · clean · 0 net-new · clean (1563 files) |
 
-### Two test-environment findings
+### The two staging blockers are genuinely owner-only
 
-- **The "11 pre-existing OCR failures" are an environment artifact, not a defect.** They appear only
-  when `ALLOW_OCR_MOCK=true` is absent. CI sets it (`.github/workflows/ci.yml:30`). With it:
-  **2213 / 2201 pass / 0 fail / 12 skipped**. Without it: 2213 / 2190 / 11 — exactly the reported
-  numbers. There is nothing to triage.
-- **`dealer-routes.test.js` has an intermittent full-suite flake.** Observed failing once in three
-  full-suite runs ("dealer creates own profile (201) then reads it back"), passing 9/9 in isolation
-  and in the two subsequent full runs. The file is untouched by both this branch and PR #130, so it
-  is pre-existing cross-test pollution, not a merge regression. Recorded rather than dismissed.
+1. **Vercel** — `vercel deploy` returns `Resource is limited - try again in 24 hours (more than 100,
+   code: api-deployments-free-per-day)`. The `Ready` deployments visible earlier in the day predate
+   the cap. Needs the daily reset or a plan upgrade.
+2. **Migrations** — `workflow_dispatch` workflows are only dispatchable if the file exists on the
+   **default branch**. `diaspora-staging-gtm-migrations.yml` exists only on this branch, and merging
+   PR #129 is explicitly forbidden. GitHub returns
+   `HTTP 404: workflow ... not found on the default branch`. The owner must either place that one file
+   on `main` or run `backend/scripts/diaspora-staging-apply-gtm.mjs` with the staging credential.
 
-### Exact next actions, in order
+The deployed browser matrix and fixture seed/cleanup both depend on these, so they are not startable.
 
-1. **Step 3 — subscription billing in provider test mode**: provider ADR, provider-neutral adapter,
-   durable webhook ledger, reconciliation, out-of-order events, full entitlement enforcement,
-   observability, Chromium.
-2. **Step 4 — Google Drive**: injectable Google API transport, production-safe vault interface, test
-   adapter, OAuth/PKCE, durable sync, refresh/revocation/reconnect, UI, token-absence proof, Chromium.
-3. **Step 5 — staging**: apply ledgers #21/#22/#23, verify every DB contract, deploy staging with
-   sandbox/test flags, exercise UI-10 against real staging data, run the deployed Chromium matrix.
+### Engineering that genuinely remains (NOT owner-gated)
 
-### Non-obvious things a resumer needs to know
+- **One managed vault backend client.** `resolveVault()` throws `VAULT_NOT_CONFIGURED` for every
+  managed backend. It is one class implementing four methods, but which class depends on the owner's
+  vault choice, so it is half engineering and half decision.
+- **Four entitlement keys unenforced**, each with a written reason asserted by test: `drive.connect`
+  and `drive.export` (the Drive lane could not edit those files; now that both lanes are integrated
+  they can be wired), `graph.advanced` (needs an async refactor of the trade-graph context guard
+  across 10 call sites; the capability flag is OFF so the surface 404s), `api.access` (no diaspora API
+  surface exists).
+- **No scheduler wiring** for billing reconciliation or the checkout-abandonment sweep. Both are
+  implemented and operator-triggerable; nothing calls them on a timer.
+  `DIASPORA_BILLING_RECONCILIATION_SCHEDULER` exists and defaults OFF.
+- **The Zimbabwe-side renewal scheduler** described in ADR-001 §8 is not built.
 
-- `diaspora_workbook_import_batches.import_status` is plain `text` with **no CHECK constraint**.
-- The confirmed-import quota key is the **existing** `diaspora.workbook.bulk_import`. A key absent
-  from `PLAN_CATALOG` resolves to a zero limit and denies every tenant on every plan — indistinguishable
-  from correct enforcement.
-- Use `reserveQuotaForFeature` from the entitlement **guard**, not `reserveUsage`: the guard returns a
-  no-op handle when `DIASPORA_SUBSCRIPTION_ENFORCEMENT` is off, which is the default.
-- Receipt `row_number` is an ordinal in plan order, **not** the workbook row. The UI labels it
-  "Row (order)" for that reason.
-- There is **no endpoint to re-fetch a confirmation**. If the client loses `confirmationId`, re-POST
-  `/confirm` with a fresh idempotency key and read `idempotentReplay: true`.
-- Three shared-mock fidelity gaps have been fixed and matter for any new test: `select()` now honours
-  the column list, `.in()` now filters, and registered unique indexes now raise 23505. Each previously
-  made a whole class of assertion pass vacuously.
-- Playwright needs the dev server started with the relevant flags, e.g.
-  `VITE_DIASPORA_WORKBOOK_IMPORT_UI_ENABLED=true VITE_DIASPORA_SAFETRADE_UI_ENABLED=true VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED=true npm run dev --workspace=web`.
-- Adding a `dashboard_sidebar` registry entry breaks the hardcoded per-role counts in
-  `tests/agents/27-feature-registry-navigation-map.spec.ts` and needs
-  `node scripts/generate-feature-manifest.mjs`. Recompute; never hand-add.
-- **Vercel builds are rate-limited at the account level** ("retry in 24 hours", observed 2026-07-28).
-  This blocks step 5's staging deploy independently of code.
+### Owner external actions
+
+1. Google OAuth client id/secret, a byte-identical redirect URI, and a `drive.file` consent screen.
+2. `DIASPORA_DRIVE_STATE_SECRET` (the OAuth state signer already fails closed without it).
+3. A vault backend choice plus its credentials.
+4. Billing provider merchant account and **test-mode** keys, plus approval of plans/prices/currencies.
+   ADR-001 records a corporate-entity precondition that gates the recommendation.
+5. Vercel plan upgrade or the daily reset.
+6. Place `diaspora-staging-gtm-migrations.yml` on the default branch.
+
+Ledgers **#21, #22, #23, #24 are committed and UNAPPLIED to every database.** No live-risk flag is on.
 
 ---
 
