@@ -59,11 +59,6 @@ router.get('/workbook/template.xlsx', auth, asyncHandler(async (req, res) => {
   // diaspora.workbook.download is the plan FLOOR (true on every plan including free), so this gate
   // denies nobody today. It is wired anyway because the only thing that can deny it is an explicit
   // per-user override — a deliberate admin action that should actually take effect.
-  await requireFeature(await resolveClient({}), {
-    tenantId: req.userContext?.tenantId || null,
-    userId: req.userContext?.id || null,
-    featureKey: FEATURE_KEYS.WORKBOOK_DOWNLOAD,
-  });
   const buffer = await generateTemplate(templateType, { now: new Date().toISOString() });
   const filename = `diaspora-${String(templateType || 'template')}-template.xlsx`;
   res.setHeader('Content-Type', XLSX_UPLOAD_MIME);

@@ -93,6 +93,8 @@ All are **committed and unapplied to every database, including staging.**
 | #23 | `20260728090000_diaspora_safetrade_st3_item1_closure.sql` | `385cd2724015` |
 | #24 | `20260729090000_diaspora_billing_test_mode_closure.sql` | `28aa8c6d7807` |
 | #25 | `20260730090000_diaspora_atomic_quota_release.sql` | `dad8779da60b` |
+| #26 | `20260731090000_diaspora_entitlement_override_regrant.sql` | `93ab8f5ee95a` |
+| #27 | `20260731100000_diaspora_scheduler_leases.sql` | `8efa7e011b4e` |
 
 Each carries the ledger-#20 ACL contract — `PUBLIC`, `anon` and `authenticated` hold nothing;
 `service_role` holds exactly what it needs; RLS on — applied in the *same* migration that creates the
@@ -127,75 +129,142 @@ trust anchor, so verification genuinely succeeds against one known certificate. 
 explicitly supplied `DIASPORA_STAGING_CA_CERT`, then the bundled root, then Node's public roots. No
 code path disables verification.
 
-**Consequence, and it is the current blocker.** The migration runner changed, so the dispatcher's
-pinned `CANDIDATE_SHA = 001cf808…` is stale — it points at the pre-repair runner, which would fail
-the same way. Ledger #25 must also join its pinned list. Advancing the pin is a reviewable pull
-request against `main` by design: that is the property that makes a pinned SHA worth having, and it
-is why the pin is not something this branch can move on its own.
+**Consequence.** The migration runner changed, so the dispatcher's pin at `001cf808…` became stale —
+it points at the pre-repair runner, which would fail the same way. Advancing the pin is a reviewable
+pull request against `main` by design: that is the property that makes a pinned SHA worth having, and
+it is why the pin is not something this branch can move on its own.
 
-So the staging column is empty because the dispatcher must be re-pinned to a frozen final candidate
-first — not because the migrations are unfinished.
+**Where the lane stands now.** **PR #132 is open and MERGEABLE**, pinning candidate
+`fff881371b995126af69c5825159f9707167dad0` and declaring all seven ledgers. It changes one workflow
+file — comments, the two SHA occurrences and two step names — and applies nothing: the default mode
+is still `verify`. All 17 controls established by PR #131 were re-verified against the **parsed**
+YAML rather than the source text, which matters because `#21` starts a YAML comment and silently
+truncated this workflow's own name once already.
+
+The staging column is empty because that pin has not landed on `main` yet — not because the
+migrations are unfinished.
+
+---
+
+## 5b. The pre-freeze review, and what it caught
+
+Before pinning a candidate at a real database holding a service-role credential, the integrated tree
+went through an adversarial review: six independent dimensions over the diff, then **two** independent
+refuters per finding, each instructed to default to *refuted* when uncertain. A finding survived only
+if both failed to refute it. 63 agents, and the large majority of candidate findings were refuted —
+most apparent defects were already handled somewhere the reviewer had not read, which is exactly what
+the refutation pass is for.
+
+Five survived. Each was reproduced before being acted on, and each fix carries a guard-check that
+fails against the pre-fix code.
+
+| # | Defect | Why no existing test caught it |
+|---|---|---|
+| 1 | The runner's own **PUBLIC-EXECUTE check could never fire**. It matched `/(^\|,)=[a-zA-Z]/` against `proacl` text, but an `aclitem[]` renders as `{entry,…}` and the PUBLIC entry is always element **zero** — preceded by a brace, never a comma. A `SECURITY DEFINER` function shipped without its `REVOKE` line would have been executable by `anon`, running as the table owner and bypassing RLS, while the run printed *"contract verified"* and exited 0. | Two harnesses carried the same broken pattern, and ledger #25's RPC had **no PUBLIC assertion at all**. The table side never had the hole because it always used `has_table_privilege`. |
+| 2 | **Ledger #27's backoff overflowed int4.** It multiplied before clamping, and a clamp cannot prevent an overflow inside its own argument: at 27 consecutive failures the release RPC raised `integer out of range`. The release then never lands, so the job freezes one short of its terminus with `next_run_at` in the past and re-fails on every tick forever — the exact "dead job becomes background noise" loop the terminus exists to prevent. | The harness drove the failure loop only at `max_failures = 5`, while the constants module accepts up to 50. The JS model computed the same window in IEEE doubles, which cannot overflow, so it disagreed with the SQL precisely where the SQL broke. |
+| 3 | **Spec 37's deployed probes were anonymous.** They sent `credentials:'include'` on an application with no cookie session — auth travels as `x-user-id`/`x-session-token` from localStorage. Every "refusal" was an ordinary 401, so the entire fail-closed half of the deployed matrix would have reported green having verified nothing. | A 401 satisfies `expect(status).toBeGreaterThanOrEqual(400)`, and the fixture only fails on 5xx. The file's own rule *"a 404 is not a refusal"* has exactly this shape; it excluded 404 and not 401. |
+| 4 | **The plan-catalog read filtered a column that does not exist.** `.is('deleted_at', null)` on `diaspora_subscription_plans` raises 42703, and the error branch was an empty `if`. So every catalog read silently fell back to config: the `source:'db'` branch was dead code in production while the header documented the opposite. An operator raising a tenant's allowance in the database would see the old limit enforced and no error anywhere. | `mockSupabase`'s `.is(col, null)` matches rows whose value is nullish, and a column absent from a row reads as `undefined` — so the mock returned the seeded plan exactly where PostgREST returns a 400. |
+| 5 | **The scheduler stranded its lease**, and stamped `finished_at` with the **start** instant. Only the handler was guarded; `openRun`, `closeRun` and the release RPC sat outside any `try/finally`, so a throw in any of them meant the only release call site was never reached. Reachable with no infrastructure failure: the operator route took `tenantId` as a free string while the column is `uuid`. The clock bug put `next_run_at` in the past for any run longer than its interval. | Every existing failure test threw from the **handler** — the one path already caught. Every test injected `now` with a synchronous handler, so start and end coincided legitimately. |
+
+Rule 3 is now written into spec 37 beside the other two, because the pattern is what generalises: a
+refusal only counts when the request reached the thing that is supposed to refuse it.
 
 ---
 
 ## 6. Engineering still open on this branch
 
-In flight in isolated specialist worktrees, neither yet integrated:
+Both specialist lanes are integrated. What follows is what genuinely remains, separated from what is
+merely an owner decision.
 
-- **Entitlements** — a soft-deleted entitlement override can never be re-granted. `applyAdminOverride`
-  looks the row up with `.is('deleted_at', null)` and inserts when it finds none, but
-  `uq_diaspora_user_override (tenant_id, user_id, feature_key)` carries no such predicate, so the
-  insert raises 23505 and surfaces as a 500 — that user loses that feature permanently. Being fixed
-  as ledger #26. `mockSupabase` did not register this table's unique index, which is why no test could
-  catch it; the index is now registered *without* `deleted_at` awareness, matching the real
-  constraint, so the broken path fails its tests instead of passing them.
-- **Entitlement coverage** — of 19 feature keys, only a minority reach the guard. `drive.connect`,
-  `drive.export`, `graph.advanced` and `api.access` are the named gaps.
-- **Vault + schedulers** — one managed vault backend client (`resolveVault()` throws
-  `VAULT_NOT_CONFIGURED` for every managed backend), plus timer wiring for billing reconciliation and
-  the checkout-abandonment sweep. Both sweeps are implemented and operator-triggerable; nothing calls
-  them on a schedule. `DIASPORA_BILLING_RECONCILIATION_SCHEDULER` exists and defaults OFF.
+**Nothing is open that would block terminal outcome B on engineering grounds.** The items below are
+either deliberate design, or decisions that are not the code's to make.
 
-Closed since the last checkpoint:
+Deliberate, and documented where they live:
 
-- **`releaseUsage` was a non-atomic read-modify-write.** Two concurrent releases of the same
-  reservation both passed the status check, both read the same `used_count`, and both wrote the same
-  decrement — the meter lost the amount once and was credited for it twice, permanently inflating
-  remaining quota. Ledger #25 moves the whole sequence into one transaction under `FOR UPDATE` on
-  both the reservation and its meter, floors the decrement at zero, refuses to release a `COMMITTED`
-  reservation, and writes the audit row inside the same transaction. 26/26 on real PostgreSQL 17.5,
-  including source-level assertions that both rows are genuinely locked — outcome assertions alone
-  would pass in a single-connection harness whether the locks were there or not.
+- **The Drive sweep cannot replay uploads.** `diaspora_drive_sync_attempts` stores a content checksum,
+  not content, by design. The sweep reclaims abandoned claims and dead-letters at the ceiling;
+  unreplayable operations are counted and surfaced (`detail.unreplayable`) rather than silently
+  dead-lettered.
+- **The renewal sweep does detection only.** It calls no provider method and its table carries no
+  amount, currency or payment handle. Collection stays behind ADR-001 §9, which is an owner
+  determination, not a missing function.
+- **`syncDrive` is ungated.** It refreshes a token; no data leaves the platform through it, and
+  `disconnectDrive` must always work.
 
----
+Owner decisions the code has deliberately NOT made:
+
+- **The buyer/seller Drive tier is thin.** `PLAN_CATALOG` grants `drive.connect: true` and
+  `drive.export: false` to `diaspora_buyer` and `seller`. Both keys are now genuinely enforced, so
+  with `DIASPORA_SUBSCRIPTION_ENFORCEMENT` on, those tiers can link a Drive and see connection status
+  but cannot put a file in it. That is what the catalog says today; widening it is a pricing decision,
+  not a code cleanup, and it is one line if the intent was otherwise.
+- **`diaspora.api.access` was withdrawn, in config only.** It was `true` on `enterprise` with no
+  Diaspora API surface anywhere to gate. The claim is now `false` on every plan and the word "API" is
+  gone from the enterprise description — the plan no longer advertises something that does not exist.
+  The seeded row in `diaspora_subscription_plans` still carries the old value and cannot be corrected
+  without a migration, because the seed ends `ON CONFLICT DO NOTHING`. That divergence is inert while
+  the catalog read prefers config, and it is recorded here so it is not discovered later.
+
+Closed on this branch:
+
+- **`releaseUsage` was a non-atomic read-modify-write** — two concurrent releases both read the same
+  `used_count` and both wrote the same decrement, so the meter was credited twice for one release and
+  remaining quota inflated permanently. Ledger #25 moves the whole sequence under `FOR UPDATE` on both
+  the reservation and its meter.
+- **A revoked entitlement override could never be re-granted** — `uq_diaspora_user_override` has no
+  `deleted_at` predicate, so a tombstone held the unique slot forever and the re-insert surfaced as a
+  500 naming a Postgres constraint. Ledger #26 adds the apply and revoke RPCs.
+- **Five recurring workloads ran on no timer at all.** Ledger #27 adds the durable scheduler; the tick
+  is a GitHub workflow rather than a `vercel.json` cron because the account is on Vercel's Hobby plan,
+  where crons fire once per day — and a schedule that claims fifteen minutes while running daily is
+  worse than none, because the freshness signals would report health while work sat undone.
+- **The Drive provider's vault was unscoped.** `forTenant()` reached the PKCE verifier but never the
+  layer holding refresh tokens. Not exploitable — the credential reference always comes from the
+  caller's own connection row — but it made the lane's central claim untrue where it mattered most.
+- **The five defects in §5b**, found by the pre-freeze review.
 
 ## 7. Verification performed locally
 
+At candidate `fff881371b995126af69c5825159f9707167dad0`:
+
 | Gate | Result |
 |---|---|
-| Backend (`ALLOW_OCR_MOCK=true`, the canonical CI env) | **2497 tests · 2485 pass · 0 fail · 12 skipped** |
+| Backend (`ALLOW_OCR_MOCK=true`, the canonical CI env) | **2656 tests · 2644 pass · 0 fail · 12 skipped** |
 | Web unit (vitest) | **81 files · 744 tests · 0 fail** |
 | TypeScript · production web build | clean · clean |
-| CR-1 secret scan | clean (1574 tracked files) |
+| CR-1 secret scan | clean (1607 tracked files) |
 | Real PostgreSQL 17.5 — #21 GTM foundation | **106 / 106** |
 | Real PostgreSQL 17.5 — #22 ST-3 | **29 / 29** |
 | Real PostgreSQL 17.5 — #23 ST-3 item 1 | **42 / 42** |
 | Real PostgreSQL 17.5 — #24 billing | **36 / 36** |
-| Real PostgreSQL 17.5 — #25 atomic quota release | **26 / 26** |
+| Real PostgreSQL 17.5 — #25 atomic quota release | **28 / 28** |
+| Real PostgreSQL 17.5 — #26 override re-grant | **50 / 50** |
+| Real PostgreSQL 17.5 — #27 scheduler leases | **73 / 73** |
 | Real PostgreSQL 17.5 — Drive vault reference | **76 / 76** |
-| Playwright · bundled Chromium · full sweep | **295 passed · 0 failed · 0 flaky · 5 skipped** across 47 spec files |
+| Real PostgreSQL 17.5 — function-ACL detector | **16 / 16** |
+| **Real-Postgres total** | **456 assertions · 0 failed** |
+| Diaspora e2e (`web/e2e`, 197 tests) | 192 passed · 1 skipped · 4 failed under 2-worker contention; **54/54 when the three affected specs are re-run alone** |
 
-Privileges in the ACL harnesses are read with `has_table_privilege()` across all eight PG17
-privileges including `MAINTAIN`, which `information_schema` cannot report at all, plus column-level
-ACLs.
+All nine ledger harnesses now run in CI. Only one of them did before — the other eight were hand-run
+only, so a regression in any could have reached staging unnoticed.
+
+Privileges are read with `has_table_privilege` / `has_function_privilege` across all eight PG17
+privileges including `MAINTAIN`, which `information_schema` cannot report at all. That instrument
+replaced ACL-text parsing everywhere after §5b finding 1.
+
+### On the `tests/agents` suite
+
+That suite reports 43 failures on this branch — and **13 of the same failures on `origin/main`**,
+verified by running the identical specs there. `16-vehicle-evidence-flow` fails a *different* subset
+on `main` between runs. None of the failures is in a Diaspora spec; they are auth, dashboard and
+navigation journeys that need a backend the local Playwright config never starts. They are recorded
+here as pre-existing rather than counted as this branch's, and rather than quietly omitted.
 
 **Not performed, and not claimed:** staging migration application, staging deployment,
 deployed-staging UAT, production anything.
 
 Earlier checkpoints reported "11 pre-existing OCR failures". They were an environment artifact of
 running without `ALLOW_OCR_MOCK=true`, which CI sets at `ci.yml:30`. There were no such defects.
-
----
 
 ## 8. Owner external actions
 
@@ -238,9 +307,9 @@ These cannot be performed from the repository, by this agent or any other.
 - **This branch:** revert it. No database and no deployment has been changed from it, so there is
   nothing else to undo.
 - **Migrations:** each applies in its own transaction together with its `schema_migrations` row, so a
-  failed apply records nothing and leaves no partial state. #21, #24 and #25 carry real `Down`
-  sections. #22 and #23 are tightening-only by design — reversing them would restore the best-effort
-  audit path and remove maker-checker from the money boundary — so recovery there is
+  failed apply records nothing and leaves no partial state. #21, #24, #25, #26 and #27 carry real
+  `Down` sections. #22 and #23 are tightening-only by design — reversing them would restore the
+  best-effort audit path and remove maker-checker from the money boundary — so recovery there is
   restore-from-backup under explicit authorization, not a down migration.
 - **Dispatcher:** revert the one workflow file on `main`.
 
@@ -248,13 +317,26 @@ These cannot be performed from the repository, by this agent or any other.
 
 ## 11. Terminal outcome
 
-Issue #127 permits exactly two. **Neither has been reached.**
+Issue #127 permits exactly two. **Neither has been reached**, and the reason has changed.
 
 - Not `GO-TO-MARKET ACTIVATION COMPLETE — CHROMIUM/PLAYWRIGHT VERIFIED`: nothing is applied to
   staging, nothing is deployed, and no browser matrix has run against a deployment.
-- Not `GO-TO-MARKET ACTIVATION IMPLEMENTATION COMPLETE — OWNER EXTERNAL ACTIONS REQUIRED`: ordinary
-  engineering remains open in §6, and that outcome is only honest once none does.
+- Not `GO-TO-MARKET ACTIVATION IMPLEMENTATION COMPLETE — OWNER EXTERNAL ACTIONS REQUIRED`: that
+  outcome asserts the remaining work is owner-only. It is *nearly* true now — §6 lists no open
+  ordinary engineering — but the staging lane is blocked on a **merge**, and a merge is an ordinary
+  action, not an external one. Claiming outcome B while a mergeable pull request sits open would be
+  the same species of overstatement this document was rewritten to remove.
 
-What this branch is: all five deliverables implemented and locally verified, five audited migrations
-frozen and unapplied, a repaired staging runner that verifies TLS instead of ignoring it, and every
-risky surface left exactly as fail-closed as it was found.
+**The single thing standing between here and the staging lane** is landing PR #132 on `main`. The
+dispatcher only runs from the default branch, so the pin cannot take effect anywhere else. That merge
+applies nothing: the default mode is `verify`, and dispatching is a separate act.
+
+Once it lands, the remaining sequence is entirely mechanical and needs no owner input: verify → apply
+→ verify against staging, deploy the exact candidate to the staging frontend and backend, run the
+deployed browser matrix (specs 32–37), clean up fixtures, and write the closure receipt.
+
+What this branch is today: all five deliverables implemented and locally verified, **seven** audited
+migrations frozen and unapplied to every database, a staging runner that verifies TLS instead of
+ignoring it and can now actually detect a PUBLIC grant, five defects caught by adversarial review
+before any of it touched a database, and every risky surface left exactly as fail-closed as it was
+found.
