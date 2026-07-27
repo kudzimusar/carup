@@ -74,7 +74,6 @@ const PROVIDER_CREDENTIALS = [
 // harnesses should assemble their corpus at runtime instead of being added here — see
 // database/test/diaspora_drive_vault_reference_check.mjs for the pattern that needs no exemption.
 const PROVIDER_CRED_ALLOWLIST = new Set([
-  'database/test/diaspora_gtm_migration_check.mjs',
 ]);
 
 const files = execSync('git ls-files', { encoding: 'utf8' }).trim().split('\n');
