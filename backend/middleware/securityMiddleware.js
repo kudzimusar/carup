@@ -181,7 +181,18 @@ export function csrfMiddleware(req, res, next) {
                     url.startsWith('/api/finance/lender/webhook') ||
                     url.startsWith('/api/escrow/provider/webhook') ||
                     url.startsWith('/api/escrow/webhook') ||
-                    /^\/api\/eligibility\/[^/]+\/webhook(?:$|[/?#])/.test(url);
+                    /^\/api\/eligibility\/[^/]+\/webhook(?:$|[/?#])/.test(url) ||
+                    // Diaspora provider webhooks (Issue #127). Both authenticate with an HMAC over the
+                    // raw body plus an anti-replay timestamp, and both de-duplicate against a durable
+                    // Postgres event ledger before applying anything.
+                    //
+                    // These were missing, so in production — where the NODE_ENV==='test' bypass above
+                    // does not apply — every delivery from either provider was rejected by the CSRF
+                    // check before reaching its handler. A payment provider cannot present a CSRF
+                    // token; it has no browser session. The whole test suite passed regardless,
+                    // because the test bypass short-circuits before this list is ever consulted.
+                    /^\/api\/diaspora\/subscription\/webhook(?:$|[/?#])/.test(url) ||
+                    /^\/api\/diaspora\/safetrade\/payment-webhook(?:$|[/?#])/.test(url);
   if (isWebhook) {
     return next();
   }
