@@ -133,6 +133,10 @@ export async function enqueueSyncAttempt(client, {
   idempotencyKey,
   contentChecksum = null,
   metadata = {},
+  // Injectable clock, matching every other operation in this module — claim, failure, success and
+  // dead-letter all accept `now`. Enqueue alone read the real wall clock, so a row's due-time was
+  // unrelated to the clock its caller (and the test suite) reasoned with.
+  now = new Date(),
 } = {}) {
   if (!tenantId) throw new ValidationError('A tenant context is required to record a Drive sync attempt');
   if (!idempotencyKey) throw new ValidationError('An idempotency key is required to record a Drive sync attempt');
@@ -151,7 +155,7 @@ export async function enqueueSyncAttempt(client, {
       idempotency_key: String(idempotencyKey),
       state: SYNC_ATTEMPT_STATE.PENDING,
       attempts: 0,
-      next_attempt_at: new Date().toISOString(),
+      next_attempt_at: now.toISOString(),
       metadata: metadata || {},
     })
     .select()

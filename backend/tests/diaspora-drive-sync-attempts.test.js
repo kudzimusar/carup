@@ -31,6 +31,11 @@ function db() {
 }
 
 const descriptor = (overrides = {}) => ({
+  // Pin enqueue to the SAME clock the rest of this suite injects. Without it, enqueue stamped
+  // next_attempt_at from the real wall clock while every assertion reasoned in FIXED_NOW — so the
+  // due-window tests silently depended on the suite running before 2026-07-27T12:00:00Z and began
+  // failing permanently after that instant (CI caught it at 12:25Z).
+  now: FIXED_NOW,
   tenantId: TENANT,
   userId: 'user-1',
   connectionId: 'conn-1',
@@ -243,6 +248,23 @@ test('only attempts whose schedule has come due are returned, oldest first', asy
 
   const dueLater = await queue.listDueSyncAttempts(client, { tenantId: TENANT, now: new Date(FIXED_NOW.getTime() + 10_000) });
   assert.equal(dueLater.length, 2);
+});
+
+
+test('enqueue stamps next_attempt_at from the INJECTED clock, not the wall clock', async () => {
+  // Guards a time bomb that CI caught and local runs could not: enqueue used `new Date()` while
+  // every other operation here took `now`, so the due-window assertions held only while real UTC
+  // time was still before FIXED_NOW. After that instant they failed permanently. Asserting the
+  // stamped value (rather than a due/not-due outcome) makes the dependency explicit and
+  // wall-clock-independent.
+  const client = db();
+  const { attempt } = await queue.enqueueSyncAttempt(client, descriptor({ idempotencyKey: 'k-clock' }));
+  assert.equal(attempt.next_attempt_at, FIXED_NOW.toISOString());
+
+  const past = new Date('2020-01-01T00:00:00.000Z');
+  const { attempt: older } = await queue.enqueueSyncAttempt(
+    client, descriptor({ idempotencyKey: 'k-clock-2', now: past }));
+  assert.equal(older.next_attempt_at, past.toISOString());
 });
 
 test('attempts for an entity read back newest first with a sanitized shape', async () => {
