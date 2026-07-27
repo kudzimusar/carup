@@ -1,9 +1,26 @@
-name: 'Diaspora GTM Staging Migrations (ledgers #21/#22/#23/#24)'
+name: 'Diaspora GTM Staging Migrations (ledgers #21 to #27)'
 
-# Applies the Diaspora go-to-market ledgers — #21, #22, #23 and #24 — to the canonical staging
-# database (carup-staging, project ref eoyenigwevnxwwhyhaer), each in its own transaction together
-# with its official supabase_migrations.schema_migrations row, then verifies the full ACL/RLS/EXECUTE
-# contract for every object created.
+# Applies the Diaspora go-to-market ledgers — #21 through #27 — to the canonical staging database
+# (carup-staging, project ref eoyenigwevnxwwhyhaer), each in its own transaction together with its
+# official supabase_migrations.schema_migrations row, then verifies the full ACL/RLS/EXECUTE contract
+# for every object created.
+#
+# The authoritative list is the runner's own LEDGERS array, not this comment: adding a migration is a
+# data change there, and a static test (backend/tests/diaspora-staging-runner-manifest.test.js)
+# asserts in BOTH directions that every declared object is created and every created object is
+# declared — because an undeclared table is never checked, so Supabase's ALTER DEFAULT PRIVILEGES
+# grant to anon and authenticated would survive on it while the run still reported a clean contract.
+#
+# WHY THIS PIN MOVED
+# ------------------
+# The previous candidate 001cf808 could not connect at all. Run 30270396058 verified all four
+# checksums and then failed `self-signed certificate in certificate chain`: Supabase's Postgres
+# endpoints chain to a self-signed root that is deliberately absent from Node's public store. The
+# repository's older appliers answered that with `rejectUnauthorized: false`, which does not fix it —
+# it stops checking, and a connection that does not verify can be intercepted while holding a
+# service-role credential. The runner now pins Supabase's published root from database/certs/ as the
+# trust anchor, so verification genuinely succeeds against ONE known certificate. Because the runner
+# changed, the old pin is stale, and three further ledgers (#25, #26, #27) have been added since.
 #
 # WHY THIS FILE EXISTS ON main
 # ----------------------------
@@ -54,7 +71,7 @@ concurrency:
 env:
   # The single reviewed commit whose migration runner and migration files are executed. Changing this
   # is a reviewable pull request, which is the point.
-  CANDIDATE_SHA: 001cf8082f6be365077801ecf7a401d1c15961cd
+  CANDIDATE_SHA: de281d94b4208d1c147444b6ec04df57a52bef40
   # Pinned to the driver version the runner's own backend declares (`"pg": "^8.21.0"`).
   PG_DRIVER_VERSION: 8.21.0
 
@@ -77,7 +94,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 001cf8082f6be365077801ecf7a401d1c15961cd
+          ref: de281d94b4208d1c147444b6ec04df57a52bef40
           persist-credentials: false
 
       # Fail loudly if the checked-out tree is not the pinned commit. Cheap, and it turns a silent
@@ -124,13 +141,17 @@ jobs:
       #   · prerequisite tables are checked per ledger, so they cannot apply out of order;
       #   · each migration applies in one transaction with its schema_migrations row;
       #   · an already-recorded ledger switches to verify-only, so re-dispatch is safe;
-      #   · TLS certificate verification is ON;
+      #   · TLS certificate verification is ON, anchored on Supabase's published root bundled at
+      #     database/certs/ — no code path disables verification except an explicit, loudly-warned
+      #     DIASPORA_STAGING_TLS_INSECURE, which exists only so a chain problem is diagnosable;
       #   · the connection string is never printed.
-      - name: 'Apply and verify ledgers #21/#22/#23/#24'
+      - name: 'Apply and verify ledgers #21 to #27'
         env:
           DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
-          # Optional explicit trust anchor. Absent, the runner verifies against Node's bundled public
-          # roots — it does not disable verification.
+          # Optional override for the trust anchor — useful after a root rotation, before the bundled
+          # copy is updated. Absent (the normal case, and the case today), the runner pins Supabase's
+          # published root from database/certs/. Node's public roots remain only as a last fallback,
+          # so a missing bundle degrades to a normal verified connection rather than an unverified one.
           DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
           MODE: ${{ inputs.mode }}
         run: |
