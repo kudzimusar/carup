@@ -26,6 +26,16 @@ import {
   clearDiasporaWorkbookOperatorHold,
 } from '../services/diaspora/diasporaWorkbookOperatorConsoleService.js';
 import { exportDiasporaWorkbook, importDiasporaWorkbook, runAndPersistDiasporaWorkbookDryRun, saveDiasporaWorkbookToDrive } from '../services/diaspora/diasporaWorkbookSyncService.js';
+// Confirmed workbook import (Deliverable B, Issue #127).
+import {
+  createConfirmation,
+} from '../services/diaspora/workbook/diasporaWorkbookConfirmationService.js';
+import {
+  executeConfirmedWorkbookImport,
+  listReceipts,
+  buildReceiptCsv,
+  listInterruptedBatches,
+} from '../services/diaspora/workbook/diasporaWorkbookConfirmedImportService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -160,6 +170,62 @@ router.post('/workbook/import-batches/:id/mark-ready', auth, asyncHandler(async 
 router.post('/workbook/import-batches/:id/execute-drafts', auth, asyncHandler(async (req, res) => {
   const data = await executeDiasporaWorkbookDraftImport(req.params.id, req.userContext, { req });
   res.status(202).json({ data });
+}));
+
+// ── Confirmed workbook import (Deliverable B, Issue #127) ────────────────────
+//
+// Two steps, deliberately separate. POST /confirm issues a token bound to the exact workbook the user
+// previewed; POST /execute spends it. Splitting them is what makes "the workbook changed since you
+// confirmed" detectable — a single combined call has nothing to compare against.
+
+// POST /workbook/import-batches/:id/confirm — issue a confirmation for a previewed workbook.
+router.post('/workbook/import-batches/:id/confirm', auth, asyncHandler(async (req, res) => {
+  const result = await createConfirmation({
+    batchId: req.params.id,
+    // The checksum of the workbook the CLIENT previewed. Compared against the stored one; a mismatch
+    // means the user is looking at a stale preview and the confirmation is refused.
+    workbookChecksum: req.body?.workbookChecksum,
+    idempotencyKey: req.body?.idempotencyKey || req.headers['x-idempotency-key'],
+    userContext: req.userContext,
+    req,
+  });
+  res.status(result.replay ? 200 : 201).json({
+    data: result.confirmation,
+    idempotentReplay: result.replay,
+  });
+}));
+
+// POST /workbook/import-batches/:id/execute — spend a confirmation and run the import.
+router.post('/workbook/import-batches/:id/execute', auth, asyncHandler(async (req, res) => {
+  const data = await executeConfirmedWorkbookImport({
+    batchId: req.params.id,
+    confirmationId: req.body?.confirmationId,
+    userContext: req.userContext,
+    req,
+  });
+  // 200 either way: a compensated import is a COMPLETED request that truthfully reports failure, not
+  // a transport error. `imported` carries the actual outcome.
+  res.json({ data });
+}));
+
+// GET /workbook/import-batches/:id/receipts — per-row outcomes.
+router.get('/workbook/import-batches/:id/receipts', auth, asyncHandler(async (req, res) => {
+  const data = await listReceipts({ batchId: req.params.id, tenantId: req.userContext.tenantId });
+  res.json({ data });
+}));
+
+// GET /workbook/import-batches/:id/receipts.csv — the downloadable result.
+router.get('/workbook/import-batches/:id/receipts.csv', auth, asyncHandler(async (req, res) => {
+  const receipts = await listReceipts({ batchId: req.params.id, tenantId: req.userContext.tenantId });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="import-result-${req.params.id}.csv"`);
+  res.send(buildReceiptCsv(receipts));
+}));
+
+// GET /workbook/interrupted-imports — operator recovery view.
+router.get('/workbook/interrupted-imports', auth, asyncHandler(async (req, res) => {
+  const data = await listInterruptedBatches({ tenantId: req.userContext.tenantId });
+  res.json({ data });
 }));
 
 router.post('/workbook/import', auth, asyncHandler(async (req, res) => {

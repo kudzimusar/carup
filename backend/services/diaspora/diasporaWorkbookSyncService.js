@@ -22,9 +22,16 @@ export async function importDiasporaWorkbook(payload = {}, userContext = {}) {
     throw new ValidationError('Workbook import blocked by dry-run validation errors.', dryRun);
   }
 
+  // Deliberately still refused — but the reason has changed, and the old message is now misleading.
+  // Confirmed import is implemented (Deliverable B, Issue #127); it is simply not reachable through
+  // this un-confirmed entry point, because a legitimate import must be bound to a checksum, a
+  // dry-run revision, an expiry and an idempotency key. See
+  // backend/services/diaspora/workbook/diasporaWorkbookConfirmedImportService.js.
   throw new ValidationError(
-    'Workbook import execution is intentionally disabled in Phase 1C. Dry-run results are persisted for review, but live trade-table writes remain disabled until import mapping is approved.',
-    dryRun,
+    'Direct workbook import is not permitted. Run a dry run, review the preview, then confirm it — '
+    + 'POST /workbook/import-batches/:id/confirm followed by /execute. Confirmation binds the import '
+    + 'to the exact workbook you reviewed, so an edited file cannot be imported by an old approval.',
+    { ...dryRun, errorCode: 'CONFIRMATION_REQUIRED' },
   );
 }
 

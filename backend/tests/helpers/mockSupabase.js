@@ -65,6 +65,9 @@ export function createMockSupabase(seed = {}, options = {}) {
       payload: null,
       filtersEq: [],
       filtersNeq: [],
+      // .in() previously returned the chain untouched, so every `.in()`-filtered query returned the
+      // WHOLE table and any test of such a query passed vacuously.
+      filtersIn: [],
       isNull: [],
       notNull: [],
       single: false,
@@ -76,6 +79,7 @@ export function createMockSupabase(seed = {}, options = {}) {
     const matches = (row) =>
       state.filtersEq.every(([k, v]) => String(row[k]) === String(v)) &&
       state.filtersNeq.every(([k, v]) => String(row[k]) !== String(v)) &&
+      state.filtersIn.every(([k, vs]) => vs.map(String).includes(String(row[k]))) &&
       state.isNull.every((c) => row[c] === null || row[c] === undefined) &&
       state.notNull.every((c) => row[c] !== null && row[c] !== undefined);
 
@@ -149,7 +153,7 @@ export function createMockSupabase(seed = {}, options = {}) {
       upsert(p) { state.op = 'insert'; state.payload = p; return chain; },
       eq(k, v) { state.filtersEq.push([k, v]); return chain; },
       neq(k, v) { state.filtersNeq.push([k, v]); return chain; },
-      in() { return chain; },
+      in(k, vals) { state.filtersIn.push([k, Array.isArray(vals) ? vals : [vals]]); return chain; },
       or() { return chain; },
       gte() { return chain; },
       lte() { return chain; },
