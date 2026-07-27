@@ -39,6 +39,7 @@ import {
 } from '../services/diaspora/safetrade/diasporaSafeTradeDisputeService.js';
 import { getSharedSandboxPaymentProvider } from '../services/diaspora/safetrade/safeTradePaymentProvider.js';
 import { computeAvailableActions } from '../services/diaspora/safetrade/diasporaSafeTradeAvailableActions.js';
+import { isPlatformAdmin } from '../services/diaspora/diasporaAuthorization.js';
 // ST-3 closure (Issue #127): durable provider-event ledger, maker-checker approvals and the operator
 // reconciliation queue. These replace the process-memory webhook Set and add the second-human gate.
 import {
@@ -52,7 +53,15 @@ import {
   approve as approveDecision,
   reject as rejectDecision,
   listPendingApprovals,
+  requiresMakerChecker,
 } from '../services/diaspora/safetrade/diasporaSafeTradeApprovalService.js';
+// ST-3 item #1 (Issue #127): outbox drainer + operator visibility over the transactional outbox.
+import {
+  drainOutboxBatch,
+  listOutboxDeadLetters,
+  outboxBacklogSummary,
+  replayDeadLetter,
+} from '../services/diaspora/safetrade/diasporaSafeTradeOutboxService.js';
 import {
   listReconciliationQueue,
   describeOperationForUser,
@@ -195,7 +204,50 @@ router.post('/safetrade/:id/evaluate-release', reviewerAuth, asyncHandler(async 
     evaluatedAt: req.fixedTimestamp || null,
   });
   const evaluation = await recordReleaseEvaluation(req, { txn, verdict });
-  res.status(201).json({ evaluation, verdict });
+
+  // ── ST-3 item #2, request half (Issue #127) ────────────────────────────────
+  // A HIGH-risk evaluation FILES the approval request automatically, with this reviewer recorded as
+  // the maker. Two reasons it happens here rather than being a separate call the UI must remember:
+  // the RPC will refuse the release with APPROVAL_REQUIRED if no approval exists, so a missing
+  // request is a dead end a reviewer cannot diagnose; and the maker must be the person who actually
+  // evaluated, which is only knowable at this point.
+  //
+  // Best-effort by design: the evaluation itself is the durable, append-only record and must not be
+  // lost because the approval row could not be written. A missing approval fails CLOSED — the release
+  // is refused — so the failure mode is a blocked release, never an unapproved one.
+  let approvalRequest = null;
+  if (requiresMakerChecker({ riskLevel: verdict.riskTier === 'HIGH' ? 'HIGH' : 'MEDIUM' })) {
+    try {
+      approvalRequest = await requestApproval({
+        tenantId: txn.tenant_id || req.userContext.tenantId,
+        transactionId: req.params.id,
+        milestoneId: req.body.milestoneId || null,
+        decisionType: 'release',
+        evaluationId: evaluation.id,
+        riskLevel: 'HIGH',
+        reason: req.body.reason || 'High-risk release evaluation requires a second approver',
+        userContext: req.userContext,
+        req,
+      });
+    } catch {
+      approvalRequest = null;
+    }
+  }
+
+  res.status(201).json({
+    evaluation,
+    verdict,
+    // Tells the UI exactly why the release is not yet actionable, and by whom it can be unblocked.
+    makerChecker: approvalRequest
+      ? {
+        required: true,
+        approvalId: approvalRequest.id,
+        requestedBy: approvalRequest.requested_by,
+        expiresAt: approvalRequest.expires_at,
+        note: 'A different reviewer must approve this high-risk release before it can be authorized.',
+      }
+      : { required: requiresMakerChecker({ riskLevel: verdict.riskTier === 'HIGH' ? 'HIGH' : 'MEDIUM' }), approvalId: null },
+  });
 }));
 
 // POST /safetrade/:id/request-release — request escrow release (drives the txn into RELEASE_REVIEW or
@@ -393,6 +445,50 @@ router.get('/safetrade/reconciliation', reviewerAuth, asyncHandler(async (req, r
 // GET /safetrade/dead-letters — provider events that failed processing and need a human.
 router.get('/safetrade/dead-letters', reviewerAuth, asyncHandler(async (req, res) => {
   const data = await listEventDeadLetters({ tenantId: req.userContext.tenantId });
+  res.json({ data });
+}));
+
+// ── Transactional-outbox operator surface (ST-3 item #1) ─────────────────────
+//
+// The outbox is only a safety guarantee if someone can see when it stops draining. A backlog that
+// nobody can observe is the same failure the outbox was built to prevent, one level up.
+
+// GET /safetrade/outbox — backlog summary. `oldestPendingAgeSeconds` is the number that matters:
+// three events whose oldest is four hours old is a stalled drainer, and a count alone hides that.
+router.get('/safetrade/outbox', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await outboxBacklogSummary({
+    tenantId: req.userContext.tenantId,
+    now: req.fixedTimestamp || null,
+  });
+  res.json({ data });
+}));
+
+// GET /safetrade/outbox/dead-letters — events that exhausted their retries. Payloads are withheld.
+router.get('/safetrade/outbox/dead-letters', reviewerAuth, asyncHandler(async (req, res) => {
+  const data = await listOutboxDeadLetters({ tenantId: req.userContext.tenantId, limit: req.query.limit });
+  res.json({ data });
+}));
+
+// POST /safetrade/outbox/drain — operator-triggered drain. Also runnable on a schedule; exposing it
+// lets an operator clear a backlog immediately after fixing whatever was breaking delivery.
+router.post('/safetrade/outbox/drain', reviewerAuth, asyncHandler(async (req, res) => {
+  if (!isPlatformAdmin(req.userContext)) {
+    throw new ForbiddenError('Draining the SafeTrade outbox is restricted to platform administrators');
+  }
+  const data = await drainOutboxBatch({
+    limit: req.body?.limit || 20,
+    now: req.fixedTimestamp || null,
+  });
+  res.json({ data });
+}));
+
+// POST /safetrade/outbox/dead-letters/:id/replay — re-queue one dead letter after the cause is fixed.
+router.post('/safetrade/outbox/dead-letters/:id/replay', reviewerAuth, asyncHandler(async (req, res) => {
+  if (!isPlatformAdmin(req.userContext)) {
+    throw new ForbiddenError('Replaying a SafeTrade outbox event is restricted to platform administrators');
+  }
+  const data = await replayDeadLetter({ id: req.params.id });
+  if (!data) throw new ValidationError('That event is not dead-lettered, so there is nothing to replay');
   res.json({ data });
 }));
 

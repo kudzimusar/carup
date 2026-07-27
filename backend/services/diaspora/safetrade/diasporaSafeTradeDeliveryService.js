@@ -20,7 +20,9 @@
  * Time handling: `evaluatedAt` / window math use an injected fixed timestamp (req.fixedTimestamp or the
  * `now` arg) when provided so tests never depend on Date.now().
  */
-import { resolveClient, requestCorrelationId, appendCriticalAudit, appendBestEffortAudit } from '../diasporaServiceUtils.js';
+import { resolveClient, requestCorrelationId, appendCriticalAudit } from '../diasporaServiceUtils.js';
+// ST-3 item #1 (Issue #127): aux-event shapes shared with the outbox drainer.
+import { buildAuxEvent, SAFETRADE_AUX_EVENTS } from './diasporaSafeTradeOutboxService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 import {
   isSafeTradeEnabled,
@@ -298,65 +300,86 @@ export async function closeDisputeWindow(supabaseOrOptions, {
   if (!txn.buyer_id || !txn.seller_id) reasons.push('PARTICIPANT_INELIGIBLE');
 
   if (reasons.length > 0) {
-    // Close-not-eligible: record the window close attempt but DO NOT emit eligibility.
-    await appendBestEffortAudit(supabase, {
-      importOrderId: txn.import_order_id,
-      tenantId: txn.tenant_id,
+    // Close-not-eligible: record the window-close attempt but DO NOT emit eligibility.
+    // ST-3 item #1 (Issue #127): the audit row and the downstream event are written by the same
+    // transaction as the (no-op) state check, rather than appended best-effort after it.
+    await closeDeliveryWindowAtomic(supabase, {
+      confirmationId: confirmation.id,
       actorId: context.id,
-      action: 'SAFETRADE_DELIVERY_WINDOW_CHECK',
-      resourceType: 'diaspora_safetrade_delivery',
-      resourceId: confirmation.id,
-      newState: { eligibilityEmitted: false, reasons },
-      metadata: { transactionId: confirmation.transaction_id, correlationId: requestCorrelationId(req) },
-      req,
+      emitEligibility: false,
+      at,
+      auditAction: 'SAFETRADE_DELIVERY_WINDOW_CHECK',
+      auditMetadata: { eligibilityEmitted: false, reasons },
+      events: [buildAuxEvent(SAFETRADE_AUX_EVENTS.DELIVERY_WINDOW_CHECK_BLOCKED, {
+        confirmationId: confirmation.id, reasons, eligible: false,
+      })],
+      correlationId: requestCorrelationId(req),
     });
     return { eligibilityEmitted: false, idempotentReplay: false, reasons, confirmation };
   }
 
   // All gates pass → close the window and EMIT a reputation-ELIGIBILITY event ONLY.
-  const { data: updated, error } = await supabase
-    .from('diaspora_safetrade_delivery_confirmations')
-    .update({
-      dispute_window_closed: true,
-      reputation_eligibility_emitted: true,
-      reputation_eligibility_emitted_at: at,
-      updated_by: context.id,
-    })
-    .eq('id', confirmation.id)
-    .select()
-    .single();
-  if (error) throw new ValidationError(`Failed to close dispute window: ${error.message}`);
+  //
+  // ST-3 item #1 (Issue #127): the window close, the CRITICAL audit row and the eligibility event are
+  // now ONE transaction. The previous shape — UPDATE, then a separate best-effort audit append — could
+  // mark a window closed and lose the eligibility signal entirely if the process died in between.
+  // The double-emit guard also moved onto the locked row inside the RPC: two concurrent closes used to
+  // both read `reputation_eligibility_emitted = false` and both emit.
+  const atomic = await closeDeliveryWindowAtomic(supabase, {
+    confirmationId: confirmation.id,
+    actorId: context.id,
+    emitEligibility: true,
+    at,
+    auditAction: 'SAFETRADE_DELIVERY_WINDOW_CLOSED',
+    auditMetadata: { eligibilityEmitted: true, emittedAt: at },
+    events: [
+      buildAuxEvent(SAFETRADE_AUX_EVENTS.DELIVERY_WINDOW_CLOSED, {
+        confirmationId: confirmation.id, emittedAt: at,
+      }),
+      buildAuxEvent(SAFETRADE_AUX_EVENTS.REPUTATION_ELIGIBLE, {
+        confirmationId: confirmation.id, eligible: true, emittedAt: at,
+      }),
+    ],
+    correlationId: requestCorrelationId(req),
+  });
+  const updated = atomic?.confirmation || confirmation;
+  const idempotentReplay = Boolean(atomic?.idempotentReplay);
 
-  const eligibilityEvent = await emitReputationEligibility(supabase, { txn, confirmation: updated, context, at, req });
-
-  return { eligibilityEmitted: true, idempotentReplay: false, reasons: [], confirmation: updated, eligibilityEvent };
+  return {
+    eligibilityEmitted: true,
+    idempotentReplay,
+    reasons: [],
+    confirmation: updated,
+    // The event is now the durable outbox row written by the transaction above; the shape is kept for
+    // callers that read it, but it is no longer a separate best-effort write.
+    eligibilityEvent: { emitted: !idempotentReplay, emittedAt: at },
+  };
 }
 
+
 /**
- * emitReputationEligibility — N4: surface a reputation-ELIGIBILITY signal only. We do NOT write
- * diaspora_reputation_records; the existing diasporaReputationService remains the only reputation writer.
- * Recorded as a best-effort audit event a downstream reputation service / human can consume.
+ * closeDeliveryWindowAtomic — ST-3 item #1.
+ *
+ * One RPC, one transaction: the confirmation state, the CRITICAL audit row and the outbox events
+ * commit together. The RPC also owns the double-emit guard, on the locked row, so two concurrent
+ * close attempts cannot both emit a reputation-eligibility signal.
  */
-async function emitReputationEligibility(supabase, { txn, confirmation, context, at, req }) {
-  const eventName = 'DIASPORA_SAFETRADE_REPUTATION_ELIGIBLE';
-  await appendBestEffortAudit(supabase, {
-    importOrderId: txn.import_order_id,
-    tenantId: txn.tenant_id,
-    actorId: context.id,
-    action: eventName,
-    resourceType: 'diaspora_safetrade_delivery',
-    resourceId: confirmation.id,
-    newState: { reputationEligible: true, emittedAt: at },
-    metadata: {
-      transactionId: txn.id,
-      buyerId: txn.buyer_id,
-      sellerId: txn.seller_id,
-      note: 'eligibility signal only — no reputation written here',
-      correlationId: requestCorrelationId(req),
-    },
-    req,
+async function closeDeliveryWindowAtomic(supabase, {
+  confirmationId, actorId, emitEligibility, at = null,
+  auditAction, auditMetadata = {}, events = [], correlationId = null,
+}) {
+  const { data, error } = await supabase.rpc('diaspora_safetrade_close_delivery_window_atomic', {
+    p_confirmation_id: confirmationId,
+    p_actor_id: actorId,
+    p_emit_eligibility: Boolean(emitEligibility),
+    p_at: at,
+    p_events: events,
+    p_audit_action: auditAction,
+    p_audit_metadata: auditMetadata,
+    p_correlation_id: correlationId,
   });
-  return { event: eventName, transactionId: txn.id, confirmationId: confirmation.id, wroteReputation: false };
+  if (error) throw new ValidationError(`Failed to close the delivery dispute window: ${error.message}`);
+  return data;
 }
 
 /**
