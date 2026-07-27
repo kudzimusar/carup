@@ -1,6 +1,6 @@
 # Real-Postgres proofs — atomicity, idempotency, and Phase 8/9 ACL boundaries
 
-Two standalone real-Postgres harnesses (neither part of CI `node --test`; both need
+Standalone real-Postgres harnesses (none part of CI `node --test`; all need
 `embedded-postgres` + `pg`, installed via this dir's `package.json`):
 
 - **`reservation-idempotency-realpg.mjs`** — atomic `FOR UPDATE` reservation-approval concurrency +
@@ -19,6 +19,18 @@ Two standalone real-Postgres harnesses (neither part of CI `node --test`; both n
   migration applies clean; authenticated + anon denied writes on all 27 tables + 11 lifecycle/immutable
   probes (42501); cross-tenant SELECT=0; same-tenant SELECT preserved; service_role writes succeed;
   the helper actor-spoofing guard rejects a foreign tenant-membership probe.
+- **`scheduler-lease-realpg.mjs`** — the ledger #27 scheduler-lease proof (Issue #127, Phase 2E). The
+  only harness here that needs **two concurrent connections**, and it needs them for a reason: with a
+  single session `SELECT … FOR UPDATE SKIP LOCKED` never actually skips, so a claim written *without*
+  `SKIP LOCKED` passes every single-session assertion. Proves that a contended claim returns `LOCKED`
+  **and returns immediately** (a claim that blocks is a paid serverless timeout), that ten racing
+  dispatchers yield exactly one lease and one `total_runs` increment, and that two concurrent renewal
+  sweeps produce one row (23505 on the loser). Carries a **negative control**: the identical race
+  against a deliberately weakened claim blocks and then double-claims.
+  The single-connection half — ACL contract, claim decision tree, lease expiry, backoff, terminus,
+  CHECK constraints, Down block — lives in `database/test/diaspora_scheduler_lease_check.mjs` (PGlite,
+  68/68, no install needed).
+
 - **`phase8-9-acl-realpg.mjs`** — the Phase 8/9 **mutation-boundary hardening** proof. Creates the real
   `anon`/`authenticated`/`service_role` roles (service_role with `BYPASSRLS`, as Supabase configures
   it) + the real `diaspora_trade_os_*` helper functions, applies the hardened RLS policies + grants,
