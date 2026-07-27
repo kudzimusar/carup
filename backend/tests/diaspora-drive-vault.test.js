@@ -106,9 +106,17 @@ test('the JS mirror list still corresponds one-to-one with the SQL CHECK fragmen
   // Guards against someone deleting a JS pattern and quietly widening what the service will write.
   const sqlFragments = SQL_MIRROR_PATTERNS.map((p) => p.sql);
   assert.deepEqual(sqlFragments, [
-    '^1//', '^ya29\\.', '^sk_live_', '^sk_test_', '^rk_live_', '^pk_live_', '^whsec_', '^AIza',
+    '1//', 'ya29\\.', 'sk_live_', 'sk_test_', 'rk_live_', 'pk_live_', 'whsec_', 'AIza',
     '^ey[A-Za-z0-9_-]+\\.', '-----BEGIN',
   ]);
+  // Only the PEM clause is unanchored in SQL; the JS patterns must agree about that.
+  assert.deepEqual(
+    SQL_MIRROR_PATTERNS.filter((p) => !p.anchored).map((p) => p.name),
+    ['pem private key block'],
+  );
+  for (const { name, anchored, pattern } of SQL_MIRROR_PATTERNS) {
+    assert.equal(pattern.source.startsWith('^'), anchored, `${name} anchoring disagrees with SQL`);
+  }
 });
 
 // ── Redaction ────────────────────────────────────────────────────────────────
