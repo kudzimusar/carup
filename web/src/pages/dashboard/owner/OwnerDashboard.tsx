@@ -20,18 +20,14 @@ import {
   Wallet,
   Upload
 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
 import type { Vehicle, Notification, Escrow } from '@/types'
 
-const valueData = [
-  { month: 'Jan', value: 28000 },
-  { month: 'Feb', value: 27500 },
-  { month: 'Mar', value: 27200 },
-  { month: 'Apr', value: 26800 },
-  { month: 'May', value: 26300 },
-]
+// Session-only record of a document the user just parsed. Nothing is seeded: this dashboard has no
+// authoritative per-user document store, so the vault starts empty and only ever shows what this
+// session actually parsed — never a sample filename presented as a stored, verified record.
+type ParsedDocument = { id: string; name: string; type: string; date: string }
 
 export default function OwnerDashboard() {
   const { runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
@@ -53,17 +49,17 @@ export default function OwnerDashboard() {
   const [lowBandwidth, setLowBandwidth] = useState(false)
   const [whatsappLinked, setWhatsappLinked] = useState(true)
   const [ocrLoading, setOcrLoading] = useState(false)
-  const [documents, setDocuments] = useState([
-    { id: 'zimra-form-21', name: 'ZIMRA Customs Cleared Form 21.pdf', type: 'ZIMRA Form 21', date: '2026-05-10', verified: true },
-    { id: 'insurance-policy', name: 'NicozDiamond Policy.pdf', type: 'Insurance policy', date: '2026-05-15', verified: true }
-  ])
+  const [documents, setDocuments] = useState<ParsedDocument[]>([])
 
-  // Multi-currency balances
-  const [wallet, setWallet] = useState({
-    usd: 350.00,
-    zig: 4800.00,
-    escrowUsd: 0,
-    escrowLockedCount: 0
+  // SafePay escrow is the only authoritative money source this dashboard has. There is no
+  // per-user wallet/ledger endpoint and no per-user trust-score endpoint, so those cards must
+  // report that no authoritative value exists rather than render invented figures — previously
+  // fixed balances, a fixed trust percentage and a verified-status label were shown to every
+  // account, including brand-new ones.
+  const [escrow, setEscrow] = useState<{ status: 'loading' | 'ready' | 'error'; usd: number; count: number }>({
+    status: 'loading',
+    usd: 0,
+    count: 0,
   })
 
   // Fetch SafePay escrows on mount
@@ -72,35 +68,34 @@ export default function OwnerDashboard() {
     const loadEscrows = async () => {
       try {
         const escrows = await fetchSafePayEscrows()
-        if (mounted && escrows) {
-          const totalUsd = escrows.reduce((sum: number, e: Escrow) => e.currency === 'USD' ? sum + e.amount : sum, 0)
-          setWallet(w => ({ ...w, escrowUsd: totalUsd, escrowLockedCount: escrows.length }))
-        }
+        if (!mounted) return
+        const list = escrows || []
+        const totalUsd = list.reduce((sum: number, e: Escrow) => e.currency === 'USD' ? sum + e.amount : sum, 0)
+        setEscrow({ status: 'ready', usd: totalUsd, count: list.length })
       } catch (err) {
         console.error('Failed to load escrows', err)
+        if (mounted) setEscrow({ status: 'error', usd: 0, count: 0 })
       }
     }
     loadEscrows()
     return () => { mounted = false }
   }, [fetchSafePayEscrows])
 
-  // Simulated AI OCR upload handler
   const handleOcrUpload = async () => {
     setOcrLoading(true)
     try {
       await runOcrParsing('ZIMRA Form 21', 'MOCK_BASE64_DOCUMENT_DATA')
-      toast.success('Document uploaded and AI OCR parsed successfully.')
+      toast.success('Document parsed. It is not stored on your account yet.')
       setDocuments(prev => [
-  {
-    id: `ocr-${Date.now()}`,
-    name: 'Parsed Logbook - AI OCR',
-    type: 'PDF',
-    date: new Date().toLocaleDateString(),
-    verified: true
-  },
-  ...prev
-])
-    } catch (err) {
+        {
+          id: `ocr-${Date.now()}`,
+          name: 'Parsed logbook',
+          type: 'PDF',
+          date: new Date().toLocaleDateString(),
+        },
+        ...prev,
+      ])
+    } catch {
       toast.error('Failed to parse document.')
     } finally {
       setOcrLoading(false)
@@ -166,8 +161,8 @@ export default function OwnerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 uppercase font-semibold">Automotive Wallet (USD)</p>
-                <p className="text-2xl font-bold mt-1">${wallet.usd.toLocaleString()}</p>
-                <p className="text-[10px] text-gray-400 mt-1">Direct EcoCash / ZIPIT settlements</p>
+                <p data-testid="wallet-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>
+                <p className="text-[10px] text-gray-400 mt-1">No wallet established for this account</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-green-50 text-green-500 flex items-center justify-center">
                 <Wallet className="w-5 h-5" />
@@ -181,8 +176,8 @@ export default function OwnerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 uppercase font-semibold">Automotive Wallet (ZiG)</p>
-                <p className="text-2xl font-bold mt-1">{wallet.zig.toLocaleString()} ZiG</p>
-                <p className="text-[10px] text-gray-400 mt-1">Settled on EcoCash channel</p>
+                <p data-testid="wallet-zig-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>
+                <p className="text-[10px] text-gray-400 mt-1">No wallet established for this account</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-orange-50 text-orange-500 flex items-center justify-center">
                 <Wallet className="w-5 h-5" />
@@ -196,8 +191,16 @@ export default function OwnerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 uppercase font-semibold">Locked SafePay Escrows</p>
-                <p className="text-2xl font-bold mt-1">${wallet.escrowUsd.toLocaleString()}</p>
-                <p className="text-[10px] text-gray-400 mt-1">{wallet.escrowLockedCount} active purchase escrow{wallet.escrowLockedCount !== 1 ? 's' : ''}</p>
+                {escrow.status === 'loading' && <p data-testid="escrow-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Loading…</p>}
+                {escrow.status === 'error' && <p data-testid="escrow-usd-value" className="text-lg font-semibold mt-1 text-gray-500">Not available</p>}
+                {escrow.status === 'ready' && <p data-testid="escrow-usd-value" className="text-2xl font-bold mt-1">${escrow.usd.toLocaleString()}</p>}
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {escrow.status === 'ready'
+                    ? `${escrow.count} active purchase escrow${escrow.count !== 1 ? 's' : ''}`
+                    : escrow.status === 'error'
+                      ? 'Could not load your escrows'
+                      : 'Checking your escrows'}
+                </p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center">
                 <Shield className="w-5 h-5" />
@@ -211,8 +214,8 @@ export default function OwnerDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500 uppercase font-semibold">Auto-calculated Trust Index</p>
-                <p data-testid="trust-index-value" className="text-2xl font-bold mt-1">92.5%</p>
-                <p data-testid="trust-index-label" className="text-[10px] text-green-600 font-medium mt-1">Verified Buyer &amp; Seller</p>
+                <p data-testid="trust-index-value" className="text-lg font-semibold mt-1 text-gray-500">Not calculated</p>
+                <p data-testid="trust-index-label" className="text-[10px] text-gray-400 font-medium mt-1">Verification pending</p>
               </div>
               <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-500 flex items-center justify-center">
                 <CheckCircle className="w-5 h-5" />
@@ -272,6 +275,11 @@ export default function OwnerDashboard() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-3" data-testid="document-vault-list">
+              {documents.length === 0 && (
+                <p data-testid="document-vault-empty" className="text-xs text-gray-500 py-2">
+                  No documents uploaded yet.
+                </p>
+              )}
               {documents.map((doc, idx) => (
                 <div
                   key={doc.id || idx}
@@ -282,14 +290,14 @@ export default function OwnerDashboard() {
                     <FileText className="w-4 h-4 text-orange-500 shrink-0" />
                     <div>
                       <p className="font-semibold text-gray-800">{doc.name}</p>
-                      <p className="text-[10px] text-gray-400">{doc.type} • Uploaded: {doc.date}</p>
+                      <p className="text-[10px] text-gray-400">{doc.type} • Parsed: {doc.date}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge
                       data-testid={`doc-verified-badge-${doc.id || idx}`}
-                      className="bg-green-100 text-green-700 shadow-none border-none"
-                    >AI Verified</Badge>
+                      className="bg-gray-100 text-gray-600 shadow-none border-none"
+                    >Not stored</Badge>
                   </div>
                 </div>
               ))}
@@ -299,24 +307,16 @@ export default function OwnerDashboard() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* There is no per-user valuation history endpoint, so this card must not plot a series.
+              It previously rendered a fixed $28k→$26.3k trend for every account, including brand-new
+              ones with no vehicles at all. */}
           {!lowBandwidth && (
             <Card className="border-0 card-shadow bg-white">
               <CardHeader className="pb-3"><CardTitle className="text-lg">Vehicle Value Trend</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={160}>
-                  <AreaChart data={valueData}>
-                    <defs>
-                      <linearGradient id="valueGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#f97316" stopOpacity={0.15}/>
-                        <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} tickFormatter={v => `$${v/1000}k`} />
-                    <Tooltip formatter={(v) => `$${v.toLocaleString()}`} />
-                    <Area type="monotone" dataKey="value" stroke="#f97316" fill="url(#valueGrad)" strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <p data-testid="value-trend-unavailable" className="text-xs text-gray-500 py-2">
+                  Valuation history is not available for your account yet.
+                </p>
               </CardContent>
             </Card>
           )}
