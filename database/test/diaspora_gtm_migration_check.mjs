@@ -221,8 +221,10 @@ for (const col of ['occurred_at', 'provider_sequence', 'superseded']) {
 // ── 7. Money-safety invariants enforced by the SCHEMA ────────────────────────
 const T1 = '11111111-1111-1111-1111-111111111111';
 const T2 = '22222222-2222-2222-2222-222222222222';
-const U1 = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const U2 = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+// Actor identities are TEXT throughout the Diaspora schema (tenants are uuid) — ledger #21
+// matches that convention so real ids like 'user-reviewer' are storable.
+const U1 = 'user-evaluator';
+const U2 = 'user-approver';
 const TXN = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 
 // ST-3 item 2 — maker-checker: the evaluator can NEVER approve their own release.

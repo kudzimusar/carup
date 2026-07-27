@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS public.diaspora_safetrade_operations (
   last_error_code   text,
   last_error        text,
   approval_id       uuid,
-  requested_by      uuid,
+  requested_by      text,
   requested_at      timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
   dispatched_at     timestamptz,
   confirmed_at      timestamptz,
@@ -141,11 +141,11 @@ CREATE TABLE IF NOT EXISTS public.diaspora_safetrade_approvals (
   amount           numeric(18,2),
   currency         text,
   -- MAKER: who evaluated / requested the money decision.
-  requested_by     uuid NOT NULL,
+  requested_by     text NOT NULL,
   requested_at     timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
   requested_reason text,
   -- CHECKER: a DIFFERENT authorized human who approves it.
-  approved_by      uuid,
+  approved_by      text,
   approved_at      timestamptz,
   state            text NOT NULL DEFAULT 'pending',
   rejection_reason text,
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS public.diaspora_workbook_import_confirmations (
   workbook_checksum  text NOT NULL,
   dry_run_revision   integer NOT NULL DEFAULT 1,
   plan_checksum      text,
-  confirmed_by       uuid NOT NULL,
+  confirmed_by       text NOT NULL,
   confirmed_at       timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
   expires_at         timestamptz NOT NULL,
   idempotency_key    text NOT NULL,
@@ -256,7 +256,7 @@ CREATE INDEX IF NOT EXISTS idx_diaspora_workbook_receipts_batch
 CREATE TABLE IF NOT EXISTS public.diaspora_credential_references (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id         uuid NOT NULL,
-  user_id           uuid,
+  user_id           text,
   purpose           text NOT NULL,
   vault_backend     text NOT NULL,
   -- Opaque handle/path INTO the vault (e.g. "gcpsm://projects/x/secrets/y"). Not a credential.
@@ -293,7 +293,7 @@ CREATE TABLE IF NOT EXISTS public.diaspora_credential_references (
 
 -- One ACTIVE credential per (tenant, user, purpose); history rows stay for audit.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_diaspora_credential_active
-  ON public.diaspora_credential_references (tenant_id, coalesce(user_id, '00000000-0000-0000-0000-000000000000'::uuid), purpose)
+  ON public.diaspora_credential_references (tenant_id, coalesce(user_id, ''), purpose)
   WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_diaspora_credential_refresh_due
   ON public.diaspora_credential_references (status, expires_at)
@@ -307,7 +307,7 @@ CREATE INDEX IF NOT EXISTS idx_diaspora_credential_refresh_due
 CREATE TABLE IF NOT EXISTS public.diaspora_drive_sync_attempts (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id         uuid NOT NULL,
-  user_id           uuid,
+  user_id           text,
   connection_id     uuid,
   operation         text NOT NULL,
   entity_type       text,
@@ -359,7 +359,7 @@ CREATE TABLE IF NOT EXISTS public.diaspora_billing_reconciliation_runs (
   repaired_count integer NOT NULL DEFAULT 0,
   -- Sanitized findings only (tenant + field + expected/actual STATE, never amounts-with-PII).
   findings       jsonb NOT NULL DEFAULT '[]'::jsonb,
-  initiated_by   uuid,
+  initiated_by   text,
   last_error     text,
   created_at     timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT ck_diaspora_billing_recon_trigger
