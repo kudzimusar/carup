@@ -5,10 +5,18 @@
 > **`backend/db/migrate.js`** (`npm run migrate:up` / `migrate:rollback`): lexical sort, `-- +migrate Up/Down`
 > blocks executed in a `BEGIN…COMMIT` transaction, applied files tracked in `schema_migrations(version)`.
 >
-> **CRITICAL:** No migration in this ledger has been applied to any database **by this program**. Apply
-> **missing** migrations to **staging first** (EB-1, Supabase `eoyenigwevnxwwhyhaer`) and only then to
-> **production** (EB-5, `vhmnajoeicasaigiophh`, forbidden until explicit release authorization). **Never
-> reapply an existing migration.** `shasum -a 256` short = first 12 hex chars.
+> **SUPERSEDED (2026-07-27).** The line that used to stand here — *"No migration in this ledger has
+> been applied to any database by this program"* — has not been true since 2026-07-26. It is corrected
+> rather than deleted so the history of this document stays auditable.
+>
+> **CURRENT TRUTH:** ledger **#3–#20 are APPLIED and VERIFIED** on staging
+> (`eoyenigwevnxwwhyhaer`) and on **production** (`vhmnajoeicasaigiophh`, PostgreSQL 17.6) — see the
+> per-row Staging/Prod columns below, the EB-5 cutover receipt and the #20 closure receipt. **Never
+> reapply and never edit those files.**
+>
+> **#21 and #22 (Issue #127) are COMMITTED but NOT APPLIED anywhere.** They are additive and carry the
+> ledger-#20 ACL contract in the same migration that creates their tables. Apply to **staging first**,
+> then production only under explicit release authorization. `shasum -a 256` short = first 12 hex chars.
 >
 > **Runner caveat:** files without `-- +migrate` markers are **skipped by the Node runner** and applied
 > out-of-band via `psql`/deploy scripts (marked ⚠ below). Rehydrate them in the release runbook.
@@ -82,6 +90,8 @@
 | 18 | `20260725120000_diaspora_rpc_pgcrypto_search_path_fix.sql` | SEC/staging fix | Re-pin search_path to include `extensions` on the 5 atomic RPCs (H1 stock movement, H2 quote acceptance, H3 container approval, SafeTrade transition/milestone) so pgcrypto `digest()` resolves on Supabase (pgcrypto lives in `extensions`, not `public`; bare `digest()` + `search_path=public` fails 42883). Bodies unchanged; service_role-only EXECUTE preserved. | ALTER FUNCTION x5 (search_path only) | search_path Y (adds extensions) | N (reversing re-breaks RPCs) | `72015a77a751` | APPLIED (2026-07-25) | APPLIED (2026-07-26) |
 | 19 | `20260726120000_diaspora_phase8_9_10_client_grant_hardening.sql` | SEC-DB-3 (compensating) | Close the Supabase default-privilege grant gap on the 19 Phase 8/9/10 tables: explicit `REVOKE ALL FROM anon`, revoke `authenticated` writes (INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER), explicit `GRANT SELECT` to `authenticated` (every table has an authenticated SELECT policy), `GRANT ALL` to `service_role`. ACL statements only — no data/columns/constraints/indexes/policies/functions/flags. Every table named explicitly; idempotent; one transaction. | grants on 19 tables (6 Phase 8, 6 Phase 9, 7 Phase 10) | grants Y (anon=NONE; authenticated=SELECT-only; service_role full) | N (tightening only — reversing re-opens client grants; restore-from-backup) | `6674706778b5` | APPLIED (2026-07-26) | APPLIED (2026-07-26) |
 | 20 | `20260727090000_diaspora_oauth_states_client_grant_hardening.sql` | SEC-DB-4 (compensating) | Close the same Supabase default-privilege gap on `diaspora_oauth_states` (#10/H6 shipped RLS-enable ONLY — no grants, no policies; all privileges came from default grants). `REVOKE ALL` from PUBLIC + `anon` + `authenticated` (covers PG17 MAINTAIN); `GRANT ALL` to `service_role`. Zero policies (default-deny) intentionally unchanged — service-role-only nonce store. ACL statements only; idempotent; one transaction. Closes EB-5 receipt residual §5.1. | grants on `diaspora_oauth_states` | grants Y (anon=NONE; authenticated=NONE; service_role full) | N (tightening only) | `c9515b888c30` | APPLIED (2026-07-27) | APPLIED (2026-07-27) |
+| 21 | `20260727120000_diaspora_gtm_activation_foundation.sql` | GTM activation (Issue #127) | Eight durable ledgers so provider state, money decisions, confirmed imports and external credentials cannot live in process memory, a plaintext column, or an unauditable best-effort side path. Money- and secret-safety invariants are enforced by the SCHEMA: a self-approval row is unrepresentable, and a token-shaped vault reference (Google refresh/access token, provider live+test key, webhook secret, API key, JWT, PEM) is rejected at INSERT. | 8 tables (`diaspora_safetrade_provider_events/_operations/_approvals`, `diaspora_workbook_import_confirmations/_receipts`, `diaspora_credential_references`, `diaspora_drive_sync_attempts`, `diaspora_billing_reconciliation_runs`); 3 additive nullable columns on `diaspora_billing_provider_events` | RLS Y (8, zero policies = default-deny) · grants Y (PUBLIC/anon/authenticated = NONE; service_role = ALL, applied in the SAME migration that creates the tables) | **Y** | `157dae537997` | NOT APPLIED | NOT APPLIED |
+| 22 | `20260727130000_diaspora_safetrade_st3_closure.sql` | SafeTrade ST-3 closure (Issue #127) | Closes all four ST-3 items. Additively creates the transactional outbox and REPLACES `diaspora_safetrade_transition_atomic` with an identical signature (no overload). ST-3 #1 aux events move into the same transaction as the state change; #2 the evaluator can never authorize the money movement their own evaluation blessed, and HIGH-risk release/refund needs a recorded, single-use, second-human approval; #3 the durable operation row is marked `ledger_applied` only by the committing transaction. Ledger #13 is NOT edited. | 1 table (`diaspora_safetrade_outbox`, append-only by trigger) + CREATE OR REPLACE of the transition RPC (search_path pin from #18 preserved; service_role-only EXECUTE from #11 re-asserted) | RLS Y (1, zero policies) · grants Y (same contract as #21) · search_path Y (`public, extensions, pg_temp`) | N (tightening only — reversing restores the best-effort audit path and removes maker-checker from the money boundary; restore-from-backup) | `610ac3118e64` | NOT APPLIED | NOT APPLIED |
 
 ## Dependency chain
 
