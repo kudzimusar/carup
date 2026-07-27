@@ -1,0 +1,141 @@
+name: 'Diaspora GTM Staging Migrations (ledgers #21/#22/#23/#24)'
+
+# Applies the Diaspora go-to-market ledgers — #21, #22, #23 and #24 — to the canonical staging
+# database (carup-staging, project ref eoyenigwevnxwwhyhaer), each in its own transaction together
+# with its official supabase_migrations.schema_migrations row, then verifies the full ACL/RLS/EXECUTE
+# contract for every object created.
+#
+# WHY THIS FILE EXISTS ON main
+# ----------------------------
+# GitHub only registers a `workflow_dispatch` trigger when the workflow file is present on the
+# repository's DEFAULT branch. A dispatch-only workflow that lives solely on a feature branch cannot
+# be run at all — the API answers `HTTP 404: workflow ... not found on the default branch`, even when
+# the dispatch explicitly targets that branch with `--ref`. Landing this one file on main is therefore
+# the minimum change that makes the migration runner dispatchable, and it is deliberately the ONLY
+# thing this pull request does.
+#
+# WHY THE CHECKOUT IS PINNED TO AN IMMUTABLE SHA
+# ----------------------------------------------
+# This workflow runs a script that connects to a real database with a real credential. If it checked
+# out a branch, whoever could push to that branch would control the code executed against staging with
+# the secret in scope — a branch is a moving target, and "reviewed once" would not mean "reviewed at
+# the moment it ran". The checkout is hard-pinned to a single reviewed commit, so the bytes executed
+# are fixed at review time and cannot change afterwards.
+#
+# Advancing to a newer candidate is therefore a reviewable pull request that edits CANDIDATE_SHA
+# below — not an action anyone can take by pushing to a branch.
+#
+# WHY THERE IS NO BRANCH OR REF INPUT
+# -----------------------------------
+# A `ref` input would hand the caller arbitrary code execution with the staging credential attached:
+# dispatch the workflow against any branch or fork commit, and that commit's script runs. The only
+# inputs accepted here are a typed two-value `mode` choice, which cannot express a code location.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'verify = prove the contract without applying; apply = apply then verify'
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - apply
+
+# Read-only. This workflow never writes to the repository.
+permissions:
+  contents: read
+
+# Never cancel a run in flight: it may be mid-transaction against the staging database.
+concurrency:
+  group: diaspora-staging-gtm-migrations
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose migration runner and migration files are executed. Changing this
+  # is a reviewable pull request, which is the point.
+  CANDIDATE_SHA: 001cf8082f6be365077801ecf7a401d1c15961cd
+  # Pinned to the driver version the runner's own backend declares (`"pg": "^8.21.0"`).
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Repository environment, so any configured reviewer approval or wait timer gates this run.
+    environment: staging
+
+    # Two independent gates. The ref check means the workflow definition being executed is main's
+    # reviewed copy rather than one proposed on a branch; the actor check restricts who may dispatch
+    # it. Both must hold.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar'
+
+    steps:
+      # Hard-pinned to the reviewed commit. persist-credentials:false so the job's GITHUB_TOKEN is not
+      # written into .git/config where any later step could reuse it.
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 001cf8082f6be365077801ecf7a401d1c15961cd
+          persist-credentials: false
+
+      # Fail loudly if the checked-out tree is not the pinned commit. Cheap, and it turns a silent
+      # mis-resolution into an obvious stop.
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The database credential is deliberately NOT in scope here. Dependency installation executes
+      # third-party package code, and it has no reason to see a database URL.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      # First place the secret appears. Presence only — the value is never echoed, and a non-empty
+      # check cannot leak it.
+      - name: Require the staging database operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; cannot run the GTM ledgers.'
+            exit 1
+          fi
+          echo 'Staging database operator secret is present.'
+
+      # Second and last place the secret appears, scoped to this single step rather than the job.
+      #
+      # The runner enforces its own guards, which this workflow does not duplicate or weaken:
+      #   · the URL must positively reference the approved staging ref eoyenigwevnxwwhyhaer;
+      #   · any URL carrying the production ref vhmnajoeicasaigiophh is refused outright;
+      #   · every migration's sha256 is checked against its frozen value BEFORE the connection opens,
+      #     so a drifted file never reaches the database;
+      #   · prerequisite tables are checked per ledger, so they cannot apply out of order;
+      #   · each migration applies in one transaction with its schema_migrations row;
+      #   · an already-recorded ledger switches to verify-only, so re-dispatch is safe;
+      #   · TLS certificate verification is ON;
+      #   · the connection string is never printed.
+      - name: 'Apply and verify ledgers #21/#22/#23/#24'
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          # Optional explicit trust anchor. Absent, the runner verifies against Node's bundled public
+          # roots — it does not disable verification.
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$MODE" = "apply" ]; then
+            echo 'Mode: APPLY (applies any unapplied ledger, then verifies every contract)'
+            node backend/scripts/diaspora-staging-apply-gtm.mjs
+          else
+            echo 'Mode: VERIFY (never applies; proves the contract for what is already recorded)'
+            node backend/scripts/diaspora-staging-apply-gtm.mjs --verify
+          fi
