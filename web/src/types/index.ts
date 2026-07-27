@@ -983,11 +983,72 @@ export interface DiasporaDriveConnection {
   connected?: boolean;
 }
 
+/**
+ * A credential the vault holds on the user's behalf. There is deliberately no token field of any
+ * kind: `vault_reference` is never projected to an API consumer, so the UI can render provenance
+ * (which backend, which key version, when it was last refreshed) without ever handling secret
+ * material.
+ */
+export interface DiasporaDriveCredentialReference {
+  id: string;
+  purpose: string;
+  vaultBackend: string | null;
+  keyVersion: string | null;
+  scopes: string[] | null;
+  status: string;
+  externalAccountLabel: string | null;
+  expiresAt: string | null;
+  lastRefreshedAt: string | null;
+  lastErrorCode: string | null;
+  revokedAt: string | null;
+}
+
+/**
+ * One durable attempt to push something to Drive. Field names mirror `sanitizeSyncAttempt` in
+ * backend/services/diaspora/drive/driveSyncQueue.js exactly.
+ *
+ * `state` carries the distinction the UI must not flatten: `failed` with a `nextAttemptAt` is still
+ * being retried, whereas `dead_lettered` means the file did NOT reach Drive and never will without
+ * the user acting.
+ */
+export interface DiasporaDriveSyncAttempt {
+  id: string;
+  operation: 'ensure_folder' | 'upload' | 'update' | 'metadata' | 'revoke';
+  entityType: string | null;
+  entityId: string | null;
+  idempotencyKey: string;
+  state: 'pending' | 'in_flight' | 'succeeded' | 'failed' | 'dead_lettered';
+  attempts: number;
+  nextAttemptAt: string | null;
+  providerFileId: string | null;
+  providerFolderId: string | null;
+  bytes: number | null;
+  contentChecksum: string | null;
+  lastErrorCode: string | null;
+  lastError: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string | null;
+}
+
+export interface DiasporaDriveSyncAttempts {
+  attempts: DiasporaDriveSyncAttempt[];
+  /** False when the durable queue is unavailable — the UI must not imply attempts are being tracked. */
+  durableTracking: boolean;
+  reason?: string;
+}
+
 export interface DiasporaDriveStatus {
   enabled: boolean;
   provider: string;
   scopes: string[];
   connection: DiasporaDriveConnection | null;
+  credential?: DiasporaDriveCredentialReference | null;
+  /**
+   * Whether this deployment can complete an OAuth connection at all. `pending` means the owner has
+   * not provisioned Google credentials, so Connect could only ever fail with NOT_CONFIGURED.
+   */
+  activation?: { credentialsConfigured: boolean; redirectUris: number; pending: boolean };
   onedrive: { available: boolean; note?: string };
   workbookExport: { xlsx: boolean; note?: string };
 }

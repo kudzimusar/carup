@@ -107,6 +107,7 @@ import type {
   DiasporaReservationRequestPayload,
   DiasporaReservationActionResult,
   DiasporaDriveStatus,
+  DiasporaDriveSyncAttempts,
   DiasporaDriveAuthUrl,
   DiasporaDriveFile,
   DiasporaDriveConnection,
@@ -1541,6 +1542,16 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // Durable sync state for one entity. The backend records every attempt, so a file that never
+  // reached Drive is visible rather than merely absent.
+  const fetchDiasporaDriveSyncAttempts = useCallback(
+    async (entityType: string, entityId: string): Promise<DiasporaDriveSyncAttempts> => {
+      const response = await request<{ data: DiasporaDriveSyncAttempts }>(
+        `/diaspora/drive/sync-attempts/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+      )
+      return response.data
+    }, [request])
+
   // ── Phase 8: Subscription, entitlements & sandbox billing ──
   // Reads are tenant-scoped to any authenticated user; management actions are server-gated (Gate S8-A
   // returns 403 for non-managers — the backend remains authoritative).
@@ -2684,6 +2695,7 @@ export function useCarUpApi() {
     fetchDiasporaDriveFiles,
     disconnectDiasporaDrive,
     syncDiasporaDrive,
+    fetchDiasporaDriveSyncAttempts,
     getDiasporaSubscriptionPlans,
     getDiasporaSubscriptionStatus,
     getDiasporaEntitlements,
