@@ -227,6 +227,11 @@ export async function exportWorkbookFromDatabase(templateType, userContext, opti
   // data, which the plan catalog places at trade_pro ("bulk workbook import/export") — not the free
   // blank-template download, which is a different key. Gated BEFORE any query runs, so a denied caller
   // never causes the read load.
+  await requireFeature(client, {
+    tenantId: context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.AUDIT_EXPORT,
+  });
 
   const rowsBySheet = {};
   const rowCounts = {};
