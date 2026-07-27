@@ -71,7 +71,7 @@ concurrency:
 env:
   # The single reviewed commit whose migration runner and migration files are executed. Changing this
   # is a reviewable pull request, which is the point.
-  CANDIDATE_SHA: 47c30d11a056577a0c5c7fe2dd8fdf004aaf0d55
+  CANDIDATE_SHA: fff881371b995126af69c5825159f9707167dad0
   # Pinned to the driver version the runner's own backend declares (`"pg": "^8.21.0"`).
   PG_DRIVER_VERSION: 8.21.0
 
@@ -94,7 +94,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 47c30d11a056577a0c5c7fe2dd8fdf004aaf0d55
+          ref: fff881371b995126af69c5825159f9707167dad0
           persist-credentials: false
 
       # Fail loudly if the checked-out tree is not the pinned commit. Cheap, and it turns a silent
