@@ -216,6 +216,63 @@ const later = (seconds) => new Date(Date.parse(T0) + seconds * 1000).toISOString
   record('an operator can still rescue a terminated job', rescued.claimed === true, JSON.stringify(rescued));
 }
 
+// ── 5b. The backoff window cannot overflow int4 at a CONFIGURED max_failures ─
+//
+// This section exists because its absence hid a real defect. Every other failure-loop assertion above
+// drives p_max_failures = 5, so the exponent never exceeded 2^4 — while schedulerMaxFailures() in
+// backend/constants/diaspora/diasporaSchedulerConstants.js accepts DIASPORA_SCHEDULER_MAX_FAILURES up
+// to 50. The window was computed as `base * (2 ^ (v_failures - 1))::integer` with LEAST() applied
+// AROUND it, and a clamp cannot prevent an overflow inside its own argument: at v_failures = 27 with
+// base 60 the product exceeds int4 and the RPC raised `integer out of range`.
+//
+// The failure mode was not a wrong delay. The release aborts, so the job stays leased with its
+// counter frozen one short of the ceiling and next_run_at in the past — it can NEVER reach the
+// terminus, and every tick after the lease expires re-claims and re-fails it forever.
+//
+// The JS model in backend/tests/helpers/schedulerRpcModel.js computes the same window in IEEE
+// doubles, which cannot overflow, so it silently disagreed with the SQL exactly where the SQL broke.
+// That is why no unit test could catch this either.
+{
+  await db.query(`INSERT INTO public.diaspora_scheduled_jobs (job_key, enabled, interval_seconds) VALUES ('billing_event_retry', true, 300)`);
+
+  const MAX = 50;
+  let crossed = null;
+  let aborted = null;
+  for (let i = 1; i <= 30; i += 1) {
+    const c = await claim(['billing_event_retry', `w${i}`, 300, 300, true, true, later(5000 + i * 10)]);
+    if (!c.claimed) { aborted = `claim refused at failure ${i}: ${JSON.stringify(c)}`; break; }
+    try {
+      const r = await release(['billing_event_retry', `w${i}`, false, 'downstream down', 'DOWN', null, MAX, 60, 3600, later(5000 + i * 10 + 1)]);
+      if (i >= 27) crossed = { i, r };
+    } catch (err) {
+      aborted = `release RAISED at failure ${i}: ${err.message}`;
+      break;
+    }
+  }
+
+  record('the release RPC survives past 26 consecutive failures (no int4 overflow)', aborted === null, aborted || '');
+  record('the counter actually crossed the old overflow boundary', crossed !== null, `reached=${crossed?.i ?? 'never'}`);
+
+  const row = await one(`SELECT state, consecutive_failures, next_run_at FROM public.diaspora_scheduled_jobs WHERE job_key='billing_event_retry'`);
+  record('with max_failures=50 the job keeps advancing rather than freezing at 26',
+    Number(row.consecutive_failures) >= 27, JSON.stringify(row));
+
+  // The clamp must still clamp: a huge exponent must not produce a huge window.
+  const { w } = await one(
+    `SELECT LEAST(GREATEST(3600,1)::bigint, GREATEST(60,1)::bigint * (2 ^ LEAST(49, 30))::bigint)::integer AS w`);
+  record('the window stays clamped to backoff_max_seconds at a huge exponent', Number(w) === 3600, `w=${w}`);
+
+  // Negative control: the ORIGINAL expression really does overflow, so the assertions above are not
+  // passing because the boundary moved somewhere unreachable.
+  let originalOverflowed = false;
+  try {
+    await db.query(`SELECT LEAST(GREATEST(3600,1), GREATEST(60,1) * (2 ^ (27 - 1))::integer)`);
+  } catch (err) {
+    originalOverflowed = /out of range/i.test(err.message);
+  }
+  record('NEGATIVE CONTROL: the pre-fix expression still overflows at 27', originalOverflowed === true);
+}
+
 // ── 6. The constraints make bad states unrepresentable ──────────────────────
 {
   await exec(db, 'CHECK: a needs_operator job cannot carry a next_run_at',

@@ -186,7 +186,18 @@ export function createSchedulerRpcModel({ rows = [], jobs = {} } = {}) {
           next = null;  // the terminus
         } else {
           state = 'idle';
-          const window = Math.min(Math.max(Number(max) || 3600, 1), Math.max(Number(base) || 60, 1) * (2 ** (failures - 1)));
+          // Mirror ledger #27 EXACTLY, including its exponent cap.
+          //
+          // This previously computed `base * 2 ** (failures - 1)` uncapped. In IEEE doubles that can
+          // never overflow, so the model silently disagreed with the SQL precisely where the SQL
+          // broke: the migration multiplied in int4 and raised `integer out of range` at 27
+          // consecutive failures — a value schedulerMaxFailures() explicitly permits, since it clamps
+          // to 50. A model more permissive than the thing it models makes every test using it
+          // optimistic, which is how that overflow survived a fully green suite.
+          const window = Math.min(
+            Math.max(Number(max) || 3600, 1),
+            Math.max(Number(base) || 60, 1) * (2 ** Math.min(failures - 1, 30)),
+          );
           next = new Date(now.getTime() + Math.max(1, Math.floor(Math.random() * window)) * 1000).toISOString();
         }
         job.state = state;

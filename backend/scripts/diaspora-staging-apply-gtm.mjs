@@ -178,7 +178,7 @@ const LEDGERS = [
     n: 27,
     version: '20260731100000',
     name: 'diaspora_scheduler_leases',
-    sha12: 'ab15e7d98192',
+    sha12: '8efa7e011b4e',
     tables: [
       'diaspora_scheduled_jobs',
       'diaspora_scheduler_runs',

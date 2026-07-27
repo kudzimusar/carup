@@ -391,10 +391,30 @@ BEGIN
     v_next  := NULL;   -- the terminus. A dead job must not be picked up again by a dispatcher.
   ELSE
     v_state  := 'idle';
+    -- CLAMP BEFORE MULTIPLYING, and multiply in bigint.
+    --
+    -- This previously computed `base * (2 ^ (v_failures - 1))::integer` and applied LEAST() around
+    -- it. A clamp cannot prevent an overflow that happens inside its own argument: with base 60 the
+    -- product exceeds int4 at v_failures = 27, and schedulerMaxFailures() in
+    -- backend/constants/diaspora/diasporaSchedulerConstants.js explicitly accepts
+    -- DIASPORA_SCHEDULER_MAX_FAILURES up to 50. Reproduced on PostgreSQL 17.5:
+    --
+    --   v_failures = 26  ->  3600
+    --   v_failures = 27  ->  ERROR: integer out of range
+    --
+    -- The consequence was worse than a wrong delay. The RPC aborts, so the release never lands: the
+    -- job stays state='leased' with consecutive_failures frozen at 26 and next_run_at still holding
+    -- a PAST time. It can never reach the needs_operator terminus, and every dispatcher tick after
+    -- the lease expires re-claims it, fails identically and repeats — exactly the "a dead job becomes
+    -- background noise" loop the terminus exists to prevent.
+    --
+    -- The exponent is capped at 30 so the shift is bounded whatever p_max_failures is, and the
+    -- multiplication is done in bigint so it cannot overflow before LEAST() clamps it. The result is
+    -- bounded by p_backoff_max_seconds, so casting back to integer is always safe.
     v_window := LEAST(
-      GREATEST(COALESCE(p_backoff_max_seconds, 3600), 1),
-      GREATEST(COALESCE(p_backoff_base_seconds, 60), 1) * (2 ^ (v_failures - 1))::integer
-    );
+      GREATEST(COALESCE(p_backoff_max_seconds, 3600), 1)::bigint,
+      GREATEST(COALESCE(p_backoff_base_seconds, 60), 1)::bigint * (2 ^ LEAST(v_failures - 1, 30))::bigint
+    )::integer;
     -- Full jitter: a uniform draw over [0, window], not the exponential value itself.
     v_backoff := GREATEST(1, floor(random() * v_window)::integer);
     v_next    := v_now + make_interval(secs => v_backoff);
