@@ -116,7 +116,9 @@ jobs:
       #
       # The runner enforces its own guards, which this workflow does not duplicate or weaken:
       #   · the URL must positively reference the approved staging ref eoyenigwevnxwwhyhaer;
-      #   · any URL carrying the production ref vhmnajoeicasaigiophh is refused outright;
+      #   · any URL carrying the production project ref is refused outright (the ref itself is a
+      #     constant inside the runner, deliberately not repeated here — CR-1 rejects that literal in
+      #     executable files, and an allowlist entry would be a permanent hole in the scanner);
       #   · every migration's sha256 is checked against its frozen value BEFORE the connection opens,
       #     so a drifted file never reaches the database;
       #   · prerequisite tables are checked per ledger, so they cannot apply out of order;
