@@ -3,8 +3,8 @@
  * Diaspora Trade OS — GTM ledger apply + verify for canonical staging (carup-staging, ref
  * eoyenigwevnxwwhyhaer). Issue #127.
  *
- * Applies the go-to-market ledgers IN ORDER — #21, #22, #23, and any later GTM migration declared in
- * LEDGERS below — each in its own transaction together with its official
+ * Applies the go-to-market ledgers IN ORDER — #21 through #25, and any later GTM migration declared
+ * in LEDGERS below — each in its own transaction together with its official
  * supabase_migrations.schema_migrations row. Fail-closed throughout: a checksum drift, a version
  * collision, a missing prerequisite or a failed post-apply contract stops the run and records nothing
  * for the migration that failed.
@@ -21,8 +21,13 @@
  *
  *   · verification is ON unless explicitly and loudly disabled;
  *   · DIASPORA_STAGING_CA_CERT (PEM) is used as the trust anchor when supplied;
- *   · otherwise Node's bundled public roots are used, which is what Supabase's pooler certificates
- *     chain to;
+ *   · otherwise the Supabase root bundled at database/certs/ is pinned as the anchor. Supabase's
+ *     Postgres endpoints chain to a SELF-SIGNED root that is deliberately absent from Node's public
+ *     store, so verifying against public roots fails — which is exactly what the first staging
+ *     preflight (run 30270396058) hit. Pinning the published root verifies against ONE known
+ *     certificate rather than every public CA, which is stronger than either alternative;
+ *   · Node's public roots remain the last fallback, so a missing bundle degrades to a normal
+ *     verified connection rather than silently to an unverified one;
  *   · DIASPORA_STAGING_TLS_INSECURE=true is the only way to fall back, it prints a prominent warning,
  *     and it exists solely so a certificate-chain problem is diagnosable rather than a dead end.
  *
@@ -126,6 +131,25 @@ const LEDGERS = [
       ['diaspora_billing_provider_events', 'last_error'],
       ['diaspora_billing_provider_events', 'dead_lettered'],
     ],
+  },
+  {
+    n: 25,
+    version: '20260730090000',
+    name: 'diaspora_atomic_quota_release',
+    sha12: 'dad8779da60b',
+    tables: [],
+    functions: ['diaspora_release_usage_atomic'],
+    // The RPC locks a reservation, then locates its meter by the RESERVATION's own scope, then writes
+    // the audit row — all three tables must already exist or the function body would resolve nothing.
+    requiresTables: [
+      'diaspora_usage_reservations',
+      'diaspora_usage_meters',
+      'diaspora_import_audit_log',
+    ],
+    extraColumns: [],
+    // Three parameters carry defaults, so a second definition with a different signature would make
+    // every named-argument call from Supabase ambiguous at runtime rather than at deploy time.
+    singleOverload: ['diaspora_release_usage_atomic'],
   },
 ];
 
