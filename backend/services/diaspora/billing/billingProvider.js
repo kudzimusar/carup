@@ -15,39 +15,18 @@ import {
   configuredBillingProvider,
   shouldUseSandboxBilling,
   assertBillingProductionSafety,
+  assertBillingTestModeSafety,
+  isBillingTestModeEnabled,
   billingWebhookSecret,
   BILLING_PROVIDERS,
 } from '../../../constants/diaspora/diasporaBillingConstants.js';
 import { SUBSCRIPTION_STATES, DEFAULT_PLAN_KEY } from '../../../constants/diaspora/diasporaEntitlements.js';
+import { BillingProvider, BillingProviderError } from './billingProviderBase.js';
+import { TestModeBillingProvider } from './testModeBillingProvider.js';
 
-export class BillingProviderError extends Error {
-  constructor(message, code = 'BILLING_PROVIDER_ERROR') {
-    // Sanitized message only — never include secrets, signatures, or raw provider stack traces.
-    super(message);
-    this.name = 'BillingProviderError';
-    this.code = code;
-  }
-}
-
-export class BillingProvider {
-  get name() { return 'base'; }
-  // eslint-disable-next-line no-unused-vars
-  async createCheckoutSession(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async createPortalSession(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async syncSubscription(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async verifyWebhook(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async getInvoiceState(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async cancelSubscription(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async changePlan(_input) { throw new BillingProviderError('not implemented'); }
-  // eslint-disable-next-line no-unused-vars
-  async handleTrial(_input) { throw new BillingProviderError('not implemented'); }
-}
+// Re-exported so every existing import path (`from './billingProvider.js'`) is unchanged. The classes
+// themselves live in billingProviderBase.js so the factory can import the adapters without a cycle.
+export { BillingProvider, BillingProviderError };
 
 /**
  * Deterministic in-memory billing provider. State is keyed by tenantId and lives only in memory; no
@@ -153,6 +132,17 @@ export class SandboxBillingProvider extends BillingProvider {
     return this._invoices.get(tenantId) || { tenantId, status: 'paid', amountDue: 0, provider: this.name, live: false };
   }
 
+  /**
+   * Pure read of the sandbox's own state — the reconciliation counterpart of syncSubscription().
+   * Returns null when the sandbox has never seen the tenant, which is the honest answer and is what
+   * lets reconciliation report MISSING_AT_PROVIDER instead of inventing an "active" snapshot.
+   */
+  async getSubscription({ tenantId } = {}) {
+    if (!tenantId) throw new BillingProviderError('tenantId is required', 'INVALID_INPUT');
+    const snapshot = this._subscriptions.get(tenantId);
+    return snapshot ? { ...snapshot } : null;
+  }
+
   async cancelSubscription({ tenantId, atPeriodEnd = true } = {}) {
     if (!tenantId) throw new BillingProviderError('tenantId is required', 'INVALID_INPUT');
     const existing = this._subscriptions.get(tenantId);
@@ -191,6 +181,7 @@ export class SandboxBillingProvider extends BillingProvider {
  */
 export class StripeBillingProvider extends BillingProvider {
   get name() { return BILLING_PROVIDERS.STRIPE; }
+  async getSubscription() { throw new BillingProviderError('Live Stripe subscription read requires external activation', 'EXTERNAL_ACTIVATION_REQUIRED'); }
   async createCheckoutSession() { throw new BillingProviderError('Live Stripe checkout requires the Stripe SDK and approved credentials (external activation pending)', 'EXTERNAL_ACTIVATION_REQUIRED'); }
   async createPortalSession() { throw new BillingProviderError('Live Stripe billing portal requires external activation', 'EXTERNAL_ACTIVATION_REQUIRED'); }
   async syncSubscription() { throw new BillingProviderError('Live Stripe subscription sync requires external activation', 'EXTERNAL_ACTIVATION_REQUIRED'); }
@@ -209,13 +200,30 @@ export function getSharedSandboxProvider() {
 }
 
 /**
- * Provider factory. Returns the sandbox provider unless LIVE billing is enabled AND an approved
- * provider is configured; otherwise sandbox. The live path constructs the real provider, whose methods
- * throw EXTERNAL_ACTIVATION_REQUIRED. Never performs network I/O at selection time.
+ * Provider factory. Three mutually exclusive modes, checked in fail-closed order:
+ *
+ *   1. explicit injection  — tests and callers that supply their own provider;
+ *   2. TEST MODE           — the provider-shaped adapter over an injected transport (ADR-001 §6).
+ *                            Refused in production, refused alongside live mode, and its transport
+ *                            never opens a socket under NODE_ENV=test;
+ *   3. LIVE                — only when enabled AND the provider is in APPROVED_LIVE_PROVIDERS (empty),
+ *                            so live always fails closed today;
+ *   4. otherwise           — the deterministic in-memory sandbox.
+ *
+ * Never performs network I/O at selection time.
  */
 export function selectBillingProvider(options = {}) {
   if (options.billingProvider) return options.billingProvider; // test injection
   assertBillingProductionSafety(); // fail closed if live requested without an approved provider
+  assertBillingTestModeSafety();   // fail closed on test-mode misconfiguration (prod / live overlap)
+
+  // Test mode is checked BEFORE the sandbox fallback: an operator who asked for the provider-shaped
+  // adapter must get it or get an error, never a silent downgrade to the in-memory sandbox — a silent
+  // downgrade would make an integration test pass without exercising a single provider-shaped call.
+  if (isBillingTestModeEnabled()) {
+    return new TestModeBillingProvider({ transport: options.billingTransport || null });
+  }
+
   if (shouldUseSandboxBilling()) return getSharedSandboxProvider();
 
   // Live + approved provider configured: construct the real adapter (still external-activation gated).
