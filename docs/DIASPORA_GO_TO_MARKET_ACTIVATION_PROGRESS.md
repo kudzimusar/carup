@@ -6,7 +6,7 @@
 > what is true so that nothing here can be mistaken for an activation receipt.
 >
 > Branch: `claude/diaspora-go-to-market-activation` · Baseline: `afb3736` (exact `origin/main` at start)
-> Date: 2026-07-27
+> Date: 2026-07-27, updated 2026-07-28 (Owner Continuation Directive v2)
 
 ---
 
@@ -15,19 +15,23 @@
 | Deliverable | Status | Evidence |
 |---|---|---|
 | **A — UI-10 Trade Graph dashboard** | **Implemented and verified** (flags OFF) | 18 backend + 19 web-unit + 17 Playwright/Chromium tests; direct Chromium inspection |
-| **B — Confirmed workbook import** | **Schema only.** Service, route and UI unwritten | ledger #21 tables exist and are verified; no code reads them yet |
+| **B — Confirmed workbook import** | **NEXT (step 2).** Schema only; service, route and UI unwritten | ledger #21 tables exist and are verified; no code reads them yet |
 | **C — Live Google Drive** | **Schema only**, plus vault-reference safety | ledger #21 `diaspora_credential_references` + its anti-secret constraints |
 | **D — Live subscription billing** | **Correctness fix only** (webhook CSRF); live provider not implemented | webhook now reaches its handler; reconciliation table unused |
-| **E — SafeTrade ST-3 closure** | **Items #2, #3, #4 closed end-to-end. Item #1 has its mechanism built and proven but no emitters yet — see below.** Sandbox only; live money still fail-closed | ledger #22 + services; 29 real-Postgres RPC assertions + 31 service tests |
+| **E — SafeTrade ST-3 closure** | **ALL FOUR ITEMS CLOSED END-TO-END** (2026-07-28). Sandbox only; live money still fail-closed | ledgers #22/#23 + services + operator console; 42 + 29 real-Postgres assertions, 51 service tests, 14 Chromium |
 
 ### ST-3, item by item
 
 | Item | Mechanism | Wired into the request path? |
 |---|---|---|
-| **#1** transactional outbox for auxiliary dispute/delivery events | **Built and proven.** The RPC writes `p_metadata.auxEvents` into `diaspora_safetrade_outbox` inside the transition transaction; the harness opens a transaction, sees the events, rolls back, and shows they vanish with it | **NO — no caller passes `auxEvents` yet.** The dispute/delivery `appendBestEffortAudit` calls sit outside any transition RPC (the window close is a direct table UPDATE), so routing them through the outbox needs restructuring that is not done. **Item #1 is not closed.** |
-| **#2** maker-checker separation | Enforced in three independent layers: service, DB CHECK constraint, and the RPC under its row lock | **YES** — approval routes live; the RPC refuses `EVALUATOR_SELF_APPROVAL` and `APPROVAL_REQUIRED` |
-| **#3** provider/ledger ordering | Durable operation state machine; reserve → dispatch → confirm → `ledger_applied` in the committing transaction | **YES** — `diasporaSafeTradeMilestoneService` reserves before every provider call |
+| **#1** transactional outbox for auxiliary dispute/delivery events | **CLOSED.** Ledger #23 gives the dispute-hold and delivery-window-close paths atomic RPCs: state change + CRITICAL audit + outbox events in ONE transaction. Drainer claims with `FOR UPDATE SKIP LOCKED` under a visibility lease, backs off exponentially, and dead-letters at the attempt ceiling | **YES** — both services call the atomic RPCs; drainer + operator console shipped |
+| **#2** maker-checker separation | Enforced in three independent layers: service, DB CHECK constraint, and the RPC under its row lock | **YES** — the request half now files automatically on a HIGH-risk evaluation; approve/reject in the operator console |
+| **#3** provider/ledger ordering | Durable operation state machine; reserve → dispatch → confirm → `ledger_applied` in the committing transaction | **YES** — reserved before every provider call; unconfirmed operations visible in the reconciliation queue |
 | **#4** durable webhook de-duplication | `UNIQUE (provider, event_id)` in Postgres; out-of-order events recorded and superseded | **YES** — the payment-webhook route uses it; the process-memory `Set` is gone |
+
+The decisive proof for #1 is a rollback, not a happy path: the harness opens a transaction, observes
+the state change, the audit row and the outbox event, rolls back, and shows all three are gone. A
+best-effort append made after COMMIT cannot do that — which is the entire reason item #1 existed.
 
 Nothing in this branch has been applied to any database, deployed to any environment, or had any
 feature flag turned on. Production is untouched.
@@ -127,13 +131,10 @@ behavioural harness, not by review.
   attempts with retry/backoff, connect/disconnect/reconnect UI states, token-absence proofs.
 - Deliverable **D** (correctness half): wire `diaspora_billing_reconciliation_runs`, out-of-order
   event handling, complete entitlement enforcement across gated operations, observability.
-- Deliverable **E** (remaining — **ST-3 item #1 is not closed**): the dispute and delivery services
-  still append their auxiliary transition events best-effort after commit. The outbox exists and the
-  RPC writes to it transactionally, but nothing passes `auxEvents` yet, and those call sites are not
-  inside a transition RPC (the delivery window close is a direct table UPDATE), so closing item #1
-  means restructuring them to run through the authoritative path. Also outstanding: the outbox drainer
-  worker, wiring `requiresMakerChecker` into the release **request** flow, and extending the
-  Playwright matrix to SafeTrade.
+- Deliverable **E**: **DONE** (2026-07-28). All four ST-3 items closed end-to-end, with the outbox
+  drainer, retries, dead-letters, operator console and Chromium matrix. One best-effort audit remains
+  by design (`SAFETRADE_DISPUTE_EVIDENCE_ADDED`) and is documented inline: item #1 concerns TRANSITION
+  audit, and adding evidence appends to an append-only table where the row IS the record.
 - Apply ledgers #21/#22 to staging, verify, then deploy and run the deployed-staging UAT.
 
 **Owner-only external actions (cannot be created by an agent).** Listed for completeness — this
