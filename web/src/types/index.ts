@@ -1119,6 +1119,72 @@ export interface UsageResponse {
   usage: UsageEntry[];
 }
 
+/** One reconciliation run over this tenant's billing state. `findings` are pre-sanitized server-side. */
+export interface BillingReconciliationRun {
+  id: string;
+  tenant_id: string | null;
+  provider: string;
+  trigger: string;
+  state: 'running' | 'completed' | 'failed';
+  started_at: string | null;
+  finished_at: string | null;
+  checked_count: number | null;
+  mismatch_count: number | null;
+  repaired_count: number | null;
+  findings: Array<Record<string, unknown>> | null;
+  initiated_by: string | null;
+  last_error: string | null;
+}
+
+export interface BillingReconciliationResult {
+  runId: string | null;
+  state: string;
+  trigger: string;
+  checked: number;
+  mismatches: number;
+  findings: Array<Record<string, unknown>>;
+  correlationId: string | null;
+}
+
+/** A provider event that could not be applied. Carries no payload — only what an operator needs. */
+export interface BillingLedgerEvent {
+  id: string;
+  provider: string;
+  event_id: string;
+  event_type: string | null;
+  tenant_id: string | null;
+  last_error?: string | null;
+  attempts?: number | null;
+  occurred_at?: string | null;
+  created_at?: string | null;
+  dead_lettered?: boolean;
+  superseded?: boolean;
+}
+
+/**
+ * Operator health for one tenant's billing.
+ *
+ * `reconciliation.stale` is the signal that matters most: a scheduler that quietly stopped looks
+ * exactly like "no problems found", so freshness is reported separately from mismatch counts.
+ */
+export interface BillingHealth {
+  tenantId: string;
+  failedWebhooks: { count: number; events: BillingLedgerEvent[] };
+  supersededWebhooks: { count: number; events: BillingLedgerEvent[] };
+  reconciliation: {
+    lastCompletedAt: string | null;
+    ageMinutes: number | null;
+    stale: boolean;
+    reason: string | null;
+  };
+  checkout: {
+    tenantId: string | null;
+    total: number;
+    counts: { open: number; completed: number; abandoned: number; expired: number; cancelled: number };
+    abandonmentRate: number | null;
+  };
+}
+
 // A normalized, SAFE-to-render denial. Parsed from a backend 4xx (whose body is
 // { success:false, error:{ code, message, ... } }) or a network/transport failure. NEVER carries
 // db details, stack traces, internal tenant ids, raw provider errors, or secrets.

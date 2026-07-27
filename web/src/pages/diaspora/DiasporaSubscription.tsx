@@ -20,6 +20,7 @@ import { SubscriptionStatusCard } from '@/components/diaspora/subscription/Subsc
 import { PlanComparison } from '@/components/diaspora/subscription/PlanComparison'
 import { UsageDashboard } from '@/components/diaspora/subscription/UsageDashboard'
 import { SubscriptionActions } from '@/components/diaspora/subscription/SubscriptionActions'
+import BillingOperationsPanel from '@/components/diaspora/subscription/BillingOperationsPanel'
 import { EntitlementDenialPanel } from '@/components/diaspora/subscription/EntitlementDenialPanel'
 import { currentPlan, canManageSubscriptionUi } from '@/components/diaspora/subscription/subscriptionHelpers'
 import { parseEntitlementDenial } from '@/components/diaspora/subscription/entitlementDenial'
@@ -199,6 +200,9 @@ export default function DiasporaSubscription() {
                   onChangePlan={handleChangePlan}
                   onCancel={handleCancel}
                 />
+                {/* Operator health. Manager-only here and re-gated server-side; the panel removes
+                    itself on a 403 rather than rendering a misleading empty state. */}
+                <BillingOperationsPanel />
               </>
             ) : (
               <Alert className="border-slate-200 bg-slate-50" data-testid="subscription-readonly">

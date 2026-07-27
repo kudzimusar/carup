@@ -108,6 +108,9 @@ import type {
   DiasporaReservationActionResult,
   DiasporaDriveStatus,
   DiasporaDriveSyncAttempts,
+  BillingHealth,
+  BillingReconciliationRun,
+  BillingReconciliationResult,
   DiasporaDriveAuthUrl,
   DiasporaDriveFile,
   DiasporaDriveConnection,
@@ -1595,6 +1598,23 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // Operator-only billing reads. All three are manager-gated server-side (Gate S8-A); a non-manager
+  // receives 403 and the UI simply does not render the panel.
+  const fetchDiasporaBillingHealth = useCallback(async (): Promise<BillingHealth> => {
+    const response = await request<{ data: BillingHealth }>('/diaspora/subscription/billing-health')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaReconciliationRuns = useCallback(async (): Promise<BillingReconciliationRun[]> => {
+    const response = await request<{ data: BillingReconciliationRun[] }>('/diaspora/subscription/reconciliation-runs')
+    return response.data
+  }, [request])
+
+  const runDiasporaBillingReconciliation = useCallback(async (): Promise<BillingReconciliationResult> => {
+    const response = await request<{ data: BillingReconciliationResult }>('/diaspora/subscription/reconcile', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   // ── Phase 9: SafeTrade (escrow/assurance overlay) — sandbox payment-state simulation only ──
   // The UI renders action controls ONLY from getSafeTradeAvailableActions; the backend stays
   // authoritative on every submit. Money never moves through a live provider (sandbox + fail-closed).
@@ -2704,6 +2724,9 @@ export function useCarUpApi() {
     createDiasporaBillingPortal,
     changeDiasporaPlan,
     cancelDiasporaSubscription,
+    fetchDiasporaBillingHealth,
+    fetchDiasporaReconciliationRuns,
+    runDiasporaBillingReconciliation,
     // ── Confirmed workbook import ──
     getDiasporaWorkbookImportBatchSummary,
     confirmWorkbookImport,
