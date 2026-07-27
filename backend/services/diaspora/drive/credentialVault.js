@@ -29,9 +29,11 @@
  * --------
  *  - `InMemoryCredentialVault` (backend id `env_dev`): process-local, test/dev only. Refuses to be
  *    constructed in production unless a caller explicitly opts in for a unit test.
- *  - Real backends (aws_secrets_manager, gcp_secret_manager, …) are NOT implemented. `resolveVault`
- *    fails closed with NOT_CONFIGURED rather than silently degrading to the in-memory adapter, which
- *    would lose every user's Drive connection on restart while reporting success.
+ *  - Managed backends REGISTER themselves through `registerManagedVaultBackend`. `gcp_secret_manager`
+ *    ships — see `googleSecretManagerVault.js` and docs/adr/0002-…. Any backend that has not
+ *    registered still fails closed with NOT_CONFIGURED rather than silently degrading to the
+ *    in-memory adapter, which would lose every user's Drive connection on restart while reporting
+ *    success.
  */
 import crypto from 'crypto';
 import {
@@ -286,24 +288,103 @@ export function resetSharedTestVault() {
 }
 
 /**
- * Pick the vault for the current environment. FAILS CLOSED: production has no implemented backend
- * yet, so it raises NOT_CONFIGURED rather than falling back to a volatile in-memory store.
+ * Managed-backend registry.
+ *
+ * WHY A REGISTRY RATHER THAN AN IMPORT
+ * ------------------------------------
+ * `resolveVault` is synchronous — `GoogleDriveProvider.vault` is a getter, so it cannot await — which
+ * rules out a dynamic import. A static `import './googleSecretManagerVault.js'` here would instead
+ * create a cycle (core → backend → core) whose child evaluates `class … extends CredentialVault`
+ * while that binding is still in its temporal dead zone. Whether that throws depends on which module
+ * the process happened to load first, which is the worst possible property for the code path that
+ * decides where refresh tokens live.
+ *
+ * Inverting the dependency removes the question: a backend module imports this one, never the
+ * reverse, and announces itself on import. `installManagedVaultBackends()` is the single, explicit
+ * place that pulls the shipped backends in.
+ *
+ * @type {Map<string, (overrides?:object) => CredentialVault>}
  */
-export function resolveVault(options = {}) {
-  if (options.vault) return options.vault; // test/DI injection
-  const configured = String(process.env.DIASPORA_CREDENTIAL_VAULT_BACKEND || '').trim();
-  if (process.env.NODE_ENV === 'production') {
-    if (!configured || configured === VAULT_BACKENDS.ENV_DEV) {
-      throw new VaultError(
-        'No production credential vault is configured (set DIASPORA_CREDENTIAL_VAULT_BACKEND to a managed backend)',
-        'VAULT_NOT_CONFIGURED',
-      );
-    }
+const managedVaultFactories = new Map();
+
+/** Called by a backend module at import time. */
+export function registerManagedVaultBackend(backendId, factory) {
+  if (!backendId || typeof factory !== 'function') {
+    throw new VaultError('A managed vault backend needs an id and a factory', 'VAULT_INVALID_DESCRIPTOR');
+  }
+  managedVaultFactories.set(String(backendId), factory);
+  return backendId;
+}
+
+/** Which managed backends this build can actually construct. Used by health reporting and tests. */
+export function registeredManagedVaultBackends() {
+  return [...managedVaultFactories.keys()].sort();
+}
+
+/** Test seam: forget a registration so the fail-closed path can be exercised. */
+export function clearManagedVaultBackends() {
+  managedVaultFactories.clear();
+  cachedManagedVault = null;
+}
+
+let cachedManagedVault = null;
+let cachedManagedVaultBackend = null;
+
+/** Test seam: drop the memoized managed vault (and therefore its access-token cache). */
+export function resetManagedVaultCache() {
+  cachedManagedVault = null;
+  cachedManagedVaultBackend = null;
+}
+
+function buildManagedVault(configured) {
+  const factory = managedVaultFactories.get(configured);
+  if (!factory) {
     throw new VaultError(
       `Credential vault backend "${configured}" is declared but no client is implemented in this build`,
       'VAULT_NOT_CONFIGURED',
     );
   }
+  // Memoized per backend id: the vault owns an access-token cache and an in-flight-refresh guard, and
+  // rebuilding it per request would throw both away and make every call mint a fresh token.
+  if (cachedManagedVault && cachedManagedVaultBackend === configured) return cachedManagedVault;
+  const vault = factory();
+  cachedManagedVault = vault;
+  cachedManagedVaultBackend = configured;
+  return vault;
+}
+
+/**
+ * Pick the vault for the current environment. FAILS CLOSED in production: an unset or `env_dev`
+ * backend, or a managed backend with no registered client, raises NOT_CONFIGURED rather than falling
+ * back to a volatile in-memory store.
+ *
+ * @param {{vault?:object, tenantId?:string}} [options]
+ *   `tenantId` returns a TENANT-SCOPED view when the backend supports one, so the binding stops being
+ *   a per-call-site discipline the caller can forget.
+ */
+export function resolveVault(options = {}) {
+  if (options.vault) return scopeVault(options.vault, options.tenantId);
+  const configured = String(process.env.DIASPORA_CREDENTIAL_VAULT_BACKEND || '').trim();
+
+  if (configured && configured !== VAULT_BACKENDS.ENV_DEV && configured !== 'env') {
+    // An explicitly named managed backend is honoured in EVERY environment, not just production:
+    // staging must be able to exercise the real vault, and a dev machine pointed at a sandbox project
+    // must not silently get the in-memory store instead.
+    return scopeVault(buildManagedVault(configured), options.tenantId);
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new VaultError(
+      'No production credential vault is configured (set DIASPORA_CREDENTIAL_VAULT_BACKEND to a managed backend)',
+      'VAULT_NOT_CONFIGURED',
+    );
+  }
   if (configured === 'env') return new EnvCredentialVault();
   return getSharedTestVault();
+}
+
+/** Apply a tenant scope when the backend offers one; otherwise hand back the vault unchanged. */
+function scopeVault(vault, tenantId) {
+  if (!tenantId || typeof vault?.forTenant !== 'function') return vault;
+  return vault.forTenant(tenantId);
 }
