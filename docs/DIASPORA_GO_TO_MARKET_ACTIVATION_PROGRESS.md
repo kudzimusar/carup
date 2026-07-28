@@ -462,17 +462,23 @@ sequence" paragraph above.
 
 ### 6a. Final integration head
 
-`e399037a5a2061942179105990720e752cbbc4c3`
+`76cd551bb9d3fd0c05228b49297134de80615484`
 
-Only three commits separate it from the deployed source `543dd51`, and **none of them ship**:
-`ea39938` and `e399037` are test-only, `4017f5c` is docs-only. That is asserted by tree hash rather
-than by reading the diff, which is the part that can be checked mechanically:
+Five commits separate it from the deployed source `543dd51`, and **none of them ship**: `ea39938`,
+`e399037` and `76cd551` are test-only, `4017f5c` and `057dd97` are docs-only. Asserted by tree hash
+rather than by reading the diff, because that is the part a machine can check:
 
-| tree | `543dd51` (deployed) | `e399037` (head) |
+| tree | `543dd51` (deployed) | `76cd551` (head) |
 |---|---|---|
-| `web/src` | `9f05e903857b5619…` | `9f05e903857b5619…` |
-| `backend` | `54a7199a1d3e69d9…` | `54a7199a1d3e69d9…` |
-| `database` | `a8a6b075ebd9768d…` | `a8a6b075ebd9768d…` |
+| `backend` | `54a7199a1d3e69d9…` | `54a7199a1d3e69d9…` (identical) |
+| `database` | `a8a6b075ebd9768d…` | `a8a6b075ebd9768d…` (identical) |
+| `web/src` | `9f05e903857b5619…` | `d9b438abb44969ef…` (differs) |
+
+The `web/src` hashes differ and that is worth stating rather than glossing, since it is the one place
+this claim could hide a real change. Exactly one file accounts for it —
+`web/src/pages/diaspora/DiasporaTradeGraph.test.tsx`, a test that happens to live under `web/src` —
+and its content appears **zero** times in the built bundle, because Vite excludes test files from the
+production build. Shippable source is therefore identical.
 
 So the live deployment **is** the exact-head deployment in every shippable respect. No redeploy was
 required to close the wave, and the candidate lineage in §5 collapses to a single artifact.
@@ -494,6 +500,23 @@ All on `e399037`:
 | Navigation Intelligence CI | success |
 | Referral Engine CI | success |
 | Diaspora Deployed Staging UAT | skipped — secrets-gated; run directly against the deployment instead (§6d) |
+
+Reaching green took one more repair than expected, and it is the most instructive failure in this
+wave. **Referral Engine CI failed on `057dd97` — a commit that changed only documentation.** A
+docs-only commit cannot break a test, so the test was already flaky and that runner was merely
+slower.
+
+`DiasporaTradeGraph.test.tsx` asserted `expected 'Not yet run' to be 'Behind'`. `HealthBadge` renders
+unconditionally from `summary?.health ?? 'UNKNOWN'`, so the badge is in the DOM *before* the load
+resolves. `findByTestId` is satisfied by that first pre-load render, so asserting immediately after it
+reads the UNKNOWN state — a race the mocked promise usually wins on a fast machine and loses under CI
+load. It now waits for `data-health` to reach `DEGRADED` before asserting the label, so the test
+observes the state it is actually about. 8/8 consecutive local runs, and the full suite stays 747/0.
+
+Its siblings in that file were checked and are sound: `total-nodes`, `trade-graph-empty` and
+`trade-graph-stale` render only once the summary has loaded, so `findByTestId` already waits for the
+right state, and the announcer asserts static ARIA attributes only. The health badge was the only
+always-rendered element whose content depends on the load.
 
 Phases 3-7 was the focused failure from run `30275157681`. Three diaspora test files aborted on
 `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`. That is a **module-scope** throw in
