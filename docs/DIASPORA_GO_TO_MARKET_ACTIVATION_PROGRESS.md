@@ -649,3 +649,33 @@ Google refresh-token shapes) is clean.
 
 PR #129 unmerged · production untouched · live billing not enabled · real-money SafeTrade not
 activated · live Drive not activated · no real money moved. No secret value was printed or stored.
+
+### 6j. Deployment routing — and a correction to how it was checked
+
+The deployed bundle was re-examined at the end of the wave, and the first check was **wrong in a way
+that returned the right answer**. That is worth recording, because a measurement that cannot fail is
+worse than no measurement.
+
+Grepping the bundle without `LC_ALL=C` raised `character not in range` on the 2.5 MB minified file
+and returned `0` for *every* pattern — including `carup-backend-aca7.vercel.app`, which must be
+non-zero. The earlier "0 production backend refs, 0 production Supabase refs" was therefore not
+evidence of a clean deployment; it was the error value of a grep that had failed. It happened to
+agree with the truth.
+
+Re-run binary-safe (`LC_ALL=C`, `grep -a`) against the served `index-CtPnm5LX.js`:
+
+| pattern | count | verdict |
+|---|---|---|
+| `carup-backend-aca7.vercel.app` (staging) | 7 | expected — the runtime base is `https://carup-backend-aca7.vercel.app/api` |
+| `carup-backend.vercel.app` (production) | **0** | clean |
+| `vhmnajoeicasaigiophh` (production Supabase ref) | **0** | clean |
+| `api.carup.co.zw` | 16 | **documentation only** |
+
+The 16 hits looked alarming and were run down rather than waved through. Every one sits inside a
+`codeSnippets: { curl: …, javascript: … }` literal from `web/src/pages/APIDocs.tsx` — the public
+API-docs page showing developers how to call the production API. They are display strings; none is a
+request target, which was verified by confirming that no occurrence exists outside a `curl:` /
+`javascript:` sample.
+
+Staging backend health at close: `carup-backend-aca7.vercel.app/api/health` → `200`,
+`{"status":"UP","supabase":{"status":"healthy"}}`.
