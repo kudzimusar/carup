@@ -423,44 +423,75 @@ These cannot be performed from the repository, by this agent or any other.
 
 ---
 
-## 11. Terminal outcome
+## 11. Terminal outcome — superseded by §12
 
-Issue #127 permits exactly two. **Neither is claimed**, and the reason is now narrow and specific.
+The blocker recorded here — "no green deployed matrix exists, and the fix cannot be deployed because
+Vercel answers `api-deployments-free-per-day`" — **has cleared**, and by a route the paragraph did not
+anticipate: no redeploy was needed at all.
 
-`GO-TO-MARKET ACTIVATION COMPLETE — CHROMIUM/PLAYWRIGHT VERIFIED` requires a **green deployed browser
-matrix**. No such run exists, because of a single external constraint:
+The deployed artifact and the final head ship **identical product source**. Proven by tree hash rather
+than by argument, because that is the part a machine can check:
 
-- the deployed candidate `fff8813` carries a confirmed defect — the `/diaspora/subscription` request
-  loop in §5c;
-- the candidate that fixes it **cannot be deployed**. Vercel answers
-  `api-deployments-free-per-day` (more than 100), and Git integration is capped for the same reason.
+| tree | `543dd51` (deployed source) | `37ffe25` (head) |
+|---|---|---|
+| `backend/` | `54a7199a1d3e69d9…` | `54a7199a1d3e69d9…` **identical** |
+| `database/` | `a8a6b075ebd9768d…` | `a8a6b075ebd9768d…` **identical** |
+| `web/src/` | `9f05e903857b5619…` | `d9b438abb44969ef…` differs |
 
-Everything else is done. Ledgers #21–#27 are applied to canonical staging and verified three times.
-Both staging projects are deployed and agree on their candidate. Fixture cleanup is proven with
-`liveRemaining: 0`. CI is green on the fix candidate — backend 2666 tests / 0 fail, all nine ledger
-harnesses passing in CI for the first time.
+The `web/src` difference is stated rather than glossed, since it is the one place this claim could
+hide a real change. Exactly one file accounts for it — `DiasporaTradeGraph.test.tsx`, a test that
+happens to live under `web/src` — and its content appears **zero** times in the built bundle, against
+a positive control confirming the search can fire (`Billing runs in sandbox mode only` appears once).
+Shippable source is therefore identical, which is a stronger guarantee than SHA equality.
 
-**Candidate lineage**, so the two are never confused:
+The candidate lineage that appeared here — "deployed now `fff8813` has the defect / fix undeployed" —
+is **obsolete**. `fff8813` was superseded by the deployments listed in §12.
 
-| | |
-|---|---|
-| Deployed now | `fff881371b995126af69c5825159f9707167dad0` — has the defect |
-| Owner-frozen fix | `543dd51f4a78eaccb4d9f0299e147689b44f6856` — fixes it, undeployed |
-| Local head | `ea39938` — `543dd51` plus TEST-ONLY corrections to spec 37, verified 14/14 against the live deployment. No product code changed after `543dd51`. |
-
-The remaining sequence needs no owner input: one controlled deployment of the fix candidate to both
-staging projects when the quota resets, verify the served bundle and backend identity correspond to
-it, re-run specs 32–37, clean any new fixtures, prove cleanup, re-run smoke, then publish the receipt.
+See **§12** for the verified closure record.
 
 ---
 
-## 6. Closure receipt — the staging wave completed
+## 12. Closure receipt — the staging wave, independently reverified
 
 The blocker recorded in §5 cleared: the Vercel daily deployment quota reset, the fix candidate was
 deployed, and the single staging wave ran to completion. This section supersedes the "remaining
 sequence" paragraph above.
 
-### 6a. Final integration head
+### 12-0. Independent reverification, and what "final head" now means
+
+This receipt was written against head `76cd551`. Two documentation commits landed after it, so the
+**final head is `37ffe25a83ea6b333a71ed637efc89bd3c7f288d`**. Every claim below was re-checked against
+that head rather than carried forward:
+
+| claim | how it was re-checked | result |
+|---|---|---|
+| Product source identical from `543dd51` to head | `git rev-parse <sha>^{tree}:backend` / `:database` / `:web/src` for all six commits | `backend/` and `database/` byte-identical; `web/src` differs by one test file only |
+| That test never ships | grepped the built bundle for its content, **with a positive control** | 0 occurrences; control string found once |
+| Migration contract holds | run `30318140329` | success |
+| Canonical staging serves the frozen bundle | fetched `carup-staging.vercel.app` | `index-CtPnm5LX.js` |
+| Deployed matrix 74/0/4 | **re-ran it** (`runId=own127`) | 78 tests · **74 passed · 0 failed · 4 skipped · 0 retries · 0 flaky**, `mode=acceptance` |
+| Fixture cleanup | retired 12 orders, re-read from the server | `liveRemaining: 0` |
+| Post-cleanup smoke | specs 36 + 37 against the deployment | **36 / 36 passed** |
+
+The two test commits were also read rather than accepted:
+
+- **`e399037`** (spec 36 billing disclosure) — verified all four of its claims against source:
+  `"Billing runs in sandbox mode only."` at `DiasporaSubscription.tsx:172`; `"test mode"` copy exists
+  ONLY in `BillingOperationsPanel.tsx`; the `billing-operations-panel` testid at line 94; the panel
+  manager-gated inside `{!loadError && …}`. The relaxed assertion is not weaker — it still fails if the
+  header disclosure is removed, and it adds a stronger panel-level check.
+- **`76cd551`** (Trade Graph badge race) — verified `const health = summary?.health ?? 'UNKNOWN'` at
+  line 201 and the unconditional `<HealthBadge …>` at 218, so `findByTestId` genuinely resolves on the
+  pre-load render. Ran the file **5 consecutive times: 19/19 each**.
+
+The 4 skips were confirmed to be runtime-guarded on the OBSERVED role
+(`test.skip(!STOCK_ROLES.has(sellerRole), …)`), not a blanket file skip — and the elevated grant really
+is unobtainable here: `switch-role` to `dealer` and `admin` was independently observed returning
+**403** for every fixture identity.
+
+---
+
+### 12a. Final integration head
 
 `76cd551bb9d3fd0c05228b49297134de80615484`
 
@@ -488,7 +519,7 @@ values into the bundle, so a local `npm run build` legitimately produces a diffe
 (`index-CWx1ddun.js`) from the deployed `index-CtPnm5LX.js` for identical source. Comparing those two
 would have manufactured a drift that does not exist.
 
-### 6b. Required workflows, green on one immutable head
+### 12b. Required workflows, green on one immutable head
 
 All on `e399037`:
 
@@ -499,7 +530,7 @@ All on `e399037`:
 | Communication Command Center CI | success |
 | Navigation Intelligence CI | success |
 | Referral Engine CI | success |
-| Diaspora Deployed Staging UAT | skipped — secrets-gated; run directly against the deployment instead (§6d) |
+| Diaspora Deployed Staging UAT | skipped — secrets-gated; run directly against the deployment instead (§12d) |
 
 Reaching green took one more repair than expected, and it is the most instructive failure in this
 wave. **Referral Engine CI failed on `057dd97` — a commit that changed only documentation.** A
@@ -525,7 +556,7 @@ guard cannot fix it — ESM hoists the import and the process is already dead be
 The fix is test-only placeholder env on the job, identical to `ci.yml`. Reproducing CI's exact
 environment locally failed identically; with the env present the same files give 62/62.
 
-### 6c. Deterministic local closure gate
+### 12c. Deterministic local closure gate
 
 | gate | result |
 |---|---|
@@ -540,7 +571,7 @@ failing files — it sweeps up backend `.test.js` and Playwright specs that vite
 is operator error, not a regression, and it is recorded here because the failure count is alarming
 enough to be mistaken for one.
 
-### 6d. Deployed staging matrix
+### 12d. Deployed staging matrix
 
 ```
 STAGING_WEB_URL=https://carup-staging.vercel.app
@@ -571,7 +602,7 @@ Two failures were repaired to reach this. Both were in the **test**, not the pro
 
 2. **Spec 37** probed from an opaque origin and read a disabled capability as a missing route.
 
-### 6e. The 4 skips — one owner action
+### 12e. The 4 skips — one owner action
 
 Both skipped tests are in `33-diaspora-staging-browser-parts.spec.ts` (× 2 projects = 4 cases), and
 both stop at the same inner guard:
@@ -584,7 +615,7 @@ The seller fixture authenticates as `owner`. The stock and RFQ journeys require 
 that `backend/scripts/staging-create-test-identities.mjs` already documents as **not provisionable
 through public registration**. It is an owner action, not remaining engineering.
 
-### 6f. Ledger inventory #21–#27
+### 12f. Ledger inventory #21–#27
 
 | # | sha256[:12] | file |
 |---|---|---|
@@ -611,7 +642,7 @@ would change nothing: the migrations tree at the pin and at the final head are t
 guarantee a pin exists to give — that what was applied is what was reviewed — already holds by tree
 identity, which is a stronger proof than the pin itself.
 
-### 6g. Ledger #26 — the entitlement override defect
+### 12g. Ledger #26 — the entitlement override defect
 
 An entitlement override, once revoked, could never be granted again for that user and feature — by
 any admin, through any code path. `uq_diaspora_user_override` has no `WHERE deleted_at IS NULL`, so a
