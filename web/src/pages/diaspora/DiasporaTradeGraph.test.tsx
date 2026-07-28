@@ -196,9 +196,17 @@ describe('UI-10 · truthful states', () => {
   it('conveys health with a text label, never colour alone', async () => {
     state.summary = makeSummary({ health: 'DEGRADED', stale: true })
     renderPage()
+    // Wait for the badge to reflect the LOADED summary, not merely to exist.
+    //
+    // HealthBadge renders unconditionally from `summary?.health ?? 'UNKNOWN'`, so the badge is in the
+    // DOM immediately — showing "Not yet run" — and only becomes DEGRADED once the mocked load
+    // resolves. findByTestId is satisfied by that first pre-load render, so asserting straight after
+    // it is a race: on a fast machine the promise usually settles inside the same batch and the
+    // assertion passes, on a loaded CI runner it does not. It failed exactly that way in Referral
+    // Engine CI with `expected 'Not yet run' to be 'Behind'`, on a commit that changed only docs.
     const badge = await screen.findByTestId('trade-graph-health-badge')
+    await waitFor(() => expect(badge.getAttribute('data-health')).toBe('DEGRADED'))
     expect(badge.textContent?.trim()).toBe('Behind')
-    expect(badge.getAttribute('data-health')).toBe('DEGRADED')
   })
 })
 
