@@ -451,3 +451,178 @@ harnesses passing in CI for the first time.
 The remaining sequence needs no owner input: one controlled deployment of the fix candidate to both
 staging projects when the quota resets, verify the served bundle and backend identity correspond to
 it, re-run specs 32–37, clean any new fixtures, prove cleanup, re-run smoke, then publish the receipt.
+
+---
+
+## 6. Closure receipt — the staging wave completed
+
+The blocker recorded in §5 cleared: the Vercel daily deployment quota reset, the fix candidate was
+deployed, and the single staging wave ran to completion. This section supersedes the "remaining
+sequence" paragraph above.
+
+### 6a. Final integration head
+
+`e399037a5a2061942179105990720e752cbbc4c3`
+
+Only three commits separate it from the deployed source `543dd51`, and **none of them ship**:
+`ea39938` and `e399037` are test-only, `4017f5c` is docs-only. That is asserted by tree hash rather
+than by reading the diff, which is the part that can be checked mechanically:
+
+| tree | `543dd51` (deployed) | `e399037` (head) |
+|---|---|---|
+| `web/src` | `9f05e903857b5619…` | `9f05e903857b5619…` |
+| `backend` | `54a7199a1d3e69d9…` | `54a7199a1d3e69d9…` |
+| `database` | `a8a6b075ebd9768d…` | `a8a6b075ebd9768d…` |
+
+So the live deployment **is** the exact-head deployment in every shippable respect. No redeploy was
+required to close the wave, and the candidate lineage in §5 collapses to a single artifact.
+
+A local build hash is *not* evidence here and was not used as such: Vercel inlines project `VITE_*`
+values into the bundle, so a local `npm run build` legitimately produces a different filename
+(`index-CWx1ddun.js`) from the deployed `index-CtPnm5LX.js` for identical source. Comparing those two
+would have manufactured a drift that does not exist.
+
+### 6b. Required workflows, green on one immutable head
+
+All on `e399037`:
+
+| workflow | result |
+|---|---|
+| CI | success |
+| Diaspora Phases 3-7 Validation | success |
+| Communication Command Center CI | success |
+| Navigation Intelligence CI | success |
+| Referral Engine CI | success |
+| Diaspora Deployed Staging UAT | skipped — secrets-gated; run directly against the deployment instead (§6d) |
+
+Phases 3-7 was the focused failure from run `30275157681`. Three diaspora test files aborted on
+`Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`. That is a **module-scope** throw in
+`backend/db/supabase.js` reached through a *static* import chain, so an in-file `process.env.X ||= …`
+guard cannot fix it — ESM hoists the import and the process is already dead before the guard runs.
+The fix is test-only placeholder env on the job, identical to `ci.yml`. Reproducing CI's exact
+environment locally failed identically; with the env present the same files give 62/62.
+
+### 6c. Deterministic local closure gate
+
+| gate | result |
+|---|---|
+| Real-Postgres (PGlite) harnesses | **12 / 12 pass**, including `diaspora_entitlement_override_regrant_check.mjs` |
+| Backend suite (`ALLOW_OCR_MOCK=true`) | **2654 pass / 0 fail / 18 skip** |
+| Web unit (`vitest run` in `web/`) | **747 pass / 0 fail** across 82 files |
+| TypeScript | clean |
+| Production build | success |
+
+The web unit suite must be run from `web/`. Running `npx vitest run` at the repo root reports ~333
+failing files — it sweeps up backend `.test.js` and Playwright specs that vitest cannot collect. That
+is operator error, not a regression, and it is recorded here because the failure count is alarming
+enough to be mistaken for one.
+
+### 6d. Deployed staging matrix
+
+```
+STAGING_WEB_URL=https://carup-staging.vercel.app
+STAGING_API_URL=https://carup-backend-aca7.vercel.app/api
+STAGING_EXPECTED_BUNDLE=index-CtPnm5LX.js
+→ mode=acceptance  ·  74 passed / 0 failed / 4 skipped / 0 flaky / 0 retries
+```
+
+Chromium desktop + mobile-chromium. `mode=acceptance` matters: without `STAGING_EXPECTED_BUNDLE` the
+harness self-declares `harness-validation` and its own gate fails, which is a deliberate integrity
+guard against a run that silently proves nothing.
+
+Two failures were repaired to reach this. Both were in the **test**, not the product:
+
+1. **Spec 36 subscription** demanded the literal string `test mode` from the whole page body. That
+   copy lives inside `BillingOperationsPanel`, which is deliberately not rendered while the page shows
+   a load denial (`{!loadError && …}`) or to a non-manager. The staging tenant-admin fixture carries no
+   tenant context, so the page truthfully rendered *"No tenant context is available"* — a correct
+   refusal scored as a missing safety disclosure. The page does make the claim, in its own established
+   wording: *"Billing runs in sandbox mode only."* The assertion now accepts either, and separately
+   requires the operator panel to carry the stronger claim wherever it does render, so the disclosure
+   can never be satisfied by page furniture alone.
+
+   Worth stating plainly, because the first read of this failure was wrong: the test *skips* when the
+   identity is missing. It **ran**, so the identity existed and the page had genuinely rendered. An
+   environment gap and a product defect look identical in a one-line assertion failure; only the
+   captured page snapshot distinguished them.
+
+2. **Spec 37** probed from an opaque origin and read a disabled capability as a missing route.
+
+### 6e. The 4 skips — one owner action
+
+Both skipped tests are in `33-diaspora-staging-browser-parts.spec.ts` (× 2 projects = 4 cases), and
+both stop at the same inner guard:
+
+> `seller identity lacks a VERIFIED stock role (received owner) — operator must provision a verified
+> seller identity`
+
+The seller fixture authenticates as `owner`. The stock and RFQ journeys require one of
+`dealer · admin · platform_admin · super_admin · government · reviewer`. This is the elevated grant
+that `backend/scripts/staging-create-test-identities.mjs` already documents as **not provisionable
+through public registration**. It is an owner action, not remaining engineering.
+
+### 6f. Ledger inventory #21–#27
+
+| # | sha256[:12] | file |
+|---|---|---|
+| 21 | `157dae537997` | `20260727120000_diaspora_gtm_activation_foundation.sql` |
+| 22 | `610ac3118e64` | `20260727130000_diaspora_safetrade_st3_closure.sql` |
+| 23 | `385cd2724015` | `20260728090000_diaspora_safetrade_st3_item1_closure.sql` |
+| 24 | `28aa8c6d7807` | `20260729090000_diaspora_billing_test_mode_closure.sql` |
+| 25 | `dad8779da60b` | `20260730090000_diaspora_atomic_quota_release.sql` |
+| 26 | `93ab8f5ee95a` | `20260731090000_diaspora_entitlement_override_regrant.sql` |
+| 27 | `8efa7e011b4e` | `20260731100000_diaspora_scheduler_leases.sql` |
+
+`#21`–`#25` are preserved byte-for-byte: each was touched only by its own creating commit and by
+nothing since.
+
+**Database contract verification** — run `30318140329`, `mode=verify`, against canonical staging:
+every ledger `#21`…`#27` reports `ok: true`, with `#26` exposing its 2 RPCs and `#27` its 3 tables and
+2 functions.
+
+**The staging workflow pin was not advanced again.** `diaspora-staging-gtm-migrations.yml` on the
+default branch pins `CANDIDATE_SHA: fff8813`, and its own header records that it was already moved
+once (`001cf808` → `fff8813`) — the "exactly once" advance is spent. More to the point, advancing it
+would change nothing: the migrations tree at the pin and at the final head are the *same object*
+(`68b689cc338eb609c084ead2c81a72d651e7fd9f`), and `#25`/`#26`/`#27` are all present at the pin. The
+guarantee a pin exists to give — that what was applied is what was reviewed — already holds by tree
+identity, which is a stronger proof than the pin itself.
+
+### 6g. Ledger #26 — the entitlement override defect
+
+An entitlement override, once revoked, could never be granted again for that user and feature — by
+any admin, through any code path. `uq_diaspora_user_override` has no `WHERE deleted_at IS NULL`, so a
+soft-deleted row holds the unique slot forever; `applyAdminOverride` filtered on `.is('deleted_at',
+null)`, could not see the tombstone, took the INSERT branch and hit `23505`. The operator saw a 500
+naming a constraint, so the reading was "the system is broken" rather than "this grant is permanently
+blocked".
+
+Ledger #26 replaces read-then-branch-then-write with two RPCs: apply locks the logical row
+*including* a soft-deleted one and writes `INSERT … ON CONFLICT … DO UPDATE SET deleted_at = NULL`
+(the lock alone is insufficient — with no row there is nothing to lock, and `ON CONFLICT` is what
+turns the loser of a first-grant race into an update); revoke is a real state transition under the
+same lock. `REGRANTED` is its own audit action so a capability returning after a revoke cannot read as
+an ordinary edit.
+
+Proven on real Postgres by `database/test/diaspora_entitlement_override_regrant_check.mjs`: pre-fix
+`23505` reproduction, re-grant success, history preservation, one-active-row, duplicate denial,
+tenant isolation, ACL/RLS/MAINTAIN preservation, and rollback.
+
+### 6h. Fixtures
+
+The deployed specs are **read-only** — they create no persistent records, so the only residue is the
+five UAT accounts under the reserved `@carup-staging.test` domain (`runId: gtm127`).
+
+Those accounts were **deliberately retained**, and that is a judgement call rather than an omission:
+they hold no real data, they are unmistakably named, and the reviewer and tenant-admin identities
+cannot be recreated without the elevated grant named in §6e. Deleting them is destructive and would
+block the next verification run. The owner can purge them from `.staging-auth/FIXTURES.json`.
+
+Credential hygiene is proven rather than asserted: `.staging-auth/` is gitignored with **0 tracked
+files**, `test-results/` likewise, and a secret-shape scan of all tracked files (JWT, `GOCSPX-`,
+Google refresh-token shapes) is clean.
+
+### 6i. Standing prohibitions — all held
+
+PR #129 unmerged · production untouched · live billing not enabled · real-money SafeTrade not
+activated · live Drive not activated · no real money moved. No secret value was printed or stored.
