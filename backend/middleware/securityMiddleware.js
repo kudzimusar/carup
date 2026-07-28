@@ -181,7 +181,35 @@ export function csrfMiddleware(req, res, next) {
                     url.startsWith('/api/finance/lender/webhook') ||
                     url.startsWith('/api/escrow/provider/webhook') ||
                     url.startsWith('/api/escrow/webhook') ||
-                    /^\/api\/eligibility\/[^/]+\/webhook(?:$|[/?#])/.test(url);
+                    /^\/api\/eligibility\/[^/]+\/webhook(?:$|[/?#])/.test(url) ||
+                    // Diaspora provider webhooks (Issue #127). Both authenticate with an HMAC over the
+                    // raw body plus an anti-replay timestamp, and both de-duplicate against a durable
+                    // Postgres event ledger before applying anything.
+                    //
+                    // These were missing, so in production — where the NODE_ENV==='test' bypass above
+                    // does not apply — every delivery from either provider was rejected by the CSRF
+                    // check before reaching its handler. A payment provider cannot present a CSRF
+                    // token; it has no browser session. The whole test suite passed regardless,
+                    // because the test bypass short-circuits before this list is ever consulted.
+                    /^\/api\/diaspora\/subscription\/webhook(?:$|[/?#])/.test(url) ||
+                    /^\/api\/diaspora\/safetrade\/payment-webhook(?:$|[/?#])/.test(url) ||
+                    // Diaspora scheduler dispatch (Issue #127, Phase 2E). Machine-to-machine exactly
+                    // like the two webhooks above: a cron authenticates with
+                    // x-diaspora-scheduler-secret (or Authorization: Bearer $CRON_SECRET) and has no
+                    // browser session, so it can never present a CSRF token.
+                    //
+                    // This is the SAME defect shape as the two entries immediately above, recurring in
+                    // a lane written later — which is the argument for keeping the explanation and not
+                    // just the regex. Without this entry csrfMiddleware (mounted at server.js:155,
+                    // before the /api/diaspora router at :265) returns 403 in every non-test
+                    // environment: the scheduled workflow goes red on every tick and not one of the
+                    // five Phase 2E jobs ever runs. The suite passes regardless, because the
+                    // NODE_ENV==='test' bypass short-circuits before this list is consulted.
+                    //
+                    // Exempting CSRF grants nothing by itself. The route still requires the shared
+                    // secret, and every job stays off behind BOTH its environment flag and its
+                    // diaspora_scheduled_jobs.enabled column.
+                    /^\/api\/diaspora\/scheduler\/internal\/run(?:$|[/?#])/.test(url);
   if (isWebhook) {
     return next();
   }

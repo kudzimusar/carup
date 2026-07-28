@@ -371,7 +371,194 @@ export function safetradeRecordMilestoneAtomic(params, { table, nextId, faults }
   };
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ledger #23 — ST-3 item #1 atomic RPCs.
+//
+// Mirrors database/migrations/20260728090000_diaspora_safetrade_st3_item1_closure.sql. The property
+// under test is atomicity: the state change, the CRITICAL audit row and the outbox events are one
+// unit. These references write all three or throw before writing any, exactly like the SQL.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function appendOutboxEvents(outbox, nextId, { events, tenantId, transactionId, milestoneId, actorId, correlationId, fallbackType }) {
+  const list = Array.isArray(events) ? events : [];
+  for (const e of list) {
+    outbox.push({
+      id: nextId('outbox'),
+      tenant_id: tenantId ?? null,
+      transaction_id: transactionId ?? null,
+      milestone_id: milestoneId ?? null,
+      event_type: e?.eventType || fallbackType,
+      payload: e?.payload || {},
+      correlation_id: correlationId ?? null,
+      actor_id: actorId ?? null,
+      status: 'pending',
+      attempts: 0,
+      next_attempt_at: null,
+      dispatched_at: null,
+      last_error: null,
+      created_at: SAFETRADE_RPC_TS,
+    });
+  }
+}
+
+export function safetradeDisputeHoldAtomic(params, { table, nextId }) {
+  const ts = SAFETRADE_RPC_TS;
+  const disputes = table('diaspora_safetrade_disputes');
+  const txns = table('diaspora_safetrade_transactions');
+  const audit = table('diaspora_import_audit_log');
+  const outbox = table('diaspora_safetrade_outbox');
+
+  if (params.p_actor_id == null) fail('DIASPORA_SAFETRADE/UNAUTHENTICATED');
+
+  const dispute = disputes.find((d) => d.id === params.p_dispute_id && !d.deleted_at);
+  if (!dispute) fail('DIASPORA_SAFETRADE/NOT_FOUND_DISPUTE');
+  const txn = txns.find((t) => t.id === dispute.transaction_id && !t.deleted_at);
+  if (!txn) fail('DIASPORA_SAFETRADE/NOT_FOUND_TXN');
+
+  const previousHold = dispute.hold_placed;
+  if (params.p_hold_placed != null) dispute.hold_placed = params.p_hold_placed;
+  if (params.p_hold_reference != null) dispute.hold_reference = params.p_hold_reference;
+  dispute.updated_by = params.p_actor_id;
+  dispute.updated_at = ts;
+
+  const action = params.p_audit_action || 'SAFETRADE_DISPUTE_HOLD_PLACED';
+  audit.push({
+    id: nextId('audit'),
+    import_order_id: txn.import_order_id ?? null,
+    tenant_id: txn.tenant_id ?? null,
+    actor_id: params.p_actor_id,
+    action,
+    resource_type: 'diaspora_safetrade_dispute',
+    resource_id: String(params.p_dispute_id),
+    previous_state: { holdPlaced: previousHold },
+    new_state: { holdPlaced: dispute.hold_placed, holdReference: dispute.hold_reference ?? null },
+    metadata: { ...(params.p_audit_metadata || {}), correlationId: params.p_correlation_id ?? null },
+    cryptographic_seal: seal(params.p_actor_id, action, 'diaspora_safetrade_dispute', params.p_dispute_id, ts),
+    created_at: ts,
+  });
+
+  appendOutboxEvents(outbox, nextId, {
+    events: params.p_events,
+    tenantId: txn.tenant_id,
+    transactionId: dispute.transaction_id,
+    milestoneId: dispute.milestone_id,
+    actorId: params.p_actor_id,
+    correlationId: params.p_correlation_id,
+    fallbackType: 'SAFETRADE_DISPUTE_EVENT',
+  });
+
+  return { dispute: { ...dispute } };
+}
+
+export function safetradeCloseDeliveryWindowAtomic(params, { table, nextId }) {
+  const ts = params.p_at || SAFETRADE_RPC_TS;
+  const confirmations = table('diaspora_safetrade_delivery_confirmations');
+  const txns = table('diaspora_safetrade_transactions');
+  const audit = table('diaspora_import_audit_log');
+  const outbox = table('diaspora_safetrade_outbox');
+
+  if (params.p_actor_id == null) fail('DIASPORA_SAFETRADE/UNAUTHENTICATED');
+
+  const conf = confirmations.find((c) => c.id === params.p_confirmation_id && !c.deleted_at);
+  if (!conf) fail('DIASPORA_SAFETRADE/NOT_FOUND_CONFIRMATION');
+  const txn = txns.find((t) => t.id === conf.transaction_id && !t.deleted_at);
+  if (!txn) fail('DIASPORA_SAFETRADE/NOT_FOUND_TXN');
+
+  // Double-emit guard on the (conceptually locked) row — the whole reason this moved into the RPC.
+  let replay = false;
+  if (params.p_emit_eligibility && conf.reputation_eligibility_emitted) {
+    replay = true;
+  } else if (params.p_emit_eligibility) {
+    conf.dispute_window_closed = true;
+    conf.reputation_eligibility_emitted = true;
+    conf.reputation_eligibility_emitted_at = ts;
+    conf.updated_by = params.p_actor_id;
+    conf.updated_at = ts;
+  }
+
+  const action = params.p_audit_action || 'SAFETRADE_DELIVERY_WINDOW_CHECK';
+  audit.push({
+    id: nextId('audit'),
+    import_order_id: txn.import_order_id ?? null,
+    tenant_id: txn.tenant_id ?? null,
+    actor_id: params.p_actor_id,
+    action,
+    resource_type: 'diaspora_safetrade_delivery',
+    resource_id: String(params.p_confirmation_id),
+    previous_state: { eligibilityEmitted: false },
+    new_state: { eligibilityEmitted: Boolean(params.p_emit_eligibility), idempotentReplay: replay },
+    metadata: { ...(params.p_audit_metadata || {}), correlationId: params.p_correlation_id ?? null },
+    cryptographic_seal: seal(params.p_actor_id, action, 'diaspora_safetrade_delivery', params.p_confirmation_id, ts),
+    created_at: ts,
+  });
+
+  if (!replay) {
+    appendOutboxEvents(outbox, nextId, {
+      events: params.p_events,
+      tenantId: txn.tenant_id,
+      transactionId: conf.transaction_id,
+      milestoneId: conf.milestone_id,
+      actorId: params.p_actor_id,
+      correlationId: params.p_correlation_id,
+      fallbackType: 'SAFETRADE_DELIVERY_EVENT',
+    });
+  }
+
+  return { confirmation: { ...conf }, idempotentReplay: replay };
+}
+
+export function safetradeOutboxClaimAtomic(params, { table }) {
+  const outbox = table('diaspora_safetrade_outbox');
+  const now = params.p_now ? Date.parse(params.p_now) : Date.parse(SAFETRADE_RPC_TS);
+  const lease = Math.max(Number(params.p_lease_seconds) || 60, 1);
+  const limit = Math.min(Math.max(Number(params.p_limit) || 20, 1), 500);
+
+  const due = outbox
+    .filter((r) => ['pending', 'failed'].includes(r.status))
+    .filter((r) => !r.next_attempt_at || Date.parse(r.next_attempt_at) <= now)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+    .slice(0, limit);
+
+  for (const row of due) {
+    row.attempts += 1;
+    row.next_attempt_at = new Date(now + lease * 1000).toISOString();
+  }
+  return due.map((r) => ({ ...r }));
+}
+
+export function safetradeOutboxSettleAtomic(params, { table }) {
+  const outbox = table('diaspora_safetrade_outbox');
+  const now = params.p_now ? Date.parse(params.p_now) : Date.parse(SAFETRADE_RPC_TS);
+  const maxAttempts = Math.max(Number(params.p_max_attempts) || 5, 1);
+
+  const row = outbox.find((r) => r.id === params.p_id);
+  if (!row) fail('DIASPORA_SAFETRADE/NOT_FOUND_OUTBOX_EVENT');
+
+  if (params.p_succeeded) {
+    row.status = 'dispatched';
+    row.dispatched_at = new Date(now).toISOString();
+    row.next_attempt_at = null;
+    row.last_error = null;
+  } else if (row.attempts >= maxAttempts) {
+    row.status = 'dead_lettered';
+    row.next_attempt_at = null;
+    row.last_error = String(params.p_error || 'delivery failed').slice(0, 500);
+  } else {
+    const backoff = Math.min(2 ** Math.min(row.attempts, 10), 900);
+    row.status = 'failed';
+    row.next_attempt_at = new Date(now + backoff * 1000).toISOString();
+    row.last_error = String(params.p_error || 'delivery failed').slice(0, 500);
+  }
+  return { ...row };
+}
+
 export const SAFETRADE_RPCS = {
   diaspora_safetrade_transition_atomic: safetradeTransitionAtomic,
   diaspora_safetrade_record_milestone_atomic: safetradeRecordMilestoneAtomic,
+  // Ledger #23 — ST-3 item #1.
+  diaspora_safetrade_dispute_hold_atomic: safetradeDisputeHoldAtomic,
+  diaspora_safetrade_close_delivery_window_atomic: safetradeCloseDeliveryWindowAtomic,
+  diaspora_safetrade_outbox_claim_atomic: safetradeOutboxClaimAtomic,
+  diaspora_safetrade_outbox_settle_atomic: safetradeOutboxSettleAtomic,
 };

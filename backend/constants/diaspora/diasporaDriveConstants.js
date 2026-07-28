@@ -61,6 +61,22 @@ export function assertDriveProductionSafety() {
   }
 }
 
+/**
+ * Are the owner's Google OAuth credentials present?
+ *
+ * This is the honest activation signal: the code is complete, but a live connection needs a client
+ * id, a client secret and at least one registered redirect URI that the owner must provision in the
+ * Google Cloud console. Reporting it separately from `isDriveEnabled()` lets the UI say "not yet
+ * activated" rather than showing a Connect button that can only fail.
+ */
+export function driveCredentialsConfigured() {
+  return Boolean(
+    process.env.GOOGLE_CLIENT_ID
+    && process.env.GOOGLE_CLIENT_SECRET
+    && (process.env.GOOGLE_DRIVE_REDIRECT_URI || process.env.GOOGLE_DRIVE_REDIRECT_URIS),
+  );
+}
+
 export function driveStateSecret() {
   const secret = process.env.DIASPORA_DRIVE_STATE_SECRET;
   if (secret) return secret;

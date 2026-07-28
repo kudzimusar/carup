@@ -90,10 +90,12 @@ test('seller plan allows stock.publish but denies api.access', async () => {
   assert.equal(publish.allowed, true);
   const api = await ent.checkFeature(client, { tenantId: TENANT_A, featureKey: FEATURE_KEYS.API_ACCESS });
   assert.equal(api.allowed, false);
-  assert.equal(api.requiredPlan, 'enterprise');
+  // No plan grants it any more, so there is no plan to upsell to. `null` is the honest answer;
+  // naming 'enterprise' would tell a seller that paying more buys an API that does not exist.
+  assert.equal(api.requiredPlan, null);
 });
 
-test('Trade Pro gets container + higher rfq quota; Enterprise gets api.access', async () => {
+test('Trade Pro gets container + higher rfq quota; NO plan grants api.access', async () => {
   const pro = clientWith({ subscriptions: [subscriptionRow(TENANT_A, 'trade_pro')] });
   const container = await ent.checkFeature(pro, { tenantId: TENANT_A, featureKey: FEATURE_KEYS.CONTAINER_RESERVE });
   assert.equal(container.allowed, true);
@@ -101,8 +103,11 @@ test('Trade Pro gets container + higher rfq quota; Enterprise gets api.access', 
   assert.equal(proRfqQuota.limit, 100);
 
   const ent2 = clientWith({ subscriptions: [subscriptionRow(TENANT_B, 'enterprise')] });
+  // Enterprise used to claim api.access. There is no diaspora API surface, so the claim was withdrawn
+  // rather than enforced against nothing — an enterprise tenant is no longer told they have an API
+  // that no route implements.
   const api = await ent.checkFeature(ent2, { tenantId: TENANT_B, featureKey: FEATURE_KEYS.API_ACCESS });
-  assert.equal(api.allowed, true);
+  assert.equal(api.allowed, false);
   const entRfqQuota = await ent.checkQuota(ent2, { tenantId: TENANT_B, featureKey: FEATURE_KEYS.RFQ_MAX_OPEN });
   assert.equal(entRfqQuota.limit, 1000);
 });
@@ -217,6 +222,31 @@ test('releaseUsage after a simulated failed domain op frees the quota', async ()
   assert.equal(meter.used_count, 0);
 });
 
+test('releaseUsage writes its audit row and passes the request correlation id through', async () => {
+  // Ledger #25 moved release into an RPC whose audit INSERT sits inside the same transaction as the
+  // decrement. That guarantee is only real if the service actually REACHES the RPC: the correlation-id
+  // helper was called but never imported, so every release threw ReferenceError before the RPC ran.
+  const client = clientWith({ subscriptions: [subscriptionRow(TENANT_A, 'trade_pro')] });
+  const r = await ent.reserveUsage(client, {
+    tenantId: TENANT_A, userId: 'u1', featureKey: FEATURE_KEYS.WORKBOOK_BULK_IMPORT,
+    amount: 3, idempotencyKey: 'imp-audit',
+  });
+  const released = await ent.releaseUsage(client, {
+    reservationId: r.reservationId,
+    actor: 'u1',
+    req: { headers: { 'x-correlation-id': 'corr-release-1' } },
+  });
+  assert.equal(released.status, 'RELEASED');
+  assert.equal(released.meterBefore, 3);
+  assert.equal(released.meterAfter, 0);
+
+  const row = client._rows('diaspora_import_audit_log')
+    .find((a) => a.action === 'ENTITLEMENT_USAGE_RELEASED');
+  assert.ok(row, 'a released reservation must not exist without its audit record');
+  assert.equal(row.metadata.correlationId, 'corr-release-1');
+  assert.equal(row.tenant_id, TENANT_A);
+});
+
 test('commitUsage is idempotent and a committed reservation cannot be released', async () => {
   const client = clientWith({ subscriptions: [subscriptionRow(TENANT_A, 'trade_pro')] });
   const r = await ent.reserveUsage(client, { tenantId: TENANT_A, userId: 'u1', featureKey: FEATURE_KEYS.WORKBOOK_BULK_IMPORT, amount: 1, idempotencyKey: 'imp-commit' });
@@ -257,8 +287,9 @@ test('applyAdminOverride writes the override and a critical audit row', async ()
     actor: platformAdmin, reason: 'pilot partner',
   });
   assert.equal(saved.feature_key, FEATURE_KEYS.API_ACCESS);
+  assert.equal(saved.outcome, 'GRANTED');
   const audits = client._rows('diaspora_import_audit_log');
-  assert.ok(audits.some((a) => a.action === 'ENTITLEMENT_OVERRIDE_APPLIED' && a.actor_id === 'admin-1'));
+  assert.ok(audits.some((a) => a.action === 'ENTITLEMENT_OVERRIDE_GRANTED' && a.actor_id === 'admin-1'));
   // The override now takes effect for that user.
   const check = await ent.checkFeature(client, { tenantId: TENANT_A, userId: 'user-x', featureKey: FEATURE_KEYS.API_ACCESS });
   assert.equal(check.allowed, true);
@@ -292,7 +323,11 @@ test('sandbox webhook verification accepts a correctly signed body and rejects a
   const crypto = await import('node:crypto');
   const provider = new billing.SandboxBillingProvider();
   const body = JSON.stringify({ id: 'evt_1', type: 'subscription.updated' });
-  const sig = crypto.createHmac('sha256', 'diaspora-billing-dev-webhook-secret').update(body).digest('hex');
+  // Derive the key instead of repeating a literal. Hard-coding it is what kept the leaked shared
+  // default invisible to this suite: the test held the same public constant an attacker would, so a
+  // forged signature and a legitimate one were indistinguishable to these assertions.
+  const { billingWebhookSecret } = await import('../constants/diaspora/diasporaBillingConstants.js');
+  const sig = crypto.createHmac('sha256', billingWebhookSecret()).update(body).digest('hex');
   const ok = await provider.verifyWebhook({ rawBody: body, signature: sig });
   assert.equal(ok.verified, true);
   assert.equal(ok.eventId, 'evt_1');

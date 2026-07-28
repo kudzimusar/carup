@@ -12,6 +12,45 @@
  * Rows are stored per table as plain objects. Inserts assign an id when missing. The builder is
  * thenable so `await client.from(t)...` resolves to `{ data, error }` exactly like supabase-js.
  */
+
+/**
+ * Unique indexes the mock enforces, mirroring the real migrations.
+ *
+ * Several services rely on Postgres raising 23505 as their concurrency-safe de-duplication mechanism:
+ * they INSERT and treat "you lost the race" as "already handled". A mock that accepts every insert
+ * makes those code paths untestable — worse, it makes a de-duplication test pass even if the
+ * constraint were dropped from the migration. Registering the index here means the fake fails the
+ * same way the database does.
+ *
+ * NULLs never collide (matching Postgres's default NULLS DISTINCT behaviour). Only the indexes listed
+ * here are enforced, so existing tests are unaffected.
+ */
+export const UNIQUE_INDEXES = Object.freeze({
+  // ledger #21 — diaspora_safetrade_provider_events: UNIQUE (provider, event_id)
+  diaspora_safetrade_provider_events: [['provider', 'event_id']],
+  // ledger #21 — diaspora_safetrade_operations: UNIQUE (tenant_id, idempotency_key)
+  diaspora_safetrade_operations: [['tenant_id', 'idempotency_key']],
+  // ledger #21 — diaspora_workbook_import_confirmations: UNIQUE (tenant_id, idempotency_key)
+  diaspora_workbook_import_confirmations: [['tenant_id', 'idempotency_key']],
+  // ledger #21 — diaspora_drive_sync_attempts: UNIQUE (tenant_id, idempotency_key)
+  diaspora_drive_sync_attempts: [['tenant_id', 'idempotency_key']],
+  // ledger #12 — diaspora_billing_provider_events: UNIQUE (provider, event_id)
+  diaspora_billing_provider_events: [['provider', 'event_id']],
+  // ledger #27 — diaspora_subscription_renewals: UNIQUE (tenant_id, subscription_id, period_end).
+  // The renewal sweep's idempotency IS this index: a second sweep in the same period must lose the
+  // insert race rather than record a second due renewal, and on the other side of that window is a
+  // duplicate charge.
+  diaspora_subscription_renewals: [['tenant_id', 'subscription_id', 'period_end']],
+  // ledger #12 — diaspora_user_entitlement_overrides:
+  //   CONSTRAINT uq_diaspora_user_override UNIQUE (tenant_id, user_id, feature_key)
+  //
+  // Deliberately NOT deleted_at-aware, because the real constraint is not either. That is the whole
+  // bug ledger #26 exists to fix: a soft-deleted override keeps its unique slot, so re-granting it
+  // collides. A mock that accepted the insert would let the broken read-then-insert path pass its
+  // tests forever while the capability was, in production, ungrantable for the rest of time.
+  diaspora_user_entitlement_overrides: [['tenant_id', 'user_id', 'feature_key']],
+});
+
 export function createMockSupabase(seed = {}, options = {}) {
   const tables = {};
   for (const [name, rows] of Object.entries(seed)) {
@@ -39,6 +78,9 @@ export function createMockSupabase(seed = {}, options = {}) {
       payload: null,
       filtersEq: [],
       filtersNeq: [],
+      // .in() previously returned the chain untouched, so every `.in()`-filtered query returned the
+      // WHOLE table and any test of such a query passed vacuously.
+      filtersIn: [],
       isNull: [],
       notNull: [],
       single: false,
@@ -50,15 +92,39 @@ export function createMockSupabase(seed = {}, options = {}) {
     const matches = (row) =>
       state.filtersEq.every(([k, v]) => String(row[k]) === String(v)) &&
       state.filtersNeq.every(([k, v]) => String(row[k]) !== String(v)) &&
+      state.filtersIn.every(([k, vs]) => vs.map(String).includes(String(row[k]))) &&
       state.isNull.every((c) => row[c] === null || row[c] === undefined) &&
       state.notNull.every((c) => row[c] !== null && row[c] !== undefined);
 
     function exec() {
       if (state.op === 'insert') {
         const items = Array.isArray(state.payload) ? state.payload : [state.payload];
+        // Enforce the registered unique indexes exactly as Postgres would (23505), so services whose
+        // de-duplication IS the constraint are actually exercised rather than trivially passing.
+        const uniques = UNIQUE_INDEXES[table];
+        if (uniques) {
+          for (const p of items) {
+            for (const cols of uniques) {
+              if (cols.some((c) => p[c] === undefined || p[c] === null)) continue; // NULLs never collide
+              if (rows.some((existing) => cols.every((c) => existing[c] === p[c]))) {
+                return {
+                  data: null,
+                  error: {
+                    code: '23505',
+                    message: `duplicate key value violates unique constraint on ${table} (${cols.join(', ')})`,
+                  },
+                };
+              }
+            }
+          }
+        }
         const inserted = items.map((p) => {
           const row = { id: p.id || nextId(`${table}`), ...p };
-          if (row.created_at === undefined) row.created_at = new Date(2026, 5, 20).toISOString();
+          // Match Postgres `DEFAULT now()`. A FIXED past timestamp made every inserted row look
+          // ancient, so any age-based logic (claim leases, backlog staleness) silently took the
+          // "stale" branch in every test and could never be exercised correctly. Tests that care
+          // about a specific timestamp already set created_at explicitly, which still wins.
+          if (row.created_at === undefined) row.created_at = new Date().toISOString();
           rows.push(row);
           return { ...row };
         });
@@ -104,7 +170,7 @@ export function createMockSupabase(seed = {}, options = {}) {
       upsert(p) { state.op = 'insert'; state.payload = p; return chain; },
       eq(k, v) { state.filtersEq.push([k, v]); return chain; },
       neq(k, v) { state.filtersNeq.push([k, v]); return chain; },
-      in() { return chain; },
+      in(k, vals) { state.filtersIn.push([k, Array.isArray(vals) ? vals : [vals]]); return chain; },
       or() { return chain; },
       gte() { return chain; },
       lte() { return chain; },

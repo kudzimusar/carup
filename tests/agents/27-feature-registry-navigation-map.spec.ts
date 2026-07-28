@@ -127,12 +127,26 @@ test.describe('Feature Registry & Navigation Map', () => {
       // SafeTrade, Workbook consoles). Higher than the PR#81 base (owner 16 / admin 23) because
       // PR#90 registers the Phase 8/9/10 diaspora tools too. Always recompute from the live
       // registry, never hand-add.
-      expect(result.roleItemCounts['owner']).toBe(19);
-      expect(result.roleItemCounts['dealer']).toBe(14);
+      // Recomputed 2026-07-27 (Issue #127, UI-10): `diaspora.trade-graph` adds ONE dashboard_sidebar
+      // entry for roles owner / dealer / admin / government, so those four counts each rise by 1;
+      // mechanic, insurance and bank are unchanged.
+      //
+      // getDashboardItems() is the RAW registry selector — it deliberately does not filter by
+      // lifecycle, so a flag-hidden entry still counts here. Nav VISIBILITY is a separate concern:
+      // isHidden maps to lifecycle 'hidden', and isLifecycleVisible('hidden') is false, so the entry
+      // does not appear in any navigation surface while VITE_DIASPORA_TRADE_GRAPH_UI_ENABLED is off.
+      // (isLifecycleAccessible('hidden') is true, which is why the page renders its own explicit
+      // unavailable state rather than 404ing.)
+      // Recomputed 2026-07-28 (Issue #127, ST-3): `diaspora.safetrade-operations` adds ONE
+      // dashboard_sidebar entry for roles admin / government, so those two rise by 1 again.
+      // Recomputed 2026-07-28 (Issue #127, Deliverable B): `diaspora.workbook-import` adds ONE
+      // dashboard_sidebar entry for roles admin / dealer.
+      expect(result.roleItemCounts['owner']).toBe(20);
+      expect(result.roleItemCounts['dealer']).toBe(16);
       expect(result.roleItemCounts['mechanic']).toBe(5);
       expect(result.roleItemCounts['insurance']).toBe(4);
-      expect(result.roleItemCounts['government']).toBe(12);
-      expect(result.roleItemCounts['admin']).toBe(26);
+      expect(result.roleItemCounts['government']).toBe(14);
+      expect(result.roleItemCounts['admin']).toBe(29);
       expect(result.roleItemCounts['bank']).toBe(4);
 
       // Dashboard routes are valid

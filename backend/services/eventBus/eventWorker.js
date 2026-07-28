@@ -186,7 +186,17 @@ class EventWorker {
       // Run handlers within the correlation AsyncLocalStorage boundaries
       await asyncStore.run({ correlationId, tenantId }, async () => {
         for (const handler of handlers) {
-          await handler(event.payload, client, event.tenant_id);
+          // The 4th argument is the RAW outbox record. Handlers that only need the payload ignore it
+          // (extra arguments are harmless in JS), but an event-sourced projector cannot work without
+          // it: `event.id` is its idempotency key and its source_event_ref, and `event.created_at`
+          // stamps its checkpoint.
+          //
+          // This is the one-line, integration-owned change documented in
+          // backend/services/diaspora/tradegraph/diasporaTradeGraphProjectionService.js. Without it,
+          // makeProjectionSubscriber throws TRADE_GRAPH_SUBSCRIBER_MISSING_EVENT_ID — loudly, by
+          // design, rather than silently dropping every event — which is why the trade_graph_* tables
+          // stayed empty even with DIASPORA_TRADE_GRAPH switched on.
+          await handler(event.payload, client, event.tenant_id, event);
         }
       });
 

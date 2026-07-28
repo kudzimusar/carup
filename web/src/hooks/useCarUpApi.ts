@@ -107,6 +107,10 @@ import type {
   DiasporaReservationRequestPayload,
   DiasporaReservationActionResult,
   DiasporaDriveStatus,
+  DiasporaDriveSyncAttempts,
+  BillingHealth,
+  BillingReconciliationRun,
+  BillingReconciliationResult,
   DiasporaDriveAuthUrl,
   DiasporaDriveFile,
   DiasporaDriveConnection,
@@ -127,6 +131,22 @@ import type {
   SafeTradeCommitEvent,
   SafeTradeCreateResponse,
   SafeTradeListResponse,
+  // Confirmed workbook import (Issue #127)
+  WorkbookImportConfirmation,
+  WorkbookImportReceipt,
+  WorkbookImportExecutionResult,
+  WorkbookInterruptedBatch,
+  // ST-3 operator surfaces (Issue #127)
+  SafeTradeApproval,
+  SafeTradeOperation,
+  SafeTradeOutboxBacklog,
+  SafeTradeOutboxDeadLetter,
+  SafeTradeOutboxDrainSummary,
+  // UI-10 · Trade Graph dashboard (Issue #127)
+  TradeGraphSummary,
+  TradeGraphProjectionStatus,
+  TradeGraphDeadLetter,
+  TradeGraphRebuildResponse,
   SafeTradeEvaluateReleaseResponse,
   SafeTradeDisputeOpenResponse,
   SafeTradeDisputeResolveResponse,
@@ -1525,6 +1545,16 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // Durable sync state for one entity. The backend records every attempt, so a file that never
+  // reached Drive is visible rather than merely absent.
+  const fetchDiasporaDriveSyncAttempts = useCallback(
+    async (entityType: string, entityId: string): Promise<DiasporaDriveSyncAttempts> => {
+      const response = await request<{ data: DiasporaDriveSyncAttempts }>(
+        `/diaspora/drive/sync-attempts/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+      )
+      return response.data
+    }, [request])
+
   // ── Phase 8: Subscription, entitlements & sandbox billing ──
   // Reads are tenant-scoped to any authenticated user; management actions are server-gated (Gate S8-A
   // returns 403 for non-managers — the backend remains authoritative).
@@ -1568,6 +1598,23 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
+  // Operator-only billing reads. All three are manager-gated server-side (Gate S8-A); a non-manager
+  // receives 403 and the UI simply does not render the panel.
+  const fetchDiasporaBillingHealth = useCallback(async (): Promise<BillingHealth> => {
+    const response = await request<{ data: BillingHealth }>('/diaspora/subscription/billing-health')
+    return response.data
+  }, [request])
+
+  const fetchDiasporaReconciliationRuns = useCallback(async (): Promise<BillingReconciliationRun[]> => {
+    const response = await request<{ data: BillingReconciliationRun[] }>('/diaspora/subscription/reconciliation-runs')
+    return response.data
+  }, [request])
+
+  const runDiasporaBillingReconciliation = useCallback(async (): Promise<BillingReconciliationResult> => {
+    const response = await request<{ data: BillingReconciliationResult }>('/diaspora/subscription/reconcile', { method: 'POST', body: JSON.stringify({}) })
+    return response.data
+  }, [request])
+
   // ── Phase 9: SafeTrade (escrow/assurance overlay) — sandbox payment-state simulation only ──
   // The UI renders action controls ONLY from getSafeTradeAvailableActions; the backend stays
   // authoritative on every submit. Money never moves through a live provider (sandbox + fail-closed).
@@ -1575,6 +1622,163 @@ export function useCarUpApi() {
   // so a duplicate submit is a safe no-op replay backend-side (defense-in-depth with the UI guard).
   const idemHeaders = (idempotencyKey?: string): Record<string, string> =>
     idempotencyKey ? { 'x-idempotency-key': idempotencyKey } : {}
+
+  // ── Confirmed workbook import (Deliverable B, Issue #127) ──
+  // Two calls, deliberately separate: /confirm mints a token bound to the exact workbook previewed,
+  // /execute spends it. A single combined call would have nothing to compare against, so "the
+  // workbook changed since you confirmed" would be undetectable.
+
+  const confirmWorkbookImport = useCallback(async (
+    batchId: string,
+    workbookChecksum: string,
+    idempotencyKey: string,
+  ): Promise<{ data: WorkbookImportConfirmation; idempotentReplay: boolean }> => {
+    return request<{ data: WorkbookImportConfirmation; idempotentReplay: boolean }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/confirm`,
+      { method: 'POST', body: JSON.stringify({ workbookChecksum, idempotencyKey }) },
+    )
+  }, [request])
+
+  const executeWorkbookImport = useCallback(async (
+    batchId: string,
+    confirmationId: string,
+  ): Promise<WorkbookImportExecutionResult> => {
+    const response = await request<{ data: WorkbookImportExecutionResult }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/execute`,
+      { method: 'POST', body: JSON.stringify({ confirmationId }) },
+    )
+    return response.data
+  }, [request])
+
+  /**
+   * The dry-run batch summary the confirm step reads.
+   *
+   * Returned loosely typed on purpose: the summary endpoint predates this feature and its shape is
+   * owned by the operator-console surface, so the page narrows the handful of fields it needs rather
+   * than asserting a contract this feature does not control.
+   */
+  const getDiasporaWorkbookImportBatchSummary = useCallback(async (batchId: string): Promise<unknown> => {
+    const response = await request<{ data?: unknown }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/summary`,
+    )
+    return (response as { data?: unknown })?.data ?? response
+  }, [request])
+
+  const getWorkbookImportReceipts = useCallback(async (batchId: string): Promise<WorkbookImportReceipt[]> => {
+    const response = await request<{ data: WorkbookImportReceipt[] }>(
+      `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/receipts`,
+    )
+    return response.data || []
+  }, [request])
+
+  const getWorkbookInterruptedImports = useCallback(async (): Promise<WorkbookInterruptedBatch[]> => {
+    const response = await request<{ data: WorkbookInterruptedBatch[] }>('/diaspora/workbook/interrupted-imports')
+    return response.data || []
+  }, [request])
+
+  /** Path only — the page builds an authenticated download rather than a bare anchor. */
+  const workbookReceiptCsvPath = useCallback((batchId: string): string =>
+    `/diaspora/workbook/import-batches/${encodeURIComponent(batchId)}/receipts.csv`, [])
+
+  // ── UI-10: Trade Graph dashboard (Issue #127) ──
+  // Read-only by construction. There is deliberately NO client method that writes a node or an edge:
+  // the graph is derived from recorded events by the backend projection and the API exposes no write
+  // path, so the frontend cannot author graph state even by mistake. The one mutation below
+  // (rebuild) only asks the server to RE-DERIVE from the authoritative outbox.
+
+  const getTradeGraphSummary = useCallback(async (): Promise<TradeGraphSummary> => {
+    return request<TradeGraphSummary>('/diaspora/trade-graph/summary')
+  }, [request])
+
+  const getTradeGraphProjectionStatus = useCallback(async (): Promise<TradeGraphProjectionStatus> => {
+    return request<TradeGraphProjectionStatus>('/diaspora/trade-graph/projection/status')
+  }, [request])
+
+  const getTradeGraphDeadLetters = useCallback(async (limit?: number): Promise<TradeGraphDeadLetter[]> => {
+    const query = limit ? `?limit=${encodeURIComponent(String(limit))}` : ''
+    const response = await request<{ data: TradeGraphDeadLetter[] }>(`/diaspora/trade-graph/dead-letters${query}`)
+    return response.data || []
+  }, [request])
+
+  const getTradeGraphRiskExposure = useCallback(async (): Promise<unknown> => {
+    return request('/diaspora/trade-graph/risk/exposure')
+  }, [request])
+
+  const getTradeGraphContainerOpportunities = useCallback(async (): Promise<unknown> => {
+    return request('/diaspora/trade-graph/containers/opportunities')
+  }, [request])
+
+  const getTradeGraphDemandSignals = useCallback(async (): Promise<unknown> => {
+    return request('/diaspora/trade-graph/stock/demand-signals')
+  }, [request])
+
+  /**
+   * Admin-only rebuild. The server re-derives the graph from the authoritative outbox; it is
+   * rate-limited and audited there. The idempotency key makes a double-click a safe no-op.
+   */
+  const rebuildTradeGraph = useCallback(async (payload: { reason?: string; idempotencyKey?: string } = {}): Promise<TradeGraphRebuildResponse> => {
+    return request<TradeGraphRebuildResponse>('/diaspora/trade-graph/rebuild', {
+      method: 'POST',
+      body: JSON.stringify({ reason: payload.reason || 'operator_dashboard_rebuild' }),
+      headers: idemHeaders(payload.idempotencyKey),
+    })
+  }, [request])
+
+  // ── ST-3 operator surfaces (Issue #127) ──
+  // Approvals (item #2), the reconciliation queue (item #3) and the transactional outbox (item #1).
+  // Every one of these is re-authorized server-side; the UI shows what the server was willing to
+  // return and disables what it says the viewer may not do.
+
+  const getSafeTradeApprovals = useCallback(async (): Promise<SafeTradeApproval[]> => {
+    const response = await request<{ data: SafeTradeApproval[] }>('/diaspora/safetrade/approvals')
+    return response.data || []
+  }, [request])
+
+  const approveSafeTradeDecision = useCallback(async (approvalId: string, notes?: string): Promise<SafeTradeApproval> => {
+    const response = await request<{ data: SafeTradeApproval }>(`/diaspora/safetrade/approvals/${encodeURIComponent(approvalId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ notes: notes || null }),
+    })
+    return response.data
+  }, [request])
+
+  const rejectSafeTradeDecision = useCallback(async (approvalId: string, reason?: string): Promise<SafeTradeApproval> => {
+    const response = await request<{ data: SafeTradeApproval }>(`/diaspora/safetrade/approvals/${encodeURIComponent(approvalId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || null }),
+    })
+    return response.data
+  }, [request])
+
+  const getSafeTradeReconciliationQueue = useCallback(async (): Promise<SafeTradeOperation[]> => {
+    const response = await request<{ data: SafeTradeOperation[] }>('/diaspora/safetrade/reconciliation')
+    return response.data || []
+  }, [request])
+
+  const getSafeTradeOutboxBacklog = useCallback(async (): Promise<SafeTradeOutboxBacklog> => {
+    const response = await request<{ data: SafeTradeOutboxBacklog }>('/diaspora/safetrade/outbox')
+    return response.data
+  }, [request])
+
+  const getSafeTradeOutboxDeadLetters = useCallback(async (): Promise<SafeTradeOutboxDeadLetter[]> => {
+    const response = await request<{ data: SafeTradeOutboxDeadLetter[] }>('/diaspora/safetrade/outbox/dead-letters')
+    return response.data || []
+  }, [request])
+
+  const drainSafeTradeOutbox = useCallback(async (): Promise<SafeTradeOutboxDrainSummary> => {
+    const response = await request<{ data: SafeTradeOutboxDrainSummary }>('/diaspora/safetrade/outbox/drain', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    return response.data
+  }, [request])
+
+  const replaySafeTradeOutboxEvent = useCallback(async (id: string): Promise<unknown> => {
+    return request(`/diaspora/safetrade/outbox/dead-letters/${encodeURIComponent(id)}/replay`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  }, [request])
 
   const getSafeTradeCases = useCallback(async (filters?: { status?: string; importOrderId?: string; limit?: number; offset?: number }): Promise<SafeTradeListResponse> => {
     const query = filters
@@ -2511,6 +2715,7 @@ export function useCarUpApi() {
     fetchDiasporaDriveFiles,
     disconnectDiasporaDrive,
     syncDiasporaDrive,
+    fetchDiasporaDriveSyncAttempts,
     getDiasporaSubscriptionPlans,
     getDiasporaSubscriptionStatus,
     getDiasporaEntitlements,
@@ -2519,6 +2724,33 @@ export function useCarUpApi() {
     createDiasporaBillingPortal,
     changeDiasporaPlan,
     cancelDiasporaSubscription,
+    fetchDiasporaBillingHealth,
+    fetchDiasporaReconciliationRuns,
+    runDiasporaBillingReconciliation,
+    // ── Confirmed workbook import ──
+    getDiasporaWorkbookImportBatchSummary,
+    confirmWorkbookImport,
+    executeWorkbookImport,
+    getWorkbookImportReceipts,
+    getWorkbookInterruptedImports,
+    workbookReceiptCsvPath,
+    // ── UI-10: Trade Graph dashboard ──
+    getTradeGraphSummary,
+    getTradeGraphProjectionStatus,
+    getTradeGraphDeadLetters,
+    getTradeGraphRiskExposure,
+    getTradeGraphContainerOpportunities,
+    getTradeGraphDemandSignals,
+    rebuildTradeGraph,
+    // ── ST-3 operator surfaces ──
+    getSafeTradeApprovals,
+    approveSafeTradeDecision,
+    rejectSafeTradeDecision,
+    getSafeTradeReconciliationQueue,
+    getSafeTradeOutboxBacklog,
+    getSafeTradeOutboxDeadLetters,
+    drainSafeTradeOutbox,
+    replaySafeTradeOutboxEvent,
     // ── Phase 9: SafeTrade ──
     getSafeTradeCases,
     getSafeTradeCase,

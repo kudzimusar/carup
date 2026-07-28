@@ -32,6 +32,15 @@ import {
 } from '../diasporaAuthorization.js';
 import { selectPaymentProvider } from './safeTradePaymentProvider.js';
 import { evaluateRelease } from './diasporaSafeTradeReleasePolicyService.js';
+// ST-3 item 3 (Issue #127): the durable operation ledger, so no provider call is ever made without a
+// preceding record and no unknown provider result is ever reported to a user as success.
+import {
+  reserveOperation,
+  markDispatched,
+  markProviderConfirmed,
+  markUnknown,
+  markFailed,
+} from './diasporaSafeTradeOperationService.js';
 
 // Milestone types whose release ALWAYS requires reviewer/admin approval (high-risk), per directive.
 const HIGH_RISK_MILESTONE_TYPES = new Set([
@@ -186,6 +195,15 @@ const MONEY_OP_PLAN = Object.freeze({
   REFUND: { providerMethod: 'refund', targetStatus: 'REFUNDED' },
 });
 
+// ST-3 item 3 (Issue #127): the durable operation-ledger name for each money op. The ledger's CHECK
+// constraint only accepts these, so a typo fails at INSERT rather than creating an unclassifiable row.
+const OPERATION_FOR_MONEY_OP = Object.freeze({
+  HOLD: 'authorize_hold',
+  CAPTURE: 'capture',
+  RELEASE: 'release',
+  REFUND: 'refund',
+});
+
 /**
  * recordMilestone — perform a sandbox money operation (hold/capture/release/refund) on a milestone and
  * advance its state through the atomic transition RPC. Idempotent on idempotencyKey at BOTH the provider
@@ -257,15 +275,77 @@ export async function recordMilestone(supabaseOrOptions, {
     approval: op === MONEY_OPS.RELEASE ? { evaluationId, actorId: context.id } : undefined,
   };
 
+  // ── ST-3 item 3: reserve the operation BEFORE touching the provider (Issue #127) ────────────
+  //
+  // Previously the provider was called first and our ledger was written afterwards. If the process
+  // died, the request timed out, or the RPC below refused the transition (an expired approval, a
+  // failed policy re-check), the provider had already acted — with a live provider, that is real
+  // money moved with no authoritative record of it, and a retry would move it twice.
+  //
+  // Writing `pending` first means every provider call is preceded by a durable row keyed on the same
+  // idempotency key the provider receives. A replay of that key returns the existing row and does NOT
+  // dispatch again.
+  // Not every caller supplies an idempotency key — resolveDispute, for instance, drives a REFUND
+  // without one. The operation ledger cannot have a null key (that is what makes replay safe), so one
+  // is DERIVED from the identity of the transition itself: transaction + milestone + op + the source
+  // status. That is stable across a retry of the same logical operation and necessarily different
+  // once the state machine has advanced, so it never merges two genuinely distinct money moves.
+  // The caller's own key, when present, still governs the provider and the RPC — those semantics are
+  // deliberately left untouched.
+  const operationIdempotencyKey = idempotencyKey
+    || `auto:${transactionId}:${milestoneId}:${op}:${milestone.status}`;
+
+  const reservation = await reserveOperation({
+    tenantId: txn.tenant_id ?? context.tenantId ?? null,
+    transactionId,
+    milestoneId,
+    operation: OPERATION_FOR_MONEY_OP[op],
+    idempotencyKey: operationIdempotencyKey,
+    provider: provider.name,
+    amount: providerArgs.amount,
+    currency: providerArgs.currency,
+    requestedBy: context.id,
+    metadata: { moneyOp: op, correlationId: requestCorrelationId(req) },
+    supabaseClient: supabase,
+  });
+  const operationRow = reservation.operation;
+
   // For HOLD, create the intent first if the milestone has none yet (sandbox intent).
   let providerResult;
-  if (op === MONEY_OPS.HOLD && !milestone.provider_reference) {
-    const intent = await provider.createPaymentIntent(providerArgs);
-    providerArgs.intentId = intent.intentId;
-    providerResult = await provider.authorizeHold({ intentId: intent.intentId, idempotencyKey });
-    providerResult.intentId = intent.intentId;
-  } else {
-    providerResult = await provider[plan.providerMethod](providerArgs);
+  try {
+    await markDispatched(operationRow.id, { supabaseClient: supabase });
+    if (op === MONEY_OPS.HOLD && !milestone.provider_reference) {
+      const intent = await provider.createPaymentIntent(providerArgs);
+      providerArgs.intentId = intent.intentId;
+      providerResult = await provider.authorizeHold({ intentId: intent.intentId, idempotencyKey });
+      providerResult.intentId = intent.intentId;
+    } else {
+      providerResult = await provider[plan.providerMethod](providerArgs);
+    }
+    await markProviderConfirmed(operationRow.id, {
+      providerRef: providerResult?.intentId ?? providerArgs.intentId ?? null,
+      providerStatus: providerResult?.status ?? null,
+      supabaseClient: supabase,
+    });
+  } catch (providerError) {
+    // A provider error is NOT automatically a clean failure. INVALID_INPUT/INVALID_STATE are
+    // definite refusals — the provider rejected the request and nothing moved. Anything else
+    // (timeout, transport failure, unrecognised response) means we genuinely do not know, so the
+    // operation goes to `reconciling` for a human rather than being reported as failed and retried
+    // into a double-spend.
+    const definiteRefusal = ['INVALID_INPUT', 'INVALID_STATE'].includes(providerError?.code);
+    if (definiteRefusal) {
+      await markFailed(operationRow.id, {
+        errorCode: providerError.code,
+        reason: providerError.message,
+        supabaseClient: supabase,
+      });
+    } else {
+      await markUnknown(operationRow.id, providerError?.message || 'provider call failed', {
+        supabaseClient: supabase,
+      });
+    }
+    throw providerError;
   }
 
   // Advance milestone state atomically (in-txn CRITICAL audit, idempotency replay, money fail-closed).
@@ -286,6 +366,9 @@ export async function recordMilestone(supabaseOrOptions, {
       providerReference: providerArgs.intentId ?? null,
       providerStatus: providerResult?.status ?? null,
       idempotentReplay: Boolean(providerResult?.idempotentReplay),
+      // ST-3 item 3: the RPC marks this operation `ledger_applied` inside the SAME transaction as
+      // the state change, so an operation is only ever "done" once the authoritative ledger says so.
+      operationId: operationRow.id,
     },
     p_correlation_id: requestCorrelationId(req),
     p_source: 'service',

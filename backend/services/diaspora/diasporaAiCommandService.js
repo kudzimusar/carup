@@ -21,6 +21,10 @@ import { resolveClient, appendAudit, appendCriticalAudit } from './diasporaServi
 import { parseCommand } from './diasporaAiIntentParser.js';
 import { createBuyerOrder } from './diasporaBuyerOrderService.js';
 import { createStockItem, reserveStock } from './diasporaStockService.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature, reserveQuotaForFeature } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
+import { detectQuotaAnomaly } from './billing/diasporaBillingObservability.js';
 
 const TABLE = 'diaspora_ai_commands';
 
@@ -75,6 +79,13 @@ export async function createAiCommand(payload = {}, userContext = {}, options = 
   const { data: mine } = await client.from(TABLE).select('*').eq('requested_by', context.id).is('deleted_at', null);
   const dup = (mine || []).find((c) => c.metadata?.fingerprint === fp && c.execution_status !== AI_EXECUTION_STATUSES.REJECTED);
   if (dup) return { command: dup, parse, duplicate: true };
+
+  // Gate on diaspora.ai.parse, AFTER the duplicate short-circuit so a replay is never re-evaluated.
+  await requireFeature(client, {
+    tenantId: context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.AI_PARSE,
+  });
 
   const status = deriveInitialStatus(parse);
   const row = {
@@ -257,10 +268,46 @@ export async function executeAiCommand(id, userContext = {}, options = {}) {
     throw new ForbiddenError(`Execution is not permitted for intent ${command.intent}`);
   }
 
+  // Metered entitlement for medium-risk execution (diaspora.ai.execute_medium is one of only two
+  // metered keys). Reserved HERE — after the high-risk block and the executable check — so a command
+  // that was never going to run cannot burn a tenant's monthly allowance. The guard returns a no-op
+  // handle when enforcement is off, so commit()/release() below are unconditionally safe.
+  const meteredExecution = command.risk_level === AI_RISK_TIERS.MEDIUM;
+  let quota = null;
+  if (meteredExecution) {
+    await requireFeature(client, {
+      tenantId: command.tenant_id || context.tenantId || null,
+      userId: context.id,
+      featureKey: FEATURE_KEYS.AI_EXECUTE_MEDIUM,
+    });
+    quota = await reserveQuotaForFeature(client, {
+      tenantId: command.tenant_id || context.tenantId || null,
+      userId: context.id,
+      featureKey: FEATURE_KEYS.AI_EXECUTE_MEDIUM,
+      amount: 1,
+      // Bound to the command, so a retried execution of the SAME command reserves once.
+      idempotencyKey: `ai-execute:${id}`,
+    });
+    // A tenant burning its month of AI execution in minutes is either a retry loop or abuse. Neither
+    // raises an error anywhere else, which is why it is surfaced rather than inferred later.
+    const used = Number(quota.reservation?.used ?? 0);
+    const remaining = Number(quota.reservation?.remaining ?? 0);
+    if (quota.enforced) {
+      detectQuotaAnomaly({
+        tenantId: command.tenant_id || context.tenantId || null,
+        featureKey: FEATURE_KEYS.AI_EXECUTE_MEDIUM,
+        limit: used + remaining,
+        used,
+      });
+    }
+  }
+
   let result;
   try {
     result = await executeDomainAction(command, context, options);
   } catch (err) {
+    // Free the reserved unit: a failed execution must never permanently consume quota.
+    if (quota) await quota.release({ actor: context.id, req }).catch(() => {});
     await client.from(TABLE).update({ execution_status: AI_EXECUTION_STATUSES.FAILED, error_message: err.message, updated_by: context.id, updated_at: new Date().toISOString() }).eq('id', id).select().single();
     await appendAudit(client, { actorId: context.id, tenantId: command.tenant_id, action: 'AI_COMMAND_EXECUTION_FAILED', resourceType: 'diaspora_ai_command', resourceId: id, metadata: { error: err.message }, req });
     throw err;
@@ -274,6 +321,8 @@ export async function executeAiCommand(id, userContext = {}, options = {}) {
     metadata: { ...(command.metadata || {}), executionResult: result },
   }).eq('id', id).select().single();
   if (error) throw new ValidationError(`Failed to finalize execution: ${error.message}`);
+
+  if (quota) await quota.commit({ actor: context.id, req });
 
   await appendCriticalAudit(client, { actorId: context.id, tenantId: data.tenant_id, action: 'AI_COMMAND_EXECUTED', resourceType: 'diaspora_ai_command', resourceId: id, previousState: command, newState: data, metadata: { result }, req });
   return { command: data, result, idempotentReplay: false };

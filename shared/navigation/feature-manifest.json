@@ -564,6 +564,22 @@
     "betaCapable": true
   },
   {
+    "id": "diaspora.safetrade-operations",
+    "domain": "diaspora",
+    "route": "/diaspora/safetrade/operations",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "government"
+    ],
+    "immutableRoles": [
+      "admin",
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "diaspora.stock-manager",
     "domain": "diaspora",
     "route": "/diaspora/stock",
@@ -592,6 +608,26 @@
     "immutableRoles": [
       "admin",
       "dealer",
+      "owner"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.trade-graph",
+    "domain": "diaspora",
+    "route": "/diaspora/trade-graph",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer",
+      "government",
+      "owner"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer",
+      "government",
       "owner"
     ],
     "requiresAuth": true,
@@ -629,6 +665,22 @@
     "immutableRoles": [
       "admin",
       "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "diaspora.workbook-import",
+    "domain": "diaspora",
+    "route": "/diaspora/workbook/import",
+    "defaultLifecycle": "hidden",
+    "defaultRoles": [
+      "admin",
+      "dealer"
+    ],
+    "immutableRoles": [
+      "admin",
+      "dealer"
     ],
     "requiresAuth": true,
     "betaCapable": true

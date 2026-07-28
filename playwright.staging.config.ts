@@ -18,7 +18,9 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/agents',
-  testMatch: /3[2-5]-diaspora-staging-browser-.*\.spec\.ts/,
+  // 32–35: vehicle / parts / security / recovery. 36–37: the Issue #127 go-to-market surfaces and
+  // their fail-closed counterparts. Both sets run against the same deployed candidate.
+  testMatch: /3[2-7]-diaspora-staging-browser-.*\.spec\.ts/,
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false, // journeys mutate shared staging state; keep deterministic order

@@ -623,9 +623,18 @@ test('closing the dispute window emits a reputation-ELIGIBILITY event ONLY (zero
   });
   assert.equal(result.eligibilityEmitted, true);
   // Exactly one eligibility EVENT, and NO reputation rows.
-  const events = client._rows('diaspora_import_audit_log').filter((r) => r.action === 'DIASPORA_SAFETRADE_REPUTATION_ELIGIBLE');
+  //
+  // ST-3 item #1 (Issue #127) moved this signal from a best-effort audit row appended AFTER commit
+  // into the transactional outbox written BY the committing transaction. The assertion follows it to
+  // its new home, and gains strength doing so: an outbox row is guaranteed to exist whenever the
+  // window actually closed, which the old audit row never was.
+  const events = client._rows('diaspora_safetrade_outbox').filter((r) => r.event_type === 'SAFETRADE_REPUTATION_ELIGIBLE');
   assert.equal(events.length, 1);
+  assert.equal(events[0].status, 'pending', 'the drainer has not run yet, so it is queued for delivery');
   assert.equal(client._rows('diaspora_reputation_records').length, 0);
+  // The window close itself is still audited, now transactionally.
+  const closeAudit = client._rows('diaspora_import_audit_log').filter((r) => r.action === 'SAFETRADE_DELIVERY_WINDOW_CLOSED');
+  assert.equal(closeAudit.length, 1);
   // Idempotent re-close.
   const again = await deliveryService.closeDisputeWindow(client, {
     confirmationId: confirmation.id, now: '2026-06-25T00:00:00.000Z',

@@ -36,9 +36,16 @@ import {
   TRADE_GRAPH_NODE_TYPE_SET,
 } from '../constants/diaspora/diasporaTradeGraphConstants.js';
 import { isPlatformAdmin } from '../services/diaspora/diasporaAuthorization.js';
+import { resolveClient } from '../services/diaspora/diasporaServiceUtils.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature } from '../services/diaspora/diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../constants/diaspora/diasporaEntitlements.js';
+import { isSubscriptionEnforcementEnabled } from '../constants/diaspora/diasporaBillingConstants.js';
 import { diasporaTradeGraphService } from '../services/diaspora/tradegraph/diasporaTradeGraphService.js';
 import { diasporaTradeIntelligence } from '../services/diaspora/tradegraph/diasporaTradeIntelligenceService.js';
 import { diasporaTradeGraphProjection } from '../services/diaspora/tradegraph/diasporaTradeGraphProjectionService.js';
+// UI-10 (Issue #127): graph summary / projection health / dead-letter reads for the dashboard.
+import { diasporaTradeGraphHealth } from '../services/diaspora/tradegraph/diasporaTradeGraphHealthService.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -163,6 +170,108 @@ router.use((req, res, next) => {
   }
   return next();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTITLEMENT GATE — diaspora.graph.advanced
+//
+// The trade-graph read surface IS the "advanced graph" that trade_pro and enterprise are sold. It is
+// gated with one router-level middleware rather than nine per-route calls, for the same reason
+// publishStockItem was once a bypass of publishSupplyDocument: nine chances to forget is one gap
+// waiting to happen, and a new read route added later inherits the gate automatically.
+//
+// The graph services take a raw node-postgres client and their shared context guard is synchronous,
+// so the gate belongs at the route boundary — which is also the first place a server-derived tenant
+// and actor both exist, and the only place a supabase client is available at all.
+//
+// TWO PATHS ARE DELIBERATELY EXEMPT, and neither is a sellable claim:
+//   POST /rebuild        — platform-admin repair of a tenant's projection. Gating it on the TARGET
+//                          tenant's plan would mean a free tenant's corrupted graph could never be
+//                          re-derived, i.e. a billing decision blocking an operational repair.
+//   GET  /dead-letters   — platform-admin triage of failing event types, same reasoning.
+// Both are already restricted to platform admins by adminAuth + isPlatformAdmin.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Exact paths (relative to this router's mount) that the entitlement gate does not apply to. */
+const PLATFORM_OPERATIONAL_PATHS = new Set(['/rebuild', '/dead-letters']);
+
+/** Normalize to an exact path so no prefix trick ("/rebuild/../summary") can slip past the set. */
+function routerPath(req) {
+  const raw = String(req.path || '/');
+  const trimmed = raw.length > 1 && raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  return trimmed || '/';
+}
+
+/** The check itself. Runs only after `auth` has built req.userContext. */
+async function assertGraphEntitlement(req) {
+  // Server-derived only. req.userContext is built by authMiddleware from the session/user/tenant;
+  // nothing here reads a body field, a query parameter or a client-supplied role header.
+  const tenantId = req.userContext?.tenantId || null;
+  if (!tenantId) {
+    // Entitlements are tenant-scoped, so no tenant means no decision can be made. Fail closed with
+    // the SAME error the handlers raise, rather than letting the entitlement check reject it as a
+    // malformed request — a caller with no tenant has an authorization problem, not a typo.
+    throw new ForbiddenError('A tenant context is required (set x-tenant-id for a tenant you belong to)');
+  }
+  const injected = req.app?.locals?.diasporaTestDeps || {};
+  const supabase = await resolveClient({ supabaseClient: injected.supabaseClient });
+  await requireFeature(supabase, {
+    tenantId,
+    userId: req.userContext?.id || null,
+    featureKey: FEATURE_KEYS.GRAPH_ADVANCED,
+  });
+}
+
+router.use((req, res, next) => {
+  // While enforcement is off this middleware returns before doing ANYTHING — no extra auth pass, no
+  // client resolution, no query. "No-op when off" has to mean the request is untouched, not that the
+  // answer happens to come out the same.
+  if (!isSubscriptionEnforcementEnabled()) return next();
+  if (PLATFORM_OPERATIONAL_PATHS.has(routerPath(req))) return next();
+
+  // req.userContext does not exist yet (the per-route `auth` runs after this middleware), so run the
+  // same middleware here first. authorizeRole is stateless and rebuilds the context from the DB, so
+  // the second pass is idempotent; it answers 401/403 itself and never calls back on failure.
+  return auth(req, res, (err) => {
+    if (err) return next(err);
+    return assertGraphEntitlement(req).then(() => next(), next);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UI-10 — DASHBOARD SUMMARY / PROJECTION HEALTH / DEAD LETTERS (Issue #127)
+//
+// These three reads turn the Phase 10 backend into something an operator can trust. They return
+// counts and status only: no entity ids, no node `data`, no raw event payloads. That is a shape
+// choice rather than a redaction pass — a response that cannot carry PII cannot later regress into
+// leaking it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /summary — tenant graph summary: counts by type, projection health, last rebuild.
+router.get('/summary', auth, asyncHandler(async (req, res) => {
+  const tenantId = tenantOf(req);
+  const result = await withReadClient((pgClient) => diasporaTradeGraphHealth.tenantSummary(pgClient, tenantId));
+  res.json(result);
+}));
+
+// GET /projection/status — lag, last processed event, dead-letter count, replay state.
+router.get('/projection/status', auth, asyncHandler(async (req, res) => {
+  const tenantId = tenantOf(req);
+  const result = await withReadClient((pgClient) => diasporaTradeGraphHealth.projectionStatus(pgClient, tenantId));
+  res.json(result);
+}));
+
+// GET /dead-letters — operator triage view. Platform-admin only: the list reveals which event TYPES
+// are failing for a tenant, which is operational detail an ordinary member has no need for. Raw
+// payloads are never returned to anyone.
+router.get('/dead-letters', adminAuth, asyncHandler(async (req, res) => {
+  if (!isPlatformAdmin(req.userContext)) {
+    throw new ForbiddenError('Trade Graph dead letters are restricted to platform administrators');
+  }
+  const tenantId = tenantOf(req);
+  const result = await withReadClient((pgClient) =>
+    diasporaTradeGraphHealth.listDeadLetters(pgClient, tenantId, { limit: req.query.limit }));
+  res.json({ data: result });
+}));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTITY & NEIGHBORHOOD TRAVERSAL

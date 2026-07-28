@@ -33,6 +33,36 @@ import {
   isSubscriptionActiveState,
 } from '../constants/diaspora/diasporaEntitlements.js';
 import { BILLING_PROVIDERS } from '../constants/diaspora/diasporaBillingConstants.js';
+import { BILLING_RECONCILIATION_TRIGGERS } from '../constants/diaspora/diasporaBillingConstants.js';
+import {
+  claimBillingEvent,
+  markBillingEventApplied,
+  markBillingEventFailed,
+  listBillingEventDeadLetters,
+  listSupersededEvents,
+} from '../services/diaspora/billing/diasporaBillingEventLedgerService.js';
+import {
+  runBillingReconciliation,
+  listReconciliationRuns,
+  reconciliationFreshness,
+} from '../services/diaspora/billing/diasporaBillingReconciliationService.js';
+import { NORMALIZED_EVENTS } from '../services/diaspora/billing/billingProviderProfiles.js';
+import {
+  recordCheckoutOpened,
+  markCheckoutCompleted,
+  checkoutFunnelSummary,
+} from '../services/diaspora/billing/diasporaBillingCheckoutSessionService.js';
+// Extracted in Phase 2E so the scheduled retry of an unapplied provider event uses the SAME writer
+// rather than a second copy of the only function that mutates subscription state.
+import { syncSubscriptionFromSnapshot } from '../services/diaspora/billing/diasporaBillingSubscriptionSync.js';
+import {
+  newCorrelationId,
+  webhookRejected,
+  webhookDuplicate,
+  webhookSuperseded,
+  webhookApplied,
+  webhookFailed,
+} from '../services/diaspora/billing/diasporaBillingObservability.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -40,7 +70,8 @@ const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, ne
 const auth = authorizeRole();
 
 const SUBSCRIPTIONS_TABLE = ENTITLEMENT_TABLES.SUBSCRIPTIONS_TABLE;
-const EVENTS_TABLE = 'diaspora_billing_provider_events';
+// The billing event ledger is no longer touched from here: claiming, superseding and dead-lettering
+// all live in diasporaBillingEventLedgerService, so the table name belongs there and nowhere else.
 
 /**
  * Per-request injection seam (tests set req.app.locals.diasporaTestDeps). Falls back to the real
@@ -133,14 +164,29 @@ router.post('/checkout', auth, asyncHandler(async (req, res) => {
   assertCanManageSubscription(req.userContext, tenantId); // Gate S8-A: trusted manager only
   const planKey = req.body?.planKey;
   if (!planKey || !PLAN_KEYS.includes(planKey)) throw new ValidationError('A valid planKey is required for checkout');
-  const { billing } = await deps(req);
+  const { supabase, billing } = await deps(req);
+  const correlationId = req.correlationId || req.headers['x-correlation-id'] || newCorrelationId('chk');
   const session = await billing.createCheckoutSession({
     tenantId,
     planKey,
     successUrl: req.body?.successUrl || null,
     cancelUrl: req.body?.cancelUrl || null,
   });
-  res.status(201).json({ data: session });
+
+  // Abandonment cannot be measured after the fact: a checkout that is never completed leaves no trace
+  // anywhere unless the start was recorded. Best effort — a metrics row must never block a payment.
+  await recordCheckoutOpened({
+    tenantId,
+    provider: billing.name,
+    planKey,
+    sessionRef: session.sessionId || null,
+    initiatedBy: req.userContext?.id || null,
+    correlationId,
+    expiresAt: session.expiresAt || null,
+    supabaseClient: supabase,
+  });
+
+  res.status(201).json({ data: { ...session, correlationId } });
 }));
 
 // POST /portal — create a billing portal session.
@@ -176,170 +222,248 @@ router.post('/cancel', auth, asyncHandler(async (req, res) => {
   res.json({ data: persisted });
 }));
 
-// ── Webhook (provider-verified, idempotent, the only state-mutating sync path) ─────────────────
+// ── Reconciliation + billing health (operator-triggered; tenant-scoped) ────────────────────────
 
 /**
- * POST /webhook — verify the provider signature, dedupe on (provider, event_id), and on a valid new
- * event sync the tenant subscription. Unverified signature -> 400. Duplicate event_id -> 200
- * {alreadyProcessed:true}. A replayed event never double-applies (the dedupe insert is the guard).
+ * POST /reconcile — an operator-triggered reconciliation pass for the caller's tenant.
  *
- * No auth middleware: the provider signature is the authorization. Tenant + plan + status are read
- * ONLY from the verified provider payload — never from client-controlled fields.
+ * Scoped to the caller's own tenant and gated by the same trusted-manager check as the other
+ * money-adjacent endpoints: a reconciliation run reads provider state for a tenant, so it is not a
+ * public health check. Repair is NOT exposed here — the safe-direction repair is a deliberate
+ * operational act, not something a tenant admin should trigger from a UI button.
+ */
+router.post('/reconcile', auth, asyncHandler(async (req, res) => {
+  const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId);
+  const { supabase, billing } = await deps(req);
+  const result = await runBillingReconciliation({
+    trigger: BILLING_RECONCILIATION_TRIGGERS.OPERATOR,
+    tenantId,
+    initiatedBy: req.userContext?.id || null,
+    correlationId: req.correlationId || req.headers['x-correlation-id'] || null,
+    billingProvider: billing,
+    supabaseClient: supabase,
+    repair: false,
+  });
+  res.status(200).json({
+    data: {
+      runId: result.runId,
+      state: result.state,
+      trigger: result.trigger,
+      checked: result.checked,
+      mismatches: result.mismatches,
+      findings: result.findings, // already sanitized: tenant + field + states only
+      correlationId: result.correlationId,
+    },
+  });
+}));
+
+// GET /reconciliation-runs — the tenant's recent runs (sanitized findings).
+router.get('/reconciliation-runs', auth, asyncHandler(async (req, res) => {
+  const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId);
+  const { supabase } = await deps(req);
+  const runs = await listReconciliationRuns({ tenantId, limit: 20, supabaseClient: supabase });
+  res.json({ data: runs });
+}));
+
+/**
+ * GET /billing-health — the operator view of the four required signals for this tenant.
+ *
+ * Reconciliation FRESHNESS is included deliberately: the most dangerous failure is not a mismatch, it
+ * is a scheduler that quietly stopped, which looks exactly like "no problems found".
+ */
+router.get('/billing-health', auth, asyncHandler(async (req, res) => {
+  const tenantId = requireTenantId(req);
+  assertCanManageSubscription(req.userContext, tenantId);
+  const { supabase } = await deps(req);
+  const [deadLetters, superseded, freshness, funnel] = await Promise.all([
+    listBillingEventDeadLetters({ tenantId, limit: 20, supabaseClient: supabase }),
+    listSupersededEvents({ tenantId, limit: 20, supabaseClient: supabase }),
+    reconciliationFreshness({ supabaseClient: supabase }),
+    checkoutFunnelSummary({ tenantId, supabaseClient: supabase }),
+  ]);
+  res.json({
+    data: {
+      tenantId,
+      failedWebhooks: { count: deadLetters.length, events: deadLetters },
+      supersededWebhooks: { count: superseded.length, events: superseded },
+      reconciliation: freshness,
+      checkout: funnel,
+    },
+  });
+}));
+
+// ── Webhook (provider-verified, durable, out-of-order safe) ────────────────────────────────────
+
+/**
+ * Normalize a verification result into one shape.
+ *
+ * The test-mode adapter already returns a normalized event (its profile did the work). The in-memory
+ * sandbox returns the legacy `{verified,eventId,eventType,payload}` shape, so its payload is mapped
+ * here. Doing it in one place means the handler below never branches on which provider it is talking
+ * to — which is the same neutrality rule the adapter follows (ADR-001 §5).
+ */
+function normalizeVerification(verification) {
+  if (verification.normalized) return verification.normalized;
+  const payload = verification.payload || {};
+  const data = payload.data || payload;
+  return {
+    eventId: verification.eventId || null,
+    eventType: verification.eventType || payload.type || payload.event_type || null,
+    providerEventType: payload.type || payload.event_type || null,
+    tenantId: data.tenantId || data.tenant_id || payload.tenantId || null,
+    planKey: data.planKey || data.plan_key || null,
+    status: data.status || null,
+    currentPeriodStart: data.currentPeriodStart || data.current_period_start || null,
+    currentPeriodEnd: data.currentPeriodEnd || data.current_period_end || null,
+    cancelAtPeriodEnd: data.cancelAtPeriodEnd ?? data.cancel_at_period_end ?? null,
+    providerCustomerRef: data.providerCustomerRef || data.provider_customer_ref || null,
+    providerSubscriptionRef: data.providerSubscriptionRef || data.provider_subscription_ref || null,
+    sessionRef: data.sessionRef || data.session_ref || null,
+    occurredAt: payload.occurred_at ?? payload.occurredAt ?? payload.created ?? null,
+    providerSequence: payload.sequence ?? payload.provider_sequence ?? null,
+  };
+}
+
+/** Does this event carry authoritative subscription state? Payment-only events do not. */
+function carriesSubscriptionState(normalized) {
+  return Boolean(normalized.status || normalized.planKey);
+}
+
+/**
+ * POST /webhook — the only state-mutating sync path.
+ *
+ * Discipline, in order:
+ *   1. RAW body only. The signature covers the exact bytes the provider sent; re-serializing a parsed
+ *      body changes them. A missing raw body is a 400, not a fallback — a fallback here silently
+ *      degrades signature verification into signature theatre.
+ *   2. Signature verified before anything is read from the payload.
+ *   3. The event is CLAIMED in the durable ledger, where UNIQUE (provider, event_id) makes the INSERT
+ *      itself the de-duplication. The previous SELECT-then-INSERT was a race: two concurrent
+ *      deliveries could both observe "no existing row" and both apply.
+ *   4. An event older than one already applied for the tenant is recorded and SUPERSEDED, never
+ *      applied — otherwise a retry that overtakes a newer event resurrects a cancelled subscription.
+ *   5. Only then is the subscription synced, and only from the verified payload.
+ *   6. A handler failure marks the ledger row failed (visible, retryable) instead of vanishing.
+ *
+ * No auth middleware: the provider signature IS the authorization.
  */
 router.post('/webhook', asyncHandler(async (req, res) => {
   const { supabase, billing } = await deps(req);
-  const signature = req.headers['x-billing-signature'] || req.headers['x-webhook-signature'] || req.body?.signature || null;
-  // Prefer the exact raw body when available (req.rawBody) so the HMAC matches the provider's bytes.
-  const rawBody = req.rawBody != null ? req.rawBody : JSON.stringify(req.body ?? {});
+  const correlationId = req.correlationId || req.headers['x-correlation-id'] || newCorrelationId();
+  const signature = req.headers['x-billing-signature']
+    || req.headers['stripe-signature']
+    || req.headers['x-webhook-signature']
+    || null;
 
-  const verification = await billing.verifyWebhook({ rawBody, signature });
+  // The provider identity comes from the ADAPTER, never from the payload: a payload-declared provider
+  // would let a signed event choose its own de-duplication namespace.
+  const provider = billing.name || BILLING_PROVIDERS.SANDBOX;
+
+  const rawBody = typeof req.rawBody === 'string' ? req.rawBody : null;
+  if (rawBody == null) {
+    webhookRejected({ correlationId, reason: 'RAW_BODY_UNAVAILABLE', provider });
+    return res.status(400).json({ error: 'Webhook raw body unavailable; signature cannot be verified' });
+  }
+
+  const verification = await billing.verifyWebhook({ rawBody, signature, headers: req.headers });
   if (!verification.verified) {
+    webhookRejected({ correlationId, reason: verification.reason || 'SIGNATURE_INVALID', provider });
     return res.status(400).json({ error: 'Webhook signature verification failed' });
   }
-  const provider = verification.payload?.provider || billing.name || BILLING_PROVIDERS.SANDBOX;
-  const eventId = verification.eventId;
+
+  const normalized = normalizeVerification(verification);
+  const eventId = normalized.eventId || verification.eventId;
   if (!eventId) throw new ValidationError('Webhook payload is missing an event id');
+  const tenantId = normalized.tenantId || null;
 
-  // Idempotency: try to claim the event by its unique (provider, event_id). A duplicate is a no-op.
-  const existing = await findEvent(supabase, provider, eventId);
-  if (existing) {
-    return res.status(200).json({ received: true, alreadyProcessed: true, eventId });
-  }
-
-  // Record the event first (the unique constraint is the dedupe guard against concurrent replays).
-  const eventRow = await insertEvent(supabase, {
+  // Claim the event by INSERT — the unique constraint IS the de-duplication, with no
+  // SELECT-then-INSERT window for two concurrent deliveries to both pass.
+  //
+  // Idempotency keys on COMPLETED work, not on row existence. The row is written before the state is
+  // applied and `processed_at` is stamped after, so a failure in between — a status the DB CHECK
+  // rejects (providers emit 'canceled'; the CHECK accepts 'cancelled'), an unknown plan_key hitting
+  // the FK, a concurrent-delivery collision — leaves a claimed row that was never processed.
+  // claimBillingEvent hands such a row back as CLAIMED for reprocessing rather than as a duplicate;
+  // answering every retry "already processed" would blackhole the event permanently, and a
+  // cancellation lost that way leaves a tenant on a paid plan forever.
+  const claim = await claimBillingEvent({
     provider,
     eventId,
-    eventType: verification.eventType,
+    eventType: normalized.eventType,
+    providerEventType: normalized.providerEventType,
+    tenantId,
+    occurredAt: normalized.occurredAt,
+    providerSequence: normalized.providerSequence,
     payload: verification.payload || {},
-    tenantId: verification.payload?.data?.tenantId || verification.payload?.tenantId || null,
+    signatureVerified: true,
+    correlationId,
+    supabaseClient: supabase,
   });
 
-  // Apply state from the VERIFIED payload only.
-  const data = verification.payload?.data || verification.payload || {};
-  const tenantId = data.tenantId || verification.payload?.tenantId || null;
-  let synced = null;
-  if (tenantId) {
-    synced = await syncSubscriptionFromSnapshot(supabase, {
-      tenantId,
-      planKey: data.planKey || data.plan_key || null,
-      status: data.status || null,
-      currentPeriodStart: data.currentPeriodStart || data.current_period_start || null,
-      currentPeriodEnd: data.currentPeriodEnd || data.current_period_end || null,
-      provider,
-      providerCustomerRef: data.providerCustomerRef || null,
-      providerSubscriptionRef: data.providerSubscriptionRef || null,
-      cancelAtPeriodEnd: data.cancelAtPeriodEnd ?? false,
-    }, null);
+  if (claim.duplicate) {
+    webhookDuplicate({ correlationId, provider, eventId });
+    return res.status(200).json({ received: true, alreadyProcessed: true, eventId, correlationId });
   }
 
-  await markEventProcessed(supabase, eventRow?.id);
-  return res.status(200).json({ received: true, alreadyProcessed: false, eventId, synced: synced ? { planKey: synced.plan_key, status: synced.status } : null });
+  if (claim.superseded) {
+    webhookSuperseded({ correlationId, provider, eventId, tenantId, supersededBy: claim.supersededBy });
+    return res.status(200).json({
+      received: true,
+      alreadyProcessed: false,
+      applied: false,
+      superseded: true,
+      eventId,
+      correlationId,
+    });
+  }
+
+  try {
+    let synced = null;
+    if (tenantId && carriesSubscriptionState(normalized)) {
+      synced = await syncSubscriptionFromSnapshot(supabase, {
+        tenantId,
+        planKey: normalized.planKey,
+        status: normalized.status,
+        currentPeriodStart: normalized.currentPeriodStart,
+        currentPeriodEnd: normalized.currentPeriodEnd,
+        provider,
+        providerCustomerRef: normalized.providerCustomerRef,
+        providerSubscriptionRef: normalized.providerSubscriptionRef,
+        cancelAtPeriodEnd: normalized.cancelAtPeriodEnd ?? undefined,
+      }, null);
+    }
+
+    // A completed checkout closes the funnel record; best effort, never blocks the webhook.
+    if (normalized.eventType === NORMALIZED_EVENTS.CHECKOUT_COMPLETED
+      || normalized.eventType === NORMALIZED_EVENTS.SUBSCRIPTION_ACTIVATED
+      || normalized.eventType === NORMALIZED_EVENTS.PAYMENT_SUCCEEDED) {
+      try {
+        await markCheckoutCompleted({
+          tenantId, provider, sessionRef: normalized.sessionRef, correlationId, supabaseClient: supabase,
+        });
+      } catch { /* funnel metrics must never fail a billing webhook */ }
+    }
+
+    await markBillingEventApplied(claim.event?.id, { supabaseClient: supabase });
+    webhookApplied({ correlationId, provider, eventId, tenantId, eventType: normalized.eventType });
+
+    return res.status(200).json({
+      received: true,
+      alreadyProcessed: false,
+      applied: true,
+      eventId,
+      correlationId,
+      synced: synced ? { planKey: synced.plan_key, status: synced.status } : null,
+    });
+  } catch (err) {
+    // The event stays visible as unfinished work rather than disappearing with the request.
+    await markBillingEventFailed(claim.event?.id, err?.message, { supabaseClient: supabase })
+      .catch(() => { /* the original error is what matters */ });
+    webhookFailed({ correlationId, provider, eventId, tenantId, reason: err?.message });
+    throw err;
+  }
 }));
-
-// ── Persistence helpers (tenant-scoped subscription sync; service-role / mock client) ──────────
-
-async function findEvent(supabase, provider, eventId) {
-  const { data, error } = await supabase
-    .from(EVENTS_TABLE)
-    .select('*')
-    .eq('provider', provider)
-    .eq('event_id', String(eventId))
-    .maybeSingle();
-  if (error && error.code && error.code !== 'PGRST116') {
-    throw new ValidationError(`Failed to read billing event: ${error.message}`);
-  }
-  return data || null;
-}
-
-async function insertEvent(supabase, { provider, eventId, eventType, payload, tenantId }) {
-  const { data, error } = await supabase
-    .from(EVENTS_TABLE)
-    .insert({
-      provider,
-      event_id: String(eventId),
-      event_type: eventType || null,
-      payload: payload || {},
-      signature_verified: true,
-      tenant_id: tenantId || null,
-    })
-    .select()
-    .single();
-  if (error) throw new ValidationError(`Failed to record billing event: ${error.message}`);
-  return data;
-}
-
-async function markEventProcessed(supabase, eventRowId) {
-  if (!eventRowId) return;
-  await supabase
-    .from(EVENTS_TABLE)
-    .update({ processed_at: new Date().toISOString() })
-    .eq('id', eventRowId);
-}
-
-/**
- * Upsert the tenant's subscription from an authoritative provider snapshot. Status/plan/period come
- * ONLY from the snapshot (provider-verified) — never from a client. One active subscription per tenant:
- * update the existing non-deleted row in place, else insert.
- */
-async function syncSubscriptionFromSnapshot(supabase, snapshot, actorId = null) {
-  const tenantId = snapshot.tenantId;
-  if (!tenantId) throw new ValidationError('A tenantId is required to sync a subscription');
-
-  const update = {
-    plan_key: snapshot.planKey || undefined,
-    status: snapshot.status || undefined,
-    current_period_start: snapshot.currentPeriodStart ?? undefined,
-    current_period_end: snapshot.currentPeriodEnd ?? undefined,
-    provider: snapshot.provider || BILLING_PROVIDERS.SANDBOX,
-    provider_customer_ref: snapshot.providerCustomerRef ?? undefined,
-    provider_subscription_ref: snapshot.providerSubscriptionRef ?? undefined,
-    cancel_at_period_end: snapshot.cancelAtPeriodEnd ?? undefined,
-    updated_by: actorId || undefined,
-    updated_at: new Date().toISOString(),
-  };
-  // Drop undefined keys so we never null out columns the snapshot did not carry.
-  for (const k of Object.keys(update)) if (update[k] === undefined) delete update[k];
-
-  const { data: existingList } = await supabase
-    .from(SUBSCRIPTIONS_TABLE)
-    .select('*')
-    .eq('tenant_id', String(tenantId))
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
-  const existing = (Array.isArray(existingList) ? existingList : (existingList ? [existingList] : []))[0];
-
-  if (existing) {
-    const { data, error } = await supabase
-      .from(SUBSCRIPTIONS_TABLE)
-      .update(update)
-      .eq('id', existing.id)
-      .select()
-      .single();
-    if (error) throw new ValidationError(`Failed to update subscription: ${error.message}`);
-    return data;
-  }
-
-  const insertRow = {
-    tenant_id: String(tenantId),
-    plan_key: snapshot.planKey || 'free',
-    status: snapshot.status || SUBSCRIPTION_STATES.ACTIVE,
-    current_period_start: snapshot.currentPeriodStart ?? null,
-    current_period_end: snapshot.currentPeriodEnd ?? null,
-    provider: snapshot.provider || BILLING_PROVIDERS.SANDBOX,
-    provider_customer_ref: snapshot.providerCustomerRef ?? null,
-    provider_subscription_ref: snapshot.providerSubscriptionRef ?? null,
-    cancel_at_period_end: snapshot.cancelAtPeriodEnd ?? false,
-    created_by: actorId || null,
-    updated_by: actorId || null,
-  };
-  const { data, error } = await supabase
-    .from(SUBSCRIPTIONS_TABLE)
-    .insert(insertRow)
-    .select()
-    .single();
-  if (error) throw new ValidationError(`Failed to create subscription: ${error.message}`);
-  return data;
-}
 
 export default router;

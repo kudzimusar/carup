@@ -18,6 +18,9 @@
  * DIASPORA_SAFETRADE_ENABLED. Server-derived roles only — the client x-stakeholder-role is never read.
  */
 import { resolveClient, requestCorrelationId, appendCriticalAudit, appendBestEffortAudit } from '../diasporaServiceUtils.js';
+// ST-3 item #1 (Issue #127): aux-event shapes shared with the drainer, so the emitting side and the
+// draining side cannot drift apart.
+import { buildAuxEvent, SAFETRADE_AUX_EVENTS } from './diasporaSafeTradeOutboxService.js';
 import { ForbiddenError, NotFoundError, ValidationError } from '../../../utils/errors.js';
 import {
   isSafeTradeEnabled,
@@ -332,19 +335,20 @@ async function placeTemporaryHold(supabase, { txn, dispute, milestoneId, context
   const alreadyHeld = pick(ALREADY_HELD_STATUSES);
   if (alreadyHeld) {
     const holdReference = alreadyHeld.provider_reference || null;
-    await supabase
-      .from('diaspora_safetrade_disputes')
-      .update({ hold_placed: true, hold_reference: holdReference, updated_by: context.id })
-      .eq('id', dispute.id);
-    await appendBestEffortAudit(supabase, {
-      importOrderId: txn.import_order_id,
-      tenantId: txn.tenant_id,
+    // ST-3 item #1 (Issue #127): the hold flag, the CRITICAL audit row and the downstream event are
+    // written by ONE transaction. Previously the UPDATE landed and the audit was appended afterwards
+    // best-effort, so a crash in between left a dispute silently holding funds with no record of it.
+    await applyDisputeHoldAtomic(supabase, {
+      disputeId: dispute.id,
       actorId: context.id,
-      action: 'SAFETRADE_DISPUTE_HOLD_PLACED',
-      resourceType: 'diaspora_safetrade_dispute',
-      resourceId: dispute.id,
-      metadata: { milestoneId: alreadyHeld.id, holdReference, sandbox: true, alreadyHeld: true, correlationId: requestCorrelationId(req) },
-      req,
+      holdPlaced: true,
+      holdReference,
+      auditAction: 'SAFETRADE_DISPUTE_HOLD_PLACED',
+      auditMetadata: { milestoneId: alreadyHeld.id, holdReference, sandbox: true, alreadyHeld: true },
+      events: [buildAuxEvent(SAFETRADE_AUX_EVENTS.DISPUTE_HOLD_PLACED, {
+        disputeId: dispute.id, milestoneId: alreadyHeld.id, holdReference, sandbox: true, alreadyHeld: true,
+      })],
+      correlationId: requestCorrelationId(req),
     });
     return { holdPlaced: true, hold: null };
   }
@@ -366,37 +370,66 @@ async function placeTemporaryHold(supabase, { txn, dispute, milestoneId, context
     });
   } catch (err) {
     // A failed (sandbox) hold must not strand the dispute open; record it and let a reviewer act.
-    await appendBestEffortAudit(supabase, {
-      importOrderId: txn.import_order_id,
-      tenantId: txn.tenant_id,
+    // ST-3 item #1: recorded atomically, so a failed hold can never be an unrecorded one.
+    await applyDisputeHoldAtomic(supabase, {
+      disputeId: dispute.id,
       actorId: context.id,
-      action: 'SAFETRADE_DISPUTE_HOLD_FAILED',
-      resourceType: 'diaspora_safetrade_dispute',
-      resourceId: dispute.id,
-      metadata: { milestoneId: target.id, error: err?.message, correlationId: requestCorrelationId(req) },
-      req,
+      holdPlaced: false,
+      holdReference: null,
+      auditAction: 'SAFETRADE_DISPUTE_HOLD_FAILED',
+      // The provider message is deliberately NOT forwarded into the event payload — it can carry
+      // provider-side detail. The audit row keeps it; the downstream event gets a code only.
+      auditMetadata: { milestoneId: target.id, error: err?.message },
+      events: [buildAuxEvent(SAFETRADE_AUX_EVENTS.DISPUTE_HOLD_FAILED, {
+        disputeId: dispute.id, milestoneId: target.id, errorCode: err?.code || 'HOLD_FAILED',
+      })],
+      correlationId: requestCorrelationId(req),
     });
     return { holdPlaced: false, hold: null };
   }
 
   const holdReference = hold?.provider?.holdRef || hold?.provider?.intentId || target.provider_reference || null;
-  await supabase
-    .from('diaspora_safetrade_disputes')
-    .update({ hold_placed: true, hold_reference: holdReference, updated_by: context.id })
-    .eq('id', dispute.id);
-
-  await appendBestEffortAudit(supabase, {
-    importOrderId: txn.import_order_id,
-    tenantId: txn.tenant_id,
+  // ST-3 item #1: state + audit + event in one transaction.
+  await applyDisputeHoldAtomic(supabase, {
+    disputeId: dispute.id,
     actorId: context.id,
-    action: 'SAFETRADE_DISPUTE_HOLD_PLACED',
-    resourceType: 'diaspora_safetrade_dispute',
-    resourceId: dispute.id,
-    metadata: { milestoneId: target.id, holdReference, sandbox: true, correlationId: requestCorrelationId(req) },
-    req,
+    holdPlaced: true,
+    holdReference,
+    auditAction: 'SAFETRADE_DISPUTE_HOLD_PLACED',
+    auditMetadata: { milestoneId: target.id, holdReference, sandbox: true },
+    events: [buildAuxEvent(SAFETRADE_AUX_EVENTS.DISPUTE_HOLD_PLACED, {
+      disputeId: dispute.id, milestoneId: target.id, holdReference, sandbox: true,
+    })],
+    correlationId: requestCorrelationId(req),
   });
 
   return { holdPlaced: true, hold };
+}
+
+
+/**
+ * applyDisputeHoldAtomic — ST-3 item #1.
+ *
+ * One RPC, one transaction: the dispute hold flags, the CRITICAL audit row and the outbox events all
+ * commit together or not at all. This replaces an UPDATE followed by a best-effort audit append,
+ * where a crash in the gap left the state changed and the record of it missing.
+ */
+async function applyDisputeHoldAtomic(supabase, {
+  disputeId, actorId, holdPlaced, holdReference = null,
+  auditAction, auditMetadata = {}, events = [], correlationId = null,
+}) {
+  const { data, error } = await supabase.rpc('diaspora_safetrade_dispute_hold_atomic', {
+    p_dispute_id: disputeId,
+    p_actor_id: actorId,
+    p_hold_placed: holdPlaced,
+    p_hold_reference: holdReference,
+    p_events: events,
+    p_audit_action: auditAction,
+    p_audit_metadata: auditMetadata,
+    p_correlation_id: correlationId,
+  });
+  if (error) throw new ValidationError(`Failed to record the dispute hold: ${error.message}`);
+  return data;
 }
 
 /**
@@ -456,6 +489,11 @@ export async function addEvidence(supabaseOrOptions, {
     .single();
   if (error) throw new ValidationError(`Failed to add dispute evidence: ${error.message}`);
 
+  // Deliberately still best-effort, and the only one left in this file. ST-3 item #1 is about
+  // TRANSITION audit — a state change whose record must not be able to go missing. Adding evidence is
+  // an append to an append-only table: the row IS the record, so a missing telemetry line cannot
+  // create a discrepancy between what happened and what we believe happened. Promoting it would cost
+  // an RPC round-trip per evidence upload for no integrity gain.
   await appendBestEffortAudit(supabase, {
     importOrderId: txn.import_order_id,
     tenantId: txn.tenant_id,

@@ -14,6 +14,9 @@ import { NotFoundError, ValidationError, ForbiddenError } from '../../utils/erro
 import { CONTAINER_STATUSES, RESERVATION_STATUSES } from '../../constants/diaspora/diasporaStatuses.js';
 import { requireUserContext, isPlatformAdmin, isPlatformReviewer, isTenantAdminForRecord, normalizeId } from './diasporaAuthorization.js';
 import { resolveClient, appendAudit, appendCriticalAudit, paging } from './diasporaServiceUtils.js';
+// Enforcement via the GUARD (no-op while DIASPORA_SUBSCRIPTION_ENFORCEMENT is off, which is default).
+import { requireFeature } from './diasporaEntitlementGuard.js';
+import { FEATURE_KEYS } from '../../constants/diaspora/diasporaEntitlements.js';
 
 const CONTAINERS = 'diaspora_container_shipments';
 const RESERVATIONS = 'diaspora_cargo_reservations';
@@ -104,6 +107,14 @@ export async function createContainer(payload = {}, userContext = {}, options = 
   const totalVolume = Number(payload.total_capacity_volume);
   if (!(totalVolume > 0)) throw new ValidationError('total_capacity_volume must be positive');
 
+  // Gate on diaspora.container.manage. Placed after the role check and validation so the existing
+  // 403/400 outcomes are unchanged for callers who were never going to succeed anyway.
+  await requireFeature(client, {
+    tenantId: context.tenantId || payload.tenant_id || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.CONTAINER_MANAGE,
+  });
+
   const row = {
     tenant_id: context.tenantId || payload.tenant_id || null,
     origin_country: payload.origin_country,
@@ -159,6 +170,13 @@ export async function requestReservation(containerId, payload = {}, userContext 
   if (volume > Number(container.total_capacity_volume)) {
     throw new ValidationError('Requested volume exceeds total container capacity', { total: container.total_capacity_volume, requested: volume });
   }
+
+  // Gate on diaspora.container.reserve.
+  await requireFeature(client, {
+    tenantId: container.tenant_id || context.tenantId || null,
+    userId: context.id,
+    featureKey: FEATURE_KEYS.CONTAINER_RESERVE,
+  });
 
   const row = {
     tenant_id: container.tenant_id || context.tenantId || null,

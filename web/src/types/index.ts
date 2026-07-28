@@ -983,11 +983,72 @@ export interface DiasporaDriveConnection {
   connected?: boolean;
 }
 
+/**
+ * A credential the vault holds on the user's behalf. There is deliberately no token field of any
+ * kind: `vault_reference` is never projected to an API consumer, so the UI can render provenance
+ * (which backend, which key version, when it was last refreshed) without ever handling secret
+ * material.
+ */
+export interface DiasporaDriveCredentialReference {
+  id: string;
+  purpose: string;
+  vaultBackend: string | null;
+  keyVersion: string | null;
+  scopes: string[] | null;
+  status: string;
+  externalAccountLabel: string | null;
+  expiresAt: string | null;
+  lastRefreshedAt: string | null;
+  lastErrorCode: string | null;
+  revokedAt: string | null;
+}
+
+/**
+ * One durable attempt to push something to Drive. Field names mirror `sanitizeSyncAttempt` in
+ * backend/services/diaspora/drive/driveSyncQueue.js exactly.
+ *
+ * `state` carries the distinction the UI must not flatten: `failed` with a `nextAttemptAt` is still
+ * being retried, whereas `dead_lettered` means the file did NOT reach Drive and never will without
+ * the user acting.
+ */
+export interface DiasporaDriveSyncAttempt {
+  id: string;
+  operation: 'ensure_folder' | 'upload' | 'update' | 'metadata' | 'revoke';
+  entityType: string | null;
+  entityId: string | null;
+  idempotencyKey: string;
+  state: 'pending' | 'in_flight' | 'succeeded' | 'failed' | 'dead_lettered';
+  attempts: number;
+  nextAttemptAt: string | null;
+  providerFileId: string | null;
+  providerFolderId: string | null;
+  bytes: number | null;
+  contentChecksum: string | null;
+  lastErrorCode: string | null;
+  lastError: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string | null;
+}
+
+export interface DiasporaDriveSyncAttempts {
+  attempts: DiasporaDriveSyncAttempt[];
+  /** False when the durable queue is unavailable — the UI must not imply attempts are being tracked. */
+  durableTracking: boolean;
+  reason?: string;
+}
+
 export interface DiasporaDriveStatus {
   enabled: boolean;
   provider: string;
   scopes: string[];
   connection: DiasporaDriveConnection | null;
+  credential?: DiasporaDriveCredentialReference | null;
+  /**
+   * Whether this deployment can complete an OAuth connection at all. `pending` means the owner has
+   * not provisioned Google credentials, so Connect could only ever fail with NOT_CONFIGURED.
+   */
+  activation?: { credentialsConfigured: boolean; redirectUris: number; pending: boolean };
   onedrive: { available: boolean; note?: string };
   workbookExport: { xlsx: boolean; note?: string };
 }
@@ -1056,6 +1117,72 @@ export interface UsageResponse {
   tenantId: string;
   periodStart: string;
   usage: UsageEntry[];
+}
+
+/** One reconciliation run over this tenant's billing state. `findings` are pre-sanitized server-side. */
+export interface BillingReconciliationRun {
+  id: string;
+  tenant_id: string | null;
+  provider: string;
+  trigger: string;
+  state: 'running' | 'completed' | 'failed';
+  started_at: string | null;
+  finished_at: string | null;
+  checked_count: number | null;
+  mismatch_count: number | null;
+  repaired_count: number | null;
+  findings: Array<Record<string, unknown>> | null;
+  initiated_by: string | null;
+  last_error: string | null;
+}
+
+export interface BillingReconciliationResult {
+  runId: string | null;
+  state: string;
+  trigger: string;
+  checked: number;
+  mismatches: number;
+  findings: Array<Record<string, unknown>>;
+  correlationId: string | null;
+}
+
+/** A provider event that could not be applied. Carries no payload — only what an operator needs. */
+export interface BillingLedgerEvent {
+  id: string;
+  provider: string;
+  event_id: string;
+  event_type: string | null;
+  tenant_id: string | null;
+  last_error?: string | null;
+  attempts?: number | null;
+  occurred_at?: string | null;
+  created_at?: string | null;
+  dead_lettered?: boolean;
+  superseded?: boolean;
+}
+
+/**
+ * Operator health for one tenant's billing.
+ *
+ * `reconciliation.stale` is the signal that matters most: a scheduler that quietly stopped looks
+ * exactly like "no problems found", so freshness is reported separately from mismatch counts.
+ */
+export interface BillingHealth {
+  tenantId: string;
+  failedWebhooks: { count: number; events: BillingLedgerEvent[] };
+  supersededWebhooks: { count: number; events: BillingLedgerEvent[] };
+  reconciliation: {
+    lastCompletedAt: string | null;
+    ageMinutes: number | null;
+    stale: boolean;
+    reason: string | null;
+  };
+  checkout: {
+    tenantId: string | null;
+    total: number;
+    counts: { open: number; completed: number; abandoned: number; expired: number; cancelled: number };
+    abandonmentRate: number | null;
+  };
 }
 
 // A normalized, SAFE-to-render denial. Parsed from a backend 4xx (whose body is
@@ -2520,4 +2647,229 @@ export interface ResolveDisputePayload {
 export interface DisputeMutationResponse {
   success: boolean;
   dispute: Dispute;
+}
+
+// ─── UI-10 · Diaspora Trade Graph dashboard (Issue #127) ────────────────────
+// These mirror backend/services/diaspora/tradegraph/diasporaTradeGraphHealthService.js exactly.
+// Note what is ABSENT: no entity ids, no node `data`, no raw event payloads. The dashboard reads are
+// shaped so they cannot carry participant data in the first place, rather than relying on a
+// redaction step that a later change could bypass.
+
+export type TradeGraphHealthState = 'HEALTHY' | 'DEGRADED' | 'STALLED' | 'UNKNOWN' | 'EMPTY';
+
+export interface TradeGraphTypeCount {
+  type: string;
+  count: number;
+}
+
+export interface TradeGraphCounts {
+  nodes: TradeGraphTypeCount[];
+  edges: TradeGraphTypeCount[];
+  totalNodes: number;
+  totalEdges: number;
+}
+
+export interface TradeGraphProjectionStatus {
+  hasCheckpoint: boolean;
+  health: TradeGraphHealthState;
+  lastEventId: string | null;
+  lastEventAt: string | null;
+  /** Seconds since the last event the projection actually PROCESSED (not since its last heartbeat). */
+  lagSeconds: number | null;
+  deadLetterCount: number;
+  replayCount: number;
+  replayRequired: boolean;
+  projectionVersion: string | null;
+  updatedAt: string | null;
+}
+
+export interface TradeGraphRebuildRecord {
+  id: string;
+  status: string;
+  requested_at: string | null;
+  completed_at: string | null;
+  events_processed: number | null;
+  events_failed: number | null;
+  nodes_rebuilt: number | null;
+  edges_rebuilt: number | null;
+  reason: string | null;
+}
+
+export interface TradeGraphSummary {
+  counts: TradeGraphCounts;
+  projection: TradeGraphProjectionStatus;
+  lastRebuild: TradeGraphRebuildRecord | null;
+  health: TradeGraphHealthState;
+  /** Server-computed, so the UI never duplicates the staleness thresholds. */
+  stale: boolean;
+}
+
+export interface TradeGraphDeadLetter {
+  id: string;
+  eventId: string;
+  eventType: string;
+  retryCount: number;
+  createdAt: string | null;
+  lastRetryAt: string | null;
+  errorMessage: string | null;
+  /** Always true — raw payloads are never returned. Surfaced so the UI can explain the empty detail. */
+  payloadWithheld: boolean;
+  payloadWithheldReason: string;
+}
+
+export interface TradeGraphRebuildResponse {
+  status: string;
+  tenantId?: string;
+  rebuildId?: string;
+  eventsProcessed?: number;
+  eventsFailed?: number;
+  nodesRebuilt?: number;
+  edgesRebuilt?: number;
+}
+
+// ─── ST-3 operator surfaces (Issue #127) ───────────────────────────────────
+// Maker-checker approvals (#2), the provider/ledger reconciliation queue (#3) and the transactional
+// outbox (#1). Note what these DON'T carry: no participant identifiers, no provider payloads, no
+// outbox event bodies. The server shapes them that way; the UI cannot re-introduce what it never gets.
+
+export interface SafeTradeApproval {
+  id: string;
+  transaction_id: string;
+  milestone_id: string | null;
+  decision_type: 'release' | 'refund' | 'partial_refund' | 'dispute_resolution' | string;
+  risk_level: string;
+  amount: number | null;
+  currency: string | null;
+  requested_by: string;
+  requested_at: string;
+  requested_reason: string | null;
+  expires_at: string | null;
+  state: 'pending' | 'approved' | 'rejected' | 'expired' | 'consumed' | string;
+  approved_by?: string | null;
+  /** Server-computed: false when the viewer is the requester. Display only — the DB and RPC enforce it. */
+  canApprove?: boolean;
+  selfApprovalBlocked?: boolean;
+}
+
+export interface SafeTradeOperationUserState {
+  state: string;
+  userMessage: string;
+  /** False for anything unresolved. There is deliberately no path from unresolved to "success". */
+  settled: boolean;
+}
+
+export interface SafeTradeOperation {
+  id: string;
+  tenant_id: string;
+  transaction_id: string | null;
+  milestone_id: string | null;
+  operation: string;
+  state: string;
+  provider: string;
+  provider_ref: string | null;
+  provider_status: string | null;
+  amount: number | null;
+  currency: string | null;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_error_code: string | null;
+  last_error: string | null;
+  requested_at: string;
+  dispatched_at: string | null;
+  confirmed_at: string | null;
+  userState?: SafeTradeOperationUserState;
+}
+
+export interface SafeTradeOutboxBacklog {
+  pending: number;
+  retrying: number;
+  deadLettered: number;
+  /** The number that actually matters — a small count with a very old head is a stalled drainer. */
+  oldestPendingAgeSeconds: number | null;
+}
+
+export interface SafeTradeOutboxDeadLetter {
+  id: string;
+  tenant_id: string | null;
+  transaction_id: string | null;
+  milestone_id: string | null;
+  event_type: string;
+  status: string;
+  attempts: number;
+  last_error: string | null;
+  created_at: string;
+  next_attempt_at: string | null;
+  payloadWithheld: boolean;
+  payloadWithheldReason: string;
+}
+
+export interface SafeTradeOutboxDrainSummary {
+  claimed: number;
+  dispatched: number;
+  failed: number;
+  deadLettered: number;
+  noHandler: number;
+  results: { id: string; eventType: string; outcome: string; error?: string }[];
+}
+
+// ─── Confirmed workbook import (Deliverable B, Issue #127) ─────────────────
+
+export interface WorkbookImportConfirmation {
+  id: string;
+  tenant_id: string;
+  batch_id: string;
+  workbook_checksum: string;
+  dry_run_revision: number;
+  confirmed_by: string;
+  confirmed_at: string;
+  expires_at: string;
+  idempotency_key: string;
+  state: 'pending' | 'consumed' | 'expired' | 'invalidated' | string;
+  row_count: number | null;
+}
+
+export interface WorkbookImportReceipt {
+  id: string;
+  batch_id: string;
+  /**
+   * An ORDINAL in plan order — NOT the workbook's own row number. Plan actions expose
+   * `workbookRowNumber`, which the orchestrator does not carry through, so this counts 1..n over the
+   * plan. Labelled "Row (order)" in the UI so nobody reconciles it against their spreadsheet.
+   */
+  row_number: number;
+  sheet_name: string | null;
+  outcome: 'accepted' | 'rejected' | 'skipped' | 'compensated' | 'pending' | string;
+  entity_type: string | null;
+  entity_ref: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  compensated_at: string | null;
+  attempt: number;
+  created_at: string;
+}
+
+export interface WorkbookImportExecutionResult {
+  /** True ONLY when every row applied. Never rendered as success on any other value. */
+  imported: boolean;
+  batchId: string;
+  confirmationId: string;
+  status: string;
+  appliedRows?: number;
+  compensatedRows?: number;
+  compensationFailures?: number;
+  failedAtRow?: number;
+  errorCode?: string;
+  receipts?: number;
+  userMessage: string;
+}
+
+export interface WorkbookInterruptedBatch {
+  id: string;
+  tenantId: string;
+  status: string;
+  totalRows: number | null;
+  updatedAt: string | null;
+  confirmedImport: Record<string, unknown> | null;
+  /** True for NEEDS_OPERATOR: partly applied and not fully reversible. Never offer a retry. */
+  needsHuman: boolean;
 }
