@@ -55,7 +55,7 @@ concurrency:
 
 env:
   # The reviewed commit whose script is executed. Changing this is a reviewable pull request.
-  CANDIDATE_SHA: a5bd4d40baf04cc78cacf9ff6326cbcfe5d44ce6
+  CANDIDATE_SHA: afd0dc4367d8fda208d1170bd20a872ccac0cf69
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -72,7 +72,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: a5bd4d40baf04cc78cacf9ff6326cbcfe5d44ce6
+          ref: afd0dc4367d8fda208d1170bd20a872ccac0cf69
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
