@@ -33,6 +33,8 @@
  * Every write happens in ONE transaction, and the row counts touched are asserted before COMMIT so
  * an unexpectedly broad statement rolls back instead of landing.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 const STAGING_REF = 'eoyenigwevnxwwhyhaer';
@@ -71,17 +73,35 @@ if (!['bootstrap', 'verify', 'cleanup'].includes(MODE)) fail(`unknown --mode=${M
 if (!/^u_[0-9a-f]{16}$/.test(AUTHORIZED_USER_ID)) fail('the pinned user id is malformed');
 if (NOT_THE_SUBJECT.includes(AUTHORIZED_USER_ID)) fail('the pinned user id is on the do-not-modify list');
 
-/** TLS: verify against Supabase's published root. Never disabled — see the GTM runner's header. */
+/**
+ * TLS: verify against Supabase's published root. Never disabled.
+ *
+ * The first version of this used `require('node:fs')` INSIDE an ESM module. `require` is not defined
+ * in ESM, so the call threw ReferenceError, the bare `catch` swallowed it, and the function fell
+ * through to Node's public roots — which cannot verify Supabase's self-signed root. The run failed
+ * with `self-signed certificate in certificate chain`, the exact error the bundled CA exists to
+ * prevent, and the swallow is what made a straightforward import bug look like a certificate problem.
+ *
+ * Two corrections: the imports are static and at module scope, and a MISSING OR UNREADABLE bundle is
+ * now fatal rather than silently downgraded. Falling back to public roots was never going to work
+ * against this database, so pretending it might only delays the same failure behind a worse message.
+ */
 function tlsConfig() {
   const supplied = process.env.DIASPORA_STAGING_CA_CERT;
-  if (supplied && supplied.includes('BEGIN CERTIFICATE')) return { rejectUnauthorized: true, ca: supplied };
+  if (supplied && supplied.includes('BEGIN CERTIFICATE')) {
+    console.log('TLS: verifying against the supplied DIASPORA_STAGING_CA_CERT trust anchor.');
+    return { rejectUnauthorized: true, ca: supplied };
+  }
+  const path = fileURLToPath(new URL('../../database/certs/supabase-prod-ca-2021.crt', import.meta.url));
+  let ca;
   try {
-    const { readFileSync } = require('node:fs');
-    const { fileURLToPath } = require('node:url');
-    const ca = readFileSync(fileURLToPath(new URL('../../database/certs/supabase-prod-ca-2021.crt', import.meta.url)), 'utf8');
-    if (ca.includes('BEGIN CERTIFICATE')) return { rejectUnauthorized: true, ca };
-  } catch { /* fall through to public roots — never to "no verification" */ }
-  return { rejectUnauthorized: true };
+    ca = readFileSync(path, 'utf8');
+  } catch (e) {
+    fail(`cannot read the bundled Supabase root at ${path}: ${e.message}`);
+  }
+  if (!ca.includes('BEGIN CERTIFICATE')) fail(`the bundled CA at ${path} is not a PEM certificate`);
+  console.log('TLS: verifying against the bundled Supabase Root 2021 CA (database/certs/).');
+  return { rejectUnauthorized: true, ca };
 }
 
 async function main() {
