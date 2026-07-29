@@ -161,14 +161,45 @@ export async function tenantSummary(pgClient, tenantId) {
   };
 }
 
+/**
+ * The most recent rebuild for a tenant.
+ *
+ * `trade_graph_rebuilds` HAS NO `requested_at` COLUMN, and never has had one. Ledger #15
+ * (20260621140000) creates it with `started_at`, `completed_at`, `created_at` and `updated_at`, and
+ * no later migration adds `requested_at`. This function selected and ordered by that name anyway, so
+ * every tenant-scoped call raised `column "requested_at" does not exist` and the whole
+ * /diaspora/trade-graph/summary endpoint answered 500.
+ *
+ * WHY IT SURVIVED CI
+ * ------------------
+ * The endpoint is unreachable in every environment the suite runs against. The capability gate
+ * `DIASPORA_TRADE_GRAPH` 404s the entire router when off, and tenant scoping 403s a caller with no
+ * tenant. BOTH return before this query executes, so surfacing the defect required a real tenant on a
+ * flag-enabled deployment — which nothing had until the staging UAT tenancy fixture existed. A
+ * recording fake cannot catch it either: a fake answers whatever it is told to, and the only thing
+ * that disagrees with this SQL is a real Postgres schema.
+ *
+ * `started_at AS requested_at` is deliberate. The public TypeScript contract exposes `requested_at`,
+ * so aliasing repairs the query without pushing the break outward into the API surface.
+ *
+ * Ordering is `created_at DESC, id DESC`: `created_at` is the insert instant and is NOT NULL, and the
+ * `id` tiebreak keeps the result deterministic when two rebuilds share a timestamp.
+ */
 export async function lastRebuild(pgClient, tenantId) {
   requireTenant(tenantId);
   const { rows } = await pgClient.query(
-    `SELECT id, status, requested_at, completed_at, events_processed, events_failed,
-            nodes_rebuilt, edges_rebuilt, reason
+    `SELECT id,
+            status,
+            started_at AS requested_at,
+            completed_at,
+            events_processed,
+            events_failed,
+            nodes_rebuilt,
+            edges_rebuilt,
+            reason
        FROM trade_graph_rebuilds
       WHERE tenant_id = $1
-      ORDER BY requested_at DESC
+      ORDER BY created_at DESC, id DESC
       LIMIT 1`,
     [tenantId],
   );
