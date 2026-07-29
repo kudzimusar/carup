@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 process.env.NODE_ENV = 'test';
 
 const {
-  nodeAndEdgeCounts, projectionStatus, tenantSummary, listDeadLetters, classifyHealth,
+  nodeAndEdgeCounts, projectionStatus, tenantSummary, listDeadLetters, classifyHealth, lastRebuild,
   GRAPH_HEALTH, PROJECTION_LAG_WARN_SECONDS, PROJECTION_LAG_CRITICAL_SECONDS,
 } = await import('../services/diaspora/tradegraph/diasporaTradeGraphHealthService.js');
 
@@ -213,4 +213,76 @@ test('the dead-letter limit is clamped so a caller cannot request an unbounded e
   assert.equal(pg.calls[1].params[1], 1);
   await listDeadLetters(pg, TENANT, { limit: 'not-a-number' });
   assert.equal(pg.calls[2].params[1], 50, 'a non-numeric limit falls back to the default');
+});
+
+// ── lastRebuild: the schema contract ─────────────────────────────────────────
+//
+// `trade_graph_rebuilds` has never had a `requested_at` column. Ledger #15 (20260621140000) creates
+// it with started_at / completed_at / created_at / updated_at, and no later migration adds one. This
+// function selected and ordered by `requested_at` anyway, so every tenant-scoped call raised
+// `column "requested_at" does not exist` and /diaspora/trade-graph/summary answered 500 in
+// production-shaped conditions (deployed request id req-3b48d3ce-92ac-4945-b87f-fc9693ab3f69).
+//
+// It reached main through all nine CI checks because the endpoint is unreachable wherever the suite
+// runs: `DIASPORA_TRADE_GRAPH` 404s the router when off, and tenant scoping 403s a tenantless caller.
+// Both return BEFORE the query executes.
+//
+// These assertions are necessary but NOT sufficient, and the file should say so: a recording fake
+// answers whatever it is told to, so it can only prove the statement's SHAPE. The thing that actually
+// disagrees with wrong SQL is a real schema — see
+// database/test/diaspora_trade_graph_rebuilds_check.mjs, which runs this function against real
+// PostgreSQL in CI.
+
+test('lastRebuild aliases started_at to the contract name and never names a requested_at column', async () => {
+  const pg = createPgFake([{ match: 'FROM trade_graph_rebuilds', rows: [] }]);
+  await lastRebuild(pg, TENANT);
+  const { text } = pg.calls[0];
+
+  assert.match(text, /started_at\s+AS\s+requested_at/i,
+    'the query must alias the real column to the public contract name');
+
+  // The only permitted appearance of `requested_at` is as the alias target. A bare column reference
+  // is the defect itself.
+  const withoutAlias = text.replace(/started_at\s+AS\s+requested_at/gi, '');
+  assert.doesNotMatch(withoutAlias, /requested_at/i,
+    `a bare requested_at column reference remains: ${withoutAlias}`);
+});
+
+test('lastRebuild orders by created_at DESC, id DESC — deterministic and NOT NULL', async () => {
+  const pg = createPgFake([{ match: 'FROM trade_graph_rebuilds', rows: [] }]);
+  await lastRebuild(pg, TENANT);
+  assert.match(pg.calls[0].text, /ORDER BY\s+created_at\s+DESC\s*,\s*id\s+DESC/i,
+    'created_at is the insert instant and NOT NULL; the id tiebreak makes ties deterministic');
+});
+
+test('lastRebuild keeps tenant_id a bound $1 parameter, never interpolated', async () => {
+  const pg = createPgFake([{ match: 'FROM trade_graph_rebuilds', rows: [] }]);
+  await lastRebuild(pg, TENANT);
+  const { text, params } = pg.calls[0];
+  assert.match(text, /WHERE\s+tenant_id\s*=\s*\$1/i);
+  assert.deepEqual(params, [TENANT]);
+  assert.doesNotMatch(text, new RegExp(TENANT), 'the tenant must never be interpolated into the SQL');
+});
+
+test('lastRebuild preserves requested_at on the returned record', async () => {
+  const row = {
+    id: 'rb-1', status: 'COMPLETED', requested_at: '2026-07-29T00:00:00.000Z',
+    completed_at: '2026-07-29T00:05:00.000Z', events_processed: 7, events_failed: 0,
+    nodes_rebuilt: 3, edges_rebuilt: 4, reason: 'operator',
+  };
+  const pg = createPgFake([{ match: 'FROM trade_graph_rebuilds', rows: [row] }]);
+  const out = await lastRebuild(pg, TENANT);
+  assert.equal(out.requested_at, row.requested_at, 'the public contract field must survive');
+  assert.equal(out.status, 'COMPLETED');
+});
+
+test('lastRebuild returns null rather than throwing when a tenant has never rebuilt', async () => {
+  const pg = createPgFake([{ match: 'FROM trade_graph_rebuilds', rows: [] }]);
+  assert.equal(await lastRebuild(pg, TENANT), null);
+});
+
+test('lastRebuild still refuses a missing tenant', async () => {
+  const pg = createPgFake([]);
+  await assert.rejects(() => lastRebuild(pg, null));
+  assert.equal(pg.calls.length, 0, 'it must refuse before issuing any query');
 });
