@@ -1,0 +1,110 @@
+name: 'Diaspora Staging UAT Tenancy (bootstrap / verify / cleanup)'
+
+# A narrowly scoped staging release-operator action, separate from the migration dispatcher.
+#
+# WHY IT IS SEPARATE
+# ------------------
+# `diaspora-staging-gtm-migrations.yml` supports only verify/apply of a pinned ledger set. Repurposing
+# it for a fixture write — or moving its candidate pin to carry one — would destroy the single property
+# that pin exists to give: that what was applied is exactly what was reviewed. So this is its own
+# workflow with its own, much smaller, blast radius.
+#
+# WHAT IT DOES, AND ONLY THIS
+# ---------------------------
+# Creates one clearly-named synthetic staging tenant and ONE `tenant_users` membership at role=dealer
+# for a single synthetic UAT user, so the deployed browser matrix can exercise tenant-scoped surfaces
+# at all. There is no product path that does this: the backend contains zero inserts into `tenants` or
+# `tenant_users`, deliberately, and the staging identity script records that privileged identities must
+# come from the release-operator session.
+#
+# It does NOT touch `users.role`. The verified tenant-role mechanism stays the authority, and the
+# caller obtains their session afterwards through the REAL POST /api/auth/switch-role.
+#
+# WHY THERE IS NO REF, BRANCH OR SQL INPUT
+# ----------------------------------------
+# Any of those would hand the caller arbitrary code or arbitrary statements against a database holding
+# a write-capable credential. THE ONLY INPUT IN THIS ENTIRE MECHANISM IS A TYPED THREE-VALUE `mode`.
+#
+# The subject is hard-pinned in the script itself, not passed in:
+#   · user   u_ebac14cdcf9f41c8   (the gtm729 SELLER fixture)
+#   · tenant 'GTM UAT Tenant [gtm729]'
+#   · role   dealer
+# and u_3891bc6b8c09445a (the tenant-admin fixture) is named there on an explicit do-not-modify list.
+# Changing who or what this touches is therefore a reviewable pull request, which is the point. The
+# script additionally refuses to write unless the pinned id resolves to an @carup-staging.test address.
+# The checkout is pinned to an immutable commit for the same reason the migration dispatcher's is.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'verify = report only; bootstrap = create tenant + membership; cleanup = remove them'
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - bootstrap
+          - cleanup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: diaspora-staging-uat-tenancy
+  cancel-in-progress: false
+
+env:
+  # The reviewed commit whose script is executed. Changing this is a reviewable pull request.
+  CANDIDATE_SHA: a5bd4d40baf04cc78cacf9ff6326cbcfe5d44ce6
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  tenancy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+
+    # Same two independent gates as the migration dispatcher: the workflow definition must be main's
+    # reviewed copy, and only the owner may dispatch it.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: a5bd4d40baf04cc78cacf9ff6326cbcfe5d44ce6
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected $CANDIDATE_SHA"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The credential is deliberately NOT in scope here: dependency installation runs third-party
+      # code and has no reason to see a database URL.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      # The only step the secret is exposed to.
+      #
+      # The script enforces its own guards, which this workflow does not duplicate or weaken:
+      #   · the URL must positively reference the approved staging ref;
+      #   · any URL carrying the production project ref is refused outright;
+      #   · the user id must match u_<16 hex> AND resolve to an @carup-staging.test address;
+      #   · every write is one transaction whose touched-row counts are asserted before COMMIT, so an
+      #     unexpectedly broad statement rolls back instead of landing;
+      #   · users.role is never written;
+      #   · cleanup removes the tenant only when no membership and no dependent row remains.
+      - name: 'Run the tenancy operation'
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+        run: |
+          node backend/scripts/staging-uat-tenancy-bootstrap.mjs --mode="${{ inputs.mode }}"
