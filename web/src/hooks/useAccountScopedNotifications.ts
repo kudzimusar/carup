@@ -1,8 +1,94 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { presentUserNotifications, type PresentedUserNotification } from '@/lib/userNotifications'
 
-type Snapshot = { userId: string; items: PresentedUserNotification[] }
-type Failure = { userId: string; message: string }
+type StoreState = {
+  userId: string | null
+  items: PresentedUserNotification[]
+  loading: boolean
+  error: string
+  generation: number
+  inFlight: Promise<void> | null
+}
+
+let store: StoreState = {
+  userId: null,
+  items: [],
+  loading: false,
+  error: '',
+  generation: 0,
+  inFlight: null,
+}
+
+const listeners = new Set<() => void>()
+
+function publish(next: StoreState) {
+  store = next
+  for (const listener of listeners) listener()
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function getSnapshot() {
+  return store
+}
+
+function clearAccount() {
+  publish({
+    userId: null,
+    items: [],
+    loading: false,
+    error: '',
+    generation: store.generation + 1,
+    inFlight: null,
+  })
+}
+
+async function loadAccount(userId: string, fetchNotifications: () => Promise<unknown>) {
+  if (store.userId !== userId) {
+    publish({
+      userId,
+      items: [],
+      loading: false,
+      error: '',
+      generation: store.generation + 1,
+      inFlight: null,
+    })
+  }
+  if (store.userId === userId && store.inFlight) return store.inFlight
+
+  const generation = store.generation + 1
+  let request: Promise<void>
+  request = (async () => {
+    try {
+      const items = presentUserNotifications(await fetchNotifications())
+      if (store.userId === userId && store.generation === generation) {
+        publish({ ...store, items, loading: false, error: '', inFlight: null })
+      }
+    } catch (error) {
+      if (store.userId === userId && store.generation === generation) {
+        publish({
+          ...store,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Unable to load notifications',
+          inFlight: null,
+        })
+      }
+    }
+  })()
+
+  publish({
+    ...store,
+    userId,
+    loading: true,
+    error: '',
+    generation,
+    inFlight: request,
+  })
+  return request
+}
 
 export function useAccountScopedNotifications({
   userId,
@@ -13,50 +99,25 @@ export function useAccountScopedNotifications({
   enabled: boolean
   fetchNotifications: () => Promise<unknown>
 }) {
-  const generation = useRef(0)
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [loadingUserId, setLoadingUserId] = useState<string | null>(null)
-  const [failure, setFailure] = useState<Failure | null>(null)
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   const refresh = useCallback(async () => {
     if (!enabled || !userId) return
-    const requestUserId = userId
-    const requestGeneration = ++generation.current
-    setLoadingUserId(requestUserId)
-    setFailure(null)
-    try {
-      const items = presentUserNotifications(await fetchNotifications())
-      if (generation.current === requestGeneration) setSnapshot({ userId: requestUserId, items })
-    } catch (error) {
-      if (generation.current === requestGeneration) {
-        setFailure({
-          userId: requestUserId,
-          message: error instanceof Error ? error.message : 'Unable to load notifications',
-        })
-      }
-    } finally {
-      if (generation.current === requestGeneration) setLoadingUserId(null)
-    }
+    await loadAccount(userId, fetchNotifications)
   }, [enabled, fetchNotifications, userId])
 
   useEffect(() => {
     if (!enabled || !userId) {
-      generation.current += 1
+      if (store.userId !== null) clearAccount()
       return
     }
-    // The request is account-scoped and generation-guarded; stale responses cannot update a new user.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh()
-    return () => { generation.current += 1 }
   }, [enabled, refresh, userId])
 
-  const items = snapshot && snapshot.userId === userId ? snapshot.items : []
-  const error = failure && failure.userId === userId ? failure.message : ''
-
   return {
-    items,
-    loading: loadingUserId === userId,
-    error,
+    items: snapshot.userId === userId ? snapshot.items : [],
+    loading: snapshot.userId === userId && snapshot.loading,
+    error: snapshot.userId === userId ? snapshot.error : '',
     refresh,
   }
 }
