@@ -82,7 +82,6 @@ export default function DiasporaTradeProfile() {
   const [roleType, setRoleType] = useState('buyer')
   const [country, setCountry] = useState('')
   const [city, setCity] = useState('')
-  const [org, setOrg] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [formResult, setFormResult] = useState('')
@@ -159,7 +158,6 @@ export default function DiasporaTradeProfile() {
     setRoleType((profile.role_type || 'buyer').toLowerCase())
     setCountry(profile.country || '')
     setCity(profile.city || '')
-    setOrg(profile.organization_id || '')
     setFormResult('')
     setFormError('')
   }
@@ -170,7 +168,6 @@ export default function DiasporaTradeProfile() {
     setRoleType('buyer')
     setCountry('')
     setCity('')
-    setOrg('')
   }
 
   const submitForm = async () => {
@@ -187,10 +184,11 @@ export default function DiasporaTradeProfile() {
     setFormResult('')
     try {
       if (editingId) {
+        // Organization membership is intentionally not self-service. Preserve any existing
+        // organization assignment by omitting organization_id from user-editable updates.
         await updateDiasporaTradeProfile(editingId, {
           country: country.trim(),
           city: city.trim(),
-          organization_id: org.trim() || null,
           expected_updated_at: editingUpdatedAt,
         })
         setFormResult('Profile updated.')
@@ -200,7 +198,6 @@ export default function DiasporaTradeProfile() {
           role_type: resolvedRole,
           country: country.trim(),
           city: city.trim(),
-          organization_id: org.trim() || null,
         })
         setFormResult('Profile created and submitted for review.')
       }
@@ -343,6 +340,9 @@ export default function DiasporaTradeProfile() {
       {/* Create / edit form */}
       <section className="mt-6 rounded-lg border border-gray-200 bg-white p-4" data-testid="diaspora-trade-profile-form">
         <h2 className="text-base font-semibold text-gray-900">{editingId ? 'Edit profile' : 'Create profile'}</h2>
+        <p className="mt-1 text-xs text-gray-500" data-testid="diaspora-trade-profile-organization-note">
+          Organization membership is assigned from an approved organization record by an authorized administrator; it cannot be entered as free text.
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm text-gray-700">
             Role
@@ -355,10 +355,6 @@ export default function DiasporaTradeProfile() {
             >
               {ROLE_TYPE_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
-          </label>
-          <label className="text-sm text-gray-700">
-            Organization (optional)
-            <Input value={org} onChange={event => setOrg(event.target.value)} className="mt-1" data-testid="diaspora-trade-profile-org" />
           </label>
           <label className="text-sm text-gray-700">
             Country
