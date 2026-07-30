@@ -33,6 +33,8 @@ export default function NotificationCenter() {
   }, [fetchNotifications, isAuthenticated, user])
 
   useEffect(() => {
+    // The loader immediately exposes a truthful pending state before awaiting the account-scoped request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!authLoading && isAuthenticated) void load()
   }, [authLoading, isAuthenticated, load])
 

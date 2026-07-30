@@ -141,10 +141,7 @@ export default function Navbar() {
   }, [fetchMarketplaceNavCoverage])
 
   useEffect(() => {
-    if (!user) {
-      setUserNotifications([])
-      return
-    }
+    if (!user) return
     let cancelled = false
     fetchNotifications()
       .then(rows => { if (!cancelled) setUserNotifications(presentUserNotifications(rows)) })
@@ -152,7 +149,8 @@ export default function Navbar() {
     return () => { cancelled = true }
   }, [fetchNotifications, user])
 
-  const unreadCount = userNotifications.filter(notification => !notification.read).length
+  const visibleUserNotifications = user ? userNotifications : []
+  const unreadCount = visibleUserNotifications.filter(notification => !notification.read).length
   const switchableRoles = user
     ? getAuthorizedPortalRoles(user).filter(role => role !== user.role)
     : []
@@ -268,10 +266,10 @@ export default function Navbar() {
                 {!user && (
                   <div className="px-3 py-5 text-center text-sm text-gray-500">Sign in to see account notifications.</div>
                 )}
-                {user && userNotifications.length === 0 && (
+                {user && visibleUserNotifications.length === 0 && (
                   <div className="px-3 py-5 text-center text-sm text-gray-500" data-testid="notification-menu-empty">No notifications yet.</div>
                 )}
-                {userNotifications.slice(0, 5).map((notification) => notification.href ? (
+                {visibleUserNotifications.slice(0, 5).map((notification) => notification.href ? (
                   <DropdownMenuItem key={notification.id} asChild>
                     <Link to={notification.href} className="cursor-pointer p-3" data-testid="notification-menu-item">
                       <NotificationPreview notification={notification} />
