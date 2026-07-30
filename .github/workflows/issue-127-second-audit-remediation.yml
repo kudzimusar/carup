@@ -1,0 +1,915 @@
+name: Issue 127 second audit remediation
+
+on:
+  push:
+    branches:
+      - fix/issue-127-uat-remediation
+    paths:
+      - .github/workflows/issue-127-second-audit-remediation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  remediate-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-127-uat-remediation
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Assert and apply second-audit corrections
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          Path('backend/middleware/authMiddleware.js').write_text(r'''import { supabase } from '../db/supabase.js';
+
+const PLATFORM_ADMIN_ROLES = new Set(['admin', 'platform_admin', 'super_admin']);
+
+function normalizeRole(role) {
+  return role ? String(role).toLowerCase() : null;
+}
+
+export function isUserIdFallbackAllowed(env = process.env) {
+  return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true' ||
+    env.NODE_ENV === 'test' ||
+    env.NODE_ENV === 'development' ||
+    env.NODE_ENV === 'local';
+}
+
+export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRole = null }) {
+  const platformRole = normalizeRole(userRole) || 'member';
+  const trustedTenantRole = normalizeRole(tenantRole);
+  const requested = normalizeRole(requestedRole);
+
+  if (!requested) return platformRole;
+  if (requested === platformRole) return requested;
+  if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') return requested;
+
+  const error = new Error(`Forbidden. Requested role '${requested}' is not verified for this user context.`);
+  error.statusCode = 403;
+  throw error;
+}
+
+async function loadSession(sessionToken) {
+  const { data: session, error } = await supabase
+    .from('user_sessions')
+    .select('user_id, is_valid, expires_at, active_role, active_organization_id')
+    .eq('token', sessionToken)
+    .single();
+  if (error || !session || !session.is_valid || new Date(session.expires_at) < new Date()) return null;
+  return session;
+}
+
+async function loadTenantRole(userId, tenantId) {
+  if (!tenantId) return null;
+  const { data: tenantUser, error } = await supabase
+    .from('tenant_users')
+    .select('role')
+    .eq('tenant_id', tenantId)
+    .eq('user_id', userId)
+    .single();
+  if (error || !tenantUser) return null;
+  return normalizeRole(tenantUser.role);
+}
+
+export function authorizeRole(allowedRoles = []) {
+  return async (req, res, next) => {
+    const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+    const tenantIdHeader = req.headers['x-tenant-id'] ? String(req.headers['x-tenant-id']) : null;
+    const requestedRoleHeader = normalizeRole(req.headers['x-stakeholder-role']);
+    const fallbackUserId = req.headers['x-user-id'];
+
+    try {
+      let activeUserId = null;
+      let sessionRole = null;
+      let sessionTenantId = null;
+      const session = sessionToken ? await loadSession(sessionToken) : null;
+
+      if (sessionToken && !session) {
+        return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
+      }
+      if (session) {
+        activeUserId = session.user_id;
+        sessionRole = normalizeRole(session.active_role);
+        sessionTenantId = session.active_organization_id ? String(session.active_organization_id) : null;
+      }
+
+      if (!activeUserId && fallbackUserId) {
+        if (!isUserIdFallbackAllowed()) {
+          return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
+        }
+        activeUserId = fallbackUserId;
+      }
+      if (!activeUserId) {
+        return res.status(401).json({ error: 'Unauthorized. No active user context.' });
+      }
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('role, is_verified')
+        .eq('id', activeUserId)
+        .single();
+      if (userError || !user) {
+        return res.status(401).json({ error: 'Unauthorized. User record not found.' });
+      }
+
+      const platformRole = normalizeRole(user.role) || 'member';
+      const sessionBacked = Boolean(session);
+      const effectiveTenantId = sessionBacked ? sessionTenantId : tenantIdHeader;
+
+      // A token establishes its own active role and tenant. Client headers may repeat that context,
+      // but cannot replace it. This prevents stale/tampered localStorage from redefining a session.
+      if (sessionBacked && tenantIdHeader && tenantIdHeader !== sessionTenantId) {
+        return res.status(403).json({ error: 'Forbidden. Requested tenant does not match the active session.' });
+      }
+      if (sessionBacked && requestedRoleHeader && sessionRole && requestedRoleHeader !== sessionRole) {
+        return res.status(403).json({ error: 'Forbidden. Requested role does not match the active session.' });
+      }
+
+      const tenantRole = effectiveTenantId ? await loadTenantRole(activeUserId, effectiveTenantId) : null;
+      if (effectiveTenantId && !tenantRole) {
+        return res.status(403).json({ error: 'Forbidden. You do not have access to this tenant organization.' });
+      }
+
+      const roleCandidate = sessionBacked ? (sessionRole || platformRole) : requestedRoleHeader;
+      const effectiveRole = resolveEffectiveRole({
+        userRole: platformRole,
+        tenantRole,
+        requestedRole: roleCandidate,
+      });
+      const allowed = allowedRoles.map(normalizeRole);
+
+      if (allowed.length > 0 && !allowed.includes(effectiveRole) && !PLATFORM_ADMIN_ROLES.has(platformRole)) {
+        return res.status(403).json({ error: `Forbidden. Role '${effectiveRole}' cannot access this resource.` });
+      }
+
+      req.userContext = {
+        id: activeUserId,
+        userId: activeUserId,
+        role: effectiveRole,
+        effectiveRole,
+        baseRole: platformRole,
+        platformRole,
+        tenantRole,
+        tenantId: effectiveTenantId || null,
+        requestedRole: roleCandidate,
+        isVerified: Boolean(user.is_verified),
+      };
+      next();
+    } catch (error) {
+      res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  };
+}
+
+/** Optional authentication for public routes. A valid token still uses its session role/tenant. */
+export function optionalAuth() {
+  return async (req, _res, next) => {
+    const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
+    const fallbackUserId = req.headers['x-user-id'];
+    try {
+      const session = sessionToken ? await loadSession(sessionToken) : null;
+      let activeUserId = session?.user_id || null;
+      if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) activeUserId = fallbackUserId;
+      if (activeUserId) {
+        const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
+        const platformRole = normalizeRole(user?.role) || 'member';
+        const tenantId = session?.active_organization_id ? String(session.active_organization_id) : null;
+        const tenantRole = tenantId ? await loadTenantRole(activeUserId, tenantId) : null;
+        const role = session
+          ? resolveEffectiveRole({ userRole: platformRole, tenantRole, requestedRole: session.active_role })
+          : platformRole;
+        req.userContext = {
+          id: activeUserId,
+          userId: activeUserId,
+          role,
+          effectiveRole: role,
+          platformRole,
+          tenantRole,
+          tenantId,
+          isVerified: Boolean(user?.is_verified),
+        };
+      }
+    } catch {
+      // Best-effort only — never block a public request on optional auth resolution.
+    }
+    next();
+  };
+}
+''')
+
+          Path('backend/services/notifications').mkdir(parents=True, exist_ok=True)
+          Path('backend/services/notifications/userNotificationService.js').write_text(r'''const DEFAULT_LIMIT = 100;
+
+export async function listUserNotifications(supabaseClient, recipientId, { limit = DEFAULT_LIMIT } = {}) {
+  const boundedLimit = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, DEFAULT_LIMIT));
+  const [currentResult, legacyResult] = await Promise.all([
+    supabaseClient
+      .from('notification_queue')
+      .select('*')
+      .eq('recipient_user_id', recipientId)
+      .order('created_at', { ascending: false })
+      .limit(boundedLimit),
+    supabaseClient
+      .from('notification_queue')
+      .select('*')
+      .is('recipient_user_id', null)
+      .eq('recipient_id', recipientId)
+      .order('created_at', { ascending: false })
+      .limit(boundedLimit),
+  ]);
+
+  if (currentResult.error) throw currentResult.error;
+  if (legacyResult.error) throw legacyResult.error;
+
+  const byId = new Map();
+  for (const notification of [...(currentResult.data || []), ...(legacyResult.data || [])]) {
+    if (notification?.id) byId.set(notification.id, notification);
+  }
+  return [...byId.values()]
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+    .slice(0, boundedLimit);
+}
+''')
+
+          replace_once(
+              'backend/server.js',
+              "import { buildSessionRow } from './services/auth/sessionRow.js';\n",
+              "import { buildSessionRow } from './services/auth/sessionRow.js';\nimport { listUserNotifications } from './services/notifications/userNotificationService.js';\n",
+          )
+          replace_once(
+              'backend/server.js',
+              """    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();""",
+              """    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, name, email, phone, role, avatar')
+      .eq('id', userId)
+      .single();""",
+          )
+          replace_once(
+              'backend/server.js',
+              """    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, name, email, phone, role')
+      .eq('id', req.userContext.id)
+      .single();
+    if (error || !user) {
+      return res.status(401).json({ error: 'Unauthorized. User record not found.' });
+    }
+    res.json({ user });""",
+              """    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, name, email, phone, role, avatar')
+      .eq('id', req.userContext.id)
+      .single();
+    if (error || !user) {
+      return res.status(401).json({ error: 'Unauthorized. User record not found.' });
+    }
+    res.json({
+      user: {
+        ...user,
+        role: req.userContext.role,
+        active_tenant_id: req.userContext.tenantId || null,
+      },
+    });""",
+          )
+          old_notifications = """// GET /api/notifications/me - Get user notifications
+app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'mechanic', 'bank', 'insurance', 'government', 'admin', 'platform_admin', 'super_admin', 'reviewer']), async (req, res) => {
+  try {
+    const recipientId = req.userContext.id;
+    const [legacyResult, currentResult] = await Promise.all([
+      supabase
+        .from('notification_queue')
+        .select('*')
+        .eq('recipient_id', recipientId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('notification_queue')
+        .select('*')
+        .eq('recipient_user_id', recipientId)
+        .order('created_at', { ascending: false }),
+    ]);
+
+    if (legacyResult.error) throw legacyResult.error;
+    if (currentResult.error) throw currentResult.error;
+
+    const byId = new Map();
+    for (const notification of [...(legacyResult.data || []), ...(currentResult.data || [])]) {
+      if (notification?.id) byId.set(notification.id, notification);
+    }
+    const data = [...byId.values()].sort((a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching notifications:', error)
+    res.status(500).json({ error: error.message })
+  }
+})"""
+          new_notifications = """// GET /api/notifications/me - Get caller-scoped notifications.
+// Current rows use recipient_user_id. Legacy recipient_id rows are considered only when the
+// canonical column is NULL, so a malformed row cannot become visible to two different accounts.
+app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'mechanic', 'bank', 'insurance', 'government', 'admin', 'platform_admin', 'super_admin', 'reviewer']), async (req, res) => {
+  try {
+    res.json(await listUserNotifications(supabase, req.userContext.id));
+  } catch (error) {
+    console.error('Error fetching notifications:', error)
+    res.status(500).json({ error: error.message })
+  }
+})"""
+          replace_once('backend/server.js', old_notifications, new_notifications)
+
+          Path('web/src/lib/authorizedPortalRoles.ts').write_text(r'''import type { UserRole } from '@shared/types'
+
+const PORTAL_ROLES = new Set<UserRole>([
+  'owner',
+  'dealer',
+  'mechanic',
+  'bank',
+  'insurance',
+  'government',
+  'admin',
+])
+
+/**
+ * Return only the active role already established by the authenticated session.
+ *
+ * There is currently no server response that supplies verified alternate role + tenant pairs.
+ * Never infer them from localStorage or an undeclared `authorized_roles` property. The UI therefore
+ * fails closed and hides role switching until a future backend contract returns governed options.
+ */
+export function getAuthorizedPortalRoles(
+  user: { role?: UserRole | null } | null | undefined,
+): UserRole[] {
+  return user?.role && PORTAL_ROLES.has(user.role) ? [user.role] : []
+}
+''')
+          Path('web/src/lib/authorizedPortalRoles.test.ts').write_text(r'''import { describe, expect, it } from 'vitest'
+import { getAuthorizedPortalRoles } from './authorizedPortalRoles'
+
+describe('getAuthorizedPortalRoles', () => {
+  it('exposes only the active session role', () => {
+    expect(getAuthorizedPortalRoles({ role: 'owner' })).toEqual(['owner'])
+  })
+
+  it('ignores an untrusted local authorized_roles property', () => {
+    const tampered = {
+      role: 'owner' as const,
+      authorized_roles: ['dealer', 'admin'],
+    }
+    expect(getAuthorizedPortalRoles(tampered)).toEqual(['owner'])
+  })
+
+  it('returns no roles for a missing account', () => {
+    expect(getAuthorizedPortalRoles(null)).toEqual([])
+  })
+})
+''')
+
+          replace_once(
+              'web/src/context/AuthContext.tsx',
+              """    validateStoredSession({ baseUrl: API_BASE, token: stored.token, userId: stored.user?.id })
+      .catch((err: unknown) => {
+        if (!cancelled && err instanceof SessionExpiredError) clearAuth()
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })""",
+              """    validateStoredSession({ baseUrl: API_BASE, token: stored.token, userId: stored.user?.id })
+      .then((authoritativeUser) => {
+        if (cancelled) return
+        setUser(authoritativeUser)
+        storeAuth(localStorage, authoritativeUser, stored.token)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled && err instanceof SessionExpiredError) clearAuth()
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })""",
+          )
+
+          Path('web/src/hooks/useAccountScopedNotifications.ts').write_text(r'''import { useCallback, useEffect, useRef, useState } from 'react'
+import { presentUserNotifications, type PresentedUserNotification } from '@/lib/userNotifications'
+
+type Snapshot = { userId: string; items: PresentedUserNotification[] }
+type Failure = { userId: string; message: string }
+
+export function useAccountScopedNotifications({
+  userId,
+  enabled,
+  fetchNotifications,
+}: {
+  userId?: string | null
+  enabled: boolean
+  fetchNotifications: () => Promise<unknown>
+}) {
+  const generation = useRef(0)
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  const [loadingUserId, setLoadingUserId] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (!enabled || !userId) return
+    const requestUserId = userId
+    const requestGeneration = ++generation.current
+    setLoadingUserId(requestUserId)
+    setFailure(null)
+    try {
+      const items = presentUserNotifications(await fetchNotifications())
+      if (generation.current === requestGeneration) setSnapshot({ userId: requestUserId, items })
+    } catch (err) {
+      if (generation.current === requestGeneration) {
+        setFailure({
+          userId: requestUserId,
+          message: err instanceof Error ? err.message : 'Unable to load notifications',
+        })
+      }
+    } finally {
+      if (generation.current === requestGeneration) setLoadingUserId(null)
+    }
+  }, [enabled, fetchNotifications, userId])
+
+  useEffect(() => {
+    if (!enabled || !userId) {
+      generation.current += 1
+      return
+    }
+    // The request is account-scoped and generation-guarded; stale responses cannot update a new user.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh()
+    return () => { generation.current += 1 }
+  }, [enabled, refresh, userId])
+
+  return {
+    items: snapshot?.userId === userId ? snapshot.items : [],
+    loading: loadingUserId === userId,
+    error: failure?.userId === userId ? failure.message : '',
+    refresh,
+  }
+}
+''')
+
+          replace_once(
+              'web/src/components/layout/Navbar.tsx',
+              "import { presentUserNotifications, type PresentedUserNotification } from '@/lib/userNotifications'\n",
+              "import type { PresentedUserNotification } from '@/lib/userNotifications'\nimport { useAccountScopedNotifications } from '@/hooks/useAccountScopedNotifications'\n",
+          )
+          replace_once(
+              'web/src/components/layout/Navbar.tsx',
+              """  const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
+  const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
+  const [userNotifications, setUserNotifications] = useState<PresentedUserNotification[]>([])""",
+              """  const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
+  const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
+  const { items: userNotifications } = useAccountScopedNotifications({
+    userId: user?.id,
+    enabled: Boolean(user),
+    fetchNotifications,
+  })""",
+          )
+          replace_once(
+              'web/src/components/layout/Navbar.tsx',
+              """  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    fetchNotifications()
+      .then(rows => { if (!cancelled) setUserNotifications(presentUserNotifications(rows)) })
+      .catch(() => { if (!cancelled) setUserNotifications([]) })
+    return () => { cancelled = true }
+  }, [fetchNotifications, user])
+
+  const visibleUserNotifications = user ? userNotifications : []""",
+              """  const visibleUserNotifications = user ? userNotifications : []""",
+          )
+
+          Path('web/src/pages/NotificationCenter.tsx').write_text(r'''import { Link, Navigate } from 'react-router-dom'
+import { AlertCircle, Bell, ExternalLink, Loader2 } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { useAuth } from '@/context/AuthContext'
+import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAccountScopedNotifications } from '@/hooks/useAccountScopedNotifications'
+import { buildLoginRedirect } from '@/lib/returnTo'
+
+export default function NotificationCenter() {
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
+  const { fetchNotifications } = useCarUpApi()
+  const { notifications, loading, error, refresh } = (() => {
+    const state = useAccountScopedNotifications({
+      userId: user?.id,
+      enabled: isAuthenticated && Boolean(user),
+      fetchNotifications,
+    })
+    return { notifications: state.items, loading: state.loading, error: state.error, refresh: state.refresh }
+  })()
+
+  if (!authLoading && !isAuthenticated) {
+    return <Navigate to={buildLoginRedirect('/notifications')} replace />
+  }
+
+  return (
+    <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8" data-testid="notification-center-page">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Bell className="h-6 w-6 text-orange-600" aria-hidden="true" />
+            <h1 className="text-2xl font-bold text-gray-950">Notifications</h1>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">Account-scoped updates for {user?.name || 'your account'}.</p>
+        </div>
+        <Button asChild variant="outline"><Link to="/dashboard">Return to dashboard</Link></Button>
+      </div>
+
+      {loading && (
+        <div className="mt-8 flex items-center gap-2 text-sm text-orange-700" data-testid="notification-center-loading">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading notifications…
+        </div>
+      )}
+
+      {!loading && error && (
+        <Alert className="mt-8 border-red-200 bg-red-50" data-testid="notification-center-error">
+          <AlertCircle className="h-4 w-4 text-red-700" aria-hidden="true" />
+          <AlertTitle>Unable to load notifications</AlertTitle>
+          <AlertDescription>
+            <span className="block">{error}</span>
+            <Button size="sm" variant="outline" className="mt-3" onClick={() => void refresh()}>Retry</Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!loading && !error && notifications.length === 0 && (
+        <div className="mt-8 rounded-lg border border-dashed border-gray-300 bg-white px-6 py-12 text-center" data-testid="notification-center-empty">
+          <Bell className="mx-auto h-7 w-7 text-gray-400" aria-hidden="true" />
+          <p className="mt-3 font-medium text-gray-900">No notifications yet</p>
+          <p className="mt-1 text-sm text-gray-500">New account and trade updates will appear here.</p>
+        </div>
+      )}
+
+      {!loading && !error && notifications.length > 0 && (
+        <div className="mt-8 space-y-3" data-testid="notification-center-list">
+          {notifications.map((notification) => (
+            <article
+              key={notification.id}
+              className={`rounded-lg border bg-white p-4 ${notification.read ? 'border-gray-200' : 'border-orange-200 shadow-sm'}`}
+              data-testid="notification-center-row"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    {!notification.read && <span className="h-2 w-2 rounded-full bg-orange-500" aria-label="Unread" />}
+                    <h2 className="font-semibold text-gray-950">{notification.displayTitle}</h2>
+                    {notification.reference && <Badge variant="outline">{notification.reference}</Badge>}
+                  </div>
+                  <p className="mt-2 text-sm text-gray-600">{notification.displayMessage}</p>
+                  <time className="mt-2 block text-xs text-gray-500" dateTime={notification.created_at || undefined}>
+                    {notification.displayTimestamp}
+                  </time>
+                </div>
+                {notification.href && (
+                  <Button asChild size="sm" variant="outline">
+                    <Link to={notification.href} data-testid="notification-center-action">
+                      Open <ExternalLink className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </main>
+  )
+}
+''')
+
+          Path('web/src/hooks/useAccountScopedNotifications.test.tsx').write_text(r'''import { act, renderHook, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { useAccountScopedNotifications } from './useAccountScopedNotifications'
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+const row = (id: string, message: string) => ({ id, message, created_at: '2026-07-30T08:00:00.000Z' })
+
+describe('useAccountScopedNotifications', () => {
+  it('never carries a previous account snapshot into a new account', async () => {
+    const first = deferred<unknown>()
+    const second = deferred<unknown>()
+    const fetchNotifications = vi.fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+
+    const { result, rerender } = renderHook(
+      ({ userId }) => useAccountScopedNotifications({ userId, enabled: true, fetchNotifications }),
+      { initialProps: { userId: 'user-a' } },
+    )
+    await waitFor(() => expect(fetchNotifications).toHaveBeenCalledTimes(1))
+
+    rerender({ userId: 'user-b' })
+    await waitFor(() => expect(fetchNotifications).toHaveBeenCalledTimes(2))
+    expect(result.current.items).toEqual([])
+
+    await act(async () => first.resolve([row('a-1', 'Private A')]))
+    expect(result.current.items).toEqual([])
+
+    await act(async () => second.resolve([row('b-1', 'Private B')]))
+    await waitFor(() => expect(result.current.items.map(item => item.id)).toEqual(['b-1']))
+  })
+
+  it('invalidates an in-flight response when the account is disabled or logs out', async () => {
+    const pending = deferred<unknown>()
+    const fetchNotifications = vi.fn(() => pending.promise)
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useAccountScopedNotifications({ userId: enabled ? 'user-a' : null, enabled, fetchNotifications }),
+      { initialProps: { enabled: true } },
+    )
+    await waitFor(() => expect(fetchNotifications).toHaveBeenCalledTimes(1))
+    rerender({ enabled: false })
+    await act(async () => pending.resolve([row('a-1', 'Private A')]))
+    expect(result.current.items).toEqual([])
+  })
+})
+''')
+
+          Path('web/src/context/AuthContext.sessionTruth.test.tsx').write_text(r'''import { render, screen, waitFor } from '@testing-library/react'
+import { vi, describe, expect, it } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  storeAuth: vi.fn(),
+  validateStoredSession: vi.fn(),
+  setUnauthorizedHandler: vi.fn(),
+  setNavAnalyticsAuthProvider: vi.fn(),
+}))
+
+vi.mock('@/lib/authSession', () => ({
+  readStoredAuth: () => ({
+    user: { id: 'u-1', name: 'Stored User', email: 'u@example.test', role: 'admin' },
+    token: 'session-token',
+  }),
+  storeAuth: mocks.storeAuth,
+  clearStoredAuth: vi.fn(),
+  validateStoredSession: mocks.validateStoredSession,
+}))
+
+vi.mock('@/lib/apiClient', () => ({
+  apiRequest: vi.fn(),
+  resolveApiBaseUrl: () => 'http://api.test',
+  setUnauthorizedHandler: mocks.setUnauthorizedHandler,
+  SessionExpiredError: class SessionExpiredError extends Error {},
+}))
+
+vi.mock('@/lib/navigationAnalytics', () => ({
+  setNavAnalyticsAuthProvider: mocks.setNavAnalyticsAuthProvider,
+}))
+
+const { AuthProvider, useAuth } = await import('./AuthContext')
+
+function Probe() {
+  const { user, loading } = useAuth()
+  return <div data-testid="truth">{loading ? 'loading' : `${user?.role}:${user?.active_tenant_id || 'none'}`}</div>
+}
+
+describe('AuthProvider session truth', () => {
+  it('replaces a stale or tampered stored role with /auth/me truth', async () => {
+    mocks.validateStoredSession.mockResolvedValueOnce({
+      id: 'u-1',
+      name: 'Authoritative User',
+      email: 'u@example.test',
+      role: 'owner',
+      active_tenant_id: null,
+    })
+    render(<AuthProvider><Probe /></AuthProvider>)
+    await waitFor(() => expect(screen.getByTestId('truth').textContent).toBe('owner:none'))
+    expect(mocks.storeAuth).toHaveBeenCalledWith(
+      localStorage,
+      expect.objectContaining({ role: 'owner' }),
+      'session-token',
+    )
+  })
+})
+''')
+
+          Path('backend/tests/user-notification-service.test.js').write_text(r'''import test from 'node:test';
+import assert from 'node:assert/strict';
+import { listUserNotifications } from '../services/notifications/userNotificationService.js';
+
+function query(result, calls) {
+  const chain = {
+    select(value) { calls.push(['select', value]); return chain; },
+    eq(column, value) { calls.push(['eq', column, value]); return chain; },
+    is(column, value) { calls.push(['is', column, value]); return chain; },
+    order(column, options) { calls.push(['order', column, options]); return chain; },
+    limit(value) { calls.push(['limit', value]); return chain; },
+    then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
+  };
+  return chain;
+}
+
+test('notification lookup uses canonical recipient and only NULL-canonical legacy rows', async () => {
+  const currentCalls = [];
+  const legacyCalls = [];
+  let index = 0;
+  const supabase = {
+    from(table) {
+      assert.equal(table, 'notification_queue');
+      index += 1;
+      return index === 1
+        ? query({ data: [{ id: 'current', created_at: '2026-07-30T10:00:00Z' }], error: null }, currentCalls)
+        : query({ data: [{ id: 'legacy', created_at: '2026-07-30T09:00:00Z' }], error: null }, legacyCalls);
+    },
+  };
+
+  const rows = await listUserNotifications(supabase, 'user-a');
+  assert.deepEqual(rows.map(row => row.id), ['current', 'legacy']);
+  assert.ok(currentCalls.some(call => call[0] === 'eq' && call[1] === 'recipient_user_id' && call[2] === 'user-a'));
+  assert.ok(legacyCalls.some(call => call[0] === 'is' && call[1] === 'recipient_user_id' && call[2] === null));
+  assert.ok(legacyCalls.some(call => call[0] === 'eq' && call[1] === 'recipient_id' && call[2] === 'user-a'));
+  assert.ok(currentCalls.some(call => call[0] === 'limit' && call[1] === 100));
+  assert.ok(legacyCalls.some(call => call[0] === 'limit' && call[1] === 100));
+});
+
+test('notification lookup deduplicates and sorts the bounded result', async () => {
+  let index = 0;
+  const supabase = {
+    from() {
+      index += 1;
+      return query({
+        data: index === 1
+          ? [{ id: 'same', created_at: '2026-07-30T08:00:00Z' }, { id: 'new', created_at: '2026-07-30T11:00:00Z' }]
+          : [{ id: 'same', created_at: '2026-07-30T08:00:00Z' }, { id: 'old', created_at: '2026-07-29T11:00:00Z' }],
+        error: null,
+      }, []);
+    },
+  };
+  const rows = await listUserNotifications(supabase, 'user-a');
+  assert.deepEqual(rows.map(row => row.id), ['new', 'same', 'old']);
+});
+''')
+
+          # Strengthen the existing session-contract integration test so a switched token must recover
+          # its role and tenant without trusting client role/tenant headers.
+          replace_once(
+              'backend/tests/user-sessions-auth-contract.test.js',
+              """  if (op.table === 'users') {
+    const u = store.users[op.filters.id];
+    return u ? { data: u, error: null } : { data: null, error: { message: 'no user' } };
+  }
+  return { data: null, error: null };""",
+              """  if (op.table === 'users') {
+    const u = store.users[op.filters.id];
+    return u ? { data: u, error: null } : { data: null, error: { message: 'no user' } };
+  }
+  if (op.table === 'tenant_users') {
+    const row = store.tenantUsers.find((item) =>
+      item.user_id === op.filters.user_id && item.tenant_id === op.filters.tenant_id);
+    return row ? { data: row, error: null } : { data: null, error: { message: 'no membership' } };
+  }
+  return { data: null, error: null };""",
+          )
+          replace_once(
+              'backend/tests/user-sessions-auth-contract.test.js',
+              """    res.json({ user });""",
+              """    res.json({
+      user: {
+        ...user,
+        role: req.userContext.role,
+        active_tenant_id: req.userContext.tenantId || null,
+      },
+    });""",
+          )
+          replace_once(
+              'backend/tests/user-sessions-auth-contract.test.js',
+              """  store = { sessions: {}, users: { u1: { id: 'u1', name: 'Buyer', email: 'b@carup.test', phone: '', role: 'owner', is_verified: true } } };""",
+              """  store = {
+    sessions: {},
+    users: { u1: { id: 'u1', name: 'Buyer', email: 'b@carup.test', phone: '', role: 'owner', is_verified: true } },
+    tenantUsers: [{ user_id: 'u1', tenant_id: 'tenant-1', role: 'dealer' }],
+  };""",
+          )
+          marker = """test('expired, invalidated (logout), and unknown tokens are all rejected', async () => {"""
+          insert = """test('/api/auth/me recovers the active switched role and tenant from the token', async () => {
+  const token = 'sk_live_switched_context';
+  await supabase.from('user_sessions').insert(buildSessionRow({
+    userId: 'u1',
+    activeRole: 'dealer',
+    token,
+    expiresAt: future(),
+    tenantId: 'tenant-1',
+  }));
+  const { status, body } = await getMe({ 'x-session-token': token });
+  assert.equal(status, 200);
+  assert.equal(body.user.role, 'dealer');
+  assert.equal(body.user.active_tenant_id, 'tenant-1');
+});
+
+""" + marker
+          replace_once('backend/tests/user-sessions-auth-contract.test.js', marker, insert)
+          PY
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Targeted web regression tests
+        run: |
+          npm exec --workspace=web vitest -- run \
+            src/pages/diaspora/DiasporaRequestLoopRegression.test.tsx \
+            src/pages/diaspora/DiasporaDriveConnections.test.tsx \
+            src/pages/diaspora/DiasporaTradeProfile.requests.test.tsx \
+            src/pages/diaspora/DiasporaTradeProfile.organization.test.tsx \
+            src/lib/authorizedPortalRoles.test.ts \
+            src/lib/diasporaDocumentChecklist.test.ts \
+            src/lib/pendingReturnTo.test.ts \
+            src/lib/userNotifications.test.ts \
+            src/hooks/useAccountScopedNotifications.test.tsx \
+            src/context/AuthContext.sessionTruth.test.tsx
+
+      - name: Targeted backend regression tests
+        run: |
+          node --test \
+            backend/tests/user-notification-service.test.js \
+            backend/tests/user-sessions-auth-contract.test.js
+
+      - name: Lint remediation files
+        run: |
+          npm exec --workspace=web eslint -- \
+            src/components/layout/Navbar.tsx \
+            src/pages/NotificationCenter.tsx \
+            src/context/AuthContext.tsx \
+            src/context/AuthContext.sessionTruth.test.tsx \
+            src/hooks/useAccountScopedNotifications.ts \
+            src/hooks/useAccountScopedNotifications.test.tsx \
+            src/lib/authorizedPortalRoles.ts \
+            src/lib/authorizedPortalRoles.test.ts
+
+      - name: Production web build
+        run: npm run build
+
+      - name: Backend syntax
+        run: |
+          node --check backend/server.js
+          node --check backend/middleware/authMiddleware.js
+          node --check backend/services/notifications/userNotificationService.js
+
+      - name: Record verified correction and remove temporary workflow
+        shell: bash
+        run: |
+          cat > docs/testing/issue-127-second-audit-verification.md <<'EOF'
+          # Issue #127 second independent regression audit
+
+          The first remediation conclusion was reopened rather than trusted.
+
+          ## Additional defects found and corrected
+
+          1. Notification responses and snapshots were not keyed to the authenticated user. A stale request or an account switch could display a previous account's notification data.
+          2. The client validated `/auth/me` but discarded the authoritative returned user.
+          3. `/auth/me` returned the base database role rather than the active role and tenant recorded in the session.
+          4. Role-selection UI trusted an undeclared `authorized_roles` property that no backend endpoint supplies and that local storage could fabricate.
+          5. The legacy notification compatibility query did not require `recipient_user_id IS NULL`, so a malformed row with conflicting recipient columns could be visible to two accounts.
+          6. The role-switch route selected and returned the complete user row rather than an explicit safe projection.
+
+          ## Verified gates
+
+          - Original P1 request-loop regression suite: PASS
+          - Notification account-transition regression suite: PASS
+          - Session source-of-truth regression suite: PASS
+          - Canonical/legacy notification isolation tests: PASS
+          - Existing Passport, checklist, organization and request lifecycle tests: PASS
+          - Changed-file lint: PASS
+          - Production web build: PASS
+          - Backend syntax: PASS
+
+          Exact deployed staging verification remains a separate gate. No production deployment was performed.
+          EOF
+          rm .github/workflows/issue-127-second-audit-remediation.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add backend web docs/testing/issue-127-second-audit-verification.md .github/workflows/issue-127-second-audit-remediation.yml
+          git commit -m "fix(issue-127): close second-audit account isolation gaps"
+          git push origin HEAD:fix/issue-127-uat-remediation
