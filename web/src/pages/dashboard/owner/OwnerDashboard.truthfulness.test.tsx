@@ -14,8 +14,8 @@ import { MemoryRouter } from 'react-router-dom'
 
 const fetchSafePayEscrows = vi.fn()
 const fetchOwnedVehicles = vi.fn()
-const fetchNotifications = vi.fn()
 const runOcrParsing = vi.fn()
+const notificationState = vi.hoisted(() => ({ notifications: [] as Array<Record<string, unknown>> }))
 
 // Capture every toast so a fabricated "document uploaded/parsed" success cannot slip back in.
 const toastSuccess = vi.fn()
@@ -31,8 +31,18 @@ vi.mock('@/context/AuthContext', () => ({
   }),
 }))
 
+vi.mock('@/context/NotificationContext', () => ({
+  useNotifications: () => ({
+    notifications: notificationState.notifications,
+    unreadCount: notificationState.notifications.filter(notification => !notification.read).length,
+    loading: false,
+    error: '',
+    refresh: vi.fn(),
+  }),
+}))
+
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications }),
+  useCarUpApi: () => ({ runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles }),
 }))
 
 const OwnerDashboard = (await import('./OwnerDashboard')).default
@@ -48,10 +58,10 @@ function renderFreshDashboard() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  notificationState.notifications = []
   // A brand-new account: every authoritative source is legitimately empty.
   fetchSafePayEscrows.mockResolvedValue([])
   fetchOwnedVehicles.mockResolvedValue([])
-  fetchNotifications.mockResolvedValue([])
 })
 
 describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', () => {
@@ -80,8 +90,6 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     renderFreshDashboard()
     await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
 
-    // No authoritative wallet endpoint exists, so a numeric balance (including a misleading $0)
-    // must not be rendered.
     expect(screen.getByTestId('wallet-usd-value').textContent).toMatch(/Not available/i)
     expect(screen.getByTestId('wallet-zig-value').textContent).toMatch(/Not available/i)
     expect(screen.getByTestId('wallet-usd-value').textContent).not.toMatch(/\$\s*\d/)
@@ -120,7 +128,6 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     fetchSafePayEscrows.mockImplementation(() => new Promise(resolve => { release = resolve }))
 
     const { container } = renderFreshDashboard()
-    // Before the request resolves the card must read as loading, never as a balance.
     expect(screen.getByTestId('escrow-usd-value').textContent).toMatch(/Loading/i)
     const text = container.textContent || ''
     for (const forbidden of FORBIDDEN_RENDERED) {
@@ -136,28 +143,35 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     await waitFor(() => expect(screen.getByTestId('escrow-usd-value').textContent).toMatch(/Not available/i))
   })
 
-  it('does not leak another user\'s records: only this session\'s scoped calls are made', async () => {
+  it('does not widen caller-scoped requests or fabricate notifications', async () => {
     renderFreshDashboard()
     await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
 
-    // These endpoints are all caller-scoped server-side; the dashboard must not pass any
-    // user/tenant selector that could widen them.
     expect(fetchOwnedVehicles).toHaveBeenCalledWith()
-    expect(fetchNotifications).toHaveBeenCalledWith()
     expect(fetchSafePayEscrows).toHaveBeenCalledWith()
+    expect(screen.getByTestId('owner-notifications-empty').textContent).toMatch(/No notifications/i)
   })
 
-  it('still renders real vehicles and notifications when the account has them', async () => {
+  it('renders real vehicles and the shared actionable notification state', async () => {
     fetchOwnedVehicles.mockResolvedValue([
       { vin: 'VIN123', year: 2019, make: 'Toyota', model: 'Hilux', mileage: 45000, trust_score: 88 },
     ])
-    fetchNotifications.mockResolvedValue([
-      { id: 'n1', title: 'Service due', message: 'Book a service', type: 'info', read: false },
-    ])
+    notificationState.notifications = [{
+      id: 'n1',
+      displayTitle: 'Service due',
+      displayMessage: 'Book a service',
+      displayTimestamp: 'Jul 30, 2026, 5:00 PM GMT+9',
+      created_at: '2026-07-30T08:00:00.000Z',
+      reference: 'VIN123',
+      href: '/dashboard/service-history',
+      read: false,
+    }]
     const { container } = renderFreshDashboard()
 
     await waitFor(() => expect(container.textContent).toContain('Toyota'))
     expect(container.textContent).toContain('Service due')
+    expect(container.textContent).toContain('VIN123')
+    expect(screen.getByTestId('owner-notification-link').getAttribute('href')).toBe('/dashboard/service-history')
   })
 
   it('the source no longer contains the prototype constants', () => {
@@ -169,13 +183,6 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
   })
 })
 
-/**
- * Owner-review blocker (2026-07-27): the "Upload & Parse Logbook" control called the OCR endpoint
- * with a hardcoded mock payload, so a user who never selected a file still received a success
- * message and a fabricated document row. Labelling that row "Not stored" did not make the operation
- * truthful — the click itself fabricated the event. The control is now disabled and no simulated
- * upload path exists.
- */
 describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () => {
   it('the source contains no mock OCR payload and no OCR call at all', () => {
     expect(SRC).not.toContain('MOCK_BASE64_DOCUMENT_DATA')
@@ -189,7 +196,6 @@ describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () =>
     await waitFor(() => expect(fetchSafePayEscrows).toHaveBeenCalled())
     expect(runOcrParsing).not.toHaveBeenCalled()
 
-    // The control is disabled, so a click cannot start a document operation without a real file.
     const button = screen.getByTestId('ocr-upload-btn') as HTMLButtonElement
     expect(button.disabled).toBe(true)
     await act(async () => { fireEvent.click(button) })
@@ -204,7 +210,6 @@ describe('OwnerDashboard document upload truthfulness (no simulated OCR)', () =>
 
     const claims = toastSuccess.mock.calls.flat().join(' ')
     expect(claims).not.toMatch(/upload|parsed|document|verified/i)
-    // The source must not contain a document-success toast either.
     expect(SRC).not.toMatch(/toast\.success\([^)]*(?:parsed|uploaded|Document)/i)
   })
 
