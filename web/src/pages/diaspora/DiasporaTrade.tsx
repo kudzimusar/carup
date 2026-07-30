@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
-import { buildDiasporaRequiredDocumentChecklist } from '@/lib/diasporaDocumentChecklist'
+import { buildDiasporaRequiredDocumentChecklist, DIASPORA_REQUIRED_DOCUMENT_RULES } from '@/lib/diasporaDocumentChecklist'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
@@ -656,7 +656,7 @@ export function DiasporaLanding() {
             <Badge variant="outline" data-testid="diaspora-documents-preview-badge">Order scoped</Badge>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {requiredDocuments.map((documentName, index) => (
+            {DIASPORA_REQUIRED_DOCUMENT_RULES.map(({ label: documentName }, index) => (
               <div key={documentName} className="rounded-md border border-gray-100 p-3" data-testid="diaspora-documents-preview-row">
                 <FileText className="h-4 w-4 text-orange-600" />
                 <p className="mt-2 text-sm font-medium text-gray-900" data-testid={`diaspora-documents-preview-name-${index}`}>{documentName}</p>
