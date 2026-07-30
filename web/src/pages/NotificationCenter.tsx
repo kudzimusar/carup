@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { AlertCircle, Bell, ExternalLink, Loader2 } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -6,37 +5,22 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAccountScopedNotifications } from '@/hooks/useAccountScopedNotifications'
 import { buildLoginRedirect } from '@/lib/returnTo'
-import { presentUserNotifications, type PresentedUserNotification } from '@/lib/userNotifications'
 
 export default function NotificationCenter() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
   const { fetchNotifications } = useCarUpApi()
-  const [notifications, setNotifications] = useState<PresentedUserNotification[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const inFlight = useRef(false)
-
-  const load = useCallback(async () => {
-    if (!isAuthenticated || !user || inFlight.current) return
-    inFlight.current = true
-    setLoading(true)
-    setError('')
-    try {
-      setNotifications(presentUserNotifications(await fetchNotifications()))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load notifications')
-    } finally {
-      setLoading(false)
-      inFlight.current = false
-    }
-  }, [fetchNotifications, isAuthenticated, user])
-
-  useEffect(() => {
-    // The loader immediately exposes a truthful pending state before awaiting the account-scoped request.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!authLoading && isAuthenticated) void load()
-  }, [authLoading, isAuthenticated, load])
+  const {
+    items: notifications,
+    loading,
+    error,
+    refresh,
+  } = useAccountScopedNotifications({
+    userId: user?.id,
+    enabled: isAuthenticated && Boolean(user),
+    fetchNotifications,
+  })
 
   if (!authLoading && !isAuthenticated) {
     return <Navigate to={buildLoginRedirect('/notifications')} replace />
@@ -67,7 +51,7 @@ export default function NotificationCenter() {
           <AlertTitle>Unable to load notifications</AlertTitle>
           <AlertDescription>
             <span className="block">{error}</span>
-            <Button size="sm" variant="outline" className="mt-3" onClick={() => void load()}>Retry</Button>
+            <Button size="sm" variant="outline" className="mt-3" onClick={() => void refresh()}>Retry</Button>
           </AlertDescription>
         </Alert>
       )}
