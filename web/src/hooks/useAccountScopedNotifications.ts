@@ -60,8 +60,7 @@ async function loadAccount(userId: string, fetchNotifications: () => Promise<unk
   if (store.userId === userId && store.inFlight) return store.inFlight
 
   const generation = store.generation + 1
-  let request: Promise<void>
-  request = (async () => {
+  const request = Promise.resolve().then(async () => {
     try {
       const items = presentUserNotifications(await fetchNotifications())
       if (store.userId === userId && store.generation === generation) {
@@ -77,7 +76,7 @@ async function loadAccount(userId: string, fetchNotifications: () => Promise<unk
         })
       }
     }
-  })()
+  })
 
   publish({
     ...store,
