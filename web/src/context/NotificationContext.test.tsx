@@ -16,7 +16,8 @@ vi.mock('@/hooks/useCarUpApi', () => ({
   useCarUpApi: () => ({ fetchNotifications }),
 }))
 
-const { NotificationProvider, useNotifications } = await import('./NotificationContext')
+const { NotificationProvider } = await import('./NotificationProvider')
+const { useNotifications } = await import('./notificationState')
 
 function Probe({ id }: { id: string }) {
   const { notifications, unreadCount } = useNotifications()
