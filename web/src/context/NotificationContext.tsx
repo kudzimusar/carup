@@ -12,7 +12,15 @@ type NotificationContextValue = {
   refresh: () => Promise<void>
 }
 
-const NotificationContext = createContext<NotificationContextValue | null>(null)
+const EMPTY_NOTIFICATION_CONTEXT: NotificationContextValue = {
+  notifications: [],
+  unreadCount: 0,
+  loading: false,
+  error: '',
+  refresh: async () => {},
+}
+
+const NotificationContext = createContext<NotificationContextValue>(EMPTY_NOTIFICATION_CONTEXT)
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
@@ -37,7 +45,5 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 }
 
 export function useNotifications(): NotificationContextValue {
-  const value = useContext(NotificationContext)
-  if (!value) throw new Error('useNotifications must be used within NotificationProvider')
-  return value
+  return useContext(NotificationContext)
 }
