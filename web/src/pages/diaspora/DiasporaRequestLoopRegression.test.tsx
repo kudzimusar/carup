@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -77,7 +78,7 @@ const DiasporaReverseRfq = (await import('./DiasporaReverseRfq')).default
 const DiasporaContainerMarketplace = (await import('./DiasporaContainerMarketplace')).default
 const DiasporaAiCommandCenter = (await import('./DiasporaAiCommandCenter')).default
 
-function renderPage(page: React.ReactElement) {
+function renderPage(page: ReactElement) {
   return render(<MemoryRouter>{page}</MemoryRouter>)
 }
 
