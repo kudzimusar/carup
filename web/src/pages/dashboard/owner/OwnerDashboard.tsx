@@ -22,21 +22,21 @@ import {
 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Vehicle, Notification, Escrow } from '@/types'
+import { useNotifications } from '@/context/NotificationContext'
+import type { Vehicle, Escrow } from '@/types'
 
 export default function OwnerDashboard() {
-  const { fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications } = useCarUpApi()
+  const { fetchSafePayEscrows, fetchOwnedVehicles } = useCarUpApi()
   const { user } = useAuth()
+  const { notifications: liveNotifications, unreadCount } = useNotifications()
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
     let mounted = true
     fetchOwnedVehicles().then(data => { if (mounted) setVehicles(data) })
-    fetchNotifications().then(data => { if (mounted) setLiveNotifications(data) })
     return () => { mounted = false }
-  }, [fetchOwnedVehicles, fetchNotifications])
+  }, [fetchOwnedVehicles])
 
   const recentNotifications = liveNotifications.slice(0, 3)
 
@@ -87,12 +87,12 @@ export default function OwnerDashboard() {
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border text-xs text-gray-600">
             <WifiOff className={`w-4 h-4 ${lowBandwidth ? 'text-orange-500 animate-pulse' : 'text-gray-400'}`} />
             <span>Low-Bandwidth Mode</span>
-            <input 
-              type="checkbox" 
-              checked={lowBandwidth} 
+            <input
+              type="checkbox"
+              checked={lowBandwidth}
               onChange={() => {
-                setLowBandwidth(!lowBandwidth);
-                toast.success(lowBandwidth ? 'High-quality graphics restored.' : 'Low-bandwidth mode enabled. Images compressed.');
+                setLowBandwidth(!lowBandwidth)
+                toast.success(lowBandwidth ? 'High-quality graphics restored.' : 'Low-bandwidth mode enabled. Images compressed.')
               }}
               className="rounded text-orange-500 focus:ring-orange-400 cursor-pointer h-4 w-4"
             />
@@ -119,8 +119,8 @@ export default function OwnerDashboard() {
               </div>
             </div>
             <Button size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={() => {
-              setWhatsappLinked(true);
-              toast.success('WhatsApp communication verified successfully.');
+              setWhatsappLinked(true)
+              toast.success('WhatsApp communication verified successfully.')
             }}>Verify Now</Button>
           </div>
         </Card>
@@ -306,21 +306,40 @@ export default function OwnerDashboard() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Notifications</CardTitle>
-                <Badge className="bg-orange-100 text-orange-700 text-[10px]">{recentNotifications.filter(n => !n.read).length} new</Badge>
+                <Badge className="bg-orange-100 text-orange-700 text-[10px]">{unreadCount} new</Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {recentNotifications.map((n) => (
-                <div key={n.id} className={`p-3 rounded-lg ${n.read ? 'bg-gray-50' : 'bg-orange-50 border border-orange-100 text-xs'}`}>
-                  <div className="flex items-start gap-2">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${n.type === 'warning' ? 'bg-amber-500' : n.type === 'success' ? 'bg-green-500' : 'bg-blue-500'}`} />
-                    <div>
-                      <p className="font-semibold text-gray-800">{n.title}</p>
-                      <p className="text-gray-500 mt-0.5">{n.message}</p>
+              {recentNotifications.length === 0 && (
+                <p className="text-xs text-gray-500" data-testid="owner-notifications-empty">No notifications yet.</p>
+              )}
+              {recentNotifications.map((notification) => {
+                const content = (
+                  <div className={`p-3 rounded-lg ${notification.read ? 'bg-gray-50' : 'bg-orange-50 border border-orange-100'} text-xs`}>
+                    <div className="flex items-start gap-2">
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${notification.read ? 'bg-gray-300' : 'bg-orange-500'}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="font-semibold text-gray-800">{notification.displayTitle}</p>
+                          {notification.reference && <Badge variant="outline" className="text-[9px]">{notification.reference}</Badge>}
+                        </div>
+                        <p className="text-gray-500 mt-0.5">{notification.displayMessage}</p>
+                        <time className="mt-1 block text-[10px] text-gray-400" dateTime={notification.created_at || undefined}>
+                          {notification.displayTimestamp}
+                        </time>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+                return notification.href ? (
+                  <Link key={notification.id} to={notification.href} data-testid="owner-notification-link">
+                    {content}
+                  </Link>
+                ) : <div key={notification.id}>{content}</div>
+              })}
+              <Button variant="ghost" size="sm" className="w-full text-orange-600" asChild>
+                <Link to="/notifications">View all notifications</Link>
+              </Button>
             </CardContent>
           </Card>
         </div>
