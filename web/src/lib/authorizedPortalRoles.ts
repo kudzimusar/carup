@@ -11,20 +11,14 @@ const PORTAL_ROLES = new Set<UserRole>([
 ])
 
 /**
- * Return only roles that the authenticated account explicitly proves it may assume.
+ * Return only the active role already established by the authenticated session.
  *
- * Older sessions contain only the active `role`. In that case we fail closed and expose no role
- * switch choices. A future/current backend may attach `authorized_roles`; unknown values are
- * discarded and the active role is always retained.
+ * No backend response currently supplies verified alternate role + tenant pairs. Never infer them
+ * from local storage or an undeclared `authorized_roles` property. The UI therefore fails closed
+ * until a governed backend role-options contract exists.
  */
 export function getAuthorizedPortalRoles(
   user: { role?: UserRole | null } | null | undefined,
 ): UserRole[] {
-  const current = user?.role && PORTAL_ROLES.has(user.role) ? user.role : null
-  const raw = (user as ({ authorized_roles?: unknown } | null | undefined))?.authorized_roles
-  const explicit = Array.isArray(raw)
-    ? raw.filter((role): role is UserRole => typeof role === 'string' && PORTAL_ROLES.has(role as UserRole))
-    : []
-
-  return Array.from(new Set<UserRole>([...(current ? [current] : []), ...explicit]))
+  return user?.role && PORTAL_ROLES.has(user.role) ? [user.role] : []
 }
