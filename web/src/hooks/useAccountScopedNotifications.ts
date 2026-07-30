@@ -50,10 +50,13 @@ export function useAccountScopedNotifications({
     return () => { generation.current += 1 }
   }, [enabled, refresh, userId])
 
+  const items = snapshot && snapshot.userId === userId ? snapshot.items : []
+  const error = failure && failure.userId === userId ? failure.message : ''
+
   return {
-    items: snapshot?.userId === userId ? snapshot.items : [],
+    items,
     loading: loadingUserId === userId,
-    error: failure?.userId === userId ? failure.message : '',
+    error,
     refresh,
   }
 }
