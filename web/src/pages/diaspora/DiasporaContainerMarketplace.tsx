@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Container, Loader2, ShieldCheck } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -22,7 +22,15 @@ function fillOf(container: DiasporaMarketplaceContainer) {
 
 export default function DiasporaContainerMarketplace() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
-  const api = useCarUpApi()
+  const {
+    fetchDiasporaMarketplaceContainers,
+    fetchDiasporaContainerReservations,
+    fetchDiasporaContainerCapacity,
+    requestDiasporaReservation,
+    approveDiasporaMarketplaceReservation,
+    rejectDiasporaMarketplaceReservation,
+    closeDiasporaContainerBooking,
+  } = useCarUpApi()
   const role = (user?.role || '').toLowerCase()
   const canView = isAuthenticated && allowedRoles.has(role)
   const isReviewer = reviewerRoles.has(role)
@@ -34,19 +42,22 @@ export default function DiasporaContainerMarketplace() {
   const [error, setError] = useState('')
   const [reserveError, setReserveError] = useState('')
   const [loading, setLoading] = useState(false)
+  const loadInFlight = useRef(false)
 
   const load = useCallback(async () => {
-    if (!canView) return
+    if (!canView || loadInFlight.current) return
+    loadInFlight.current = true
     setLoading(true)
     setError('')
     try {
-      setContainers(await api.fetchDiasporaMarketplaceContainers())
+      setContainers(await fetchDiasporaMarketplaceContainers())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load containers')
     } finally {
       setLoading(false)
+      loadInFlight.current = false
     }
-  }, [api, canView])
+  }, [canView, fetchDiasporaMarketplaceContainers])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (!authLoading && canView) void load() }, [authLoading, canView, load])
@@ -54,14 +65,14 @@ export default function DiasporaContainerMarketplace() {
   const open = async (container: DiasporaMarketplaceContainer) => {
     setSelected(container)
     setReserveError('')
-    try { setReservations(await api.fetchDiasporaContainerReservations(container.id)) } catch { setReservations([]) }
+    try { setReservations(await fetchDiasporaContainerReservations(container.id)) } catch { setReservations([]) }
   }
 
   const refreshSelected = async () => {
     if (!selected) return
-    const cap = await api.fetchDiasporaContainerCapacity(selected.id)
+    const cap = await fetchDiasporaContainerCapacity(selected.id)
     setSelected(cap.container)
-    setReservations(await api.fetchDiasporaContainerReservations(selected.id))
+    setReservations(await fetchDiasporaContainerReservations(selected.id))
     await load()
   }
 
@@ -71,7 +82,7 @@ export default function DiasporaContainerMarketplace() {
     const v = Number(volume)
     if (!(v > 0)) { setReserveError('Enter a positive volume'); return }
     try {
-      await api.requestDiasporaReservation(selected.id, { estimated_volume: v, source: 'ui' })
+      await requestDiasporaReservation(selected.id, { estimated_volume: v, source: 'ui' })
       setVolume('')
       await refreshSelected()
     } catch (err) {
@@ -176,8 +187,8 @@ export default function DiasporaContainerMarketplace() {
                           <TableCell className="space-x-1">
                             {r.reservation_status === 'REQUESTED' && (
                               <>
-                                <Button size="sm" onClick={() => act(() => api.approveDiasporaMarketplaceReservation(r.id))} data-testid="diaspora-container-approve">Approve</Button>
-                                <Button size="sm" variant="outline" onClick={() => act(() => api.rejectDiasporaMarketplaceReservation(r.id))} data-testid="diaspora-container-reject">Reject</Button>
+                                <Button size="sm" onClick={() => act(() => approveDiasporaMarketplaceReservation(r.id))} data-testid="diaspora-container-approve">Approve</Button>
+                                <Button size="sm" variant="outline" onClick={() => act(() => rejectDiasporaMarketplaceReservation(r.id))} data-testid="diaspora-container-reject">Reject</Button>
                               </>
                             )}
                           </TableCell>
@@ -189,7 +200,7 @@ export default function DiasporaContainerMarketplace() {
               </div>
 
               {isReviewer && selected.status === 'BOOKING_OPEN' && (
-                <Button variant="secondary" className="mt-3" onClick={() => act(() => api.closeDiasporaContainerBooking(selected.id))} data-testid="diaspora-container-close-booking">Close booking</Button>
+                <Button variant="secondary" className="mt-3" onClick={() => act(() => closeDiasporaContainerBooking(selected.id))} data-testid="diaspora-container-close-booking">Close booking</Button>
               )}
             </div>
           ) : (
