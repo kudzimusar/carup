@@ -1713,16 +1713,33 @@ app.get('/api/service-history/me', authorizeRole(['owner', 'dealer', 'admin']), 
 })
 
 // GET /api/notifications/me - Get user notifications
-app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
+app.get('/api/notifications/me', authorizeRole(['owner', 'dealer', 'mechanic', 'bank', 'insurance', 'government', 'admin', 'platform_admin', 'super_admin', 'reviewer']), async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('notification_queue')
-      .select('*')
-      .eq('recipient_id', req.userContext.id)
-      .order('created_at', { ascending: false })
+    const recipientId = req.userContext.id;
+    const [legacyResult, currentResult] = await Promise.all([
+      supabase
+        .from('notification_queue')
+        .select('*')
+        .eq('recipient_id', recipientId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('notification_queue')
+        .select('*')
+        .eq('recipient_user_id', recipientId)
+        .order('created_at', { ascending: false }),
+    ]);
 
-    if (error) throw error
-    res.json(data || [])
+    if (legacyResult.error) throw legacyResult.error;
+    if (currentResult.error) throw currentResult.error;
+
+    const byId = new Map();
+    for (const notification of [...(legacyResult.data || []), ...(currentResult.data || [])]) {
+      if (notification?.id) byId.set(notification.id, notification);
+    }
+    const data = [...byId.values()].sort((a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    );
+    res.json(data);
   } catch (error) {
     console.error('Error fetching notifications:', error)
     res.status(500).json({ error: error.message })
