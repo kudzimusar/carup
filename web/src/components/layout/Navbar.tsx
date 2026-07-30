@@ -27,13 +27,14 @@ import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { useAccountScopedNotifications } from '@/hooks/useAccountScopedNotifications'
 import { getDashboardRoute, getRoleMetadata, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { trackNav } from '@/lib/navigationAnalytics'
 import { getAuthorizedPortalRoles } from '@/lib/authorizedPortalRoles'
-import { presentUserNotifications, type PresentedUserNotification } from '@/lib/userNotifications'
+import type { PresentedUserNotification } from '@/lib/userNotifications'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
@@ -132,22 +133,17 @@ export default function Navbar() {
   const { currency, setCurrency } = useApp()
   const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
   const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
-  const [userNotifications, setUserNotifications] = useState<PresentedUserNotification[]>([])
+  const { items: userNotifications } = useAccountScopedNotifications({
+    userId: user?.id,
+    enabled: Boolean(user),
+    fetchNotifications,
+  })
 
   useEffect(() => {
     let cancelled = false
     fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
     return () => { cancelled = true }
   }, [fetchMarketplaceNavCoverage])
-
-  useEffect(() => {
-    if (!user) return
-    let cancelled = false
-    fetchNotifications()
-      .then(rows => { if (!cancelled) setUserNotifications(presentUserNotifications(rows)) })
-      .catch(() => { if (!cancelled) setUserNotifications([]) })
-    return () => { cancelled = true }
-  }, [fetchNotifications, user])
 
   const visibleUserNotifications = user ? userNotifications : []
   const unreadCount = visibleUserNotifications.filter(notification => !notification.read).length
@@ -235,9 +231,9 @@ export default function Navbar() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {['USD', 'ZiG', 'ZAR', 'BWP'].map((c) => (
-                  <DropdownMenuItem key={c} onClick={() => setCurrency(c as 'USD' | 'ZiG' | 'ZAR' | 'BWP')}>
-                    {c} {currency === c && '✓'}
+                {['USD', 'ZiG', 'ZAR', 'BWP'].map((currencyOption) => (
+                  <DropdownMenuItem key={currencyOption} onClick={() => setCurrency(currencyOption as 'USD' | 'ZiG' | 'ZAR' | 'BWP')}>
+                    {currencyOption} {currency === currencyOption && '✓'}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
