@@ -53,7 +53,7 @@ export function authorizeRole(allowedRoles = []) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'] ? String(req.headers['x-tenant-id']) : null;
-    const requestedRoleHeader = normalizeRole(req.headers['x-stakeholder-role']);
+    const requestedRole = normalizeRole(req.headers['x-stakeholder-role']);
     const fallbackUserId = req.headers['x-user-id'];
 
     try {
@@ -99,7 +99,7 @@ export function authorizeRole(allowedRoles = []) {
       if (sessionBacked && tenantIdHeader && tenantIdHeader !== sessionTenantId) {
         return res.status(403).json({ error: 'Forbidden. Requested tenant does not match the active session.' });
       }
-      if (sessionBacked && requestedRoleHeader && sessionRole && requestedRoleHeader !== sessionRole) {
+      if (sessionBacked && requestedRole && sessionRole && requestedRole !== sessionRole) {
         return res.status(403).json({ error: 'Forbidden. Requested role does not match the active session.' });
       }
 
@@ -108,7 +108,7 @@ export function authorizeRole(allowedRoles = []) {
         return res.status(403).json({ error: 'Forbidden. You do not have access to this tenant organization.' });
       }
 
-      const roleCandidate = sessionBacked ? (sessionRole || platformRole) : requestedRoleHeader;
+      const roleCandidate = sessionBacked ? (sessionRole || platformRole) : requestedRole;
       const effectiveRole = resolveEffectiveRole({
         userRole: platformRole,
         tenantRole,
