@@ -4,23 +4,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
-import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { useAccountScopedNotifications } from '@/hooks/useAccountScopedNotifications'
+import { useNotifications } from '@/context/NotificationContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
 
 export default function NotificationCenter() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
-  const { fetchNotifications } = useCarUpApi()
-  const {
-    items: notifications,
-    loading,
-    error,
-    refresh,
-  } = useAccountScopedNotifications({
-    userId: user?.id,
-    enabled: isAuthenticated && Boolean(user),
-    fetchNotifications,
-  })
+  const { notifications, loading, error, refresh } = useNotifications()
 
   if (!authLoading && !isAuthenticated) {
     return <Navigate to={buildLoginRedirect('/notifications')} replace />
