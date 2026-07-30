@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Loader2, ShieldCheck, Store, ShoppingCart } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -20,7 +20,16 @@ function genKey() {
 
 export default function DiasporaReverseRfq() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
-  const api = useCarUpApi()
+  const {
+    fetchDiasporaBuyerOrders,
+    fetchDiasporaRfqs,
+    fetchDiasporaBuyerOrder,
+    fetchDiasporaOrderMatches,
+    createDiasporaBuyerOrder,
+    publishDiasporaRfq,
+    acceptDiasporaQuote,
+    createDiasporaQuote,
+  } = useCarUpApi()
   const role = (user?.role || '').toLowerCase()
   const isBuyer = isAuthenticated && BUYER_ROLES.has(role)
   const isSeller = isAuthenticated && SELLER_ROLES.has(role)
@@ -42,24 +51,32 @@ export default function DiasporaReverseRfq() {
   const [sellerError, setSellerError] = useState('')
   const [quoteAmounts, setQuoteAmounts] = useState<Record<string, string>>({})
   const [quotingId, setQuotingId] = useState('')
+  const ordersLoadInFlight = useRef(false)
+  const rfqsLoadInFlight = useRef(false)
 
   const loadOrders = useCallback(async () => {
-    if (!isBuyer) return
+    if (!isBuyer || ordersLoadInFlight.current) return
+    ordersLoadInFlight.current = true
     try {
-      setOrders(await api.fetchDiasporaBuyerOrders())
+      setOrders(await fetchDiasporaBuyerOrders())
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to load orders')
+    } finally {
+      ordersLoadInFlight.current = false
     }
-  }, [api, isBuyer])
+  }, [fetchDiasporaBuyerOrders, isBuyer])
 
   const loadRfqs = useCallback(async () => {
-    if (!isSeller) return
+    if (!isSeller || rfqsLoadInFlight.current) return
+    rfqsLoadInFlight.current = true
     try {
-      setRfqs(await api.fetchDiasporaRfqs())
+      setRfqs(await fetchDiasporaRfqs())
     } catch (err) {
       setSellerError(err instanceof Error ? err.message : 'Unable to load RFQs')
+    } finally {
+      rfqsLoadInFlight.current = false
     }
-  }, [api, isSeller])
+  }, [fetchDiasporaRfqs, isSeller])
 
   useEffect(() => {
     if (authLoading || !canView) return
@@ -72,10 +89,10 @@ export default function DiasporaReverseRfq() {
     setSelectedOrder(order)
     setBuyerError('')
     try {
-      const detail = await api.fetchDiasporaBuyerOrder(order.id)
+      const detail = await fetchDiasporaBuyerOrder(order.id)
       setSelectedOrder(detail) // keep fresh metadata (e.g. acceptedQuoteId) for accept-state derivation
       setQuotes(detail.quotes || [])
-      if (detail.metadata?.rfq?.published) setMatches(await api.fetchDiasporaOrderMatches(order.id))
+      if (detail.metadata?.rfq?.published) setMatches(await fetchDiasporaOrderMatches(order.id))
       else setMatches([])
     } catch (err) {
       setBuyerError(err instanceof Error ? err.message : 'Unable to load order detail')
@@ -91,7 +108,7 @@ export default function DiasporaReverseRfq() {
     }
     setCreating(true)
     try {
-      await api.createDiasporaBuyerOrder({
+      await createDiasporaBuyerOrder({
         order_type: 'parts',
         origin_country: newOrigin.trim(),
         requested_make: newMake.trim() || undefined,
@@ -109,7 +126,7 @@ export default function DiasporaReverseRfq() {
   const handlePublish = async (order: DiasporaBuyerOrder) => {
     setBuyerError('')
     try {
-      await api.publishDiasporaRfq(order.id)
+      await publishDiasporaRfq(order.id)
       await loadOrders()
       await loadRfqs()
       if (selectedOrder?.id === order.id) await selectOrder(order)
@@ -122,7 +139,7 @@ export default function DiasporaReverseRfq() {
     if (!selectedOrder) return
     setBuyerError('')
     try {
-      await api.acceptDiasporaQuote(selectedOrder.id, quote.id)
+      await acceptDiasporaQuote(selectedOrder.id, quote.id)
       await selectOrder(selectedOrder)
       await loadOrders()
     } catch (err) {
@@ -139,7 +156,7 @@ export default function DiasporaReverseRfq() {
     }
     setQuotingId(rfqOrder.id)
     try {
-      await api.createDiasporaQuote(rfqOrder.id, { quote_amount: amount, submit: true, idempotencyKey: genKey() })
+      await createDiasporaQuote(rfqOrder.id, { quote_amount: amount, submit: true, idempotencyKey: genKey() })
       setQuoteAmounts((prev) => ({ ...prev, [rfqOrder.id]: '' }))
       await loadRfqs()
     } catch (err) {
