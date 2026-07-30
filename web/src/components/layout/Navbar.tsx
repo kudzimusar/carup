@@ -26,13 +26,14 @@ import {
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
-import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
+import { getDashboardRoute, getRoleMetadata, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
 import { getDesktopMegaMenu, type ResolvedNavSection } from '@/config/navigationManifest'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
 import { trackNav } from '@/lib/navigationAnalytics'
+import { getAuthorizedPortalRoles } from '@/lib/authorizedPortalRoles'
+import { presentUserNotifications, type PresentedUserNotification } from '@/lib/userNotifications'
 import type { NavCoverageResponse } from '@/types'
 import type { UserRole } from '@shared/types'
 
@@ -110,19 +111,51 @@ function CommerceMenu({
   )
 }
 
+function NotificationPreview({ notification }: { notification: PresentedUserNotification }) {
+  return (
+    <div className="flex w-full flex-col items-start gap-1">
+      <div className="flex w-full items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${notification.read ? 'bg-gray-300' : 'bg-orange-500'}`} />
+        <span className="flex-1 truncate text-sm font-medium">{notification.displayTitle}</span>
+        {notification.reference && <Badge variant="outline" className="max-w-24 truncate text-[10px]">{notification.reference}</Badge>}
+      </div>
+      <p className="ml-4 line-clamp-2 text-xs text-gray-500">{notification.displayMessage}</p>
+      <time className="ml-4 text-[10px] text-gray-400" dateTime={notification.created_at || undefined}>{notification.displayTimestamp}</time>
+    </div>
+  )
+}
+
 export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
   const { currency, setCurrency } = useApp()
-  const { fetchMarketplaceNavCoverage } = useCarUpApi()
+  const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
   const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
+  const [userNotifications, setUserNotifications] = useState<PresentedUserNotification[]>([])
+
   useEffect(() => {
     let cancelled = false
     fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
     return () => { cancelled = true }
   }, [fetchMarketplaceNavCoverage])
-  const unreadCount = notifications.filter(n => !n.read).length
+
+  useEffect(() => {
+    if (!user) {
+      setUserNotifications([])
+      return
+    }
+    let cancelled = false
+    fetchNotifications()
+      .then(rows => { if (!cancelled) setUserNotifications(presentUserNotifications(rows)) })
+      .catch(() => { if (!cancelled) setUserNotifications([]) })
+    return () => { cancelled = true }
+  }, [fetchNotifications, user])
+
+  const unreadCount = userNotifications.filter(notification => !notification.read).length
+  const switchableRoles = user
+    ? getAuthorizedPortalRoles(user).filter(role => role !== user.role)
+    : []
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
@@ -146,7 +179,7 @@ export default function Navbar() {
 
   const handleRoleChange = async (newRole: string) => {
     try {
-      await switchRole(newRole as any)
+      await switchRole(newRole as UserRole)
       navigate(getDashboardRoute(newRole as UserRole))
     } catch (err) {
       console.error('Failed to switch stakeholder role:', err)
@@ -205,7 +238,7 @@ export default function Navbar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {['USD', 'ZiG', 'ZAR', 'BWP'].map((c) => (
-                  <DropdownMenuItem key={c} onClick={() => setCurrency(c as any)}>
+                  <DropdownMenuItem key={c} onClick={() => setCurrency(c as 'USD' | 'ZiG' | 'ZAR' | 'BWP')}>
                     {c} {currency === c && '✓'}
                   </DropdownMenuItem>
                 ))}
@@ -220,32 +253,45 @@ export default function Navbar() {
                   size="icon"
                   className="relative"
                   aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+                  data-testid="notification-menu-trigger"
                 >
                   <Bell className="w-5 h-5" aria-hidden="true" />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 flex items-center justify-center bg-orange-500 text-[10px]" aria-hidden="true">
-                      {unreadCount}
+                    <Badge className="absolute -top-1 -right-1 h-5 min-w-5 px-1 flex items-center justify-center bg-orange-500 text-[10px]" aria-hidden="true" data-testid="notification-unread-count">
+                      {unreadCount > 99 ? '99+' : unreadCount}
                     </Badge>
                   )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
                 <div className="px-3 py-2 font-semibold text-sm border-b">Notifications</div>
-                {notifications.slice(0, 5).map((n) => (
-                  <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
-                    <div className="flex items-center gap-2 w-full">
-                      <span className={`w-2 h-2 rounded-full ${n.read ? 'bg-gray-300' : 'bg-orange-500'}`} />
-                      <span className="font-medium text-sm flex-1">{n.title}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 ml-4 line-clamp-2">{n.message}</p>
+                {!user && (
+                  <div className="px-3 py-5 text-center text-sm text-gray-500">Sign in to see account notifications.</div>
+                )}
+                {user && userNotifications.length === 0 && (
+                  <div className="px-3 py-5 text-center text-sm text-gray-500" data-testid="notification-menu-empty">No notifications yet.</div>
+                )}
+                {userNotifications.slice(0, 5).map((notification) => notification.href ? (
+                  <DropdownMenuItem key={notification.id} asChild>
+                    <Link to={notification.href} className="cursor-pointer p-3" data-testid="notification-menu-item">
+                      <NotificationPreview notification={notification} />
+                    </Link>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem key={notification.id} className="p-3" data-testid="notification-menu-item">
+                    <NotificationPreview notification={notification} />
                   </DropdownMenuItem>
                 ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/dashboard" className="text-center text-orange-600 text-sm cursor-pointer">
-                    View All Notifications
-                  </Link>
-                </DropdownMenuItem>
+                {user && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link to="/notifications" className="text-center text-orange-600 text-sm cursor-pointer" data-testid="notification-center-link">
+                        View All Notifications
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -284,16 +330,17 @@ export default function Navbar() {
                       <Settings className="w-4 h-4 mr-2" /> Settings
                     </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
-                  {getAllRoles().map((r) => {
-                    if (r === user.role) return null;
-                    return (
-                      <DropdownMenuItem key={r} onClick={() => handleRoleChange(r)} className="cursor-pointer text-xs">
-                        Change to {getRoleMetadata(r).title}
-                      </DropdownMenuItem>
-                    );
-                  })}
+                  {switchableRoles.length > 0 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <div className="px-3 py-1.5 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Switch Portal Role</div>
+                      {switchableRoles.map((role) => (
+                        <DropdownMenuItem key={role} onClick={() => handleRoleChange(role)} className="cursor-pointer text-xs" data-testid={`roleswitch-${role}`}>
+                          Change to {getRoleMetadata(role).title}
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem className="text-red-600 cursor-pointer" onClick={() => {
                     logout()
