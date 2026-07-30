@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { resolvePostLoginRoute } from '@/lib/returnTo'
+import { clearPendingReturnTo, readPendingReturnTo } from '@/lib/pendingReturnTo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -27,7 +28,7 @@ export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const returnTo = searchParams.get('returnTo')
+  const returnTo = searchParams.get('returnTo') || readPendingReturnTo()
   const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({ email: '', password: '' })
   const [loading, setLoading] = useState(false)
@@ -76,6 +77,7 @@ export default function Login() {
 
         login(userData, token)
         toast.success(`Welcome back, ${userData.name}!`)
+        clearPendingReturnTo()
         navigate(resolvePostLoginRoute(returnTo, userData.role))
       } else {
         // Distinct, safe message for invalid credentials vs. server/session failure.
@@ -94,7 +96,7 @@ export default function Login() {
     setFormError(null)
     setLoading(true)
     try {
-      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, { 
+      const csrfRes = await fetch(`${API_BASE}/security/csrf-token`, {
         method: 'GET',
         credentials: 'include'
       })
@@ -103,7 +105,7 @@ export default function Login() {
 
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'x-csrf-token': csrfToken
         },
@@ -114,6 +116,7 @@ export default function Login() {
         const data = await res.json()
         login(data.user, data.token)
         toast.success(`Logged in as ${data.user.name}`)
+        clearPendingReturnTo()
         navigate(resolvePostLoginRoute(returnTo, data.user.role))
       } else {
         setFormError(loginError(classifyLoginStatus(res.status)))
