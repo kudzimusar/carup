@@ -1,0 +1,52 @@
+name: Issue 127 build fix
+
+on:
+  push:
+    branches:
+      - fix/issue-127-uat-remediation
+    paths:
+      - .github/workflows/issue-127-build-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-127-uat-remediation
+          fetch-depth: 0
+      - name: Replace the remaining document preview reference
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('web/src/pages/diaspora/DiasporaTrade.tsx')
+          text = path.read_text()
+          replacements = [
+              (
+                  "import { buildDiasporaRequiredDocumentChecklist } from '@/lib/diasporaDocumentChecklist'",
+                  "import { buildDiasporaRequiredDocumentChecklist, DIASPORA_REQUIRED_DOCUMENT_RULES } from '@/lib/diasporaDocumentChecklist'",
+              ),
+              (
+                  "{requiredDocuments.map((documentName, index) => (",
+                  "{DIASPORA_REQUIRED_DOCUMENT_RULES.map(({ label: documentName }, index) => (",
+              ),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, found {count}: {old!r}')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          Path('.github/workflows/issue-127-build-fix.yml').unlink()
+          PY
+          git diff --check
+          git config user.name "carup-remediation-bot"
+          git config user.email "carup-remediation-bot@users.noreply.github.com"
+          git add web/src/pages/diaspora/DiasporaTrade.tsx .github/workflows/issue-127-build-fix.yml
+          git commit -m "fix(diaspora): use semantic rules in checklist preview"
+          git push origin HEAD:fix/issue-127-uat-remediation
