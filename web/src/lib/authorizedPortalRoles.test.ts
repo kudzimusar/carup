@@ -1,18 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { getAuthorizedPortalRoles } from './authorizedPortalRoles'
 
- describe('getAuthorizedPortalRoles', () => {
-  it('fails closed to the active role when no authorization list exists', () => {
+describe('getAuthorizedPortalRoles', () => {
+  it('exposes only the active session role', () => {
     expect(getAuthorizedPortalRoles({ role: 'owner' })).toEqual(['owner'])
   })
 
-  it('returns only explicitly authorized valid roles and retains the active role', () => {
-    const user = {
+  it('ignores an untrusted local authorized_roles property', () => {
+    const tampered = {
       role: 'owner' as const,
-      authorized_roles: ['dealer', 'admin', 'not-a-role', 'dealer'],
+      authorized_roles: ['dealer', 'admin'],
     }
-
-    expect(getAuthorizedPortalRoles(user)).toEqual(['owner', 'dealer', 'admin'])
+    expect(getAuthorizedPortalRoles(tampered)).toEqual(['owner'])
   })
 
   it('returns no roles for a missing account', () => {
