@@ -18,10 +18,10 @@ const PORTAL_ROLES = new Set<UserRole>([
  * discarded and the active role is always retained.
  */
 export function getAuthorizedPortalRoles(
-  user: ({ role?: UserRole | null } & Record<string, unknown>) | null | undefined,
+  user: { role?: UserRole | null } | null | undefined,
 ): UserRole[] {
   const current = user?.role && PORTAL_ROLES.has(user.role) ? user.role : null
-  const raw = user?.authorized_roles
+  const raw = (user as ({ authorized_roles?: unknown } | null | undefined))?.authorized_roles
   const explicit = Array.isArray(raw)
     ? raw.filter((role): role is UserRole => typeof role === 'string' && PORTAL_ROLES.has(role as UserRole))
     : []
