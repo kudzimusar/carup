@@ -38,6 +38,7 @@ import TrustSafety from './pages/TrustSafety'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsOfService from './pages/TermsOfService'
 import APIDocs from './pages/APIDocs'
+import NotificationCenter from './pages/NotificationCenter'
 import {
   DiasporaComplianceAdmin,
   DiasporaImportDetail,
@@ -257,6 +258,7 @@ export default function App() {
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/api-docs" element={<APIDocs />} />
+          <Route path="/notifications" element={<NotificationCenter />} />
           <Route path="/diaspora" element={<DiasporaLanding />} />
           <Route path="/diaspora/imports" element={<DiasporaImportList />} />
           <Route path="/diaspora/imports/new" element={<NewDiasporaImportOrder />} />
