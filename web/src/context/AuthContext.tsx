@@ -30,8 +30,8 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Initialize from localStorage synchronously so the token exists on the first render. The stored
-  // user is provisional only; /auth/me replaces it with authoritative session truth during boot.
+  // The stored user is provisional only. It is withheld from consumers until /auth/me has either
+  // replaced it with session truth or a transient failure has deliberately retained it.
   const [user, setUser] = useState<AuthUser | null>(
     () => (typeof window !== 'undefined' ? readStoredAuth(localStorage)?.user ?? null : null),
   )
@@ -55,16 +55,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNavAnalyticsAuthProvider(() => {
       const headers: AuthHeaders = {
         'x-session-token': token ?? undefined,
-        'x-user-id': user?.id,
-        'x-stakeholder-role': user?.role,
-        'x-tenant-id': user?.active_tenant_id ?? undefined,
+        'x-user-id': loading ? undefined : user?.id,
+        'x-stakeholder-role': loading ? undefined : user?.role,
+        'x-tenant-id': loading ? undefined : user?.active_tenant_id ?? undefined,
       }
       return Object.fromEntries(
         Object.entries(headers).filter(([, value]) => value !== undefined),
       ) as AuthHeaders
     })
     return () => setNavAnalyticsAuthProvider(null)
-  }, [token, user?.id, user?.role, user?.active_tenant_id])
+  }, [loading, token, user?.id, user?.role, user?.active_tenant_id])
 
   useEffect(() => {
     const stored = readStoredAuth(localStorage)
@@ -83,8 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(authoritativeUser)
         storeAuth(localStorage, authoritativeUser, stored.token)
       })
-      .catch((err: unknown) => {
-        if (!cancelled && err instanceof SessionExpiredError) clearAuth()
+      .catch((error: unknown) => {
+        if (!cancelled && error instanceof SessionExpiredError) clearAuth()
+        // On a transient/non-401 failure the provisional stored user remains, but is exposed only
+        // after loading becomes false below. This preserves the established fail-open behavior.
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -96,11 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback((userData: AuthUser, sessionToken: string) => {
     setUser(userData)
     setToken(sessionToken)
+    setLoading(false)
     storeAuth(localStorage, userData, sessionToken)
   }, [])
 
   const logout = useCallback(() => {
     clearAuth()
+    setLoading(false)
   }, [clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {
@@ -129,8 +133,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, token, clearAuth])
 
+  const exposedUser = loading ? null : user
+
   return (
-    <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, loading, login, logout, switchRole }}>
+    <AuthContext.Provider value={{
+      user: exposedUser,
+      token,
+      isAuthenticated: !!token,
+      loading,
+      login,
+      logout,
+      switchRole,
+    }}>
       {children}
     </AuthContext.Provider>
   )
