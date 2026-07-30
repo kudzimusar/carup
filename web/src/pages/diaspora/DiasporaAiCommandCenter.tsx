@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, Bot, CheckCircle2, Loader2, Lock, ShieldCheck } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -21,7 +21,14 @@ function riskBadgeClass(risk?: string) {
 
 export default function DiasporaAiCommandCenter() {
   const { user, isAuthenticated, loading: authLoading } = useAuth()
-  const api = useCarUpApi()
+  const {
+    fetchDiasporaAiCommands,
+    parseDiasporaAiCommand,
+    createDiasporaAiCommand,
+    approveDiasporaAiCommand,
+    confirmDiasporaAiCommand,
+    executeDiasporaAiCommand,
+  } = useCarUpApi()
   const role = (user?.role || '').toLowerCase()
   const canView = isAuthenticated && allowedRoles.has(role)
   const isReviewer = reviewerRoles.has(role)
@@ -31,15 +38,19 @@ export default function DiasporaAiCommandCenter() {
   const [commands, setCommands] = useState<DiasporaAiCommand[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const loadInFlight = useRef(false)
 
   const loadCommands = useCallback(async () => {
-    if (!canView) return
+    if (!canView || loadInFlight.current) return
+    loadInFlight.current = true
     try {
-      setCommands(await api.fetchDiasporaAiCommands())
+      setCommands(await fetchDiasporaAiCommands())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load commands')
+    } finally {
+      loadInFlight.current = false
     }
-  }, [api, canView])
+  }, [canView, fetchDiasporaAiCommands])
 
   useEffect(() => {
     if (authLoading || !canView) return
@@ -51,7 +62,7 @@ export default function DiasporaAiCommandCenter() {
     setError('')
     if (!text.trim()) { setError('Enter a command'); return }
     try {
-      setParsed(await api.parseDiasporaAiCommand(text.trim()))
+      setParsed(await parseDiasporaAiCommand(text.trim()))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Parse failed')
     }
@@ -63,7 +74,7 @@ export default function DiasporaAiCommandCenter() {
     if (!text.trim()) { setError('Enter a command'); return }
     setBusy(true)
     try {
-      await api.createDiasporaAiCommand(text.trim())
+      await createDiasporaAiCommand(text.trim())
       setText('')
       setParsed(null)
       await loadCommands()
@@ -161,13 +172,13 @@ export default function DiasporaAiCommandCenter() {
                         <div className="flex flex-col gap-1">
                           <span className="flex items-center gap-1 text-xs font-medium text-red-700" data-testid="diaspora-ai-blocked-note"><Lock className="h-3 w-3" /> Execution blocked</span>
                           {isReviewer && cmd.approval_status === 'PENDING' && (
-                            <Button size="sm" variant="outline" onClick={() => act(() => api.approveDiasporaAiCommand(cmd.id))} data-testid="diaspora-ai-approve">Approve (stays blocked)</Button>
+                            <Button size="sm" variant="outline" onClick={() => act(() => approveDiasporaAiCommand(cmd.id))} data-testid="diaspora-ai-approve">Approve (stays blocked)</Button>
                           )}
                         </div>
                       ) : cmd.execution_status === 'AWAITING_CONFIRMATION' ? (
-                        <Button size="sm" onClick={() => act(() => api.confirmDiasporaAiCommand(cmd.id))} data-testid="diaspora-ai-confirm">Confirm</Button>
+                        <Button size="sm" onClick={() => act(() => confirmDiasporaAiCommand(cmd.id))} data-testid="diaspora-ai-confirm">Confirm</Button>
                       ) : (cmd.execution_status === 'DRAFT' || cmd.execution_status === 'CONFIRMED') ? (
-                        <Button size="sm" onClick={() => act(() => api.executeDiasporaAiCommand(cmd.id))} data-testid="diaspora-ai-execute">Execute</Button>
+                        <Button size="sm" onClick={() => act(() => executeDiasporaAiCommand(cmd.id))} data-testid="diaspora-ai-execute">Execute</Button>
                       ) : cmd.execution_status === 'EXECUTED' ? (
                         <Badge className="bg-green-100 text-green-800 hover:bg-green-100" data-testid="diaspora-ai-executed"><CheckCircle2 className="mr-1 h-3 w-3" /> Executed</Badge>
                       ) : cmd.execution_status === 'NEEDS_REVIEW' ? (
