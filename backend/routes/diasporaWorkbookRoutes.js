@@ -70,8 +70,9 @@ router.get('/workbook/template-schema', auth, asyncHandler(async (req, res) => {
 router.get('/workbook/download-template', auth, asyncHandler(async (req, res) => {
   res.json({
     data: getDiasporaWorkbookTemplateSchema(req.query.templateType),
-    downloadReady: false,
-    message: 'Phase 1C persists dry-run batches. Binary XLSX template generation is scheduled for the workbook template generation phase.',
+    downloadReady: true,
+    template_xlsx_path: '/api/diaspora/workbook/template.xlsx',
+    message: 'Binary XLSX template download is available at /api/diaspora/workbook/template.xlsx.',
   });
 }));
 
