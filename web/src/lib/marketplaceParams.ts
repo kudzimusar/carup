@@ -327,3 +327,15 @@ export function resolveCoverageNavHref(label: string, fallbackHref: string, cove
   if (slug && coverage?.categories?.[slug]?.active) return `/marketplace?category=${slug}`
   return fallbackHref
 }
+
+/**
+ * A query with no spaces and at least 6 characters is treated as a possible vehicle
+ * identifier (VIN / chassis / plate / temporary ID) and tried against the passport
+ * lookup endpoint before falling back to a plain marketplace search — the backend
+ * listing search haystack also covers VIN/plate/chassis, so nothing is lost when the
+ * lookup misses.
+ */
+export function looksLikeIdentifier(query: string): boolean {
+  const trimmed = query.trim()
+  return trimmed.length >= 6 && !/\s/.test(trimmed)
+}

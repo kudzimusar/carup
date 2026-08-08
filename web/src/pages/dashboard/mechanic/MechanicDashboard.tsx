@@ -40,10 +40,12 @@ export default function MechanicDashboard() {
   const [creatingOrder, setCreatingOrder] = useState(false)
 
   const loadWorkOrders = useCallback(async () => {
-    setOrdersError(null)
+    // No state writes before the first await: this is invoked from an effect,
+    // and a synchronous setState there cascades renders.
     try {
       const orders = await fetchMechanicWorkOrders()
       setWorkOrders(Array.isArray(orders) ? orders : [])
+      setOrdersError(null)
     } catch (err: unknown) {
       setWorkOrders([])
       setOrdersError(err instanceof Error ? err.message : 'Failed to load work orders')

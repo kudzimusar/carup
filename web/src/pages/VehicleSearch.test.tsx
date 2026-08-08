@@ -21,7 +21,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
 }))
 
 const VehicleSearch = (await import('./VehicleSearch')).default
-const { looksLikeIdentifier } = await import('./VehicleSearch')
+const { looksLikeIdentifier } = await import('@/lib/marketplaceParams')
 const SRC = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'VehicleSearch.tsx'), 'utf8')
 
 const liveListing: MarketplaceListingSummary = {

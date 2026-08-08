@@ -1245,7 +1245,8 @@ export interface WorkOrder {
   /** Phase-4 schema column name; historical rows may carry issue_description instead. */
   description?: string;
   issue_description?: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  /** DB CHECK values ('In Progress'|'Completed'|'Cancelled') plus legacy lowercase rows. */
+  status: 'pending' | 'in-progress' | 'completed' | 'In Progress' | 'Completed' | 'Cancelled';
   date: string;
   created_at: string;
   cost: number;

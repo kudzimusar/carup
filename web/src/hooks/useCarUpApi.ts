@@ -1932,11 +1932,11 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/recommendations`)
   }, [request])
 
-  const publishVehicleListing = useCallback(async (vin: string): Promise<any> => {
+  const publishVehicleListing = useCallback(async (vin: string): Promise<{ success: boolean; vin: string; publication_status: string; already_published?: boolean }> => {
     return request(`/vehicles/${vin}/publish`, { method: 'POST' })
   }, [request])
 
-  const unpublishVehicleListing = useCallback(async (vin: string): Promise<any> => {
+  const unpublishVehicleListing = useCallback(async (vin: string): Promise<{ success: boolean; vin: string; publication_status: string; already_unpublished?: boolean }> => {
     return request(`/vehicles/${vin}/unpublish`, { method: 'POST' })
   }, [request])
 

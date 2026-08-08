@@ -31,7 +31,9 @@ export default function PartSentry() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState('')
   const [repairLogs, setRepairLogs] = useState<RepairLogRow[]>([])
-  const [historyLoading, setHistoryLoading] = useState(false)
+  // Loading is derived (selected vehicle vs last loaded) so the load path never
+  // has to set state synchronously inside the effect.
+  const [loadedHistoryVin, setLoadedHistoryVin] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [ledgerVerified, setLedgerVerified] = useState<boolean | null>(null)
   const [ledgerError, setLedgerError] = useState<string | null>(null)
@@ -58,26 +60,28 @@ export default function PartSentry() {
   }, [fetchOwnedVehicles])
 
   const loadHistory = useCallback(async (vin: string) => {
-    setHistoryLoading(true)
-    setHistoryError(null)
     try {
       const rows = await fetchRepairHistory(vin)
       setRepairLogs(Array.isArray(rows) ? rows : [])
+      setHistoryError(null)
     } catch (err: unknown) {
       setRepairLogs([])
       setHistoryError(err instanceof Error ? err.message : 'Failed to load repair history')
     } finally {
-      setHistoryLoading(false)
+      setLoadedHistoryVin(vin)
     }
   }, [fetchRepairHistory])
+  const historyLoading = Boolean(selectedVehicle) && loadedHistoryVin !== selectedVehicle
 
   // Real repair history + ledger verification for the selected vehicle.
   useEffect(() => {
     if (!selectedVehicle) return
     loadHistory(selectedVehicle)
-    setLedgerError(null)
     verifyLedger(selectedVehicle)
-      .then(data => setLedgerVerified(data?.integrity === 'verified' || data?.verified === true))
+      .then(data => {
+        setLedgerVerified(data?.integrity === 'verified' || data?.verified === true)
+        setLedgerError(null)
+      })
       .catch((err: unknown) => {
         // A failed verification is an error, never a fake "verified".
         setLedgerVerified(null)

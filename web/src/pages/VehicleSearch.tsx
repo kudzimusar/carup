@@ -13,20 +13,9 @@ import {
 } from '@/components/ui/select'
 import { Search, CheckCircle, Gauge, Fuel, Settings2, MapPin, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { looksLikeIdentifier } from '@/lib/marketplaceParams'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
-
-/**
- * A query with no spaces and at least 6 characters is treated as a possible vehicle
- * identifier (VIN / chassis / plate / temporary ID) and tried against the passport
- * lookup endpoint before falling back to a plain marketplace search — the backend
- * listing search haystack also covers VIN/plate/chassis, so nothing is lost when the
- * lookup misses.
- */
-export function looksLikeIdentifier(query: string): boolean {
-  const trimmed = query.trim()
-  return trimmed.length >= 6 && !/\s/.test(trimmed)
-}
 
 function labelize(slug: string): string {
   return slug

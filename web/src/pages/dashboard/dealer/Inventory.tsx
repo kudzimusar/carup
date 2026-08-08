@@ -8,7 +8,7 @@ import { Search, Plus, Eye, TrendingUp, CheckCircle, Loader2, DollarSign } from 
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { PUBLICATION_BADGE } from '@/pages/dashboard/owner/MyListings'
+import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
 import type { Vehicle } from '@/types'
 
 const STATUS_COLORS: Record<string, string> = {
