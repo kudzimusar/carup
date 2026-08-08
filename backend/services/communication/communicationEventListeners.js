@@ -9,16 +9,10 @@ export const COMMUNICATION_EVENT_TYPES = [
   'ESCROW_CREATED',
   'ESCROW_UPDATED',
   'finance.application.status_changed',
-  'finance.application_received',
   'finance.application.approved',
   'finance.application.declined',
   'identity.verification.decided',
   'evidence.review.decided',
-  'referral.code_validated',
-  'referral.coupon_applied',
-  'referral.wallet_status_changed',
-  'campaign.status_changed',
-  'referral.review_required',
 ];
 
 let registered = false;

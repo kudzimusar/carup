@@ -44,7 +44,7 @@ export async function submitFinancingApplication(vin, userId, bankId, requestedA
   
   await addEvent(vin, 'Financing Application', { applicationId: id, bankId, requestedAmount, status, apr: affordability.estimatedApr, monthlyPayment: affordability.estimatedMonthlyPayment });
 
-  emitDomainEvent(null, 'finance.application.status_changed', {
+  const decisionPayload = {
     applicationId: id,
     userId,
     recipientUserId: userId,
@@ -52,7 +52,15 @@ export async function submitFinancingApplication(vin, userId, bankId, requestedA
     vin,
     requestedAmount,
     status,
-  }, bankId).catch(() => {});
+  };
+  emitDomainEvent(null, 'finance.application.status_changed', decisionPayload, bankId).catch(() => {});
+  // Terminal decision events for the communication engine (seam-E E3). Kept
+  // alongside status_changed so both coarse and decision-specific listeners fire.
+  if (status === 'Approved') {
+    emitDomainEvent(null, 'finance.application.approved', decisionPayload, bankId).catch(() => {});
+  } else if (status === 'Rejected') {
+    emitDomainEvent(null, 'finance.application.declined', decisionPayload, bankId).catch(() => {});
+  }
 
   return { id, vin, userId, bankId, requestedAmount, status, monthlyPayment: affordability.estimatedMonthlyPayment, apr: affordability.estimatedApr, rejectionReason: affordability.rejectionReason };
 }
