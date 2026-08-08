@@ -895,10 +895,11 @@ export function useCarUpApi() {
     })
   }, [request])
 
-  const addRepairLog = useCallback(async (vin: string, mechanicId: string, partName: string, partOem: string, actionType: string, description: string, mileage: number): Promise<any> => {
+  // The mechanic identity is derived server-side from req.userContext.id — never client-supplied.
+  const addRepairLog = useCallback(async (vin: string, partName: string, partOem: string, actionType: string, description: string, mileage: number): Promise<any> => {
     return request('/partsentry/add', {
       method: 'POST',
-      body: JSON.stringify({ vin, mechanicId, partName, partOem, actionType, description, mileage })
+      body: JSON.stringify({ vin, partName, partOem, actionType, description, mileage })
     })
   }, [request])
 

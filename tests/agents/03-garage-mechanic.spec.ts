@@ -29,7 +29,7 @@ test.describe('Agent 3 - Garage & Mechanic Validation Agent', () => {
 
     // Assert key dashboard elements are visible
     await expect(page.getByRole('heading', { name: /Mechanic Dashboard/i })).toBeVisible();
-    await expect(page.getByText('Simbisa Garages Ltd')).toBeVisible();
+    await expect(page.getByTestId('mechanic-dashboard-create-workorder-button')).toBeVisible();
     await expect(page.getByText('Active Orders')).toBeVisible();
   });
 });

@@ -32,10 +32,14 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
     throw new Error(`Idempotency block: duplicate service log detected (Log #${duplicate.id}). Retry within 5 minutes is rejected.`);
   }
 
-  const { data: inserted } = await supabase.from('partsentry_logs').insert({
+  const { data: inserted, error } = await supabase.from('partsentry_logs').insert({
     vin, mechanic_id: mechanicId, part_name: partName, part_oem: partOem,
     action_type: actionType, description, mileage, signature, timestamp
   }).select('id');
+
+  // A failed insert must abort BEFORE any side effect: no odometer mutation,
+  // no blockchain event for a log row that does not exist.
+  if (error) throw new Error(error.message);
 
   const newId = inserted?.[0]?.id;
 

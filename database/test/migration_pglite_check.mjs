@@ -66,6 +66,10 @@ const NEW_MIGRATIONS = [
   '20260710120000_provider_request_attempts_provider_scope.sql',
   // Phase 2B.1 (ported PR #11) — governed PartSentry public-card review workflow + approval provenance
   '20260710130000_partsentry_review_requests.sql',
+  // Mechanic OS — converge the two divergent mechanic_work_orders/mechanic_parts shapes
+  // (006_domain1.sql legacy shape is applied as a prerequisite below, so this run
+  // proves convergence over the HARDER historical shape).
+  '20260808150000_mechanic_work_orders_convergence.sql',
 ];
 
 function splitMigration(file) {
@@ -128,6 +132,9 @@ const db = new PGlite();
 results.bootstrap = (await step(db, 'bootstrap (roles/auth/pgcrypto/prereq tables)', BOOTSTRAP, results.prereq)) ? 'OK' : 'FAIL';
 await step(db, '014_passport_evidence_architecture (Up)', upSectionOf('014_passport_evidence_architecture.sql'), results.prereq);
 await step(db, '015_vehicle_evidence_timeline (Up)', upSectionOf('015_vehicle_evidence_timeline.sql'), results.prereq);
+// Legacy Domain-1 shape of the mechanic tables (organization_id/customer_name NOT NULL,
+// no tenant/mechanic/cost columns) — the divergent shape the convergence migration must fix.
+await step(db, '006_domain1 (Up, legacy mechanic shape)', upSectionOf('006_domain1.sql'), results.prereq);
 
 // 1b. seed a LEGACY evidence row (pre-M1) to verify backfill + legacy compatibility (item 9)
 try {
@@ -442,6 +449,36 @@ results.catalog.mobile_cert_results_immutable = await checkImmutable(
   `DELETE FROM mobile_certification_results WHERE check_key='offline_queue_persist_restart'`
 );
 
+// 3f. Mechanic OS convergence — the legacy 006 shape must now carry every column the
+// backend write path uses, with the legacy NOT NULLs relaxed so phase-4 inserts succeed.
+{
+  const woCols = (await q(`
+    SELECT column_name, is_nullable FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='mechanic_work_orders'`))
+    .reduce((acc, r) => { acc[r.column_name] = r.is_nullable; return acc; }, {});
+  const partCols = (await q(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='mechanic_parts'`)).map(r => r.column_name);
+  const requiredWo = ['tenant_id', 'description', 'customer_id', 'mechanic_id', 'customer_name', 'labor_cost', 'total_cost'];
+  const requiredParts = ['tenant_id', 'min_stock', 'supplier'];
+  results.catalog.mechanic_work_orders_columns = requiredWo.filter(c => !(c in woCols));
+  results.catalog.mechanic_parts_columns = requiredParts.filter(c => !partCols.includes(c));
+  results.catalog.mechanic_convergence_ok =
+    results.catalog.mechanic_work_orders_columns.length === 0 &&
+    results.catalog.mechanic_parts_columns.length === 0 &&
+    woCols.organization_id === 'YES' &&
+    woCols.customer_name === 'YES';
+  // Functional proof: a phase-4-style insert (no organization_id, no customer_name) succeeds on the legacy shape.
+  try {
+    await db.exec(`INSERT INTO mechanic_work_orders (tenant_id, vin, description, mechanic_id, customer_id, status)
+      VALUES ('d3333333-3333-3333-3333-333333333333', 'V1', 'Brake pads', 'u1', 'u1', 'In Progress')`);
+    results.catalog.mechanic_phase4_insert_ok = true;
+  } catch (e) {
+    results.catalog.mechanic_phase4_insert_ok = false;
+    results.catalog.mechanic_phase4_insert_error = e.message;
+  }
+}
+
 // 4. Down in reverse order
 for (const f of [...NEW_MIGRATIONS].reverse()) {
   await step(db, f + ' (Down)', splitMigration(f).down, results.down);
@@ -482,7 +519,7 @@ for (const [k, v] of Object.entries(results.catalog)) {
 // Named boolean guards that must hold (only fail on an explicit false, not string statuses).
 for (const k of ['provenance_append_only_enforced', 'extraction_content_guard_enforced',
   'publication_status_check_enforced', 'source_verification_mode_enforced',
-  'source_coverage_view_sandbox_labelled']) {
+  'source_coverage_view_sandbox_labelled', 'mechanic_convergence_ok', 'mechanic_phase4_insert_ok']) {
   if (results.catalog[k] === false) invariantFailures.push(`${k}=false`);
 }
 if (results.catalog.legacy_backfill && results.catalog.legacy_backfill.backfill_ok !== true) invariantFailures.push('legacy_backfill.backfill_ok=false');

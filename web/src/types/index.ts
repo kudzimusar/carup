@@ -1242,6 +1242,8 @@ export interface WorkOrder {
   customer: string;
   customer_name?: string;
   service: string;
+  /** Phase-4 schema column name; historical rows may carry issue_description instead. */
+  description?: string;
   issue_description?: string;
   status: 'pending' | 'in-progress' | 'completed';
   date: string;
