@@ -1909,12 +1909,14 @@ test('Cloudflare Worker project exposes fetch, email, queue, and scheduled handl
 // ── Issue #110: Automatic Telegram delivery ────────────────────────────────────
 
 test('Vercel cron does not use per-minute schedule and Supabase pg_cron handles every-minute delivery', () => {
-  // Vercel Hobby plan does not support sub-daily cron schedules. The per-minute
-  // schedule MUST live in Supabase pg_cron, not vercel.json — otherwise the
-  // backend deployment fails on the Hobby plan.
+  // The communication delivery worker's per-minute schedule MUST live in
+  // Supabase pg_cron, not vercel.json — on the Vercel Hobby plan sub-daily
+  // cron schedules fail deployment. The domain-event outbox drain
+  // (/api/internal/events/process, seam-E P0) is the one vercel.json cron
+  // allowed; it requires a plan that supports sub-daily schedules.
   const crons = backendVercelConfig?.crons || [];
-  const minuteCron = crons.find((c) => c.schedule === '* * * * *');
-  assert.equal(minuteCron, undefined, 'backend/vercel.json must not have a per-minute cron (breaks Vercel Hobby plan)');
+  const minuteCron = crons.find((c) => c.schedule === '* * * * *' && String(c.path || '').includes('/communications/'));
+  assert.equal(minuteCron, undefined, 'backend/vercel.json must not carry the communications worker per-minute cron (lives in Supabase pg_cron)');
 
   // Supabase cron migration must carry the every-minute schedule
   assert.ok(supabaseCronMigrationSql.includes('carup-communication-worker-every-minute'), 'migration must define the named cron job');

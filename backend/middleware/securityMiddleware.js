@@ -176,6 +176,8 @@ export function csrfMiddleware(req, res, next) {
                     // Omnichannel communication engine webhooks (signature-verified in-service)
                     /^\/api\/communications\/webhooks\/[a-z0-9_-]+\/[a-z0-9_-]+(?:$|[/?#])/.test(url) ||
                     /^\/api\/internal\/communications\/process(?:$|[/?#])/.test(url) ||
+                    // Serverless outbox drain (worker-secret guarded in-route)
+                    /^\/api\/internal\/events\/process(?:$|[/?#])/.test(url) ||
                     // Full Activation signed provider webhooks (HMAC + timestamp + idempotency verified in-service)
                     url.startsWith('/api/insurer/webhook') ||
                     url.startsWith('/api/finance/lender/webhook') ||
