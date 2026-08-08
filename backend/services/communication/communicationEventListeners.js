@@ -13,6 +13,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'finance.application.approved',
   'finance.application.declined',
   'identity.verification.decided',
+  'evidence.review.decided',
   'referral.code_validated',
   'referral.coupon_applied',
   'referral.wallet_status_changed',

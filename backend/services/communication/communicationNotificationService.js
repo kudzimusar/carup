@@ -59,6 +59,15 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     templateKey: 'listing_moderation_v1',
     transactional: true,
   },
+  'evidence.review.decided': {
+    notificationType: 'evidence_review',
+    threadType: 'evidence',
+    priority: 'normal',
+    channels: ['in_app', 'email', 'push'],
+    fallbackChannels: [],
+    templateKey: 'evidence_review_v1',
+    transactional: true,
+  },
 });
 
 export class CommunicationNotificationService {

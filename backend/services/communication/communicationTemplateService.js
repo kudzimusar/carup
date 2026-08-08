@@ -39,6 +39,11 @@ const TEMPLATES = Object.freeze({
     subject: 'Marketplace listing update',
     body: 'Your listing {{listing_id}} received a moderation decision: {{decision}}. Current status: {{status}}.',
   },
+  evidence_review_v1: {
+    transactional: true,
+    subject: 'Evidence review decision',
+    body: 'Evidence {{reference}} for listing {{listing_id}} was reviewed: {{decision}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',
