@@ -26,7 +26,7 @@ function labelize(slug: string): string {
 }
 
 export default function VehicleSearch() {
-  const { fetchMarketplaceListings, fetchMarketplaceCategories, lookupVehiclePassport } = useCarUpApi()
+  const { fetchMarketplaceListings, fetchMarketplaceCategories, lookupVehiclePassport, fetchMarketplaceListingDetail } = useCarUpApi()
 
   const [query, setQuery] = useState('')
   const [committedQuery, setCommittedQuery] = useState('')
@@ -37,6 +37,10 @@ export default function VehicleSearch() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [passportMatch, setPassportMatch] = useState<Vehicle | null>(null)
+  // Only vehicles that resolve on the gated public marketplace detail endpoint get a
+  // listing deep-link; a passport hit for a draft/unpublished vehicle renders as
+  // history-only so /search never advertises an unlisted vehicle as live.
+  const [passportListed, setPassportListed] = useState(false)
   const [categoryOptions, setCategoryOptions] = useState<{ slug: string; label: string }[]>([])
 
   // Debounce typed input so keystrokes never fire a network request directly.
@@ -76,8 +80,19 @@ export default function VehicleSearch() {
           // Not a known identifier — fall through to the plain marketplace search.
         }
       }
+      let matchedListed = false
+      if (matched?.vin) {
+        try {
+          await fetchMarketplaceListingDetail(matched.vin)
+          matchedListed = true
+        } catch {
+          // Passport exists but the vehicle is not publicly listed (draft,
+          // unpublished, or quarantined) — render without a listing link.
+        }
+      }
       if (cancelled) return
       setPassportMatch(matched)
+      setPassportListed(matchedListed)
 
       // 2. Browse results always come from the live marketplace listings API; the
       //    backend search haystack covers make/model/VIN/plate/chassis/seller.
@@ -101,7 +116,7 @@ export default function VehicleSearch() {
 
     void run()
     return () => { cancelled = true }
-  }, [committedQuery, make, category, fetchMarketplaceListings, lookupVehiclePassport])
+  }, [committedQuery, make, category, fetchMarketplaceListings, lookupVehiclePassport, fetchMarketplaceListingDetail])
 
   const makes = useMemo(
     () => ['All', ...Array.from(new Set(listings.map(l => l.make).filter(Boolean))).sort()],
@@ -155,8 +170,8 @@ export default function VehicleSearch() {
       </div>
 
       <div className="section-padding mx-auto max-w-[1440px] py-8">
-        {/* Exact identifier match: deep-link straight to the vehicle's live listing. */}
-        {passportMatch && (
+        {/* Exact identifier match: deep-link only when the vehicle is publicly listed. */}
+        {passportMatch && passportListed && (
           <Link
             to={`/marketplace/listing/${encodeURIComponent(passportMatch.vin)}`}
             className="mb-6 flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4 hover:bg-green-100 transition-colors"
@@ -173,6 +188,20 @@ export default function VehicleSearch() {
               View Passport
             </span>
           </Link>
+        )}
+        {passportMatch && !passportListed && (
+          <div
+            className="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+            data-testid="vehicle-search-passport-history-only"
+          >
+            <ShieldCheck className="w-6 h-6 text-slate-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-slate-800">
+                Vehicle history record found: {[passportMatch.year, passportMatch.make, passportMatch.model].filter(Boolean).join(' ') || passportMatch.vin}
+              </p>
+              <p className="text-xs text-slate-600 font-mono">VIN {passportMatch.vin} · not currently listed on the marketplace</p>
+            </div>
+          </div>
         )}
 
         {loadError && (

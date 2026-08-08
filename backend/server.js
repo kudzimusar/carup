@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole } from './middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth } from './middleware/authMiddleware.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -96,7 +96,7 @@ import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
-import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
+import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -415,15 +415,20 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
   }
 });
 // --- VEHICLE SINGLE FETCH ---
+// Public per-VIN fetch: sanitized projection + the same visibility rules as the
+// marketplace (a draft/quarantined VIN 404s instead of leaking its raw row).
 app.get('/api/vehicles/:vin/details', async (req, res) => {
   const { vin } = req.params;
   try {
     const { data: vehicle, error } = await supabase
       .from('vehicles')
-      .select('*, tenant:tenants(name, type, status)')
+      .select(`${PUBLIC_VEHICLE_COLUMNS}, tenant:tenants(name, type, status)`)
       .eq('vin', vin)
       .single();
     if (error) throw error;
+    if (!isPublicVehicleStatus(vehicle.status) || !isPubliclyVisiblePublication(vehicle.publication_status)) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
     res.json(vehicle);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -433,12 +438,16 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
 // --- PILLAR 8: ADVANCED TAXONOMY & SEARCH ---
 app.get('/api/vehicles', async (req, res) => {
   const { make, model, minPrice, maxPrice, drivetrain, dutyPaid, policeVerified, trustRange } = req.query;
-  
+
   try {
-    let query = supabase.from('vehicles').select('*');
-    
+    // Sanitized projection + full visibility gate: this legacy public endpoint
+    // previously returned raw rows (owner_id, tenant_id, engine/chassis numbers)
+    // and ignored the publication lifecycle entirely.
+    let query = supabase.from('vehicles').select(PUBLIC_VEHICLE_COLUMNS);
+
     // Explicitly enforce public visibility constraint unless specifically fetching for a tenant (handled below or in another endpoint)
     query = query.in('status', publicVehicleStatusFilterValues());
+    query = query.in('publication_status', publiclyVisiblePublicationStatuses());
 
     if (make) query = query.eq('make', make);
     if (model) query = query.eq('model', model);
@@ -900,10 +909,29 @@ app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'a
   }
 });
 
-app.get('/api/partsentry/:vin', async (req, res) => {
+// Public callers see the governed public ledger only; the vehicle's owner, its
+// tenant, a mechanic or an admin see the full history — otherwise a mechanic's
+// or owner's fresh write is invisible on re-read until public-card review.
+app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const history = await getRepairHistory(vin, { publicOnly: true });
+    let publicOnly = true;
+    const ctx = req.userContext;
+    if (ctx?.id) {
+      if (ctx.role === 'mechanic' || ctx.role === 'admin') {
+        publicOnly = false;
+      } else {
+        const { data: vehicleRow } = await supabase
+          .from('vehicles')
+          .select('owner_id, tenant_id')
+          .eq('vin', vin)
+          .maybeSingle();
+        const ownsVehicle = vehicleRow?.owner_id && vehicleRow.owner_id === ctx.id;
+        const sameTenant = vehicleRow?.tenant_id && vehicleRow.tenant_id === ctx.tenantId;
+        publicOnly = !(ownsVehicle || sameTenant);
+      }
+    }
+    const history = await getRepairHistory(vin, { publicOnly });
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: error.message });

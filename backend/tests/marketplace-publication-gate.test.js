@@ -33,11 +33,10 @@ function vehicle(overrides = {}) {
   };
 }
 
-test('publication visibility helper: draft and intermediate states are not publicly visible', () => {
-  assert.deepEqual(publiclyVisiblePublicationStatuses(), ['publishable', 'published']);
+test('publication visibility helper: only published is publicly visible (unpublish must not be a no-op)', () => {
+  assert.deepEqual(publiclyVisiblePublicationStatuses(), ['published']);
   assert.equal(isPubliclyVisiblePublication('published'), true);
-  assert.equal(isPubliclyVisiblePublication('publishable'), true);
-  for (const hidden of ['draft', 'identity_complete', 'documents_submitted', 'review_pending']) {
+  for (const hidden of ['draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable']) {
     assert.equal(isPubliclyVisiblePublication(hidden), false, `${hidden} must be hidden`);
   }
   // Missing value = legacy fixture / column not selected: stays visible (real
@@ -45,7 +44,7 @@ test('publication visibility helper: draft and intermediate states are not publi
   assert.equal(isPubliclyVisiblePublication(undefined), true);
 });
 
-test('a draft vehicle is absent from the public marketplace list; published/publishable appear', async () => {
+test('draft and publishable vehicles are absent from the public marketplace list; only published appears', async () => {
   const supabase = buildMockSupabase({
     vehicles: [
       vehicle({ vin: DRAFT_VIN, publication_status: 'draft' }),
@@ -57,7 +56,13 @@ test('a draft vehicle is absent from the public marketplace list; published/publ
   const vins = listings.map((l) => l.vin);
   assert.ok(!vins.includes(DRAFT_VIN), 'draft must not be publicly listed');
   assert.ok(vins.includes(PUBLISHED_VIN), 'published must be listed');
-  assert.ok(vins.includes('1HGBH41JXMN109999'), 'publishable must be listed');
+  assert.ok(!vins.includes('1HGBH41JXMN109999'), 'publishable (ready but not pushed live / unpublished) must NOT be listed');
+});
+
+test('unpublish is not a visibility no-op: the state it returns to is hidden', () => {
+  // POST /unpublish transitions published -> publishable; if publishable were
+  // visible, sellers would be told "no longer publicly visible" while staying listed.
+  assert.equal(isPubliclyVisiblePublication('publishable'), false);
 });
 
 test('public listing detail 404s for a draft vehicle but resolves for a published one', async () => {
@@ -110,6 +115,7 @@ test('publish/unpublish route contract (source): auth, scope, completeness gate,
 test('backfill migration preserves currently-visible inventory (file contract)', () => {
   const migration = readFileSync(new URL('../../database/migrations/20260808140000_publication_gate_backfill.sql', import.meta.url), 'utf8');
   assert.ok(migration.includes("SET publication_status = 'published'"), 'backfill must promote to published');
-  assert.ok(migration.includes("'draft', 'identity_complete', 'documents_submitted', 'review_pending'"), 'backfill must cover every pre-publication state');
+  assert.ok(migration.includes("'draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable'"), 'backfill must cover every currently-visible non-published state');
+  assert.ok(migration.includes('lower(btrim(status))'), 'backfill status predicate must mirror the runtime normalization (case/alias/null tolerant)');
   assert.ok(migration.includes('-- +migrate Up'), 'runner markers required');
 });

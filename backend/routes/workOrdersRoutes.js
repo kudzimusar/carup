@@ -29,14 +29,18 @@ router.post('/api/mechanic/work-orders', authorizeRole(['mechanic', 'admin']), a
   const { vin, customer_name, issue_description } = req.body;
   if (!vin) throw new ValidationError('vin is required');
 
-  // Resolve the customer from the vehicle's registered owner when the VIN is known.
+  // Resolve the customer from the vehicle's registered owner. The VIN must
+  // exist: mechanic_work_orders.vin is a FK, so an unknown VIN previously
+  // surfaced as a raw 500 DatabaseError instead of a client error.
   let customerId = null;
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
     .select('owner_id')
     .eq('vin', vin)
     .maybeSingle();
-  if (!vehicleError && vehicle?.owner_id) customerId = vehicle.owner_id;
+  if (vehicleError) throw new DatabaseError(vehicleError.message);
+  if (!vehicle) throw new ValidationError(`Unknown VIN: ${vin}. Look the vehicle up before opening a work order.`);
+  if (vehicle.owner_id) customerId = vehicle.owner_id;
 
   const { data, error } = await supabase.from('mechanic_work_orders').insert({
     tenant_id: orgId,

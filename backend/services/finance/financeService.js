@@ -53,13 +53,15 @@ export async function submitFinancingApplication(vin, userId, bankId, requestedA
     requestedAmount,
     status,
   };
-  emitDomainEvent(null, 'finance.application.status_changed', decisionPayload, bankId).catch(() => {});
-  // Terminal decision events for the communication engine (seam-E E3). Kept
-  // alongside status_changed so both coarse and decision-specific listeners fire.
+  // Exactly ONE event per transition: terminal decisions emit their specific
+  // event, everything else the coarse status_changed — emitting both queued a
+  // duplicate notification for the same decision.
   if (status === 'Approved') {
     emitDomainEvent(null, 'finance.application.approved', decisionPayload, bankId).catch(() => {});
   } else if (status === 'Rejected') {
     emitDomainEvent(null, 'finance.application.declined', decisionPayload, bankId).catch(() => {});
+  } else {
+    emitDomainEvent(null, 'finance.application.status_changed', decisionPayload, bankId).catch(() => {});
   }
 
   return { id, vin, userId, bankId, requestedAmount, status, monthlyPayment: affordability.estimatedMonthlyPayment, apr: affordability.estimatedApr, rejectionReason: affordability.rejectionReason };

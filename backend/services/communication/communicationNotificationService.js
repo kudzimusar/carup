@@ -41,6 +41,28 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     templateKey: 'finance_status_v1',
     transactional: true,
   },
+  // Decision-specific finance events share the finance_status_v1 rendering but
+  // must have explicit policies: without one, getPolicy falls back to the
+  // generic acknowledgement template and every application would queue a second,
+  // nonsensical notification alongside the real one.
+  'finance.application.approved': {
+    notificationType: 'finance_status',
+    threadType: 'finance',
+    priority: 'high',
+    channels: ['in_app', 'push', 'email'],
+    fallbackChannels: ['sms'],
+    templateKey: 'finance_status_v1',
+    transactional: true,
+  },
+  'finance.application.declined': {
+    notificationType: 'finance_status',
+    threadType: 'finance',
+    priority: 'high',
+    channels: ['in_app', 'push', 'email'],
+    fallbackChannels: ['sms'],
+    templateKey: 'finance_status_v1',
+    transactional: true,
+  },
   'identity.verification.decided': {
     notificationType: 'verification_decision',
     threadType: 'verification',

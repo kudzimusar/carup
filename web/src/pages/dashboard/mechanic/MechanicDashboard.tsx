@@ -165,7 +165,7 @@ export default function MechanicDashboard() {
               {workOrders.slice(0, 5).map((order) => (
                 <div key={order.id} className="flex justify-between items-center p-3.5 bg-gray-50 hover:bg-gray-100/40 rounded-xl transition-all border border-gray-100 text-xs">
                   <div>
-                    <p className="font-semibold text-gray-800">{order.issue_description || order.service || 'Work order'}</p>
+                    <p className="font-semibold text-gray-800">{order.description || order.issue_description || order.service || 'Work order'}</p>
                     <p className="text-[10px] text-gray-400 font-mono">{order.vin || order.vehicle} • {order.created_at ? new Date(order.created_at).toLocaleDateString() : ''}</p>
                   </div>
                   <div className="text-right">

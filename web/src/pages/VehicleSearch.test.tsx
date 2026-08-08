@@ -15,9 +15,10 @@ import type { MarketplaceListingSummary } from '@/types'
 const fetchMarketplaceListings = vi.fn()
 const fetchMarketplaceCategories = vi.fn()
 const lookupVehiclePassport = vi.fn()
+const fetchMarketplaceListingDetail = vi.fn()
 
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ fetchMarketplaceListings, fetchMarketplaceCategories, lookupVehiclePassport }),
+  useCarUpApi: () => ({ fetchMarketplaceListings, fetchMarketplaceCategories, lookupVehiclePassport, fetchMarketplaceListingDetail }),
 }))
 
 const VehicleSearch = (await import('./VehicleSearch')).default
@@ -107,10 +108,11 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     expect(screen.queryAllByTestId('vehicle-search-result')).toHaveLength(0)
   })
 
-  it('tries the passport lookup for identifier-shaped queries and deep-links the match', async () => {
+  it('tries the passport lookup for identifier-shaped queries and deep-links a publicly listed match', async () => {
     lookupVehiclePassport.mockResolvedValue({
       vehicle: { vin: 'JH4KA8260MC000000', make: 'Honda', model: 'Legend', year: 1991 },
     })
+    fetchMarketplaceListingDetail.mockResolvedValue({ vin: 'JH4KA8260MC000000' })
     renderSearch()
     await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled())
 
@@ -120,6 +122,21 @@ describe('VehicleSearch de-mock (no fabricated inventory)', () => {
     await waitFor(() => expect(screen.getByTestId('vehicle-search-passport-match')).toBeTruthy())
     expect(screen.getByTestId('vehicle-search-passport-match').getAttribute('href'))
       .toBe('/marketplace/listing/JH4KA8260MC000000')
+  })
+
+  it('renders a history-only card (no listing link) when the passport hit is not publicly listed', async () => {
+    lookupVehiclePassport.mockResolvedValue({
+      vehicle: { vin: 'JH4KA8260MC000001', make: 'Honda', model: 'Legend', year: 1991 },
+    })
+    fetchMarketplaceListingDetail.mockRejectedValue(Object.assign(new Error('Listing not found'), { status: 404 }))
+    renderSearch()
+    await waitFor(() => expect(fetchMarketplaceListings).toHaveBeenCalled())
+
+    fireEvent.change(screen.getByTestId('vehicle-search-input'), { target: { value: 'JH4KA8260MC000001' } })
+
+    await waitFor(() => expect(screen.getByTestId('vehicle-search-passport-history-only')).toBeTruthy())
+    expect(screen.queryByTestId('vehicle-search-passport-match')).toBeNull()
+    expect(screen.getByTestId('vehicle-search-passport-history-only').textContent).toContain('not currently listed')
   })
 
   it('passes non-identifier queries straight through to the listings API without a lookup', async () => {

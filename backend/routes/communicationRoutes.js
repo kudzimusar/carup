@@ -34,12 +34,18 @@ function safeEqual(a = '', b = '') {
 }
 
 function requireWorkerSecret(req, res) {
-  // Must match the configuration validator's selection exactly: a quoted-empty or
-  // whitespace-only COMMUNICATION_WORKER_SECRET falls through to CRON_SECRET here
-  // just as it does in validateCommunicationConfiguration.
+  // Primary secret matches the configuration validator's selection exactly: a
+  // quoted-empty or whitespace-only COMMUNICATION_WORKER_SECRET falls through to
+  // CRON_SECRET just as it does in validateCommunicationConfiguration. Vercel's
+  // scheduler can ONLY send `Authorization: Bearer $CRON_SECRET`, so when both
+  // secrets are configured and differ, CRON_SECRET is accepted as an alternate —
+  // otherwise every cron tick would 401 while the validator reports READY.
   const expected = resolveWorkerSecret();
+  const cronSecret = String(process.env.CRON_SECRET || '').trim();
   const supplied = req.headers['x-communication-worker-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (!expected || !supplied || !safeEqual(supplied, expected)) {
+  const matchesPrimary = Boolean(expected && supplied && safeEqual(supplied, expected));
+  const matchesCron = Boolean(cronSecret && supplied && safeEqual(supplied, cronSecret));
+  if (!matchesPrimary && !matchesCron) {
     res.status(401).json({ error: 'Unauthorized communication worker request.' });
     return false;
   }
@@ -76,6 +82,18 @@ async function processWorkerBatch(req, res, services) {
 // Guarded exactly like the communications delivery worker route above.
 async function processEventOutboxBatch(req, res, worker) {
   if (!requireWorkerSecret(req, res)) return;
+  // Never drain unarmed: on an instance whose boot-time listener registration
+  // did not run (e.g. a failed Supabase probe), processEvent would mark every
+  // locked event 'processed' with zero handlers — permanently consuming them
+  // without delivering anything. Refuse instead so the cron retries on a
+  // healthy instance.
+  if (!worker?.handlers || worker.handlers.size === 0) {
+    return res.status(503).json({
+      success: false,
+      error: 'event_worker_unarmed',
+      message: 'No domain-event listeners are registered on this instance; refusing to consume the outbox.',
+    });
+  }
   const correlationId = req.headers['x-correlation-id'] || req.correlationId || crypto.randomUUID();
   const invokedAt = new Date().toISOString();
   console.log(JSON.stringify({ level: 'info', event: 'event_outbox_worker_invoked', correlation_id: correlationId, ts: invokedAt }));

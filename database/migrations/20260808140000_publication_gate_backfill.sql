@@ -14,10 +14,20 @@
 -- real completeness-gated publish flow.
 
 -- +migrate Up
+-- The status predicate mirrors the runtime rule (isPublicVehicleStatus +
+-- normalizeVehicleStatus): any value normalizing to Available/Reserved is
+-- publicly visible today, including NULL/empty (normalize defaults to
+-- 'Available') and alias spellings. 'publishable' is included in the promoted
+-- set because such rows (e.g. the 20260624140000 trust>=70 promotion) are
+-- visible today and only 'published' remains visible after the gate.
 UPDATE vehicles
    SET publication_status = 'published'
- WHERE publication_status IN ('draft', 'identity_complete', 'documents_submitted', 'review_pending')
-   AND status IN ('Available', 'Reserved', 'available', 'reserved', 'ACTIVE', 'RESERVED');
+ WHERE publication_status IN ('draft', 'identity_complete', 'documents_submitted', 'review_pending', 'publishable')
+   AND (
+         status IS NULL
+      OR btrim(status) = ''
+      OR lower(btrim(status)) IN ('available', 'reserved', 'active', 'approved', 'listed')
+   );
 
 -- +migrate Down
 -- Irreversible data promotion: the per-row pre-backfill publication_status is not

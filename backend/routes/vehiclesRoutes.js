@@ -596,10 +596,14 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
     .order('uploaded_at', { ascending: false })
     .limit(100);
 
-  // Tenant scoping applies to every tenant-bound review role. Only admin and
-  // government review globally; a mechanic previously saw all pending evidence
-  // across every tenant.
-  if (['dealer', 'mechanic'].includes(req.userContext.role) && req.userContext.tenantId) {
+  // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
+  // only admin and government review globally; a dealer/mechanic session with
+  // no tenant context gets nothing (previously, omitting the tenant header
+  // skipped the filter entirely and exposed every tenant's pending evidence).
+  if (['dealer', 'mechanic'].includes(req.userContext.role)) {
+    if (!req.userContext.tenantId) {
+      return res.json([]);
+    }
     query = query.eq('tenant_id', req.userContext.tenantId);
   }
 
