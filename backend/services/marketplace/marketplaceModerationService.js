@@ -10,6 +10,7 @@
  */
 
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import {
   LISTING_SELECT_COLUMNS,
   buildMarketplaceListingSummary,
@@ -98,7 +99,9 @@ export async function moderateListing(client, vin, action, body = {}, actor = {}
     throw new ValidationError('A reason is required for this moderation action.');
   }
 
-  const { data: rows, error } = await client.from('vehicles').select('vin, status').eq('vin', vin);
+  // owner_id/tenant_id are needed for the owner notification below; they are
+  // never returned to the caller (response stays sanitized).
+  const { data: rows, error } = await client.from('vehicles').select('vin, status, owner_id, tenant_id').eq('vin', vin);
   if (error) throw error;
   const vehicle = Array.isArray(rows) ? rows[0] : rows;
   if (!vehicle) throw new NotFoundError('Listing not found.');
@@ -123,6 +126,21 @@ export async function moderateListing(client, vin, action, body = {}, actor = {}
     reason: body.reason,
     notes: body.notes,
     actor,
+  });
+
+  // Bridge the decision into the communication engine so the listing owner
+  // learns about visibility changes (seam-E E6). Best-effort: the moderation
+  // decision is already durable, so an outbox failure never fails the action.
+  await emitDomainEvent(null, 'marketplace.listing.moderated', {
+    vin,
+    action,
+    previousStatus,
+    status: nextStatus,
+    reason: body.reason || null,
+    recipientUserId: vehicle.owner_id || null,
+    listingId: vin,
+  }, vehicle.tenant_id || null).catch((err) => {
+    console.warn('[marketplace-moderation] outbox emit failed:', err.message);
   });
 
   return {

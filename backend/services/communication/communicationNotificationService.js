@@ -50,6 +50,15 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     templateKey: 'verification_decision_v1',
     transactional: true,
   },
+  'marketplace.listing.moderated': {
+    notificationType: 'listing_moderation',
+    threadType: 'marketplace_listing',
+    priority: 'normal',
+    channels: ['in_app', 'email', 'push'],
+    fallbackChannels: [],
+    templateKey: 'listing_moderation_v1',
+    transactional: true,
+  },
 });
 
 export class CommunicationNotificationService {

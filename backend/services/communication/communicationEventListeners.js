@@ -5,6 +5,7 @@ import { createCommunicationServices } from './communicationServiceFactory.js';
 // backend/routes) — enforced by backend/tests/communication-event-coverage.test.js.
 export const COMMUNICATION_EVENT_TYPES = [
   'marketplace.inquiry.created',
+  'marketplace.listing.moderated',
   'ESCROW_CREATED',
   'ESCROW_UPDATED',
   'finance.application.status_changed',

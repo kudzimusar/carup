@@ -34,6 +34,11 @@ const TEMPLATES = Object.freeze({
     subject: 'Identity verification decision',
     body: 'Your CarUp identity verification ({{reference}}) has an outcome: {{decision}}. This decision comes from CarUp verification records.',
   },
+  listing_moderation_v1: {
+    transactional: true,
+    subject: 'Marketplace listing update',
+    body: 'Your listing {{listing_id}} received a moderation decision: {{decision}}. Current status: {{status}}.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',
