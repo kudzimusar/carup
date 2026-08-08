@@ -17,6 +17,7 @@ import { CommunicationInboundService } from '../services/communication/communica
 import { CommunicationWebhookService } from '../services/communication/communicationWebhookService.js';
 import { CommunicationDeliveryWorker } from '../services/communication/communicationDeliveryWorker.js';
 import { registerCommunicationListeners } from '../services/communication/communicationEventListeners.js';
+import { validateCommunicationConfiguration } from '../services/communication/communicationConfigurationValidator.js';
 import { FakeCommunicationAdapter } from '../services/communication/adapters/fakeCommunicationAdapter.js';
 import {
   SendGridEmailAdapter,
@@ -157,6 +158,33 @@ function createCloudflareEmailPayload(overrides = {}) {
     },
     references: ['<root@example.test>'],
     attachments: [],
+    ...overrides,
+  };
+}
+
+function productionReadyCommunicationEnv(overrides = {}) {
+  return {
+    NODE_ENV: 'production',
+    COMMUNICATION_ENGINE_ENABLED: 'true',
+    COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'false',
+    COMMUNICATION_WORKER_SECRET: 'worker-secret',
+    COMMUNICATION_WEBHOOK_BASE_URL: 'https://api.example.test',
+    CARUP_META_ACCESS_TOKEN: 'meta-token',
+    CARUP_META_PHONE_NUMBER_ID: 'phone-number-id',
+    CARUP_META_PAGE_ID: 'page-id',
+    CARUP_META_WEBHOOK_VERIFY_TOKEN: 'meta-verify-token',
+    CARUP_META_APP_SECRET: 'meta-app-secret',
+    CARUP_TELEGRAM_BOT_TOKEN: 'telegram-token',
+    CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN: 'telegram-webhook-secret',
+    EMAIL_PROVIDER: 'sendgrid',
+    SENDGRID_API_KEY: 'sendgrid-key',
+    SENDGRID_FROM_EMAIL: 'noreply@example.test',
+    SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY: 'sendgrid-webhook-key',
+    TWILIO_ACCOUNT_SID: 'twilio-sid',
+    TWILIO_AUTH_TOKEN: 'twilio-token',
+    TWILIO_MESSAGING_SERVICE_SID: 'twilio-message-service',
+    TWILIO_STATUS_CALLBACK_URL: 'https://api.example.test/api/communications/webhooks/twilio/sms',
+    EXPO_ACCESS_TOKEN: 'expo-token',
     ...overrides,
   };
 }
@@ -362,6 +390,77 @@ test('default adapter registry uses deterministic fakes in test and real fail-cl
   assert.equal(cloudflareHealth.available, false);
   assert.equal(cloudflareHealth.fallback_provider, 'sendgrid');
   assert.deepEqual(cloudflareHealth.missing, ['CLOUDFLARE_EMAIL_FROM', 'CLOUDFLARE_EMAIL_WORKER_URL_OR_REST_API']);
+});
+
+test('communication configuration validator returns READY only with real adapters and complete secrets', () => {
+  const env = productionReadyCommunicationEnv();
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+  assert.equal(validation.status, 'READY');
+  assert.equal(validation.ready, true);
+  assert.equal(validation.providers.every((provider) => provider.available), true);
+  assert.equal(validation.providers.find((provider) => provider.channel === 'telegram').status, 'READY');
+});
+
+test('communication configuration validator blocks empty Telegram token and reports all missing configuration', () => {
+  const env = productionReadyCommunicationEnv({
+    CARUP_TELEGRAM_BOT_TOKEN: '',
+    CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN: "''",
+    COMMUNICATION_WORKER_SECRET: '',
+    CRON_SECRET: '',
+    COMMUNICATION_WEBHOOK_BASE_URL: '',
+    CARUP_PUBLIC_API_URL: '',
+    STAGING_API_BASE_URL: '',
+  });
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+  const telegram = validation.providers.find((provider) => provider.channel === 'telegram');
+
+  assert.equal(validation.status, 'BLOCKED');
+  assert.equal(telegram.available, false);
+  assert.equal(telegram.status, 'BLOCKED');
+  assert.equal(telegram.missing.providerSecrets.includes('CARUP_TELEGRAM_BOT_TOKEN'), true);
+  assert.equal(telegram.missing.webhookSecrets.includes('CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN'), true);
+  assert.equal(telegram.missing.webhookUrls.includes('COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL'), true);
+  assert.equal(validation.issues.some((entry) => entry.code === 'scheduler_secret_missing'), true);
+});
+
+test('communication configuration validator blocks fake provider adapters even when credentials exist', () => {
+  const env = productionReadyCommunicationEnv({ NODE_ENV: 'test' });
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+  const telegram = validation.providers.find((provider) => provider.channel === 'telegram');
+
+  assert.equal(validation.status, 'BLOCKED');
+  assert.equal(telegram.available, false);
+  assert.equal(telegram.adapterMode, 'fake');
+  assert.equal(telegram.explanations.some((message) => /fake adapter/.test(message)), true);
+});
+
+test('communication health route returns BLOCKED when provider configuration is incomplete', async () => {
+  const env = productionReadyCommunicationEnv({ CARUP_TELEGRAM_BOT_TOKEN: '' });
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const router = createCommunicationRouter({
+    services: {
+      adapterRegistry,
+      configurationValidator: {
+        validate: () => validateCommunicationConfiguration({ env, adapterRegistry }),
+      },
+    },
+  });
+
+  const response = await invokeRouter(router, {
+    method: 'GET',
+    url: '/api/communications/health',
+    originalUrl: '/api/communications/health',
+    headers: {},
+    query: {},
+  });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.status, 'BLOCKED');
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.configuration.providers.find((provider) => provider.channel === 'telegram').available, false);
+  assert.equal(response.body.configuration.explanations.some((message) => message.includes('CARUP_TELEGRAM_BOT_TOKEN')), true);
 });
 
 test('real SendGrid email adapter posts mail send request and maps accepted response', async () => {

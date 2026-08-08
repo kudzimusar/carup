@@ -8,6 +8,7 @@ import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { createDefaultAdapterRegistry, assertRealTelegramAdapter } from './adapters/providerAdapters.js';
 import { createCommunicationOrchestrator } from './communicationOrchestratorService.js';
+import { createCommunicationConfigurationValidator } from './communicationConfigurationValidator.js';
 
 export function createCommunicationServices({ repository = null, adapterRegistry = null } = {}) {
   const repo = repository || new CommunicationRepository();
@@ -21,6 +22,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   const webhookService = new CommunicationWebhookService({ repository: repo, inboundService });
   const deliveryWorker = new CommunicationDeliveryWorker({ repository: repo, adapterRegistry: registry });
   const orchestrator = createCommunicationOrchestrator({ repository: repo, threadService, notificationService });
+  const configurationValidator = createCommunicationConfigurationValidator({ adapterRegistry: deliveryWorker.adapterRegistry });
   return {
     repository: repo,
     identityService,
@@ -32,6 +34,6 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     deliveryWorker,
     orchestrator,
     adapterRegistry: deliveryWorker.adapterRegistry,
+    configurationValidator,
   };
 }
-
