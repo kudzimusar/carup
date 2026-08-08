@@ -595,7 +595,10 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
     .order('uploaded_at', { ascending: false })
     .limit(100);
 
-  if (req.userContext.role === 'dealer' && req.userContext.tenantId) {
+  // Tenant scoping applies to every tenant-bound review role. Only admin and
+  // government review globally; a mechanic previously saw all pending evidence
+  // across every tenant.
+  if (['dealer', 'mechanic'].includes(req.userContext.role) && req.userContext.tenantId) {
     query = query.eq('tenant_id', req.userContext.tenantId);
   }
 
