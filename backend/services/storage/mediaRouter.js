@@ -87,7 +87,7 @@ function scanForMalware(buffer) {
  * Takes an array of base64 strings or a single base64 string, processes it,
  * uploads to the public 'vehicle-images' bucket, and returns public WebP/JPEG URLs.
  */
-router.post('/upload/vehicle', async (req, res) => {
+router.post('/upload/vehicle', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   const { images, vin } = req.body;
 
   if (!images || !vin) {
@@ -95,6 +95,37 @@ router.post('/upload/vehicle', async (req, res) => {
   }
 
   const imageList = Array.isArray(images) ? images : [images];
+  if (imageList.length > 15) {
+    return res.status(400).json({ error: 'Too many images: maximum 15 per upload.' });
+  }
+
+  // Uploads may target either an existing vehicle (the caller must own it or share
+  // its tenant) or a VIN that is still being created by this authenticated caller.
+  // A VIN owned by someone else is never writable.
+  if (req.userContext?.role !== 'admin') {
+    const { data: vehicleRow, error: vehicleErr } = await supabase
+      .from('vehicles')
+      .select('owner_id, tenant_id')
+      .eq('vin', String(vin).toUpperCase())
+      .maybeSingle();
+    if (vehicleErr) {
+      return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+    }
+    if (vehicleRow) {
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        await logAuditEvent(supabase, {
+          req,
+          event_type: 'SECURITY_MEDIA_UPLOAD_DENIED',
+          vin,
+          reason: 'Authenticated caller attempted image upload for a vehicle they neither own nor share a tenant with.'
+        }).catch(() => {});
+        return res.status(403).json({ error: 'You are not authorized to upload media for this vehicle.' });
+      }
+    }
+  }
+
   const uploadedUrls = [];
 
   console.log(`📸 [Media Router] Processing upload for ${imageList.length} vehicle image(s) for VIN: [${vin}]`);
