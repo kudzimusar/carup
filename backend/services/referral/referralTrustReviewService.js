@@ -6,7 +6,7 @@ import {
   WALLET_TRANSACTION_STATUSES,
 } from '../../constants/referral/referralConstants.js';
 import { REFERRAL_TABLES } from './referralEngineRepository.js';
-import { ReferralEngineService, clampReferralLimit, clampReferralOffset, paginateReferralRows } from './referralEngineService.js';
+import { ReferralEngineService, paginateReferralRows } from './referralEngineService.js';
 
 export const TRUST_EVENT_TYPES = Object.freeze({
   RISK_CHECK_RUN: 'trust.risk_check_run',
@@ -77,15 +77,8 @@ function checksum(value) { return crypto.createHash('sha256').update(JSON.string
 // Audit export page-size bounds — never an unbounded full-table scan.
 const AUDIT_EXPORT_DEFAULT_LIMIT = 500;
 const AUDIT_EXPORT_MAX_LIMIT = 1000;
-const OWNER_DISPUTE_DEFAULT_LIMIT = 25;
-const OWNER_DISPUTE_MAX_LIMIT = 100;
-const OWNER_WALLET_SCAN_LIMIT = 1000;
 function timestamp(now) { return now().toISOString(); }
 function normalizeReason(reason) { return String(reason || '').replace(/\s+/g, ' ').trim(); }
-function tenantConsistent(rowTenant, actorTenant) {
-  if (!rowTenant || !actorTenant) return true;
-  return String(rowTenant) === String(actorTenant);
-}
 
 function recommendationFromScore(score, critical = false) {
   if (critical || score >= 100) return TRUST_RECOMMENDATIONS.REJECT;
@@ -392,168 +385,113 @@ export class ReferralTrustReviewService {
    * administrator commentary and risk/fraud signals are never exposed.
    *
    * @param {string} ownerUserId authenticated owner id (derived server-side; never caller-supplied)
-   * @param {object} [filters] { wallet_transaction_id }
+   * @param {object} [filters] { wallet_transaction_id, tenant_id, limit, offset }
    */
-  assertOwnerWalletAccess(transaction, actor = {}) {
-    if (!transaction) throw new NotFoundError('Wallet transaction not found.');
-    if (!actor.actor_user_id) throw new ForbiddenError('An authenticated owner is required to access disputes.');
-    if (transaction.user_id !== actor.actor_user_id) {
-      throw new ForbiddenError('You cannot access another user benefit dispute.');
-    }
-    if (!tenantConsistent(transaction.tenant_id, actor.actor_tenant_id)) {
-      throw new ForbiddenError('You cannot access benefit disputes outside your tenant.');
-    }
-  }
-
-  async listOwnerDisputes(ownerUserId, filters = {}, actor = {}) {
+  async listOwnerDisputes(ownerUserId, filters = {}) {
     if (!ownerUserId) throw new ForbiddenError('An authenticated owner is required to read disputes.');
-    const ownerActor = { ...actor, actor_user_id: actor.actor_user_id || ownerUserId };
-    const limit = clampReferralLimit(filters.limit, OWNER_DISPUTE_DEFAULT_LIMIT, OWNER_DISPUTE_MAX_LIMIT);
-    const offset = clampReferralOffset(filters.offset);
     const md = (event) => event.metadata || {};
 
-    let walletTransactions;
-    let disputeEvents;
-    let total;
+    // Scope by OWNERSHIP FIRST — never scan a globally-capped dispute stream. Either one explicitly
+    // requested (and ownership-proven) transaction, or the owner's own wallet transactions.
+    let ownerTransactions;
     if (filters.wallet_transaction_id) {
       const tx = await this.referralService.repository.findOne(REFERRAL_TABLES.walletTransactions, { id: filters.wallet_transaction_id });
-      this.assertOwnerWalletAccess(tx, ownerActor);
-      walletTransactions = [tx];
-      const directFilters = {
-        event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED,
-        wallet_transaction_id: tx.id,
-      };
-      if (ownerActor.actor_tenant_id) directFilters.tenant_id = ownerActor.actor_tenant_id;
-      if (this.referralService.repository.listIn) {
-        disputeEvents = await this.referralService.repository.listIn(
-          REFERRAL_TABLES.events,
-          'wallet_transaction_id',
-          [tx.id],
-          { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED, ...(ownerActor.actor_tenant_id ? { tenant_id: ownerActor.actor_tenant_id } : {}) },
-          {
-            orderBy: 'created_at',
-            ascending: false,
-            limit,
-            offset,
-            jsonContains: { metadata: { opened_by: ownerUserId } },
-          }
-        );
-      } else {
-        disputeEvents = await this.referralService.repository.list(REFERRAL_TABLES.events, directFilters, {
-          orderBy: 'created_at',
-          ascending: false,
-          limit,
-          offset,
-        });
-        disputeEvents = disputeEvents.filter((event) => md(event).opened_by === ownerUserId);
-      }
-      if (this.referralService.repository.countIn) {
-        total = await this.referralService.repository.countIn(
-          REFERRAL_TABLES.events,
-          'wallet_transaction_id',
-          [tx.id],
-          { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED, ...(ownerActor.actor_tenant_id ? { tenant_id: ownerActor.actor_tenant_id } : {}) },
-          { jsonContains: { metadata: { opened_by: ownerUserId } } }
-        );
-      } else {
-        total = disputeEvents.length;
-      }
+      if (!tx) throw new NotFoundError('Wallet transaction not found.', { wallet_transaction_id: filters.wallet_transaction_id });
+      if (tx.user_id !== ownerUserId) throw new ForbiddenError('You can only read disputes on your own benefits.');
+      ownerTransactions = [tx];
     } else {
-      const walletFilters = { user_id: ownerUserId };
-      if (ownerActor.actor_tenant_id) walletFilters.tenant_id = ownerActor.actor_tenant_id;
-      walletTransactions = await this.referralService.repository.list(REFERRAL_TABLES.walletTransactions, walletFilters, {
-        orderBy: 'created_at',
-        ascending: false,
-        limit: OWNER_WALLET_SCAN_LIMIT,
-      });
-      const walletIds = walletTransactions.map((tx) => tx.id).filter(Boolean);
-      const eventFilters = { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED };
-      if (ownerActor.actor_tenant_id) eventFilters.tenant_id = ownerActor.actor_tenant_id;
-      const listOptions = {
-        orderBy: 'created_at',
-        ascending: false,
-        limit,
-        offset,
-        jsonContains: { metadata: { opened_by: ownerUserId } },
-      };
-      if (this.referralService.repository.listIn) {
-        disputeEvents = await this.referralService.repository.listIn(
-          REFERRAL_TABLES.events,
-          'wallet_transaction_id',
-          walletIds,
-          eventFilters,
-          listOptions
-        );
-        total = this.referralService.repository.countIn
-          ? await this.referralService.repository.countIn(
-              REFERRAL_TABLES.events,
-              'wallet_transaction_id',
-              walletIds,
-              eventFilters,
-              { jsonContains: { metadata: { opened_by: ownerUserId } } }
-            )
-          : disputeEvents.length;
-      } else {
-        const allOwnerEvents = await this.referralService.repository.list(REFERRAL_TABLES.events, eventFilters, {
-          orderBy: 'created_at',
-          ascending: false,
-          limit: OWNER_WALLET_SCAN_LIMIT,
+      // Bounded by the owner's OWN transaction count (not platform scale).
+      ownerTransactions = (await this.referralService.repository.list(REFERRAL_TABLES.walletTransactions, { user_id: ownerUserId })) || [];
+    }
+
+    // Query disputes only for those owner-scoped transactions (direct per-transaction lookup — no
+    // global event cap that could hide an owner's dispute behind newer unrelated disputes).
+    const rows = [];
+    for (const tx of ownerTransactions) {
+      if (filters.tenant_id && tx.tenant_id && tx.tenant_id !== filters.tenant_id) continue;
+      const events = await this.referralService.repository.list(
+        REFERRAL_TABLES.events,
+        { event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED, wallet_transaction_id: tx.id }
+      );
+      for (const event of (events || []).filter(Boolean)) {
+        const meta = md(event);
+        // Defense in depth: only surface disputes the OWNER themself opened. An operator-filed internal
+        // case (or any dispute not opened by this owner) is never rendered as the owner's own dispute.
+        if (meta.opened_by !== ownerUserId) continue;
+        if (filters.tenant_id && event.tenant_id && event.tenant_id !== filters.tenant_id) continue;
+        rows.push({
+          dispute_id: event.id,
+          wallet_transaction_id: tx.id,
+          status: meta.status ?? null,
+          submitted_at: meta.created_at ?? event.created_at ?? null,
+          resolved_at: meta.resolved_at ?? null,
+          owner_reason: meta.reason ?? null,
+          owner_safe_resolution: ownerSafeResolution(meta.status),
+          benefit_status: tx.status ?? null,
+          _sort: event.created_at || meta.created_at || '',
         });
-        const ownerWalletIds = new Set(walletIds);
-        const scoped = allOwnerEvents.filter((event) => ownerWalletIds.has(event.wallet_transaction_id) && md(event).opened_by === ownerUserId);
-        const paged = paginateReferralRows(scoped, { limit, offset });
-        disputeEvents = paged.page;
-        total = paged.pagination.total;
       }
     }
 
-    const walletById = new Map(walletTransactions.map((tx) => [tx.id, tx]));
-    const disputes = [];
-    for (const event of (disputeEvents || []).filter(Boolean)) {
-      const meta = md(event);
-      const txId = meta.wallet_transaction_id ?? event.wallet_transaction_id ?? null;
-      const tx = walletById.get(txId);
-      if (!tx || tx.user_id !== ownerUserId || meta.opened_by !== ownerUserId) continue;
-      disputes.push({
-        dispute_id: event.id,
-        wallet_transaction_id: txId,
-        status: meta.status ?? null,
-        submitted_at: meta.created_at ?? event.created_at ?? null,
-        resolved_at: meta.resolved_at ?? null,
-        owner_reason: meta.reason ?? null,
-        owner_safe_resolution: ownerSafeResolution(meta.status),
-        benefit_status: tx.status ?? null,
-      });
-    }
-    return { disputes, pagination: { limit, offset, total, has_more: offset + limit < total } };
+    // Ordering + bounded pagination applied AFTER ownership scoping.
+    rows.sort((a, b) => String(b._sort).localeCompare(String(a._sort)));
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200);
+    const offset = Math.max(Number(filters.offset) || 0, 0);
+    const total = rows.length;
+    const page = rows.slice(offset, offset + limit).map(({ _sort, ...d }) => d);
+    return { disputes: page, pagination: { limit, offset, total, has_more: offset + limit < total } };
   }
 
   async createDispute(input = {}, actor = {}) {
-    if (!input.wallet_transaction_id) throw new ValidationError('wallet_transaction_id is required for owner disputes.');
-    const transaction = await this.referralService.repository.findOne(REFERRAL_TABLES.walletTransactions, { id: input.wallet_transaction_id });
-    this.assertOwnerWalletAccess(transaction, actor);
+    const actorUserId = actor.actor_user_id || null;
+    if (!actorUserId) throw new ForbiddenError('An authenticated actor is required to open a dispute.');
+    const isOperator = actorIsOperator(actor);
+    const walletTransactionId = input.wallet_transaction_id || null;
+
+    // Ordinary owner/user path: the caller may only dispute a benefit they actually own. The wallet
+    // owner is loaded server-side and compared to the authenticated actor — a caller-supplied owner,
+    // beneficiary, or opened_by is never trusted as authority.
+    let walletTransaction = null;
+    if (!isOperator) {
+      if (!walletTransactionId) throw new ValidationError('wallet_transaction_id is required to open a dispute.');
+      walletTransaction = await this.referralService.repository.findOne(REFERRAL_TABLES.walletTransactions, { id: walletTransactionId });
+      if (!walletTransaction) throw new NotFoundError('Wallet transaction not found.', { wallet_transaction_id: walletTransactionId });
+      if (walletTransaction.user_id !== actorUserId) {
+        throw new ForbiddenError('You can only dispute a benefit in your own wallet.');
+      }
+      if (actor.actor_tenant_id && walletTransaction.tenant_id && walletTransaction.tenant_id !== actor.actor_tenant_id) {
+        throw new ForbiddenError('Cross-tenant dispute is not permitted.');
+      }
+    } else if (!input.target_id && !walletTransactionId) {
+      // Operator/admin workflow (e.g. trust console) may open an internal case, but still needs a subject.
+      throw new ValidationError('target_id or wallet_transaction_id is required for disputes.');
+    }
+
     const metadata = {
       status: DISPUTE_STATUSES.OPEN,
-      target_type: 'wallet_transaction',
-      target_id: transaction.id,
-      wallet_transaction_id: transaction.id,
+      target_type: input.target_type || 'wallet_transaction',
+      target_id: input.target_id || walletTransactionId,
+      wallet_transaction_id: walletTransactionId,
       reason: normalizeReason(input.reason || 'Referral dispute opened.'),
-      opened_by: actor.actor_user_id,
+      // opened_by is ALWAYS the authenticated actor — never a caller-supplied input.opened_by.
+      opened_by: actorUserId,
+      // Records how the dispute was filed so an operator-created internal case is never mistaken for an
+      // owner-filed dispute in the owner-scoped read (which requires opened_by === owner).
+      opened_by_role: isOperator ? 'operator' : 'owner',
       evidence: Array.isArray(input.evidence) ? input.evidence : [],
       created_at: timestamp(this.now),
     };
     const event = await this.referralService.recordReferralEvent({
       event_type: TRUST_EVENT_TYPES.DISPUTE_CREATED,
-      tenant_id: transaction.tenant_id || actor.actor_tenant_id || null,
-      campaign_id: transaction.campaign_id || null,
-      code_id: transaction.code_id || null,
-      wallet_transaction_id: transaction.id,
+      campaign_id: input.campaign_id || walletTransaction?.campaign_id || null,
+      code_id: input.code_id || walletTransaction?.code_id || null,
+      wallet_transaction_id: walletTransactionId,
       subject_type: 'trust_dispute',
       subject_id: metadata.target_id,
-      channel: input.channel || REFERRAL_CHANNELS.WEB,
+      channel: input.channel || REFERRAL_CHANNELS.ADMIN,
       session_id: input.session_id || actor.session_id || null,
       metadata,
-    }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.USER });
+    }, { ...actor, actor_type: actor.actor_type || (isOperator ? ACTOR_TYPES.AGENT : ACTOR_TYPES.USER) });
     return { success: true, dispute: { id: event.id, ...metadata }, event };
   }
 

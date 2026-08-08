@@ -184,28 +184,20 @@ export class ReferralLocalMarketplaceService {
     return { success: true, intent, event_id: event.id };
   }
 
-  async createLead(input = {}, actor = {}, options = {}) {
+  async createLead(input = {}, actor = {}) {
     const intent = this.classifyIntent(input, actor);
     const referralCode = normalizeReferralCode(input.referral_code || input.code || '');
     let validation = null;
     if (referralCode) {
-      const prevalidated = options.referralValidation;
-      if (
-        prevalidated?.valid &&
-        normalizeReferralCode(prevalidated.code?.code) === referralCode
-      ) {
-        validation = prevalidated;
-      } else {
-        validation = await this.referralService.validateReferralCode({
-          code: referralCode,
-          channel: channelToReferralChannel(input.channel || actor.surface || REFERRAL_CHANNELS.WEB),
-          source: 'local_marketplace',
-          session_id: input.session_id || actor.session_id || null,
-          subject_type: 'local_marketplace_lead',
-          subject_id: input.lead_reference || input.session_id || actor.session_id || null,
-          metadata: { flow_type: intent.flow_type, participant_type: intent.participant_type },
-        }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.USER });
-      }
+      validation = await this.referralService.validateReferralCode({
+        code: referralCode,
+        channel: channelToReferralChannel(input.channel || actor.surface || REFERRAL_CHANNELS.WEB),
+        source: 'local_marketplace',
+        session_id: input.session_id || actor.session_id || null,
+        subject_type: 'local_marketplace_lead',
+        subject_id: input.lead_reference || input.session_id || actor.session_id || null,
+        metadata: { flow_type: intent.flow_type, participant_type: intent.participant_type },
+      }, { ...actor, actor_type: actor.actor_type || ACTOR_TYPES.USER });
     }
 
     let coupon = null;

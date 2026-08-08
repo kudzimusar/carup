@@ -409,16 +409,22 @@ export class ReferralEngineService {
       }, actor);
     }
 
-    await this.recordReferralEvent({
-      event_type: reason ? REFERRAL_EVENT_TYPES.CODE_FAILED : REFERRAL_EVENT_TYPES.CODE_VALIDATED,
-      code_id: code.id,
-      campaign_id: code.campaign_id,
-      channel: input.channel || code.channel || REFERRAL_CHANNELS.WEB,
-      session_id: input.session_id || null,
-      subject_type: input.subject_type || null,
-      subject_id: input.subject_id || null,
-      metadata: { reason, source: input.source || null, context: cleanMetadata(input.metadata) },
-    }, actor);
+    // `record: false` performs a validation lookup WITHOUT emitting a CODE_VALIDATED/FAILED audit event.
+    // Used by internal callers (e.g. the marketplace inquiry→lead bridge) that must pre-check a code's
+    // validity but then delegate the single authoritative validation+event to createLead — so one
+    // attributed inquiry yields exactly one code_validated event, not two.
+    if (input.record !== false) {
+      await this.recordReferralEvent({
+        event_type: reason ? REFERRAL_EVENT_TYPES.CODE_FAILED : REFERRAL_EVENT_TYPES.CODE_VALIDATED,
+        code_id: code.id,
+        campaign_id: code.campaign_id,
+        channel: input.channel || code.channel || REFERRAL_CHANNELS.WEB,
+        session_id: input.session_id || null,
+        subject_type: input.subject_type || null,
+        subject_id: input.subject_id || null,
+        metadata: { reason, source: input.source || null, context: cleanMetadata(input.metadata) },
+      }, actor);
+    }
 
     if (reason) {
       return { valid: false, reason, code, error: createStructuredError(reason, 'Referral code is not currently usable.', { code: normalized }) };

@@ -74,9 +74,9 @@ export default function ReferralWallet() {
     explainReferralBenefit,
     createReferralDispute,
     getOwnerReferralDisputes,
+    getReferralAgentTools,
   } = useCarUpApi()
   const { user } = useAuth()
-  const userId = user?.id
 
   const [pending, setPending] = useState<number | undefined>(undefined)
   const [approved, setApproved] = useState<number | undefined>(undefined)
@@ -98,12 +98,14 @@ export default function ReferralWallet() {
   const [disputeMsg, setDisputeMsg] = useState<string | null>(null)
   const [disputes, setDisputes] = useState<OwnerReferralDispute[]>([])
 
+  const [tools, setTools] = useState<Array<{ name: string; description?: string }>>([])
+
   const loadWallet = useCallback(async () => {
-    if (!userId) return
+    if (!user?.id) return
     setLoading(true)
     setWalletError(null)
     try {
-      const res = await getReferralWallet(userId)
+      const res = await getReferralWallet(user.id)
       const w = res.wallet
       setPending(w?.pending_balance)
       // "Approved" = claimable but not yet settled (approved + payable buckets).
@@ -115,7 +117,7 @@ export default function ReferralWallet() {
     } finally {
       setLoading(false)
     }
-  }, [getReferralWallet, userId])
+  }, [getReferralWallet, user?.id])
 
   const loadDisputes = useCallback(async () => {
     try {
@@ -128,24 +130,18 @@ export default function ReferralWallet() {
   }, [getOwnerReferralDisputes])
 
   useEffect(() => {
-    let active = true
-    void Promise.resolve().then(async () => {
-      if (active) await loadWallet()
-    })
-    return () => {
-      active = false
-    }
-  }, [loadWallet])
+    loadWallet()
+    loadDisputes()
+  }, [loadWallet, loadDisputes])
 
   useEffect(() => {
-    let active = true
-    void Promise.resolve().then(async () => {
-      if (active) await loadDisputes()
-    })
-    return () => {
-      active = false
-    }
-  }, [loadDisputes])
+    getReferralAgentTools({ surface: 'web' })
+      .then((res) => {
+        const list = Array.isArray(res.tools) ? (res.tools as Array<{ name: string; description?: string }>) : []
+        setTools(list)
+      })
+      .catch(() => setTools([]))
+  }, [getReferralAgentTools])
 
   const onValidate = useCallback(async () => {
     if (!code.trim()) {
@@ -172,7 +168,7 @@ export default function ReferralWallet() {
     setShareMsg(null)
     setShareLink(null)
     try {
-      const res = await createReferralChannelShareKit('web', { code: code.trim(), user_id: userId })
+      const res = await createReferralChannelShareKit('web', { code: code.trim(), user_id: user?.id })
       // prepareShareKit returns the link under `copy.link`; fall back defensively.
       const copy = res.copy as { link?: unknown } | undefined
       const link =
@@ -191,7 +187,7 @@ export default function ReferralWallet() {
     } catch (err) {
       setShareMsg(err instanceof Error ? err.message : 'Could not generate a share kit.')
     }
-  }, [code, createReferralChannelShareKit, userId])
+  }, [code, createReferralChannelShareKit, user?.id])
 
   const onCopy = useCallback(() => {
     if (shareLink) {
@@ -289,7 +285,7 @@ export default function ReferralWallet() {
               ) : (
                 <div className="space-y-2">
                   {transactions.map((tx) => (
-                    <div key={tx.id} data-testid={`referral-wallet-transaction-${tx.id}`} className="rounded-lg border border-gray-100 p-3">
+                    <div key={tx.id} className="rounded-lg border border-gray-100 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{tx.reason || tx.event_type || 'Referral benefit'}</p>
@@ -297,7 +293,7 @@ export default function ReferralWallet() {
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-sm font-semibold">{money(tx.amount, tx.currency)}</span>
-                          <Badge data-testid={`referral-wallet-transaction-status-${tx.id}`} className={`text-[10px] ${statusClass(tx.status)}`}>{tx.status || 'unknown'}</Badge>
+                          <Badge className={`text-[10px] ${statusClass(tx.status)}`}>{tx.status || 'unknown'}</Badge>
                           <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => onExplain(tx.id)}>
                             <HelpCircle className="w-3 h-3 mr-1" />Why?
                           </Button>
@@ -376,7 +372,6 @@ export default function ReferralWallet() {
           </div>
           <p className="text-xs text-gray-500">If a held or rejected benefit looks wrong, tell us why and a reviewer will check it.</p>
           <select
-            data-testid="referral-dispute-transaction-select"
             value={disputeTxId}
             onChange={(e) => setDisputeTxId(e.target.value)}
             className="w-full sm:max-w-xs border border-gray-200 rounded-md h-9 px-3 text-sm"
@@ -389,16 +384,32 @@ export default function ReferralWallet() {
             ))}
           </select>
           <Textarea
-            data-testid="referral-dispute-reason"
             placeholder="Describe the issue"
             value={disputeReason}
             onChange={(e) => setDisputeReason(e.target.value)}
             className="sm:max-w-md"
           />
-          <Button data-testid="referral-dispute-submit" variant="outline" onClick={onDispute}>File Dispute</Button>
-          {disputeMsg && <p data-testid="referral-dispute-message" className="text-sm text-gray-600">{disputeMsg}</p>}
+          <Button variant="outline" onClick={onDispute}>File Dispute</Button>
+          {disputeMsg && <p className="text-sm text-gray-600">{disputeMsg}</p>}
         </CardContent>
       </Card>
+
+      {/* Safe agent tools (read-only) */}
+      {tools.length > 0 && (
+        <Card className="border-0 card-shadow">
+          <CardContent className="p-6">
+            <h2 className="font-semibold mb-2">Assistant Tools</h2>
+            <p className="text-xs text-gray-500 mb-3">Safe actions the CarUp assistant can help you with. None of these can move money in your wallet.</p>
+            <div className="flex flex-wrap gap-2">
+              {tools.map((tool) => (
+                <Badge key={tool.name} variant="outline" className="text-[11px]" title={tool.description || ''}>
+                  {tool.name}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

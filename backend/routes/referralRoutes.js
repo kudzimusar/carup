@@ -423,9 +423,10 @@ export function createReferralRouter({ client = supabase, service = null, agentG
     if (!ownerUserId) return res.status(401).json({ success: false, error: 'Authentication required.' });
     const result = await trustReviewService.listOwnerDisputes(ownerUserId, {
       wallet_transaction_id: req.query.wallet_transaction_id || undefined,
+      tenant_id: req.userContext?.tenantId || undefined,
       limit: req.query.limit,
       offset: req.query.offset,
-    }, actor);
+    });
     res.json({ success: true, ...result });
   }));
 

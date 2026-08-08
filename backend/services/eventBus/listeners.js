@@ -9,13 +9,6 @@ import { marketplaceReferralBridge } from '../marketplace/marketplaceReferralBri
  * @param {object} worker - The singleton eventWorker instance
  */
 export function registerDomainListeners(worker) {
-  worker.subscribe('marketplace.inquiry.referral_bridge_requested', async (payload) => {
-    if (!payload?.inquiry?.id || !payload?.inquiry?.referral_code) return;
-    await marketplaceReferralBridge.bridgeInquiryToReferralLead({
-      inquiry: payload.inquiry,
-      actor: payload.actor || {},
-    });
-  });
   
   // 1. VEHICLE_RESERVED domain event subscriber
   worker.subscribe('VEHICLE_RESERVED', async (payload, pgClient, tenantId) => {
@@ -99,8 +92,32 @@ export function registerDomainListeners(worker) {
   worker.subscribe('ESCROW_CREATED', async (payload, pgClient, tenantId) => {
     const { escrowId, vin } = payload;
     console.log(`👷 [Domain Listener] Logging ESCROW_CREATED ledger entry for Escrow: ${escrowId}`);
-    
+
     // Decoupled blockchain logger (blockchain writing is natively integrated into escrowService, but recorded here)
     await addEvent(vin, 'Escrow Ledger Initiated', { escrowId });
+  });
+
+  // 4. marketplace.inquiry.created — Referral V1 Stage-4: DURABLE inquiry→lead bridge.
+  // The inquiry request already attempts the bridge synchronously (best-effort). This outbox listener
+  // guarantees at-least-once, retriable creation of the qualifiable referral lead so a valid attributed
+  // inquiry is never left without its lead (the invariant behind R-OWN-09). It is idempotent — the
+  // bridge returns the existing lead when one already exists, and the partial unique index on
+  // (source_inquiry_id) makes concurrent creation converge to exactly one lead.
+  worker.subscribe('marketplace.inquiry.created', async (payload) => {
+    if (!payload || !payload.referral_code || !payload.inquiryId) return; // non-referral inquiries: nothing to bridge
+    const inquiry = {
+      id: payload.inquiryId,
+      referral_code: payload.referral_code,
+      campaign_code: payload.campaign_code || null,
+      listing_id: payload.listingId || null,
+      source_channel: payload.source_channel || 'web',
+      buyer_id: payload.buyerId || null,
+    };
+    const actor = payload.buyerId ? { actor_user_id: payload.buyerId, id: payload.buyerId, actor_type: 'user' } : {};
+    const result = await marketplaceReferralBridge.bridgeInquiryToReferralLead({ inquiry, actor });
+    if (result && result.bridged) {
+      console.log(`👷 [Domain Listener] Referral lead ensured for inquiry ${payload.inquiryId} (idempotent=${!!result.idempotent})`);
+    }
+    // A thrown error (transient) propagates so the outbox worker retries this delivery.
   });
 }

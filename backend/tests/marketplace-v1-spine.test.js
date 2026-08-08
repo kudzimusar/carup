@@ -284,21 +284,6 @@ function spyBridge() {
   const calls = [];
   return {
     calls,
-    bridgeInquiryToReferralLead: async ({ inquiry }) => ({
-      bridged: true,
-      lead_event_id: `lead-${inquiry.id}`,
-      owner_user_id: 'owner-1',
-      referral_code: inquiry.referral_code || null,
-      validation: {
-        valid: true,
-        code: {
-          id: 'code-1',
-          code: inquiry.referral_code || 'CARUP-X',
-          owner_user_id: 'owner-1',
-          campaign_id: 'campaign-1',
-        },
-      },
-    }),
     emitMarketplaceReferralEvent: async (args) => { calls.push(args); return { recorded: true, referral_attributed: Boolean(args.referralCode) }; },
   };
 }
@@ -318,7 +303,7 @@ test('inquiry: public response hides contact + emits referral event; row persist
     buildMockSupabase(store),
     { inquiry_type: 'vehicle_purchase_interest', listing_id: REAL_VIN, guest_email: 'b@example.com', message: 'Is it available?', referral_code: 'CARUP-X' },
     null,
-    { referralBridge: bridge, emitDomainEvent: async () => ({ ok: true }) }
+    { referralBridge: bridge }
   );
   assert.equal(out.status, 'new');
   assert.equal('guest_email' in out, false);

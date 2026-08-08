@@ -127,27 +127,15 @@ test('listRoutes derives capacity status from real capacity data', async () => {
 });
 
 test('listDisputes normalizes real dispute events and filters by status', async () => {
-  const { referralService, trustReview } = createStack();
-  const tx = await referralService.createWalletTransaction({
-    tenant_id: 'tenant-1',
-    user_id: 'owner-1',
-    transaction_type: 'local_marketplace_referral_credit',
-    status: 'pending',
-    amount: 10,
-    currency: 'USD',
-    reason: 'Local marketplace referral converted',
-  }, trustActor);
-  await trustReview.createDispute(
-    { wallet_transaction_id: tx.id, reason: 'benefit looks wrong' },
-    { actor_user_id: 'owner-1', actor_role: 'member', actor_tenant_id: 'tenant-1', actor_type: 'user' }
-  );
+  const { trustReview } = createStack();
+  await trustReview.createDispute({ target_id: 'subject-1', target_type: 'wallet_transaction', reason: 'benefit looks wrong' }, trustActor);
 
   const res = await trustReview.listDisputes({ tenant_id: 'tenant-1' });
   assert.equal(res.disputes.length, 1);
   const dispute = res.disputes[0];
   assert.equal(typeof dispute.dispute_event_id, 'string');
   assert.equal(dispute.status, 'open');
-  assert.equal(dispute.target_id, tx.id);
+  assert.equal(dispute.target_id, 'subject-1');
 
   const open = await trustReview.listDisputes({ tenant_id: 'tenant-1', status: 'open' });
   assert.equal(open.disputes.length, 1);
