@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
+  Download,
   FileText,
   Loader2,
   RefreshCw,
@@ -593,13 +594,33 @@ export default function DiasporaWorkbookDryRun() {
               <Upload className="h-5 w-5 text-slate-700" />
               <h2 className="text-lg font-semibold text-gray-950">Template download</h2>
             </div>
-            <p className="mt-3 text-sm text-gray-600">
-              Binary XLSX template download is not yet available. Use the schema preview to prepare JSON workbook payloads.
-            </p>
-            {downloadStatus?.message && <p className="mt-2 text-xs text-gray-500">{downloadStatus.message}</p>}
-            <Button type="button" variant="secondary" className="mt-4" disabled data-testid="diaspora-workbook-template-download-disabled">
-              XLSX template unavailable
-            </Button>
+            {downloadStatus?.downloadReady ? (
+              <>
+                <p className="mt-3 text-sm text-gray-600">
+                  The binary XLSX template for the selected schema is ready to download.
+                </p>
+                <Button asChild variant="secondary" className="mt-4">
+                  <a
+                    href={`/api/diaspora/workbook/template.xlsx?type=${encodeURIComponent(templateType)}`}
+                    download
+                    data-testid="diaspora-workbook-template-download-link"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download .xlsx template
+                  </a>
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="mt-3 text-sm text-gray-600">
+                  Binary XLSX template download is not yet available. Use the schema preview to prepare JSON workbook payloads.
+                </p>
+                {downloadStatus?.message && <p className="mt-2 text-xs text-gray-500">{downloadStatus.message}</p>}
+                <Button type="button" variant="secondary" className="mt-4" disabled data-testid="diaspora-workbook-template-download-disabled">
+                  XLSX template unavailable
+                </Button>
+              </>
+            )}
           </section>
 
           <section className="rounded-md border border-gray-200 bg-white p-5">

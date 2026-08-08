@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,10 +24,22 @@ import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 
 export default function VehicleProfile() {
   const { id } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+
+  // Deep-link support: /dashboard/garage/<vin>?upload=1 (e.g. from the completeness panel's
+  // "Upload documents" action) opens the evidence upload modal on arrival. The param is consumed
+  // so closing the modal or navigating back does not reopen it.
+  useEffect(() => {
+    if (searchParams.get('upload') !== '1') return
+    setIsUploadModalOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('upload')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
   // Vehicle Life Evidence Taxonomy (M1): drives the life-stage timeline grouping.
   const [evidenceTaxonomy, setEvidenceTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
   const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[]>([])
