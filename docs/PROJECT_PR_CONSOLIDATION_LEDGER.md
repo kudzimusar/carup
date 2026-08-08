@@ -33,3 +33,26 @@ Updated 2026-07-10 (Phase 7C consolidation pass).
   the session + decisions, or optimistically apply the returned decision).
   Discovered during the Gate 2 owner device PASS (2026-07-14). Does **not** reopen
   Gate 2.
+
+---
+
+## Reunification addendum (2026-08-08) — dispositions since 2026-07-10
+
+This ledger's rows above were last updated 2026-07-10 and stop at PR #115. Authoritative
+continuation, verified against GitHub on 2026-08-08 (full evidence:
+`docs/PROJECT_REUNIFICATION_REPORT.md`):
+
+| PR | Branch | Disposition |
+|---|---|---|
+| #114 | `plan/vehicle-trust-full-activation` | **MERGED 2026-07-14** (release train: VTOS Full Activation + 7C + Gate 2 + PartSentry). Phase 7C production cutover executed same day (`docs/releases/PHASE_7C_PRODUCTION_COMPLETION_REPORT.md`). |
+| #116 | `docs/phase7c-production-completion` | MERGED 2026-07-14 |
+| #117–#120 | referral V1 stage 0/4 governance + stage 5 acceptance | MERGED 2026-07-16/17 |
+| #121 / #105 | referral stage-5 closure docs / Wave A | Auto-closed by the CR-1 history rewrite (2026-07-26); re-created as **#123 / #124** (both open drafts) |
+| #122 | `security/cr1-credential-remediation` | MERGED 2026-07-26 (CR-1 executed: history rewrite + rotation; see `docs/security/CR1_EXECUTION_LEDGER.md`) |
+| #125 / #126 | diaspora ledger #19 / #20 hardening | MERGED 2026-07-26/27 |
+| #129 | `claude/diaspora-go-to-market-activation` | MERGED 2026-07-28 (GTM Issue #127 integration lane) |
+| #130 | `fix/diaspora-profile-loop-dashboard-truth` | MERGED 2026-07-27 |
+| #131 / #132 | staging GTM migration dispatcher / re-pin | MERGED 2026-07-27 |
+| #133 / #134 | staging UAT tenancy bootstrap / TLS fix | MERGED 2026-07-29 |
+| #135 / #136 | trade-graph hotfix / workbook schema remediation | MERGED 2026-07-29 |
+| #137 | `fix/issue-127-uat-remediation` | OPEN draft, base = current main, CI green; **merge-blocked by one credentialed staging browser retest (owner gate)** |
