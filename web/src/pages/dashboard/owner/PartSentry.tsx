@@ -59,17 +59,19 @@ export default function PartSentry() {
     }).catch(() => setVehicles([]))
   }, [fetchOwnedVehicles])
 
-  const loadHistory = useCallback(async (vin: string) => {
-    try {
-      const rows = await fetchRepairHistory(vin)
-      setRepairLogs(Array.isArray(rows) ? rows : [])
-      setHistoryError(null)
-    } catch (err: unknown) {
-      setRepairLogs([])
-      setHistoryError(err instanceof Error ? err.message : 'Failed to load repair history')
-    } finally {
-      setLoadedHistoryVin(vin)
-    }
+  // Promise-chain form: every setState lives in a .then/.catch/.finally callback
+  // so the effect that invokes this never sets state synchronously.
+  const loadHistory = useCallback((vin: string) => {
+    return fetchRepairHistory(vin)
+      .then(rows => {
+        setRepairLogs(Array.isArray(rows) ? rows : [])
+        setHistoryError(null)
+      })
+      .catch((err: unknown) => {
+        setRepairLogs([])
+        setHistoryError(err instanceof Error ? err.message : 'Failed to load repair history')
+      })
+      .finally(() => setLoadedHistoryVin(vin))
   }, [fetchRepairHistory])
   const historyLoading = Boolean(selectedVehicle) && loadedHistoryVin !== selectedVehicle
 

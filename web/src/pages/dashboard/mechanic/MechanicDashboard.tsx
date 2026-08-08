@@ -39,17 +39,18 @@ export default function MechanicDashboard() {
   const [workOrderForm, setWorkOrderForm] = useState({ vin: '', customerName: '', issue: '' })
   const [creatingOrder, setCreatingOrder] = useState(false)
 
-  const loadWorkOrders = useCallback(async () => {
-    // No state writes before the first await: this is invoked from an effect,
-    // and a synchronous setState there cascades renders.
-    try {
-      const orders = await fetchMechanicWorkOrders()
-      setWorkOrders(Array.isArray(orders) ? orders : [])
-      setOrdersError(null)
-    } catch (err: unknown) {
-      setWorkOrders([])
-      setOrdersError(err instanceof Error ? err.message : 'Failed to load work orders')
-    }
+  // Promise-chain form: every setState lives in a .then/.catch callback so the
+  // effect that invokes this never sets state synchronously.
+  const loadWorkOrders = useCallback(() => {
+    return fetchMechanicWorkOrders()
+      .then(orders => {
+        setWorkOrders(Array.isArray(orders) ? orders : [])
+        setOrdersError(null)
+      })
+      .catch((err: unknown) => {
+        setWorkOrders([])
+        setOrdersError(err instanceof Error ? err.message : 'Failed to load work orders')
+      })
   }, [fetchMechanicWorkOrders])
 
   useEffect(() => {
