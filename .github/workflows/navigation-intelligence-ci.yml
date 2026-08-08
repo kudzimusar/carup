@@ -84,11 +84,18 @@ jobs:
       - name: Native navigation governance + route-ownership tests
         working-directory: mobile
         # Import-only, no Expo runtime; asserts every active native entry owns a
-        # feature, no dead native route, governed tab/drawer matrices.
+        # feature, no dead native route, governed tab/drawer matrices, every
+        # governed surface is boundary-wrapped, dashboard bootstrap gating, and
+        # the offline upload queue (store + drain). Same list as `npm run
+        # test:native` in mobile/package.json — keep the two in sync.
         run: |
           npx tsx tests/native-navigation.test.ts
           npx tsx tests/native-tabs.test.ts
           npx tsx tests/native-drawer.test.ts
+          npx tsx tests/native-boundary-audit.test.ts
+          npx tsx tests/native-dashboard-bootstrap.test.ts
+          npx tsx tests/upload-queue-store.test.ts
+          npx tsx tests/upload-queue-drain.test.ts
 
   # ── Navigation E2E (desktop/mobile/footer/role/route-boundary/console) ───────
   navigation-e2e:

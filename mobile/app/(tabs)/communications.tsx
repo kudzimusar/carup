@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, Switch } from 'react-native';
+import { NativeFeatureBoundary } from '../../components/navigation/NativeFeatureBoundary';
 import {
   createCommunicationShare,
   createCommunicationThread,
@@ -10,7 +11,7 @@ import {
   updateCommunicationPreferences,
 } from '../../utils/communicationApi';
 
-export default function CommunicationsScreen() {
+function CommunicationsScreenInner() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [threads, setThreads] = useState<any[]>([]);
   const [preferences, setPreferences] = useState<any>({});
@@ -132,6 +133,21 @@ export default function CommunicationsScreen() {
         ))}
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * Owner-protected route boundary (Milestone C). Communications is governed by
+ * owner.communications (owner-only, requiresAuth). A deep link / direct nav is
+ * gated by the SAME governed decision that hides the tab for non-owners, and
+ * the mount-time load() (notifications/threads/preferences) lives in the inner
+ * component so no API call fires before the gate admits the user.
+ */
+export default function CommunicationsScreen() {
+  return (
+    <NativeFeatureBoundary route="/dashboard/communications" featureId="owner.communications">
+      <CommunicationsScreenInner />
+    </NativeFeatureBoundary>
   );
 }
 
