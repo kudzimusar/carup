@@ -872,11 +872,28 @@ app.post('/api/safepay/webhook', async (req, res) => {
 });
 
 // --- PILLAR 3: PARTSENTRY REPAIR LEDGER ---
-app.post('/api/partsentry/add', authorizeRole(['mechanic']), async (req, res) => {
+// Mechanics log freely; an owner/dealer/admin may only log against a vehicle
+// they own or that belongs to their tenant (the owner PartSentry page was
+// 403-dead against the mechanic-only guard while faking success client-side).
+app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'admin']), async (req, res) => {
   const { vin, partName, partOem, actionType, description, mileage } = req.body;
-  const mechanicId = req.userContext.id;
+  const actorId = req.userContext.id;
   try {
-    const log = await addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage);
+    if (req.userContext.role !== 'mechanic' && req.userContext.role !== 'admin') {
+      const { data: vehicleRow, error: vehicleErr } = await supabase
+        .from('vehicles')
+        .select('owner_id, tenant_id')
+        .eq('vin', vin)
+        .maybeSingle();
+      if (vehicleErr) throw new Error('Vehicle ownership lookup failed.');
+      if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        return res.status(403).json({ error: 'You may only log parts against your own vehicle.' });
+      }
+    }
+    const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage);
     res.json(log);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1003,11 +1020,14 @@ app.get('/api/vehicles/:vin/recommendations', async (req, res) => {
 });
 
 // --- PILLAR 9: FLEET VEHICLE RESERVATIONS ---
-app.post('/api/vehicles/:vin/reserve', async (req, res) => {
+// Authenticated buyers only; the buyer identity is the session identity — a
+// client-supplied buyerId is ignored (previously any anonymous caller could
+// mass-reserve the marketplace under an arbitrary id).
+app.post('/api/vehicles/:vin/reserve', authorizeRole(), async (req, res) => {
   const { vin } = req.params;
-  const { buyerId, duration } = req.body;
+  const { duration } = req.body;
   try {
-    const result = await reserveVehicle(vin, buyerId, duration);
+    const result = await reserveVehicle(vin, req.userContext.id, duration);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });

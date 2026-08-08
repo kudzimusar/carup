@@ -1931,10 +1931,11 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/recommendations`)
   }, [request])
 
-  const reserveVehicle = useCallback(async (vin: string, buyerId: string, duration = 7): Promise<any> => {
+  const reserveVehicle = useCallback(async (vin: string, duration = 7): Promise<any> => {
+    // Buyer identity is the authenticated session server-side; never client-supplied.
     return request(`/vehicles/${vin}/reserve`, {
       method: 'POST',
-      body: JSON.stringify({ buyerId, duration })
+      body: JSON.stringify({ duration })
     })
   }, [request])
 

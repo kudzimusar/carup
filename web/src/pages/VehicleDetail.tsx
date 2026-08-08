@@ -496,7 +496,7 @@ export default function VehicleDetail() {
     setReserveLoading(true)
     try {
       const seller = vehicle.tenant_id ?? vehicle.sellerId ?? 'unknown_seller'
-      await reserveVehicle(vehicle.vin ?? '', 'u1', 7)
+      await reserveVehicle(vehicle.vin ?? '', 7)
       await createSafePayEscrow(vehicle.vin ?? '', seller, 500)
       const reservations = getReservations()
       ;(reservations as Record<string, unknown>)[vehicle.vin ?? ''] = { vehicleId: vehicle.id ?? '', timestamp: new Date().toISOString() }
