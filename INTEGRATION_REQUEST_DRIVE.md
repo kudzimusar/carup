@@ -136,3 +136,9 @@ Two things worth a reviewer's eye:
    array to runtime-assembled strings and drop the allow-list entry entirely.
 
 Scan result after the change: `CR-1 secret scan clean (1536 tracked files)`.
+
+---
+
+## Resolution status (2026-08-08, reunification audit)
+- Env vars in `backend/env.example`: **SATISFIED** (`DIASPORA_DRIVE_*` present).
+- Ledger #21 note: **SATISFIED** via the 2026-08-08 ledger reconciliation (staging-applied receipt).

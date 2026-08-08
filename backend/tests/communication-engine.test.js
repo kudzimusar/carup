@@ -17,6 +17,7 @@ import { CommunicationInboundService } from '../services/communication/communica
 import { CommunicationWebhookService } from '../services/communication/communicationWebhookService.js';
 import { CommunicationDeliveryWorker } from '../services/communication/communicationDeliveryWorker.js';
 import { registerCommunicationListeners } from '../services/communication/communicationEventListeners.js';
+import { validateCommunicationConfiguration, resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { FakeCommunicationAdapter } from '../services/communication/adapters/fakeCommunicationAdapter.js';
 import {
   SendGridEmailAdapter,
@@ -157,6 +158,33 @@ function createCloudflareEmailPayload(overrides = {}) {
     },
     references: ['<root@example.test>'],
     attachments: [],
+    ...overrides,
+  };
+}
+
+function productionReadyCommunicationEnv(overrides = {}) {
+  return {
+    NODE_ENV: 'production',
+    COMMUNICATION_ENGINE_ENABLED: 'true',
+    COMMUNICATION_FAKE_ADAPTERS_ENABLED: 'false',
+    COMMUNICATION_WORKER_SECRET: 'worker-secret',
+    COMMUNICATION_WEBHOOK_BASE_URL: 'https://api.example.test',
+    CARUP_META_ACCESS_TOKEN: 'meta-token',
+    CARUP_META_PHONE_NUMBER_ID: 'phone-number-id',
+    CARUP_META_PAGE_ID: 'page-id',
+    CARUP_META_WEBHOOK_VERIFY_TOKEN: 'meta-verify-token',
+    CARUP_META_APP_SECRET: 'meta-app-secret',
+    CARUP_TELEGRAM_BOT_TOKEN: 'telegram-token',
+    CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN: 'telegram-webhook-secret',
+    EMAIL_PROVIDER: 'sendgrid',
+    SENDGRID_API_KEY: 'sendgrid-key',
+    SENDGRID_FROM_EMAIL: 'noreply@example.test',
+    SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY: 'sendgrid-webhook-key',
+    TWILIO_ACCOUNT_SID: 'twilio-sid',
+    TWILIO_AUTH_TOKEN: 'twilio-token',
+    TWILIO_MESSAGING_SERVICE_SID: 'twilio-message-service',
+    TWILIO_STATUS_CALLBACK_URL: 'https://api.example.test/api/communications/webhooks/twilio/sms',
+    EXPO_ACCESS_TOKEN: 'expo-token',
     ...overrides,
   };
 }
@@ -362,6 +390,188 @@ test('default adapter registry uses deterministic fakes in test and real fail-cl
   assert.equal(cloudflareHealth.available, false);
   assert.equal(cloudflareHealth.fallback_provider, 'sendgrid');
   assert.deepEqual(cloudflareHealth.missing, ['CLOUDFLARE_EMAIL_FROM', 'CLOUDFLARE_EMAIL_WORKER_URL_OR_REST_API']);
+});
+
+test('communication configuration validator returns READY only with real adapters and complete secrets', () => {
+  const env = productionReadyCommunicationEnv();
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+  assert.equal(validation.status, 'READY');
+  assert.equal(validation.ready, true);
+  assert.equal(validation.providers.every((provider) => provider.available), true);
+  assert.equal(validation.providers.find((provider) => provider.channel === 'telegram').status, 'READY');
+});
+
+test('communication configuration validator blocks empty Telegram token and reports all missing configuration', () => {
+  const env = productionReadyCommunicationEnv({
+    CARUP_TELEGRAM_BOT_TOKEN: '',
+    CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN: "''",
+    COMMUNICATION_WORKER_SECRET: '',
+    CRON_SECRET: '',
+    COMMUNICATION_WEBHOOK_BASE_URL: '',
+    CARUP_PUBLIC_API_URL: '',
+    STAGING_API_BASE_URL: '',
+  });
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+  const telegram = validation.providers.find((provider) => provider.channel === 'telegram');
+
+  assert.equal(validation.status, 'BLOCKED');
+  assert.equal(telegram.available, false);
+  assert.equal(telegram.status, 'BLOCKED');
+  assert.equal(telegram.missing.providerSecrets.includes('CARUP_TELEGRAM_BOT_TOKEN'), true);
+  assert.equal(telegram.missing.webhookSecrets.includes('CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN'), true);
+  assert.equal(telegram.missing.webhookUrls.includes('COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL'), true);
+  assert.equal(validation.issues.some((entry) => entry.code === 'scheduler_secret_missing'), true);
+});
+
+test('communication configuration validator blocks fake provider adapters even when credentials exist', () => {
+  const env = productionReadyCommunicationEnv({ NODE_ENV: 'test' });
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+  const telegram = validation.providers.find((provider) => provider.channel === 'telegram');
+
+  assert.equal(validation.status, 'BLOCKED');
+  assert.equal(telegram.available, false);
+  assert.equal(telegram.adapterMode, 'fake');
+  assert.equal(telegram.explanations.some((message) => /fake adapter/.test(message)), true);
+});
+
+test('webhook base selection skips quoted-empty and whitespace-only candidates instead of masking valid fallbacks', () => {
+  for (const placeholder of ["''", '""', '   ']) {
+    const env = productionReadyCommunicationEnv({
+      COMMUNICATION_WEBHOOK_BASE_URL: placeholder,
+      CARUP_PUBLIC_API_URL: 'https://public-api.example.test/',
+    });
+    const adapterRegistry = createDefaultAdapterRegistry({ env });
+    const validation = validateCommunicationConfiguration({ env, adapterRegistry });
+    const telegram = validation.providers.find((provider) => provider.channel === 'telegram');
+    assert.equal(telegram.webhookUrl, 'https://public-api.example.test/api/communications/webhooks/telegram/telegram', `placeholder ${JSON.stringify(placeholder)} must fall through to CARUP_PUBLIC_API_URL`);
+    assert.equal(telegram.missing.webhookUrls.length, 0);
+    assert.equal(validation.status, 'READY', `placeholder ${JSON.stringify(placeholder)} must not block a config with a valid fallback base`);
+  }
+
+  const stagingEnv = productionReadyCommunicationEnv({
+    COMMUNICATION_WEBHOOK_BASE_URL: "''",
+    CARUP_PUBLIC_API_URL: '   ',
+    STAGING_API_BASE_URL: 'https://staging-api.example.test',
+  });
+  const stagingValidation = validateCommunicationConfiguration({ env: stagingEnv, adapterRegistry: createDefaultAdapterRegistry({ env: stagingEnv }) });
+  const stagingTelegram = stagingValidation.providers.find((provider) => provider.channel === 'telegram');
+  assert.equal(stagingTelegram.webhookUrl, 'https://staging-api.example.test/api/communications/webhooks/telegram/telegram');
+
+  const junkEnv = productionReadyCommunicationEnv({
+    COMMUNICATION_WEBHOOK_BASE_URL: "''",
+    CARUP_PUBLIC_API_URL: '""',
+    STAGING_API_BASE_URL: '   ',
+  });
+  const junkValidation = validateCommunicationConfiguration({ env: junkEnv, adapterRegistry: createDefaultAdapterRegistry({ env: junkEnv }) });
+  const junkTelegram = junkValidation.providers.find((provider) => provider.channel === 'telegram');
+  assert.equal(junkTelegram.webhookUrl, null, 'quoted-empty base must never be emitted as a webhook URL prefix');
+  assert.equal(junkTelegram.missing.webhookUrls.includes('COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL'), true);
+  assert.equal(junkValidation.status, 'BLOCKED');
+});
+
+test('worker-secret resolution treats quoted-empty/whitespace values as missing with CRON_SECRET fallback', () => {
+  assert.equal(resolveWorkerSecret({ COMMUNICATION_WORKER_SECRET: "''", CRON_SECRET: 'cron-fallback' }), 'cron-fallback');
+  assert.equal(resolveWorkerSecret({ COMMUNICATION_WORKER_SECRET: '""', CRON_SECRET: 'cron-fallback' }), 'cron-fallback');
+  assert.equal(resolveWorkerSecret({ COMMUNICATION_WORKER_SECRET: '   ', CRON_SECRET: 'cron-fallback' }), 'cron-fallback');
+  assert.equal(resolveWorkerSecret({ COMMUNICATION_WORKER_SECRET: ' real-secret ', CRON_SECRET: 'cron-fallback' }), 'real-secret');
+  assert.equal(resolveWorkerSecret({ CRON_SECRET: 'cron-fallback' }), 'cron-fallback');
+  assert.equal(resolveWorkerSecret({ COMMUNICATION_WORKER_SECRET: '   ', CRON_SECRET: '""' }), '');
+  assert.equal(resolveWorkerSecret({}), '');
+});
+
+test('worker endpoint authenticates via CRON_SECRET fallback when COMMUNICATION_WORKER_SECRET is a placeholder (validator READY must mean authenticable)', async () => {
+  const previousWorkerSecret = process.env.COMMUNICATION_WORKER_SECRET;
+  const previousCronSecret = process.env.CRON_SECRET;
+  process.env.COMMUNICATION_WORKER_SECRET = "''";
+  process.env.CRON_SECRET = 'cron-fallback-secret';
+  try {
+    const scheduler = validateCommunicationConfiguration({ env: process.env, adapterRegistry: createDefaultAdapterRegistry({ env: productionReadyCommunicationEnv() }) }).scheduler;
+    assert.equal(scheduler.status, 'READY', 'precondition: the validator accepts this scheduler configuration');
+
+    const router = createCommunicationRouter({ services: createHarness() });
+    const accepted = await invokeRouter(router, {
+      method: 'POST',
+      url: '/api/internal/communications/process',
+      originalUrl: '/api/internal/communications/process',
+      headers: { authorization: 'Bearer cron-fallback-secret', 'content-type': 'application/json' },
+      query: {},
+      body: {},
+    });
+    assert.equal(accepted.statusCode, 200, 'the secret the validator accepted must authenticate the worker endpoint');
+    assert.equal(accepted.body.success, true);
+
+    const rejected = await invokeRouter(router, {
+      method: 'POST',
+      url: '/api/internal/communications/process',
+      originalUrl: '/api/internal/communications/process',
+      headers: { authorization: "Bearer ''", 'content-type': 'application/json' },
+      query: {},
+      body: {},
+    });
+    assert.equal(rejected.statusCode, 401, 'the quoted-empty placeholder itself must never authenticate');
+  } finally {
+    if (previousWorkerSecret === undefined) delete process.env.COMMUNICATION_WORKER_SECRET;
+    else process.env.COMMUNICATION_WORKER_SECRET = previousWorkerSecret;
+    if (previousCronSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previousCronSecret;
+  }
+});
+
+test('admin worker-secret auth uses the same CRON_SECRET fallback semantics as the validator', async () => {
+  clearMetaWhatsAppWebhookReceiptsForTest();
+  const previousWorkerSecret = process.env.COMMUNICATION_WORKER_SECRET;
+  const previousCronSecret = process.env.CRON_SECRET;
+  const previousVercelEnv = process.env.VERCEL_ENV;
+  process.env.COMMUNICATION_WORKER_SECRET = '   ';
+  process.env.CRON_SECRET = 'cron-fallback-secret';
+  process.env.VERCEL_ENV = 'preview';
+  try {
+    const adminRouter = createAdminCommunicationRouter({ services: createHarness() });
+    const response = await invokeRouter(adminRouter, {
+      method: 'GET',
+      url: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      originalUrl: '/api/admin/communications/webhooks/meta/whatsapp/recent',
+      headers: { authorization: 'Bearer cron-fallback-secret' },
+      query: {},
+    });
+    assert.equal(response.statusCode, 200, 'whitespace-only COMMUNICATION_WORKER_SECRET must not mask a valid CRON_SECRET on the admin M2M path');
+  } finally {
+    if (previousWorkerSecret === undefined) delete process.env.COMMUNICATION_WORKER_SECRET;
+    else process.env.COMMUNICATION_WORKER_SECRET = previousWorkerSecret;
+    if (previousCronSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previousCronSecret;
+    if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = previousVercelEnv;
+  }
+});
+
+test('communication health route returns BLOCKED when provider configuration is incomplete', async () => {
+  const env = productionReadyCommunicationEnv({ CARUP_TELEGRAM_BOT_TOKEN: '' });
+  const adapterRegistry = createDefaultAdapterRegistry({ env });
+  const router = createCommunicationRouter({
+    services: {
+      adapterRegistry,
+      configurationValidator: {
+        validate: () => validateCommunicationConfiguration({ env, adapterRegistry }),
+      },
+    },
+  });
+
+  const response = await invokeRouter(router, {
+    method: 'GET',
+    url: '/api/communications/health',
+    originalUrl: '/api/communications/health',
+    headers: {},
+    query: {},
+  });
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.body.status, 'BLOCKED');
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.configuration.providers.find((provider) => provider.channel === 'telegram').available, false);
+  assert.equal(response.body.configuration.explanations.some((message) => message.includes('CARUP_TELEGRAM_BOT_TOKEN')), true);
 });
 
 test('real SendGrid email adapter posts mail send request and maps accepted response', async () => {
@@ -2320,7 +2530,7 @@ test('provider smoke-test endpoint is registered, protected, and refuses fake ad
   assert.ok(adminCommunicationRouteFile.includes('requireAdminOrWorkerSecret'), 'smoke-test route must be gated by the admin-or-worker-secret guard');
   assert.ok(adminCommunicationRouteFile.includes("config.mode === 'fake'"), 'must refuse fake adapters (keyed off the fake sentinel, not !== real)');
   assert.ok(adminCommunicationRouteFile.includes('fake_adapter_refused'), 'must expose an explicit fake-adapter refusal code');
-  assert.ok(adminCommunicationRouteFile.includes('COMMUNICATION_WORKER_SECRET'), 'worker-secret auth must be supported');
+  assert.ok(adminCommunicationRouteFile.includes('resolveWorkerSecret'), 'worker-secret auth must route through the shared resolver so selection semantics match the configuration validator exactly');
   assert.ok(adminCommunicationRouteFile.includes('timingSafeEqual'), 'secret comparison must be constant-time');
   // The worker-secret comparison must actually route through the constant-time helper.
   assert.match(adminCommunicationRouteFile, /return Boolean\(expected && supplied && safeEqual\(/, 'workerSecretValid must use the constant-time safeEqual helper');

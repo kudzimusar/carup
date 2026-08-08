@@ -242,3 +242,11 @@ so both can be kept verbatim.
   integration head `82dbb17`, so there is nothing of mine to drop.
 - I did **not** weaken `scripts/cr1-secret-scan.mjs`, and added no allow-list entry. The new fixtures
   assemble credential-shaped values at runtime, as `googleDriveFixtures.js` established.
+
+---
+
+## Resolution status (2026-08-08, reunification audit)
+- §1 ledger #27 in `backend/scripts/diaspora-staging-apply-gtm.mjs`: **SATISFIED**.
+- §2 scheduled dispatcher (Vercel Cron in `backend/vercel.json`): **NOT WIRED — deferred to owner.**
+  `backend/vercel.json` is `{}`; wiring a production-facing cron is an activation decision, not
+  reunification wiring. The request's own text marks it optional and integration-owned.

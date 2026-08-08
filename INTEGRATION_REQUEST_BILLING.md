@@ -89,3 +89,10 @@ packages (the `exceljs` dependency tree, declared in `backend/package.json` but 
 install) were copied in from a sibling worktree's complete install. Without them, 23 tests fail with
 `ERR_MODULE_NOT_FOUND` and the stated 2213-test baseline is unreachable. Nothing in the repository was
 changed; if the integrator's environment shows the same failures, `npm ci` fixes it.
+
+---
+
+## Resolution status (2026-08-08, reunification audit)
+- §2 ledger #24 row: **SATISFIED** (row present; staging-applied 2026-07-27 per ledger reconciliation).
+- §3 progress-doc status: **OBSOLETE** — the target "NOT STARTED" line no longer exists; the GTM
+  progress doc already records Deliverable D as complete with the §5c defect fixed.

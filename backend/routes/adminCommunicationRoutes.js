@@ -3,6 +3,7 @@ import { randomUUID, timingSafeEqual } from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { normalizeChannel } from '../services/communication/communicationUtils.js';
+import { resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { COMMUNICATION_AUDIT_EVENTS, auditActorFromContext, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import { categorizeRecovery } from '../services/communication/communicationRecovery.js';
 import { buildProviderTelemetry } from '../services/communication/communicationProviderTelemetry.js';
@@ -121,7 +122,9 @@ function bearerToken(req) {
 // Machine-to-machine auth: the communication worker secret (same secret the internal
 // worker endpoint and Supabase pg_cron use). Never logged, compared in constant time.
 function workerSecretValid(req) {
-  const expected = String(process.env.COMMUNICATION_WORKER_SECRET || process.env.CRON_SECRET || '').trim();
+  // Same selection semantics as the configuration validator and requireWorkerSecret:
+  // quoted-empty/whitespace-only values fall through instead of masking CRON_SECRET.
+  const expected = resolveWorkerSecret();
   const supplied = String(headerValue(req.headers, 'x-communication-worker-secret') || bearerToken(req) || '').trim();
   return Boolean(expected && supplied && safeEqual(supplied, expected));
 }
