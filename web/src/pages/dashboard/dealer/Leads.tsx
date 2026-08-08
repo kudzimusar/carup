@@ -5,41 +5,36 @@ import { Input } from '@/components/ui/input'
 import { Phone, Mail, MessageSquare, Search, Users, Calendar, Loader2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { toast } from 'sonner'
 import type { Lead } from '@/types'
 
-const mockLeadsData: Lead[] = [
-  { id: 1, name: 'Tendai Moyo', email: 'tendai@email.co.zw', phone: '+263 773 345 678', vehicle: 'Toyota Prado 2019', status: 'new', source: 'Marketplace', date: '2026-05-22', notes: 'Looking for a family SUV' },
-  { id: 2, name: 'Sarah Chikomo', email: 'sarah@email.co.zw', phone: '+263 775 567 890', vehicle: 'BMW 320i', status: 'contacted', source: 'Search', date: '2026-05-21', notes: 'Wants to schedule test drive' },
-  { id: 3, name: 'James Ncube', email: 'james@email.co.zw', phone: '+263 777 789 012', vehicle: 'Ford Ranger Wildtrak', status: 'negotiating', source: 'Featured', date: '2026-05-20', notes: 'Negotiating on price' },
-  { id: 4, name: 'Grace Mupfumi', email: 'grace@email.co.zw', phone: '+263 778 890 123', vehicle: 'Honda Fit', status: 'closed', source: 'Referral', date: '2026-05-18', notes: 'Purchased successfully' },
-]
-
 export default function Leads() {
   const { fetchDealerLeads, loading } = useCarUpApi()
-  const [leadsData, setLeadsData] = useState<Lead[]>(mockLeadsData)
+  const [leadsData, setLeadsData] = useState<Lead[]>([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
   useEffect(() => {
+    let mounted = true
     fetchDealerLeads().then(data => {
-      if (data && data.length > 0) {
-        const formatted = data.map((d: Lead) => ({
-          id: d.id,
-          name: d.buyer_name || d.name || 'Unknown',
-          email: d.email || 'N/A',
-          phone: d.buyer_phone || d.phone || 'N/A',
-          vehicle: d.vin ? `VIN: ${d.vin}` : d.vehicle || 'Unknown',
-          status: d.status || 'new',
-          source: d.source || 'Platform',
-          date: d.created_at ? new Date(d.created_at).toLocaleDateString() : d.date || new Date().toLocaleDateString(),
-          notes: d.message || d.notes || 'No message provided'
-        }))
-        setLeadsData([...formatted, ...mockLeadsData])
-      }
+      if (!mounted || !data || data.length === 0) return
+      const formatted = data.map((d: Lead) => ({
+        id: d.id,
+        name: d.buyer_name || d.name || 'Unknown',
+        email: d.email || 'N/A',
+        phone: d.buyer_phone || d.phone || 'N/A',
+        vehicle: d.vin ? `VIN: ${d.vin}` : d.vehicle || 'Unknown',
+        status: d.status || 'new',
+        source: d.source || 'Platform',
+        date: d.created_at ? new Date(d.created_at).toLocaleDateString() : d.date || new Date().toLocaleDateString(),
+        notes: d.message || d.notes || 'No message provided'
+      }))
+      setLeadsData(formatted)
     }).catch(() => {
-      // API might be offline or tables not migrated, default to mock
+      // API offline — the empty state below stays truthful; never backfill with mock leads.
     })
+    return () => { mounted = false }
   }, [fetchDealerLeads])
 
   const filtered = leadsData.filter(l =>
@@ -77,16 +72,25 @@ export default function Leads() {
         </div>
       </div>
 
+      {/* Real marketplace inquiries on the dealer's own listings (ownership-scoped backend). */}
+      <SellerInquiriesCard />
+
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input placeholder="Search leads by name or vehicle..." value={search} onChange={e => setSearch(e.target.value)} className="pl-10 bg-white" />
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl border border-gray-100">
+        <div className="text-center py-12 bg-white rounded-xl border border-gray-100" data-testid="dealer-leads-empty">
           <Users className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-1">No leads found</h3>
-          <p className="text-gray-500">Try adjusting your filters or search query.</p>
+          <h3 className="text-lg font-medium text-gray-900 mb-1">
+            {leadsData.length === 0 ? 'No leads yet' : 'No leads found'}
+          </h3>
+          <p className="text-gray-500">
+            {leadsData.length === 0
+              ? 'Leads from your marketplace listings will appear here as buyers reach out.'
+              : 'Try adjusting your filters or search query.'}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">

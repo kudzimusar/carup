@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom'
 import { vehicles as mockVehicles, dashboardStats } from '@/data/mockData'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import type { Vehicle } from '@/types'
 
 const salesData = [
@@ -122,6 +123,9 @@ export default function DealerDashboard() {
       {/* Main Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+          {/* Real marketplace inquiries on this dealer's listings (ownership-scoped backend). */}
+          <SellerInquiriesCard />
+
           {/* Active Branch Stock */}
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
