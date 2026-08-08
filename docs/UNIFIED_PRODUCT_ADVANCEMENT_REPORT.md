@@ -116,7 +116,28 @@ Previously isolated domains now feeding each other:
 
 ## 5. Verification
 
-PLACEHOLDER-VERIFICATION
+All suites run on the fully merged tree (2026-08-08):
+
+| Check | Result |
+|---|---|
+| Backend full suite (`node --test backend/tests/*.test.js`) | **2715 tests: 2691 pass · 12 fail · 12 skipped** — the 12 failures are the same environment-dependent tests that fail identically on pristine `main` (live-staging accounts + real-OCR-provider paths; no secrets in this environment; CI runs them green). **+29 new tests vs baseline, zero new failures** |
+| Migration verification (PGlite real Postgres, full Up/Down/re-Up) | **PASS** — including the new publication-gate backfill and the mechanic-work-orders convergence migration proven over both divergent legacy schema shapes |
+| Diaspora ledger harnesses (11 × real-Postgres) | **11/11 PASS** |
+| Communication engine + event-coverage gate | **136/136** (the new emitter-coverage gate prevents dead subscriptions recurring) |
+| Web typecheck (`tsc -b`) | clean |
+| Web unit (vitest, full) | **89 files / 787 tests pass** (includes the regenerated feature-manifest drift gate and ~40 new tests) |
+| Canonical lint gate vs `origin/main` | **PASS — 0 net-new errors/warnings** (inventory 143/9, identical to baseline; two baseline errors were in fact removed) |
+| Mobile `tsc --noEmit` / vitest | clean / **53/53** |
+| Mobile native governance suites (incl. the previously-quarantined boundary audit) | **7/7 suites PASS** (boundary audit 21/21 — failing before this pass) |
+| Adversarial verification | Five skeptic lenses (publication gate, authz fixes, comms events, de-mock lanes, merge integrity) refuted the merged diff: **18 findings, all CONFIRMED ones fixed on-branch before this report**. The lenses caught, among others: unpublish being a visibility no-op, three legacy endpoints bypassing the gate with raw-row leaks, a fail-open tenancy filter, a double finance notification, and a drain endpoint that could consume events on an unarmed instance. The merge-integrity lens returned **zero findings** (nothing lost across the lane merges) |
+
+Merge-interaction defects caught by this battery and fixed on the branch: a
+WorkOrder status-union type error, a stale generated feature manifest (the drift
+gate fired exactly as designed), and seven net-new lint findings — all zeroed.
+
+Not exercised here (honest limits): live staging/production deploys, credentialed
+browser UAT, live provider calls. The `backend/.env`→production hazard means no
+local server was booted against default env at any point.
 
 ## 6. What still prevents full CarUp completion
 
@@ -141,6 +162,9 @@ PLACEHOLDER-VERIFICATION
   App.tsx additions sequenced after PR #137).
 - Mobile parity: saved listings, seller create/listings surfaces, owner passport screen
   (garage rows currently open the buyer view), web SafePay escrow page (mobile-only today).
+- Residual dashboard fabrications: DealerDashboard (branch-stock fallback, static stats,
+  sales chart) and the insurance/bank dashboards still import `dashboardStats` from
+  mockData — the reachable-journey de-mocks landed first; these panels are next.
 
 **Security remaining:** Issue #101 (~27 production tables RLS-off — still the multi-tenancy
 gate), Issue #77, EB-5 password re-rotation, `backend/.env` → production hazard (owner
