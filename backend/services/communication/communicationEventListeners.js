@@ -1,6 +1,9 @@
 import { createCommunicationServices } from './communicationServiceFactory.js';
 
-const COMMUNICATION_EVENT_TYPES = [
+// Every type listed here MUST have a real emitter (a literal in an
+// emitDomainEvent/publishMemoryEvent call under backend/services or
+// backend/routes) — enforced by backend/tests/communication-event-coverage.test.js.
+export const COMMUNICATION_EVENT_TYPES = [
   'marketplace.inquiry.created',
   'ESCROW_CREATED',
   'ESCROW_UPDATED',
@@ -8,6 +11,7 @@ const COMMUNICATION_EVENT_TYPES = [
   'finance.application_received',
   'finance.application.approved',
   'finance.application.declined',
+  'identity.verification.decided',
   'referral.code_validated',
   'referral.coupon_applied',
   'referral.wallet_status_changed',

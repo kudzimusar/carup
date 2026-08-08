@@ -29,6 +29,11 @@ const TEMPLATES = Object.freeze({
     subject: 'Finance application update',
     body: 'Finance application {{application_id}} status: {{status}}. This update comes from CarUp backend records.',
   },
+  verification_decision_v1: {
+    transactional: true,
+    subject: 'Identity verification decision',
+    body: 'Your CarUp identity verification ({{reference}}) has an outcome: {{decision}}. This decision comes from CarUp verification records.',
+  },
   support_resolved_v1: {
     transactional: true,
     subject: 'CarUp support thread resolved',
