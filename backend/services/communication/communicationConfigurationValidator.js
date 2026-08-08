@@ -95,6 +95,27 @@ export function hasNonEmptyConfigValue(env = {}, key) {
   return Boolean(value && value !== "''" && value !== '""');
 }
 
+// First candidate that passes hasNonEmptyConfigValue, returned trimmed. Raw `||`
+// selection must never be used for these keys: a quoted-empty ('' / "") or
+// whitespace-only value is truthy raw but is NOT configuration, and picking it
+// either emits it verbatim (malformed URLs) or masks a valid later candidate.
+export function resolveConfigValue(env = {}, keys = []) {
+  for (const key of keys) {
+    if (hasNonEmptyConfigValue(env, key)) return cleanValue(env[key]);
+  }
+  return '';
+}
+
+const WORKER_SECRET_KEYS = Object.freeze(['COMMUNICATION_WORKER_SECRET', 'CRON_SECRET']);
+
+// Single source of truth for scheduler/worker secret selection. Every
+// authentication path that accepts this secret must call this resolver — a
+// configuration this validator reports READY has to actually authenticate with
+// the same secret the validator accepted.
+export function resolveWorkerSecret(env = process.env) {
+  return resolveConfigValue(env, WORKER_SECRET_KEYS);
+}
+
 function normalizedEnv(env = {}, key, fallback = '') {
   return hasNonEmptyConfigValue(env, key) ? cleanValue(env[key]).toLowerCase() : fallback;
 }
@@ -113,7 +134,7 @@ function missingAnyGroupLabels(env, groups = []) {
 }
 
 function webhookBaseUrl(env = {}) {
-  const base = cleanValue(env.COMMUNICATION_WEBHOOK_BASE_URL || env.CARUP_PUBLIC_API_URL || env.STAGING_API_BASE_URL);
+  const base = resolveConfigValue(env, ['COMMUNICATION_WEBHOOK_BASE_URL', 'CARUP_PUBLIC_API_URL', 'STAGING_API_BASE_URL']);
   return base.replace(/\/+$/, '');
 }
 
@@ -165,7 +186,7 @@ export function validateCommunicationConfiguration({ env = process.env, adapterR
     }));
   }
 
-  if (!hasAnyGroup(env, SCHEDULER_SECRET_GROUPS)) {
+  if (!resolveWorkerSecret(env)) {
     issues.push(issue({
       scope: 'scheduler',
       code: 'scheduler_secret_missing',
@@ -273,7 +294,7 @@ export function validateCommunicationConfiguration({ env = process.env, adapterR
       : ['Communication configuration is ready.'],
     issues,
     scheduler: {
-      status: hasAnyGroup(env, SCHEDULER_SECRET_GROUPS) ? COMMUNICATION_CONFIG_STATUS.READY : COMMUNICATION_CONFIG_STATUS.BLOCKED,
+      status: resolveWorkerSecret(env) ? COMMUNICATION_CONFIG_STATUS.READY : COMMUNICATION_CONFIG_STATUS.BLOCKED,
       requiredAnyOf: SCHEDULER_SECRET_GROUPS.map((group) => group.join('+')),
     },
     fakeAdapters: {

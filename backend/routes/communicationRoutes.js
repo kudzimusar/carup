@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
-import { validateCommunicationConfiguration } from '../services/communication/communicationConfigurationValidator.js';
+import { validateCommunicationConfiguration, resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import {
@@ -33,7 +33,10 @@ function safeEqual(a = '', b = '') {
 }
 
 function requireWorkerSecret(req, res) {
-  const expected = process.env.COMMUNICATION_WORKER_SECRET || process.env.CRON_SECRET;
+  // Must match the configuration validator's selection exactly: a quoted-empty or
+  // whitespace-only COMMUNICATION_WORKER_SECRET falls through to CRON_SECRET here
+  // just as it does in validateCommunicationConfiguration.
+  const expected = resolveWorkerSecret();
   const supplied = req.headers['x-communication-worker-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!expected || !supplied || !safeEqual(supplied, expected)) {
     res.status(401).json({ error: 'Unauthorized communication worker request.' });
