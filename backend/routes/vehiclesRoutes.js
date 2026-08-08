@@ -27,6 +27,7 @@ import {
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
 import { evaluateCompleteness } from '../services/evidence/completenessEvaluator.js';
+import { notifyEvidenceReviewDecided } from '../services/evidence/evidenceReviewNotifier.js';
 import {
   isVehicleQuarantinedStatus,
   isVehicleRestoredToMarketplaceStatus,
@@ -683,6 +684,15 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['a
     console.warn('[Audit Log Error] Failed to log evidence verification:', auditErr.message);
   }
 
+  // Tell the submitter the outcome through the notification fabric (best-effort).
+  await notifyEvidenceReviewDecided({
+    vin,
+    evidenceId,
+    decision: 'verified',
+    recipientUserId: updated?.uploaded_by || evidence.uploaded_by || null,
+    tenantId: updated?.tenant_id || evidence.tenant_id || null,
+  });
+
   res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
 }));
 
@@ -759,6 +769,15 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
   } catch (auditErr) {
     console.warn('[Audit Log Error] Failed to log evidence rejection:', auditErr.message);
   }
+
+  // Tell the submitter the outcome through the notification fabric (best-effort).
+  await notifyEvidenceReviewDecided({
+    vin,
+    evidenceId,
+    decision: 'rejected',
+    recipientUserId: updated?.uploaded_by || evidence.uploaded_by || null,
+    tenantId: updated?.tenant_id || evidence.tenant_id || null,
+  });
 
   res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
 }));
