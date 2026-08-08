@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
+import { eventWorker as defaultEventWorker } from '../services/eventBus/eventWorker.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 import { validateCommunicationConfiguration, resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
@@ -69,7 +70,40 @@ async function processWorkerBatch(req, res, services) {
   });
 }
 
-export function createCommunicationRouter({ services = createCommunicationServices() } = {}) {
+// Serverless drain for the transactional outbox (domain_events). Vercel has no
+// resident interval poller, so a scheduled invocation (vercel.json cron / any
+// worker) hits this endpoint to run ONE bounded eventWorker poll cycle.
+// Guarded exactly like the communications delivery worker route above.
+async function processEventOutboxBatch(req, res, worker) {
+  if (!requireWorkerSecret(req, res)) return;
+  const correlationId = req.headers['x-correlation-id'] || req.correlationId || crypto.randomUUID();
+  const invokedAt = new Date().toISOString();
+  console.log(JSON.stringify({ level: 'info', event: 'event_outbox_worker_invoked', correlation_id: correlationId, ts: invokedAt }));
+  const result = (await worker.pollEvents()) || { processed: 0, backlog: null };
+  const completedAt = new Date().toISOString();
+  console.log(JSON.stringify({ level: 'info', event: 'event_outbox_worker_completed', correlation_id: correlationId, processed: result.processed || 0, backlog: result.backlog ?? null, ts: completedAt }));
+  if (result.error) {
+    return res.status(500).json({
+      success: false,
+      error: 'event_outbox_poll_failed',
+      message: result.error,
+      correlation_id: correlationId,
+      invoked_at: invokedAt,
+      completed_at: completedAt,
+    });
+  }
+  res.json({
+    success: true,
+    processed: result.processed || 0,
+    backlog: result.backlog ?? 0,
+    skipped: result.skipped || null,
+    correlation_id: correlationId,
+    invoked_at: invokedAt,
+    completed_at: completedAt,
+  });
+}
+
+export function createCommunicationRouter({ services = createCommunicationServices(), eventWorker = defaultEventWorker } = {}) {
   const router = express.Router();
 
   router.get('/api/communications/health', asyncHandler(async (_req, res) => {
@@ -85,6 +119,9 @@ export function createCommunicationRouter({ services = createCommunicationServic
 
   router.get('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
   router.post('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
+
+  router.get('/api/internal/events/process', asyncHandler(async (req, res) => processEventOutboxBatch(req, res, eventWorker)));
+  router.post('/api/internal/events/process', asyncHandler(async (req, res) => processEventOutboxBatch(req, res, eventWorker)));
 
   router.get('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
     res.json({ threads: await services.threadService.listThreadsForUser(req.userContext.id) });
