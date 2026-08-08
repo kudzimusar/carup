@@ -38,3 +38,22 @@ export function isVehicleRestoredToMarketplaceStatus(status) {
   return norm === 'Available';
 }
 
+/** Publication lifecycle states (20260624140000) that may appear in public marketplace reads. */
+const PUBLICLY_VISIBLE_PUBLICATION_STATUSES = ['publishable', 'published'];
+
+export function publiclyVisiblePublicationStatuses() {
+  return [...PUBLICLY_VISIBLE_PUBLICATION_STATUSES];
+}
+
+/**
+ * Whether a vehicle's publication_status permits public marketplace visibility.
+ * A missing value (column not selected, or hermetic fixtures predating the
+ * lifecycle) stays visible — the real read path always selects the column and
+ * the DB guarantees NOT NULL DEFAULT 'draft', so enforcement is complete on
+ * real data while legacy fixtures keep working.
+ */
+export function isPubliclyVisiblePublication(publicationStatus) {
+  if (publicationStatus === undefined || publicationStatus === null) return true;
+  return PUBLICLY_VISIBLE_PUBLICATION_STATUSES.includes(publicationStatus);
+}
+

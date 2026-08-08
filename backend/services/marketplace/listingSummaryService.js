@@ -1,4 +1,4 @@
-import { isPublicVehicleStatus } from '../../utils/vehicleStatus.js';
+import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../../utils/vehicleStatus.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 
 export const CONDITION_CATEGORIES = [
@@ -405,6 +405,7 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
   const show = showFixtures ?? shouldShowFixtures();
   return (vehicles || [])
     .filter(vehicle => isPublicVehicleStatus(vehicle.status))
+    .filter(vehicle => isPubliclyVisiblePublication(vehicle.publication_status))
     .filter(vehicle => show || getFixtureExclusion(vehicle) === null);
 }
 
@@ -414,6 +415,7 @@ export const LISTING_SELECT_COLUMNS = `
       vin,
       owner_id,
       tenant_id,
+      publication_status,
       make,
       model,
       year,
