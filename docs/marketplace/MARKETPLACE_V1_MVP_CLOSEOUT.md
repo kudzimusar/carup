@@ -96,6 +96,12 @@ Vercel deployments on `main` HEAD — combined status **success**:
   - `database/migrations/20260620232827_issue77_access_containment_followup.sql` — SHA-256 `0cf27ad5399d793c1b2fe9878a2c36ee8dbc3bcbb9aaff2327eea438f1788b6e`
 - **Staging:** both migrations applied and verified on staging only (ledger versions `20260619201629` and `20260621001212`).
 - **Production:** the containment migrations are **not** applied to the production database. Production application is a separately approved operation (see §7) and remains outstanding.
+  - **SUPERSEDED (2026-08-08, reunification audit):** the statement above was true at closeout
+    (2026-06-21). Both containment migrations were later applied to production
+    (`vhmnajoeicasaigiophh`) on 2026-07-26 under the owner-authorized EB-5 cutover, as Diaspora
+    migration-ledger rows #4 and #6 (same files, same SHA-256 prefixes `9e85e828bb3c` /
+    `0cf27ad5399d`). See `docs/DIASPORA_TRADE_OS_MIGRATION_LEDGER.md` and
+    `docs/DIASPORA_TRADE_OS_EB5_CUTOVER_RECEIPT.md`.
 
 ---
 
