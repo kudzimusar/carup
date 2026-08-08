@@ -86,3 +86,10 @@ unavailable and remove it from sellable plan claims) the claim was withdrawn —
 mode `UNAVAILABLE` in the registry, and the word "API" removed from the enterprise plan description.
 The enterprise price did not change; what changed is that the plan no longer advertises an API that
 does not exist. Restoring it requires building the surface and wiring the guard together.
+
+---
+
+## Resolution status (2026-08-08, reunification audit)
+- §1 CI step: **SATISFIED** — `.github/workflows/ci.yml` runs the globbed "Diaspora ledger harnesses"
+  step covering `database/test/diaspora_*_check.mjs` (includes the #26 harness; 50/50 locally on 2026-08-08).
+- §2 ledger row: **SATISFIED** — row #26 present with sha256:12 `93ab8f5ee95a`.
