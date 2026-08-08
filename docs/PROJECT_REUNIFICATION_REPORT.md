@@ -63,11 +63,18 @@ standalone clones. **Exactly one piece of unmerged implementation existed anywhe
    `communicationConfigurationValidator.js` (fail-closed READY/WARNING/BLOCKED per-provider
    validation, fake-adapter detection), startup validation + `communications` block in
    `/api/health`, truthful `/api/communications/health` (503 on BLOCKED — previously
-   unconditional `success: true`), 4 tests (communication suite 131 → 135, all pass), and
+   unconditional `success: true`), 4 tests, and
    `docs/agent-8-omnichannel/CONFIGURATION_VALIDATOR.md`. **This is the one behavioral change in
    this PR** and it directly serves open Issue #110 ("truthful admin status"). Note for the owner:
    on deployments without provider credentials (e.g. `carup-backend`), `/api/communications/health`
    will now truthfully report BLOCKED/503 instead of success.
+   **Post-review hardening (`f367b65`, two Codex P2 findings):** webhook-base candidates are now
+   normalized individually before fallback selection (quoted-empty/whitespace values can neither
+   become a malformed URL base nor mask a valid `CARUP_PUBLIC_API_URL`/`STAGING_API_BASE_URL`),
+   and scheduler/worker-secret selection is one shared resolver (`resolveWorkerSecret`) used
+   identically by the validator, `requireWorkerSecret`, and the admin M2M guard
+   `workerSecretValid` — a configuration reported READY provably authenticates with the accepted
+   `CRON_SECRET` fallback. 4 further regression tests; communication suite 131 → **139**, all pass.
 2. **Phase 7C runbook operational history** (`49fe721`) — 58 append-only lines recording the
    executed 2026-07-14 owner-authorized app-tier rollback (deployment IDs, alias confirmations,
    production test-data cleanup), previously stranded on `release/phase7c-verification-production`.
@@ -280,7 +287,7 @@ Baseline `main` @ f313fae and the integration branch were both verified on 2026-
 | Web unit (vitest) | **747/747 pass, 82 files** | **747/747 pass, 82 files** |
 | Backend governance/integration suite (`backend/tests/run-tests.js`) | **PASS, exit 0** ("ALL GOVERNANCE, INTEGRATION, & TRUST ENGINE TESTS PASSED") | **PASS, exit 0** |
 | Backend full suite (`node --test backend/tests/*.test.js`, CI parity) | 12 environment-dependent failures (see below) | **2682 tests: 2658 pass · 12 fail (env) · 12 skipped** |
-| Communication suite (validator integrated here) | 131 tests | **135/135 pass** (+4 validator tests) |
+| Communication suite (validator integrated here) | 131 tests | **139/139 pass** (+4 validator tests, +4 P2-regression tests @ `f367b65`) |
 | Migration verification (PGlite real Postgres, Up/Down/re-Up) | — | **PASS** (19 tables after re-up) |
 | Diaspora ledger harnesses (`database/test/diaspora_*_check.mjs`, 11 harnesses incl. #26 50/50, #27) | — | **11/11 PASS, 0 failures** |
 | Tenant-scope suites (drive-vault scope + trade-graph isolation) | — | **16/16 pass** |
