@@ -193,7 +193,7 @@ export default function DiasporaDriveConnections() {
             )}
 
             <p className="mt-4 text-xs text-gray-500" data-testid="diaspora-drive-xlsx-note">
-              {status.workbookExport?.note || 'Binary XLSX export is not yet available; JSON/report export only.'}
+              {status.workbookExport?.note || 'Drive sync covers JSON/report exports; binary XLSX database export is available from the Workbook Operator Console.'}
             </p>
           </section>
 
