@@ -18,6 +18,7 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   location?: string;
   image_url?: string;
   images?: string[];
+  publication_status?: string;
   condition?: string;
   category?: string;
   viewCount?: number;

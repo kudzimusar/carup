@@ -8,6 +8,7 @@ import { Search, Plus, Eye, TrendingUp, CheckCircle, Loader2, DollarSign } from 
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import { PUBLICATION_BADGE } from '@/pages/dashboard/owner/MyListings'
 import type { Vehicle } from '@/types'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -20,8 +21,30 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function Inventory() {
-  const { fetchDealerInventory, updateVehicleStatus } = useCarUpApi()
+  const { fetchDealerInventory, updateVehicleStatus, publishVehicleListing, unpublishVehicleListing } = useCarUpApi()
+  const [publishingVin, setPublishingVin] = useState<string | null>(null)
   const [inventory, setInventory] = useState<Vehicle[]>([])
+
+  const handlePublishToggle = async (vin: string, currentlyPublished: boolean) => {
+    if (publishingVin) return
+    setPublishingVin(vin)
+    try {
+      const result = currentlyPublished ? await unpublishVehicleListing(vin) : await publishVehicleListing(vin)
+      setInventory(prev => prev.map(v => v.vin === vin ? { ...v, publication_status: result.publication_status } : v))
+      toast.success(currentlyPublished ? 'Listing unpublished.' : 'Listing published to the marketplace.')
+    } catch (e: unknown) {
+      const err = e as { data?: { blocking_gaps?: Array<{ label?: string; requirement?: string } | string> }; message?: string }
+      const gaps = err?.data?.blocking_gaps
+      if (Array.isArray(gaps) && gaps.length) {
+        const names = gaps.map(g => (typeof g === 'string' ? g : g.label || g.requirement || 'requirement')).slice(0, 3).join(', ')
+        toast.error(`Not publishable yet. Missing: ${names}${gaps.length > 3 ? '…' : ''}`)
+      } else {
+        toast.error(err?.message || 'Could not update publication status.')
+      }
+    } finally {
+      setPublishingVin(null)
+    }
+  }
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -135,10 +158,15 @@ export default function Inventory() {
                           <p className="text-xs text-gray-400 font-mono mt-0.5">VIN: {vehicle.vin.substring(0, 10)}...</p>
                           <p className="text-lg font-bold text-orange-600 mt-1">${vehicle.price.toLocaleString()}</p>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
                           <Badge className={`text-xs font-medium ${STATUS_COLORS[effectiveStatus] || 'bg-gray-100 text-gray-600'}`}>
                             {effectiveStatus}
                           </Badge>
+                          {vehicle.publication_status && PUBLICATION_BADGE[vehicle.publication_status] && (
+                            <Badge data-testid={`publication-badge-${vehicle.vin}`} className={`text-xs font-medium ${PUBLICATION_BADGE[vehicle.publication_status].className}`}>
+                              {PUBLICATION_BADGE[vehicle.publication_status].label}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-500">
@@ -161,6 +189,21 @@ export default function Inventory() {
                           >
                             {markingId === vehicle.vin ? <Loader2 className="w-3 h-3 animate-spin" /> : <DollarSign className="w-3 h-3" />}
                             Mark Sold
+                          </Button>
+                        )}
+                        {!isSold && vehicle.publication_status && (
+                          <Button
+                            size="sm"
+                            variant={vehicle.publication_status === 'published' ? 'outline' : 'default'}
+                            className={`text-xs gap-1 ${vehicle.publication_status === 'published' ? '' : 'bg-green-600 hover:bg-green-700'}`}
+                            data-testid={`publish-toggle-${vehicle.vin}`}
+                            disabled={publishingVin === vehicle.vin}
+                            onClick={() => handlePublishToggle(vehicle.vin, vehicle.publication_status === 'published')}
+                          >
+                            {publishingVin === vehicle.vin
+                              ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
+                              : (vehicle.publication_status === 'published' ? 'Unpublish' : 'Publish')
+                            }
                           </Button>
                         )}
                       </div>

@@ -1931,6 +1931,14 @@ export function useCarUpApi() {
     return request(`/vehicles/${vin}/recommendations`)
   }, [request])
 
+  const publishVehicleListing = useCallback(async (vin: string): Promise<any> => {
+    return request(`/vehicles/${vin}/publish`, { method: 'POST' })
+  }, [request])
+
+  const unpublishVehicleListing = useCallback(async (vin: string): Promise<any> => {
+    return request(`/vehicles/${vin}/unpublish`, { method: 'POST' })
+  }, [request])
+
   const reserveVehicle = useCallback(async (vin: string, duration = 7): Promise<any> => {
     // Buyer identity is the authenticated session server-side; never client-supplied.
     return request(`/vehicles/${vin}/reserve`, {
@@ -2776,6 +2784,8 @@ export function useCarUpApi() {
     fetchDealerReputation,
     fetchRecommendations,
     reserveVehicle,
+    publishVehicleListing,
+    unpublishVehicleListing,
     fetchDealerLeads,
     fetchDealerPromotions,
     createDealerPromotion,
