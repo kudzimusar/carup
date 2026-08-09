@@ -112,6 +112,65 @@ test('publish/unpublish route contract (source): auth, scope, completeness gate,
   assert.ok(source.includes('loadScopedVehicle'), 'publish/unpublish must run the shared ownership/tenant scope check');
 });
 
+test('completeness evaluator doc types are legal under vehicle_evidence_evidence_type_check (DB contract)', () => {
+  const source = readFileSync(new URL('../services/evidence/completenessEvaluator.js', import.meta.url), 'utf8');
+  assert.match(
+    source,
+    /BLOCKING_DOC_TYPES = \['registration_document', 'ownership_transfer_document'\]/,
+    'blocking doc types must be exactly the CHECK-legal ownership documents',
+  );
+  assert.match(
+    source,
+    /ADVISORY_DOC_TYPES = \['customs_photo', 'inspection_photo', 'insurance_document', 'police_clearance_document'\]/,
+    'advisory doc types must all be CHECK-legal',
+  );
+  // The illegal legacy values could never match a DB row (the CHECK rejects
+  // them on write), silently locking the ownership requirement at 'missing'.
+  for (const illegal of ["'ownership_transfer'", "'customs_entry'", "'duty_clearance_document'", "'vid_inspection'"]) {
+    assert.ok(!source.includes(illegal), `illegal evidence type ${illegal} must not reappear`);
+  }
+});
+
+test('a verified ownership_transfer_document satisfies the blocking ownership requirement (behavioral)', async () => {
+  process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
+  const { supabase } = await import('../db/supabase.js');
+  const { evaluateCompleteness } = await import('../services/evidence/completenessEvaluator.js');
+
+  const store = {
+    vehicles: [vehicle({
+      vin: PUBLISHED_VIN,
+      chassis_number: 'CH-0001',
+      engine_number: 'EN-0001',
+      plate_number: 'ABZ1234',
+      temp_plate_id: null,
+      publication_status: 'draft',
+    })],
+    vehicle_evidence: [
+      { id: 'ev-1', vin: PUBLISHED_VIN, evidence_type: 'ownership_transfer_document', verification_status: 'verified' },
+      { id: 'ev-2', vin: PUBLISHED_VIN, evidence_type: 'customs_photo', verification_status: 'pending' },
+    ],
+  };
+  const originalFrom = supabase.from;
+  supabase.from = buildMockSupabase(store).from;
+  try {
+    const result = await evaluateCompleteness(PUBLISHED_VIN);
+    assert.equal(result.is_publishable, true, 'verified ownership_transfer_document must satisfy the ownership gate');
+    const ownership = result.requirements.find((r) => r.key === 'ownership_document');
+    assert.equal(ownership.status, 'verified');
+    // Advisory matrix carries only CHECK-legal keys, with key-derived labels.
+    const advisory = result.requirements.filter((r) => !r.blocking);
+    assert.deepEqual(
+      advisory.map((r) => r.key),
+      ['customs_photo', 'inspection_photo', 'insurance_document', 'police_clearance_document'],
+    );
+    assert.equal(advisory.find((r) => r.key === 'customs_photo').status, 'pending_review');
+    assert.equal(advisory.find((r) => r.key === 'customs_photo').label, 'Customs Photo');
+  } finally {
+    supabase.from = originalFrom;
+  }
+});
+
 test('backfill migration preserves currently-visible inventory (file contract)', () => {
   const migration = readFileSync(new URL('../../database/migrations/20260808140000_publication_gate_backfill.sql', import.meta.url), 'utf8');
   assert.ok(migration.includes("SET publication_status = 'published'"), 'backfill must promote to published');
