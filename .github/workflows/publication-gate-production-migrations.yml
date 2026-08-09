@@ -1,24 +1,28 @@
-name: 'Publication Gate PRODUCTION Migrations (20260808140000 + 20260808150000)'
+name: 'Publication Gate PRODUCTION Migrations (20260808140000/150000 + 20260809100000/110000)'
 
 # Production counterpart of publication-gate-staging-migrations.yml, gating the
-# two advancement-pass migrations behind the repository's production cutover
-# discipline:
+# two advancement-pass migrations plus the two database-compatibility-audit
+# migrations (trust side tables; API-role write hardening) behind the
+# repository's production cutover discipline:
 #
 #  · MODE=preflight (the default) is a READ-ONLY inspection — it produces the
 #    owner-review evidence (publication distribution, visible_but_unpublished,
-#    mechanic schema shape, ledger rows) inside a READ ONLY transaction and
-#    writes nothing. This is the sanctioned "safe read-only visibility" path:
-#    the credential lives only in the repository's environment secrets and
-#    never on a workstation.
+#    mechanic schema shape, ledger rows, and the FULL PR #139 dependency
+#    inventory: runtime-dependent tables, columns, CHECK values, vin
+#    uniqueness, API-role grant/RLS posture) inside a READ ONLY transaction
+#    and writes nothing. This is the sanctioned "safe read-only visibility"
+#    path: the credential lives only in the repository's environment secrets
+#    and never on a workstation.
 #  · MODE=apply additionally requires the exact owner authorization phrase as a
 #    dispatch input; the runner refuses anything else. Apply runs each file in
 #    one transaction with its official supabase_migrations row, then fails the
 #    job unless every vehicle that existed BEFORE apply and is publicly visible
 #    is 'published' (rows inserted during/after apply are legitimately draft
-#    under the gate and never fail the cutover), and unless the full mechanic
+#    under the gate and never fail the cutover), unless the full mechanic
 #    convergence contract (10/10 columns) holds whenever 20260808150000 is
-#    recorded. Concurrent row-count drift is an advisory warning, never a
-#    failure after the irreversible commits.
+#    recorded, and unless the trust tables + hardened API-role posture hold
+#    whenever 20260809100000/110000 are recorded. Concurrent row-count drift
+#    is an advisory warning, never a failure after the irreversible commits.
 #  · The checkout is hard-pinned to one reviewed commit (advancing the pin is a
 #    reviewable PR); there is no ref input; the workflow only runs from main and
 #    only for the repository owner; the `production` environment lets GitHub
@@ -71,7 +75,7 @@ concurrency:
 
 env:
   # The single reviewed commit whose runner and migration files are executed.
-  CANDIDATE_SHA: 5ef98e83da6029f395855adefd8109d81dc85cc6
+  CANDIDATE_SHA: ccbc2e005cb37e58b4a5d2e39cca67baa1dfd772
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -89,7 +93,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 5ef98e83da6029f395855adefd8109d81dc85cc6
+          ref: ccbc2e005cb37e58b4a5d2e39cca67baa1dfd772
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
