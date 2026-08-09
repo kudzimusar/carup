@@ -1,4 +1,4 @@
-name: 'Publication Gate PRODUCTION Migrations (20260808140000/150000 + 20260809100000/110000)'
+name: 'Publication Gate Production Migrations (20260808140000-150000 + 20260809100000-120000, five migrations)'
 
 # Production counterpart of publication-gate-staging-migrations.yml, gating the
 # two advancement-pass migrations plus the two database-compatibility-audit
@@ -75,7 +75,7 @@ concurrency:
 
 env:
   # The single reviewed commit whose runner and migration files are executed.
-  CANDIDATE_SHA: c69d84ec8f70c04bb08f75fdc2b7e221a068904e
+  CANDIDATE_SHA: 7dd5ebe6c78ca0791a521f77e4bd35d252f681ad
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -93,7 +93,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: c69d84ec8f70c04bb08f75fdc2b7e221a068904e
+          ref: 7dd5ebe6c78ca0791a521f77e4bd35d252f681ad
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
