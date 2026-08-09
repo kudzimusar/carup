@@ -294,11 +294,39 @@ have damaged. Findings and resolutions, all on this branch:
    `backend/vercel.json` is `{}` again. The event-coverage test now enforces
    the pg_cron architecture and forbids sub-daily vercel.json crons. This
    also gives the "deployed staging outbox backlog" ops follow-up above its
-   quiet-traffic drain. The migration manifest is now **five** migrations;
-   the PR #141 runner must carry the fifth before production apply.
-   - Status: authored and test-enforced on this branch; **staging
-     application is a pending operator step** (this session's permissions
-     blocked the remote apply). The Up section is safe to run repeatedly.
+   quiet-traffic drain. The migration manifest is now **five** migrations,
+   and the PR #141 runner carries the fifth (frozen `2c0424ffba94`).
+
+   **Canonical scheduler truth (supersedes all earlier wording):**
+
+   ```text
+   scheduler              = Supabase pg_cron + pg_net
+   Vercel cron            = removed (backend/vercel.json is {})
+   staging activation     = evidence-backed (see receipts below)
+   production activation  = owner-gated via PR #141 / not yet applied
+   ```
+
+   **Governance closure (same day, later):** the migration was hardened to
+   FAIL-CLOSED (missing pg_cron or pg_net RAISES before the ledger row can
+   exist; Vault secrets remain a safe, verifiable activation gate), with a
+   contract test and a behavioral PGlite test proving the failure. Staging
+   application went through a reviewed dispatcher, not manual SQL:
+   `.github/workflows/events-cron-staging-migration.yml` (PR #142, pin
+   advanced by PR #143 to candidate `0f5c0e3`, frozen `2c0424ffba94`).
+   Receipts: verify run 31298661815 (extensions present, ledger/job absent
+   pre-apply); apply run 31298702039 (`#20260809120000 applied and
+   recorded`, cron job `carup-events-outbox-every-minute` active on
+   `* * * * *`); re-dispatch 31299048156 proved verify-only idempotency and
+   pinned the endpoint Vault URL to the stable staging domain. End-to-end
+   proof (run 31299094478) walked the chain with a synthetic event: pg_cron
+   fired (3/3 succeeded) and pg_net POSTed, but the deployed staging
+   backend predates seam-E and 404s `/api/internal/events/process` — the
+   event honestly stayed `pending` and every synthetic row was cleaned up.
+   E2E completes after `carup-backend-staging` redeploys from this branch
+   (blocked ~24h by Vercel's build rate limit). The same receipts exposed
+   that BOTH Vault worker URLs had rotted to a deleted deployment URL
+   (pg_net receiving `410 Gone` every minute) — staging comms delivery had
+   been silently broken; both URLs now point at the stable staging domain.
 
 4. **Everything else verified intact.** Staging posture re-confirmed live
    (both audit migrations applied; SELECT-only grants and RLS on all seven
