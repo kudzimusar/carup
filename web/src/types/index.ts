@@ -1101,6 +1101,25 @@ export interface SubscriptionStatus {
 
 export type EffectiveEntitlements = Record<string, boolean | number>;
 
+/**
+ * GET /diaspora/subscription/entitlements envelope — mirrors the backend's
+ * resolveEffectiveEntitlements() (diasporaEntitlementService.js): the flat feature map lives under
+ * `entitlements`, wrapped with the plan/tenant context that resolved it. `source` is 'db' when the
+ * plan row came from diaspora_subscription_plans and 'config' when the catalog fallback was used.
+ */
+export interface EffectiveEntitlementsEnvelope {
+  tenantId: string;
+  userId: string;
+  planKey: string;
+  planName?: string;
+  tier?: string;
+  status?: string;
+  source?: string;
+  synthetic?: boolean;
+  entitlements: Record<string, boolean | number>;
+  overrides?: Record<string, unknown>;
+}
+
 export interface UsageEntry {
   featureKey: string;
   planKey?: string;

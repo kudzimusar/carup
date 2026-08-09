@@ -116,7 +116,7 @@ import type {
   DiasporaDriveConnection,
   Plan,
   SubscriptionStatus,
-  EffectiveEntitlements,
+  EffectiveEntitlementsEnvelope,
   UsageResponse,
   SandboxBillingActionResponse,
   SafeTradeTransaction,
@@ -1569,9 +1569,12 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlements> => {
-    const response = await request<{ data: EffectiveEntitlements }>('/diaspora/subscription/entitlements')
-    return response.data || {}
+  // The backend returns an ENVELOPE ({ planKey, source, entitlements, ... }) under data — see
+  // resolveEffectiveEntitlements(). Returning it flat here made the UI render the envelope's field
+  // names as fake feature keys, so the type must match the wire shape exactly.
+  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlementsEnvelope | null> => {
+    const response = await request<{ data: EffectiveEntitlementsEnvelope }>('/diaspora/subscription/entitlements')
+    return response.data ?? null
   }, [request])
 
   const getDiasporaUsage = useCallback(async (): Promise<UsageResponse> => {
