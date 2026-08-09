@@ -188,10 +188,40 @@ router.post('/upload/vehicle', authorizeRole(['owner', 'dealer', 'admin']), asyn
  */
 router.post('/upload/document', authorizeRole(), async (req, res) => {
   const { document, docType, vin } = req.body;
-  const userId = req.headers['x-user-id'] || 'system';
+  // The actor is the authenticated session identity — never the spoofable
+  // x-user-id header.
+  const userId = req.userContext?.id || 'system';
 
   if (!document || !docType || !vin) {
     return res.status(400).json({ error: 'Missing mandatory parameters: document, docType, vin' });
+  }
+
+  // Same ownership rule as /upload/vehicle: documents may target an existing
+  // vehicle (the caller must own it or share its tenant) or a VIN that is still
+  // being created by this authenticated caller (row-absent => allowed). A VIN
+  // owned by someone else is never writable.
+  if (req.userContext?.role !== 'admin') {
+    const { data: vehicleRow, error: vehicleErr } = await supabase
+      .from('vehicles')
+      .select('owner_id, tenant_id')
+      .eq('vin', String(vin).toUpperCase())
+      .maybeSingle();
+    if (vehicleErr) {
+      return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+    }
+    if (vehicleRow) {
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        await logAuditEvent(supabase, {
+          req,
+          event_type: 'SECURITY_MEDIA_UPLOAD_DENIED',
+          vin,
+          reason: 'Authenticated caller attempted document upload for a vehicle they neither own nor share a tenant with.'
+        }).catch(() => {});
+        return res.status(403).json({ error: 'You are not authorized to upload documents for this vehicle.' });
+      }
+    }
   }
 
   console.log(`📄 [Media Router] Uploading secure [${docType}] for VIN: [${vin}] by user: [${userId}]`);
@@ -284,11 +314,38 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
     return res.status(400).json({ error: `File size exceeds allowed policy limit of ${sizeLimit / (1024 * 1024)}MB.` });
   }
 
-  const allowedTypes = bucket === 'ocr-documents' 
-    ? ['application/pdf', 'image/jpeg', 'image/png'] 
+  const allowedTypes = bucket === 'ocr-documents'
+    ? ['application/pdf', 'image/jpeg', 'image/png']
     : ['image/jpeg', 'image/jpg', 'image/png'];
   if (!allowedTypes.includes(fileType)) {
     return res.status(400).json({ error: `File type ${fileType} is not allowed for bucket ${bucket}.` });
+  }
+
+  // 4. VIN ownership: a signed upload URL is a write grant, so a non-admin must
+  // own the VIN or share its tenant — same rule as /upload/vehicle (row-absent
+  // => allowed for creation flows; someone else's VIN is never writable).
+  if (req.userContext?.role !== 'admin') {
+    const { data: vehicleRow, error: vehicleErr } = await supabase
+      .from('vehicles')
+      .select('owner_id, tenant_id')
+      .eq('vin', cleanVin)
+      .maybeSingle();
+    if (vehicleErr) {
+      return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+    }
+    if (vehicleRow) {
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext?.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        await logAuditEvent(supabase, {
+          req,
+          event_type: 'SECURITY_MEDIA_UPLOAD_DENIED',
+          vin: cleanVin,
+          reason: 'Authenticated caller requested a signed upload URL for a vehicle they neither own nor share a tenant with.'
+        }).catch(() => {});
+        return res.status(403).json({ error: 'You are not authorized to upload media for this vehicle.' });
+      }
+    }
   }
 
   try {
@@ -321,14 +378,48 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
  * GET /api/media/document/signed-url - Retrieve a timed read token for a private document
  */
 router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner']), async (req, res) => {
-  const { path } = req.query;
+  const { path: docPath } = req.query;
 
-  if (!path) {
+  if (!docPath) {
     return res.status(400).json({ error: 'Missing mandatory query parameter: path' });
   }
 
+  // Documents live under a <VIN>/ prefix. Signing an arbitrary caller-supplied
+  // path was an IDOR against the private ocr-documents bucket: enforce the VIN
+  // prefix shape and reject traversal before any signing happens.
+  const cleanPath = String(docPath);
+  const vinPrefixMatch = /^([A-Z0-9]{17})\//.exec(cleanPath);
+  if (cleanPath.includes('..') || cleanPath.startsWith('/') || !vinPrefixMatch) {
+    return res.status(400).json({ error: 'Invalid document path. Must be scoped under a 17-character VIN prefix.' });
+  }
+  const pathVin = vinPrefixMatch[1];
+
+  // Admin/government read globally; owner/dealer sessions may only read
+  // documents for a VIN they own or that belongs to their tenant.
+  if (req.userContext?.role === 'owner' || req.userContext?.role === 'dealer') {
+    const { data: vehicleRow, error: vehicleErr } = await supabase
+      .from('vehicles')
+      .select('owner_id, tenant_id')
+      .eq('vin', pathVin)
+      .maybeSingle();
+    if (vehicleErr) {
+      return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+    }
+    const ownsVehicle = vehicleRow?.owner_id && vehicleRow.owner_id === req.userContext?.id;
+    const sameTenant = vehicleRow?.tenant_id && vehicleRow.tenant_id === req.userContext?.tenantId;
+    if (!ownsVehicle && !sameTenant) {
+      await logAuditEvent(supabase, {
+        req,
+        event_type: 'SECURITY_DOCUMENT_READ_DENIED',
+        vin: pathVin,
+        reason: 'Authenticated caller requested a signed read URL for a document under a VIN they neither own nor share a tenant with.'
+      }).catch(() => {});
+      return res.status(403).json({ error: 'You are not authorized to read documents for this vehicle.' });
+    }
+  }
+
   try {
-    const signedUrl = await generateSecureReadUrl('ocr-documents', path, 3600); // Expires in 1 hour
+    const signedUrl = await generateSecureReadUrl('ocr-documents', cleanPath, 3600); // Expires in 1 hour
     res.json({ signedUrl });
   } catch (err) {
     console.error('❌ [Media Router] Signed URL generation failed:', err.message);
