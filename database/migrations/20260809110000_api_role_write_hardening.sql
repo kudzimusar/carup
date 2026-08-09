@@ -34,14 +34,16 @@ GRANT ALL ON mechanic_work_orders TO service_role;
 GRANT ALL ON mechanic_parts TO service_role;
 GRANT ALL ON vehicle_ownership_history TO service_role;
 
--- Evidence: the scoped SELECT policy stands; API-role writes were never
--- legitimate (every upload flows through the backend).
-REVOKE INSERT, UPDATE, DELETE ON vehicle_evidence FROM anon, authenticated;
-
--- Vehicles: revoke API-role WRITES only. The web anon client's sole consumer
--- is dead code (audit-verified); every legitimate write goes through the
--- backend service-role client.
-REVOKE INSERT, UPDATE, DELETE ON vehicles FROM anon, authenticated;
+-- Evidence + vehicles: REVOKE ALL then grant back SELECT only. A bare
+-- REVOKE of INSERT/UPDATE/DELETE would leave TRUNCATE behind from the
+-- original broad grants — and TRUNCATE is not RLS-filtered. SELECT is
+-- re-granted deliberately: vehicle_evidence has a scoped SELECT policy
+-- (20260624120000) and the vehicles public-read posture belongs to
+-- Issue #101.
+REVOKE ALL ON vehicle_evidence FROM anon, authenticated;
+GRANT SELECT ON vehicle_evidence TO anon, authenticated;
+REVOKE ALL ON vehicles FROM anon, authenticated;
+GRANT SELECT ON vehicles TO anon, authenticated;
 
 -- +migrate Down
 -- Restoring broad API-role grants would recreate the exposure this migration
