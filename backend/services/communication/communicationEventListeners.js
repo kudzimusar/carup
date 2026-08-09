@@ -27,9 +27,17 @@ export function registerCommunicationListeners(eventWorker, services = createCom
   if (registered || !eventWorker?.subscribe) return;
   registered = true;
   for (const eventType of COMMUNICATION_EVENT_TYPES) {
-    eventWorker.subscribe(eventType, async (payload, pgClient, tenantId) => {
+    eventWorker.subscribe(eventType, async (payload, pgClient, tenantId, outboxEvent) => {
       try {
-        await services.orchestrator.handleDomainEvent({ event_type: eventType, payload }, pgClient, tenantId);
+        // Forward the RAW outbox record (4th handler arg — see eventWorker.processEvent):
+        // the notification layer reads event.id into notification_queue.event_id and uses it
+        // as the per-event dedupe discriminator. Dropping it orphaned event_id (always NULL)
+        // and collapsed dedupe keys to per-user/per-type, swallowing repeat events.
+        await services.orchestrator.handleDomainEvent({
+          ...(outboxEvent || {}),
+          event_type: eventType,
+          payload,
+        }, pgClient, tenantId);
       } catch (error) {
         if (isCommunicationSchemaMissing(error) && process.env.COMMUNICATION_ENGINE_ENABLED !== 'true') {
           if (!migrationWarningLogged) {

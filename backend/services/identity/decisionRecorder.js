@@ -157,12 +157,15 @@ export class VerificationDecisionRecorder {
       .insert(decisionRecord);
 
     if (decisionError) {
-      // Idempotency check: if duplicate key, fetch existing
+      // Idempotency check: if duplicate key, fetch existing. Scoped to this
+      // session like the proactive check above, so a reused key can never
+      // replay another session's decision.
       if (decisionError.code === '23505' && idempotencyKey) {
         const { data: existing } = await client
           .from('verification_decisions')
           .select('*')
           .eq('idempotency_key', idempotencyKey)
+          .eq('session_id', session.id)
           .maybeSingle();
 
         if (existing) {
@@ -288,7 +291,10 @@ export class VerificationDecisionRecorder {
         recipientUserId: session.user_id,
         decision: action,
         reasonCodes: reasonCode ? [reasonCode] : [],
-      }, session.tenant_id || null).catch((err) => {
+        // verification_sessions has NO tenant_id column (live-verified), so
+        // session.tenant_id is always undefined — pass the platform scope (null)
+        // explicitly instead of reading a phantom column.
+      }, null).catch((err) => {
         console.warn('identity.verification.decided outbox emit failed:', err.message);
       });
     }

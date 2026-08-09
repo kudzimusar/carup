@@ -64,6 +64,10 @@ async function writeModerationAudit(client, { vin, event, previous, next, reason
     trust_fact: 'marketplace_public_status',
     previous_value: previous ?? null,
     new_value: next ?? null,
+    // Attribution: actor is req.userContext — record WHO moderated (and their verified
+    // tenant scope), not just the role, so audit rows stay attributable per reviewer.
+    actor_user_id: actor?.id || actor?.userId || null,
+    actor_tenant_id: actor?.tenantId || actor?.tenant_id || null,
     actor_role: actor?.role || actor?.platformRole || null,
     actor_type: 'admin',
     source_route: 'marketplace_moderation',
