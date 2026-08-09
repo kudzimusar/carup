@@ -116,7 +116,7 @@ import type {
   DiasporaDriveConnection,
   Plan,
   SubscriptionStatus,
-  EffectiveEntitlements,
+  EffectiveEntitlementsEnvelope,
   UsageResponse,
   SandboxBillingActionResponse,
   SafeTradeTransaction,
@@ -1569,9 +1569,11 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlements> => {
-    const response = await request<{ data: EffectiveEntitlements }>('/diaspora/subscription/entitlements')
-    return response.data || {}
+  // The backend returns an ENVELOPE (resolveEffectiveEntitlements): plan identity/provenance around
+  // the feature map. Typing it flat made the page render envelope field names as "entitlements".
+  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlementsEnvelope> => {
+    const response = await request<{ data: EffectiveEntitlementsEnvelope }>('/diaspora/subscription/entitlements')
+    return response.data
   }, [request])
 
   const getDiasporaUsage = useCallback(async (): Promise<UsageResponse> => {

@@ -1101,6 +1101,26 @@ export interface SubscriptionStatus {
 
 export type EffectiveEntitlements = Record<string, boolean | number>;
 
+/**
+ * GET /diaspora/subscription/entitlements envelope (resolveEffectiveEntitlements): plan identity and
+ * resolution provenance wrapped around the merged feature map. `source` is 'db' when the plan row came
+ * from the database and 'config' when the catalog fallback resolved it; `synthetic` means no
+ * access-granting subscription row existed (Free floor). The feature map itself lives under
+ * `entitlements` — the envelope fields are metadata, never entitlements.
+ */
+export interface EffectiveEntitlementsEnvelope {
+  tenantId: string;
+  userId: string;
+  planKey: string;
+  planName?: string;
+  tier?: string;
+  status?: string;
+  source?: string;
+  synthetic?: boolean;
+  entitlements: EffectiveEntitlements;
+  overrides?: Record<string, unknown>;
+}
+
 export interface UsageEntry {
   featureKey: string;
   planKey?: string;
