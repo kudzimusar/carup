@@ -1,0 +1,95 @@
+name: 'Events Outbox pg_cron Staging Migration (20260809120000)'
+
+# Applies the fail-closed events-outbox scheduler migration to the canonical
+# staging database (carup-staging, project ref eoyenigwevnxwwhyhaer) in one
+# transaction with its official supabase_migrations.schema_migrations row,
+# verifies the resulting capability (extensions, cron.job, ledger, Vault
+# booleans — never values), and can prove the delivery chain end-to-end with
+# a synthetic outbox event that is always cleaned up.
+#
+# Same architecture and rationale as publication-gate-staging-migrations.yml:
+#  · workflow_dispatch is only registered from the DEFAULT branch, so this file
+#    lives on main;
+#  · the checkout is hard-pinned to one reviewed commit, so the bytes that run
+#    with the staging credential cannot change after review — advancing the pin
+#    is a reviewable pull request, not a branch push;
+#  · no ref input: a ref input would be arbitrary code execution with the
+#    staging credential attached;
+#  · the runner enforces its own guards (staging-ref identity, frozen sha256
+#    of the migration file, verify-only on re-dispatch, pinned TLS trust
+#    anchor, connection string never printed, Vault values never selected out
+#    of the database).
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'verify = read-only capability report; apply = apply + ledger + activate + verify; e2e = synthetic event through the live chain'
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - apply
+          - e2e
+
+permissions:
+  contents: read
+
+concurrency:
+  group: events-cron-staging-migration
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose runner and migration files are executed.
+  CANDIDATE_SHA: 0f5c0e31e8053c2625324b03e94081b826fa51ce
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 0f5c0e31e8053c2625324b03e94081b826fa51ce
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope here.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the staging database operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; cannot run.'
+            exit 1
+          fi
+          echo 'Staging database operator secret is present.'
+
+      - name: 'Run the events cron staging runner'
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          MODE: ${{ inputs.mode }}
+        run: node backend/scripts/staging-apply-events-cron.mjs
