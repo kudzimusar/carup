@@ -29,16 +29,16 @@ export default function WorkOrders() {
   const [completeCost, setCompleteCost] = useState('')
   const [actionBusyId, setActionBusyId] = useState<string | null>(null)
 
-  const loadWorkOrders = useCallback(async () => {
-    try {
-      const data = await fetchMechanicWorkOrders()
+  const loadWorkOrders = useCallback(() => {
+    return fetchMechanicWorkOrders().then(data => {
       const formatted = (Array.isArray(data) ? data : []).map((d: WorkOrder) => ({
         // Keep the FULL DB id — PATCH /mechanic/work-orders/:id needs it. The short display id
         // is derived at render time.
         id: d.id,
         vehicle: d.vin || d.vehicle || 'Unknown',
         customer: d.customer_name || d.customer || 'Unknown',
-        service: d.service || d.issue_description || 'General Service',
+        // `description` is the Phase-4 column the create form's issue text is stored in.
+        service: d.service || d.description || d.issue_description || 'General Service',
         status: d.status?.toLowerCase().replace(' ', '-') as WorkOrder['status'] || 'pending',
         date: d.date || new Date(d.created_at).toLocaleDateString(),
         cost: d.total_cost ?? d.cost ?? 0,
@@ -46,10 +46,10 @@ export default function WorkOrders() {
         created_at: d.created_at
       }))
       setWorkOrders(formatted)
-    } catch (err) {
+    }).catch(err => {
       console.error(err)
       toast.error('Failed to load Work Orders.')
-    }
+    })
   }, [fetchMechanicWorkOrders])
 
   useEffect(() => {
@@ -169,7 +169,7 @@ export default function WorkOrders() {
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
-          {['all', 'pending', 'in-progress', 'completed'].map(s => (
+          {['all', 'pending', 'in-progress', 'completed', 'cancelled'].map(s => (
             <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className={filter === s ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </Button>

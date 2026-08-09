@@ -2019,8 +2019,8 @@ export function useCarUpApi() {
 
   // PATCH /mechanic/work-orders/:id — status transitions (DB CHECK: 'In Progress'|'Completed'|
   // 'Cancelled') with an optional total_cost when completing. Tenant-scoped server-side.
-  const updateMechanicWorkOrder = useCallback(async (id: string, data: { status: 'In Progress' | 'Completed' | 'Cancelled'; total_cost?: number }): Promise<any> => {
-    return request(`/mechanic/work-orders/${encodeURIComponent(id)}`, {
+  const updateMechanicWorkOrder = useCallback(async (id: string, data: { status: 'In Progress' | 'Completed' | 'Cancelled'; total_cost?: number }): Promise<{ success: boolean }> => {
+    return request<{ success: boolean }>(`/mechanic/work-orders/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(data)
     })

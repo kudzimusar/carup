@@ -258,3 +258,58 @@ design.
 ```text
 DATABASE COMPATIBILITY GATE — PASS
 ```
+
+---
+
+## Addendum — post-audit interruption sweep and remediation (2026-08-09, same day)
+
+The audit session was interrupted twice by disk exhaustion. A seven-agent
+verification sweep afterwards checked every surface the interruptions could
+have damaged. Findings and resolutions, all on this branch:
+
+1. **Two changes lost in the web-lane rewrite, restored.** The first web fix
+   lane was interrupted and rewritten from scratch; the rewrite dropped the
+   Phase-4 `description` fallback in the work-order service cell (every
+   app-created order rendered the placeholder "General Service" instead of
+   the mechanic's entered text) and the `cancelled` filter button. Both
+   restored, with regression tests (`WorkOrders.test.tsx`, +2 scenarios).
+
+2. **CI lint-regression gate red on the pinned head, fixed.** The rewrite
+   introduced two net-new lint errors (`Promise<any>` on
+   `updateMechanicWorkOrder`; `react-hooks/set-state-in-effect` in the
+   work-orders load effect). Both fixed; the gate re-run locally reports
+   `NET_NEW_ERRORS=0`.
+
+3. **Vercel backend deployments failing at creation, root-caused and fixed.**
+   `backend/vercel.json` carried a `* * * * *` cron for
+   `/api/internal/events/process`; the Vercel Hobby plan rejects sub-daily
+   cron schedules at deploy time, so every `carup-backend` /
+   `carup-backend-staging` deployment failed — the exact hazard
+   `20260626120000_communication_supabase_cron.sql` documents and solved for
+   the communications worker. Resolution mirrors that precedent: NEW
+   migration `20260809120000_events_outbox_pg_cron.sql` schedules
+   `carup-events-outbox-every-minute` via pg_cron + pg_net (idempotent,
+   extension-guarded, secrets read from Vault at execution time — new
+   `CARUP_EVENTS_ENDPOINT_URL` plus the shared `CARUP_WORKER_SECRET`), and
+   `backend/vercel.json` is `{}` again. The event-coverage test now enforces
+   the pg_cron architecture and forbids sub-daily vercel.json crons. This
+   also gives the "deployed staging outbox backlog" ops follow-up above its
+   quiet-traffic drain. The migration manifest is now **five** migrations;
+   the PR #141 runner must carry the fifth before production apply.
+   - Status: authored and test-enforced on this branch; **staging
+     application is a pending operator step** (this session's permissions
+     blocked the remote apply). The Up section is safe to run repeatedly.
+
+4. **Everything else verified intact.** Staging posture re-confirmed live
+   (both audit migrations applied; SELECT-only grants and RLS on all seven
+   hardened tables; ledger note: the apply tool stamped versions
+   `20260809012226`/`20260809012426` with the canonical filenames in the
+   name field — a harmless drift, both migrations idempotent). PGlite
+   Up→Down→re-Up: PASS. Comms + marketplace suites 386/386; the two
+   cron-affected suites 145/145 after the pg_cron move; targeted web suites
+   16/16 with a clean typecheck. PR #141 pins `ccbc2e0`/`98d54b6` verified
+   present on the remote. Git object store clean; no conflict markers,
+   truncated files, or other interruption debris anywhere in the tree.
+
+The gate verdict above stands. The five-migration manifest supersedes the
+four-migration wording in sections F and H.

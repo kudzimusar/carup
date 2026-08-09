@@ -115,4 +115,29 @@ describe('WorkOrders completion and cancellation actions', () => {
     expect(screen.queryByTestId(`workorder-complete-${ORDER_ID}`)).toBeNull()
     expect(screen.queryByTestId(`workorder-cancel-${ORDER_ID}`)).toBeNull()
   })
+
+  it("renders the Phase-4 `description` column as the service text, not the placeholder", async () => {
+    // POST /mechanic/work-orders stores the create form's issue text in the `description`
+    // column (backend/routes/workOrdersRoutes.js), so app-created rows carry ONLY that field.
+    fetchMechanicWorkOrders.mockResolvedValue([
+      { ...inProgressOrder, issue_description: undefined, description: 'Replace timing belt' },
+    ])
+    render(<WorkOrders />)
+
+    await waitFor(() => expect(screen.getByText('Replace timing belt')).toBeTruthy())
+    expect(screen.queryByText('General Service')).toBeNull()
+  })
+
+  it('filters to cancelled orders via the cancelled filter button', async () => {
+    fetchMechanicWorkOrders.mockResolvedValue([
+      inProgressOrder,
+      { ...inProgressOrder, id: 'b2c3d4e5-f6a7-8901-bcde-f23456789012', status: 'Cancelled' },
+    ])
+    render(<WorkOrders />)
+
+    await waitFor(() => expect(screen.getByTestId(`workorder-row-${ORDER_ID}`)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelled' }))
+    expect(screen.queryByTestId(`workorder-row-${ORDER_ID}`)).toBeNull()
+    expect(screen.getByTestId('workorder-row-b2c3d4e5-f6a7-8901-bcde-f23456789012')).toBeTruthy()
+  })
 })

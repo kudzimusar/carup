@@ -91,11 +91,29 @@ test('outbox drain route pair exists in communicationRoutes with the worker-secr
   assert.ok(handlerMatch[0].includes('backlog'), 'outbox drain response must report the remaining backlog');
 });
 
-test('backend vercel.json schedules the outbox drain cron', () => {
+test('outbox drain cron lives in Supabase pg_cron, and vercel.json carries no sub-daily cron', () => {
+  // Vercel Hobby rejects sub-daily cron schedules AT DEPLOY TIME — a
+  // '* * * * *' entry in vercel.json fails every carup-backend deployment.
+  // The every-minute drain therefore lives in Supabase pg_cron
+  // (20260809120000_events_outbox_pg_cron.sql), exactly like the
+  // communications delivery worker (20260626120000_communication_supabase_cron.sql).
   const vercelConfig = JSON.parse(fs.readFileSync(path.join(backendDir, 'vercel.json'), 'utf8'));
-  const cron = (vercelConfig.crons || []).find((c) => c.path === '/api/internal/events/process');
-  assert.ok(cron, 'vercel.json must schedule /api/internal/events/process');
-  assert.equal(cron.schedule, '* * * * *');
+  const subDaily = (vercelConfig.crons || []).find((c) => /[*/]/.test(String(c.schedule).split(' ').slice(0, 2).join(' ')));
+  assert.equal(subDaily, undefined, 'vercel.json must not carry a sub-daily cron (fails deployment on the Hobby plan)');
+
+  const cronMigration = fs.readFileSync(
+    path.join(backendDir, '..', 'database', 'migrations', '20260809120000_events_outbox_pg_cron.sql'),
+    'utf8',
+  );
+  assert.ok(cronMigration.includes('carup-events-outbox-every-minute'), 'migration must define the named cron job');
+  assert.ok(cronMigration.includes("'* * * * *'"), 'migration must use every-minute schedule');
+  assert.ok(cronMigration.includes('pg_cron'), 'migration must reference pg_cron extension');
+  assert.ok(cronMigration.includes('pg_net'), 'migration must reference pg_net extension');
+  assert.ok(cronMigration.includes('/api/internal/events/process'), 'migration must target the events drain endpoint');
+  assert.ok(cronMigration.includes('CARUP_EVENTS_ENDPOINT_URL'), 'must read endpoint URL from Vault');
+  assert.ok(cronMigration.includes('CARUP_WORKER_SECRET'), 'must read the shared worker secret from Vault');
+  assert.ok(cronMigration.includes('cron.unschedule'), 'must include idempotent unschedule step');
+  assert.ok(cronMigration.includes('+migrate Down'), 'must have rollback section');
 });
 
 // Mirrors the inline CHECK on message_threads.thread_type
