@@ -70,6 +70,8 @@ const NEW_MIGRATIONS = [
   // (006_domain1.sql legacy shape is applied as a prerequisite below, so this run
   // proves convergence over the HARDER historical shape).
   '20260808150000_mechanic_work_orders_convergence.sql',
+  '20260809100000_trust_side_tables.sql',
+  '20260809110000_api_role_write_hardening.sql',
 ];
 
 function splitMigration(file) {
