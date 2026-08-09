@@ -98,27 +98,48 @@ test('backend vercel.json schedules the outbox drain cron', () => {
   assert.equal(cron.schedule, '* * * * *');
 });
 
+// Mirrors the inline CHECK on message_threads.thread_type
+// (message_threads_thread_type_check, database/migrations/20260623143000_omnichannel_communication_engine.sql).
+const LEGAL_THREAD_TYPES = [
+  'support', 'marketplace_inquiry', 'referral', 'escrow', 'finance', 'import',
+  'container', 'trust_safety', 'feedback', 'complaint', 'account', 'general',
+];
+
+test('every notification policy threadType satisfies the message_threads_thread_type_check DB CHECK', () => {
+  for (const [eventType, policy] of Object.entries(NOTIFICATION_POLICIES)) {
+    assert.ok(
+      LEGAL_THREAD_TYPES.includes(policy.threadType),
+      `${eventType} threadType '${policy.threadType}' violates message_threads_thread_type_check — the thread INSERT would fail and the notification would never queue`
+    );
+  }
+});
+
 test('seam-E notification policies resolve with required fields and registered templates', () => {
+  // threadType values MUST satisfy the message_threads_thread_type_check DB CHECK
+  // (support|marketplace_inquiry|referral|escrow|finance|import|container|trust_safety|
+  // feedback|complaint|account|general). channels stay in_app-only until recipient
+  // address enrichment exists — the delivery worker only reads email/phone/push targets
+  // from notification.payload, which policy-driven notifications never carry.
   const expectations = {
     'identity.verification.decided': {
       notificationType: 'verification_decision',
-      threadType: 'verification',
+      threadType: 'account',
       priority: 'high',
-      channels: ['in_app', 'email', 'push'],
+      channels: ['in_app'],
       templateKey: 'verification_decision_v1',
     },
     'marketplace.listing.moderated': {
       notificationType: 'listing_moderation',
-      threadType: 'marketplace_listing',
+      threadType: 'trust_safety',
       priority: 'normal',
-      channels: ['in_app', 'email', 'push'],
+      channels: ['in_app'],
       templateKey: 'listing_moderation_v1',
     },
     'evidence.review.decided': {
       notificationType: 'evidence_review',
-      threadType: 'evidence',
+      threadType: 'trust_safety',
       priority: 'normal',
-      channels: ['in_app', 'email', 'push'],
+      channels: ['in_app'],
       templateKey: 'evidence_review_v1',
     },
   };
