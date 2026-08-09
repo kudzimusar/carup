@@ -114,6 +114,33 @@ test('outbox drain cron lives in Supabase pg_cron, and vercel.json carries no su
   assert.ok(cronMigration.includes('CARUP_WORKER_SECRET'), 'must read the shared worker secret from Vault');
   assert.ok(cronMigration.includes('cron.unschedule'), 'must include idempotent unschedule step');
   assert.ok(cronMigration.includes('+migrate Down'), 'must have rollback section');
+
+  // Fail-closed contract: a migration must never be ledgered as applied while
+  // silently creating no scheduler. Missing pg_cron/pg_net must RAISE, not skip.
+  const upSection = cronMigration.split(/^-- \+migrate Down/m)[0];
+  const raiseCount = (upSection.match(/RAISE EXCEPTION '\[carup-events-cron\]/g) || []).length;
+  assert.equal(raiseCount, 2, 'Up must RAISE EXCEPTION for BOTH missing pg_cron and missing pg_net');
+  assert.ok(!upSection.includes('Skipping job setup'), 'the old NOTICE-and-skip path must be gone from Up');
+  // Vault secrets stay an activation gate, not fail-closed: the job command
+  // no-ops via WHERE EXISTS until both secrets are present.
+  assert.ok(/WHERE EXISTS[\s\S]*CARUP_EVENTS_ENDPOINT_URL/.test(upSection), 'job command must guard on the endpoint-URL secret');
+  assert.ok(/AND EXISTS[\s\S]*CARUP_WORKER_SECRET/.test(upSection), 'job command must guard on the worker secret');
+});
+
+test('events cron migration FAILS on a database without pg_cron (behavioral, PGlite)', async () => {
+  // PGlite ships no pg_cron/pg_net, so applying the Up section against it must
+  // throw the fail-closed error instead of completing (which is exactly what
+  // would let a migration runner record a capability that was never created).
+  const { PGlite } = await import('@electric-sql/pglite');
+  const db = new PGlite();
+  const migrationPath = path.join(backendDir, '..', 'database', 'migrations', '20260809120000_events_outbox_pg_cron.sql');
+  const up = fs.readFileSync(migrationPath, 'utf8').split(/^-- \+migrate Down/m)[0];
+  await assert.rejects(
+    () => db.exec(up),
+    (err) => String(err?.message || err).includes('[carup-events-cron] pg_cron is not installed'),
+    'Up must raise the fail-closed pg_cron error on a cron-less database',
+  );
+  await db.close();
 });
 
 // Mirrors the inline CHECK on message_threads.thread_type

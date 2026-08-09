@@ -15,10 +15,20 @@
 -- Secrets are never stored in SQL; they are read at execution time from
 -- Supabase Vault.
 --
--- Prerequisites (manual steps before activating):
---   1. Enable pg_cron:  Dashboard → Database → Extensions → pg_cron
---   2. Enable pg_net:   Dashboard → Database → Extensions → pg_net
---   3. Add the endpoint Vault secret (run once in SQL editor, never commit values):
+-- FAIL-CLOSED SEMANTICS: pg_cron and pg_net are HARD prerequisites. If either
+-- extension is absent this migration RAISES and must not be recorded in the
+-- migration ledger — a ledgered "success" that silently created no scheduler
+-- would be a lie about production capability. Enable both BEFORE applying:
+--   Dashboard → Database → Extensions → pg_cron
+--   Dashboard → Database → Extensions → pg_net
+--
+-- ACTIVATION GATE (deliberately NOT fail-closed): the Vault secrets
+-- CARUP_EVENTS_ENDPOINT_URL and CARUP_WORKER_SECRET may be created after
+-- apply. Until both exist, the scheduled job's command is a no-op by
+-- construction — its WHERE EXISTS guard skips the HTTP call — which is safe
+-- (nothing is consumed, nothing is sent) and verifiable (cron.job row exists;
+-- net._http_response stays empty of events-drain calls). Create the URL
+-- secret with:
 --        SELECT vault.create_secret(
 --          'https://<your-backend>.vercel.app/api/internal/events/process',
 --          'CARUP_EVENTS_ENDPOINT_URL'
@@ -27,7 +37,7 @@
 --      (CARUP_WORKER_SECRET) — both endpoints are guarded by the same
 --      requireWorkerSecret check, so no new auth secret is needed.
 --
--- Staging activation:  run this migration against staging Supabase.
+-- Staging activation:  via the reviewed staging dispatcher workflow only.
 -- Production activation: owner-gated via the PR #141 publication-gate runner.
 -- This migration does NOT activate production automatically.
 
@@ -43,14 +53,15 @@ BEGIN
   SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') INTO v_pg_cron_available;
   SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_net')  INTO v_pg_net_available;
 
+  -- Fail-closed: refuse to be recorded as applied while creating nothing.
   IF NOT v_pg_cron_available THEN
-    RAISE NOTICE '[carup-events-cron] pg_cron not installed. Skipping job setup. Enable it in the Supabase dashboard to activate the outbox drain.';
-    RETURN;
+    RAISE EXCEPTION '[carup-events-cron] pg_cron is not installed — refusing to apply. Enable it (Dashboard -> Database -> Extensions -> pg_cron) and re-run.'
+      USING ERRCODE = 'feature_not_supported';
   END IF;
 
   IF NOT v_pg_net_available THEN
-    RAISE NOTICE '[carup-events-cron] pg_net not installed. Skipping job setup. Enable it in the Supabase dashboard to activate the outbox drain.';
-    RETURN;
+    RAISE EXCEPTION '[carup-events-cron] pg_net is not installed — refusing to apply. Enable it (Dashboard -> Database -> Extensions -> pg_net) and re-run.'
+      USING ERRCODE = 'feature_not_supported';
   END IF;
 
   -- Check Vault secrets (warn but do not block the migration)
