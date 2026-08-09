@@ -9,13 +9,14 @@
  *                    depends on) so the owner sees the complete gap — not just
  *                    the slice these migrations cover — BEFORE authorizing
  *                    application. Writes nothing.
- *   MODE=apply     → applies the four migrations (publication-gate backfill,
+ *   MODE=apply     → applies the five migrations (publication-gate backfill,
  *                    mechanic convergence, trust side tables, API-role write
- *                    hardening), each in one transaction with its official
- *                    supabase_migrations row, then verifies the
- *                    visible==published invariant, the converged mechanic
- *                    schema, and the hardened grant posture. Requires the
- *                    exact authorization phrase.
+ *                    hardening, events-outbox pg_cron scheduler), each in one
+ *                    transaction with its official supabase_migrations row,
+ *                    then verifies the visible==published invariant, the
+ *                    converged mechanic schema, the hardened grant posture,
+ *                    and the scheduler contract. Requires the exact
+ *                    authorization phrase.
  *
  * Guards (mirroring backend/scripts/staging-apply-publication-gate.mjs and the
  * canonical cutover method in docs/vehicle-trust-os/):
@@ -96,7 +97,7 @@ function upSectionOf(m) {
 }
 
 // The FULL set of database surfaces the #139 runtime reads or writes, beyond
-// what the four migrations themselves touch. Applying migrations proves the
+// what the five migrations themselves touch. Applying migrations proves the
 // mechanism; this inventory proves (or disproves) that production actually
 // holds everything else #139 assumes — the audit's Phase 8 finding was that
 // the two original migrations alone are NOT the entire requirement.
@@ -203,26 +204,41 @@ async function inventoryDependencies(client) {
   dep.pgNet = sched[0].has_net;
   console.log(`${dep.pgCron ? 'ok ' : 'MISSING'} pg_cron extension (#20260809120000 is fail-closed without it)`);
   console.log(`${dep.pgNet ? 'ok ' : 'MISSING'} pg_net extension (#20260809120000 is fail-closed without it)`);
-  try {
+  // The vault/cron probes may fail on roles without access. Each runs on a
+  // savepoint so a failure cannot poison the surrounding READ ONLY preflight
+  // transaction and mislabel the probes after it (25P02 cascade). In apply
+  // mode (autocommit) the SAVEPOINT itself fails and the probe runs bare.
+  await optionalProbe(client, async () => {
     const { rows: v } = await client.query(`
       select
-        exists (select 1 from vault.decrypted_secrets where name='CARUP_EVENTS_ENDPOINT_URL') as has_url,
-        exists (select 1 from vault.decrypted_secrets where name='CARUP_WORKER_SECRET')       as has_secret`);
+        exists (select 1 from vault.secrets where name='CARUP_EVENTS_ENDPOINT_URL') as has_url,
+        exists (select 1 from vault.secrets where name='CARUP_WORKER_SECRET')       as has_secret`);
     console.log(`events scheduler Vault: endpoint_url_present=${v[0].has_url} worker_secret_present=${v[0].has_secret} (booleans only; activation gate, non-blocking)`);
-  } catch {
-    console.log('events scheduler Vault: not readable with this role (informational)');
-  }
-  try {
+  }, (e) => `events scheduler Vault: not readable with this role (informational: ${e.code || e.message})`);
+  await optionalProbe(client, async () => {
     const { rows: job } = await client.query(
       "select schedule, active from cron.job where jobname='carup-events-outbox-every-minute'");
     console.log(job.length
       ? `events cron job: present schedule='${job[0].schedule}' active=${job[0].active}`
       : 'events cron job: absent (created by #20260809120000)');
-  } catch {
-    console.log('events cron job: cron schema not readable (informational — absent until pg_cron is enabled)');
-  }
+  }, (e) => `events cron job: cron schema not readable (informational — absent until pg_cron is enabled; ${e.code || e.message})`);
 
   return dep;
+}
+
+/** Run a read-only probe that is allowed to fail, without poisoning an
+ *  enclosing transaction: savepoint-wrapped when a transaction is open,
+ *  bare in autocommit. Failures print `label(err)` and never propagate. */
+async function optionalProbe(client, fn, label) {
+  let sp = false;
+  try { await client.query('SAVEPOINT optional_probe'); sp = true; } catch { /* autocommit */ }
+  try {
+    await fn();
+    if (sp) await client.query('RELEASE SAVEPOINT optional_probe');
+  } catch (e) {
+    if (sp) { try { await client.query('ROLLBACK TO SAVEPOINT optional_probe'); } catch { /* already gone */ } }
+    console.log(label(e));
+  }
 }
 
 async function inspect(client, phase) {
@@ -265,6 +281,11 @@ async function inspect(client, phase) {
   const dep = await inventoryDependencies(client);
   return { total: Number(total), gap: Number(gap), workOrdersPresent: tables[0].wo !== 'ABSENT', partsPresent: tables[0].mp !== 'ABSENT', dep };
 }
+
+// Frozen-checksum gate for every mode, BEFORE any connection — the header's
+// claim, made true: a drifted file refuses to run even in preflight.
+for (const m of MIGRATIONS) upSectionOf(m);
+console.log(`All ${MIGRATIONS.length} migration files match their frozen checksums.`);
 
 const client = new pg.Client({ connectionString: url, ssl: tlsConfig(), statement_timeout: 120000 });
 try {
@@ -360,6 +381,19 @@ try {
       }
       if (missing.length) fail(`convergence recorded but columns missing: ${missing.join(', ')} — schema drift.`);
       console.log('ok  mechanic convergence contract: 10/10 columns present.');
+    }
+
+    // Events scheduler contract, fail-closed exactly like the two above:
+    // whenever 20260809120000 is recorded, the cron job must exist with the
+    // every-minute schedule — a ledger row without the job is drift.
+    const { rows: evLedger } = await client.query(
+      "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260809120000'");
+    if (evLedger.length) {
+      const { rows: evJob } = await client.query(
+        "select schedule, active from cron.job where jobname='carup-events-outbox-every-minute'");
+      if (!evJob.length) fail('events scheduler recorded in the ledger but the cron.job row is missing — drift, not success.');
+      if (evJob[0].schedule !== '* * * * *') fail(`events cron schedule '${evJob[0].schedule}' != '* * * * *' — drift.`);
+      console.log(`ok  events scheduler contract: job present, every-minute schedule, active=${evJob[0].active}.`);
     }
 
     // Hardened-posture contract, fail-closed like the mechanic contract: once
