@@ -1312,6 +1312,47 @@ export function useCarUpApi() {
     return request<DiasporaWorkbookTemplateDownloadStatus>(`/diaspora/workbook/download-template${query}`)
   }, [request])
 
+  // Authenticated XLSX template download. A plain <a href="/api/..."> anchor is broken twice on the
+  // deployed SPA: the static host rewrites unknown paths to index.html (web/vercel.json) and an
+  // anchor cannot attach the x-session-token / x-tenant-id headers the backend requires. So this
+  // mirrors downloadDiasporaWorkbookDbExport: authenticated fetch -> blob -> objectURL -> click.
+  // GET is a safe method, so no CSRF token is fetched. `templateXlsxPath` is the backend-advertised
+  // template_xlsx_path — host-relative WITH the /api prefix, which BASE_URL already carries, so the
+  // prefix is stripped before joining; the canonical route is the fallback.
+  const downloadDiasporaWorkbookTemplateXlsx = useCallback(async (templateType: string, templateXlsxPath?: string): Promise<void> => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+
+    const endpointPath = (templateXlsxPath || '/api/diaspora/workbook/template.xlsx').replace(/^\/api(?=\/)/, '')
+    const res = await fetch(`${BASE_URL}${endpointPath}?type=${encodeURIComponent(templateType)}`, {
+      method: 'GET',
+      headers: authHeaders,
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      let message = `Template download failed (${res.status})`
+      try {
+        const body = await res.json()
+        message = extractApiErrorMessage(body) || message
+      } catch {
+        // non-JSON error body; keep the status message
+      }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `diaspora-${templateType}-template.xlsx`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }, [token, user])
+
   const runDiasporaWorkbookDryRun = useCallback(async (payload: DiasporaWorkbookDryRunPayload): Promise<DiasporaWorkbookDryRunResult> => {
     const response = await request<{ data: DiasporaWorkbookDryRunResult }>('/diaspora/workbook/dry-run', {
       method: 'POST',
@@ -2684,6 +2725,7 @@ export function useCarUpApi() {
     clearDiasporaWorkbookOperatorHold,
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
+    downloadDiasporaWorkbookTemplateXlsx,
     runDiasporaWorkbookDryRun,
     fetchDiasporaStockItems,
     fetchDiasporaStockItem,

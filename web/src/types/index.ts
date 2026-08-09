@@ -554,6 +554,8 @@ export interface DiasporaWorkbookTemplateDownloadStatus {
   data?: DiasporaWorkbookTemplateSchema;
   downloadReady: boolean;
   message?: string;
+  /** Backend-advertised host-relative XLSX endpoint (includes the /api prefix); preferred over any hardcoded path. */
+  template_xlsx_path?: string;
 }
 
 export interface DiasporaWorkbookDryRunPayload {

@@ -391,6 +391,7 @@ export default function DiasporaWorkbookDryRun() {
   const {
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
+    downloadDiasporaWorkbookTemplateXlsx,
     runDiasporaWorkbookDryRun,
   } = useCarUpApi()
 
@@ -400,6 +401,8 @@ export default function DiasporaWorkbookDryRun() {
   const [downloadStatus, setDownloadStatus] = useState<DiasporaWorkbookTemplateDownloadStatus | null>(null)
   const [templateLoading, setTemplateLoading] = useState(false)
   const [templateError, setTemplateError] = useState('')
+  const [xlsxDownloading, setXlsxDownloading] = useState(false)
+  const [xlsxError, setXlsxError] = useState('')
   const [jsonText, setJsonText] = useState('')
   const [parsedWorkbook, setParsedWorkbook] = useState<ParsedWorkbook | null>(null)
   const [jsonError, setJsonError] = useState('')
@@ -485,6 +488,22 @@ export default function DiasporaWorkbookDryRun() {
       mimeType: 'application/json',
       sizeBytes: new Blob([jsonText]).size,
     })
+  }
+
+  // Authenticated blob download via the hook. A relative <a href> cannot work on the deployed SPA
+  // (host rewrites to index.html; no auth headers), so the button drives the fetch and surfaces the
+  // outcome honestly. Prefers the backend-advertised template_xlsx_path over the hardcoded route.
+  const handleXlsxDownload = async () => {
+    if (xlsxDownloading) return
+    setXlsxDownloading(true)
+    setXlsxError('')
+    try {
+      await downloadDiasporaWorkbookTemplateXlsx(templateType, downloadStatus?.template_xlsx_path)
+    } catch (err) {
+      setXlsxError(err instanceof Error ? err.message : 'Unable to download the XLSX template.')
+    } finally {
+      setXlsxDownloading(false)
+    }
   }
 
   const clearJson = () => {
@@ -599,16 +618,24 @@ export default function DiasporaWorkbookDryRun() {
                 <p className="mt-3 text-sm text-gray-600">
                   The binary XLSX template for the selected schema is ready to download.
                 </p>
-                <Button asChild variant="secondary" className="mt-4">
-                  <a
-                    href={`/api/diaspora/workbook/template.xlsx?type=${encodeURIComponent(templateType)}`}
-                    download
-                    data-testid="diaspora-workbook-template-download-link"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download .xlsx template
-                  </a>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4"
+                  onClick={() => void handleXlsxDownload()}
+                  disabled={xlsxDownloading}
+                  data-testid="diaspora-workbook-template-download-button"
+                >
+                  {xlsxDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {xlsxDownloading ? 'Downloading…' : 'Download .xlsx template'}
                 </Button>
+                {xlsxError && (
+                  <Alert className="mt-3 border-red-200 bg-red-50" data-testid="diaspora-workbook-template-download-error">
+                    <AlertTriangle className="h-4 w-4 text-red-700" />
+                    <AlertTitle>Download failed</AlertTitle>
+                    <AlertDescription>{xlsxError}</AlertDescription>
+                  </Alert>
+                )}
               </>
             ) : (
               <>
