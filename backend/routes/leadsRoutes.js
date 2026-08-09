@@ -47,8 +47,8 @@ export function inquiriesToLeads(inquiries) {
 
 // --- DEALER: LEADS ---
 // Reads REAL buyer intent: marketplace_inquiries scoped to the signed-in seller (seller_id or
-// seller_tenant_id) via the shared inquiry service. The previous implementation read a
-// `dealer_leads` table that nothing writes and no migration creates.
+// seller_tenant_id) via the shared inquiry service. The previous implementation read the
+// `dealer_leads` table — created by 006_domain1.sql but orphaned: nothing writes to it.
 router.get('/api/leads', authorizeRole(['dealer', 'admin']), asyncHandler(async (req, res) => {
   let inquiries;
   try {

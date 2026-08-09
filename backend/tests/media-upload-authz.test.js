@@ -86,3 +86,89 @@ test('vehicle upload route is role-guarded and ownership-scoped (source contract
     'per-request image count must be capped to match the seller UI limit',
   );
 });
+
+test('document upload is ownership-scoped and takes its actor from the session, not headers (source contract)', () => {
+  const docIdx = mediaRouterSource.indexOf("router.post('/upload/document'");
+  assert.ok(docIdx > -1, 'document upload route must exist');
+  const docSection = mediaRouterSource.slice(docIdx, mediaRouterSource.indexOf("router.get('/upload/signed-url'"));
+  assert.match(
+    docSection,
+    /req\.userContext\?\.id/,
+    'the acting user must come from the authenticated session context',
+  );
+  assert.ok(
+    !docSection.includes("req.headers['x-user-id']"),
+    'the spoofable x-user-id header must never identify the document uploader',
+  );
+  assert.ok(
+    docSection.includes("select('owner_id, tenant_id')"),
+    'handler must resolve the VIN owner/tenant before accepting a document',
+  );
+  assert.ok(
+    docSection.includes('SECURITY_MEDIA_UPLOAD_DENIED'),
+    'cross-owner document uploads must be audited',
+  );
+  assert.match(
+    docSection,
+    /status\(403\)\.json\(\{ error: 'You are not authorized to upload documents for this vehicle\.' \}\)/,
+    'cross-owner document uploads must be rejected with 403',
+  );
+});
+
+test('signed upload URL generation is ownership-scoped for non-admins (source contract)', () => {
+  const signedIdx = mediaRouterSource.indexOf("router.get('/upload/signed-url'");
+  assert.ok(signedIdx > -1, 'signed upload URL route must exist');
+  const signedSection = mediaRouterSource.slice(signedIdx, mediaRouterSource.indexOf("router.get('/document/signed-url'"));
+  assert.match(
+    signedSection,
+    /req\.userContext\?\.role !== 'admin'/,
+    'non-admin callers must be ownership-checked before a signed upload URL is minted',
+  );
+  assert.ok(
+    signedSection.includes("select('owner_id, tenant_id')"),
+    'handler must resolve the VIN owner/tenant before signing an upload grant',
+  );
+  assert.ok(
+    signedSection.includes('SECURITY_MEDIA_UPLOAD_DENIED'),
+    'cross-owner signed-URL requests must be audited',
+  );
+  assert.match(
+    signedSection,
+    /status\(403\)\.json\(\{ error: 'You are not authorized to upload media for this vehicle\.' \}\)/,
+    'cross-owner signed-URL requests must be rejected with 403',
+  );
+});
+
+test('document read signed-url enforces the VIN path shape and owner scope (source contract, IDOR fix)', () => {
+  const readIdx = mediaRouterSource.indexOf("router.get('/document/signed-url'");
+  assert.ok(readIdx > -1, 'document read signed-url route must exist');
+  const readSection = mediaRouterSource.slice(readIdx);
+  assert.ok(
+    readSection.includes('^([A-Z0-9]{17})\\/'),
+    'path must be validated against the <VIN>/ prefix shape before signing',
+  );
+  assert.match(
+    readSection,
+    /cleanPath\.includes\('\.\.'\)\s*\|\|\s*cleanPath\.startsWith\('\/'\)/,
+    'traversal sequences and absolute paths must be rejected',
+  );
+  assert.match(
+    readSection,
+    /role === 'owner' \|\| req\.userContext\?\.role === 'dealer'/,
+    'owner/dealer sessions must be VIN-ownership-checked (admin/government stay global)',
+  );
+  assert.ok(
+    readSection.includes("select('owner_id, tenant_id')"),
+    'handler must resolve the VIN owner/tenant before signing a read grant',
+  );
+  assert.match(
+    readSection,
+    /status\(403\)\.json\(\{ error: 'You are not authorized to read documents for this vehicle\.' \}\)/,
+    'cross-owner document reads must be rejected with 403',
+  );
+  assert.match(
+    readSection,
+    /generateSecureReadUrl\('ocr-documents', cleanPath, 3600\)/,
+    'only the validated path may reach the signer',
+  );
+});

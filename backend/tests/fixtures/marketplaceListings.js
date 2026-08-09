@@ -82,6 +82,17 @@ export function buildMockSupabase(store = {}) {
         gte(col, val) { filters.push((r) => Number(r[col]) >= Number(val)); return builder; },
         lte(col, val) { filters.push((r) => Number(r[col]) <= Number(val)); return builder; },
         in(col, vals) { const set = new Set(vals); filters.push((r) => set.has(r[col])); return builder; },
+        // PostgREST disjunction: .or('col.eq.a,col2.eq.b') — supports the eq
+        // operator only, which is all the services push down.
+        or(expression) {
+          const legs = String(expression).split(',').map((leg) => {
+            const m = /^([^.]+)\.eq\.(.*)$/.exec(leg);
+            if (!m) throw new Error(`mock supabase .or(): unsupported leg "${leg}"`);
+            return { col: m[1], val: m[2] };
+          });
+          filters.push((r) => legs.some(({ col, val }) => r[col] === val || String(r[col]) === val));
+          return builder;
+        },
         order() { return builder; },
         limit() { return builder; },
         insert(value) { mode = 'insert'; payload = value; return builder; },

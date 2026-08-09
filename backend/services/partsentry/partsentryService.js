@@ -4,7 +4,10 @@ import { addEvent } from '../blockchain/blockchainService.js';
 
 // AGENT G2 — Idempotency protection for partsentry logs
 
-export async function addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage) {
+// tenantId: the actor's tenant (mechanic sessions carry their garage tenant;
+// owners pass null). Stamped onto the log row — the column exists with an FK to
+// tenants — so garage-level history stays attributable.
+export async function addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage, tenantId = null) {
   // Odometer check
   const { data: vehicle } = await supabase.from('vehicles').select('mileage').eq('vin', vin).single();
   if (vehicle && mileage < vehicle.mileage) {
@@ -34,7 +37,8 @@ export async function addRepairLog(vin, mechanicId, partName, partOem, actionTyp
 
   const { data: inserted, error } = await supabase.from('partsentry_logs').insert({
     vin, mechanic_id: mechanicId, part_name: partName, part_oem: partOem,
-    action_type: actionType, description, mileage, signature, timestamp
+    action_type: actionType, description, mileage, signature, timestamp,
+    tenant_id: tenantId ?? null
   }).select('id');
 
   // A failed insert must abort BEFORE any side effect: no odometer mutation,

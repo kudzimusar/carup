@@ -287,10 +287,25 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
   return { ...toPublicInquiry(inserted), referral_lead_event_id: referralLeadEventId };
 }
 
+// Values embedded in a PostgREST .or() expression tree. Actor ids are
+// server-derived (session/user context, never request input), but an id
+// containing , ( ) . could still change the expression shape — such an id
+// falls back to the unfiltered fetch, where the in-memory filter still scopes.
+const SAFE_OR_VALUE = /^[A-Za-z0-9_:@-]+$/;
+
 /** Seller/dealer view of inquiries they own (by seller_id or tenant). */
 export async function listInquiriesForSeller(client, actor) {
   if (!actor?.id) throw new ForbiddenError('Authentication required.');
-  const rows = await fetchInquiries(client);
+  // Push the ownership predicate into the database: other sellers' guest PII
+  // never leaves the DB and the read stays index-friendly instead of scanning
+  // the whole table. Only include the tenant leg when the actor has a tenant.
+  const legs = [`seller_id.eq.${actor.id}`];
+  if (actor.tenantId) legs.push(`seller_tenant_id.eq.${actor.tenantId}`);
+  const canPushDown =
+    SAFE_OR_VALUE.test(String(actor.id)) && (!actor.tenantId || SAFE_OR_VALUE.test(String(actor.tenantId)));
+  const rows = await fetchInquiries(client, canPushDown ? (query) => query.or(legs.join(',')) : undefined);
+  // Defense-in-depth: re-apply the scope in memory so a client that ignores
+  // .or() (or the fallback path above) can never widen the seller view.
   const mine = rows.filter(
     (r) => (r.seller_id && r.seller_id === actor.id) || (actor.tenantId && r.seller_tenant_id === actor.tenantId)
   );
@@ -312,9 +327,11 @@ export async function listInquiriesForAdmin(client, filters = {}, actor = filter
   return out.map(toAdminInquiry);
 }
 
-async function fetchInquiries(client) {
+async function fetchInquiries(client, refine) {
   try {
-    const { data, error } = await client.from(TABLE).select('*');
+    let query = client.from(TABLE).select('*');
+    if (refine) query = refine(query);
+    const { data, error } = await query;
     if (error) throw error;
     return data || [];
   } catch (error) {

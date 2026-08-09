@@ -156,6 +156,35 @@ test('a failed insert throws and performs NO side effect (no odometer mutation, 
   assert.equal(db.blockchain_events.length, 0, 'no ghost blockchain event');
 });
 
+test('addRepairLog stamps the actor tenant onto the log row (garage attribution)', async () => {
+  await addRepairLog('VIN0000000000001', 'mech-9', 'Brake Pads', 'BP-01', 'Replaced', 'Front pads replaced', 45000, 'tenant-garage-1');
+  assert.equal(db.partsentry_logs.length, 1);
+  assert.equal(db.partsentry_logs[0].tenant_id, 'tenant-garage-1');
+});
+
+test('addRepairLog stamps tenant_id null for tenant-less (owner) sessions', async () => {
+  await addRepairLog('VIN0000000000001', 'owner-1', 'Air Filter', 'AF-02', 'Replaced', 'Owner-serviced', 45000);
+  assert.equal(db.partsentry_logs[0].tenant_id, null);
+});
+
+test('source: the add route passes the session tenant and the read route never widens on the unverified tenant claim', () => {
+  const serverSrc = readFileSync(join(ROOT, 'server.js'), 'utf8');
+  // Write path: tenant comes from the session context.
+  assert.match(
+    serverSrc,
+    /addRepairLog\(vin, actorId, partName, partOem, actionType, description, mileage, req\.userContext\.tenantId \?\? null\)/,
+    'POST /api/partsentry/add must stamp the session tenant onto the log',
+  );
+  // Read path: optionalAuth tenantId is an unverified header claim — full-history
+  // widening must key on the verified owner_id match only.
+  const readIdx = serverSrc.indexOf("app.get('/api/partsentry/:vin'");
+  assert.ok(readIdx > -1, 'partsentry read route must exist');
+  const readSection = serverSrc.slice(readIdx, serverSrc.indexOf('getRepairHistory(vin', readIdx));
+  assert.ok(readSection.includes("select('owner_id')"), 'read widening lookup must fetch owner_id only');
+  assert.ok(!readSection.includes('sameTenant'), 'read widening must not trust the unverified tenant header claim');
+  assert.ok(!readSection.includes('tenant_id ==='), 'no tenant comparison may widen the read');
+});
+
 test('odometer rollback is rejected before anything is written', async () => {
   await assert.rejects(
     () => addRepairLog('VIN0000000000001', 'mech-9', 'Brake Pads', 'BP-01', 'Replaced', 'rollback attempt', 30000),
