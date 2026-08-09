@@ -1450,9 +1450,27 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
 });
 
 // --- VEHICLE COMPLETENESS: Publication readiness evaluation ---
+// Scope rule mirrors loadScopedVehicle (vehiclesRoutes): the requirement matrix
+// exposes identity-document state, so a non-admin/non-reviewer may only read a
+// VIN they own or that belongs to their tenant.
 app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), async (req, res) => {
+  const { vin } = req.params;
   try {
-    const result = await evaluateCompleteness(req.params.vin);
+    if (req.userContext.role !== 'admin' && req.userContext.role !== 'reviewer') {
+      const { data: vehicleRow, error: vehicleErr } = await supabase
+        .from('vehicles')
+        .select('owner_id, tenant_id')
+        .eq('vin', vin)
+        .maybeSingle();
+      if (vehicleErr) return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+      if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        return res.status(403).json({ error: 'Forbidden. You do not have ownership or organizational scope over this vehicle.' });
+      }
+    }
+    const result = await evaluateCompleteness(vin);
     res.json(result);
   } catch (err) {
     if (err.message.startsWith('Vehicle not found')) {
@@ -1714,9 +1732,11 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
 // GET /api/vehicles/saved - Get vehicles saved by the current user
 app.get('/api/vehicles/saved', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
+    // Saved vehicles belong to OTHER sellers — embed only the sanitized public
+    // projection, never the raw star embed (engine/chassis/plate/owner_id leak).
     const { data, error } = await supabase
       .from('saved_vehicles')
-      .select('*, vehicles(*)')
+      .select(`*, vehicles(${PUBLIC_VEHICLE_COLUMNS})`)
       .eq('user_id', req.userContext.id)
 
     if (error) throw error
