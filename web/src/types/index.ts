@@ -553,6 +553,8 @@ export interface DiasporaWorkbookTemplateSchemaResponse {
 export interface DiasporaWorkbookTemplateDownloadStatus {
   data?: DiasporaWorkbookTemplateSchema;
   downloadReady: boolean;
+  /** Authoritative template route as advertised by the backend (e.g. /api/diaspora/workbook/template.xlsx). */
+  template_xlsx_path?: string;
   message?: string;
 }
 
