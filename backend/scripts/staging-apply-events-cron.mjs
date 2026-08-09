@@ -37,6 +37,11 @@ const STAGING_REF = 'eoyenigwevnxwwhyhaer';
 const JOB_NAME = 'carup-events-outbox-every-minute';
 const EVENTS_PATH = '/api/internal/events/process';
 const COMMS_PATH = '/api/internal/communications/process';
+// The STABLE staging backend domain. Deployment-specific *.vercel.app URLs die
+// with their deployment (Vercel serves 410 Gone afterwards) — the 2026-08-09
+// e2e run proved the comms Vault URL had rotted exactly that way. Activation
+// therefore pins the stable domain, never a deployment URL.
+const STABLE_EVENTS_URL = `https://carup-backend-staging.vercel.app${EVENTS_PATH}`;
 
 const MIGRATION = {
   version: '20260809120000',
@@ -106,13 +111,23 @@ async function verifyCapability(client, enforce) {
     add('cron_job_active', job[0].active, job[0].active === true);
   }
 
-  // Vault: existence booleans only — the values never leave the database.
+  // Vault: existence/shape booleans only — the values never leave the database.
   const { rows: vault } = await client.query(`
     SELECT
       EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name='CARUP_EVENTS_ENDPOINT_URL') AS has_url,
-      EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name='CARUP_WORKER_SECRET')       AS has_secret`);
+      EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name='CARUP_WORKER_SECRET')       AS has_secret,
+      EXISTS (SELECT 1 FROM vault.decrypted_secrets
+               WHERE name='CARUP_EVENTS_ENDPOINT_URL' AND decrypted_secret = $1)            AS url_is_stable,
+      EXISTS (SELECT 1 FROM vault.decrypted_secrets
+               WHERE name='CARUP_WORKER_ENDPOINT_URL'
+                 AND decrypted_secret LIKE 'https://carup-backend-staging.vercel.app%')     AS comms_url_stable`,
+    [STABLE_EVENTS_URL]);
   console.log(`note events_endpoint_url_secret_present = ${vault[0].has_url} (activation gate, not fail-closed)`);
+  console.log(`note events_endpoint_url_is_stable_domain = ${vault[0].url_is_stable}`);
   console.log(`note worker_secret_present = ${vault[0].has_secret} (activation gate, not fail-closed)`);
+  if (!vault[0].comms_url_stable) {
+    console.log('::warning::CARUP_WORKER_ENDPOINT_URL does not point at the stable staging domain — the comms delivery cron is likely firing into a dead deployment URL (410). Update it the same way.');
+  }
 
   const failed = checks.filter((c) => !c.ok);
   if (failed.length) fail(`${failed.length} capability check(s) failed: ${failed.map((f) => f.label).join(', ')}`);
@@ -120,28 +135,26 @@ async function verifyCapability(client, enforce) {
   return { vault: vault[0], job: job[0] || null };
 }
 
-/** Create CARUP_EVENTS_ENDPOINT_URL from the comms worker URL, fully inside SQL. */
+/**
+ * Pin CARUP_EVENTS_ENDPOINT_URL to the stable staging domain — create it if
+ * absent, update it if it holds anything else (e.g. a rotted deployment URL).
+ * The stable URL is a public hostname constant, not a secret value.
+ */
 async function activateEndpointSecret(client) {
-  const { rows } = await client.query(`
-    SELECT
-      EXISTS (SELECT 1 FROM vault.decrypted_secrets WHERE name='CARUP_EVENTS_ENDPOINT_URL') AS already,
-      EXISTS (SELECT 1 FROM vault.decrypted_secrets
-               WHERE name='CARUP_WORKER_ENDPOINT_URL'
-                 AND decrypted_secret LIKE '%' || $1) AS derivable`, [COMMS_PATH]);
-  if (rows[0].already) { console.log('ok  events_endpoint_url_secret_present = true (pre-existing)'); return true; }
-  if (!rows[0].derivable) {
-    console.log(`::warning::CARUP_WORKER_ENDPOINT_URL does not end with ${COMMS_PATH}; cannot derive the events URL. ` +
-      `Create it manually: SELECT vault.create_secret('<staging-backend>${EVENTS_PATH}', 'CARUP_EVENTS_ENDPOINT_URL');`);
-    return false;
+  const { rows } = await client.query(
+    `SELECT id, (decrypted_secret = $1) AS already_stable
+       FROM vault.decrypted_secrets WHERE name='CARUP_EVENTS_ENDPOINT_URL' LIMIT 1`, [STABLE_EVENTS_URL]);
+  if (rows.length && rows[0].already_stable) {
+    console.log('ok  events_endpoint_url = stable staging domain (pre-existing)');
+    return;
   }
-  await client.query(`
-    SELECT vault.create_secret(
-      regexp_replace(
-        (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='CARUP_WORKER_ENDPOINT_URL' LIMIT 1),
-        $1 || '$', $2),
-      'CARUP_EVENTS_ENDPOINT_URL')`, [COMMS_PATH, EVENTS_PATH]);
-  console.log('ok  events_endpoint_url_secret_present = true (derived from the comms worker URL in-database)');
-  return true;
+  if (rows.length) {
+    await client.query('SELECT vault.update_secret($1, $2)', [rows[0].id, STABLE_EVENTS_URL]);
+    console.log(`ok  events_endpoint_url updated to the stable staging domain (${STABLE_EVENTS_URL})`);
+    return;
+  }
+  await client.query('SELECT vault.create_secret($1, $2)', [STABLE_EVENTS_URL, 'CARUP_EVENTS_ENDPOINT_URL']);
+  console.log(`ok  events_endpoint_url created on the stable staging domain (${STABLE_EVENTS_URL})`);
 }
 
 async function applyMigration(client) {
@@ -179,6 +192,11 @@ async function proveEndToEnd(client) {
     fail('e2e requires both Vault secrets (existence booleans above); run MODE=apply first.');
   }
 
+  // Purge synthetic residue from any earlier interrupted run before starting.
+  const { rowCount: purged } = await client.query(
+    "DELETE FROM domain_events WHERE payload->>'source_channel' = 'staging-e2e-synthetic'");
+  if (purged) console.log(`purged ${purged} stale synthetic event(s) from earlier runs`);
+
   const inquiryId = randomUUID();
   const recipient = randomUUID();
   const timeoutS = Number(process.env.EVENTS_E2E_TIMEOUT_S || 180);
@@ -208,7 +226,7 @@ async function proveEndToEnd(client) {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 10000));
       const { rows } = await client.query('SELECT status, attempts, error_log FROM domain_events WHERE id=$1', [eventId]);
-      if (!rows.length) fail('synthetic event row disappeared — refusing to continue.');
+      if (!rows.length) throw new Error('synthetic event row disappeared — refusing to continue.');
       finalStatus = rows[0].status;
       console.log(`t+${Math.round((Date.now() - (deadline - timeoutS * 1000)) / 1000)}s status=${finalStatus} attempts=${rows[0].attempts}`);
       if (finalStatus !== 'pending') {
@@ -236,7 +254,8 @@ async function proveEndToEnd(client) {
     if (finalStatus === 'processed' && notif[0].c > 0 && thread[0].c > 0) {
       console.log('END-TO-END: PASS — event processed through the live cron→pg_net→endpoint→worker chain.');
     } else {
-      fail(`END-TO-END: FAIL — final status '${finalStatus}', notifications ${notif[0].c}, threads ${thread[0].c}. See receipts above for the first broken hop.`);
+      // Throw (never process.exit) so the finally-cleanup always runs.
+      throw new Error(`END-TO-END: FAIL — final status '${finalStatus}', notifications ${notif[0].c}, threads ${thread[0].c}. See receipts above for the first broken hop.`);
     }
   } finally {
     // Synthetic data never outlives the proof, pass or fail.
@@ -265,7 +284,12 @@ try {
     await activateEndpointSecret(client);
     await verifyCapability(client, true);
   } else {
-    await proveEndToEnd(client);
+    try {
+      await proveEndToEnd(client);
+    } catch (e) {
+      console.error(`::error::${e.message}`);
+      process.exitCode = 1;
+    }
   }
 } finally {
   await client.end();
