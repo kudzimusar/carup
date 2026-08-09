@@ -975,10 +975,11 @@ app.post('/api/finance/pre-approve', authorizeRole(), async (req, res) => {
   const { vin, bankId, requestedAmount } = req.body;
   const userId = req.userContext.userId;
   try {
-    const result = await submitFinancingApplication(vin, userId, bankId, requestedAmount);
+    // Tenant scope comes from the verified auth context (null = platform), never req.body.
+    const result = await submitFinancingApplication(vin, userId, bankId, requestedAmount, req.userContext.tenantId ?? null);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
