@@ -1329,7 +1329,7 @@ export function useCarUpApi() {
     const endpointPath = (templateXlsxPath || '/api/diaspora/workbook/template.xlsx').replace(/^\/api(?=\/)/, '')
     const res = await fetch(`${BASE_URL}${endpointPath}?type=${encodeURIComponent(templateType)}`, {
       method: 'GET',
-      headers: authHeaders,
+      headers: { ...authHeaders },
       credentials: 'include',
     })
     if (!res.ok) {
@@ -2015,6 +2015,16 @@ export function useCarUpApi() {
   const createMechanicWorkOrder = useCallback(async (data: { vin: string; customer_name: string; issue_description: string }): Promise<any> => {
     return request('/mechanic/work-orders', {
       method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }, [request])
+
+  // PATCH /api/mechanic/work-orders/:id — status must be one of the DB CHECK values
+  // ('In Progress' | 'Completed' | 'Cancelled'); total_cost is optional and non-negative
+  // (backend/routes/workOrdersRoutes.js).
+  const updateMechanicWorkOrder = useCallback(async (id: string, data: { status: 'In Progress' | 'Completed' | 'Cancelled'; total_cost?: number }): Promise<any> => {
+    return request(`/mechanic/work-orders/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
       body: JSON.stringify(data)
     })
   }, [request])
@@ -2837,6 +2847,7 @@ export function useCarUpApi() {
     createDealerPromotion,
     fetchMechanicWorkOrders,
     createMechanicWorkOrder,
+    updateMechanicWorkOrder,
     fetchMechanicParts,
     createMechanicPart,
     fetchTelemetry,

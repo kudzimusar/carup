@@ -3,16 +3,48 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Wrench, Search, Plus, Calendar, User, DollarSign, Clock, Loader2 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import type { WorkOrder } from '@/types'
 
+type WorkOrderRowStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled'
+
+/** Display row: keeps the REAL DB id (rawId) alongside the truncated display id so per-row
+ * status actions can PATCH /api/mechanic/work-orders/:id with an id the backend recognizes. */
+interface WorkOrderRow {
+  rawId: string
+  id: string
+  vehicle: string
+  customer: string
+  service: string
+  status: WorkOrderRowStatus
+  date: string
+  cost: number
+  mechanic: string
+  created_at: string
+}
+
+function formatRow(d: WorkOrder): WorkOrderRow {
+  return {
+    rawId: d.id,
+    id: d.id.substring(0, 11).toUpperCase(),
+    vehicle: d.vin || d.vehicle || 'Unknown',
+    customer: d.customer_name || d.customer || 'Unknown',
+    service: d.service || d.description || d.issue_description || 'General Service',
+    status: (d.status?.toLowerCase().replace(' ', '-') as WorkOrderRowStatus) || 'pending',
+    date: d.date || new Date(d.created_at).toLocaleDateString(),
+    cost: d.total_cost ?? d.cost ?? 0,
+    mechanic: (d.mechanic_id || d.mechanic) ? `Mechanic (${(d.mechanic_id || d.mechanic).substring(0, 4)})` : 'Unassigned',
+    created_at: d.created_at
+  }
+}
+
 export default function WorkOrders() {
-  const { fetchMechanicWorkOrders, createMechanicWorkOrder, loading } = useCarUpApi()
-  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
+  const { fetchMechanicWorkOrders, createMechanicWorkOrder, updateMechanicWorkOrder, loading } = useCarUpApi()
+  const [workOrders, setWorkOrders] = useState<WorkOrderRow[]>([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
 
@@ -24,27 +56,53 @@ export default function WorkOrders() {
     issue_description: ''
   })
 
-  useEffect(() => {
-    fetchMechanicWorkOrders().then(data => {
-      if (data && data.length > 0) {
-        const formatted = data.map((d: WorkOrder) => ({
-          id: d.id.substring(0, 11).toUpperCase(),
-          vehicle: d.vin || d.vehicle || 'Unknown',
-          customer: d.customer_name || d.customer || 'Unknown',
-          service: d.service || d.issue_description || 'General Service',
-          status: d.status?.toLowerCase().replace(' ', '-') as 'pending' | 'in-progress' | 'completed' || 'pending',
-          date: d.date || new Date(d.created_at).toLocaleDateString(),
-          cost: d.total_cost ?? d.cost ?? 0,
-          mechanic: d.mechanic_id || d.mechanic ? `Mechanic (${(d.mechanic_id || d.mechanic).substring(0,4)})` : 'Unassigned',
-          created_at: d.created_at
-        }))
-        setWorkOrders(formatted)
-      }
-    }).catch(err => {
-      console.error(err)
-      toast.error('Failed to load Work Orders.')
-    })
+  // Per-row action state: which row has the completion form open, and which row has a PATCH in flight.
+  const [completingId, setCompletingId] = useState<string | null>(null)
+  const [completionCost, setCompletionCost] = useState('')
+  const [actioningId, setActioningId] = useState<string | null>(null)
+
+  // Promise-chain form: every setState lives in a .then/.catch callback so the effect that invokes
+  // this never sets state synchronously (same convention as MechanicDashboard).
+  const loadWorkOrders = useCallback(() => {
+    return fetchMechanicWorkOrders()
+      .then(data => {
+        setWorkOrders((Array.isArray(data) ? data : []).map(formatRow))
+      })
+      .catch((err: unknown) => {
+        console.error(err)
+        toast.error('Failed to load Work Orders.')
+      })
   }, [fetchMechanicWorkOrders])
+
+  useEffect(() => {
+    void loadWorkOrders()
+  }, [loadWorkOrders])
+
+  // PATCH with a DB-legal status ('Completed' | 'Cancelled'), then re-fetch the authoritative rows.
+  const handleStatusUpdate = async (rawId: string, status: 'Completed' | 'Cancelled', totalCost?: string) => {
+    const payload: { status: 'Completed' | 'Cancelled'; total_cost?: number } = { status }
+    if (status === 'Completed' && totalCost !== undefined && totalCost.trim() !== '') {
+      const parsed = Number(totalCost)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        toast.error('Total cost must be a non-negative number.')
+        return
+      }
+      payload.total_cost = parsed
+    }
+    setActioningId(rawId)
+    try {
+      const res = await updateMechanicWorkOrder(rawId, payload)
+      if (!res?.success) throw new Error('The server did not confirm the work order update.')
+      toast.success(status === 'Completed' ? 'Work order completed.' : 'Work order cancelled.')
+      setCompletingId(null)
+      setCompletionCost('')
+      await loadWorkOrders()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update work order.')
+    } finally {
+      setActioningId(null)
+    }
+  }
 
   const filtered = workOrders.filter(w =>
     (!search || w.vehicle.toLowerCase().includes(search.toLowerCase()) || w.customer.toLowerCase().includes(search.toLowerCase())) &&
@@ -59,18 +117,10 @@ export default function WorkOrders() {
       if (res.success) {
         toast.success('Work Order created successfully!')
         setIsModalOpen(false)
-        setWorkOrders([{
-          id: `WO-${new Date().getFullYear()}-NEW`,
-          vehicle: formData.vin,
-          customer: formData.customer_name,
-          service: formData.issue_description,
-          status: 'pending',
-          date: new Date().toLocaleDateString(),
-          cost: 0,
-          mechanic: 'Unassigned',
-          created_at: new Date().toISOString()
-        }, ...workOrders])
         setFormData({ vin: '', customer_name: '', issue_description: '' })
+        // Re-fetch the authoritative rows so the new order carries its REAL DB id
+        // (required for the per-row status actions) instead of a fabricated one.
+        await loadWorkOrders()
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Failed to create Work Order'
@@ -136,7 +186,7 @@ export default function WorkOrders() {
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
-          {['all', 'pending', 'in-progress', 'completed'].map(s => (
+          {['all', 'pending', 'in-progress', 'completed', 'cancelled'].map(s => (
             <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className={filter === s ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </Button>
@@ -145,8 +195,8 @@ export default function WorkOrders() {
       </div>
 
       <div className="space-y-3" data-testid="workorders-table">
-        {filtered.map((order, idx) => (
-          <Card key={order.id + idx} className="border-0 card-shadow transition-all hover:shadow-md" data-testid={`workorder-row-${order.id}`}>
+        {filtered.map(order => (
+          <Card key={order.rawId} className="border-0 card-shadow transition-all hover:shadow-md" data-testid={`workorder-row-${order.id}`}>
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
@@ -158,7 +208,7 @@ export default function WorkOrders() {
                       <h3 className="font-medium text-lg">{order.vehicle}</h3>
                       <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{order.id}</span>
                     </div>
-                    <Badge className={order.status === 'completed' ? 'bg-green-500 hover:bg-green-600 text-white' : order.status === 'in-progress' ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}>
+                    <Badge className={order.status === 'completed' ? 'bg-green-500 hover:bg-green-600 text-white' : order.status === 'in-progress' ? 'bg-amber-500 hover:bg-amber-600 text-white' : order.status === 'cancelled' ? 'bg-gray-400 hover:bg-gray-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}>
                       {order.status.toUpperCase()}
                     </Badge>
                   </div>
@@ -169,6 +219,66 @@ export default function WorkOrders() {
                     {order.cost > 0 && <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" />{order.cost}</span>}
                     <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />{order.mechanic}</span>
                   </div>
+                  {/* Open orders can be completed (optional total cost) or cancelled — the ONLY path
+                      that produces the DB's 'Completed'/'Cancelled' statuses from the client. */}
+                  {(order.status === 'pending' || order.status === 'in-progress') && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {completingId === order.rawId ? (
+                        <>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Total cost (optional)"
+                            value={completionCost}
+                            onChange={e => setCompletionCost(e.target.value)}
+                            className="h-8 w-44 bg-white"
+                            aria-label="Total cost"
+                            data-testid={`workorder-total-cost-input-${order.id}`}
+                          />
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            disabled={actioningId === order.rawId}
+                            onClick={() => void handleStatusUpdate(order.rawId, 'Completed', completionCost)}
+                            data-testid={`workorder-confirm-complete-${order.id}`}
+                          >
+                            {actioningId === order.rawId ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm completion'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actioningId === order.rawId}
+                            onClick={() => { setCompletingId(null); setCompletionCost('') }}
+                            data-testid={`workorder-complete-back-${order.id}`}
+                          >
+                            Back
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            disabled={actioningId !== null}
+                            onClick={() => { setCompletingId(order.rawId); setCompletionCost('') }}
+                            data-testid={`workorder-complete-${order.id}`}
+                          >
+                            Complete
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actioningId !== null}
+                            onClick={() => void handleStatusUpdate(order.rawId, 'Cancelled')}
+                            data-testid={`workorder-cancel-${order.id}`}
+                          >
+                            {actioningId === order.rawId ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Cancel order'}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
