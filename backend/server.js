@@ -902,15 +902,15 @@ app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'a
         return res.status(403).json({ error: 'You may only log parts against your own vehicle.' });
       }
     }
-    const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage);
+    const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage, req.userContext.tenantId ?? null);
     res.json(log);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-// Public callers see the governed public ledger only; the vehicle's owner, its
-// tenant, a mechanic or an admin see the full history — otherwise a mechanic's
+// Public callers see the governed public ledger only; the vehicle's verified
+// owner, a mechanic or an admin see the full history — otherwise a mechanic's
 // or owner's fresh write is invisible on re-read until public-card review.
 app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
   const { vin } = req.params;
@@ -921,14 +921,17 @@ app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
       if (ctx.role === 'mechanic' || ctx.role === 'admin') {
         publicOnly = false;
       } else {
+        // optionalAuth() takes tenantId from the UNVERIFIED x-tenant-id header
+        // claim — it never checks tenant membership (authMiddleware is
+        // PR-#137-owned, so the consumer must not trust it). Full-history
+        // widening is therefore granted on the verified owner_id match only;
+        // a forged tenant header must not expose the unreviewed repair ledger.
         const { data: vehicleRow } = await supabase
           .from('vehicles')
-          .select('owner_id, tenant_id')
+          .select('owner_id')
           .eq('vin', vin)
           .maybeSingle();
-        const ownsVehicle = vehicleRow?.owner_id && vehicleRow.owner_id === ctx.id;
-        const sameTenant = vehicleRow?.tenant_id && vehicleRow.tenant_id === ctx.tenantId;
-        publicOnly = !(ownsVehicle || sameTenant);
+        publicOnly = !(vehicleRow?.owner_id && vehicleRow.owner_id === ctx.id);
       }
     }
     const history = await getRepairHistory(vin, { publicOnly });
