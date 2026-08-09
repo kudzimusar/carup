@@ -43,6 +43,13 @@ const MIGRATIONS = [
   { version: '20260808150000', name: '20260808150000_mechanic_work_orders_convergence.sql', sha12: '9d0bab867938' },
   { version: '20260809100000', name: '20260809100000_trust_side_tables.sql', sha12: '8daf5a2fb89b' },
   { version: '20260809110000', name: '20260809110000_api_role_write_hardening.sql', sha12: 'ccdefddea654' },
+  // Events-outbox pg_cron scheduler (seam-E). FAIL-CLOSED: the migration
+  // RAISES if pg_cron or pg_net is absent, so it can never be ledgered while
+  // creating no scheduler. Preflight reports both extensions read-only and
+  // the apply loop refuses before the transaction when either is missing.
+  // Vault secrets (CARUP_EVENTS_ENDPOINT_URL + shared CARUP_WORKER_SECRET)
+  // are a post-apply activation gate: the job no-ops safely until they exist.
+  { version: '20260809120000', name: '20260809120000_events_outbox_pg_cron.sql', sha12: '2c0424ffba94' },
 ];
 
 function fail(msg) {
@@ -186,6 +193,35 @@ async function inventoryDependencies(client) {
     console.log(`advisory domain_events pending = ${rows[0].v} (outbox drain health, informational)`);
   }
 
+  // Events-outbox scheduler (#20260809120000) — read-only capability
+  // inventory. Secret VALUES never leave the database: booleans only.
+  const { rows: sched } = await client.query(`
+    select
+      exists (select 1 from pg_extension where extname='pg_cron') as has_cron,
+      exists (select 1 from pg_extension where extname='pg_net')  as has_net`);
+  dep.pgCron = sched[0].has_cron;
+  dep.pgNet = sched[0].has_net;
+  console.log(`${dep.pgCron ? 'ok ' : 'MISSING'} pg_cron extension (#20260809120000 is fail-closed without it)`);
+  console.log(`${dep.pgNet ? 'ok ' : 'MISSING'} pg_net extension (#20260809120000 is fail-closed without it)`);
+  try {
+    const { rows: v } = await client.query(`
+      select
+        exists (select 1 from vault.decrypted_secrets where name='CARUP_EVENTS_ENDPOINT_URL') as has_url,
+        exists (select 1 from vault.decrypted_secrets where name='CARUP_WORKER_SECRET')       as has_secret`);
+    console.log(`events scheduler Vault: endpoint_url_present=${v[0].has_url} worker_secret_present=${v[0].has_secret} (booleans only; activation gate, non-blocking)`);
+  } catch {
+    console.log('events scheduler Vault: not readable with this role (informational)');
+  }
+  try {
+    const { rows: job } = await client.query(
+      "select schedule, active from cron.job where jobname='carup-events-outbox-every-minute'");
+    console.log(job.length
+      ? `events cron job: present schedule='${job[0].schedule}' active=${job[0].active}`
+      : 'events cron job: absent (created by #20260809120000)');
+  } catch {
+    console.log('events cron job: cron schema not readable (informational — absent until pg_cron is enabled)');
+  }
+
   return dep;
 }
 
@@ -265,6 +301,9 @@ try {
         const targets = ['mechanic_work_orders', 'mechanic_parts', 'vehicle_ownership_history', 'vehicles', 'vehicle_evidence'];
         const absent = targets.filter((t) => !before.dep.posture[t]);
         if (absent.length) fail(`hardening targets absent on production: ${absent.join(', ')} — refusing to apply blind.`);
+      }
+      if (m.version === '20260809120000' && (!before.dep.pgCron || !before.dep.pgNet)) {
+        fail('pg_cron/pg_net not installed on production — #20260809120000 is fail-closed and would abort; enable both extensions (Dashboard -> Database -> Extensions) and re-run.');
       }
       console.log(`Applying #${m.version} (${m.name}, sha256:12 ${sum}) in one transaction…`);
       await client.query('BEGIN');
