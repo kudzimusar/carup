@@ -3,12 +3,19 @@
  *
  * Two modes:
  *   MODE=preflight → READ-ONLY inspection of the production publication/mechanic
- *                    state (BEGIN READ ONLY … ROLLBACK). Produces the evidence the
- *                    owner reviews BEFORE authorizing application. Writes nothing.
- *   MODE=apply     → applies the two advancement-pass migrations, each in one
- *                    transaction with its official supabase_migrations row, then
- *                    verifies the visible==published invariant and the converged
- *                    mechanic schema. Requires the exact authorization phrase.
+ *                    state (BEGIN READ ONLY … ROLLBACK), PLUS the full PR #139
+ *                    database dependency inventory (every table, column, CHECK
+ *                    constraint, and API-role grant posture the #139 runtime
+ *                    depends on) so the owner sees the complete gap — not just
+ *                    the slice these migrations cover — BEFORE authorizing
+ *                    application. Writes nothing.
+ *   MODE=apply     → applies the four migrations (publication-gate backfill,
+ *                    mechanic convergence, trust side tables, API-role write
+ *                    hardening), each in one transaction with its official
+ *                    supabase_migrations row, then verifies the
+ *                    visible==published invariant, the converged mechanic
+ *                    schema, and the hardened grant posture. Requires the
+ *                    exact authorization phrase.
  *
  * Guards (mirroring backend/scripts/staging-apply-publication-gate.mjs and the
  * canonical cutover method in docs/vehicle-trust-os/):
@@ -34,6 +41,8 @@ const AUTH_PHRASE = 'APPLY PUBLICATION GATE TO PRODUCTION';
 const MIGRATIONS = [
   { version: '20260808140000', name: '20260808140000_publication_gate_backfill.sql', sha12: '8149450f6d8e' },
   { version: '20260808150000', name: '20260808150000_mechanic_work_orders_convergence.sql', sha12: '9d0bab867938' },
+  { version: '20260809100000', name: '20260809100000_trust_side_tables.sql', sha12: '8daf5a2fb89b' },
+  { version: '20260809110000', name: '20260809110000_api_role_write_hardening.sql', sha12: 'ccdefddea654' },
 ];
 
 function fail(msg) {
@@ -79,6 +88,107 @@ function upSectionOf(m) {
   return { up, sum };
 }
 
+// The FULL set of database surfaces the #139 runtime reads or writes, beyond
+// what the four migrations themselves touch. Applying migrations proves the
+// mechanism; this inventory proves (or disproves) that production actually
+// holds everything else #139 assumes — the audit's Phase 8 finding was that
+// the two original migrations alone are NOT the entire requirement.
+const DEP_TABLES = [
+  'marketplace_inquiries', 'trust_audit_events', 'partsentry_review_requests',
+  'dealer_leads', 'domain_events', 'notification_queue', 'message_threads',
+  'vehicle_evidence', 'vehicle_ownership_history', 'finance_applications',
+  'trust_score_history', 'rolling_integrity_checkpoints',
+];
+const DEP_COLUMNS = [
+  // Communication orchestrator variant (NOT the legacy minimal queue).
+  ['notification_queue', ['event_id', 'dedupe_key', 'tenant_id', 'thread_id', 'notification_type', 'channel', 'status', 'payload']],
+  // Outbox contract the event worker drains.
+  ['domain_events', ['dedupe_key', 'status', 'available_at', 'aggregate_type', 'tenant_id']],
+  // 20260603132036 marketplace listing summary columns the gate projection reads.
+  ['vehicles', ['publication_status', 'vehicle_condition_category', 'passport_verified', 'zimra_verified', 'safe_pay_ready', 'inspection_ready']],
+  // Finance tenant stamping (audit fix SM-3).
+  ['finance_applications', ['tenant_id']],
+];
+// CHECK-constraint values the fixed runtime emits; a production CHECK that
+// lacks them makes those inserts fail at runtime, invisibly to migrations.
+const DEP_CHECKS = [
+  ['message_threads', 'thread_type', ['account', 'trust_safety']],
+  ['vehicle_evidence', 'evidence_type', ['ownership_transfer_document', 'registration_document']],
+];
+// API-role grant posture the hardening migration must produce (and preflight
+// reports as-is, so the owner sees production's exposure BEFORE apply).
+const POSTURE_TABLES = ['mechanic_work_orders', 'mechanic_parts', 'vehicle_ownership_history', 'vehicles', 'vehicle_evidence', 'trust_score_history', 'rolling_integrity_checkpoints'];
+
+async function inventoryDependencies(client) {
+  console.log('── #139 dependency inventory ──');
+  const dep = { missingTables: [], missingColumns: [], missingCheckValues: [], vinUnique: false };
+
+  const { rows: tabs } = await client.query(
+    `select t.name, (to_regclass('public.'||t.name) is not null) as present
+       from unnest($1::text[]) as t(name)`, [DEP_TABLES]);
+  for (const t of tabs) {
+    console.log(`${t.present ? 'ok ' : 'MISSING'} table ${t.name}`);
+    if (!t.present) dep.missingTables.push(t.name);
+  }
+
+  for (const [table, cols] of DEP_COLUMNS) {
+    const { rows } = await client.query(
+      `select column_name from information_schema.columns
+        where table_schema='public' and table_name=$1 and column_name = any($2)`, [table, cols]);
+    const present = new Set(rows.map((r) => r.column_name));
+    const missing = cols.filter((c) => !present.has(c));
+    console.log(missing.length
+      ? `MISSING columns ${table}: ${missing.join(', ')}`
+      : `ok  columns ${table}: ${cols.length}/${cols.length}`);
+    dep.missingColumns.push(...missing.map((c) => `${table}.${c}`));
+  }
+
+  for (const [table, column, values] of DEP_CHECKS) {
+    const { rows } = await client.query(
+      `select pg_get_constraintdef(oid) as def from pg_constraint
+        where conrelid = to_regclass('public.'||$1::text) and contype='c'
+          and pg_get_constraintdef(oid) like '%'||$2||'%'`, [table, column]);
+    const def = rows.map((r) => r.def).join(' ');
+    const missing = def ? values.filter((v) => !def.includes(`'${v}'`)) : values.slice();
+    console.log(missing.length
+      ? `MISSING CHECK values ${table}.${column}: ${missing.join(', ')}${def ? '' : ' (no CHECK found)'}`
+      : `ok  CHECK ${table}.${column} admits: ${values.join(', ')}`);
+    dep.missingCheckValues.push(...missing.map((v) => `${table}.${column}='${v}'`));
+  }
+
+  const { rows: vin } = await client.query(
+    `select count(*)::int c from pg_constraint
+      where conrelid = to_regclass('public.vehicles') and contype in ('p','u')
+        and (select array_agg(attname::text) from unnest(conkey) k join pg_attribute a
+              on a.attrelid = conrelid and a.attnum = k) = array['vin']`);
+  dep.vinUnique = vin[0].c > 0;
+  console.log(`${dep.vinUnique ? 'ok ' : 'MISSING'} vehicles.vin PRIMARY KEY/UNIQUE (FK target for rolling_integrity_checkpoints)`);
+
+  const { rows: posture } = await client.query(
+    `select c.relname, c.relrowsecurity,
+            coalesce((select string_agg(distinct g.grantee||':'||g.privilege_type, ',' order by g.grantee||':'||g.privilege_type)
+                        from information_schema.role_table_grants g
+                       where g.table_schema='public' and g.table_name=c.relname
+                         and g.grantee in ('anon','authenticated')), 'none') as api_grants
+       from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname='public' and c.relname = any($1)`, [POSTURE_TABLES]);
+  dep.posture = {};
+  for (const p of posture) {
+    dep.posture[p.relname] = { rls: p.relrowsecurity, apiGrants: p.api_grants };
+    console.log(`posture ${p.relname}: rls=${p.relrowsecurity ? 'on' : 'OFF'} api_grants=${p.api_grants}`);
+  }
+
+  const { rows: pend } = await client.query(
+    "select coalesce(to_regclass('public.domain_events')::text,'ABSENT') t");
+  if (pend[0].t !== 'ABSENT') {
+    const { rows } = await client.query(
+      "select count(*)::text v from domain_events where status='pending'");
+    console.log(`advisory domain_events pending = ${rows[0].v} (outbox drain health, informational)`);
+  }
+
+  return dep;
+}
+
 async function inspect(client, phase) {
   console.log(`── ${phase} inspection ──`);
   const one = async (label, sql) => {
@@ -116,7 +226,8 @@ async function inspect(client, phase) {
     const { rows } = await client.query('SELECT name FROM supabase_migrations.schema_migrations WHERE version=$1', [m.version]);
     console.log(`ledger ${m.version}: ${rows.length ? `RECORDED (${rows[0].name})` : 'not recorded'}`);
   }
-  return { total: Number(total), gap: Number(gap), workOrdersPresent: tables[0].wo !== 'ABSENT', partsPresent: tables[0].mp !== 'ABSENT' };
+  const dep = await inventoryDependencies(client);
+  return { total: Number(total), gap: Number(gap), workOrdersPresent: tables[0].wo !== 'ABSENT', partsPresent: tables[0].mp !== 'ABSENT', dep };
 }
 
 const client = new pg.Client({ connectionString: url, ssl: tlsConfig(), statement_timeout: 120000 });
@@ -147,6 +258,14 @@ try {
       if (m.version === '20260808150000' && (!before.workOrdersPresent || !before.partsPresent)) {
         fail('mechanic_work_orders/mechanic_parts absent on production; refusing to apply the convergence migration blind.');
       }
+      if (m.version === '20260809100000' && !before.dep.vinUnique) {
+        fail('vehicles.vin has no PRIMARY KEY/UNIQUE constraint on production — the rolling_integrity_checkpoints FK cannot be created; refusing.');
+      }
+      if (m.version === '20260809110000') {
+        const targets = ['mechanic_work_orders', 'mechanic_parts', 'vehicle_ownership_history', 'vehicles', 'vehicle_evidence'];
+        const absent = targets.filter((t) => !before.dep.posture[t]);
+        if (absent.length) fail(`hardening targets absent on production: ${absent.join(', ')} — refusing to apply blind.`);
+      }
       console.log(`Applying #${m.version} (${m.name}, sha256:12 ${sum}) in one transaction…`);
       await client.query('BEGIN');
       try {
@@ -161,7 +280,7 @@ try {
         fail(`#${m.version} failed and rolled back: ${e.message}`);
       }
     }
-    await inspect(client, 'post-apply');
+    const post = await inspect(client, 'post-apply');
 
     // Invariant, scoped to pre-apply rows only (created_at NULL counts as
     // pre-existing — a concurrent insert always receives NOW()): every vehicle
@@ -204,7 +323,39 @@ try {
       console.log('ok  mechanic convergence contract: 10/10 columns present.');
     }
 
-    console.log('APPLY COMPLETE — pre-apply visible==published invariant holds; mechanic contract verified.');
+    // Hardened-posture contract, fail-closed like the mechanic contract: once
+    // the trust/hardening migrations are recorded, the posture they promise
+    // must actually hold — a ledger row without the posture is drift.
+    const after = post.dep;
+    const { rows: trustLedger } = await client.query(
+      "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260809100000'");
+    if (trustLedger.length) {
+      const gone = ['trust_score_history', 'rolling_integrity_checkpoints'].filter((t) => after.missingTables.includes(t));
+      if (gone.length) fail(`trust side tables recorded but absent: ${gone.join(', ')} — schema drift.`);
+      console.log('ok  trust side tables present.');
+    }
+    const { rows: hardLedger } = await client.query(
+      "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260809110000'");
+    if (hardLedger.length) {
+      const bad = [];
+      for (const [table, expect] of [
+        ['mechanic_work_orders', 'none'], ['mechanic_parts', 'none'],
+        ['vehicle_ownership_history', 'none'], ['trust_score_history', 'none'],
+        ['rolling_integrity_checkpoints', 'none'],
+        // SELECT-only for both API roles — anything beyond that is residue.
+        ['vehicles', 'anon:SELECT,authenticated:SELECT'],
+        ['vehicle_evidence', 'anon:SELECT,authenticated:SELECT'],
+      ]) {
+        const p = after.posture[table];
+        if (!p) { bad.push(`${table}: absent`); continue; }
+        if (!p.rls) bad.push(`${table}: rls off`);
+        if (p.apiGrants !== expect) bad.push(`${table}: api_grants=${p.apiGrants} (expected ${expect})`);
+      }
+      if (bad.length) fail(`hardening recorded but posture drifted: ${bad.join('; ')}`);
+      console.log('ok  API-role hardened posture verified on all 7 tables.');
+    }
+
+    console.log('APPLY COMPLETE — pre-apply visible==published invariant holds; mechanic contract verified; trust tables + hardened posture verified.');
   }
 } catch (e) {
   fail(`runner error: ${e.message}`);
