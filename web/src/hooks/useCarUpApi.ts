@@ -116,7 +116,7 @@ import type {
   DiasporaDriveConnection,
   Plan,
   SubscriptionStatus,
-  EffectiveEntitlements,
+  EffectiveEntitlementsEnvelope,
   UsageResponse,
   SandboxBillingActionResponse,
   SafeTradeTransaction,
@@ -1312,6 +1312,46 @@ export function useCarUpApi() {
     return request<DiasporaWorkbookTemplateDownloadStatus>(`/diaspora/workbook/download-template${query}`)
   }, [request])
 
+  // Blank XLSX template download. Same blob mechanics as downloadDiasporaWorkbookDbExport, but a GET
+  // (safe method — no CSRF token needed). An authenticated fetch is required: a bare <a href> cannot
+  // carry x-session-token/x-tenant-id, and the SPA rewrite (web/vercel.json) would serve index.html
+  // for a relative /api path instead of reaching the backend at all.
+  const downloadDiasporaWorkbookTemplateXlsx = useCallback(async (templateType: string, templateXlsxPath?: string): Promise<void> => {
+    const authHeaders: AuthHeaders = {}
+    if (token) authHeaders['x-session-token'] = token
+    if (user?.id) authHeaders['x-user-id'] = user.id
+    if (user?.role) authHeaders['x-stakeholder-role'] = user.role
+    if (user?.active_tenant_id) authHeaders['x-tenant-id'] = user.active_tenant_id
+
+    // Prefer the backend-advertised route (template_xlsx_path) over the hardcoded default. The status
+    // endpoint reports it /api-prefixed while BASE_URL already ends in /api, so drop the duplicate.
+    const path = (templateXlsxPath || '/api/diaspora/workbook/template.xlsx').replace(/^\/api(?=\/)/, '')
+    const res = await fetch(`${BASE_URL}${path}?type=${encodeURIComponent(templateType)}`, {
+      method: 'GET',
+      headers: { ...authHeaders },
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      let message = `Template download failed (${res.status})`
+      try {
+        const body = await res.json()
+        message = extractApiErrorMessage(body) || message
+      } catch {
+        // non-JSON error body; keep the status message
+      }
+      throw new Error(message)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `diaspora-${templateType}-template.xlsx`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }, [token, user])
+
   const runDiasporaWorkbookDryRun = useCallback(async (payload: DiasporaWorkbookDryRunPayload): Promise<DiasporaWorkbookDryRunResult> => {
     const response = await request<{ data: DiasporaWorkbookDryRunResult }>('/diaspora/workbook/dry-run', {
       method: 'POST',
@@ -1569,9 +1609,11 @@ export function useCarUpApi() {
     return response.data
   }, [request])
 
-  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlements> => {
-    const response = await request<{ data: EffectiveEntitlements }>('/diaspora/subscription/entitlements')
-    return response.data || {}
+  // The backend returns an ENVELOPE (resolveEffectiveEntitlements): plan identity/provenance around
+  // the feature map. Typing it flat made the page render envelope field names as "entitlements".
+  const getDiasporaEntitlements = useCallback(async (): Promise<EffectiveEntitlementsEnvelope> => {
+    const response = await request<{ data: EffectiveEntitlementsEnvelope }>('/diaspora/subscription/entitlements')
+    return response.data
   }, [request])
 
   const getDiasporaUsage = useCallback(async (): Promise<UsageResponse> => {
@@ -1971,6 +2013,15 @@ export function useCarUpApi() {
   const createMechanicWorkOrder = useCallback(async (data: { vin: string; customer_name: string; issue_description: string }): Promise<any> => {
     return request('/mechanic/work-orders', {
       method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }, [request])
+
+  // PATCH /mechanic/work-orders/:id — status transitions (DB CHECK: 'In Progress'|'Completed'|
+  // 'Cancelled') with an optional total_cost when completing. Tenant-scoped server-side.
+  const updateMechanicWorkOrder = useCallback(async (id: string, data: { status: 'In Progress' | 'Completed' | 'Cancelled'; total_cost?: number }): Promise<any> => {
+    return request(`/mechanic/work-orders/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
       body: JSON.stringify(data)
     })
   }, [request])
@@ -2681,6 +2732,7 @@ export function useCarUpApi() {
     clearDiasporaWorkbookOperatorHold,
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
+    downloadDiasporaWorkbookTemplateXlsx,
     runDiasporaWorkbookDryRun,
     fetchDiasporaStockItems,
     fetchDiasporaStockItem,
@@ -2792,6 +2844,7 @@ export function useCarUpApi() {
     createDealerPromotion,
     fetchMechanicWorkOrders,
     createMechanicWorkOrder,
+    updateMechanicWorkOrder,
     fetchMechanicParts,
     createMechanicPart,
     fetchTelemetry,

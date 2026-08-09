@@ -391,6 +391,7 @@ export default function DiasporaWorkbookDryRun() {
   const {
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
+    downloadDiasporaWorkbookTemplateXlsx,
     runDiasporaWorkbookDryRun,
   } = useCarUpApi()
 
@@ -400,6 +401,8 @@ export default function DiasporaWorkbookDryRun() {
   const [downloadStatus, setDownloadStatus] = useState<DiasporaWorkbookTemplateDownloadStatus | null>(null)
   const [templateLoading, setTemplateLoading] = useState(false)
   const [templateError, setTemplateError] = useState('')
+  const [templateDownloading, setTemplateDownloading] = useState(false)
+  const [templateDownloadError, setTemplateDownloadError] = useState('')
   const [jsonText, setJsonText] = useState('')
   const [parsedWorkbook, setParsedWorkbook] = useState<ParsedWorkbook | null>(null)
   const [jsonError, setJsonError] = useState('')
@@ -494,6 +497,20 @@ export default function DiasporaWorkbookDryRun() {
     setJsonText('')
     setParsedWorkbook(null)
     setDryRunResult(null)
+  }
+
+  const handleTemplateDownload = async () => {
+    if (templateDownloading) return
+    setTemplateDownloading(true)
+    setTemplateDownloadError('')
+    try {
+      // Prefer the backend-advertised route when the status endpoint reported one.
+      await downloadDiasporaWorkbookTemplateXlsx(templateType, downloadStatus?.template_xlsx_path)
+    } catch (err) {
+      setTemplateDownloadError(err instanceof Error ? err.message : 'Unable to download the XLSX template.')
+    } finally {
+      setTemplateDownloading(false)
+    }
   }
 
   const canSubmit = Boolean(templateType && parsedWorkbook && !jsonError && !fileError && !dryRunLoading)
@@ -599,16 +616,24 @@ export default function DiasporaWorkbookDryRun() {
                 <p className="mt-3 text-sm text-gray-600">
                   The binary XLSX template for the selected schema is ready to download.
                 </p>
-                <Button asChild variant="secondary" className="mt-4">
-                  <a
-                    href={`/api/diaspora/workbook/template.xlsx?type=${encodeURIComponent(templateType)}`}
-                    download
-                    data-testid="diaspora-workbook-template-download-link"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download .xlsx template
-                  </a>
+                {/* An authenticated fetch, not an <a href>: the SPA rewrite would serve index.html
+                    for a relative /api path, and an anchor cannot carry the session/tenant headers. */}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4"
+                  onClick={() => void handleTemplateDownload()}
+                  disabled={templateDownloading}
+                  data-testid="diaspora-workbook-template-download-button"
+                >
+                  {templateDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {templateDownloading ? 'Downloading…' : 'Download .xlsx template'}
                 </Button>
+                {templateDownloadError && (
+                  <p className="mt-2 text-sm font-medium text-red-700" data-testid="diaspora-workbook-template-download-error">
+                    {templateDownloadError}
+                  </p>
+                )}
               </>
             ) : (
               <>
