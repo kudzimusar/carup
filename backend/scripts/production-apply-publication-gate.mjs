@@ -58,7 +58,7 @@ const MIGRATIONS = [
   // every convergence step no-ops (tables absent) and 20260809100000 owns
   // creation. Fail-closed: non-deterministic timestamp values or a
   // still-divergent final shape RAISE and are never ledgered.
-  { version: '20260810120000', name: '20260810120000_trust_side_convergence.sql', sha12: 'e4acb4ea341b' },
+  { version: '20260810120000', name: '20260810120000_trust_side_convergence.sql', sha12: '239c6490a888' },
   { version: '20260809100000', name: '20260809100000_trust_side_tables.sql', sha12: '8daf5a2fb89b' },
   { version: '20260809110000', name: '20260809110000_api_role_write_hardening.sql', sha12: 'ccdefddea654' },
   // Events-outbox pg_cron scheduler (seam-E). FAIL-CLOSED: the migration
@@ -198,6 +198,21 @@ async function trustShapeReport(client) {
   const vinPkOk = vinPk[0].c > 0;
   if (!vinPkOk) mismatches.push("rolling_integrity_checkpoints.vin lacks a PK/UNIQUE covering exactly [vin] (runtime upserts onConflict:'vin')");
   lines.push(`${vinPkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints vin-exact PK/UNIQUE = ${vinPkOk}`);
+  // Canonical vin FK -> vehicles(vin) ON DELETE CASCADE. The legacy table
+  // carries only a PK, and CREATE TABLE IF NOT EXISTS cannot add the FK to a
+  // pre-existing table — without it the database accepts checkpoints for
+  // nonexistent VINs and retains orphans after a vehicle is deleted.
+  const { rows: vinFk } = await client.query(`
+    select count(*)::int c from pg_constraint
+     where conrelid = to_regclass('public.rolling_integrity_checkpoints') and contype='f'
+       and confrelid = to_regclass('public.vehicles') and confdeltype='c'
+       and (select array_agg(attname::text) from unnest(conkey) k join pg_attribute a
+             on a.attrelid = conrelid and a.attnum = k) = array['vin']
+       and (select array_agg(attname::text) from unnest(confkey) k join pg_attribute a
+             on a.attrelid = confrelid and a.attnum = k) = array['vin']`);
+  const vinFkOk = vinFk[0].c > 0;
+  if (!vinFkOk) mismatches.push('rolling_integrity_checkpoints.vin lacks the canonical FK -> vehicles(vin) ON DELETE CASCADE (restored by 20260810120000)');
+  lines.push(`${vinFkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints vin FK -> vehicles(vin) ON DELETE CASCADE = ${vinFkOk}`);
   return { tablesExist, mismatches, lines };
 }
 
@@ -303,16 +318,33 @@ async function inventoryDependencies(client) {
         (select count(*)::int from trust_score_history where trigger_event is null)   as trigger_event_nulls,
         (select count(*)::int from rolling_integrity_checkpoints)                     as ric_rows,
         (select min(last_verified_event_id)::text from rolling_integrity_checkpoints) as event_id_min,
-        (select max(last_verified_event_id)::text from rolling_integrity_checkpoints) as event_id_max`);
+        (select max(last_verified_event_id)::text from rolling_integrity_checkpoints) as event_id_max,
+        (select count(*)::int from rolling_integrity_checkpoints c
+          where not exists (select 1 from vehicles v where v.vin = c.vin))          as orphan_checkpoints`);
     console.log('convergence probe counts:', JSON.stringify(pr[0]));
+    if (pr[0].orphan_checkpoints > 0) {
+      console.log(`::warning::${pr[0].orphan_checkpoints} orphaned checkpoint row(s) reference a nonexistent vehicles.vin — 20260810120000 fails closed on these; resolve them before authorizing apply.`);
+    }
+    // Census predicate is the migration's OWN gate (date + time + explicit
+    // zone, then a real-instant cast), so this receipt predicts the apply
+    // outcome exactly. A date-only value like '2026-08-08' counts as
+    // NOT_DETERMINISTIC even though it casts — Postgres would read it as
+    // midnight in the session TimeZone.
     const { rows: tsCensus } = await client.query(`
       select case
                when "timestamp" is null then 'null'
-               when "timestamp"::text ~ '(Z|[+-][0-9]{2}(:?[0-9]{2})?)[[:space:]]*$' then 'zone_suffixed'
-               else 'NO_EXPLICIT_ZONE'
+               when "timestamp"::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?[[:space:]]*([Zz]|[+-][0-9]{2}(:?[0-9]{2})?)[[:space:]]*$'
+                 then 'deterministic_datetime_with_zone'
+               else 'NOT_DETERMINISTIC'
              end as fmt, count(*)::int c
         from trust_score_history group by 1 order by 1`);
-    console.log('convergence probe timestamp census (NO_EXPLICIT_ZONE rows fail the conversion closed):', JSON.stringify(tsCensus));
+    console.log('convergence probe timestamp census (NOT_DETERMINISTIC rows fail the conversion closed):', JSON.stringify(tsCensus));
+    const { rows: tsSamples } = await client.query(`
+      select distinct left("timestamp"::text, 32) as sample from trust_score_history
+       where "timestamp" is not null
+         and "timestamp"::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?[[:space:]]*([Zz]|[+-][0-9]{2}(:?[0-9]{2})?)[[:space:]]*$'
+       limit 10`);
+    if (tsSamples.length) console.log('convergence probe NON-deterministic timestamp samples:', JSON.stringify(tsSamples.map((r) => r.sample)));
     const { rows: defs } = await client.query(`
       select table_name, column_name, column_default from information_schema.columns
        where table_schema='public' and table_name in ('trust_score_history','rolling_integrity_checkpoints')

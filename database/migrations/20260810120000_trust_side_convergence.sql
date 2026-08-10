@@ -18,11 +18,20 @@
 -- Design rules:
 --   · ADDITIVE/CONVERGENT ONLY — no DROP TABLE, no recreate, every existing
 --     row preserved; the only rewrite is the two ALTER TYPEs.
---   · FAIL-CLOSED timestamp conversion: every non-NULL "timestamp" must BOTH
---     cast to timestamptz AND carry an explicit zone (trailing Z or ±HH[:MM])
---     so the conversion is deterministic regardless of session TimeZone.
---     Any violation RAISEs — the transaction rolls back and nothing is
---     ledgered.
+--   · FAIL-CLOSED timestamp conversion: every non-NULL "timestamp" must be a
+--     real instant AND carry BOTH a time component and an explicit zone, so
+--     the conversion is deterministic regardless of session TimeZone. A
+--     date-only value ('2026-08-08') is rejected even though it casts and its
+--     trailing '-08' superficially looks like an offset — PostgreSQL would
+--     read it as midnight in the SESSION TimeZone, silently shifting the
+--     represented instant. Any violation RAISEs — the transaction rolls back
+--     and nothing is ledgered.
+--   · CANONICAL VIN FK RESTORED: the legacy table carries only a PK on vin,
+--     and 20260809100000's CREATE TABLE IF NOT EXISTS cannot add a constraint
+--     to a pre-existing table, so without this convergence production would
+--     keep accepting checkpoints for nonexistent VINs and retain orphans
+--     after a vehicle is deleted. Added additively and idempotently, and
+--     fail-closed on pre-existing orphan rows.
 --   · FRESH databases: every step no-ops when the tables are absent;
 --     20260809100000 (later in the manifest's apply order... this migration
 --     runs FIRST) then fresh-creates the canonical shape.
@@ -33,11 +42,21 @@
 --   · Ends with a fail-closed shape assertion: if the final shape still
 --     diverges, the migration RAISEs and cannot be ledgered.
 
--- Deterministic-cast test helper (session-temporary; disappears with the
--- session; OR REPLACE keeps a same-session rerun idempotent).
-CREATE OR REPLACE FUNCTION pg_temp.carup_ts_castable(t text) RETURNS boolean
+-- Deterministic-conversion test helper (session-temporary; disappears with
+-- the session; OR REPLACE keeps a same-session rerun idempotent).
+--
+-- A value is convertible ONLY IF it carries date + time + an explicit zone
+-- AND is a real instant. Accepted: '2026-08-08T12:30:00Z',
+-- '2026-08-08 12:30:00+09', '2026-08-08T12:30:00.372+09:00', '...-05:00'.
+-- Rejected: '2026-08-08' (date-only — castable, and its trailing '-08' even
+-- matches an offset pattern, but Postgres reads it as midnight in the
+-- session TimeZone), '2026-08-08 12:30:00' (no zone), 'not-a-timestamp'.
+CREATE OR REPLACE FUNCTION pg_temp.carup_ts_deterministic(t text) RETURNS boolean
 LANGUAGE plpgsql AS $f$
 BEGIN
+  IF t !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?[[:space:]]*([Zz]|[+-][0-9]{2}(:?[0-9]{2})?)[[:space:]]*$' THEN
+    RETURN false;
+  END IF;
   PERFORM t::timestamptz;
   RETURN true;
 EXCEPTION WHEN OTHERS THEN
@@ -48,6 +67,8 @@ DO $$
 DECLARE
   v_bad  integer;
   v_type text;
+  v_fk   text;
+  v_name text;
 BEGIN
   IF to_regclass('trust_score_history') IS NULL THEN
     RAISE NOTICE '[trust-convergence] trust_score_history absent — fresh database, nothing to converge.';
@@ -63,12 +84,9 @@ BEGIN
     IF v_type = 'text' THEN
       SELECT count(*) INTO v_bad FROM trust_score_history
        WHERE "timestamp" IS NOT NULL
-         AND NOT (
-           pg_temp.carup_ts_castable("timestamp")
-           AND "timestamp" ~ '(Z|[+-][0-9]{2}(:?[0-9]{2})?)[[:space:]]*$'
-         );
+         AND NOT pg_temp.carup_ts_deterministic("timestamp");
       IF v_bad > 0 THEN
-        RAISE EXCEPTION '[trust-convergence] % trust_score_history."timestamp" value(s) cannot be converted deterministically (must cast to timestamptz AND carry an explicit zone) — refusing; nothing is ledgered.', v_bad
+        RAISE EXCEPTION '[trust-convergence] % trust_score_history."timestamp" value(s) cannot be converted deterministically (need date + time + explicit zone, e.g. 2026-08-08T12:30:00Z; date-only and zone-less values are refused) — refusing; nothing is ledgered.', v_bad
           USING ERRCODE = 'invalid_datetime_format';
       END IF;
       ALTER TABLE trust_score_history
@@ -89,6 +107,47 @@ BEGIN
         ALTER COLUMN last_verified_event_id TYPE bigint;
     END IF;
     ALTER TABLE rolling_integrity_checkpoints ALTER COLUMN last_verified_event_id DROP NOT NULL;
+
+    -- 4. Canonical VIN foreign key: vehicles(vin) ON DELETE CASCADE.
+    --    The legacy production table has a PK on vin but no FK, and
+    --    20260809100000's CREATE TABLE IF NOT EXISTS cannot add one to an
+    --    existing table — so this is where it must be restored.
+    IF to_regclass('vehicles') IS NULL THEN
+      RAISE EXCEPTION '[trust-convergence] vehicles table absent — cannot restore the rolling_integrity_checkpoints.vin foreign key; refusing.'
+        USING ERRCODE = 'undefined_table';
+    END IF;
+    SELECT conname INTO v_fk FROM pg_constraint
+     WHERE conrelid = to_regclass('rolling_integrity_checkpoints') AND contype = 'f'
+       AND confrelid = to_regclass('vehicles') AND confdeltype = 'c'
+       AND (SELECT array_agg(attname::text) FROM unnest(conkey) k JOIN pg_attribute a
+             ON a.attrelid = conrelid AND a.attnum = k) = array['vin']
+     LIMIT 1;
+    IF v_fk IS NULL THEN
+      -- Fail closed BEFORE touching the constraint: an orphaned checkpoint
+      -- would otherwise abort the ALTER with an opaque engine error, and the
+      -- orphans are a data question for an operator, not a migration.
+      SELECT count(*) INTO v_bad FROM rolling_integrity_checkpoints c
+       WHERE NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.vin = c.vin);
+      IF v_bad > 0 THEN
+        RAISE EXCEPTION '[trust-convergence] % rolling_integrity_checkpoints row(s) reference a nonexistent vehicles.vin — resolve the orphans before converging; refusing (nothing is ledgered).', v_bad
+          USING ERRCODE = 'foreign_key_violation';
+      END IF;
+      -- Replace any non-canonical vin FK (e.g. one lacking ON DELETE CASCADE)
+      -- so the end state is exactly the contract.
+      FOR v_name IN
+        SELECT conname FROM pg_constraint
+         WHERE conrelid = to_regclass('rolling_integrity_checkpoints') AND contype = 'f'
+           AND (SELECT array_agg(attname::text) FROM unnest(conkey) k JOIN pg_attribute a
+                 ON a.attrelid = conrelid AND a.attnum = k) = array['vin']
+      LOOP
+        EXECUTE format('ALTER TABLE rolling_integrity_checkpoints DROP CONSTRAINT %I', v_name);
+        RAISE NOTICE '[trust-convergence] dropped non-canonical vin FK "%" for re-creation with ON DELETE CASCADE.', v_name;
+      END LOOP;
+      ALTER TABLE rolling_integrity_checkpoints
+        ADD CONSTRAINT rolling_integrity_checkpoints_vin_fkey
+        FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE;
+      RAISE NOTICE '[trust-convergence] restored rolling_integrity_checkpoints.vin -> vehicles(vin) ON DELETE CASCADE.';
+    END IF;
   END IF;
 END $$;
 
@@ -136,6 +195,17 @@ BEGIN
                ON a.attrelid = conrelid AND a.attnum = k) = array['vin']
     ) THEN
       v_bad := v_bad || 'rolling_integrity_checkpoints.vin(pk/unique)';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+       WHERE conrelid = to_regclass('rolling_integrity_checkpoints') AND contype = 'f'
+         AND confrelid = to_regclass('vehicles') AND confdeltype = 'c'
+         AND (SELECT array_agg(attname::text) FROM unnest(conkey) k JOIN pg_attribute a
+               ON a.attrelid = conrelid AND a.attnum = k) = array['vin']
+         AND (SELECT array_agg(attname::text) FROM unnest(confkey) k JOIN pg_attribute a
+               ON a.attrelid = confrelid AND a.attnum = k) = array['vin']
+    ) THEN
+      v_bad := v_bad || 'rolling_integrity_checkpoints.vin(fk->vehicles.vin ON DELETE CASCADE)';
     END IF;
   END IF;
   IF array_length(v_bad, 1) > 0 THEN
