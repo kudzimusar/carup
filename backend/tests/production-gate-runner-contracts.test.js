@@ -30,6 +30,12 @@ function extractExpectedTrustShape() {
   return new Function(`return [${m[1]}]`)();
 }
 
+function extractVinFkQuery() {
+  const m = src.match(/select count\(\*\)::int c from pg_constraint\s*\n\s*where conrelid = to_regclass\('public\.rolling_integrity_checkpoints'\) and contype='f'[\s\S]*?on a\.attrelid = confrelid and a\.attnum = k\) = array\['vin'\]/);
+  assert.ok(m, 'runner must ship a vin FK -> vehicles(vin) ON DELETE CASCADE query');
+  return m[0];
+}
+
 function extractShapeIntrospectionQuery() {
   const m = src.match(/select table_name, column_name, data_type, is_nullable\s*\n\s*from information_schema\.columns\s*\n\s*where table_schema='public' and table_name in \('trust_score_history','rolling_integrity_checkpoints'\)/);
   assert.ok(m, 'runner must ship the trust-shape introspection query');
@@ -114,6 +120,50 @@ test('P1-2: divergent live trust shape is detected by the shipped introspection 
   const vin = await db.query(extractVinQuery());
   assert.equal(vin.rows[0].c, 0, 'unrelated UNIQUE must not satisfy the vin-exact check');
   await db.close();
+});
+
+test('final contract: the shipped FK check demands vehicles(vin) ON DELETE CASCADE', async () => {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const db = new PGlite();
+  const fkQuery = extractVinFkQuery();
+  await db.exec(`
+    CREATE TABLE vehicles (vin TEXT PRIMARY KEY);
+    CREATE TABLE other (vin TEXT PRIMARY KEY);
+    CREATE TABLE rolling_integrity_checkpoints (
+      vin TEXT PRIMARY KEY, last_verified_event_id BIGINT,
+      rolling_hash TEXT NOT NULL, verified_at TEXT NOT NULL);`);
+  // Legacy production shape: PK only, no FK.
+  assert.equal((await db.query(fkQuery)).rows[0].c, 0, 'PK-only legacy shape must not satisfy the FK contract');
+
+  // An FK without ON DELETE CASCADE is not the contract.
+  await db.exec(`ALTER TABLE rolling_integrity_checkpoints
+    ADD CONSTRAINT no_cascade FOREIGN KEY (vin) REFERENCES vehicles(vin);`);
+  assert.equal((await db.query(fkQuery)).rows[0].c, 0, 'FK without ON DELETE CASCADE must not satisfy the contract');
+  await db.exec('ALTER TABLE rolling_integrity_checkpoints DROP CONSTRAINT no_cascade;');
+
+  // A cascading FK to the WRONG table is not the contract either.
+  await db.exec(`ALTER TABLE rolling_integrity_checkpoints
+    ADD CONSTRAINT wrong_target FOREIGN KEY (vin) REFERENCES other(vin) ON DELETE CASCADE;`);
+  assert.equal((await db.query(fkQuery)).rows[0].c, 0, 'FK to a non-vehicles table must not satisfy the contract');
+  await db.exec('ALTER TABLE rolling_integrity_checkpoints DROP CONSTRAINT wrong_target;');
+
+  // The canonical constraint passes.
+  await db.exec(`ALTER TABLE rolling_integrity_checkpoints
+    ADD CONSTRAINT rolling_integrity_checkpoints_vin_fkey
+    FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE;`);
+  assert.equal((await db.query(fkQuery)).rows[0].c, 1, 'canonical FK must satisfy the contract');
+  await db.close();
+});
+
+test('final contract: FK mismatch feeds trustShapeMismatches and both contract paths', () => {
+  assert.ok(
+    src.includes('lacks the canonical FK -> vehicles(vin) ON DELETE CASCADE'),
+    'FK divergence must be reported as a trust-shape mismatch');
+  // trustShapeReport is the single source consumed by the pre-apply guard,
+  // the recorded-version post-apply contract, and the preflight report.
+  assert.ok(/async function trustShapeReport\(client\)/.test(src), 'shape report must be a live function');
+  assert.ok(/const live = await trustShapeReport\(client\)/.test(src), 'pre-apply guard recomputes the shape live');
+  assert.ok(src.includes('const shape = await trustShapeReport(client)'), 'preflight consumes the same report');
 });
 
 test('P1-2 control flow: a recorded 20260809100000 can never bypass the shape contract', () => {
