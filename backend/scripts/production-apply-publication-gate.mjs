@@ -9,7 +9,7 @@
  *                    depends on) so the owner sees the complete gap — not just
  *                    the slice these migrations cover — BEFORE authorizing
  *                    application. Writes nothing.
- *   MODE=apply     → applies the five migrations (publication-gate backfill,
+ *   MODE=apply     → applies the six migrations (PartSentry review table, publication-gate backfill,
  *                    mechanic convergence, trust side tables, API-role write
  *                    hardening, events-outbox pg_cron scheduler), each in one
  *                    transaction with its official supabase_migrations row,
@@ -40,6 +40,13 @@ const STAGING_REF = 'eoyenigwevnxwwhyhaer'; // refused if present in the URL
 const AUTH_PHRASE = 'APPLY PUBLICATION GATE TO PRODUCTION';
 
 const MIGRATIONS = [
+  // PartSentry review workflow table (Phase 2B.1, ported PR #11). Production
+  // preflight run 31354281570 found the table MISSING while the #114/#139
+  // runtime serves its endpoints unconditionally (500/misleading-404 without
+  // it). Fully idempotent DDL + service-role-only posture; staging's live
+  // shape matches this file verbatim (21 columns, RLS on) and the PGlite
+  // harness proves fresh-create. Timestamp-ordered first; orthogonal DDL.
+  { version: '20260710130000', name: '20260710130000_partsentry_review_requests.sql', sha12: 'b16c9228f152' },
   { version: '20260808140000', name: '20260808140000_publication_gate_backfill.sql', sha12: '8149450f6d8e' },
   { version: '20260808150000', name: '20260808150000_mechanic_work_orders_convergence.sql', sha12: '9d0bab867938' },
   { version: '20260809100000', name: '20260809100000_trust_side_tables.sql', sha12: '8daf5a2fb89b' },
@@ -97,7 +104,7 @@ function upSectionOf(m) {
 }
 
 // The FULL set of database surfaces the #139 runtime reads or writes, beyond
-// what the five migrations themselves touch. Applying migrations proves the
+// what the six migrations themselves touch. Applying migrations proves the
 // mechanism; this inventory proves (or disproves) that production actually
 // holds everything else #139 assumes — the audit's Phase 8 finding was that
 // the two original migrations alone are NOT the entire requirement.
@@ -193,6 +200,71 @@ async function inventoryDependencies(client) {
       "select count(*)::text v from domain_events where status='pending'");
     console.log(`advisory domain_events pending = ${rows[0].v} (outbox drain health, informational)`);
   }
+
+  // Preflight-v2: trust-side table SHAPE introspection. Both tables ALREADY
+  // exist on production (preflight run 31354281570), so 20260809100000's
+  // CREATE TABLE IF NOT EXISTS silently no-ops — existence proves nothing
+  // about shape, and the runtime's supabase-js writers fail SILENTLY on a
+  // mismatched shape. Compare actual columns against the migration contract.
+  const EXPECTED_TRUST_SHAPE = [
+    ['trust_score_history', 'id', 'bigint', 'NO'],
+    ['trust_score_history', 'entity_type', 'text', 'NO'],
+    ['trust_score_history', 'entity_id', 'text', 'NO'],
+    ['trust_score_history', 'previous_score', 'real', 'YES'],
+    ['trust_score_history', 'new_score', 'real', 'YES'],
+    ['trust_score_history', 'trigger_event', 'text', 'YES'],
+    ['trust_score_history', 'timestamp', 'timestamp with time zone', 'NO'],
+    ['rolling_integrity_checkpoints', 'vin', 'text', 'NO'],
+    ['rolling_integrity_checkpoints', 'last_verified_event_id', 'bigint', 'YES'],
+    ['rolling_integrity_checkpoints', 'rolling_hash', 'text', 'NO'],
+    ['rolling_integrity_checkpoints', 'verified_at', 'text', 'NO'],
+  ];
+  dep.trustShapeMismatches = [];
+  const { rows: tcols } = await client.query(`
+    select table_name, column_name, data_type, is_nullable
+      from information_schema.columns
+     where table_schema='public' and table_name in ('trust_score_history','rolling_integrity_checkpoints')`);
+  const actual = new Map(tcols.map((r) => [`${r.table_name}.${r.column_name}`, r]));
+  for (const [t, col, type, nullable] of EXPECTED_TRUST_SHAPE) {
+    const a = actual.get(`${t}.${col}`);
+    const ok = a && a.data_type === type && a.is_nullable === nullable;
+    if (!ok) dep.trustShapeMismatches.push(`${t}.${col} expected ${type}/${nullable} got ${a ? `${a.data_type}/${a.is_nullable}` : 'ABSENT'}`);
+    console.log(`${ok ? 'ok ' : 'MISMATCH'} trust shape ${t}.${col}${ok ? '' : ` (${a ? a.data_type + '/' + a.is_nullable : 'ABSENT'})`}`);
+  }
+  const { rows: seq } = await client.query(
+    "select pg_get_serial_sequence('public.trust_score_history','id') as s");
+  const seqOk = !!seq[0].s;
+  if (!seqOk) dep.trustShapeMismatches.push('trust_score_history.id has no backing sequence (runtime inserts omit id)');
+  console.log(`${seqOk ? 'ok ' : 'MISMATCH'} trust_score_history.id backing sequence = ${seq[0].s || 'ABSENT'}`);
+  const { rows: vinPk } = await client.query(`
+    select count(*)::int c from pg_constraint
+     where conrelid = to_regclass('public.rolling_integrity_checkpoints') and contype in ('p','u')`);
+  const vinPkOk = vinPk[0].c > 0;
+  if (!vinPkOk) dep.trustShapeMismatches.push("rolling_integrity_checkpoints.vin lacks PK/UNIQUE (runtime upserts onConflict:'vin')");
+  console.log(`${vinPkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints PK/UNIQUE present = ${vinPkOk}`);
+
+  // Preflight-v2: pending domain_events distribution — the staleness evidence
+  // for the scheduler-activation decision (the worker has no age cutoff).
+  const { rows: evDist } = await client.query(`
+    select event_type, count(*)::int c, min(created_at) as oldest, max(created_at) as newest
+      from domain_events where status='pending' group by 1 order by c desc`);
+  console.log('pending domain_events by type:', JSON.stringify(evDist));
+  const { rows: evAge } = await client.query(`
+    select case when created_at > now()-interval '1 day' then 'a_under_1d'
+                when created_at > now()-interval '7 days' then 'b_1_to_7d'
+                when created_at > now()-interval '30 days' then 'c_7_to_30d'
+                else 'd_over_30d' end as age, count(*)::int c
+      from domain_events where status='pending' group by 1 order by 1`);
+  console.log('pending domain_events by age:', JSON.stringify(evAge));
+
+  // Preflight-v2: publication cross-tab — proves the backfill's exact update
+  // set (mig_visible=true rows) against the migration's own predicate.
+  const { rows: pubX } = await client.query(`
+    select coalesce(publication_status,'NULL') ps,
+           (status is null or btrim(status)='' or lower(btrim(status)) in ('available','reserved','active','approved','listed')) as mig_visible,
+           count(*)::int c
+      from vehicles group by 1,2 order by 1,2`);
+  console.log('publication x mig_visible cross-tab:', JSON.stringify(pubX));
 
   // Events-outbox scheduler (#20260809120000) — read-only capability
   // inventory. Secret VALUES never leave the database: booleans only.
@@ -326,6 +398,9 @@ try {
       if (m.version === '20260809120000' && (!before.dep.pgCron || !before.dep.pgNet)) {
         fail('pg_cron/pg_net not installed on production — #20260809120000 is fail-closed and would abort; enable both extensions (Dashboard -> Database -> Extensions) and re-run.');
       }
+      if (m.version === '20260809100000' && before.dep.trustShapeMismatches?.length) {
+        fail(`trust-side tables pre-exist with a divergent shape (${before.dep.trustShapeMismatches.join('; ')}) — CREATE TABLE IF NOT EXISTS would silently no-op and record a convergence that did not happen; refusing.`);
+      }
       console.log(`Applying #${m.version} (${m.name}, sha256:12 ${sum}) in one transaction…`);
       await client.query('BEGIN');
       try {
@@ -381,6 +456,17 @@ try {
       }
       if (missing.length) fail(`convergence recorded but columns missing: ${missing.join(', ')} — schema drift.`);
       console.log('ok  mechanic convergence contract: 10/10 columns present.');
+    }
+
+    // PartSentry review contract, fail-closed: whenever 20260710130000 is
+    // recorded, the table must exist — a ledger row without it is drift.
+    const { rows: psLedger } = await client.query(
+      "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260710130000'");
+    if (psLedger.length) {
+      const { rows: ps } = await client.query(
+        "select coalesce(to_regclass('public.partsentry_review_requests')::text,'ABSENT') t");
+      if (ps[0].t === 'ABSENT') fail('partsentry review migration recorded but the table is absent — drift, not success.');
+      console.log('ok  partsentry review contract: table present.');
     }
 
     // Events scheduler contract, fail-closed exactly like the two above:
