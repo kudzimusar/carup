@@ -26,7 +26,12 @@
  * MODE=e2e    → synthetic domain event through the live chain:
  *               domain_events → pg_cron → pg_net → /api/internal/events/process
  *               → worker auth → processing → notification/thread → processed.
- *               Synthetic rows are removed afterwards, pass or fail.
+ *               The synthetic event is addressed to a REAL users row whose
+ *               communication preferences permit a transactional in_app
+ *               notification. Every artifact it produces (audit events,
+ *               delivery attempts, notification, message, participant, thread,
+ *               outbox row) is removed afterwards, pass or fail, and the
+ *               removal is asserted across all eight tables.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -181,10 +186,164 @@ async function applyMigration(client) {
 }
 
 /**
+ * Deterministic ELIGIBLE synthetic recipient.
+ *
+ * Two constraints, both load-bearing:
+ *   1. notification_queue.recipient_id -> users(id) (FK), so the recipient must
+ *      be a real users row — a random UUID made the insert fail 23503 while the
+ *      thread had already been created (staging run 31434270413).
+ *   2. The user's platform-level communication preferences must permit a
+ *      TRANSACTIONAL IN_APP notification, otherwise selectChannels() returns []
+ *      and queueFromDomainEvent writes no notification_queue row at all — the
+ *      proof would then report a broken final hop against a healthy pipeline.
+ *
+ * Mirrors communicationPreferenceService exactly:
+ *   · no preferences row  => DEFAULT_PREFS (transactional_enabled true,
+ *     in_app_enabled true) => ELIGIBLE, so no row is ever created here;
+ *   · a persisted row gates it, and the code tests `transactional_enabled ===
+ *     false` / `in_app_enabled !== false`, so only literal FALSE blocks. The
+ *     predicate is therefore IS NOT FALSE, never = true (a NULL is permissive);
+ *   · getPreferences is called with tenantId = null for this synthetic event,
+ *     and the repository matches NULL with `.is(key, null)`, so ONLY a
+ *     tenant_id IS NULL row can gate it — hence the join scopes on that.
+ * Never modifies a real user's preferences.
+ */
+const ELIGIBLE_RECIPIENT_SQL = `
+  WITH eligible AS (
+    SELECT u.id
+      FROM users u
+      LEFT JOIN communication_preferences p
+             ON p.user_id = u.id
+            AND p.tenant_id IS NULL
+     WHERE p.id IS NULL
+        OR (p.transactional_enabled IS NOT FALSE AND p.in_app_enabled IS NOT FALSE)
+  )
+  SELECT (SELECT count(*) FROM eligible)::int          AS eligible_total,
+         (SELECT id FROM eligible ORDER BY id LIMIT 1) AS recipient_id`;
+
+/**
+ * Delete EVERY artifact the synthetic event produced, narrowly scoped to
+ * resolved ids, in FK-safe order — then prove zero residue.
+ *
+ * Why the previous three-statement teardown was wrong: once the live comms
+ * delivery cron claims the notification, `message_delivery_attempts.message_id
+ * -> messages.id` (NO ACTION) BLOCKS the thread's cascade into messages, so
+ * `DELETE FROM message_threads` raises 23503 and leaves message_threads,
+ * messages, message_participants, message_delivery_attempts and
+ * communication_audit_events all behind — while the old catch swallowed it as
+ * a warning and the run still reported PASS.
+ *
+ * Ordering constraints (from the live FK map): audit/attempt rows first (they
+ * hold the only handles and mda.message_id blocks messages) -> notification_queue
+ * (both its FKs are NO ACTION) -> escalations -> messages -> participants
+ * (messages.sender_participant_id is NO ACTION) -> threads -> domain_events
+ * last, since its payload is the only handle to the rest if a step fails.
+ *
+ * notification_queue.id is BIGINT while message_delivery_attempts.notification_id
+ * and communication_audit_events.notification_id are TEXT, hence the casts.
+ */
+async function purgeSynthetic(client, { eventId, inquiryId, label }) {
+  // STEP 0 — resolve at TEARDOWN time, never at insert time: the live cron can
+  // claim the notification mid-proof and create fresh artifacts.
+  const resolveIds = async () => {
+    const { rows } = await client.query(`
+      WITH t AS (
+        SELECT id FROM message_threads WHERE subject_id = $2
+      ), n AS (
+        SELECT q.id FROM notification_queue q
+         WHERE q.event_id = $1::text OR q.thread_id IN (SELECT id FROM t)
+      ), m AS (
+        SELECT msg.id FROM messages msg WHERE msg.thread_id IN (SELECT id FROM t)
+        UNION
+        SELECT q.message_id FROM notification_queue q
+         WHERE q.id IN (SELECT id FROM n) AND q.message_id IS NOT NULL
+      )
+      SELECT COALESCE((SELECT array_agg(id)       FROM t), '{}')::uuid[] AS thread_ids,
+             COALESCE((SELECT array_agg(id::text) FROM n), '{}')::text[] AS notification_ids,
+             COALESCE((SELECT array_agg(id)       FROM m), '{}')::uuid[] AS message_ids`,
+      [eventId, inquiryId]);
+    return rows[0];
+  };
+
+  // Each step declares the params it uses, in order: a statement must never be
+  // handed a parameter it does not reference (PostgreSQL cannot infer the type
+  // of an unused placeholder and raises 42P18).
+  const STEPS = [
+    // communication_audit_events has ZERO foreign keys — it cascades from
+    // nothing, so nothing else would ever remove these rows.
+    ['communication_audit_events', `DELETE FROM communication_audit_events
+        WHERE notification_id = ANY($1::text[]) OR thread_id = ANY($2::uuid[]) OR message_id = ANY($3::uuid[])`,
+      ['notificationIds', 'threadIds', 'messageIds']],
+    ['message_delivery_attempts', `DELETE FROM message_delivery_attempts
+        WHERE notification_id = ANY($1::text[]) OR message_id = ANY($2::uuid[])`,
+      ['notificationIds', 'messageIds']],
+    ['notification_queue', `DELETE FROM notification_queue
+        WHERE id = ANY($1::text[]::bigint[]) OR event_id = $2::text OR thread_id = ANY($3::uuid[])`,
+      ['notificationIds', 'eventId', 'threadIds']],
+    ['communication_escalations', `DELETE FROM communication_escalations WHERE thread_id = ANY($1::uuid[])`,
+      ['threadIds']],
+    ['messages', `DELETE FROM messages WHERE thread_id = ANY($1::uuid[]) OR id = ANY($2::uuid[])`,
+      ['threadIds', 'messageIds']],
+    ['message_participants', `DELETE FROM message_participants WHERE thread_id = ANY($1::uuid[])`,
+      ['threadIds']],
+    ['message_threads', `DELETE FROM message_threads WHERE id = ANY($1::uuid[]) OR subject_id = $2::text`,
+      ['threadIds', 'inquiryId']],
+    ['domain_events', `DELETE FROM domain_events WHERE id = $1::uuid`,
+      ['eventId']],
+  ];
+
+  const RESIDUE_SQL = `
+    SELECT 'domain_events' AS table_name, count(*)::int AS residual FROM domain_events WHERE id = $1::uuid
+    UNION ALL SELECT 'notification_queue',         count(*)::int FROM notification_queue         WHERE id = ANY($4::text[]::bigint[]) OR event_id = $1::text OR thread_id = ANY($3::uuid[])
+    UNION ALL SELECT 'message_threads',            count(*)::int FROM message_threads            WHERE id = ANY($3::uuid[]) OR subject_id = $2
+    UNION ALL SELECT 'messages',                   count(*)::int FROM messages                   WHERE thread_id = ANY($3::uuid[]) OR id = ANY($5::uuid[])
+    UNION ALL SELECT 'message_participants',       count(*)::int FROM message_participants       WHERE thread_id = ANY($3::uuid[])
+    UNION ALL SELECT 'message_delivery_attempts',  count(*)::int FROM message_delivery_attempts  WHERE notification_id = ANY($4::text[]) OR message_id = ANY($5::uuid[])
+    UNION ALL SELECT 'communication_audit_events', count(*)::int FROM communication_audit_events WHERE notification_id = ANY($4::text[]) OR thread_id = ANY($3::uuid[]) OR message_id = ANY($5::uuid[])
+    UNION ALL SELECT 'communication_escalations',  count(*)::int FROM communication_escalations  WHERE thread_id = ANY($3::uuid[])
+    ORDER BY 1`;
+
+  const sweep = async () => {
+    const ids = await resolveIds();
+    const bag = {
+      eventId,
+      inquiryId,
+      threadIds: ids.thread_ids,
+      notificationIds: ids.notification_ids,
+      messageIds: ids.message_ids,
+    };
+    const params = [eventId, inquiryId, ids.thread_ids, ids.notification_ids, ids.message_ids];
+    const removed = [];
+    for (const [table, sql, argNames] of STEPS) {
+      const r = await client.query(sql, argNames.map((n) => bag[n]));
+      if (r.rowCount) removed.push(`${table}=${r.rowCount}`);
+    }
+    // Assert on COUNTS, never on DELETE rowCount: RLS is enabled-not-forced on
+    // these tables, so a non-owner role would report 0 removed and look clean.
+    const { rows: residue } = await client.query(RESIDUE_SQL, params);
+    return { removed, residue, params };
+  };
+
+  let { removed, residue } = await sweep();
+  let leftover = residue.filter((r) => r.residual > 0);
+  if (leftover.length) {
+    // The live cron may have written fresh artifacts behind the first sweep.
+    console.log(`::warning::${label} residue after first sweep (${leftover.map((r) => `${r.table_name}=${r.residual}`).join(', ')}); re-sweeping once.`);
+    const second = await sweep();
+    removed = removed.concat(second.removed);
+    leftover = second.residue.filter((r) => r.residual > 0);
+  }
+  console.log(`cleanup ${label}: ${removed.length ? removed.join(' ') : 'nothing to remove'}`);
+  console.log(`cleanup ${label} zero-residue assertion: ${leftover.length ? 'FAIL ' + leftover.map((r) => `${r.table_name}=${r.residual}`).join(', ') : 'PASS (all 8 tables = 0)'}`);
+  return leftover;
+}
+
+/**
  * Synthetic end-to-end proof. Inserts one unmistakably synthetic
- * marketplace.inquiry.created outbox event (recipient is a random UUID that
- * exists nowhere; comms tables carry no user FK) and waits for the LIVE chain
- * to process it. Every synthetic row is deleted afterwards, pass or fail.
+ * marketplace.inquiry.created outbox event — addressed to a REAL, eligible
+ * users row (see ELIGIBLE_RECIPIENT_SQL) — and waits for the LIVE chain to
+ * process it. Every synthetic artifact is removed afterwards, pass or fail,
+ * and the removal is asserted across all eight affected tables.
  */
 async function proveEndToEnd(client) {
   const pre = await verifyCapability(client, true);
@@ -192,22 +351,24 @@ async function proveEndToEnd(client) {
     fail('e2e requires both Vault secrets (existence booleans above); run MODE=apply first.');
   }
 
-  // Purge synthetic residue from any earlier interrupted run before starting.
-  const { rowCount: purged } = await client.query(
-    "DELETE FROM domain_events WHERE payload->>'source_channel' = 'staging-e2e-synthetic'");
-  if (purged) console.log(`purged ${purged} stale synthetic event(s) from earlier runs`);
+  // Purge residue from any earlier interrupted run — resolving each stale
+  // event's comms artifacts FIRST. Deleting the domain_events row up front
+  // (as this once did) destroys payload->>'inquiryId', the only handle to that
+  // run's thread/messages/attempts/audit rows, orphaning them forever.
+  const { rows: stale } = await client.query(
+    "SELECT id, payload->>'inquiryId' AS inquiry_id FROM domain_events WHERE payload->>'source_channel' = 'staging-e2e-synthetic'");
+  for (const s of stale) {
+    await purgeSynthetic(client, { eventId: s.id, inquiryId: s.inquiry_id, label: `stale ${s.id}` });
+  }
+  if (stale.length) console.log(`purged ${stale.length} stale synthetic event(s) from earlier runs, artifacts included`);
 
   const inquiryId = randomUUID();
-  // The recipient MUST be a real users row: notification_queue carries
-  // notification_queue_recipient_id_fkey -> users(id). A random UUID made the
-  // notification insert fail with a 23503 while the thread had already been
-  // created, so the worker retried forever and the chain proof stalled one hop
-  // short (staging e2e run 31434270413). Resolved deterministically so the
-  // synthetic event exercises the SAME path a real event takes.
-  const { rows: recipRows } = await client.query('SELECT id FROM users ORDER BY id LIMIT 1');
-  if (!recipRows.length) fail('no users row exists to act as the synthetic recipient; cannot prove the notification hop.');
-  const recipient = recipRows[0].id;
-  console.log(`synthetic recipient resolved to an existing users row: ${recipient}`);
+  const { rows: recipRows } = await client.query(ELIGIBLE_RECIPIENT_SQL);
+  if (!recipRows[0].recipient_id) {
+    fail('no users row has communication preferences permitting a transactional in_app notification; cannot prove the notification hop. Add an eligible fixture user — do NOT edit a real user\'s preferences.');
+  }
+  const recipient = recipRows[0].recipient_id;
+  console.log(`synthetic recipient = ${recipient} (eligible for transactional in_app; ${recipRows[0].eligible_total} candidate(s) qualify)`);
   const timeoutS = Number(process.env.EVENTS_E2E_TIMEOUT_S || 180);
   const { rows: t0r } = await client.query('SELECT now() AS t0');
   const t0 = t0r[0].t0;
@@ -267,16 +428,13 @@ async function proveEndToEnd(client) {
       throw new Error(`END-TO-END: FAIL — final status '${finalStatus}', notifications ${notif[0].c}, threads ${thread[0].c}. See receipts above for the first broken hop.`);
     }
   } finally {
-    // Synthetic data never outlives the proof, pass or fail.
-    const del = async (label, sql, params) => {
-      try {
-        const r = await client.query(sql, params);
-        console.log(`cleanup ${label}: ${r.rowCount} row(s) removed`);
-      } catch (e) { console.log(`::warning::cleanup ${label} failed: ${e.message}`); }
-    };
-    await del('notification_queue', 'DELETE FROM notification_queue WHERE event_id=$1', [eventId]);
-    await del('message_threads(cascade)', 'DELETE FROM message_threads WHERE subject_id=$1', [inquiryId]);
-    await del('domain_events', 'DELETE FROM domain_events WHERE id=$1', [eventId]);
+    // Synthetic data never outlives the proof, pass or fail — across all eight
+    // affected tables, asserted, not assumed.
+    const leftover = await purgeSynthetic(client, { eventId, inquiryId, label: 'synthetic' });
+    if (leftover.length) {
+      console.log(`::error::synthetic residue survived cleanup: ${leftover.map((r) => `${r.table_name}=${r.residual}`).join(', ')}`);
+      process.exitCode = 1;
+    }
   }
 }
 
