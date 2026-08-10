@@ -236,12 +236,18 @@ async function inventoryDependencies(client) {
   const seqOk = !!seq[0].s;
   if (!seqOk) dep.trustShapeMismatches.push('trust_score_history.id has no backing sequence (runtime inserts omit id)');
   console.log(`${seqOk ? 'ok ' : 'MISMATCH'} trust_score_history.id backing sequence = ${seq[0].s || 'ABSENT'}`);
+  // Exact-column semantics (same conkey/pg_attribute shape as the
+  // vehicles.vin validation above): the constraint must cover vin ITSELF —
+  // a PK/UNIQUE on any other column would satisfy a bare existence count
+  // while the runtime's onConflict:'vin' upserts still fail.
   const { rows: vinPk } = await client.query(`
     select count(*)::int c from pg_constraint
-     where conrelid = to_regclass('public.rolling_integrity_checkpoints') and contype in ('p','u')`);
+     where conrelid = to_regclass('public.rolling_integrity_checkpoints') and contype in ('p','u')
+       and (select array_agg(attname::text) from unnest(conkey) k join pg_attribute a
+             on a.attrelid = conrelid and a.attnum = k) = array['vin']`);
   const vinPkOk = vinPk[0].c > 0;
-  if (!vinPkOk) dep.trustShapeMismatches.push("rolling_integrity_checkpoints.vin lacks PK/UNIQUE (runtime upserts onConflict:'vin')");
-  console.log(`${vinPkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints PK/UNIQUE present = ${vinPkOk}`);
+  if (!vinPkOk) dep.trustShapeMismatches.push("rolling_integrity_checkpoints.vin lacks a PK/UNIQUE covering exactly [vin] (runtime upserts onConflict:'vin')");
+  console.log(`${vinPkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints vin-exact PK/UNIQUE = ${vinPkOk}`);
 
   // Preflight-v2: pending domain_events distribution — the staleness evidence
   // for the scheduler-activation decision (the worker has no age cutoff).
@@ -491,7 +497,16 @@ try {
     if (trustLedger.length) {
       const gone = ['trust_score_history', 'rolling_integrity_checkpoints'].filter((t) => after.missingTables.includes(t));
       if (gone.length) fail(`trust side tables recorded but absent: ${gone.join(', ')} — schema drift.`);
-      console.log('ok  trust side tables present.');
+      // Shape contract, fail-closed on EVERY apply invocation including
+      // verify-only re-dispatches: a recorded 20260809100000 must never
+      // bypass validation of the expected columns/types/nullability, the
+      // trust_score_history.id backing sequence, and the vin-exact
+      // PK/UNIQUE. The pre-apply loop guard only protects a NOT-yet-recorded
+      // migration — its `continue` skips recorded versions entirely.
+      if (after.trustShapeMismatches?.length) {
+        fail(`trust-side migration recorded but the live shape diverges: ${after.trustShapeMismatches.join('; ')} — drift, not success.`);
+      }
+      console.log('ok  trust side tables present; shape contract (columns, id sequence, vin-exact PK/UNIQUE) matches.');
     }
     const { rows: hardLedger } = await client.query(
       "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260809110000'");
