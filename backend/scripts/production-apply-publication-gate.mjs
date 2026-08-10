@@ -9,7 +9,7 @@
  *                    depends on) so the owner sees the complete gap — not just
  *                    the slice these migrations cover — BEFORE authorizing
  *                    application. Writes nothing.
- *   MODE=apply     → applies the six migrations (PartSentry review table, publication-gate backfill,
+ *   MODE=apply     → applies the seven migrations (PartSentry review table, publication-gate backfill, trust-side convergence,
  *                    mechanic convergence, trust side tables, API-role write
  *                    hardening, events-outbox pg_cron scheduler), each in one
  *                    transaction with its official supabase_migrations row,
@@ -49,6 +49,16 @@ const MIGRATIONS = [
   { version: '20260710130000', name: '20260710130000_partsentry_review_requests.sql', sha12: 'b16c9228f152' },
   { version: '20260808140000', name: '20260808140000_publication_gate_backfill.sql', sha12: '8149450f6d8e' },
   { version: '20260808150000', name: '20260808150000_mechanic_work_orders_convergence.sql', sha12: '9d0bab867938' },
+  // Trust-side CONVERGENCE (production preflight-v2 run 31360753528 found
+  // both trust tables pre-existing with a legacy shape: three NOT NULLs to
+  // relax, TEXT "timestamp" -> timestamptz, INTEGER last_verified_event_id
+  // -> BIGINT NULL). Placed BEFORE 20260809100000 deliberately: convergence
+  // must fix an existing divergent shape first, so the fresh-create
+  // migration no-ops cleanly and the shape guard passes. On fresh databases
+  // every convergence step no-ops (tables absent) and 20260809100000 owns
+  // creation. Fail-closed: non-deterministic timestamp values or a
+  // still-divergent final shape RAISE and are never ledgered.
+  { version: '20260810120000', name: '20260810120000_trust_side_convergence.sql', sha12: 'e4acb4ea341b' },
   { version: '20260809100000', name: '20260809100000_trust_side_tables.sql', sha12: '8daf5a2fb89b' },
   { version: '20260809110000', name: '20260809110000_api_role_write_hardening.sql', sha12: 'ccdefddea654' },
   // Events-outbox pg_cron scheduler (seam-E). FAIL-CLOSED: the migration
@@ -104,7 +114,7 @@ function upSectionOf(m) {
 }
 
 // The FULL set of database surfaces the #139 runtime reads or writes, beyond
-// what the six migrations themselves touch. Applying migrations proves the
+// what the seven migrations themselves touch. Applying migrations proves the
 // mechanism; this inventory proves (or disproves) that production actually
 // holds everything else #139 assumes — the audit's Phase 8 finding was that
 // the two original migrations alone are NOT the entire requirement.
@@ -133,6 +143,63 @@ const DEP_CHECKS = [
 // API-role grant posture the hardening migration must produce (and preflight
 // reports as-is, so the owner sees production's exposure BEFORE apply).
 const POSTURE_TABLES = ['mechanic_work_orders', 'mechanic_parts', 'vehicle_ownership_history', 'vehicles', 'vehicle_evidence', 'trust_score_history', 'rolling_integrity_checkpoints'];
+
+const EXPECTED_TRUST_SHAPE = [
+  ['trust_score_history', 'id', 'bigint', 'NO'],
+  ['trust_score_history', 'entity_type', 'text', 'NO'],
+  ['trust_score_history', 'entity_id', 'text', 'NO'],
+  ['trust_score_history', 'previous_score', 'real', 'YES'],
+  ['trust_score_history', 'new_score', 'real', 'YES'],
+  ['trust_score_history', 'trigger_event', 'text', 'YES'],
+  ['trust_score_history', 'timestamp', 'timestamp with time zone', 'NO'],
+  ['rolling_integrity_checkpoints', 'vin', 'text', 'NO'],
+  ['rolling_integrity_checkpoints', 'last_verified_event_id', 'bigint', 'YES'],
+  ['rolling_integrity_checkpoints', 'rolling_hash', 'text', 'NO'],
+  ['rolling_integrity_checkpoints', 'verified_at', 'text', 'NO'],
+];
+
+/**
+ * LIVE trust-side shape report: the 11-column contract, the
+ * trust_score_history.id backing sequence, and the vin-exact PK/UNIQUE.
+ * A function (not a snapshot) because staleness is dangerous: the pre-apply
+ * guard for 20260809100000 must see the shape AFTER the in-manifest
+ * convergence migration has just run in the same apply loop.
+ */
+async function trustShapeReport(client) {
+  const lines = [];
+  const mismatches = [];
+  const { rows: ex } = await client.query(
+    "select to_regclass('public.trust_score_history') a, to_regclass('public.rolling_integrity_checkpoints') b");
+  const tablesExist = !!(ex[0].a || ex[0].b);
+  if (!tablesExist) return { tablesExist, mismatches, lines: ['trust tables absent (fresh database)'] };
+  const { rows: tcols } = await client.query(`
+    select table_name, column_name, data_type, is_nullable
+      from information_schema.columns
+     where table_schema='public' and table_name in ('trust_score_history','rolling_integrity_checkpoints')`);
+  const actual = new Map(tcols.map((r) => [`${r.table_name}.${r.column_name}`, r]));
+  for (const [t, col, type, nullable] of EXPECTED_TRUST_SHAPE) {
+    const a = actual.get(`${t}.${col}`);
+    const ok = a && a.data_type === type && a.is_nullable === nullable;
+    if (!ok) mismatches.push(`${t}.${col} expected ${type}/${nullable} got ${a ? `${a.data_type}/${a.is_nullable}` : 'ABSENT'}`);
+    lines.push(`${ok ? 'ok ' : 'MISMATCH'} trust shape ${t}.${col}${ok ? '' : ` (${a ? a.data_type + '/' + a.is_nullable : 'ABSENT'})`}`);
+  }
+  const { rows: seq } = await client.query(
+    "select pg_get_serial_sequence('public.trust_score_history','id') as s");
+  const seqOk = !!seq[0].s;
+  if (!seqOk) mismatches.push('trust_score_history.id has no backing sequence (runtime inserts omit id)');
+  lines.push(`${seqOk ? 'ok ' : 'MISMATCH'} trust_score_history.id backing sequence = ${seq[0].s || 'ABSENT'}`);
+  // Exact-column semantics (same conkey/pg_attribute shape as the
+  // vehicles.vin validation): the constraint must cover vin ITSELF.
+  const { rows: vinPk } = await client.query(`
+    select count(*)::int c from pg_constraint
+     where conrelid = to_regclass('public.rolling_integrity_checkpoints') and contype in ('p','u')
+       and (select array_agg(attname::text) from unnest(conkey) k join pg_attribute a
+             on a.attrelid = conrelid and a.attnum = k) = array['vin']`);
+  const vinPkOk = vinPk[0].c > 0;
+  if (!vinPkOk) mismatches.push("rolling_integrity_checkpoints.vin lacks a PK/UNIQUE covering exactly [vin] (runtime upserts onConflict:'vin')");
+  lines.push(`${vinPkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints vin-exact PK/UNIQUE = ${vinPkOk}`);
+  return { tablesExist, mismatches, lines };
+}
 
 async function inventoryDependencies(client) {
   console.log('── #139 dependency inventory ──');
@@ -201,53 +268,70 @@ async function inventoryDependencies(client) {
     console.log(`advisory domain_events pending = ${rows[0].v} (outbox drain health, informational)`);
   }
 
-  // Preflight-v2: trust-side table SHAPE introspection. Both tables ALREADY
-  // exist on production (preflight run 31354281570), so 20260809100000's
-  // CREATE TABLE IF NOT EXISTS silently no-ops — existence proves nothing
-  // about shape, and the runtime's supabase-js writers fail SILENTLY on a
-  // mismatched shape. Compare actual columns against the migration contract.
-  const EXPECTED_TRUST_SHAPE = [
-    ['trust_score_history', 'id', 'bigint', 'NO'],
-    ['trust_score_history', 'entity_type', 'text', 'NO'],
-    ['trust_score_history', 'entity_id', 'text', 'NO'],
-    ['trust_score_history', 'previous_score', 'real', 'YES'],
-    ['trust_score_history', 'new_score', 'real', 'YES'],
-    ['trust_score_history', 'trigger_event', 'text', 'YES'],
-    ['trust_score_history', 'timestamp', 'timestamp with time zone', 'NO'],
-    ['rolling_integrity_checkpoints', 'vin', 'text', 'NO'],
-    ['rolling_integrity_checkpoints', 'last_verified_event_id', 'bigint', 'YES'],
-    ['rolling_integrity_checkpoints', 'rolling_hash', 'text', 'NO'],
-    ['rolling_integrity_checkpoints', 'verified_at', 'text', 'NO'],
-  ];
-  dep.trustShapeMismatches = [];
-  const { rows: tcols } = await client.query(`
-    select table_name, column_name, data_type, is_nullable
-      from information_schema.columns
-     where table_schema='public' and table_name in ('trust_score_history','rolling_integrity_checkpoints')`);
-  const actual = new Map(tcols.map((r) => [`${r.table_name}.${r.column_name}`, r]));
-  for (const [t, col, type, nullable] of EXPECTED_TRUST_SHAPE) {
-    const a = actual.get(`${t}.${col}`);
-    const ok = a && a.data_type === type && a.is_nullable === nullable;
-    if (!ok) dep.trustShapeMismatches.push(`${t}.${col} expected ${type}/${nullable} got ${a ? `${a.data_type}/${a.is_nullable}` : 'ABSENT'}`);
-    console.log(`${ok ? 'ok ' : 'MISMATCH'} trust shape ${t}.${col}${ok ? '' : ` (${a ? a.data_type + '/' + a.is_nullable : 'ABSENT'})`}`);
+  // Preflight-v3: LIVE trust-side shape report (see trustShapeReport). Both
+  // tables pre-exist on production, so CREATE TABLE IF NOT EXISTS proves
+  // nothing about shape and the runtime's supabase-js writers fail SILENTLY
+  // on a mismatch.
+  const shape = await trustShapeReport(client);
+  dep.trustShapeMismatches = shape.mismatches;
+  dep.trustTablesExist = shape.tablesExist;
+  for (const line of shape.lines) console.log(line);
+
+  // Tri-level trust contract verdict: fresh-create / existing-table
+  // convergence / final runtime contract.
+  const { rows: convLedger } = await client.query(
+    "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260810120000'");
+  if (!shape.tablesExist) {
+    console.log('trust contract: FRESH-CREATE PATH — tables absent; 20260809100000 creates the canonical shape.');
+  } else if (shape.mismatches.length && !convLedger.length) {
+    console.log(`trust contract: EXISTING-TABLE CONVERGENCE REQUIRED — ${shape.mismatches.length} divergence(s); performed fail-closed by 20260810120000.`);
+  } else if (shape.mismatches.length) {
+    console.log('::warning::trust contract: convergence RECORDED but the live shape still diverges — apply mode fails closed on this.');
+  } else {
+    console.log('trust contract: FINAL RUNTIME CONTRACT MET.');
   }
-  const { rows: seq } = await client.query(
-    "select pg_get_serial_sequence('public.trust_score_history','id') as s");
-  const seqOk = !!seq[0].s;
-  if (!seqOk) dep.trustShapeMismatches.push('trust_score_history.id has no backing sequence (runtime inserts omit id)');
-  console.log(`${seqOk ? 'ok ' : 'MISMATCH'} trust_score_history.id backing sequence = ${seq[0].s || 'ABSENT'}`);
-  // Exact-column semantics (same conkey/pg_attribute shape as the
-  // vehicles.vin validation above): the constraint must cover vin ITSELF —
-  // a PK/UNIQUE on any other column would satisfy a bare existence count
-  // while the runtime's onConflict:'vin' upserts still fail.
-  const { rows: vinPk } = await client.query(`
-    select count(*)::int c from pg_constraint
-     where conrelid = to_regclass('public.rolling_integrity_checkpoints') and contype in ('p','u')
-       and (select array_agg(attname::text) from unnest(conkey) k join pg_attribute a
-             on a.attrelid = conrelid and a.attnum = k) = array['vin']`);
-  const vinPkOk = vinPk[0].c > 0;
-  if (!vinPkOk) dep.trustShapeMismatches.push("rolling_integrity_checkpoints.vin lacks a PK/UNIQUE covering exactly [vin] (runtime upserts onConflict:'vin')");
-  console.log(`${vinPkOk ? 'ok ' : 'MISMATCH'} rolling_integrity_checkpoints vin-exact PK/UNIQUE = ${vinPkOk}`);
+
+  // Convergence compatibility probe (read-only): the evidence reviewed
+  // BEFORE authorizing the 20260810120000 conversion. RLS state and grants
+  // for both tables are already printed by the posture block above.
+  if (shape.tablesExist) {
+    const { rows: pr } = await client.query(`
+      select
+        (select count(*)::int from trust_score_history)                                as tsh_rows,
+        (select count(*)::int from trust_score_history where previous_score is null)  as previous_score_nulls,
+        (select count(*)::int from trust_score_history where new_score is null)       as new_score_nulls,
+        (select count(*)::int from trust_score_history where trigger_event is null)   as trigger_event_nulls,
+        (select count(*)::int from rolling_integrity_checkpoints)                     as ric_rows,
+        (select min(last_verified_event_id)::text from rolling_integrity_checkpoints) as event_id_min,
+        (select max(last_verified_event_id)::text from rolling_integrity_checkpoints) as event_id_max`);
+    console.log('convergence probe counts:', JSON.stringify(pr[0]));
+    const { rows: tsCensus } = await client.query(`
+      select case
+               when "timestamp" is null then 'null'
+               when "timestamp"::text ~ '(Z|[+-][0-9]{2}(:?[0-9]{2})?)[[:space:]]*$' then 'zone_suffixed'
+               else 'NO_EXPLICIT_ZONE'
+             end as fmt, count(*)::int c
+        from trust_score_history group by 1 order by 1`);
+    console.log('convergence probe timestamp census (NO_EXPLICIT_ZONE rows fail the conversion closed):', JSON.stringify(tsCensus));
+    const { rows: defs } = await client.query(`
+      select table_name, column_name, column_default from information_schema.columns
+       where table_schema='public' and table_name in ('trust_score_history','rolling_integrity_checkpoints')
+         and column_default is not null order by 1, 2`);
+    console.log('convergence probe defaults:', JSON.stringify(defs));
+    const { rows: cons } = await client.query(`
+      select conrelid::regclass::text as tab, conname, contype,
+             (select array_agg(attname::text order by attname) from unnest(conkey) k join pg_attribute a
+               on a.attrelid = conrelid and a.attnum = k) as cols
+        from pg_constraint
+       where conrelid in (to_regclass('public.trust_score_history'), to_regclass('public.rolling_integrity_checkpoints'))
+       order by 1, 2`);
+    console.log('convergence probe constraints:', JSON.stringify(cons));
+    const { rows: idx } = await client.query(`
+      select tablename, indexname from pg_indexes
+       where schemaname='public' and tablename in ('trust_score_history','rolling_integrity_checkpoints')
+       order by 1, 2`);
+    console.log('convergence probe indexes:', JSON.stringify(idx));
+  }
 
   // Preflight-v2: pending domain_events distribution — the staleness evidence
   // for the scheduler-activation decision (the worker has no age cutoff).
@@ -404,8 +488,14 @@ try {
       if (m.version === '20260809120000' && (!before.dep.pgCron || !before.dep.pgNet)) {
         fail('pg_cron/pg_net not installed on production — #20260809120000 is fail-closed and would abort; enable both extensions (Dashboard -> Database -> Extensions) and re-run.');
       }
-      if (m.version === '20260809100000' && before.dep.trustShapeMismatches?.length) {
-        fail(`trust-side tables pre-exist with a divergent shape (${before.dep.trustShapeMismatches.join('; ')}) — CREATE TABLE IF NOT EXISTS would silently no-op and record a convergence that did not happen; refusing.`);
+      if (m.version === '20260809100000') {
+        // Recomputed LIVE, not from the pre-apply snapshot: the convergence
+        // migration (20260810120000, earlier in this manifest) may have just
+        // fixed the shape within this very apply loop.
+        const live = await trustShapeReport(client);
+        if (live.tablesExist && live.mismatches.length) {
+          fail(`trust-side tables pre-exist with a divergent shape (${live.mismatches.join('; ')}) — 20260810120000 should have converged them first; CREATE TABLE IF NOT EXISTS would silently no-op and record a convergence that did not happen; refusing.`);
+        }
       }
       console.log(`Applying #${m.version} (${m.name}, sha256:12 ${sum}) in one transaction…`);
       await client.query('BEGIN');
@@ -492,8 +582,12 @@ try {
     // the trust/hardening migrations are recorded, the posture they promise
     // must actually hold — a ledger row without the posture is drift.
     const after = post.dep;
+    // FINAL RUNTIME CONTRACT: once EITHER trust migration (fresh-create
+    // 20260809100000 or convergence 20260810120000) is recorded, the live
+    // shape must match exactly — on every apply invocation, including
+    // verify-only re-dispatches.
     const { rows: trustLedger } = await client.query(
-      "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version='20260809100000'");
+      "SELECT 1 FROM supabase_migrations.schema_migrations WHERE version IN ('20260809100000','20260810120000')");
     if (trustLedger.length) {
       const gone = ['trust_score_history', 'rolling_integrity_checkpoints'].filter((t) => after.missingTables.includes(t));
       if (gone.length) fail(`trust side tables recorded but absent: ${gone.join(', ')} — schema drift.`);
