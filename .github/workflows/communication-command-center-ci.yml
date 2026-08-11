@@ -144,10 +144,10 @@ jobs:
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::error::No VERCEL_TOKEN or VERCEL_ACCESS_TOKEN repository secret is available for exact-head staging deployment."
-            exit 1
+            echo "::notice::No repository Vercel CLI token is available. Exact-head stable-staging deployment remains an authenticated owner/operator gate; no deployment write was attempted."
           fi
       - name: Deploy exact head to backend STAGING project production target
+        if: steps.vercel-auth.outputs.available == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
           VERCEL_PROJECT_ID: ${{ env.BACKEND_STAGING_PROJECT_ID }}
@@ -155,6 +155,7 @@ jobs:
           set -euo pipefail
           npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
       - name: Deploy exact head to frontend STAGING project production target
+        if: steps.vercel-auth.outputs.available == 'true'
         env:
           VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
           VERCEL_PROJECT_ID: ${{ env.FRONTEND_STAGING_PROJECT_ID }}
@@ -163,5 +164,9 @@ jobs:
           npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
       - name: Record staging-only safety boundary
         run: |
-          echo "Deployed only to carup-backend-staging and carup-staging project IDs."
+          if [ "${{ steps.vercel-auth.outputs.available }}" = "true" ]; then
+            echo "Deployment lane targeted only carup-backend-staging and carup-staging project IDs."
+          else
+            echo "Deployment not attempted: authenticated Vercel owner/operator action remains required."
+          fi
           echo "No carup-backend or carup production project ID is present in this job."
