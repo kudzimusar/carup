@@ -14,6 +14,7 @@ const BASE = '../../../database/migrations/20260623143000_omnichannel_communicat
 const CORE = '../../../database/migrations/20260811131500_communications_2_conversation_core.sql';
 const MONOTONIC = '../../../database/migrations/20260811131600_communications_2_delivery_monotonicity.sql';
 const WORKFLOW = '../../../database/migrations/20260811131700_communications_2_workflow_template_foundations.sql';
+const AUTH_HARDENING = '../../../database/migrations/20260811131800_communications_2_participant_auth_hardening.sql';
 
 const readSql = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const upSection = (sql) => sql.split('-- +migrate Down')[0];
@@ -25,6 +26,7 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   await client.connect();
 
   async function downCommunications2() {
+    await client.query(downSection(readSql(AUTH_HARDENING)));
     await client.query(downSection(readSql(WORKFLOW)));
     await client.query(downSection(readSql(MONOTONIC)));
     await client.query(downSection(readSql(CORE)));
@@ -34,6 +36,7 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
     await client.query(upSection(readSql(CORE)));
     await client.query(upSection(readSql(MONOTONIC)));
     await client.query(upSection(readSql(WORKFLOW)));
+    await client.query(upSection(readSql(AUTH_HARDENING)));
   }
 
   t.after(async () => {
@@ -61,31 +64,48 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
     assert.equal(conversationType.rows.length, 1);
     const templates = await client.query(`SELECT template_key FROM public.communication_templates`);
     assert.ok(templates.rows.length >= 10, 'stakeholder template registry is seeded');
+
+    const currentUserHelper = await client.query(`
+      SELECT count(*)::int c
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='communication_is_thread_participant'
+        AND pg_get_function_identity_arguments(p.oid)='p_thread_id uuid'`);
+    const arbitraryUserHelper = await client.query(`
+      SELECT count(*)::int c
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname='communication_is_thread_participant'
+        AND pg_get_function_identity_arguments(p.oid)='p_thread_id uuid, p_user_id text'`);
+    assert.equal(currentUserHelper.rows[0].c, 1, 'current-user-only participant helper must exist');
+    assert.equal(arbitraryUserHelper.rows[0].c, 0, 'arbitrary-user membership probe must not survive hardening');
   });
 
-  await t.test('legacy primary user is backfilled and participant authorization helper works', async () => {
-    // Backfill is migration-time, so create a legacy thread then re-apply only the
-    // additive Communications 2.0 layer around it.
+  await t.test('legacy primary user is backfilled and participant authorization helper is bound to auth.uid', async () => {
     await downCommunications2();
+    const userId = '11111111-1111-4111-8111-111111111111';
+    const otherUserId = '22222222-2222-4222-8222-222222222222';
     const { rows: inserted } = await client.query(`
       INSERT INTO public.message_threads
         (tenant_id, thread_key, thread_type, status, primary_channel, primary_user_id)
-      VALUES ('tenantA','legacy-c2','support','open','in_app','legacy-user') RETURNING id`);
+      VALUES ('tenantA','legacy-c2','support','open','in_app',$1) RETURNING id`, [userId]);
     await upCommunications2();
 
     const threadId = inserted[0].id;
     const { rows: participant } = await client.query(`
       SELECT user_id, stakeholder_role, permissions
       FROM public.message_participants
-      WHERE thread_id=$1 AND user_id='legacy-user'`, [threadId]);
+      WHERE thread_id=$1 AND user_id=$2`, [threadId, userId]);
     assert.equal(participant.length, 1);
     assert.equal(participant[0].stakeholder_role, 'legacy_primary');
     assert.equal(participant[0].permissions.read, true);
 
-    const { rows: authorized } = await client.query(`SELECT public.communication_is_thread_participant($1,$2) AS allowed`, [threadId, 'legacy-user']);
-    const { rows: denied } = await client.query(`SELECT public.communication_is_thread_participant($1,$2) AS allowed`, [threadId, 'not-a-participant']);
+    await client.query("SELECT set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: userId })]);
+    const { rows: authorized } = await client.query(`SELECT public.communication_is_thread_participant($1) AS allowed`, [threadId]);
     assert.equal(authorized[0].allowed, true);
+
+    await client.query("SELECT set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: otherUserId })]);
+    const { rows: denied } = await client.query(`SELECT public.communication_is_thread_participant($1) AS allowed`, [threadId]);
     assert.equal(denied[0].allowed, false);
+    await client.query("SELECT set_config('request.jwt.claims','{}',false)");
   });
 
   await t.test('conversation bindings keep transactional and marketing consent separate', async () => {
