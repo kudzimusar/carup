@@ -11,8 +11,11 @@ import { useCarUpApi } from '@/hooks/useCarUpApi'
 import {
   useCommunicationProductApi,
   type CommunicationAiDerivation,
+  type CommunicationMessagePart,
   type CommunicationProductAnalytics,
 } from '@/hooks/useCommunicationProductApi'
+import { CommunicationMessagePartView } from '@/components/communications/CommunicationMessagePartView'
+import { CommunicationMultimodalComposer } from '@/components/communications/CommunicationMultimodalComposer'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
 type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
@@ -31,6 +34,7 @@ type ConversationMessage = ThreadDetail['messages'][number] & {
   text?: string
   author?: { id?: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean } | null
   ai_generated?: boolean
+  parts?: CommunicationMessagePart[]
 }
 
 type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
@@ -41,6 +45,7 @@ type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
 }
 
 type ConversationFilter = 'all' | 'unread' | 'marketplace' | 'support' | 'other'
+type AiAction = 'suggest' | 'summary' | 'translate' | 'next'
 
 function threadLabel(thread: ConversationThread) {
   if (thread.business_workflow === 'marketplace' || thread.thread_type === 'marketplace_inquiry') return 'Marketplace conversation'
@@ -78,6 +83,7 @@ export default function Communications() {
     suggestReply,
     summarize,
     translate,
+    nextBestAction,
   } = useCommunicationProductApi()
 
   const [threads, setThreads] = useState<ConversationThread[]>([])
@@ -146,6 +152,13 @@ export default function Communications() {
     setAiAvailable(Boolean(health.ai?.available))
   }, [fetchAnalytics, fetchAiHealth, fetchCommunicationNotifications, fetchCommunicationPreferences])
 
+  const refreshActiveConversation = useCallback(async () => {
+    if (!activeId) return
+    const refreshed = await fetchCommunicationThread(activeId)
+    setDetail(refreshed as ConversationDetail)
+    await Promise.all([loadThreads(), loadSideData()])
+  }, [activeId, fetchCommunicationThread, loadSideData, loadThreads])
+
   useEffect(() => {
     void loadThreads()
     void loadSideData()
@@ -176,9 +189,7 @@ export default function Communications() {
     setStatus('Sending…')
     try {
       await sendCommunicationMessage(activeId, { channel: 'in_app', message: message.trim() })
-      const refreshed = await fetchCommunicationThread(activeId)
-      setDetail(refreshed as ConversationDetail)
-      await Promise.all([loadThreads(), loadSideData()])
+      await refreshActiveConversation()
       setMessage('')
       setAiResult(null)
       setStatus('Sent through CarUp')
@@ -187,7 +198,7 @@ export default function Communications() {
     }
   }
 
-  async function runAi(kind: 'suggest' | 'summary' | 'translate') {
+  async function runAi(kind: AiAction) {
     if (!activeId || !aiAvailable) return
     if (kind === 'translate' && (!latestMessage?.id || !targetLanguage.trim())) return
     setAiBusy(kind)
@@ -197,11 +208,15 @@ export default function Communications() {
         ? await suggestReply(activeId, latestMessage?.id || null)
         : kind === 'summary'
           ? await summarize(activeId)
-          : await translate(activeId, String(latestMessage?.id), targetLanguage.trim())
+          : kind === 'translate'
+            ? await translate(activeId, String(latestMessage?.id), targetLanguage.trim())
+            : await nextBestAction(activeId)
       setAiResult(response.derivation)
       if (kind === 'suggest' && response.derivation.output_text) {
         setMessage(response.derivation.output_text)
         setStatus('AI suggestion loaded — review it before sending.')
+      } else if (kind === 'next') {
+        setStatus('Next action is advisory only — no action was executed.')
       }
       const analyticsRes = await fetchAnalytics().catch(() => null)
       if (analyticsRes?.analytics) setAnalytics(analyticsRes.analytics)
@@ -234,13 +249,7 @@ export default function Communications() {
             <CardTitle className="flex items-center gap-2 text-base"><MessageSquare className="h-5 w-5 text-orange-500" /> Conversations</CardTitle>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search conversations"
-                className="pl-9"
-                data-testid="communication-search"
-              />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" className="pl-9" data-testid="communication-search" />
             </div>
             <select
               value={filter}
@@ -258,13 +267,9 @@ export default function Communications() {
           </CardHeader>
           <CardContent className="space-y-2 px-3">
             {threads.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">
-                No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.
-              </div>
+              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.</div>
             ) : filteredThreads.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">
-                No conversations match this search or filter.
-              </div>
+              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">No conversations match this search or filter.</div>
             ) : filteredThreads.map((thread) => {
               const latest = thread.latest_message?.text || thread.latest_message_text || 'No messages yet'
               const selected = thread.id === activeId
@@ -293,15 +298,11 @@ export default function Communications() {
 
         <Card className="border-0 card-shadow">
           <CardHeader className="border-b pb-3">
-            <CardTitle className="text-base">
-              {detail ? threadLabel(detail.thread as ConversationThread) : 'Select a conversation'}
-            </CardTitle>
+            <CardTitle className="text-base">{detail ? threadLabel(detail.thread as ConversationThread) : 'Select a conversation'}</CardTitle>
             {detail && (
               <div className="space-y-1 text-xs text-gray-500">
                 {participantLabel(detail) && <p>With {participantLabel(detail)}</p>}
-                {(detail.thread as ConversationThread).marketplace_listing_id && (
-                  <p>Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>
-                )}
+                {(detail.thread as ConversationThread).marketplace_listing_id && <p>Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>}
               </div>
             )}
           </CardHeader>
@@ -318,11 +319,12 @@ export default function Communications() {
                   <div key={item.id} className={`flex ${self ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${self ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
                       {!self && item.author && (
-                        <p className="mb-1 text-[11px] font-semibold opacity-70">
-                          {item.author.display_name || item.author.stakeholder_role || 'Participant'}
-                        </p>
+                        <p className="mb-1 text-[11px] font-semibold opacity-70">{item.author.display_name || item.author.stakeholder_role || 'Participant'}</p>
                       )}
-                      <p className="whitespace-pre-wrap text-sm">{text}</p>
+                      {text && <p className="whitespace-pre-wrap text-sm">{text}</p>}
+                      {(item.parts || []).map((part) => (
+                        <CommunicationMessagePartView key={part.id} threadId={String(activeId)} part={part} onDerived={setAiResult} />
+                      ))}
                       <div className="mt-1 flex items-center gap-2 text-[10px] opacity-60">
                         <span>{item.channel || 'CarUp'}</span>
                         {item.ai_generated && <span>AI-derived</span>}
@@ -337,15 +339,14 @@ export default function Communications() {
             {aiResult?.output_text && (
               <div className="mx-4 mb-3 rounded-xl border border-dashed bg-gray-50 p-3" data-testid="communication-ai-derived">
                 <div className="mb-1 flex items-center gap-2 text-xs font-semibold">
-                  <Sparkles className="h-4 w-4 text-orange-500" />
-                  AI-derived {aiResult.derivation_type.replaceAll('_', ' ')}
+                  <Sparkles className="h-4 w-4 text-orange-500" /> AI-derived {aiResult.derivation_type.replaceAll('_', ' ')}
                 </div>
                 <p className="whitespace-pre-wrap text-sm text-gray-700">{aiResult.output_text}</p>
-                <p className="mt-2 text-[11px] text-gray-500">Derived assistance only. The original conversation remains unchanged.</p>
+                <p className="mt-2 text-[11px] text-gray-500">Derived assistance only. The original conversation or artifact remains unchanged.</p>
               </div>
             )}
 
-            {detail && (
+            {detail && activeId && (
               <div className="border-t p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <Button type="button" size="sm" variant="outline" disabled={!aiAvailable || Boolean(aiBusy)} onClick={() => void runAi('suggest')}>
@@ -353,6 +354,9 @@ export default function Communications() {
                   </Button>
                   <Button type="button" size="sm" variant="outline" disabled={!aiAvailable || Boolean(aiBusy)} onClick={() => void runAi('summary')}>
                     {aiBusy === 'summary' ? 'Summarizing…' : 'Summarize'}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" disabled={!aiAvailable || Boolean(aiBusy)} onClick={() => void runAi('next')}>
+                    {aiBusy === 'next' ? 'Thinking…' : 'Next action'}
                   </Button>
                   <div className="flex min-w-[210px] flex-1 items-center gap-2">
                     <Input value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)} placeholder="Translation language" className="h-9" />
@@ -363,19 +367,23 @@ export default function Communications() {
                   {!aiAvailable && <span className="text-[11px] text-gray-500">AI assist activates when the configured provider is available.</span>}
                 </div>
 
-                <Textarea
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Reply in CarUp…"
-                  rows={3}
-                  data-testid="communication-reply-text"
-                />
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <p className="text-xs text-gray-500">AI suggestions never send automatically. CarUp keeps the canonical conversation even when delivery continues through WhatsApp or another permitted channel.</p>
+                <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Reply in CarUp…" rows={3} data-testid="communication-reply-text" />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <CommunicationMultimodalComposer
+                    threadId={activeId}
+                    caption={message}
+                    onStatus={setStatus}
+                    onSent={async () => {
+                      await refreshActiveConversation()
+                      setMessage('')
+                      setAiResult(null)
+                    }}
+                  />
                   <Button onClick={submitReply} disabled={!message.trim()} className="shrink-0 gap-2" data-testid="communication-reply-send">
                     <Send className="h-4 w-4" /> Reply
                   </Button>
                 </div>
+                <p className="mt-2 text-xs text-gray-500">Attach images, documents, audio/video, a voice note or location without leaving the canonical CarUp conversation. AI suggestions and media interpretations never send or execute automatically.</p>
                 {status && <p className="mt-2 text-xs text-gray-500">{status}</p>}
               </div>
             )}
@@ -396,6 +404,9 @@ export default function Communications() {
                     <div className="rounded-lg bg-gray-50 p-2"><p className="text-lg font-semibold">{analytics.conversations.conversion_rate_pct}%</p><p className="text-[11px] text-gray-500">Conversion</p></div>
                     <div className="rounded-lg bg-gray-50 p-2"><p className="text-lg font-semibold">{analytics.delivery.success_rate_pct}%</p><p className="text-[11px] text-gray-500">Delivery success</p></div>
                   </div>
+                  {analytics.response_time && <div className="flex items-center justify-between text-xs text-gray-500"><span>Median first response</span><span>{analytics.response_time.median_minutes} min</span></div>}
+                  {analytics.marketplace && <div className="flex items-center justify-between text-xs text-gray-500"><span>Marketplace next step</span><span>{analytics.marketplace.inquiry_to_next_step_pct}%</span></div>}
+                  {analytics.campaigns && <div className="flex items-center justify-between text-xs text-gray-500"><span>Campaign conversions</span><span>{analytics.campaigns.converted}</span></div>}
                   <div className="flex items-center justify-between text-xs text-gray-500"><span>AI assists</span><span>{analytics.ai.derivations}</span></div>
                   <div className="flex items-center justify-between text-xs text-gray-500"><span>Failed deliveries</span><span>{analytics.delivery.failed}</span></div>
                   <p className="text-[10px] text-gray-400">Operational analytics are derived from canonical conversation, attribution and delivery events.</p>

@@ -34,6 +34,19 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
   async getConversation(threadId, actor = {}) {
     const detail = await super.getConversation(threadId, actor);
     const thread = await this.repository.findOne('message_threads', { id: threadId });
+    const messageIds = (detail.messages || []).map((message) => message.id).filter(Boolean);
+    const parts = messageIds.length
+      ? await this.repository.list('message_parts', { message_id: messageIds }).catch(() => [])
+      : [];
+    const byMessage = new Map();
+    for (const part of parts) {
+      if (!byMessage.has(part.message_id)) byMessage.set(part.message_id, []);
+      byMessage.get(part.message_id).push(part);
+    }
+    const messages = (detail.messages || []).map((message) => ({
+      ...message,
+      parts: (byMessage.get(message.id) || []).sort((a, b) => Number(a.part_index || 0) - Number(b.part_index || 0)),
+    }));
 
     const readParticipant = await this.markRead(threadId, actor).catch(() => null);
     return {
@@ -42,6 +55,7 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
         ...detail.thread,
         conversation_type: thread?.conversation_type || detail.thread.conversation_type || detail.thread.thread_type,
       },
+      messages,
       read_at: readParticipant?.last_read_at || null,
     };
   }

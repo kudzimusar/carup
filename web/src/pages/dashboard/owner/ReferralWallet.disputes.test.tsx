@@ -73,7 +73,6 @@ describe('ReferralWallet dispute visibility (Stage-4 remediation B)', () => {
   it('does not render a dispute panel for a benefit with no dispute', async () => {
     getOwnerReferralDisputes.mockResolvedValue({ disputes: [] })
     renderPage()
-    // Wallet renders; no dispute panel for tx-1.
     await waitFor(() => expect(getOwnerReferralDisputes).toHaveBeenCalled())
     expect(screen.queryByTestId(`dispute-status-${walletTx.id}`)).toBeNull()
   })
@@ -81,7 +80,6 @@ describe('ReferralWallet dispute visibility (Stage-4 remediation B)', () => {
   it('degrades safely when the dispute API fails (wallet still renders, no crash)', async () => {
     getOwnerReferralDisputes.mockRejectedValue(new Error('boom'))
     renderPage()
-    // The wallet benefit row still renders even though the dispute fetch rejected.
     await waitFor(() => expect(getOwnerReferralDisputes).toHaveBeenCalled())
     expect(screen.getAllByText(/Local marketplace referral converted/).length).toBeGreaterThan(0)
     expect(screen.queryByTestId(`dispute-status-${walletTx.id}`)).toBeNull()
@@ -89,27 +87,19 @@ describe('ReferralWallet dispute visibility (Stage-4 remediation B)', () => {
 
   it('renders distinct safe transaction labels for same-type pending benefits', async () => {
     walletTransactions = [
-      {
-        ...walletTx,
-        id: 'wallet-tx-public-suffix-09f8',
-        amount: 5,
-        created_at: '2026-07-16T22:53:00.000Z',
-        wallet_id: 'internal-wallet-id-should-not-render',
-        metadata: { admin_notes: 'confidential risk note', risk_score: 91 },
-      },
-      {
-        ...walletTx,
-        id: 'wallet-tx-public-suffix-44aa',
-        amount: 10,
-        created_at: '2026-07-17T08:01:00.000Z',
-      },
+      { ...walletTx, id: 'wallet-tx-public-suffix-09f8', amount: 5, created_at: '2026-07-16T22:53:00.000Z', wallet_id: 'internal-wallet-id-should-not-render', metadata: { admin_notes: 'confidential risk note', risk_score: 91 } },
+      { ...walletTx, id: 'wallet-tx-public-suffix-44aa', amount: 10, created_at: '2026-07-17T08:01:00.000Z' },
     ]
     renderPage()
     const select = await screen.findByTestId('referral-dispute-transaction-select') as HTMLSelectElement
+
+    await waitFor(() => {
+      const populated = Array.from(select.options).map((option) => option.textContent || '')
+      expect(populated.some((label) => label.includes('USD 5'))).toBe(true)
+      expect(populated.some((label) => label.includes('USD 10'))).toBe(true)
+    })
     const labels = Array.from(select.options).map((option) => option.textContent || '')
 
-    expect(labels.some((label) => label.includes('USD 5'))).toBe(true)
-    expect(labels.some((label) => label.includes('USD 10'))).toBe(true)
     expect(labels.some((label) => label.includes('pending'))).toBe(true)
     expect(labels.some((label) => label.includes('2026') || label.includes('07/16') || label.includes('16/07'))).toBe(true)
     expect(labels.some((label) => label.includes('…09f8'))).toBe(true)
@@ -135,7 +125,6 @@ describe('ReferralWallet dispute visibility (Stage-4 remediation B)', () => {
   it('source: fetches owner disputes and refetches after filing', () => {
     expect(SRC).toMatch(/getOwnerReferralDisputes/)
     expect(SRC).toMatch(/loadDisputes/)
-    // owner-safe resolution surfaced, raw admin note never referenced
     expect(SRC).toMatch(/owner_safe_resolution/)
     expect(SRC).not.toMatch(/resolution_reason/)
   })

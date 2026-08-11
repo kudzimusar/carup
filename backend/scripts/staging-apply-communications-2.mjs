@@ -1,19 +1,10 @@
-/**
- * CarUp Communications 2.0 staging-only migration runner.
+/** CarUp Communications 2.0 canonical staging-only migration runner.
  *
- * MODE=verify (default): read-only identity/prerequisite/contract inspection.
- * MODE=apply: applies the frozen Communications 2.0 migrations to canonical staging
- * only, one transaction per migration together with its official migration-history row,
- * then verifies the resulting contract.
+ * MODE=verify (default): read-only identity/prerequisite/Phase 0-7 contract inspection.
+ * MODE=apply: applies the frozen Communications 2.0 migration chain to canonical staging only.
  *
- * Safety invariants:
- *  - URL must positively contain the approved CarUp staging project ref;
- *  - no production project ref is accepted or embedded as a target;
- *  - reviewed migration bytes are checked by frozen Git blob SHA before DB connect;
- *  - no connection string or secret is printed;
- *  - TLS verification remains enabled;
- *  - already-recorded migrations are never re-applied;
- *  - missing base Communications/Marketplace tables fail closed.
+ * Safety: positive staging-ref guard, exact Git-blob bytes before connect, TLS verification,
+ * migration ledger transaction per version, no production target, no secret output.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -33,6 +24,7 @@ const MIGRATIONS = [
   { version: '20260811132000', name: '20260811132000_communications_2_template_runtime_registry.sql', gitBlobSha: '2177549f496b5255de8d0948fa22dd2531a4d5c1' },
   { version: '20260811132100', name: '20260811132100_communications_2_reliability_closure.sql', gitBlobSha: 'c85f301269a27fe29caa7ad8faec47cd27d95c67' },
   { version: '20260811132200', name: '20260811132200_communications_2_product_capabilities.sql', gitBlobSha: 'f32dfdb1eb82c3ab70cecaef0b279f55b495575f' },
+  { version: '20260811132300', name: '20260811132300_communications_2_completion.sql', gitBlobSha: '26ad08fd698bf919995c499839741051b7a6aedb' },
 ];
 
 function fail(message) {
@@ -40,7 +32,7 @@ function fail(message) {
   process.exit(1);
 }
 
-if (!url) fail('COMMUNICATION_STAGING_DATABASE_URL (or the existing DIASPORA_STAGING_DATABASE_URL staging operator secret) is not set.');
+if (!url) fail('COMMUNICATION_STAGING_DATABASE_URL (or existing DIASPORA_STAGING_DATABASE_URL) is not set.');
 if (!url.includes(STAGING_REF)) fail(`database URL does not positively reference approved CarUp staging project ${STAGING_REF}; refusing.`);
 
 function gitBlobSha(content) {
@@ -52,18 +44,15 @@ function readFrozenMigration(migration) {
   const path = fileURLToPath(new URL(`../../database/migrations/${migration.name}`, import.meta.url));
   const sql = readFileSync(path, 'utf8');
   const actual = gitBlobSha(sql);
-  if (actual !== migration.gitBlobSha) {
-    fail(`${migration.name} Git blob SHA ${actual} != frozen ${migration.gitBlobSha}; reviewed migration bytes drifted.`);
-  }
-  const up = sql.split(/^-- \+migrate Down/m)[0].replace(/^-- \+migrate Up\s*/m, '');
-  return { up, actual };
+  if (actual !== migration.gitBlobSha) fail(`${migration.name} Git blob SHA ${actual} != frozen ${migration.gitBlobSha}; reviewed bytes drifted.`);
+  return { up: sql.split(/^-- \+migrate Down/m)[0].replace(/^-- \+migrate Up\s*/m, ''), actual };
 }
 
 const frozenMigrations = MIGRATIONS.map((migration) => ({ ...migration, ...readFrozenMigration(migration) }));
 
 function tlsConfig() {
   const supplied = process.env.DIASPORA_STAGING_CA_CERT || process.env.COMMUNICATION_STAGING_CA_CERT;
-  if (supplied && supplied.includes('BEGIN CERTIFICATE')) {
+  if (supplied?.includes('BEGIN CERTIFICATE')) {
     console.log('TLS: verifying with configured staging CA trust anchor.');
     return { rejectUnauthorized: true, ca: supplied };
   }
@@ -73,16 +62,13 @@ function tlsConfig() {
       console.log('TLS: verifying with bundled Supabase Root 2021 CA.');
       return { rejectUnauthorized: true, ca: bundled };
     }
-  } catch { /* use system roots */ }
+  } catch { /* system roots */ }
   console.log('TLS: verifying with system trust roots.');
   return { rejectUnauthorized: true };
 }
 
 async function assertBaseContract(client) {
-  const required = [
-    'message_threads', 'message_participants', 'messages', 'channel_identities',
-    'notification_queue', 'message_delivery_attempts', 'domain_events', 'marketplace_inquiries',
-  ];
+  const required = ['message_threads', 'message_participants', 'messages', 'channel_identities', 'notification_queue', 'message_delivery_attempts', 'domain_events', 'marketplace_inquiries'];
   for (const name of required) {
     const found = await client.query('select to_regclass($1)::text as v', [`public.${name}`]);
     if (!found.rows[0]?.v) fail(`required base table ${name} is absent; wrong/incomplete staging database.`);
@@ -102,117 +88,61 @@ async function verifyContract(client) {
     return ok;
   };
 
-  for (const table of [
-    'conversation_channel_bindings', 'message_parts', 'communication_templates',
-    'communication_template_versions', 'communication_brand_assets',
-    'conversation_events', 'message_derivations',
-  ]) {
+  for (const table of ['conversation_channel_bindings', 'message_parts', 'communication_templates', 'communication_template_versions', 'communication_brand_assets', 'conversation_events', 'message_derivations', 'communication_campaigns', 'communication_campaign_deliveries']) {
     await expectOne(`table.${table}`, 'select case when to_regclass($1) is null then 0 else 1 end c', [`public.${table}`]);
   }
 
-  for (const [table, column] of [
-    ['message_threads', 'business_workflow'], ['message_threads', 'conversation_type'],
-    ['message_threads', 'funnel_stage'], ['message_threads', 'conversion_status'],
-    ['message_participants', 'permissions'], ['message_participants', 'stakeholder_role'],
-  ]) {
+  for (const [table, column] of [['message_threads', 'business_workflow'], ['message_threads', 'conversation_type'], ['message_threads', 'funnel_stage'], ['message_threads', 'conversion_status'], ['message_participants', 'permissions'], ['message_participants', 'stakeholder_role']]) {
     await expectOne(`${table}.${column}`, `select count(*)::int c from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2`, [table, column]);
   }
 
-  await expectOne(
-    'function.communication_is_thread_participant_current_user_only',
-    `select count(*)::int c
-       from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-      where n.nspname='public' and p.proname='communication_is_thread_participant'
-        and pg_get_function_identity_arguments(p.oid)='p_thread_id uuid'`,
-  );
-  const legacyHelper = await client.query(`
-    select count(*)::int c
-      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-     where n.nspname='public' and p.proname='communication_is_thread_participant'
-       and pg_get_function_identity_arguments(p.oid)='p_thread_id uuid, p_user_id text'`);
-  const legacyHelperRemoved = legacyHelper.rows[0].c === 0;
-  checks.push({ label: 'function.legacy_arbitrary_user_helper_removed', ok: legacyHelperRemoved, value: legacyHelper.rows[0].c });
-  console.log(`${legacyHelperRemoved ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} function.legacy_arbitrary_user_helper_count=${legacyHelper.rows[0].c}`);
+  await expectOne('function.participant_current_user_only', `select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='communication_is_thread_participant' and pg_get_function_identity_arguments(p.oid)='p_thread_id uuid'`);
+  const legacy = await client.query(`select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='communication_is_thread_participant' and pg_get_function_identity_arguments(p.oid)='p_thread_id uuid, p_user_id text'`);
+  const legacyRemoved = Number(legacy.rows[0]?.c || 0) === 0;
+  checks.push({ label: 'function.legacy_arbitrary_user_helper_removed', ok: legacyRemoved, value: legacy.rows[0]?.c || 0 });
+  console.log(`${legacyRemoved ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} function.legacy_arbitrary_user_helper_removed=${legacyRemoved ? 1 : 0}`);
 
-  await expectOne('constraint.binding_participant_same_thread', `
-    select count(*)::int c from pg_constraint
-     where conname='conversation_channel_bindings_participant_thread_fkey'
-       and conrelid='public.conversation_channel_bindings'::regclass`);
-  await expectOne('policy.messages_hide_internal_notes', `
-    select count(*)::int c from pg_policies
-     where schemaname='public' and tablename='messages' and policyname='messages_participant_read'
-       and qual ilike '%direction%internal%' and qual ilike '%communication_is_thread_participant%'`);
-  await expectOne('policy.templates_active_only', `
-    select count(*)::int c from pg_policies
-     where schemaname='public' and tablename='communication_templates'
-       and policyname='communication_templates_authenticated_read'
-       and qual ilike '%status%active%'`);
-
+  await expectOne('constraint.binding_participant_same_thread', `select count(*)::int c from pg_constraint where conname='conversation_channel_bindings_participant_thread_fkey' and conrelid='public.conversation_channel_bindings'::regclass`);
+  await expectOne('policy.messages_hide_internal_notes', `select count(*)::int c from pg_policies where schemaname='public' and tablename='messages' and policyname='messages_participant_read' and qual ilike '%direction%internal%' and qual ilike '%communication_is_thread_participant%'`);
   await expectOne('trigger.messages_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_messages_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.notification_queue_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_notification_queue_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.delivery_attempts_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_message_delivery_attempts_monotonic_delivery_status' and not tgisinternal`);
-  await expectOne('domain_events.dedupe_key', `select count(*)::int c from information_schema.columns where table_schema='public' and table_name='domain_events' and column_name='dedupe_key'`);
   await expectOne('trigger.domain_event_exactly_once_key', `select count(*)::int c from pg_trigger where tgname='trg_domain_events_communication_dedupe' and not tgisinternal`);
   await expectOne('trigger.marketplace_atomic_communication_outbox', `select count(*)::int c from pg_trigger where tgname='trg_marketplace_inquiry_communication_outbox' and not tgisinternal`);
-  await expectOne('index.domain_event_exactly_once', `
-    select count(*)::int c from pg_indexes
-     where schemaname='public' and indexname='idx_domain_events_dedupe_key'
-       and indexdef ilike '%unique index%' and indexdef ilike '%(dedupe_key)%'`);
+  await expectOne('index.domain_event_exactly_once', `select count(*)::int c from pg_indexes where schemaname='public' and indexname='idx_domain_events_dedupe_key' and indexdef ilike '%unique index%' and indexdef ilike '%(dedupe_key)%'`);
+  await expectOne('index.campaign_recipient_frequency', `select count(*)::int c from pg_indexes where schemaname='public' and indexname='idx_communication_campaign_deliveries_user_frequency'`);
+  await expectOne('trigger.campaign_delivery_status_sync', `select count(*)::int c from pg_trigger where tgname='trg_notification_queue_campaign_delivery_status' and not tgisinternal`);
 
-  const templatesTable = await client.query("select to_regclass('public.communication_templates')::text as v");
-  if (templatesTable.rows[0]?.v) {
+  if ((await client.query("select to_regclass('public.communication_templates')::text as v")).rows[0]?.v) {
     const { rows } = await client.query("select count(*)::int c from communication_templates where status='active'");
-    const ok = rows[0].c >= 19;
-    checks.push({ label: 'active_governed_templates>=19', ok, value: rows[0].c });
+    const ok = Number(rows[0].c) >= 20;
+    checks.push({ label: 'active_governed_templates>=20', ok, value: rows[0].c });
     console.log(`${ok ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} active_governed_templates=${rows[0].c}`);
+    await expectOne('template.whatsapp_business_reply', `select count(*)::int c from communication_template_versions v join communication_templates t on t.id=v.template_id where t.template_key='conversation_reply_whatsapp_v1' and t.status='active' and v.channel='whatsapp' and v.language='en' and v.approval_status='approved' and v.experiment_metadata ->> 'meta_approval_required'='true'`);
+    await expectOne('template.phase7_marketing', `select count(*)::int c from communication_templates where template_key='carup_reengagement_v1' and status='active' and classification='marketing'`);
+  }
 
-    await expectOne('runtime_template.marketplace_inquiry_received_v1', `
-      select count(*)::int c
-        from communication_template_versions v
-        join communication_templates t on t.id=v.template_id
-       where t.template_key='marketplace_inquiry_received_v1'
-         and t.status='active' and v.version=1
-         and v.channel='default' and v.language='en' and v.approval_status='approved'`);
-
-    await expectOne('runtime_template.conversation_reply_whatsapp_v1', `
-      select count(*)::int c
-        from communication_template_versions v
-        join communication_templates t on t.id=v.template_id
-       where t.template_key='conversation_reply_whatsapp_v1'
-         and t.status='active' and v.version=1
-         and v.channel='whatsapp' and v.language='en'
-         and v.approval_status='approved'
-         and v.experiment_metadata ->> 'meta_approval_required'='true'`);
+  const storageBuckets = await client.query("select to_regclass('storage.buckets')::text as v");
+  if (storageBuckets.rows[0]?.v) {
+    await expectOne('storage.communication_media_private', `select count(*)::int c from storage.buckets where id='carup-communication-media' and public=false`);
+  } else {
+    console.log('note storage.communication_media_private=not_applicable_on_non_supabase_postgres');
   }
 
   const participantColumn = await client.query(`select count(*)::int c from information_schema.columns where table_schema='public' and table_name='message_participants' and column_name='stakeholder_role'`);
-  if (participantColumn.rows[0].c === 1) {
-    const { rows } = await client.query(`
-      select count(*)::int c
-      from message_threads mt
-      where mt.primary_user_id is not null
-        and not exists (
-          select 1 from message_participants mp
-          where mp.thread_id=mt.id and mp.user_id=mt.primary_user_id and mp.left_at is null
-        )`);
-    const ok = rows[0].c === 0;
+  if (Number(participantColumn.rows[0].c) === 1) {
+    const { rows } = await client.query(`select count(*)::int c from message_threads mt where mt.primary_user_id is not null and not exists (select 1 from message_participants mp where mp.thread_id=mt.id and mp.user_id=mt.primary_user_id and mp.left_at is null)`);
+    const ok = Number(rows[0].c) === 0;
     checks.push({ label: 'legacy_primary_without_participant', ok, value: rows[0].c });
     console.log(`${ok ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} legacy_primary_without_participant=${rows[0].c}`);
   }
 
   const failures = checks.filter((check) => !check.ok);
-  if (MODE === 'apply' && failures.length) {
-    fail(`${failures.length} post-apply Communications 2.0 contract check(s) failed: ${failures.map((f) => f.label).join(', ')}`);
-  }
-  console.log(`Communications 2.0 contract inspection: ${checks.length} checks; ${failures.length} missing${MODE === 'verify' ? ' (expected before apply if not yet migrated)' : ''}.`);
+  if (MODE === 'apply' && failures.length) fail(`${failures.length} post-apply Communications 2.0 contract check(s) failed: ${failures.map((f) => f.label).join(', ')}`);
+  console.log(`Communications 2.0 Phase 0-7 contract inspection: ${checks.length} checks; ${failures.length} missing${MODE === 'verify' ? ' (expected before pending migrations apply)' : ''}.`);
 }
 
-const client = new pg.Client({
-  connectionString: url,
-  ssl: tlsConfig(),
-  statement_timeout: 120000,
-  application_name: 'carup-communications-2-staging-migration',
-});
+const client = new pg.Client({ connectionString: url, ssl: tlsConfig(), statement_timeout: 120000, application_name: 'carup-communications-2-staging-migration' });
 
 try {
   await client.connect();
@@ -230,15 +160,11 @@ try {
       console.log(`#${migration.version} pending (${migration.name}, frozen blob ${migration.gitBlobSha.slice(0, 12)}); would apply in apply mode.`);
       continue;
     }
-
     console.log(`Applying #${migration.version} (${migration.name}) to approved staging in one transaction…`);
     await client.query('begin');
     try {
       await client.query(migration.up);
-      await client.query(
-        'insert into supabase_migrations.schema_migrations (version, statements, name) values ($1,$2,$3)',
-        [migration.version, [migration.up], migration.name],
-      );
+      await client.query('insert into supabase_migrations.schema_migrations (version, statements, name) values ($1,$2,$3)', [migration.version, [migration.up], migration.name]);
       await client.query('commit');
       console.log(`#${migration.version} applied + recorded.`);
     } catch (error) {
@@ -248,7 +174,7 @@ try {
   }
 
   await verifyContract(client);
-  console.log(`Communications 2.0 staging runner complete (mode=${MODE}, approved_ref=${STAGING_REF}).`);
+  console.log(`Communications 2.0 staging runner complete (mode=${MODE}, approved_ref=${STAGING_REF}, phases=0-7).`);
 } catch (error) {
   fail(`staging runner failed: ${error.message}`);
 } finally {

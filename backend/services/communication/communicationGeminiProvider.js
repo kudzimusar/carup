@@ -16,15 +16,21 @@ export class CommunicationGeminiProvider {
       model: this.model,
       available: Boolean(this.apiKey && this.fetchImpl),
       mode: 'real',
+      multimodal: true,
     };
   }
 
-  async generate({ systemPrompt, userPrompt } = {}) {
+  async generate({ systemPrompt, userPrompt, media = [] } = {}) {
     if (!this.apiKey || !this.fetchImpl) {
       const error = new Error('Communications AI provider is not configured.');
       error.statusCode = 503;
       error.code = 'communication_ai_provider_unavailable';
       throw error;
+    }
+    const parts = [{ text: `${systemPrompt || ''}\n\n${userPrompt || ''}` }];
+    for (const item of Array.isArray(media) ? media : []) {
+      if (!item?.mimeType || !item?.dataBase64) continue;
+      parts.push({ inlineData: { mimeType: item.mimeType, data: item.dataBase64 } });
     }
     const response = await this.fetchImpl(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent?key=${encodeURIComponent(this.apiKey)}`,
@@ -32,7 +38,7 @@ export class CommunicationGeminiProvider {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: `${systemPrompt || ''}\n\n${userPrompt || ''}` }] }],
+          contents: [{ role: 'user', parts }],
           generationConfig: { temperature: 0.2 },
         }),
       },

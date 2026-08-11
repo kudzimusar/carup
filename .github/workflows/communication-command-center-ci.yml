@@ -1,9 +1,8 @@
 name: Communication Command Center CI
 
-# Real CI for the Enterprise Communication Command Center + Communications 2.0 core.
-#   • unit job: legacy communication engine + Communications 2.0 conversation/UAT/routing/outbox/receipt/template/product/runner suites;
-#   • postgres job: REQUIRED disposable-Postgres gates for the existing Command Center and the
-#     additive Communications 2.0 participant/binding/delivery/privacy/template/product invariants.
+# Real CI for the Enterprise Communication Command Center + Communications 2.0 Phase 0-7 closure.
+# Unit: conversation/UAT/routing/outbox/receipt/template/product/media/stakeholder/campaign/runner.
+# Postgres: mandatory existing Command Center + Communications 2 core/privacy + Phase 7 schema gates.
 
 on:
   pull_request:
@@ -40,6 +39,7 @@ jobs:
           backend/tests/communications-2-canonical-service-hardening.test.js
           backend/tests/communications-2-governed-template-runtime.test.js
           backend/tests/communications-2-product-capabilities.test.js
+          backend/tests/communications-2-completion.test.js
           backend/tests/communications-2-staging-runner-contract.test.js
 
   communication-postgres:
@@ -82,7 +82,8 @@ jobs:
           node --test backend/tests/integration/communication-privilege-postgres.integration.test.js 2>&1 | tee /tmp/it-privileges.log
           node --test backend/tests/integration/communications-2-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2.log
           node --test backend/tests/integration/communications-2-privacy-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2-privacy.log
-          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log /tmp/it-comms2.log /tmp/it-comms2-privacy.log; then
+          node --test backend/tests/integration/communications-2-completion-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2-completion.log
+          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log /tmp/it-comms2.log /tmp/it-comms2-privacy.log /tmp/it-comms2-completion.log; then
             echo "::error::integration suite was SKIPPED — DB gate not satisfied"
             exit 1
           fi

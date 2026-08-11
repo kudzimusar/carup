@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { supabase } from '@/lib/supabase'
 import {
   apiRequest,
   resolveApiBaseUrl,
@@ -20,9 +21,12 @@ export type CommunicationProductAnalytics = {
     active: number
     converted: number
     conversion_rate_pct: number
+    unique_participants?: number
     by_workflow: Record<string, number>
     by_funnel_stage: Record<string, number>
   }
+  marketplace?: { conversations: number; converted: number; inquiry_to_next_step_pct: number }
+  response_time?: { measured: number; average_minutes: number; median_minutes: number; p95_minutes: number }
   events: { total: number; by_type: Record<string, number> }
   delivery: {
     total: number
@@ -39,6 +43,7 @@ export type CommunicationProductAnalytics = {
     by_campaign_code: Record<string, number>
   }
   ai: { derivations: number; human_reviewed: number; by_type: Record<string, number> }
+  campaigns?: { touches: number; suppressed: number; converted: number; conversion_rate_pct: number; by_status: Record<string, number> }
 }
 
 export type CommunicationAiDerivation = {
@@ -50,6 +55,37 @@ export type CommunicationAiDerivation = {
   model_name?: string | null
   human_reviewed?: boolean
   created_at?: string | null
+}
+
+export type CommunicationMessagePart = {
+  id: string
+  message_id: string
+  part_index?: number
+  part_type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'location' | 'contact' | 'structured_card' | 'button' | 'quick_reply' | 'quote' | 'system_event'
+  text_content?: string | null
+  mime_type?: string | null
+  size_bytes?: number | null
+  sha256?: string | null
+  storage_key?: string | null
+  metadata?: Record<string, unknown>
+}
+
+type PreparedUpload = {
+  artifact_id: string
+  bucket: string
+  path: string
+  token: string
+  part_type: string
+  file_name: string
+  mime_type: string
+  size_bytes: number
+  private: true
+}
+
+async function sha256File(file: File) {
+  if (!globalThis.crypto?.subtle) return null
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
 }
 
 export function useCommunicationProductApi() {
@@ -70,7 +106,7 @@ export function useCommunicationProductApi() {
   )
 
   const fetchAiHealth = useCallback(
-    () => request<{ ai: { available: boolean; provider?: string | null; model?: string | null; mode?: string } }>('/communications/ai/health'),
+    () => request<{ ai: { available: boolean; provider?: string | null; model?: string | null; mode?: string; multimodal?: boolean } }>('/communications/ai/health'),
     [request],
   )
 
@@ -98,5 +134,88 @@ export function useCommunicationProductApi() {
     [request],
   )
 
-  return { fetchAnalytics, fetchAiHealth, suggestReply, summarize, translate }
+  const nextBestAction = useCallback(
+    (threadId: string) => request<{ derivation: CommunicationAiDerivation; auto_executed: false; requires_human_review: true }>(
+      `/communications/threads/${encodeURIComponent(threadId)}/ai/next-action`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+    [request],
+  )
+
+  const analyzeMedia = useCallback(
+    (threadId: string, partId: string) => request<{ derivation: CommunicationAiDerivation; source_artifact_unchanged: true }>(
+      `/communications/threads/${encodeURIComponent(threadId)}/ai/media/${encodeURIComponent(partId)}`,
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+    [request],
+  )
+
+  const mediaAccess = useCallback(
+    (threadId: string, partId: string) => request<{ access: { part_id: string; url: string; expires_in: number; private: true } }>(
+      `/communications/threads/${encodeURIComponent(threadId)}/media/${encodeURIComponent(partId)}/access`,
+    ),
+    [request],
+  )
+
+  const sendLocation = useCallback(
+    (threadId: string, latitude: number, longitude: number, label?: string) => request(
+      `/communications/threads/${encodeURIComponent(threadId)}/media/location`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ latitude, longitude, label: label || null }),
+      },
+    ),
+    [request],
+  )
+
+  const uploadMedia = useCallback(async (threadId: string, file: File, caption = '', capture?: string | null) => {
+    const prepared = await request<{ upload: PreparedUpload }>(
+      `/communications/threads/${encodeURIComponent(threadId)}/media/prepare`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          file_name: file.name || `capture-${Date.now()}`,
+          mime_type: file.type || 'application/octet-stream',
+          size_bytes: file.size,
+        }),
+      },
+    )
+    const upload = prepared.upload
+    const { error } = await supabase.storage.from(upload.bucket).uploadToSignedUrl(
+      upload.path,
+      upload.token,
+      file,
+      { contentType: upload.mime_type },
+    )
+    if (error) throw error
+    const sha256 = await sha256File(file)
+    return request(
+      `/communications/threads/${encodeURIComponent(threadId)}/media/commit`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          artifact_id: upload.artifact_id,
+          file_name: upload.file_name,
+          mime_type: upload.mime_type,
+          size_bytes: upload.size_bytes,
+          sha256,
+          caption,
+          capture: capture || null,
+        }),
+      },
+    )
+  }, [request])
+
+  return {
+    fetchAnalytics,
+    fetchAiHealth,
+    suggestReply,
+    summarize,
+    translate,
+    nextBestAction,
+    analyzeMedia,
+    mediaAccess,
+    sendLocation,
+    uploadMedia,
+  }
 }

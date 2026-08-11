@@ -6,10 +6,13 @@ import { CommunicationGovernedTemplateService } from './communicationGovernedTem
 import { CommunicationProductNotificationService } from './communicationProductNotificationService.js';
 import { CommunicationCanonicalConversationService } from './communicationCanonicalConversationService.js';
 import { CommunicationWorkflowService } from './communicationWorkflowService.js';
+import { CommunicationStakeholderContractService } from './communicationStakeholderContractService.js';
 import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
 import { CommunicationAnalyticsService } from './communicationAnalyticsService.js';
 import { CommunicationGeminiProvider } from './communicationGeminiProvider.js';
 import { CommunicationAiRuntimeService } from './communicationAiRuntimeService.js';
+import { CommunicationMediaService } from './communicationMediaService.js';
+import { CommunicationCampaignService } from './communicationCampaignService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
 import { CommunicationCanonicalWebhookService } from './communicationCanonicalWebhookService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
@@ -29,7 +32,7 @@ function activateGovernedWhatsAppAdapter(registry, { injected = false } = {}) {
   return registry;
 }
 
-export function createCommunicationServices({ repository = null, adapterRegistry = null, aiProvider = null } = {}) {
+export function createCommunicationServices({ repository = null, adapterRegistry = null, aiProvider = null, storageClient = null } = {}) {
   const repo = repository || new CommunicationRepository();
   const registry = activateGovernedWhatsAppAdapter(
     adapterRegistry || createDefaultAdapterRegistry(),
@@ -60,16 +63,35 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     threadService,
     conversationService,
   });
+  const stakeholderService = new CommunicationStakeholderContractService({
+    repository: repo,
+    workflowService,
+  });
   const intelligenceService = new CommunicationIntelligenceService({
     repository: repo,
     conversationService,
+  });
+  const mediaService = new CommunicationMediaService({
+    repository: repo,
+    conversationService,
+    threadService,
+    storageClient: storageClient || repo.client || null,
   });
   const analyticsService = new CommunicationAnalyticsService({ repository: repo });
   const communicationAiProvider = aiProvider || new CommunicationGeminiProvider();
   const aiRuntimeService = new CommunicationAiRuntimeService({
     conversationService,
     intelligenceService,
+    mediaService,
     provider: communicationAiProvider,
+  });
+  const campaignService = new CommunicationCampaignService({
+    repository: repo,
+    threadService,
+    conversationService,
+    preferenceService,
+    notificationService,
+    templateService,
   });
   const inboundService = new CommunicationInboundService({
     repository: repo,
@@ -104,10 +126,13 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     notificationService,
     conversationService,
     workflowService,
+    stakeholderService,
     intelligenceService,
+    mediaService,
     analyticsService,
     aiProvider: communicationAiProvider,
     aiRuntimeService,
+    campaignService,
     inboundService,
     webhookService,
     deliveryWorker,
