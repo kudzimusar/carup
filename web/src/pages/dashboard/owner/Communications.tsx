@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bell, MessageSquare, Send, SlidersHorizontal } from 'lucide-react'
+import { Bell, MessageSquare, Search, Send, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
@@ -33,15 +34,26 @@ type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
   messages: ConversationMessage[]
 }
 
+type ConversationFilter = 'all' | 'unread' | 'marketplace' | 'support' | 'other'
+
 function threadLabel(thread: ConversationThread) {
   if (thread.business_workflow === 'marketplace' || thread.thread_type === 'marketplace_inquiry') return 'Marketplace conversation'
-  return (thread.business_workflow || thread.thread_type || 'Conversation').replaceAll('_', ' ')
+  return (thread.business_workflow || thread.conversation_type || thread.thread_type || 'Conversation').replaceAll('_', ' ')
 }
 
 function participantLabel(detail: ConversationDetail | null) {
   if (!detail?.participants?.length) return null
   const others = detail.participants.filter((p) => !p.is_self && p.stakeholder_role !== 'buyer_unresolved')
   return others.map((p) => p.display_name || p.stakeholder_role || 'Participant').join(', ') || null
+}
+
+function matchesFilter(thread: ConversationThread, filter: ConversationFilter) {
+  if (filter === 'all') return true
+  if (filter === 'unread') return Number(thread.unread_count || 0) > 0
+  const workflow = String(thread.business_workflow || thread.conversation_type || thread.thread_type || '').toLowerCase()
+  if (filter === 'marketplace') return workflow === 'marketplace' || workflow === 'marketplace_inquiry'
+  if (filter === 'support') return workflow === 'support'
+  return !['marketplace', 'marketplace_inquiry', 'support'].includes(workflow)
 }
 
 export default function Communications() {
@@ -60,12 +72,34 @@ export default function Communications() {
   const [notifications, setNotifications] = useState<NotificationSummary[]>([])
   const [preferences, setPreferences] = useState<CommunicationPreferences | null>(null)
   const [message, setMessage] = useState('')
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<ConversationFilter>('all')
   const [status, setStatus] = useState<string | null>(null)
 
   const unreadCount = useMemo(
     () => threads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0),
     [threads],
   )
+
+  const filteredThreads = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return threads.filter((thread) => {
+      if (!matchesFilter(thread, filter)) return false
+      if (!query) return true
+      const latest = thread.latest_message?.text || thread.latest_message_text || ''
+      return [
+        threadLabel(thread),
+        thread.business_workflow,
+        thread.conversation_type,
+        thread.thread_type,
+        thread.status,
+        thread.primary_channel,
+        thread.participant_role,
+        thread.marketplace_listing_id,
+        latest,
+      ].some((value) => String(value || '').toLowerCase().includes(query))
+    })
+  }, [filter, search, threads])
 
   const loadThreads = useCallback(async () => {
     const response = await fetchCommunicationThreads().catch(() => ({ threads: [] }))
@@ -134,15 +168,42 @@ export default function Communications() {
 
       <div className="grid min-h-[620px] gap-5 lg:grid-cols-[320px_minmax(0,1fr)_290px]">
         <Card className="border-0 card-shadow">
-          <CardHeader className="pb-3">
+          <CardHeader className="space-y-3 pb-3">
             <CardTitle className="flex items-center gap-2 text-base"><MessageSquare className="h-5 w-5 text-orange-500" /> Conversations</CardTitle>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search conversations"
+                className="pl-9"
+                data-testid="communication-search"
+              />
+            </div>
+            <select
+              value={filter}
+              onChange={(event) => setFilter(event.target.value as ConversationFilter)}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              aria-label="Filter conversations"
+              data-testid="communication-filter"
+            >
+              <option value="all">All conversations</option>
+              <option value="unread">Unread</option>
+              <option value="marketplace">Marketplace</option>
+              <option value="support">Support</option>
+              <option value="other">Other workflows</option>
+            </select>
           </CardHeader>
           <CardContent className="space-y-2 px-3">
             {threads.length === 0 ? (
               <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">
                 No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.
               </div>
-            ) : threads.map((thread) => {
+            ) : filteredThreads.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">
+                No conversations match this search or filter.
+              </div>
+            ) : filteredThreads.map((thread) => {
               const latest = thread.latest_message?.text || thread.latest_message_text || 'No messages yet'
               const selected = thread.id === activeId
               return (
