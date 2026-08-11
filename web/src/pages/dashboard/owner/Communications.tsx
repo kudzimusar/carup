@@ -165,11 +165,7 @@ export default function Communications() {
   }, [loadSideData, loadThreads])
 
   useEffect(() => {
-    if (!activeId) {
-      setDetail(null)
-      setAiResult(null)
-      return
-    }
+    if (!activeId) return
     let active = true
     fetchCommunicationThread(activeId)
       .then((result) => {
@@ -183,6 +179,11 @@ export default function Communications() {
       .catch(() => { if (active) setDetail(null) })
     return () => { active = false }
   }, [activeId, fetchCommunicationThread])
+
+  function selectThread(threadId: string) {
+    setActiveId(threadId)
+    setAiResult(null)
+  }
 
   async function submitReply() {
     if (!activeId || !message.trim()) return
@@ -277,7 +278,7 @@ export default function Communications() {
                 <button
                   key={thread.id}
                   type="button"
-                  onClick={() => setActiveId(thread.id)}
+                  onClick={() => selectThread(thread.id)}
                   className={`w-full rounded-xl border p-3 text-left transition ${selected ? 'border-orange-300 bg-orange-50' : 'hover:bg-gray-50'}`}
                   data-testid={`communication-thread-${thread.id}`}
                 >
