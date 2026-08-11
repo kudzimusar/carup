@@ -230,6 +230,36 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     throw new DatabaseError('Failed to record inquiry.', { reason: error.message });
   }
 
+  // Communications 2.0 reliability invariant: a Marketplace inquiry is not allowed
+  // to succeed silently without its durable canonical-conversation event. The event
+  // worker can retry conversation materialization, but only if this outbox write
+  // exists. Fail closed and expose the inquiry id for controlled recovery if the
+  // outbox write itself fails.
+  try {
+    await persistCommunicationEvent(null, 'marketplace.inquiry.created', {
+      inquiryId: inserted.id,
+      listingId: listingId || null,
+      inquiry_type: inquiryType,
+      recipientUserId: sellerId || buyerId || null,
+      buyerId,
+      sellerId,
+      source_channel: sourceChannel,
+      referral_code: row.referral_code || null,
+      campaign_code: row.campaign_code || null,
+    }, sellerTenantId || null);
+  } catch (error) {
+    // The inquiry row may already exist because the current Supabase REST path cannot
+    // share the raw outbox transaction. Do not pretend the user journey succeeded;
+    // retain the id for explicit recovery/audit instead of silently dropping the
+    // conversation event. A future DB-transaction/RPC consolidation can make this
+    // physical write fully atomic without changing the canonical contract.
+    throw new DatabaseError('Failed to enqueue canonical communication for inquiry.', {
+      reason: error.message,
+      inquiry_id: inserted.id,
+      recovery_required: true,
+    });
+  }
+
   // Referral V1 Stage-4 invariant: a valid referral-attributed inquiry must bridge
   // to exactly one qualifiable lead before this request succeeds. The outbox row is
   // written first as an idempotent recovery path; the synchronous bridge gives the
@@ -267,20 +297,6 @@ export async function createInquiry(client, payload = {}, actor = null, deps = {
     metadata: { inquiry_type: inquiryType },
     validation: referralBridgeResult?.validation || null,
   });
-
-  // Best-effort bridge into the canonical communication fabric. Marketplace
-  // remains the source of truth; communication only creates threads/alerts.
-  persistCommunicationEvent(null, 'marketplace.inquiry.created', {
-    inquiryId: inserted.id,
-    listingId: listingId || null,
-    inquiry_type: inquiryType,
-    recipientUserId: sellerId || buyerId || null,
-    buyerId,
-    sellerId,
-    source_channel: sourceChannel,
-    referral_code: row.referral_code || null,
-    campaign_code: row.campaign_code || null,
-  }, sellerTenantId || null).catch(() => {});
 
   // Additive: expose the bridged referral lead id (null when no valid code) without changing the
   // existing public inquiry shape.
