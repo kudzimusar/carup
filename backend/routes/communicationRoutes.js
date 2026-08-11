@@ -33,9 +33,6 @@ function safeEqual(a = '', b = '') {
 }
 
 function requireWorkerSecret(req, res) {
-  // Must match the configuration validator's selection exactly: a quoted-empty or
-  // whitespace-only COMMUNICATION_WORKER_SECRET falls through to CRON_SECRET here
-  // just as it does in validateCommunicationConfiguration.
   const expected = resolveWorkerSecret();
   const supplied = req.headers['x-communication-worker-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!expected || !supplied || !safeEqual(supplied, expected)) {
@@ -86,64 +83,66 @@ export function createCommunicationRouter({ services = createCommunicationServic
   router.get('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
   router.post('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
 
+  // Communications 2.0 ordinary-user inbox. Authorization is based on active
+  // message_participants rows, never a client-supplied owner id.
   router.get('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
-    res.json({ threads: await services.threadService.listThreadsForUser(req.userContext.id) });
+    res.json({ threads: await services.conversationService.listConversationsForUser(req.userContext.id) });
   }));
 
   router.get('/api/communications/threads/:id', authorizeRole([]), asyncHandler(async (req, res) => {
-    const thread = await services.repository.findOne('message_threads', { id: req.params.id });
-    if (!thread || thread.primary_user_id !== req.userContext.id) return res.status(404).json({ error: 'Thread not found.' });
-    const messages = await services.repository.list('messages', { thread_id: thread.id }, { order: { column: 'created_at', ascending: true } });
-    res.json({ thread, messages: messages.filter((message) => message.direction !== 'internal') });
+    res.json(await services.conversationService.getConversation(req.params.id, actorFromReq(req)));
   }));
 
   router.post('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
     const { thread } = await services.threadService.resolveOrCreateThread({
       ...req.body,
-      primary_user_id: req.userContext.id,
+      primary_user_id: req.userContext.id, // compatibility projection
       tenant_id: req.userContext.tenantId || req.body?.tenant_id || null,
       primary_channel: normalizeChannel(req.body?.channel) || 'web_chat',
+    });
+    await services.conversationService.ensureParticipant(thread.id, {
+      participant_type: 'user',
+      user_id: req.userContext.id,
+      stakeholder_role: req.body?.stakeholder_role || 'requester',
+      permissions: { read: true, send: true },
+      metadata: { source: req.body?.metadata?.source || 'carup_user_created' },
     });
     res.status(201).json({ thread });
   }));
 
   router.post('/api/communications/threads/:id/messages', authorizeRole([]), asyncHandler(async (req, res) => {
-    const thread = await services.repository.findOne('message_threads', { id: req.params.id });
-    if (!thread || thread.primary_user_id !== req.userContext.id) return res.status(404).json({ error: 'Thread not found.' });
-    const result = await services.inboundService.ingest({
-      channel: req.body?.channel || 'web_chat',
-      provider: 'web_chat',
-      text: req.body?.message || req.body?.text || '',
-      externalSenderId: req.userContext.id,
-      externalConversationId: thread.thread_key,
-      thread,
-      target_thread_id: thread.id,
-      user_id: req.userContext.id,
-      tenant_id: req.userContext.tenantId || thread.tenant_id || null,
-      subject_type: thread.subject_type,
-      subject_id: thread.subject_id,
-    }, actorFromReq(req));
+    const result = await services.conversationService.sendParticipantMessage(
+      req.params.id,
+      actorFromReq(req),
+      {
+        message: req.body?.message || req.body?.text || '',
+        channel: req.body?.channel || 'in_app',
+        message_type: req.body?.message_type || 'text',
+        client_message_id: req.body?.client_message_id || null,
+        reply_to_message_id: req.body?.reply_to_message_id || null,
+        content: req.body?.content || {},
+      },
+    );
     res.status(201).json(result);
   }));
 
   router.post('/api/communications/threads/:id/read', authorizeRole([]), asyncHandler(async (req, res) => {
-    await services.threadService.markRead(req.params.id, req.userContext);
+    await services.conversationService.markRead(req.params.id, actorFromReq(req));
     res.json({ success: true });
   }));
 
   router.post('/api/communications/threads/:id/feedback', authorizeRole([]), asyncHandler(async (req, res) => {
-    const thread = await services.repository.findOne('message_threads', { id: req.params.id });
-    if (!thread || thread.primary_user_id !== req.userContext.id) return res.status(404).json({ error: 'Thread not found.' });
+    const { thread, participant } = await services.conversationService.assertParticipantAccess(req.params.id, actorFromReq(req), 'send');
     const message = await services.threadService.recordMessage(thread, {
       direction: 'inbound',
+      sender_participant_id: participant.id,
       sender_user_id: req.userContext.id,
       channel: 'in_app',
       content_text: req.body?.feedback || req.body?.message || '',
-      content_json: { rating: req.body?.rating || null, feedback_type: 'user_feedback' },
+      content_json: { rating: req.body?.rating || null, feedback_type: 'user_feedback', original_authoritative: true },
     });
     const reopened = thread.status === 'resolved' && req.body?.reopen !== false;
     if (reopened) await services.threadService.reopenThread(thread.id, 'user_feedback');
-    // Audit customer feedback (+ reopen when material).
     await logCommunicationAuditEvent(services.repository, {
       tenant_id: thread.tenant_id ?? null, thread_id: thread.id, message_id: message?.id ?? null,
       event_type: COMMUNICATION_AUDIT_EVENTS.FEEDBACK_RECEIVED,
@@ -185,11 +184,7 @@ export function createCommunicationRouter({ services = createCommunicationServic
     const referralCode = req.body?.referral_code || req.body?.code;
     const campaignId = req.body?.campaign_id || req.body?.campaignId;
     const origin = req.body?.origin || process.env.CARUP_PUBLIC_WEB_URL || 'https://carup.co.zw';
-    const params = new URLSearchParams({
-      channel,
-      utm_source: channel,
-      utm_medium: 'share',
-    });
+    const params = new URLSearchParams({ channel, utm_source: channel, utm_medium: 'share' });
     if (referralCode) params.set('ref', referralCode);
     if (campaignId) params.set('campaign_id', campaignId);
     const listingUrl = `${origin.replace(/\/+$/, '')}/marketplace/listing/${encodeURIComponent(listingId)}?${params.toString()}`;
@@ -225,6 +220,8 @@ export function createCommunicationRouter({ services = createCommunicationServic
     res.status(200).type('text/plain').send(challenge);
   }));
 
+  // Proven provider route intentionally preserved. The inbound service now resolves
+  // channel bindings before it considers creating a new provider-owned thread.
   router.post('/api/communications/webhooks/:provider/:channel', asyncHandler(async (req, res) => {
     const isMetaWhatsApp = req.params.provider === 'meta' && normalizeChannel(req.params.channel) === 'whatsapp';
     const receipt = isMetaWhatsApp
