@@ -140,12 +140,17 @@ async function resolveListingSeller(client, vin) {
  * @param {object} client supabase client
  * @param {object} payload MarketplaceInquiryInput
  * @param {object} [actor] req.userContext (optional; guest if absent)
- * @param {object} [deps] { referralBridge }
+ * @param {object} [deps] { referralBridge, emitDomainEvent, emitCommunicationEvent }
  */
 export async function createInquiry(client, payload = {}, actor = null, deps = {}) {
   const referralBridge = deps.referralBridge || marketplaceReferralBridge;
   const persistDomainEvent = deps.emitDomainEvent || emitDomainEvent;
-  const persistCommunicationEvent = deps.emitCommunicationEvent || emitDomainEvent;
+  // The canonical communication handoff is an outbox write like any other, so it must
+  // resolve through the same seam. Falling back to the module-level emitter here would
+  // let this call escape a caller-supplied emitDomainEvent and reach the live Supabase
+  // client — the one write in this function that ignores its own injected collaborators.
+  // emitCommunicationEvent stays available for callers that need to route it separately.
+  const persistCommunicationEvent = deps.emitCommunicationEvent || persistDomainEvent;
 
   const inquiryType = String(payload.inquiry_type || '').trim();
   if (!MARKETPLACE_INQUIRY_TYPES.includes(inquiryType)) {

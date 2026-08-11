@@ -280,6 +280,20 @@ test('legacy category=<trust-slug> still narrows by that tag (backward compatibl
 // Inquiries + referral emission
 // ---------------------------------------------------------------------------
 
+// createInquiry fails closed if the canonical communication event cannot be persisted,
+// so the outbox is a required collaborator for every inquiry that reaches the insert —
+// supplied here exactly like the referral bridge, instead of reaching the live client.
+function outboxSpy() {
+  const events = [];
+  return {
+    events,
+    emitDomainEvent: async (_pgClient, eventType, payload, tenantId) => {
+      events.push({ eventType, payload, tenantId });
+      return { id: `outbox-${events.length}`, event_type: eventType, payload, tenant_id: tenantId };
+    },
+  };
+}
+
 function spyBridge() {
   const calls = [];
   return {
@@ -314,11 +328,12 @@ test('inquiry: guest must supply a contact', async () => {
 test('inquiry: public response hides contact + emits referral event; row persists with contact', async () => {
   const store = { vehicles: [publicVehicle()], marketplace_inquiries: [] };
   const bridge = spyBridge();
+  const outbox = outboxSpy();
   const out = await createInquiry(
     buildMockSupabase(store),
     { inquiry_type: 'vehicle_purchase_interest', listing_id: REAL_VIN, guest_email: 'b@example.com', message: 'Is it available?', referral_code: 'CARUP-X' },
     null,
-    { referralBridge: bridge, emitDomainEvent: async () => ({ ok: true }) }
+    { referralBridge: bridge, emitDomainEvent: outbox.emitDomainEvent }
   );
   assert.equal(out.status, 'new');
   assert.equal('guest_email' in out, false);
@@ -328,6 +343,11 @@ test('inquiry: public response hides contact + emits referral event; row persist
   assert.equal(store.marketplace_inquiries[0].guest_email, 'b@example.com');
   assert.equal(bridge.calls.length, 1);
   assert.equal(bridge.calls[0].eventType, 'marketplace_inquiry_created');
+  // The canonical communication handoff goes through the caller's outbox seam, not a
+  // second module-level emitter, and carries the id of the row that was actually written.
+  const canonical = outbox.events.filter((e) => e.eventType === 'marketplace.inquiry.created');
+  assert.equal(canonical.length, 1);
+  assert.equal(canonical[0].payload.inquiryId, store.marketplace_inquiries[0].id);
 });
 
 test('inquiry: diaspora import request maps to import-interest event and stores NO shipment data', async () => {
@@ -337,7 +357,7 @@ test('inquiry: diaspora import request maps to import-interest event and stores 
     buildMockSupabase(store),
     { inquiry_type: 'import_quote_request', guest_phone: '+263772000000', message: 'Want to import a Hilux' },
     null,
-    { referralBridge: bridge }
+    { referralBridge: bridge, emitDomainEvent: outboxSpy().emitDomainEvent }
   );
   assert.equal(out.inquiry_type, 'import_quote_request');
   assert.equal(bridge.calls[0].eventType, 'marketplace_import_interest_created');
@@ -597,7 +617,7 @@ test('inquiry metadata is allow-list sanitized (off-contract keys + shipment dat
       metadata: { utm_source: 'fb', tracking_number: 'SECRET123', container_id: 'C1', guest_email: 'leak@x.com' },
     },
     null,
-    { referralBridge: spyBridge() }
+    { referralBridge: spyBridge(), emitDomainEvent: outboxSpy().emitDomainEvent }
   );
   const meta = store.marketplace_inquiries[0].metadata;
   assert.equal(meta.utm_source, 'fb');
@@ -645,7 +665,7 @@ test('signed-in inquiry enriches buyer contact from profile so the seller has a 
   };
   const client = buildMockSupabase(store);
   // Mobile-style: authenticated buyer sends NO guest contact.
-  await createInquiry(client, { inquiry_type: 'vehicle_purchase_interest', listing_id: REAL_VIN }, { id: 'buyer-9' }, { referralBridge: spyBridge() });
+  await createInquiry(client, { inquiry_type: 'vehicle_purchase_interest', listing_id: REAL_VIN }, { id: 'buyer-9' }, { referralBridge: spyBridge(), emitDomainEvent: outboxSpy().emitDomainEvent });
   const row = store.marketplace_inquiries[0];
   assert.equal(row.buyer_id, 'buyer-9');
   assert.equal(row.guest_email, 'tariro@example.com');
