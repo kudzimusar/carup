@@ -11,6 +11,7 @@ export class CommunicationInboundService {
     identityService,
     threadService,
     notificationService,
+    conversationService = null,
     referralChannelGateway = null,
     aiService = null,
   } = {}) {
@@ -18,6 +19,7 @@ export class CommunicationInboundService {
     this.identityService = identityService;
     this.threadService = threadService;
     this.notificationService = notificationService;
+    this.conversationService = conversationService;
     this.referralChannelGateway = referralChannelGateway;
     this.aiService = aiService || new CommunicationAiService();
   }
@@ -86,11 +88,27 @@ export class CommunicationInboundService {
 
     let thread = input.thread?.id ? input.thread : null;
     let created = false;
+    let boundConversation = null;
     const targetThreadId = input.target_thread_id || input.threadId || input.thread_id || null;
     if (!thread && targetThreadId) {
       thread = await this.repository.findOne('message_threads', { id: targetThreadId });
       if (!thread) throw new Error('Target communication thread not found.');
     }
+
+    // Communications 2.0: before creating a provider-owned/shadow thread, ask the
+    // canonical conversation layer whether this identity is bound to an active
+    // business conversation. Recency is only used when unambiguous; otherwise the
+    // service deliberately falls back rather than guessing across conversations.
+    if (!thread && !targetThreadId && this.conversationService) {
+      boundConversation = await this.conversationService.resolveInboundConversation({
+        identity,
+        channel,
+        provider,
+        externalConversationId: input.externalConversationId || input.conversation_id || null,
+      });
+      if (boundConversation?.thread) thread = boundConversation.thread;
+    }
+
     if (!thread) {
       const resolved = await this.threadService.resolveOrCreateThread({
         tenant_id: input.tenant_id || actor.actor_tenant_id || null,
@@ -120,13 +138,23 @@ export class CommunicationInboundService {
       created = resolved.created;
     }
 
-    const participant = await this.threadService.addParticipant(thread.id, {
-      participant_type: identity.user_id ? 'user' : 'external_contact',
-      user_id: identity.user_id || null,
-      external_identity_id: identity.id,
-      role: 'requester',
-      display_name: identity.display_name || null,
-    });
+    const participant = this.conversationService
+      ? await this.conversationService.ensureParticipant(thread.id, {
+        participant_type: identity.user_id ? 'user' : 'external_contact',
+        user_id: identity.user_id || null,
+        external_identity_id: identity.id,
+        // A bound business participant keeps their existing stakeholder role;
+        // an unbound inbound retains the legacy requester role.
+        stakeholder_role: boundConversation?.participant?.stakeholder_role || boundConversation?.participant?.role || 'requester',
+        display_name: identity.display_name || null,
+      })
+      : await this.threadService.addParticipant(thread.id, {
+        participant_type: identity.user_id ? 'user' : 'external_contact',
+        user_id: identity.user_id || null,
+        external_identity_id: identity.id,
+        role: 'requester',
+        display_name: identity.display_name || null,
+      });
 
     const providerMessageId = input.providerMessageId || input.provider_message_id || input.message_id || null;
     const findExistingProviderMessage = async () => {
@@ -148,13 +176,18 @@ export class CommunicationInboundService {
           content_text: text,
           content_json: {
             canonical_event: COMMUNICATION_EVENTS.MESSAGE_RECEIVED,
+            original_authoritative: true,
+            ai_derived: false,
             provider_timestamp: input.providerTimestamp || input.provider_timestamp || null,
             technical_metadata: input.metadata || {},
             referral: referralResult,
             classification,
+            conversation_binding_id: boundConversation?.binding?.id || null,
           },
           status: 'received',
-          thread_status: classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai',
+          // A provider reply that returned to a business conversation should
+          // reopen/continue that conversation, not reclassify it as an AI queue.
+          thread_status: boundConversation ? 'open' : (classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai'),
         });
       } catch (error) {
         if (error.code !== '23505' || !providerMessageId) throw error;
@@ -164,13 +197,30 @@ export class CommunicationInboundService {
       }
     }
 
-    if (!duplicateMessage && (classification.handoffRequired || aiAnswer.handoffRequired)) {
+    if (boundConversation?.binding && !duplicateMessage && this.conversationService) {
+      await this.conversationService.recordInboundBinding(boundConversation.binding, message);
+      await this.repository.updateById('message_threads', thread.id, {
+        last_inbound_at: message.created_at,
+        status: 'open',
+      }).catch(() => null);
+      await this.conversationService.recordAnalytics({
+        threadId: thread.id,
+        messageId: message.id,
+        participantId: participant.id,
+        eventType: 'message_received',
+        workflow: thread.business_workflow || thread.thread_type,
+        funnelStage: thread.funnel_stage || 'conversation',
+        metadata: { channel, provider, same_thread_return: true },
+      });
+    }
+
+    if (!boundConversation && !duplicateMessage && (classification.handoffRequired || aiAnswer.handoffRequired)) {
       await this.threadService.escalateThread(thread.id, classification.intent || 'human_request', {
         severity: priority === 'high' ? 'high' : 'normal',
         source: 'ai_policy',
         team: this.threadService.teamForThread(thread.thread_type || threadType),
       });
-    } else if (!duplicateMessage && this.notificationService && (identity.user_id || input.user_id)) {
+    } else if (!boundConversation && !duplicateMessage && this.notificationService && (identity.user_id || input.user_id)) {
       await this.notificationService.queueNotification({
         recipientUserId: identity.user_id || input.user_id,
         thread,
@@ -183,21 +233,23 @@ export class CommunicationInboundService {
       });
     }
 
-    // Lifecycle audit (fail-soft): inbound receipt → AI classification → AI draft (item 2).
     const auditBase = { tenant_id: thread.tenant_id ?? null, thread_id: thread.id, message_id: message.id, channel };
     await logCommunicationAuditEvent(this.repository, {
       ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.INBOUND_RECEIVED, actor_type: 'customer',
-      actor_id: identity.user_id || null, correlation_id: message.provider_message_id || null, summary: 'Inbound message received',
+      actor_id: identity.user_id || null, correlation_id: message.provider_message_id || null,
+      summary: boundConversation ? 'Inbound message returned to canonical conversation' : 'Inbound message received',
+      metadata: { same_thread_return: Boolean(boundConversation), conversation_binding_id: boundConversation?.binding?.id || null },
     });
     await logCommunicationAuditEvent(this.repository, {
       ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_CLASSIFIED, actor_type: 'ai',
       summary: `AI classified as ${classification.intent || 'unknown'}`,
-      metadata: { intent: classification.intent ?? null, handoff_required: Boolean(classification.handoffRequired || aiAnswer.handoffRequired) },
+      metadata: { intent: classification.intent ?? null, handoff_required: Boolean(classification.handoffRequired || aiAnswer.handoffRequired), derived_only: true },
     });
     if (aiAnswer && (aiAnswer.reply || aiAnswer.draft)) {
       await logCommunicationAuditEvent(this.repository, {
         ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_DRAFTED, actor_type: 'ai',
         summary: aiAnswer.handoffRequired ? 'AI drafted a reply (pending human)' : 'AI drafted a reply',
+        metadata: { derived_only: true },
       });
     }
 
@@ -205,13 +257,14 @@ export class CommunicationInboundService {
       success: true,
       duplicate: duplicateMessage,
       created_thread: created,
+      same_thread_return: Boolean(boundConversation),
       thread,
       message,
       identity,
       classification,
       ai: aiAnswer,
       referral: referralResult,
-      reply: aiAnswer.reply || referralResult?.reply || 'CarUp received your message.',
+      reply: boundConversation ? null : (aiAnswer.reply || referralResult?.reply || 'CarUp received your message.'),
       received_at: nowIso(),
     };
   }
