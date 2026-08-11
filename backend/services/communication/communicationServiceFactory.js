@@ -6,7 +6,7 @@ import { CommunicationConversationService } from './communicationConversationSer
 import { CommunicationWorkflowService } from './communicationWorkflowService.js';
 import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
-import { CommunicationWebhookService } from './communicationWebhookService.js';
+import { CommunicationCanonicalWebhookService } from './communicationCanonicalWebhookService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { createDefaultAdapterRegistry, assertRealTelegramAdapter } from './adapters/providerAdapters.js';
@@ -43,7 +43,10 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     notificationService,
     conversationService,
   });
-  const webhookService = new CommunicationWebhookService({ repository: repo, inboundService });
+  // Keep the proven webhook verification/parsing surface, but use the Communications
+  // 2.0 subclass that fails closed when a provider receipt cannot be mapped to exactly
+  // one canonical delivery attempt. This is one webhook path, not a second transport.
+  const webhookService = new CommunicationCanonicalWebhookService({ repository: repo, inboundService });
   const deliveryWorker = new CommunicationDeliveryWorker({ repository: repo, adapterRegistry: registry });
   const orchestrator = createCommunicationOrchestrator({ repository: repo, threadService, notificationService, conversationService });
   const configurationValidator = createCommunicationConfigurationValidator({ adapterRegistry: deliveryWorker.adapterRegistry });
