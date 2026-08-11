@@ -1,6 +1,5 @@
 import { useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { supabase } from '@/lib/supabase'
 import {
   apiRequest,
   resolveApiBaseUrl,
@@ -181,6 +180,9 @@ export function useCommunicationProductApi() {
       },
     )
     const upload = prepared.upload
+    // Supabase is intentionally loaded only for a real media-upload action. This keeps
+    // unrelated CarUp routes and mocked UI test environments independent of storage env.
+    const { supabase } = await import('@/lib/supabase')
     const { error } = await supabase.storage.from(upload.bucket).uploadToSignedUrl(
       upload.path,
       upload.token,
