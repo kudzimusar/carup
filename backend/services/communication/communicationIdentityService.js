@@ -11,7 +11,16 @@ export class CommunicationIdentityService {
     if (!value) return null;
     const raw = String(value).trim();
     if (normalized === 'email') return raw.toLowerCase();
-    if (normalized === 'sms' || normalized === 'whatsapp') return raw.replace(/[^\d+]/g, '');
+    if (normalized === 'sms' || normalized === 'whatsapp') {
+      // Provider callbacks and user forms commonly disagree on +263 vs 263 vs 00263.
+      // Preserve the provider's raw external_id separately, but use one E.164-like
+      // comparison key so the same physical identity does not fragment conversations.
+      const compact = raw.replace(/[^\d+]/g, '');
+      if (!compact) return null;
+      if (compact.startsWith('+')) return `+${compact.slice(1).replace(/\D/g, '')}`;
+      if (compact.startsWith('00')) return `+${compact.slice(2).replace(/\D/g, '')}`;
+      return `+${compact.replace(/\D/g, '')}`;
+    }
     return raw;
   }
 
@@ -30,6 +39,8 @@ export class CommunicationIdentityService {
       display_name: input.display_name || existing.display_name,
       metadata: { ...(existing.metadata || {}), ...(input.metadata || {}) },
     };
+    const normalizedAddress = this.normalizeAddress(existing.channel || input.channel, input.address || input.external_id || input.externalSenderId || existing.external_id);
+    if (normalizedAddress) patch.normalized_address = normalizedAddress;
     const consent = input.consent_status || input.consent?.status || null;
     if (consent && consent !== 'unknown') patch.consent_status = consent;
     if (input.user_id && (existing.user_id === input.user_id || input.verified === true || input.authenticated === true)) {
@@ -53,12 +64,16 @@ export class CommunicationIdentityService {
     if (exact) return exact;
 
     const tenantKey = tenantId || 'platform';
+    const normalizedAddress = this.normalizeAddress(channel, externalId);
     const matches = await this.repository.list('channel_identities', {
       channel,
       provider,
-      external_id: externalId,
-    }, { limit: 25 });
-    return matches.find((identity) => (identity.tenant_id || 'platform') === tenantKey) || null;
+    }, { limit: 100 });
+    return matches.find((identity) => {
+      if ((identity.tenant_id || 'platform') !== tenantKey) return false;
+      if (identity.external_id === externalId) return true;
+      return Boolean(normalizedAddress && identity.normalized_address === normalizedAddress);
+    }) || null;
   }
 
   async resolveOrCreateIdentity(input = {}) {
@@ -82,6 +97,8 @@ export class CommunicationIdentityService {
         user_id: input.user_id || null,
         channel,
         provider,
+        // Raw provider/user value remains the audit value; normalized_address is
+        // the comparison/routing key.
         external_id: externalId,
         normalized_address: this.normalizeAddress(channel, input.address || externalId),
         display_name: input.display_name || null,
@@ -91,7 +108,8 @@ export class CommunicationIdentityService {
         last_seen_at: nowIso(),
         metadata: {
           provenance: input.user_id ? 'authenticated_or_signed_context' : 'provider_inbound',
-          identity_key: buildDedupeKey([tenantId || 'platform', channel, provider, externalId]),
+          identity_key: buildDedupeKey([tenantId || 'platform', channel, provider, this.normalizeAddress(channel, externalId) || externalId]),
+          raw_external_id_preserved: true,
           ...(input.metadata || {}),
         },
       });
