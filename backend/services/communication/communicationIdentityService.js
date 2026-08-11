@@ -13,13 +13,11 @@ export class CommunicationIdentityService {
     if (normalized === 'email') return raw.toLowerCase();
     if (normalized === 'sms' || normalized === 'whatsapp') {
       // Provider callbacks and user forms commonly disagree on +263 vs 263 vs 00263.
-      // Preserve the provider's raw external_id separately, but use one E.164-like
-      // comparison key so the same physical identity does not fragment conversations.
-      const compact = raw.replace(/[^\d+]/g, '');
-      if (!compact) return null;
-      if (compact.startsWith('+')) return `+${compact.slice(1).replace(/\D/g, '')}`;
-      if (compact.startsWith('00')) return `+${compact.slice(2).replace(/\D/g, '')}`;
-      return `+${compact.replace(/\D/g, '')}`;
+      // Preserve the raw external_id separately, but keep the existing provider-facing
+      // digits-only canonical form so the proven Meta/Twilio request contract does not change.
+      const digits = raw.replace(/\D/g, '');
+      if (!digits) return null;
+      return digits.startsWith('00') ? digits.slice(2) : digits;
     }
     return raw;
   }
