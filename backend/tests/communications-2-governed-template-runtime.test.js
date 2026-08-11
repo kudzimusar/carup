@@ -68,8 +68,20 @@ test('retired governed template fails closed instead of reviving compatibility c
   );
 });
 
-test('compatibility fallback remains available only when no governed row exists', async () => {
-  const repository = new MemoryCommunicationRepository();
+test('an unregistered key fails closed once the governed registry exists', async () => {
+  const repository = governedRepository();
+  const service = new CommunicationGovernedTemplateService({ repository });
+  await assert.rejects(
+    () => service.render('unknown_runtime_key', {}, { channel: 'in_app', language: 'en' }),
+    (error) => error?.code === 'template_not_registered',
+  );
+});
+
+test('pre-migration compatibility fallback is used only when the registry relation is genuinely absent', async () => {
+  const repository = {
+    async findOne() { throw new Error('communication_templates lookup failed: relation "communication_templates" does not exist'); },
+    async list() { return []; },
+  };
   const service = new CommunicationGovernedTemplateService({ repository });
   const rendered = await service.render('marketplace_inquiry_received_v1', { listing_id: 'VIN-PRE-MIGRATION' }, { channel: 'in_app', language: 'en' });
   assert.notEqual(rendered.governed, true);
