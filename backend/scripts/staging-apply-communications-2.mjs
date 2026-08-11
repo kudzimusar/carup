@@ -16,7 +16,7 @@
  *  - no connection string or secret is printed;
  *  - TLS verification remains enabled;
  *  - already-recorded migrations are never re-applied;
- *  - missing base Communications tables fail closed;
+ *  - missing base Communications/Marketplace tables fail closed;
  *  - production application is outside this runner's design contract.
  */
 import { readFileSync } from 'fs';
@@ -58,6 +58,11 @@ const MIGRATIONS = [
     version: '20260811132000',
     name: '20260811132000_communications_2_template_runtime_registry.sql',
     gitBlobSha: '2177549f496b5255de8d0948fa22dd2531a4d5c1',
+  },
+  {
+    version: '20260811132100',
+    name: '20260811132100_communications_2_reliability_closure.sql',
+    gitBlobSha: 'c85f301269a27fe29caa7ad8faec47cd27d95c67',
   },
 ];
 
@@ -110,16 +115,17 @@ function tlsConfig() {
 async function assertBaseContract(client) {
   const required = [
     'message_threads', 'message_participants', 'messages', 'channel_identities',
-    'notification_queue', 'message_delivery_attempts',
+    'notification_queue', 'message_delivery_attempts', 'domain_events',
+    'marketplace_inquiries',
   ];
   const { rows } = await client.query('select unnest($1::text[]) as name', [required]);
   for (const row of rows) {
     const found = await client.query('select to_regclass($1)::text as v', [`public.${row.name}`]);
-    if (!found.rows[0]?.v) fail(`required base Communications table ${row.name} is absent; wrong/incomplete staging database.`);
+    if (!found.rows[0]?.v) fail(`required base table ${row.name} is absent; wrong/incomplete staging database.`);
   }
   const history = await client.query("select to_regclass('supabase_migrations.schema_migrations')::text as v");
   if (!history.rows[0]?.v) fail('supabase_migrations.schema_migrations is absent; refusing untracked migration application.');
-  console.log(`Base Communications prerequisites: ${required.length} tables + migration history present.`);
+  console.log(`Base prerequisites: ${required.length} tables + migration history present.`);
 }
 
 async function verifyContract(client) {
@@ -184,6 +190,16 @@ async function verifyContract(client) {
   await expectOne('trigger.messages_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_messages_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.notification_queue_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_notification_queue_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.delivery_attempts_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_message_delivery_attempts_monotonic_delivery_status' and not tgisinternal`);
+  await expectOne('domain_events.dedupe_key', `select count(*)::int c from information_schema.columns where table_schema='public' and table_name='domain_events' and column_name='dedupe_key'`);
+  await expectOne('trigger.domain_event_exactly_once_key', `select count(*)::int c from pg_trigger where tgname='trg_domain_events_communication_dedupe' and not tgisinternal`);
+  await expectOne('trigger.marketplace_atomic_communication_outbox', `select count(*)::int c from pg_trigger where tgname='trg_marketplace_inquiry_communication_outbox' and not tgisinternal`);
+  await expectOne('index.domain_event_exactly_once', `
+    select count(*)::int c
+      from pg_indexes
+     where schemaname='public'
+       and indexname='idx_domain_events_dedupe_key'
+       and indexdef ilike '%unique index%'
+       and indexdef ilike '%(dedupe_key)%'`);
 
   const templatesTable = await client.query("select to_regclass('public.communication_templates')::text as v");
   if (templatesTable.rows[0]?.v) {

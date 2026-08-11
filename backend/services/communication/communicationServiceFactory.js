@@ -55,10 +55,18 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     conversationService,
   });
   // Keep the proven webhook verification/parsing surface, but use the Communications
-  // 2.0 subclass that fails closed when a provider receipt cannot be mapped to exactly
-  // one canonical delivery attempt. This is one webhook path, not a second transport.
-  const webhookService = new CommunicationCanonicalWebhookService({ repository: repo, inboundService });
-  const deliveryWorker = new CommunicationDeliveryWorker({ repository: repo, adapterRegistry: registry });
+  // 2.0 subclass that fails closed on ambiguous receipts and advances terminal provider
+  // failures through the same ordered fallback contract.
+  const webhookService = new CommunicationCanonicalWebhookService({
+    repository: repo,
+    inboundService,
+    notificationService,
+  });
+  const deliveryWorker = new CommunicationDeliveryWorker({
+    repository: repo,
+    adapterRegistry: registry,
+    notificationService,
+  });
   const orchestrator = createCommunicationOrchestrator({ repository: repo, threadService, notificationService, conversationService });
   const configurationValidator = createCommunicationConfigurationValidator({ adapterRegistry: deliveryWorker.adapterRegistry });
   return {

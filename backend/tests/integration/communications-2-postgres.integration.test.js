@@ -17,6 +17,7 @@ const WORKFLOW = '../../../database/migrations/20260811131700_communications_2_w
 const AUTH_HARDENING = '../../../database/migrations/20260811131800_communications_2_participant_auth_hardening.sql';
 const PRIVACY_HARDENING = '../../../database/migrations/20260811131900_communications_2_privacy_binding_hardening.sql';
 const TEMPLATE_RUNTIME = '../../../database/migrations/20260811132000_communications_2_template_runtime_registry.sql';
+const RELIABILITY = '../../../database/migrations/20260811132100_communications_2_reliability_closure.sql';
 
 const readSql = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const upSection = (sql) => sql.split('-- +migrate Down')[0];
@@ -28,6 +29,7 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   await client.connect();
 
   async function downCommunications2() {
+    await client.query(downSection(readSql(RELIABILITY)));
     await client.query(downSection(readSql(TEMPLATE_RUNTIME)));
     await client.query(downSection(readSql(PRIVACY_HARDENING)));
     await client.query(downSection(readSql(AUTH_HARDENING)));
@@ -43,12 +45,13 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
     await client.query(upSection(readSql(AUTH_HARDENING)));
     await client.query(upSection(readSql(PRIVACY_HARDENING)));
     await client.query(upSection(readSql(TEMPLATE_RUNTIME)));
+    await client.query(upSection(readSql(RELIABILITY)));
   }
 
   t.after(async () => {
     await downCommunications2().catch(() => {});
     await client.query(downSection(readSql(BASE))).catch(() => {});
-    await client.query('DROP TABLE IF EXISTS public.users, public.notification_queue, public.domain_events CASCADE').catch(() => {});
+    await client.query('DROP TABLE IF EXISTS public.users, public.notification_queue, public.domain_events, public.marketplace_inquiries CASCADE').catch(() => {});
     await client.end().catch(() => {});
   });
 
@@ -90,6 +93,66 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
         AND pg_get_function_identity_arguments(p.oid)='p_thread_id uuid, p_user_id text'`);
     assert.equal(currentUserHelper.rows[0].c, 1, 'current-user-only participant helper must exist');
     assert.equal(arbitraryUserHelper.rows[0].c, 0, 'arbitrary-user membership probe must not survive hardening');
+
+    const trigger = await client.query(`SELECT count(*)::int c FROM pg_trigger
+      WHERE tgname='trg_marketplace_inquiry_communication_outbox' AND NOT tgisinternal`);
+    assert.equal(trigger.rows[0].c, 1, 'Marketplace atomic communication outbox trigger must exist');
+  });
+
+  await t.test('Marketplace inquiry and canonical communication event commit atomically and exactly once', async () => {
+    const inquiryId = '44444444-4444-4444-8444-444444444444';
+    await client.query('BEGIN');
+    await client.query(`
+      INSERT INTO public.marketplace_inquiries
+        (id, listing_id, buyer_id, seller_id, seller_tenant_id, inquiry_type, message, source_channel, referral_code, campaign_code)
+      VALUES
+        ($1, 'VIN-ATOMIC-C2', 'buyer-atomic', 'seller-atomic', 'tenant-atomic',
+         'vehicle_purchase_interest', 'Exact atomic inquiry text', 'web', 'REF-ATOMIC', 'CMP-ATOMIC')`,
+    [inquiryId]);
+
+    const inside = await client.query(`
+      SELECT payload, tenant_id, dedupe_key
+      FROM public.domain_events
+      WHERE event_type='marketplace.inquiry.created'
+        AND payload ->> 'inquiryId' = $1`, [inquiryId]);
+    assert.equal(inside.rows.length, 1, 'outbox event exists in the same transaction as the inquiry');
+    assert.equal(inside.rows[0].payload.listingId, 'VIN-ATOMIC-C2');
+    assert.equal(inside.rows[0].payload.recipientUserId, 'seller-atomic');
+    assert.equal(inside.rows[0].tenant_id, 'tenant-atomic');
+    assert.equal(inside.rows[0].dedupe_key, `marketplace.inquiry.created:${inquiryId}`);
+    await client.query('COMMIT');
+
+    const duplicate = await client.query(`
+      INSERT INTO public.domain_events (event_type, payload, status, attempts, tenant_id)
+      VALUES ('marketplace.inquiry.created', $1::jsonb, 'pending', 0, 'tenant-atomic')
+      ON CONFLICT DO NOTHING
+      RETURNING id`,
+    [JSON.stringify({ inquiryId, listingId: 'VIN-ATOMIC-C2' })]);
+    assert.equal(duplicate.rows.length, 0, 'duplicate explicit emission is idempotently suppressed');
+
+    const count = await client.query(`
+      SELECT count(*)::int c
+      FROM public.domain_events
+      WHERE event_type='marketplace.inquiry.created'
+        AND payload ->> 'inquiryId' = $1`, [inquiryId]);
+    assert.equal(count.rows[0].c, 1, 'one inquiry has exactly one canonical communication event');
+
+    const rolledBackId = '55555555-5555-4555-8555-555555555555';
+    await client.query('BEGIN');
+    await client.query(`
+      INSERT INTO public.marketplace_inquiries
+        (id, listing_id, seller_id, seller_tenant_id, inquiry_type, message, source_channel)
+      VALUES ($1, 'VIN-ROLLBACK-C2', 'seller-rollback', 'tenant-rollback',
+        'vehicle_purchase_interest', 'Must roll back together', 'web')`, [rolledBackId]);
+    await client.query('ROLLBACK');
+
+    const rollbackProof = await client.query(`
+      SELECT
+        (SELECT count(*) FROM public.marketplace_inquiries WHERE id=$1) AS inquiries,
+        (SELECT count(*) FROM public.domain_events
+          WHERE event_type='marketplace.inquiry.created' AND payload ->> 'inquiryId'=$1) AS events`, [rolledBackId]);
+    assert.equal(Number(rollbackProof.rows[0].inquiries), 0);
+    assert.equal(Number(rollbackProof.rows[0].events), 0, 'inquiry rollback also rolls back its outbox event');
   });
 
   await t.test('legacy primary user is backfilled and participant authorization helper is bound to auth.uid', async () => {

@@ -35,9 +35,6 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
     const detail = await super.getConversation(threadId, actor);
     const thread = await this.repository.findOne('message_threads', { id: threadId });
 
-    // Opening a conversation is an explicit user read action in the ordinary CarUp
-    // inbox. Advance only this participant's read cursor; other participants remain
-    // untouched. Failure to persist the read marker must not hide the conversation.
     const readParticipant = await this.markRead(threadId, actor).catch(() => null);
     return {
       ...detail,
@@ -78,6 +75,7 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
           transactional: true,
           dedupeParts: ['conversation-message', message.id, recipient.id, 'in_app'],
           payload: { thread_id: thread.id, business_workflow: thread.business_workflow || thread.thread_type },
+          metadata: { recipient_participant_id: recipient.id },
         });
         const result = {
           channel: 'in_app',
@@ -105,6 +103,11 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
       if (binding.channel === 'email') payload.email = address;
       if (binding.channel === 'telegram') payload.telegram_chat_id = identity.external_id;
 
+      const fallbackChannels = [...new Set(bindings
+        .slice(1)
+        .map((candidate) => normalizeChannel(candidate.channel))
+        .filter((channel) => channel && channel !== 'in_app' && channel !== normalizeChannel(binding.channel)))];
+
       const queued = await this.notificationService.queueExistingMessage({
         message,
         thread,
@@ -117,6 +120,8 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
         transactional: true,
         dedupeParts: ['conversation-message', message.id, recipient.id, binding.channel, identity.id],
         payload,
+        fallbackChannels,
+        metadata: { recipient_participant_id: recipient.id },
       });
       const result = {
         channel: binding.channel,
@@ -128,9 +133,6 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
 
       if (queued.suppressed) {
         suppressions.push(result);
-        // Do not move the binding's last-used/outbound cursor for a message that was
-        // intentionally not sent. Otherwise future inbound recency could be routed
-        // toward a conversation the user explicitly muted/disabled.
         continue;
       }
 
@@ -143,9 +145,6 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
     }
 
     if (deliveries.length === 0 && suppressions.length > 0) {
-      // `messages.status` supports `suppressed`. This prevents an intentionally
-      // non-delivered canonical message from appearing indefinitely as `queued` even
-      // though the worker has no eligible queue row to process.
       await this.repository.updateById('messages', message.id, {
         status: 'suppressed',
         content_json: {
@@ -156,9 +155,6 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
       });
     }
 
-    // Preserve the base method's array contract for existing callers while exposing
-    // suppression evidence non-enumerably for diagnostics/tests. Analytics therefore
-    // counts only actual queued delivery routes.
     Object.defineProperty(deliveries, 'suppressions', {
       value: suppressions,
       enumerable: false,

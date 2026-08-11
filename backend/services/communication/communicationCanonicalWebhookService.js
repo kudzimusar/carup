@@ -3,14 +3,19 @@ import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './commun
 import { normalizeChannel, nowIso } from './communicationUtils.js';
 
 /**
- * Communications 2.0 receipt-attribution hardening.
+ * Communications 2.0 receipt-attribution and fallback hardening.
  *
  * Provider verification/parsing remains inherited unchanged from the proven
- * CommunicationWebhookService. Only the provider-receipt -> delivery-attempt resolver
- * is tightened so a duplicated/colliding provider id can never update an arbitrary
- * CarUp message or conversation.
+ * CommunicationWebhookService. Provider receipts must map to exactly one CarUp
+ * delivery attempt; terminal provider failures may then advance the same message
+ * through its ordered fallback sequence.
  */
 export class CommunicationCanonicalWebhookService extends CommunicationWebhookService {
+  constructor({ repository, inboundService, notificationService = null, env = process.env } = {}) {
+    super({ repository, inboundService, env });
+    this.notificationService = notificationService;
+  }
+
   async resolveDeliveryAttempt(receipt = {}) {
     if (!receipt.providerMessageId) return { attempt: null, ambiguous: false };
     const normalizedChannel = normalizeChannel(receipt.channel);
@@ -57,8 +62,6 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
     const notificationId = receipt.notificationId || attempt?.notification_id || null;
     const messageId = receipt.messageId || attempt?.message_id || null;
 
-    // A provider-only receipt that cannot be mapped to a persisted attempt is useful
-    // evidence but is never allowed to mutate an arbitrary notification/message.
     if (!attempt && !receipt.notificationId && !receipt.messageId) {
       await logCommunicationAuditEvent(this.repository, {
         event_type: COMMUNICATION_AUDIT_EVENTS.DELIVERY_RECEIPT,
@@ -130,6 +133,47 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
         delivery_attempt_id: attempt?.id || null,
       },
     });
-    return { notificationId, messageId, providerMessageId: receipt.providerMessageId, status: receipt.status };
+
+    let fallback = null;
+    if (receipt.status === 'failed' && notification && this.notificationService?.queueNextFallback) {
+      try {
+        fallback = await this.notificationService.queueNextFallback(notification, {
+          trigger: 'provider_terminal_receipt',
+          errorCode: receipt.errorCode || 'provider_receipt_failed',
+          errorMessage: receipt.errorMessage || null,
+          actor_type: 'system',
+          actor_id: receipt.provider || 'provider-webhook',
+        });
+      } catch (error) {
+        await logCommunicationAuditEvent(this.repository, {
+          tenant_id: notification.tenant_id ?? null,
+          thread_id: notification.thread_id ?? null,
+          message_id: messageId ?? null,
+          notification_id: notificationId ?? null,
+          event_type: 'fallback_orchestration_failed',
+          actor_type: 'system',
+          channel: notification.channel || receipt.channel || null,
+          summary: 'Provider failure fallback orchestration failed',
+          correlation_id: receipt.providerMessageId || null,
+          metadata: { error: error?.message || 'unknown fallback orchestration failure' },
+        });
+      }
+      if (!fallback?.queued && fallback?.exhausted && messageId) {
+        await this.repository.updateById('messages', messageId, {
+          status: 'dead_letter',
+          failed_at: nowIso(),
+        });
+      }
+    }
+
+    return {
+      notificationId,
+      messageId,
+      providerMessageId: receipt.providerMessageId,
+      status: receipt.status,
+      fallbackQueued: Boolean(fallback?.queued),
+      fallbackNotificationId: fallback?.notification?.id || null,
+      fallbackChannel: fallback?.channel || null,
+    };
   }
 }

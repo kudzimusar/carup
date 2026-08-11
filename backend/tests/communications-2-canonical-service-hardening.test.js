@@ -10,7 +10,9 @@ import { CommunicationIdentityService } from '../services/communication/communic
 import { CommunicationThreadService } from '../services/communication/communicationThreadService.js';
 import { CommunicationPreferenceService } from '../services/communication/communicationPreferenceService.js';
 import { CommunicationNotificationService } from '../services/communication/communicationNotificationService.js';
+import { CommunicationCanonicalNotificationService } from '../services/communication/communicationCanonicalNotificationService.js';
 import { CommunicationCanonicalConversationService } from '../services/communication/communicationCanonicalConversationService.js';
+import { CommunicationDeliveryWorker } from '../services/communication/communicationDeliveryWorker.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 
 function canonicalHarness(seed = {}) {
@@ -30,6 +32,7 @@ test('normal service factory activates the canonical conversation + receipt hard
   const services = createCommunicationServices({ repository });
   assert.equal(services.conversationService.constructor.name, 'CommunicationCanonicalConversationService');
   assert.equal(services.webhookService.constructor.name, 'CommunicationCanonicalWebhookService');
+  assert.equal(services.deliveryWorker.notificationService, services.notificationService);
 });
 
 test('opening a conversation advances only that participant read cursor and preserves actual conversation_type', async () => {
@@ -126,4 +129,166 @@ test('domain-event routing queues one primary channel and records ordered fallba
   assert.deepEqual(rows[0].metadata.fallback_channels, ['push', 'email']);
   assert.equal(repository.rows('messages').length, 1, 'one semantic event creates one canonical outbound message');
   assert.equal(repository.rows('messages')[0].content_json.governed_template, true);
+});
+
+test('terminal provider failure advances exactly one canonical message to the next ordered fallback route', async () => {
+  const repository = new MemoryCommunicationRepository({
+    message_threads: [{
+      id: 'thread-fallback', thread_key: 'thread-fallback', thread_type: 'marketplace_inquiry',
+      business_workflow: 'marketplace', status: 'open', primary_channel: 'whatsapp', priority: 'normal',
+    }],
+    messages: [{
+      id: 'msg-fallback', thread_id: 'thread-fallback', direction: 'outbound', channel: 'whatsapp',
+      content_text: 'Same semantic seller reply', content_json: {}, status: 'queued',
+    }],
+    users: [{
+      id: 'buyer-fallback', name: 'Fallback Buyer', email: 'buyer@example.com', phone: '+263771234567',
+    }],
+    communication_preferences: [{
+      id: 'pref-fallback', user_id: 'buyer-fallback', tenant_id: null,
+      transactional_enabled: true, in_app_enabled: true, email_enabled: true,
+      whatsapp_enabled: true, fallback_channels: ['email', 'in_app'],
+    }],
+    notification_queue: [{
+      id: 'notif-primary', recipient_id: 'buyer-fallback', recipient_user_id: 'buyer-fallback',
+      thread_id: 'thread-fallback', message_id: 'msg-fallback', event_id: 'event-fallback',
+      type: 'conversation_message', notification_type: 'conversation_message',
+      title: 'CarUp conversation', message: 'Same semantic seller reply', channel: 'whatsapp',
+      status: 'queued', dedupe_key: 'primary-fallback', priority: 'normal', max_attempts: 1,
+      payload: { phone_number: '263771234567' },
+      metadata: {
+        transactional: true,
+        fallback_channels: ['email', 'in_app'],
+        attempted_channels: ['whatsapp'],
+        routing_mode: 'single_primary_with_ordered_fallback',
+      },
+    }],
+  });
+  const threadService = new CommunicationThreadService({ repository });
+  const preferenceService = new CommunicationPreferenceService({ repository });
+  const notificationService = new CommunicationCanonicalNotificationService({
+    repository,
+    threadService,
+    preferenceService,
+    templateService: { render: async () => ({}) },
+  });
+  const registry = {
+    get(channel) {
+      if (channel === 'whatsapp') {
+        return {
+          provider: 'meta_whatsapp_cloud_api',
+          async send() {
+            return { accepted: false, retryable: false, errorCode: 'provider_rejected', errorMessage: 'simulated terminal rejection' };
+          },
+        };
+      }
+      if (channel === 'email') {
+        return {
+          provider: 'cloudflare_email',
+          async send(input) {
+            assert.equal(input.recipient.email, 'buyer@example.com');
+            return { accepted: true, providerStatus: 'accepted', providerMessageId: 'email-fallback-1' };
+          },
+        };
+      }
+      return null;
+    },
+  };
+  const worker = new CommunicationDeliveryWorker({
+    repository,
+    adapterRegistry: registry,
+    notificationService,
+    workerId: 'fallback-test-worker',
+  });
+
+  const first = await worker.deliverNotification(repository.rows('notification_queue')[0]);
+  assert.equal(first.status, 'fallback_queued');
+  assert.equal(first.fallbackChannel, 'email');
+
+  const queues = repository.rows('notification_queue');
+  assert.equal(queues.length, 2, 'fallback creates one additional delivery row, not a new semantic message');
+  assert.equal(queues[0].status, 'dead_letter');
+  assert.equal(queues[1].channel, 'email');
+  assert.equal(queues[1].message_id, 'msg-fallback');
+  assert.deepEqual(queues[1].metadata.fallback_channels, ['in_app']);
+  assert.equal(repository.rows('messages').length, 1);
+  assert.equal(repository.rows('messages')[0].status, 'queued', 'canonical message is not dead-lettered while fallback remains');
+
+  const second = await worker.deliverNotification(queues[1]);
+  assert.equal(second.status, 'sent');
+  assert.equal(repository.rows('messages')[0].status, 'sent');
+  assert.equal(repository.rows('message_delivery_attempts').length, 2);
+});
+
+test('canonical message dead-letters only after the ordered fallback sequence is exhausted and replay cannot resurrect it', async () => {
+  const repository = new MemoryCommunicationRepository({
+    message_threads: [{
+      id: 'thread-exhaust', thread_key: 'fallback-exhaust', thread_type: 'support',
+      status: 'open', primary_channel: 'whatsapp', priority: 'normal',
+    }],
+    messages: [{
+      id: 'msg-exhaust', thread_id: 'thread-exhaust', direction: 'outbound', channel: 'whatsapp',
+      status: 'queued', content_text: 'One semantic message across exhausted routes', content_json: {},
+    }],
+    users: [{ id: 'buyer-exhaust', name: 'Fallback Buyer', email: 'exhaust@example.com', phone: '+263772222222' }],
+    communication_preferences: [{
+      id: 'pref-exhaust', user_id: 'buyer-exhaust', tenant_id: null,
+      transactional_enabled: true, email_enabled: true, whatsapp_enabled: true, in_app_enabled: false,
+    }],
+    notification_queue: [{
+      id: 'notif-exhaust-primary', recipient_id: 'buyer-exhaust', recipient_user_id: 'buyer-exhaust',
+      thread_id: 'thread-exhaust', message_id: 'msg-exhaust', type: 'conversation_message',
+      notification_type: 'conversation_message', title: 'CarUp conversation',
+      message: 'One semantic message across exhausted routes', channel: 'whatsapp', status: 'queued',
+      dedupe_key: 'exhaust-primary', priority: 'normal', max_attempts: 1,
+      payload: { phone_number: '263772222222' },
+      metadata: {
+        transactional: true,
+        fallback_channels: ['email'],
+        attempted_channels: ['whatsapp'],
+        routing_mode: 'single_primary_with_ordered_fallback',
+      },
+    }],
+  });
+  const threadService = new CommunicationThreadService({ repository });
+  const preferenceService = new CommunicationPreferenceService({ repository });
+  const notificationService = new CommunicationCanonicalNotificationService({
+    repository,
+    threadService,
+    preferenceService,
+    templateService: { render: async () => ({}) },
+  });
+  const registry = {
+    get(channel) {
+      if (!['whatsapp', 'email'].includes(channel)) return null;
+      return {
+        provider: channel === 'whatsapp' ? 'meta_whatsapp_cloud_api' : 'cloudflare_email',
+        async send() {
+          return { accepted: false, retryable: false, errorCode: 'provider_rejected', errorMessage: `${channel} terminal rejection` };
+        },
+      };
+    },
+  };
+  const worker = new CommunicationDeliveryWorker({
+    repository,
+    adapterRegistry: registry,
+    notificationService,
+    workerId: 'fallback-exhaust-worker',
+  });
+
+  const primary = repository.rows('notification_queue')[0];
+  const first = await worker.deliverNotification(primary);
+  assert.equal(first.status, 'fallback_queued');
+  assert.equal(repository.rows('messages')[0].status, 'queued');
+
+  const emailFallback = repository.rows('notification_queue').find((row) => row.id !== primary.id);
+  const second = await worker.deliverNotification(emailFallback);
+  assert.equal(second.status, 'dead_letter');
+  assert.equal(repository.rows('messages')[0].status, 'dead_letter', 'canonical message becomes terminal only after all governed routes fail');
+  assert.equal(repository.rows('notification_queue').length, 2);
+
+  const replay = await worker.markDeadLetter(primary, { errorCode: 'duplicate_failure_receipt', errorMessage: 'replayed primary failure' });
+  assert.equal(replay.status, 'dead_letter');
+  assert.equal(repository.rows('notification_queue').length, 2, 'failure replay cannot create duplicate fallback rows');
+  assert.equal(repository.rows('messages')[0].status, 'dead_letter', 'failure replay cannot resurrect an exhausted message');
 });

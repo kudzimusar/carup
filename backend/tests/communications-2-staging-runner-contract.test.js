@@ -10,7 +10,7 @@ function gitBlobSha(content) {
   return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
 }
 
-test('staging runner pins the complete six-migration Communications 2 chain to exact Git blob bytes', () => {
+test('staging runner pins the complete seven-migration Communications 2 chain to exact Git blob bytes', () => {
   const entries = [...runner.matchAll(/version:\s*'([^']+)'[\s\S]*?name:\s*'([^']+)'[\s\S]*?gitBlobSha:\s*'([0-9a-f]{40})'/g)]
     .map((match) => ({ version: match[1], name: match[2], blob: match[3] }));
 
@@ -21,6 +21,7 @@ test('staging runner pins the complete six-migration Communications 2 chain to e
     '20260811131800',
     '20260811131900',
     '20260811132000',
+    '20260811132100',
   ]);
 
   for (const entry of entries) {
@@ -35,4 +36,12 @@ test('staging runner remains fail-closed to the canonical staging Supabase ident
   assert.match(runner, /MODE = process\.env\.MODE === 'apply' \? 'apply' : 'verify'/);
   assert.doesNotMatch(runner, /rejectUnauthorized:\s*false/);
   assert.doesNotMatch(runner, /console\.log\([^\n]*(DATABASE_URL|connectionString|process\.env\.COMMUNICATION_STAGING_DATABASE_URL)/);
+});
+
+test('staging runner verifies atomic Marketplace outbox and exactly-once domain-event contract', () => {
+  assert.match(runner, /marketplace_inquiries/);
+  assert.match(runner, /domain_events\.dedupe_key/);
+  assert.match(runner, /trg_domain_events_communication_dedupe/);
+  assert.match(runner, /trg_marketplace_inquiry_communication_outbox/);
+  assert.match(runner, /idx_domain_events_dedupe_key/);
 });
