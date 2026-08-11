@@ -148,9 +148,9 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
 
     const rollbackProof = await client.query(`
       SELECT
-        (SELECT count(*) FROM public.marketplace_inquiries WHERE id=$1) AS inquiries,
+        (SELECT count(*) FROM public.marketplace_inquiries WHERE id=$1::uuid) AS inquiries,
         (SELECT count(*) FROM public.domain_events
-          WHERE event_type='marketplace.inquiry.created' AND payload ->> 'inquiryId'=$1) AS events`, [rolledBackId]);
+          WHERE event_type='marketplace.inquiry.created' AND payload ->> 'inquiryId'=$1::text) AS events`, [rolledBackId]);
     assert.equal(Number(rollbackProof.rows[0].inquiries), 0);
     assert.equal(Number(rollbackProof.rows[0].events), 0, 'inquiry rollback also rolls back its outbox event');
   });
