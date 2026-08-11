@@ -48,13 +48,32 @@ test('governed template refuses missing required personalization variables', asy
   );
 });
 
-test('unapproved DB version cannot bypass governance and compatibility fallback preserves proven copy', async () => {
+test('an existing governed template with no approved version fails closed instead of bypassing to legacy copy', async () => {
   const repository = governedRepository();
   repository.rows('communication_template_versions')[0].approval_status = 'draft';
   const service = new CommunicationGovernedTemplateService({ repository });
-  const rendered = await service.render('marketplace_inquiry_received_v1', { listing_id: 'VIN-FALLBACK' }, { channel: 'in_app', language: 'en' });
+  await assert.rejects(
+    () => service.render('marketplace_inquiry_received_v1', { listing_id: 'VIN-NOT-APPROVED' }, { channel: 'in_app', language: 'en' }),
+    (error) => error?.code === 'template_not_approved',
+  );
+});
+
+test('retired governed template fails closed instead of reviving compatibility copy', async () => {
+  const repository = governedRepository();
+  repository.rows('communication_templates')[0].status = 'retired';
+  const service = new CommunicationGovernedTemplateService({ repository });
+  await assert.rejects(
+    () => service.render('marketplace_inquiry_received_v1', { listing_id: 'VIN-RETIRED' }, { channel: 'in_app', language: 'en' }),
+    (error) => error?.code === 'template_not_active',
+  );
+});
+
+test('compatibility fallback remains available only when no governed row exists', async () => {
+  const repository = new MemoryCommunicationRepository();
+  const service = new CommunicationGovernedTemplateService({ repository });
+  const rendered = await service.render('marketplace_inquiry_received_v1', { listing_id: 'VIN-PRE-MIGRATION' }, { channel: 'in_app', language: 'en' });
   assert.notEqual(rendered.governed, true);
-  assert.equal(rendered.body, 'Your marketplace inquiry for VIN-FALLBACK was received. CarUp will notify the relevant seller or team.');
+  assert.equal(rendered.body, 'Your marketplace inquiry for VIN-PRE-MIGRATION was received. CarUp will notify the relevant seller or team.');
 });
 
 test('normal runtime factory uses governed template and canonical notification services', () => {
