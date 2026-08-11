@@ -32,6 +32,67 @@ export class CommunicationInboundService {
     return this.referralChannelGateway;
   }
 
+  /**
+   * Prefer explicit provider reply context over a recency guess.
+   *
+   * Meta WhatsApp sends the provider message id being replied to in message.context.id.
+   * The parser passes that value as externalConversationId. Delivery attempts already
+   * persist the provider message id together with the canonical CarUp message id, so
+   * this gives us a deterministic bridge:
+   * provider reply context -> delivery attempt -> canonical message -> conversation.
+   *
+   * The identity must also have a live binding to that exact conversation. This
+   * prevents an unrelated/stale provider id from being used to jump conversations.
+   */
+  async resolveProviderReplyContext({ identity, channel, provider, externalConversationId } = {}) {
+    const contextId = String(externalConversationId || '').trim();
+    if (!identity?.id || !contextId) return null;
+
+    const normalizedChannel = normalizeChannel(channel);
+    const attempts = await this.repository.list('message_delivery_attempts', { provider_message_id: contextId });
+    const candidates = new Map();
+
+    for (const attempt of attempts) {
+      if (!attempt?.message_id) continue;
+      if (normalizedChannel && normalizeChannel(attempt.channel) !== normalizedChannel) continue;
+      if (provider && attempt.provider && attempt.provider !== provider) continue;
+
+      const outboundMessage = await this.repository.findOne('messages', { id: attempt.message_id });
+      if (!outboundMessage?.thread_id) continue;
+
+      const bindings = (await this.repository.list('conversation_channel_bindings', {
+        thread_id: outboundMessage.thread_id,
+        channel_identity_id: identity.id,
+      }))
+        .filter((binding) => binding.can_receive !== false)
+        .filter((binding) => !normalizedChannel || binding.channel === normalizedChannel)
+        .filter((binding) => !provider || !binding.provider || binding.provider === provider)
+        .filter((binding) => !binding.expires_at || Date.parse(binding.expires_at) > Date.now());
+
+      for (const binding of bindings) {
+        const participant = await this.repository.findOne('message_participants', { id: binding.participant_id });
+        if (!participant || participant.left_at || participant.thread_id !== outboundMessage.thread_id) continue;
+        const thread = await this.repository.findOne('message_threads', { id: outboundMessage.thread_id });
+        if (!thread) continue;
+        candidates.set(thread.id, {
+          thread,
+          participant,
+          binding,
+          resolution: 'provider_reply_context',
+          replied_to_message_id: outboundMessage.id,
+          provider_message_id: contextId,
+        });
+      }
+    }
+
+    // Never guess if corrupted/ambiguous provider data resolves to multiple CarUp
+    // conversations. The normal binding resolver can still use a separately
+    // unambiguous active binding; otherwise the message lands in a safe new/support
+    // path instead of leaking across business conversations.
+    if (candidates.size !== 1) return null;
+    return [...candidates.values()][0];
+  }
+
   async ingest(input = {}, actor = {}) {
     const channel = normalizeChannel(input.channel);
     if (!channel) throw new Error('Unsupported communication channel.');
@@ -95,17 +156,26 @@ export class CommunicationInboundService {
       if (!thread) throw new Error('Target communication thread not found.');
     }
 
-    // Communications 2.0: before creating a provider-owned/shadow thread, ask the
-    // canonical conversation layer whether this identity is bound to an active
-    // business conversation. Recency is only used when unambiguous; otherwise the
-    // service deliberately falls back rather than guessing across conversations.
+    // Communications 2.0: explicit provider reply context wins. If there is no
+    // exact context match, fall back to the canonical identity/channel binding
+    // resolver, which itself refuses ambiguous equal-recency candidates.
     if (!thread && !targetThreadId && this.conversationService) {
-      boundConversation = await this.conversationService.resolveInboundConversation({
+      const externalConversationId = input.externalConversationId || input.conversation_id || null;
+      boundConversation = await this.resolveProviderReplyContext({
         identity,
         channel,
         provider,
-        externalConversationId: input.externalConversationId || input.conversation_id || null,
+        externalConversationId,
       });
+      if (!boundConversation) {
+        boundConversation = await this.conversationService.resolveInboundConversation({
+          identity,
+          channel,
+          provider,
+          externalConversationId,
+        });
+        if (boundConversation) boundConversation.resolution = boundConversation.resolution || 'active_channel_binding';
+      }
       if (boundConversation?.thread) thread = boundConversation.thread;
     }
 
@@ -183,6 +253,8 @@ export class CommunicationInboundService {
             referral: referralResult,
             classification,
             conversation_binding_id: boundConversation?.binding?.id || null,
+            conversation_resolution: boundConversation?.resolution || null,
+            replied_to_message_id: boundConversation?.replied_to_message_id || null,
           },
           status: 'received',
           // A provider reply that returned to a business conversation should
@@ -210,7 +282,13 @@ export class CommunicationInboundService {
         eventType: 'message_received',
         workflow: thread.business_workflow || thread.thread_type,
         funnelStage: thread.funnel_stage || 'conversation',
-        metadata: { channel, provider, same_thread_return: true },
+        metadata: {
+          channel,
+          provider,
+          same_thread_return: true,
+          resolution: boundConversation.resolution || 'active_channel_binding',
+          replied_to_message_id: boundConversation.replied_to_message_id || null,
+        },
       });
     }
 
@@ -238,7 +316,12 @@ export class CommunicationInboundService {
       ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.INBOUND_RECEIVED, actor_type: 'customer',
       actor_id: identity.user_id || null, correlation_id: message.provider_message_id || null,
       summary: boundConversation ? 'Inbound message returned to canonical conversation' : 'Inbound message received',
-      metadata: { same_thread_return: Boolean(boundConversation), conversation_binding_id: boundConversation?.binding?.id || null },
+      metadata: {
+        same_thread_return: Boolean(boundConversation),
+        conversation_binding_id: boundConversation?.binding?.id || null,
+        resolution: boundConversation?.resolution || null,
+        replied_to_message_id: boundConversation?.replied_to_message_id || null,
+      },
     });
     await logCommunicationAuditEvent(this.repository, {
       ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_CLASSIFIED, actor_type: 'ai',
@@ -258,6 +341,8 @@ export class CommunicationInboundService {
       duplicate: duplicateMessage,
       created_thread: created,
       same_thread_return: Boolean(boundConversation),
+      conversation_resolution: boundConversation?.resolution || null,
+      replied_to_message_id: boundConversation?.replied_to_message_id || null,
       thread,
       message,
       identity,
