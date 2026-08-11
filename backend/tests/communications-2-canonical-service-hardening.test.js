@@ -94,7 +94,18 @@ test('suppressed external delivery is not counted as a delivery and does not adv
 });
 
 test('domain-event routing queues one primary channel and records ordered fallback instead of broadcasting', async () => {
-  const repository = new MemoryCommunicationRepository();
+  const repository = new MemoryCommunicationRepository({
+    communication_templates: [{
+      id: 'tpl-escrow-runtime', template_key: 'escrow_status_v1', business_workflow: 'safepay',
+      stakeholder_audience: 'customer', classification: 'transactional', status: 'active',
+    }],
+    communication_template_versions: [{
+      id: 'tpl-escrow-runtime-v1', template_id: 'tpl-escrow-runtime', version: 1, channel: 'default', language: 'en',
+      subject_template: 'SafePay escrow update',
+      body_template: 'SafePay escrow {{escrow_id}} is now {{status}}. This status comes from CarUp backend records.',
+      required_variables: ['escrow_id', 'status'], optional_variables: [], approval_status: 'approved',
+    }],
+  });
   const services = createCommunicationServices({ repository });
 
   const queued = await services.notificationService.queueFromDomainEvent({
@@ -114,4 +125,5 @@ test('domain-event routing queues one primary channel and records ordered fallba
   assert.equal(rows[0].metadata.routing_mode, 'single_primary_with_ordered_fallback');
   assert.deepEqual(rows[0].metadata.fallback_channels, ['push', 'email']);
   assert.equal(repository.rows('messages').length, 1, 'one semantic event creates one canonical outbound message');
+  assert.equal(repository.rows('messages')[0].content_json.governed_template, true);
 });
