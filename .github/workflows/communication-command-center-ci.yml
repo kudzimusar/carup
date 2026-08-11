@@ -1,11 +1,9 @@
 name: Communication Command Center CI
 
-# Real CI for the Enterprise Communication Command Center (Agent 8, issues #107/#110).
-#   • unit job: the full communication engine node --test suite (self-mocked, no DB);
-#   • postgres job: the REQUIRED real-Postgres integration gate (P1.12) against a disposable service
-#     container — applies the actual base + Command Center migrations into the container's own `public`
-#     schema and verifies migrations/audit-id/RPC search+count/registered-user search/per-agent unread/
-#     SLA columns/RLS tenant isolation/rollback and the follow-up direct-privilege hardening.
+# Real CI for the Enterprise Communication Command Center + Communications 2.0 core.
+#   • unit job: legacy communication engine + Communications 2.0 conversation-core suites;
+#   • postgres job: REQUIRED disposable-Postgres gates for the existing Command Center and the
+#     additive Communications 2.0 participant/binding/delivery invariants.
 
 on:
   pull_request:
@@ -30,7 +28,11 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Communication engine unit suite
-        run: node --test backend/tests/communication-engine.test.js backend/tests/communication-privilege-migration.test.js
+        run: >-
+          node --test
+          backend/tests/communication-engine.test.js
+          backend/tests/communication-privilege-migration.test.js
+          backend/tests/communications-2-conversation-core.test.js
 
   communication-postgres:
     runs-on: ubuntu-latest
@@ -70,7 +72,8 @@ jobs:
           set -eo pipefail
           node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it-main.log
           node --test backend/tests/integration/communication-privilege-postgres.integration.test.js 2>&1 | tee /tmp/it-privileges.log
-          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log; then
+          node --test backend/tests/integration/communications-2-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2.log
+          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log /tmp/it-comms2.log; then
             echo "::error::integration suite was SKIPPED — DB gate not satisfied"
             exit 1
           fi
