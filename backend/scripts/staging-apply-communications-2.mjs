@@ -57,7 +57,7 @@ const MIGRATIONS = [
   {
     version: '20260811132000',
     name: '20260811132000_communications_2_template_runtime_registry.sql',
-    gitBlobSha: 'd36b54be48394f067527b79535f0c76c5802fc92',
+    gitBlobSha: '2177549f496b5255de8d0948fa22dd2531a4d5c1',
   },
 ];
 
