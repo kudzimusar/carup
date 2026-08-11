@@ -41,10 +41,11 @@ test('Communications 2.0 privacy and binding integrity hold in PostgreSQL', { sk
   for (const migration of MIGRATIONS) await client.query(upSection(readSql(migration)));
 
   await t.test('cross-conversation participant/channel binding is rejected at the database boundary', async () => {
-    const { rows: threads } = await client.query(`
+    const { rows } = await client.query(`
       INSERT INTO message_threads (thread_key, thread_type, status, primary_channel)
       VALUES ('privacy-a','support','open','in_app'), ('privacy-b','support','open','in_app')
-      RETURNING id ORDER BY thread_key`);
+      RETURNING id, thread_key`);
+    const threads = rows.sort((a, b) => a.thread_key.localeCompare(b.thread_key));
     const threadA = threads[0].id;
     const threadB = threads[1].id;
     const { rows: participants } = await client.query(`
@@ -84,11 +85,11 @@ test('Communications 2.0 privacy and binding integrity hold in PostgreSQL', { sk
     await client.query('GRANT SELECT ON message_threads, message_participants, messages TO authenticated');
     await client.query('SET ROLE authenticated');
     await client.query(`SELECT set_config('request.jwt.claims', $1, false)`, [JSON.stringify({ sub: userId })]);
-    const { rows } = await client.query('SELECT direction, content_text FROM messages WHERE thread_id=$1 ORDER BY created_at', [threadId]);
+    const { rows: visibleRows } = await client.query('SELECT direction, content_text FROM messages WHERE thread_id=$1 ORDER BY created_at', [threadId]);
     await client.query('RESET ROLE');
 
-    assert.deepEqual(rows.map((row) => row.content_text), ['visible customer message']);
-    assert.equal(rows.some((row) => row.direction === 'internal'), false);
+    assert.deepEqual(visibleRows.map((row) => row.content_text), ['visible customer message']);
+    assert.equal(visibleRows.some((row) => row.direction === 'internal'), false);
   });
 
   await t.test('authenticated users see active template registry rows but not draft registry metadata', async () => {
