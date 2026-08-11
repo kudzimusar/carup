@@ -76,6 +76,18 @@ test('compatibility fallback remains available only when no governed row exists'
   assert.equal(rendered.body, 'Your marketplace inquiry for VIN-PRE-MIGRATION was received. CarUp will notify the relevant seller or team.');
 });
 
+test('operational registry failure surfaces instead of bypassing governance through fallback', async () => {
+  const repository = {
+    async findOne() { throw new Error('communication_templates lookup failed: connection refused'); },
+    async list() { return []; },
+  };
+  const service = new CommunicationGovernedTemplateService({ repository });
+  await assert.rejects(
+    () => service.render('marketplace_inquiry_received_v1', { listing_id: 'VIN-DB-OUTAGE' }, { channel: 'in_app', language: 'en' }),
+    /connection refused/,
+  );
+});
+
 test('normal runtime factory uses governed template and canonical notification services', () => {
   const services = createCommunicationServices({ repository: governedRepository() });
   assert.equal(services.templateService.constructor.name, 'CommunicationGovernedTemplateService');
