@@ -13,6 +13,7 @@ const BOOTSTRAP = './support/bootstrap.sql';
 const BASE = '../../../database/migrations/20260623143000_omnichannel_communication_engine.sql';
 const CORE = '../../../database/migrations/20260811131500_communications_2_conversation_core.sql';
 const MONOTONIC = '../../../database/migrations/20260811131600_communications_2_delivery_monotonicity.sql';
+const WORKFLOW = '../../../database/migrations/20260811131700_communications_2_workflow_template_foundations.sql';
 
 const readSql = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const upSection = (sql) => sql.split('-- +migrate Down')[0];
@@ -23,9 +24,20 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   const client = new pg.Client({ connectionString: DB_URL });
   await client.connect();
 
+  async function downCommunications2() {
+    await client.query(downSection(readSql(WORKFLOW)));
+    await client.query(downSection(readSql(MONOTONIC)));
+    await client.query(downSection(readSql(CORE)));
+  }
+
+  async function upCommunications2() {
+    await client.query(upSection(readSql(CORE)));
+    await client.query(upSection(readSql(MONOTONIC)));
+    await client.query(upSection(readSql(WORKFLOW)));
+  }
+
   t.after(async () => {
-    await client.query(downSection(readSql(MONOTONIC))).catch(() => {});
-    await client.query(downSection(readSql(CORE))).catch(() => {});
+    await downCommunications2().catch(() => {});
     await client.query(downSection(readSql(BASE))).catch(() => {});
     await client.query('DROP TABLE IF EXISTS public.users, public.notification_queue, public.domain_events CASCADE').catch(() => {});
     await client.end().catch(() => {});
@@ -34,8 +46,7 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   await t.test('base + Communications 2.0 migrations apply unchanged', async () => {
     await client.query(upSection(readSql(BOOTSTRAP)));
     await client.query(upSection(readSql(BASE)));
-    await client.query(upSection(readSql(CORE)));
-    await client.query(upSection(readSql(MONOTONIC)));
+    await upCommunications2();
 
     const { rows } = await client.query(`SELECT
       to_regclass('public.conversation_channel_bindings') AS bindings,
@@ -44,19 +55,23 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
       to_regclass('public.conversation_events') AS events,
       to_regclass('public.message_derivations') AS derivations`);
     assert.ok(rows[0].bindings && rows[0].parts && rows[0].templates && rows[0].events && rows[0].derivations);
+
+    const conversationType = await client.query(`SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='message_threads' AND column_name='conversation_type'`);
+    assert.equal(conversationType.rows.length, 1);
+    const templates = await client.query(`SELECT template_key FROM public.communication_templates`);
+    assert.ok(templates.rows.length >= 10, 'stakeholder template registry is seeded');
   });
 
   await t.test('legacy primary user is backfilled and participant authorization helper works', async () => {
-    // Backfill is migration-time, so create a legacy thread, rerun only the idempotent
-    // participant backfill statement by rolling the core migration down/up around it.
-    await client.query(downSection(readSql(MONOTONIC)));
-    await client.query(downSection(readSql(CORE)));
+    // Backfill is migration-time, so create a legacy thread then re-apply only the
+    // additive Communications 2.0 layer around it.
+    await downCommunications2();
     const { rows: inserted } = await client.query(`
       INSERT INTO public.message_threads
         (tenant_id, thread_key, thread_type, status, primary_channel, primary_user_id)
       VALUES ('tenantA','legacy-c2','support','open','in_app','legacy-user') RETURNING id`);
-    await client.query(upSection(readSql(CORE)));
-    await client.query(upSection(readSql(MONOTONIC)));
+    await upCommunications2();
 
     const threadId = inserted[0].id;
     const { rows: participant } = await client.query(`
@@ -76,8 +91,8 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   await t.test('conversation bindings keep transactional and marketing consent separate', async () => {
     const { rows: threadRows } = await client.query(`
       INSERT INTO public.message_threads
-        (tenant_id, thread_key, thread_type, status, primary_channel, business_workflow)
-      VALUES ('tenantA','market-c2','marketplace_inquiry','open','in_app','marketplace') RETURNING id`);
+        (tenant_id, thread_key, thread_type, status, primary_channel, business_workflow, conversation_type)
+      VALUES ('tenantA','market-c2','marketplace_inquiry','open','in_app','marketplace','marketplace') RETURNING id`);
     const threadId = threadRows[0].id;
     const { rows: participantRows } = await client.query(`
       INSERT INTO public.message_participants
@@ -123,14 +138,12 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   });
 
   await t.test('new migrations roll back without dropping the proven base engine', async () => {
-    await client.query(downSection(readSql(MONOTONIC)));
-    await client.query(downSection(readSql(CORE)));
+    await downCommunications2();
     const { rows } = await client.query(`SELECT
       to_regclass('public.conversation_channel_bindings') AS bindings,
       to_regclass('public.message_threads') AS base_threads`);
     assert.equal(rows[0].bindings, null);
     assert.ok(rows[0].base_threads, 'base communication engine survives Communications 2.0 rollback');
-    await client.query(upSection(readSql(CORE)));
-    await client.query(upSection(readSql(MONOTONIC)));
+    await upCommunications2();
   });
 });
