@@ -3,10 +3,9 @@ import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car } from 'lucide-react'
+import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -34,26 +33,34 @@ export function applyPersistedListingStatus(listings: Vehicle[], vin: string, st
   ))
 }
 
+type ListingConversation = {
+  id: string
+  marketplace_listing_id?: string | null
+  thread_type?: string
+  business_workflow?: string
+  unread_count?: number
+  latest_message?: { text?: string } | null
+}
+
 export default function MyListings() {
-  const { fetchOwnedVehicles, updateVehicleStatus } = useCarUpApi()
+  const { fetchOwnedVehicles, updateVehicleStatus, fetchCommunicationThreads } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
   const [markingId, setMarkingId] = useState<string | null>(null)
   const [myListings, setMyListings] = useState<Vehicle[]>([])
-  const [ownedLoaded, setOwnedLoaded] = useState(false)
+  const [conversations, setConversations] = useState<ListingConversation[]>([])
 
   useEffect(() => {
     let mounted = true
-    fetchOwnedVehicles()
-      .then(data => {
-        if (!mounted) return
-        // Assuming all owned vehicles are potential listings
-        setMyListings(data)
-      })
-      .finally(() => {
-        if (mounted) setOwnedLoaded(true)
-      })
+    Promise.all([
+      fetchOwnedVehicles(),
+      fetchCommunicationThreads().catch(() => ({ threads: [] })),
+    ]).then(([vehicles, communications]) => {
+      if (!mounted) return
+      setMyListings(vehicles)
+      setConversations((communications.threads || []) as ListingConversation[])
+    })
     return () => { mounted = false }
-  }, [fetchOwnedVehicles])
+  }, [fetchCommunicationThreads, fetchOwnedVehicles])
 
   const handleMarkSold = async (vehicleId: string, vin: string) => {
     if (markingId) return
@@ -71,19 +78,23 @@ export default function MyListings() {
     }
   }
 
+  const marketplaceConversations = conversations.filter((conversation) =>
+    conversation.business_workflow === 'marketplace' || conversation.thread_type === 'marketplace_inquiry')
+  const totalUnread = marketplaceConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">My Listings</h1>
-          <p className="text-gray-500">Manage your marketplace listings</p>
+          <p className="text-gray-500">
+            {myListings.length} listings · {marketplaceConversations.length} conversations · {totalUnread} unread
+          </p>
         </div>
         <Button className="bg-orange-500 hover:bg-orange-600 gap-1" asChild>
           <Link to="/dashboard/sell-vehicle"><Plus className="w-4 h-4" /> New Listing</Link>
         </Button>
       </div>
-
-      <SellerInquiriesCard ownedListings={ownedLoaded ? myListings : undefined} />
 
       {myListings.length === 0 ? (
         <Card className="border-0 card-shadow">
@@ -102,6 +113,10 @@ export default function MyListings() {
             const effectiveStatus = listingStatuses[listing.vin] || listing.status || 'available'
             const normalizedStatus = normalizeListingStatus(effectiveStatus)
             const isSold = isSoldListingStatus(effectiveStatus)
+            const listingConversations = marketplaceConversations.filter((conversation) =>
+              String(conversation.marketplace_listing_id || '').toUpperCase() === String(listing.vin || '').toUpperCase())
+            const listingUnread = listingConversations.reduce((sum, conversation) => sum + Number(conversation.unread_count || 0), 0)
+            const latest = listingConversations[0]?.latest_message?.text
             return (
               <Card key={listing.vin} className={`border-0 card-shadow transition-opacity ${isSold ? 'opacity-60' : ''}`}>
                 <CardContent className="p-5" data-testid={`my-listing-card-${listing.vin}`}>
@@ -120,11 +135,16 @@ export default function MyListings() {
                       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{listing.viewCount || 0} views</span>
                         <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" />Trust: {listing.trust_score}</span>
+                        <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{listingConversations.length} conversations · {listingUnread} unread</span>
                         <span>Listed {new Date(listing.created_at || '').toLocaleDateString()}</span>
                       </div>
+                      {latest && <p className="mt-2 line-clamp-1 text-xs text-gray-600">Latest: “{latest}”</p>}
                       <div className="flex gap-2 mt-3">
+                        <Button size="sm" className="text-xs gap-1" asChild>
+                          <Link to="/dashboard/communications"><MessageSquare className="w-3 h-3" /> Conversations</Link>
+                        </Button>
                         <Button size="sm" variant="outline" className="text-xs gap-1" asChild>
-                          <Link to={`/marketplace/${listing.vin}`}><Eye className="w-3 h-3" /> View on Marketplace</Link>
+                          <Link to={`/marketplace/${listing.vin}`}><Eye className="w-3 h-3" /> View listing</Link>
                         </Button>
                         {!isSold && (
                           <Button
@@ -137,7 +157,7 @@ export default function MyListings() {
                           >
                             {markingId === listing.vin
                               ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
-                              : <><DollarSign className="w-3 h-3" /> Mark as Sold</>
+                              : <><DollarSign className="w-3 h-3" /> Mark sold</>
                             }
                           </Button>
                         )}
