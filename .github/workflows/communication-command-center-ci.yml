@@ -1,7 +1,7 @@
 name: Communication Command Center CI
 
 # Real CI for the Enterprise Communication Command Center + Communications 2.0 core.
-#   • unit job: legacy communication engine + Communications 2.0 conversation/UAT/routing/outbox suites;
+#   • unit job: legacy communication engine + Communications 2.0 conversation/UAT/routing/outbox/receipt suites;
 #   • postgres job: REQUIRED disposable-Postgres gates for the existing Command Center and the
 #     additive Communications 2.0 participant/binding/delivery/privacy invariants.
 
@@ -36,6 +36,7 @@ jobs:
           backend/tests/communications-2-uat-defects.test.js
           backend/tests/communications-2-routing-privacy-hardening.test.js
           backend/tests/communications-2-marketplace-outbox-hardening.test.js
+          backend/tests/communications-2-receipt-attribution-hardening.test.js
 
   communication-postgres:
     runs-on: ubuntu-latest
