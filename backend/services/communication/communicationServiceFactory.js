@@ -2,6 +2,7 @@ import { CommunicationRepository } from './communicationRepository.js';
 import { CommunicationIdentityService } from './communicationIdentityService.js';
 import { CommunicationThreadService } from './communicationThreadService.js';
 import { CommunicationNotificationService } from './communicationNotificationService.js';
+import { CommunicationConversationService } from './communicationConversationService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
 import { CommunicationWebhookService } from './communicationWebhookService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
@@ -18,10 +19,22 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   const threadService = new CommunicationThreadService({ repository: repo });
   const preferenceService = new CommunicationPreferenceService({ repository: repo });
   const notificationService = new CommunicationNotificationService({ repository: repo, threadService, preferenceService });
-  const inboundService = new CommunicationInboundService({ repository: repo, identityService, threadService, notificationService });
+  const conversationService = new CommunicationConversationService({
+    repository: repo,
+    threadService,
+    identityService,
+    notificationService,
+  });
+  const inboundService = new CommunicationInboundService({
+    repository: repo,
+    identityService,
+    threadService,
+    notificationService,
+    conversationService,
+  });
   const webhookService = new CommunicationWebhookService({ repository: repo, inboundService });
   const deliveryWorker = new CommunicationDeliveryWorker({ repository: repo, adapterRegistry: registry });
-  const orchestrator = createCommunicationOrchestrator({ repository: repo, threadService, notificationService });
+  const orchestrator = createCommunicationOrchestrator({ repository: repo, threadService, notificationService, conversationService });
   const configurationValidator = createCommunicationConfigurationValidator({ adapterRegistry: deliveryWorker.adapterRegistry });
   return {
     repository: repo,
@@ -29,6 +42,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     threadService,
     preferenceService,
     notificationService,
+    conversationService,
     inboundService,
     webhookService,
     deliveryWorker,
