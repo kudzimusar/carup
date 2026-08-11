@@ -146,14 +146,23 @@ export class CommunicationProductNotificationService extends CommunicationCanoni
     if (normalizeChannel(input.channel) !== 'whatsapp' || !result.notification?.id) return result;
 
     const providerTemplateReference = result.message?.content_json?.provider_template_reference || null;
+    // Domain/event-driven WhatsApp is business initiated unless we have explicit
+    // participant/session evidence. Never infer a free-form customer-service window
+    // merely because the governed template has not yet received a Meta reference.
+    // The governed Meta adapter will fail closed locally when this reference is absent,
+    // allowing the canonical fallback engine to advance without sending policy-unsafe text.
     const updated = await this.repository.updateById('notification_queue', result.notification.id, {
       payload: {
         ...(result.notification.payload || {}),
         provider_template_reference: providerTemplateReference,
-        whatsapp_delivery_mode: providerTemplateReference ? 'template' : 'session',
+        whatsapp_delivery_mode: 'template',
       },
       metadata: {
         ...(result.notification.metadata || {}),
+        whatsapp_delivery_mode: 'template',
+        whatsapp_policy_reason: providerTemplateReference
+          ? 'governed_business_template'
+          : 'business_template_required_but_not_configured',
         provider_template_configured: Boolean(providerTemplateReference),
       },
       updated_at: nowIso(),

@@ -8,6 +8,8 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key';
 import { MemoryCommunicationRepository } from '../services/communication/communicationRepository.js';
 import { CommunicationGovernedTemplateService } from '../services/communication/communicationGovernedTemplateService.js';
 import { CommunicationTemplateService } from '../services/communication/communicationTemplateService.js';
+import { CommunicationCanonicalNotificationService } from '../services/communication/communicationCanonicalNotificationService.js';
+import { CommunicationProductNotificationService } from '../services/communication/communicationProductNotificationService.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
 
 function governedRepository() {
@@ -100,8 +102,53 @@ test('operational registry failure surfaces instead of bypassing governance thro
   );
 });
 
-test('normal runtime factory uses governed template and canonical notification services', () => {
+test('normal runtime factory uses governed templates and the product notification layer preserves canonical routing semantics', () => {
   const services = createCommunicationServices({ repository: governedRepository() });
   assert.equal(services.templateService.constructor.name, 'CommunicationGovernedTemplateService');
-  assert.equal(services.notificationService.constructor.name, 'CommunicationCanonicalNotificationService');
+  assert.equal(services.notificationService.constructor.name, 'CommunicationProductNotificationService');
+  assert.equal(services.notificationService instanceof CommunicationCanonicalNotificationService, true);
+});
+
+test('event-driven WhatsApp never infers a free-form session from a missing Meta template reference', async () => {
+  const repository = new MemoryCommunicationRepository({
+    message_threads: [{ id: 'thread-event-wa', status: 'open', primary_channel: 'whatsapp' }],
+  });
+  const threadService = {
+    async recordMessage(thread, input) {
+      return repository.insert('messages', { thread_id: thread.id, ...input });
+    },
+  };
+  const service = new CommunicationProductNotificationService({
+    repository,
+    threadService,
+    preferenceService: {},
+    templateService: {
+      async render() {
+        return {
+          templateKey: 'marketplace_inquiry_received_v1',
+          templateId: 'tpl-event',
+          templateVersionId: 'tpl-event-v1',
+          version: 1,
+          subject: 'Marketplace inquiry',
+          body: 'A buyer contacted you.',
+          data: {},
+          governed: true,
+          providerTemplateReference: null,
+        };
+      },
+    },
+  });
+  const result = await service.queueNotification({
+    recipientUserId: 'seller-1',
+    thread: repository.rows('message_threads')[0],
+    channel: 'whatsapp',
+    templateKey: 'marketplace_inquiry_received_v1',
+    notificationType: 'marketplace_inquiry',
+    dedupeParts: ['event-wa-policy'],
+    payload: { event_type: 'marketplace.inquiry.created', phone_number: '263771234567' },
+  });
+  assert.equal(result.notification.payload.whatsapp_delivery_mode, 'template');
+  assert.equal(result.notification.payload.provider_template_reference, null);
+  assert.equal(result.notification.metadata.provider_template_configured, false);
+  assert.equal(result.notification.metadata.whatsapp_policy_reason, 'business_template_required_but_not_configured');
 });
