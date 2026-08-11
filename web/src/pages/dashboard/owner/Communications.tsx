@@ -1,72 +1,114 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bell, MessageSquare, Send, Share2, SlidersHorizontal } from 'lucide-react'
+import { Bell, MessageSquare, Send, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 
 type ThreadSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThreads']>>['threads'][number]
+type ThreadDetail = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationThread']>>
 type NotificationSummary = Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationNotifications']>>['notifications'][number]
 type CommunicationPreferences = NonNullable<Awaited<ReturnType<ReturnType<typeof useCarUpApi>['fetchCommunicationPreferences']>>['preferences']>
+
+type ConversationThread = ThreadSummary & {
+  business_workflow?: string
+  conversation_type?: string
+  participant_role?: string
+  unread_count?: number
+  latest_message?: { id?: string; text?: string; created_at?: string; channel?: string; ai_generated?: boolean } | null
+}
+
+type ConversationDetail = ThreadDetail & {
+  participants?: Array<{ id: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean }>
+  self_participant_id?: string
+  messages: Array<ThreadDetail['messages'][number] & {
+    text?: string
+    author?: { id?: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean } | null
+    ai_generated?: boolean
+  }>
+}
+
+function threadLabel(thread: ConversationThread) {
+  if (thread.business_workflow === 'marketplace' || thread.thread_type === 'marketplace_inquiry') return 'Marketplace conversation'
+  return (thread.business_workflow || thread.thread_type || 'Conversation').replaceAll('_', ' ')
+}
+
+function participantLabel(detail: ConversationDetail | null) {
+  if (!detail?.participants?.length) return null
+  const others = detail.participants.filter((p) => !p.is_self && p.stakeholder_role !== 'buyer_unresolved')
+  return others.map((p) => p.display_name || p.stakeholder_role || 'Participant').join(', ') || null
+}
 
 export default function Communications() {
   const {
     fetchCommunicationThreads,
+    fetchCommunicationThread,
     fetchCommunicationNotifications,
     fetchCommunicationPreferences,
-    createCommunicationThread,
     sendCommunicationMessage,
     updateCommunicationPreferences,
-    createCommunicationShare,
     markCommunicationNotificationRead,
   } = useCarUpApi()
-  const [threads, setThreads] = useState<ThreadSummary[]>([])
+  const [threads, setThreads] = useState<ConversationThread[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<ConversationDetail | null>(null)
   const [notifications, setNotifications] = useState<NotificationSummary[]>([])
   const [preferences, setPreferences] = useState<CommunicationPreferences | null>(null)
   const [message, setMessage] = useState('')
-  const [shareListing, setShareListing] = useState('')
-  const [shareCode, setShareCode] = useState('')
-  const [shareResult, setShareResult] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
 
-  const latestThread = threads[0]
-  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
+  const unreadCount = useMemo(
+    () => threads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0),
+    [threads],
+  )
 
-  const loadCommunications = useCallback(() => {
-    let mounted = true
-    Promise.all([
-      fetchCommunicationThreads().catch(() => ({ threads: [] })),
+  const loadThreads = useCallback(async () => {
+    const response = await fetchCommunicationThreads().catch(() => ({ threads: [] }))
+    const next = (response.threads || []) as ConversationThread[]
+    setThreads(next)
+    setActiveId((current) => current || next[0]?.id || null)
+    return next
+  }, [fetchCommunicationThreads])
+
+  const loadSideData = useCallback(async () => {
+    const [notificationRes, prefRes] = await Promise.all([
       fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
       fetchCommunicationPreferences().catch(() => ({ preferences: null })),
-    ]).then(([threadRes, notificationRes, prefRes]) => {
-      if (!mounted) return
-      setThreads(threadRes.threads || [])
-      setNotifications(notificationRes.notifications || [])
-      setPreferences(prefRes.preferences || null)
-    })
-    return () => { mounted = false }
-  }, [fetchCommunicationNotifications, fetchCommunicationPreferences, fetchCommunicationThreads])
+    ])
+    setNotifications(notificationRes.notifications || [])
+    setPreferences(prefRes.preferences || null)
+  }, [fetchCommunicationNotifications, fetchCommunicationPreferences])
 
-  useEffect(() => loadCommunications(), [loadCommunications])
+  useEffect(() => {
+    void loadThreads()
+    void loadSideData()
+  }, [loadSideData, loadThreads])
 
-  async function submitSupport() {
-    if (!message.trim()) return
-    setStatus('Sending')
+  useEffect(() => {
+    if (!activeId) {
+      setDetail(null)
+      return
+    }
+    let active = true
+    fetchCommunicationThread(activeId)
+      .then((result) => { if (active) setDetail(result as ConversationDetail) })
+      .catch(() => { if (active) setDetail(null) })
+    return () => { active = false }
+  }, [activeId, fetchCommunicationThread])
+
+  async function submitReply() {
+    if (!activeId || !message.trim()) return
+    setStatus('Sending…')
     try {
-      let thread = latestThread
-      if (!thread) {
-        const created = await createCommunicationThread({ thread_type: 'support', channel: 'web_chat', metadata: { source: 'web_support_entry' } })
-        thread = created.thread
-      }
-      await sendCommunicationMessage(thread.id, { channel: 'web_chat', message })
-      const refreshed = await fetchCommunicationThreads()
-      setThreads(refreshed.threads || [])
+      await sendCommunicationMessage(activeId, { channel: 'in_app', message: message.trim() })
+      const refreshed = await fetchCommunicationThread(activeId)
+      setDetail(refreshed as ConversationDetail)
+      await loadThreads()
       setMessage('')
-      setStatus('Sent')
+      setStatus('Sent through CarUp')
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Could not send message')
     }
@@ -78,71 +120,125 @@ export default function Communications() {
     setStatus('Preferences saved')
   }
 
-  async function createShare() {
-    if (!shareListing.trim()) return
-    const result = await createCommunicationShare({ channel: 'whatsapp', listing_id: shareListing.trim(), referral_code: shareCode.trim() || undefined })
-    setShareResult(result.share_url || result.listing_url || null)
-  }
-
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="mx-auto max-w-7xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Communications</h1>
-          <p className="text-gray-500">Notifications, support threads, sharing, and channel preferences</p>
+          <p className="text-gray-500">Your CarUp conversations across Marketplace and connected services</p>
         </div>
         <Badge className="bg-orange-100 text-orange-700">{unreadCount} unread</Badge>
       </div>
 
-      <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-6">
-        <section className="space-y-6">
-          <Card className="border-0 card-shadow">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg"><MessageSquare className="w-5 h-5 text-orange-500" /> Support Chat</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border bg-gray-50 p-3 min-h-32">
-                {threads.length === 0 ? (
-                  <p className="text-sm text-gray-500">No communication threads yet.</p>
-                ) : threads.slice(0, 4).map((thread) => (
-                  <div key={thread.id} className="flex items-center justify-between border-b last:border-b-0 py-2">
-                    <div>
-                      <p className="font-medium text-sm">{thread.thread_type?.replaceAll('_', ' ')}</p>
-                      <p className="text-xs text-gray-500">{thread.status} · {thread.primary_channel || 'in-app'}</p>
-                    </div>
-                    <Badge variant="secondary">{thread.priority}</Badge>
-                  </div>
-                ))}
+      <div className="grid min-h-[620px] gap-5 lg:grid-cols-[320px_minmax(0,1fr)_290px]">
+        <Card className="border-0 card-shadow">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base"><MessageSquare className="h-5 w-5 text-orange-500" /> Conversations</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 px-3">
+            {threads.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-5 text-sm text-gray-500">
+                No conversations yet. Marketplace inquiries and other CarUp workflows will appear here.
               </div>
-              <Textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Ask a question or request human support" />
-              <Button onClick={submitSupport} className="gap-2"><Send className="w-4 h-4" /> Send</Button>
-              {status && <p className="text-sm text-gray-500">{status}</p>}
-            </CardContent>
-          </Card>
+            ) : threads.map((thread) => {
+              const latest = thread.latest_message?.text || thread.latest_message_text || 'No messages yet'
+              const selected = thread.id === activeId
+              return (
+                <button
+                  key={thread.id}
+                  type="button"
+                  onClick={() => setActiveId(thread.id)}
+                  className={`w-full rounded-xl border p-3 text-left transition ${selected ? 'border-orange-300 bg-orange-50' : 'hover:bg-gray-50'}`}
+                  data-testid={`communication-thread-${thread.id}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold capitalize">{threadLabel(thread)}</p>
+                    {Number(thread.unread_count || 0) > 0 && <Badge>{thread.unread_count}</Badge>}
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs text-gray-600">{latest}</p>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>{thread.participant_role || thread.status || 'participant'}</span>
+                    <span>{thread.primary_channel || 'CarUp'}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </CardContent>
+        </Card>
 
+        <Card className="border-0 card-shadow">
+          <CardHeader className="border-b pb-3">
+            <CardTitle className="text-base">
+              {detail ? threadLabel(detail.thread as ConversationThread) : 'Select a conversation'}
+            </CardTitle>
+            {detail && (
+              <div className="space-y-1 text-xs text-gray-500">
+                {participantLabel(detail) && <p>With {participantLabel(detail)}</p>}
+                {(detail.thread as ConversationThread).marketplace_listing_id && (
+                  <p>Listing: {(detail.thread as ConversationThread).marketplace_listing_id}</p>
+                )}
+              </div>
+            )}
+          </CardHeader>
+          <CardContent className="flex min-h-[520px] flex-col p-0">
+            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {!detail ? (
+                <p className="text-sm text-gray-500">Choose a conversation to read and reply.</p>
+              ) : detail.messages.length === 0 ? (
+                <p className="text-sm text-gray-500">No messages yet.</p>
+              ) : detail.messages.map((item) => {
+                const self = Boolean(item.author?.is_self || item.sender_user_id && item.sender_user_id === detail.self_participant_id)
+                const text = item.text ?? item.content_text ?? ''
+                return (
+                  <div key={item.id} className={`flex ${self ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${self ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                      {!self && item.author && (
+                        <p className="mb-1 text-[11px] font-semibold opacity-70">
+                          {item.author.display_name || item.author.stakeholder_role || 'Participant'}
+                        </p>
+                      )}
+                      <p className="whitespace-pre-wrap text-sm">{text}</p>
+                      <div className="mt-1 flex items-center gap-2 text-[10px] opacity-60">
+                        <span>{item.channel || 'CarUp'}</span>
+                        {item.ai_generated && <span>AI-derived</span>}
+                        {item.status && <span>{item.status}</span>}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {detail && (
+              <div className="border-t p-4">
+                <Textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Reply in CarUp…"
+                  rows={3}
+                  data-testid="communication-reply-text"
+                />
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <p className="text-xs text-gray-500">CarUp keeps the conversation context even when delivery continues through WhatsApp or another permitted channel.</p>
+                  <Button onClick={submitReply} disabled={!message.trim()} className="shrink-0 gap-2" data-testid="communication-reply-send">
+                    <Send className="h-4 w-4" /> Reply
+                  </Button>
+                </div>
+                {status && <p className="mt-2 text-xs text-gray-500">{status}</p>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <aside className="space-y-5">
           <Card className="border-0 card-shadow">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg"><Share2 className="w-5 h-5 text-orange-500" /> Marketplace Share</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base"><Bell className="h-5 w-5 text-orange-500" /> Notifications</CardTitle>
             </CardHeader>
-            <CardContent className="grid sm:grid-cols-[1fr_1fr_auto] gap-3">
-              <Input value={shareListing} onChange={(e) => setShareListing(e.target.value)} placeholder="Listing ID or VIN" />
-              <Input value={shareCode} onChange={(e) => setShareCode(e.target.value)} placeholder="Referral code" />
-              <Button onClick={createShare}>Create</Button>
-              {shareResult && <p className="sm:col-span-3 text-sm break-all text-gray-600">{shareResult}</p>}
-            </CardContent>
-          </Card>
-        </section>
-
-        <aside className="space-y-6">
-          <Card className="border-0 card-shadow">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg"><Bell className="w-5 h-5 text-orange-500" /> Notifications</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {notifications.length === 0 ? <p className="text-sm text-gray-500">No notifications yet.</p> : notifications.slice(0, 6).map((notification) => (
-                <button key={notification.id} onClick={() => markCommunicationNotificationRead(notification.id)} className="w-full text-left rounded-lg border p-3 hover:bg-gray-50">
-                  <p className="font-medium text-sm">{notification.title || notification.notification_type}</p>
-                  <p className="text-xs text-gray-500 mt-1">{notification.message}</p>
+            <CardContent className="space-y-2">
+              {notifications.length === 0 ? <p className="text-sm text-gray-500">No notifications.</p> : notifications.slice(0, 5).map((notification) => (
+                <button key={notification.id} onClick={() => markCommunicationNotificationRead(notification.id)} className="w-full rounded-lg border p-3 text-left hover:bg-gray-50">
+                  <p className="text-sm font-medium">{notification.title || notification.notification_type}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-gray-500">{notification.message}</p>
                 </button>
               ))}
             </CardContent>
@@ -150,7 +246,7 @@ export default function Communications() {
 
           <Card className="border-0 card-shadow">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-lg"><SlidersHorizontal className="w-5 h-5 text-orange-500" /> Preferences</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="h-5 w-5 text-orange-500" /> Channels</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {[
@@ -166,6 +262,7 @@ export default function Communications() {
                   <Switch id={key} checked={Boolean(preferences?.[key])} onCheckedChange={(checked) => setPreferences((prev) => ({ ...(prev || {}), [key]: checked }))} />
                 </div>
               ))}
+              <p className="text-[11px] text-gray-500">Transactional and marketing consent remain separate. Turning on a channel does not automatically opt you into campaigns.</p>
               <Button onClick={savePreferences} variant="secondary" className="w-full">Save preferences</Button>
             </CardContent>
           </Card>
