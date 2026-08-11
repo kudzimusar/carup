@@ -3,10 +3,72 @@ import { buildDedupeKey, normalizeChannel, nowIso } from './communicationUtils.j
 
 /**
  * Canonical notification implementation that renders event-driven notifications from
- * the governed DB template registry when available. The inherited preference/routing,
- * retry queue and provider worker remain unchanged.
+ * the governed DB template registry when available and treats fallback channels as an
+ * ordered recovery sequence rather than a broadcast list.
+ *
+ * The inherited queue/retry/provider infrastructure remains unchanged.
  */
 export class CommunicationCanonicalNotificationService extends CommunicationNotificationService {
+  async queueFromDomainEvent(event = {}) {
+    const eventType = event.event_type || event.eventType;
+    const payload = event.payload || event;
+    const policy = this.getPolicy(eventType);
+    const recipientUserId = this.recipientFromPayload(payload);
+    if (!recipientUserId) return [];
+
+    const { thread } = await this.threadService.resolveOrCreateThread({
+      tenant_id: event.tenant_id || payload.tenant_id || null,
+      thread_type: policy.threadType,
+      subject_type: payload.subject_type || policy.threadType,
+      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || null,
+      primary_user_id: recipientUserId,
+      primary_channel: 'in_app',
+      priority: policy.priority,
+      marketplace_listing_id: payload.listingId || payload.listing_id || payload.vin || null,
+      escrow_id: payload.escrowId || payload.escrow_id || null,
+      financing_application_id: payload.applicationId || payload.application_id || null,
+      metadata: { event_type: eventType },
+    });
+
+    const prefs = await this.preferenceService.getPreferences(recipientUserId, thread.tenant_id);
+    const routeSequence = this.preferenceService.selectChannels(prefs, policy);
+    if (!routeSequence.length) return [];
+
+    const [primaryChannel, ...fallbackChannels] = routeSequence;
+    const queued = await this.queueNotification({
+      recipientUserId,
+      thread,
+      eventId: event.id || event.event_id || null,
+      notificationType: policy.notificationType,
+      channel: primaryChannel,
+      templateKey: policy.templateKey,
+      variables: this.variablesForEvent(eventType, payload),
+      priority: policy.priority,
+      transactional: policy.transactional,
+      fallbackChannels,
+      quietHoursBypass: policy.quietHoursBypass,
+      dedupeParts: [
+        eventType,
+        event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId,
+        recipientUserId,
+        policy.templateKey,
+        primaryChannel,
+      ],
+      payload: {
+        event_type: eventType,
+        safe_payload: payload,
+        communication_routing: {
+          primary_channel: primaryChannel,
+          fallback_channels: fallbackChannels,
+          routing_mode: 'single_primary_with_ordered_fallback',
+        },
+      },
+    });
+
+    // Preserve the legacy array return contract while enforcing one initial route.
+    return [queued];
+  }
+
   async queueNotification(input = {}) {
     const channel = normalizeChannel(input.channel) || 'in_app';
     const rendered = await this.templateService.render(
@@ -47,6 +109,10 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
         governed_template: Boolean(rendered.governed),
         provider_template_reference: rendered.providerTemplateReference || null,
         data: rendered.data,
+        routing: {
+          primary_channel: channel,
+          fallback_channels: input.fallbackChannels || [],
+        },
       },
       status: 'queued',
       ai_generated: Boolean(input.aiGenerated),
@@ -85,6 +151,11 @@ export class CommunicationCanonicalNotificationService extends CommunicationNoti
         template_id: rendered.templateId || null,
         template_version_id: rendered.templateVersionId || null,
         template_version: rendered.version || null,
+        fallback_channels: input.fallbackChannels || [],
+        quiet_hours_bypass: Boolean(input.quietHoursBypass),
+        routing_mode: (input.fallbackChannels || []).length
+          ? 'single_primary_with_ordered_fallback'
+          : 'single_route',
       },
     };
     if (input.id) notificationRow.id = input.id;
