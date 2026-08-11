@@ -142,6 +142,20 @@ export class CommunicationCanonicalConversationService extends CommunicationConv
       });
     }
 
+    if (deliveries.length === 0 && suppressions.length > 0) {
+      // `messages.status` supports `suppressed`. This prevents an intentionally
+      // non-delivered canonical message from appearing indefinitely as `queued` even
+      // though the worker has no eligible queue row to process.
+      await this.repository.updateById('messages', message.id, {
+        status: 'suppressed',
+        content_json: {
+          ...(message.content_json || {}),
+          delivery_suppressed: true,
+          suppression_reasons: [...new Set(suppressions.map((entry) => entry.suppression_reason).filter(Boolean))],
+        },
+      });
+    }
+
     // Preserve the base method's array contract for existing callers while exposing
     // suppression evidence non-enumerably for diagnostics/tests. Analytics therefore
     // counts only actual queued delivery routes.
