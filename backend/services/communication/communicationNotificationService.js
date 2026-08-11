@@ -227,6 +227,14 @@ export class CommunicationNotificationService {
         return 'transactional_disabled';
       }
       if (channel === 'in_app' && prefs.in_app_enabled === false) return 'in_app_disabled';
+      if (
+        channel !== 'in_app'
+        && this.preferenceService.isInQuietHours(prefs)
+        && !input.quietHoursBypass
+        && (input.priority || thread.priority || 'normal') !== 'urgent'
+      ) {
+        return 'quiet_hours';
+      }
     }
     return null;
   }
@@ -237,6 +245,7 @@ export class CommunicationNotificationService {
     if (!message?.id || !thread?.id) throw new Error('Existing message and thread are required to queue delivery.');
     if (!input.recipientUserId && !input.recipientIdentityId) throw new Error('A recipient user or channel identity is required to queue delivery.');
     const channel = normalizeChannel(input.channel || message.channel || thread.primary_channel) || 'in_app';
+    const transactional = input.transactional !== false;
     const recipientKey = input.recipientUserId || input.recipientIdentityId;
     const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, recipientKey, channel]);
     const existingNotification = await this.repository.findOne('notification_queue', { dedupe_key: dedupeKey });
