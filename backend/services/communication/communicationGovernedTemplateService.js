@@ -13,20 +13,42 @@ function replaceVariables(text, variables) {
   return String(text || '').replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_match, key) => escapeValue(variables[key] ?? ''));
 }
 
+function governanceError(code, message, details = {}) {
+  const error = new Error(message);
+  error.code = code;
+  error.details = details;
+  return error;
+}
+
 export class CommunicationGovernedTemplateService {
   constructor({ repository, fallbackService = null } = {}) {
     this.repository = repository;
     this.fallbackService = fallbackService || new CommunicationTemplateService();
   }
 
-  async getApprovedVersion(templateKey, { channel = 'in_app', language = 'en' } = {}) {
-    if (!this.repository) return null;
+  /**
+   * Resolve a governed template without allowing approval state to be bypassed.
+   *
+   * Compatibility fallback is permitted only when the governed registry/key is not
+   * available at all (for example, before the Communications 2.0 migration has been
+   * applied). Once a template key exists in the DB registry, its status + approved
+   * versions are authoritative. Draft/retired/unapproved rows therefore fail closed.
+   */
+  async resolveGovernedVersion(templateKey, { channel = 'in_app', language = 'en' } = {}) {
+    if (!this.repository) return { registryAvailable: false, template: null, version: null };
     try {
       const template = await this.repository.findOne('communication_templates', {
         template_key: templateKey,
-        status: 'active',
       });
-      if (!template) return null;
+      if (!template) return { registryAvailable: true, template: null, version: null };
+      if (template.status !== 'active') {
+        throw governanceError(
+          'template_not_active',
+          `Template ${templateKey} is governed but is not active.`,
+          { template_id: template.id, status: template.status },
+        );
+      }
+
       const versions = (await this.repository.list('communication_template_versions', { template_id: template.id }))
         .filter((row) => row.approval_status === 'approved')
         .filter((row) => row.language === language)
@@ -35,12 +57,21 @@ export class CommunicationGovernedTemplateService {
           const channelRank = Number(b.channel === channel) - Number(a.channel === channel);
           return channelRank || Number(b.version || 0) - Number(a.version || 0);
         });
-      return versions[0] ? { template, version: versions[0] } : null;
-    } catch (_error) {
-      // Compatibility boundary: before the registry migration is present, the proven
-      // in-code template map remains available. Once a DB template/version exists, it
-      // is authoritative and this fallback is not used.
-      return null;
+
+      if (!versions[0]) {
+        throw governanceError(
+          'template_not_approved',
+          `Template ${templateKey} has no approved ${language}/${channel} (or default) version.`,
+          { template_id: template.id, channel, language },
+        );
+      }
+      return { registryAvailable: true, template, version: versions[0] };
+    } catch (error) {
+      if (error?.code === 'template_not_active' || error?.code === 'template_not_approved') throw error;
+      // Pre-migration / unavailable-registry compatibility boundary. Provider transport
+      // remains usable while schema deployment catches up, but an explicit governed
+      // row can never be bypassed through this branch.
+      return { registryAvailable: false, template: null, version: null };
     }
   }
 
@@ -48,15 +79,23 @@ export class CommunicationGovernedTemplateService {
     const required = Array.isArray(version.required_variables) ? version.required_variables : [];
     const missing = required.filter((key) => variables[key] === undefined || variables[key] === null || variables[key] === '');
     if (missing.length) {
-      const error = new Error(`Template ${version.id || 'version'} missing required variables: ${missing.join(', ')}`);
-      error.code = 'template_variables_missing';
-      throw error;
+      throw governanceError(
+        'template_variables_missing',
+        `Template ${version.id || 'version'} missing required variables: ${missing.join(', ')}`,
+        { missing_variables: missing },
+      );
     }
   }
 
   async render(templateKey, variables = {}, options = {}) {
-    const governed = await this.getApprovedVersion(templateKey, options);
-    if (!governed) return this.fallbackService.render(templateKey, variables);
+    const governed = await this.resolveGovernedVersion(templateKey, options);
+    if (!governed.template) {
+      // A missing governed key is compatibility-only. After migration, all existing
+      // runtime notification keys are registered, so this path is for pre-migration
+      // operation or deliberately ungoverned legacy callers still being converted.
+      return this.fallbackService.render(templateKey, variables);
+    }
+
     this.assertRequiredVariables(governed.version, variables);
     const subject = replaceVariables(governed.version.subject_template, variables);
     const body = replaceVariables(governed.version.body_template, variables);
