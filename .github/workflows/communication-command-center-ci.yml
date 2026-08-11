@@ -3,7 +3,8 @@ name: Communication Command Center CI
 # Real CI for the Enterprise Communication Command Center + Communications 2.0 Phase 0-7 closure.
 # Unit: conversation/UAT/routing/outbox/receipt/template/product/media/stakeholder/campaign/runner.
 # Postgres: mandatory existing Command Center + Communications 2 core/privacy + Phase 7 schema gates.
-# Staging: PR #148 only, canonical Supabase ref guard, frozen verify -> apply -> verify.
+# Staging: PR #148 only, canonical Supabase ref guard, frozen verify -> apply -> verify,
+# then exact-head deployment to the dedicated staging Vercel projects when the repository token exists.
 
 on:
   pull_request:
@@ -114,3 +115,53 @@ jobs:
         run: MODE=apply node backend/scripts/staging-apply-communications-2.mjs
       - name: Communications staging post-apply verification
         run: MODE=verify node backend/scripts/staging-apply-communications-2.mjs
+
+  communication-staging-deploy:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 148
+    needs: [communication-unit, communication-postgres, communication-staging]
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN_PRIMARY: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TOKEN_FALLBACK: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      VERCEL_ORG_ID: team_InL2Jmsg4dbG0rFY8nxriTha
+      BACKEND_STAGING_PROJECT_ID: prj_ddsVeXDxxHxyMAaZxX4v5ORya27W
+      FRONTEND_STAGING_PROJECT_ID: prj_auYmL5hA2ppWA15jdTK4GAdy3AYm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve staging deployment credential without printing it
+        id: vercel-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$VERCEL_TOKEN_PRIMARY" ]; then
+            echo "token=$VERCEL_TOKEN_PRIMARY" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$VERCEL_TOKEN_FALLBACK" ]; then
+            echo "token=$VERCEL_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::error::No VERCEL_TOKEN or VERCEL_ACCESS_TOKEN repository secret is available for exact-head staging deployment."
+            exit 1
+          fi
+      - name: Deploy exact head to backend STAGING project production target
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ env.BACKEND_STAGING_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
+      - name: Deploy exact head to frontend STAGING project production target
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ env.FRONTEND_STAGING_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
+      - name: Record staging-only safety boundary
+        run: |
+          echo "Deployed only to carup-backend-staging and carup-staging project IDs."
+          echo "No carup-backend or carup production project ID is present in this job."
