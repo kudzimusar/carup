@@ -85,13 +85,19 @@ FROM communication_templates WHERE template_key='delivery_failure_fallback_v1'
 ON CONFLICT (template_id, version, channel, language) DO NOTHING;
 
 -- +migrate Down
+-- Remove only versions that this migration can positively identify as its own.
+-- Pre-existing rows with the same key/version survive rollback.
 DELETE FROM communication_template_versions
 WHERE template_id IN (
   SELECT id FROM communication_templates WHERE template_key IN (
     'message_acknowledgement_v1','human_handoff_v1','marketplace_inquiry_received_v1','listing_shared_v1',
     'escrow_status_v1','finance_status_v1','support_resolved_v1','delivery_failure_fallback_v1'
   )
-) AND version=1 AND channel='default' AND language='en';
+)
+AND version=1
+AND channel='default'
+AND language='en'
+AND COALESCE(experiment_metadata->>'compatibility','')='verbatim';
 
 DELETE FROM communication_templates
 WHERE template_key IN (
