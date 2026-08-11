@@ -44,6 +44,11 @@ const MIGRATIONS = [
     name: '20260811131700_communications_2_workflow_template_foundations.sql',
     gitBlobSha: 'b5f28fd2fcbbb80fdf46b801e547d7a0ce395ec8',
   },
+  {
+    version: '20260811131800',
+    name: '20260811131800_communications_2_participant_auth_hardening.sql',
+    gitBlobSha: '745c0697ac799e87665d042457cf3e32ea5b1b3f',
+  },
 ];
 
 function fail(message) {
@@ -98,9 +103,7 @@ async function assertBaseContract(client) {
     'message_threads', 'message_participants', 'messages', 'channel_identities',
     'notification_queue', 'message_delivery_attempts',
   ];
-  const { rows } = await client.query(`
-    select unnest($1::text[]) as name
-  `, [required]);
+  const { rows } = await client.query(`select unnest($1::text[]) as name`, [required]);
   for (const row of rows) {
     const found = await client.query('select to_regclass($1)::text as v', [`public.${row.name}`]);
     if (!found.rows[0]?.v) fail(`required base Communications table ${row.name} is absent; wrong/incomplete staging database.`);
@@ -134,14 +137,29 @@ async function verifyContract(client) {
   ]) {
     await expectOne(`${table}.${column}`, `select count(*)::int c from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2`, [table, column]);
   }
-  await expectOne('function.communication_is_thread_participant', `select count(*)::int c from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='communication_is_thread_participant'`);
+  await expectOne(
+    'function.communication_is_thread_participant_current_user_only',
+    `select count(*)::int c
+       from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname='communication_is_thread_participant'
+        and pg_get_function_identity_arguments(p.oid)='p_thread_id uuid'`,
+  );
+  const legacyHelper = await client.query(`
+    select count(*)::int c
+      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+     where n.nspname='public' and p.proname='communication_is_thread_participant'
+       and pg_get_function_identity_arguments(p.oid)='p_thread_id uuid, p_user_id text'`);
+  const legacyHelperRemoved = legacyHelper.rows[0].c === 0;
+  checks.push({ label: 'function.legacy_arbitrary_user_helper_removed', ok: legacyHelperRemoved, value: legacyHelper.rows[0].c });
+  console.log(`${legacyHelperRemoved ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} function.legacy_arbitrary_user_helper_count=${legacyHelper.rows[0].c}`);
+
   await expectOne('trigger.messages_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_messages_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.notification_queue_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_notification_queue_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.delivery_attempts_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_message_delivery_attempts_monotonic_delivery_status' and not tgisinternal`);
 
   const templatesTable = await client.query("select to_regclass('public.communication_templates')::text as v");
   if (templatesTable.rows[0]?.v) {
-    const { rows } = await client.query('select count(*)::int c from communication_templates where status=\'active\'');
+    const { rows } = await client.query("select count(*)::int c from communication_templates where status='active'");
     const ok = rows[0].c >= 10;
     checks.push({ label: 'active_stakeholder_templates>=10', ok, value: rows[0].c });
     console.log(`${ok ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} active_stakeholder_templates=${rows[0].c}`);
