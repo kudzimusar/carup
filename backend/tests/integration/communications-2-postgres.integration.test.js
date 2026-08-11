@@ -15,6 +15,8 @@ const CORE = '../../../database/migrations/20260811131500_communications_2_conve
 const MONOTONIC = '../../../database/migrations/20260811131600_communications_2_delivery_monotonicity.sql';
 const WORKFLOW = '../../../database/migrations/20260811131700_communications_2_workflow_template_foundations.sql';
 const AUTH_HARDENING = '../../../database/migrations/20260811131800_communications_2_participant_auth_hardening.sql';
+const PRIVACY_HARDENING = '../../../database/migrations/20260811131900_communications_2_privacy_binding_hardening.sql';
+const TEMPLATE_RUNTIME = '../../../database/migrations/20260811132000_communications_2_template_runtime_registry.sql';
 
 const readSql = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const upSection = (sql) => sql.split('-- +migrate Down')[0];
@@ -26,6 +28,8 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   await client.connect();
 
   async function downCommunications2() {
+    await client.query(downSection(readSql(TEMPLATE_RUNTIME)));
+    await client.query(downSection(readSql(PRIVACY_HARDENING)));
     await client.query(downSection(readSql(AUTH_HARDENING)));
     await client.query(downSection(readSql(WORKFLOW)));
     await client.query(downSection(readSql(MONOTONIC)));
@@ -37,6 +41,8 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
     await client.query(upSection(readSql(MONOTONIC)));
     await client.query(upSection(readSql(WORKFLOW)));
     await client.query(upSection(readSql(AUTH_HARDENING)));
+    await client.query(upSection(readSql(PRIVACY_HARDENING)));
+    await client.query(upSection(readSql(TEMPLATE_RUNTIME)));
   }
 
   t.after(async () => {
@@ -63,7 +69,14 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
       WHERE table_schema='public' AND table_name='message_threads' AND column_name='conversation_type'`);
     assert.equal(conversationType.rows.length, 1);
     const templates = await client.query(`SELECT template_key FROM public.communication_templates`);
-    assert.ok(templates.rows.length >= 10, 'stakeholder template registry is seeded');
+    assert.ok(templates.rows.length >= 18, 'stakeholder + migrated runtime template registry is seeded');
+    const legacyRuntime = await client.query(`
+      SELECT count(*)::int c
+      FROM communication_template_versions v
+      JOIN communication_templates t ON t.id=v.template_id
+      WHERE t.template_key='marketplace_inquiry_received_v1'
+        AND v.channel='default' AND v.language='en' AND v.approval_status='approved'`);
+    assert.equal(legacyRuntime.rows[0].c, 1, 'existing Marketplace notification copy is governed in DB');
 
     const currentUserHelper = await client.query(`
       SELECT count(*)::int c
