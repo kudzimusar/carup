@@ -1,9 +1,9 @@
 name: Communication Command Center CI
 
 # Real CI for the Enterprise Communication Command Center + Communications 2.0 core.
-#   • unit job: legacy communication engine + Communications 2.0 conversation/UAT suites;
+#   • unit job: legacy communication engine + Communications 2.0 conversation/UAT/routing suites;
 #   • postgres job: REQUIRED disposable-Postgres gates for the existing Command Center and the
-#     additive Communications 2.0 participant/binding/delivery invariants.
+#     additive Communications 2.0 participant/binding/delivery/privacy invariants.
 
 on:
   pull_request:
@@ -34,6 +34,7 @@ jobs:
           backend/tests/communication-privilege-migration.test.js
           backend/tests/communications-2-conversation-core.test.js
           backend/tests/communications-2-uat-defects.test.js
+          backend/tests/communications-2-routing-privacy-hardening.test.js
 
   communication-postgres:
     runs-on: ubuntu-latest
@@ -74,7 +75,8 @@ jobs:
           node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it-main.log
           node --test backend/tests/integration/communication-privilege-postgres.integration.test.js 2>&1 | tee /tmp/it-privileges.log
           node --test backend/tests/integration/communications-2-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2.log
-          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log /tmp/it-comms2.log; then
+          node --test backend/tests/integration/communications-2-privacy-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2-privacy.log
+          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log /tmp/it-comms2.log /tmp/it-comms2-privacy.log; then
             echo "::error::integration suite was SKIPPED — DB gate not satisfied"
             exit 1
           fi
