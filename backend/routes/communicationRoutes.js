@@ -91,6 +91,7 @@ export function createCommunicationRouter({ services = createCommunicationServic
       status: configuration.status,
       configuration,
       adapters: services.adapterRegistry.health?.() || [],
+      ai: services.aiRuntimeService?.health?.() || { available: false },
     });
   }));
 
@@ -125,10 +126,6 @@ export function createCommunicationRouter({ services = createCommunicationServic
   router.post('/api/communications/threads/:id/messages', authorizeRole([]), asyncHandler(async (req, res) => {
     const access = await conversationService.assertParticipantAccess(req.params.id, actorFromReq(req), 'send');
 
-    // Preserve the already-tested Support/AI behavior while the reusable business
-    // conversation workflows move to participant-authored semantic messages. This
-    // is deliberately narrow: Marketplace (and future stakeholder workflows) never
-    // use the old "user message as AI inbound" path.
     if (access.thread.thread_type === 'support' && services.inboundService) {
       const result = await services.inboundService.ingest({
         channel: req.body?.channel || 'web_chat',
@@ -207,6 +204,45 @@ export function createCommunicationRouter({ services = createCommunicationServic
 
   router.patch('/api/communications/preferences', authorizeRole([]), asyncHandler(async (req, res) => {
     res.json({ preferences: await services.preferenceService.updatePreferences(req.userContext.id, req.body || {}, req.userContext.tenantId || null) });
+  }));
+
+  router.get('/api/communications/analytics', authorizeRole([]), asyncHandler(async (req, res) => {
+    const analytics = await services.analyticsService.getUserAnalytics(req.userContext.id, {
+      tenantId: req.userContext.tenantId || null,
+      rowCap: Math.min(Number(req.query.limit || 1000), 2000),
+    });
+    res.json({ analytics });
+  }));
+
+  router.get('/api/communications/ai/health', authorizeRole([]), asyncHandler(async (_req, res) => {
+    const health = services.aiRuntimeService.health();
+    res.status(health.available ? 200 : 503).json({ ai: health });
+  }));
+
+  router.post('/api/communications/threads/:id/ai/suggest-reply', authorizeRole([]), asyncHandler(async (req, res) => {
+    const derivation = await services.aiRuntimeService.suggestReply(
+      req.params.id,
+      actorFromReq(req),
+      { source_message_id: req.body?.source_message_id || null },
+    );
+    res.status(201).json({ derivation, auto_sent: false, requires_human_review: true });
+  }));
+
+  router.post('/api/communications/threads/:id/ai/summarize', authorizeRole([]), asyncHandler(async (req, res) => {
+    const derivation = await services.aiRuntimeService.summarize(req.params.id, actorFromReq(req));
+    res.status(201).json({ derivation });
+  }));
+
+  router.post('/api/communications/threads/:id/ai/translate', authorizeRole([]), asyncHandler(async (req, res) => {
+    const derivation = await services.aiRuntimeService.translate(
+      req.params.id,
+      actorFromReq(req),
+      {
+        source_message_id: req.body?.source_message_id,
+        target_language: req.body?.target_language,
+      },
+    );
+    res.status(201).json({ derivation });
   }));
 
   router.post('/api/communications/share', authorizeRole([]), asyncHandler(async (req, res) => {

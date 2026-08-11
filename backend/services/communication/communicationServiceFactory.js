@@ -3,21 +3,38 @@ import { CommunicationIdentityService } from './communicationIdentityService.js'
 import { CommunicationThreadService } from './communicationThreadService.js';
 import { CommunicationTemplateService } from './communicationTemplateService.js';
 import { CommunicationGovernedTemplateService } from './communicationGovernedTemplateService.js';
-import { CommunicationCanonicalNotificationService } from './communicationCanonicalNotificationService.js';
+import { CommunicationProductNotificationService } from './communicationProductNotificationService.js';
 import { CommunicationCanonicalConversationService } from './communicationCanonicalConversationService.js';
 import { CommunicationWorkflowService } from './communicationWorkflowService.js';
 import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
+import { CommunicationAnalyticsService } from './communicationAnalyticsService.js';
+import { CommunicationGeminiProvider } from './communicationGeminiProvider.js';
+import { CommunicationAiRuntimeService } from './communicationAiRuntimeService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
 import { CommunicationCanonicalWebhookService } from './communicationCanonicalWebhookService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
+import { CommunicationMetaWhatsAppGovernedAdapter } from './communicationMetaWhatsAppGovernedAdapter.js';
 import { createDefaultAdapterRegistry, assertRealTelegramAdapter } from './adapters/providerAdapters.js';
 import { createCommunicationOrchestrator } from './communicationOrchestratorService.js';
 import { createCommunicationConfigurationValidator } from './communicationConfigurationValidator.js';
 
-export function createCommunicationServices({ repository = null, adapterRegistry = null } = {}) {
+function activateGovernedWhatsAppAdapter(registry, { injected = false } = {}) {
+  if (injected) return registry;
+  const adapter = registry.get('whatsapp');
+  const health = adapter?.validateConfiguration?.() || {};
+  if (adapter?.provider === 'meta_whatsapp_cloud_api' && health.mode !== 'fake') {
+    registry.set('whatsapp', new CommunicationMetaWhatsAppGovernedAdapter({ env: process.env }));
+  }
+  return registry;
+}
+
+export function createCommunicationServices({ repository = null, adapterRegistry = null, aiProvider = null } = {}) {
   const repo = repository || new CommunicationRepository();
-  const registry = adapterRegistry || createDefaultAdapterRegistry();
+  const registry = activateGovernedWhatsAppAdapter(
+    adapterRegistry || createDefaultAdapterRegistry(),
+    { injected: Boolean(adapterRegistry) },
+  );
   assertRealTelegramAdapter(registry);
   const identityService = new CommunicationIdentityService({ repository: repo });
   const threadService = new CommunicationThreadService({ repository: repo });
@@ -26,7 +43,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     repository: repo,
     fallbackService: new CommunicationTemplateService(),
   });
-  const notificationService = new CommunicationCanonicalNotificationService({
+  const notificationService = new CommunicationProductNotificationService({
     repository: repo,
     threadService,
     preferenceService,
@@ -47,6 +64,13 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     repository: repo,
     conversationService,
   });
+  const analyticsService = new CommunicationAnalyticsService({ repository: repo });
+  const communicationAiProvider = aiProvider || new CommunicationGeminiProvider();
+  const aiRuntimeService = new CommunicationAiRuntimeService({
+    conversationService,
+    intelligenceService,
+    provider: communicationAiProvider,
+  });
   const inboundService = new CommunicationInboundService({
     repository: repo,
     identityService,
@@ -54,9 +78,6 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     notificationService,
     conversationService,
   });
-  // Keep the proven webhook verification/parsing surface, but use the Communications
-  // 2.0 subclass that fails closed on ambiguous receipts and advances terminal provider
-  // failures through the same ordered fallback contract.
   const webhookService = new CommunicationCanonicalWebhookService({
     repository: repo,
     inboundService,
@@ -67,7 +88,12 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     adapterRegistry: registry,
     notificationService,
   });
-  const orchestrator = createCommunicationOrchestrator({ repository: repo, threadService, notificationService, conversationService });
+  const orchestrator = createCommunicationOrchestrator({
+    repository: repo,
+    threadService,
+    notificationService,
+    conversationService,
+  });
   const configurationValidator = createCommunicationConfigurationValidator({ adapterRegistry: deliveryWorker.adapterRegistry });
   return {
     repository: repo,
@@ -79,6 +105,9 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     conversationService,
     workflowService,
     intelligenceService,
+    analyticsService,
+    aiProvider: communicationAiProvider,
+    aiRuntimeService,
     inboundService,
     webhookService,
     deliveryWorker,

@@ -18,6 +18,7 @@ const AUTH_HARDENING = '../../../database/migrations/20260811131800_communicatio
 const PRIVACY_HARDENING = '../../../database/migrations/20260811131900_communications_2_privacy_binding_hardening.sql';
 const TEMPLATE_RUNTIME = '../../../database/migrations/20260811132000_communications_2_template_runtime_registry.sql';
 const RELIABILITY = '../../../database/migrations/20260811132100_communications_2_reliability_closure.sql';
+const PRODUCT_CAPABILITIES = '../../../database/migrations/20260811132200_communications_2_product_capabilities.sql';
 
 const readSql = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const upSection = (sql) => sql.split('-- +migrate Down')[0];
@@ -29,6 +30,7 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
   await client.connect();
 
   async function downCommunications2() {
+    await client.query(downSection(readSql(PRODUCT_CAPABILITIES)));
     await client.query(downSection(readSql(RELIABILITY)));
     await client.query(downSection(readSql(TEMPLATE_RUNTIME)));
     await client.query(downSection(readSql(PRIVACY_HARDENING)));
@@ -46,6 +48,7 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
     await client.query(upSection(readSql(PRIVACY_HARDENING)));
     await client.query(upSection(readSql(TEMPLATE_RUNTIME)));
     await client.query(upSection(readSql(RELIABILITY)));
+    await client.query(upSection(readSql(PRODUCT_CAPABILITIES)));
   }
 
   t.after(async () => {
@@ -72,7 +75,8 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
       WHERE table_schema='public' AND table_name='message_threads' AND column_name='conversation_type'`);
     assert.equal(conversationType.rows.length, 1);
     const templates = await client.query(`SELECT template_key FROM public.communication_templates`);
-    assert.ok(templates.rows.length >= 18, 'stakeholder + migrated runtime template registry is seeded');
+    assert.ok(templates.rows.length >= 19, 'stakeholder + runtime + business-initiated WhatsApp template registry is seeded');
+
     const legacyRuntime = await client.query(`
       SELECT count(*)::int c
       FROM communication_template_versions v
@@ -97,6 +101,21 @@ test('Communications 2.0 Postgres migration and invariant gate', { skip: ENABLED
     const trigger = await client.query(`SELECT count(*)::int c FROM pg_trigger
       WHERE tgname='trg_marketplace_inquiry_communication_outbox' AND NOT tgisinternal`);
     assert.equal(trigger.rows[0].c, 1, 'Marketplace atomic communication outbox trigger must exist');
+  });
+
+  await t.test('governed WhatsApp business-initiated template contract is internally approved but external Meta approval is not fabricated', async () => {
+    const result = await client.query(`
+      SELECT t.status, t.metadata, v.approval_status, v.provider_template_reference, v.experiment_metadata
+      FROM communication_templates t
+      JOIN communication_template_versions v ON v.template_id=t.id
+      WHERE t.template_key='conversation_reply_whatsapp_v1'
+        AND v.version=1 AND v.channel='whatsapp' AND v.language='en'`);
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0].status, 'active');
+    assert.equal(result.rows[0].approval_status, 'approved');
+    assert.equal(result.rows[0].provider_template_reference, null, 'migration must never invent a Meta-approved template name');
+    assert.equal(result.rows[0].metadata.meta_approval_required, true);
+    assert.equal(result.rows[0].experiment_metadata.provider_approval_status, 'pending_configuration');
   });
 
   await t.test('Marketplace inquiry and canonical communication event commit atomically and exactly once', async () => {

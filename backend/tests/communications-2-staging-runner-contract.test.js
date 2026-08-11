@@ -10,7 +10,7 @@ function gitBlobSha(content) {
   return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
 }
 
-test('staging runner pins the complete seven-migration Communications 2 chain to exact Git blob bytes', () => {
+test('staging runner pins the complete eight-migration Communications 2 chain to exact Git blob bytes', () => {
   const entries = [...runner.matchAll(/version:\s*'([^']+)'[\s\S]*?name:\s*'([^']+)'[\s\S]*?gitBlobSha:\s*'([0-9a-f]{40})'/g)]
     .map((match) => ({ version: match[1], name: match[2], blob: match[3] }));
 
@@ -22,6 +22,7 @@ test('staging runner pins the complete seven-migration Communications 2 chain to
     '20260811131900',
     '20260811132000',
     '20260811132100',
+    '20260811132200',
   ]);
 
   for (const entry of entries) {
@@ -44,4 +45,13 @@ test('staging runner verifies atomic Marketplace outbox and exactly-once domain-
   assert.match(runner, /trg_domain_events_communication_dedupe/);
   assert.match(runner, /trg_marketplace_inquiry_communication_outbox/);
   assert.match(runner, /idx_domain_events_dedupe_key/);
+});
+
+test('staging runner verifies the governed WhatsApp business-initiated template capability without fabricating Meta approval', () => {
+  assert.match(runner, /conversation_reply_whatsapp_v1/);
+  assert.match(runner, /meta_approval_required/);
+  const migration = readFileSync(new URL('../../database/migrations/20260811132200_communications_2_product_capabilities.sql', import.meta.url), 'utf8');
+  assert.match(migration, /provider_template_reference[\s\S]*NULL/);
+  assert.match(migration, /provider_approval_status', 'pending_configuration'/);
+  assert.doesNotMatch(migration, /provider_template_reference[\s\S]*'carup_[^']+'/);
 });

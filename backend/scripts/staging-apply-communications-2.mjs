@@ -1,9 +1,6 @@
 /**
  * CarUp Communications 2.0 staging-only migration runner.
  *
- * Implementation target: docs/communications/CARUP_COMMUNICATIONS_2_CANONICAL_PLAN.md,
- * sections 0, 8, 11, 12, 25, 26, 28, 29, 31, 32 and 35.
- *
  * MODE=verify (default): read-only identity/prerequisite/contract inspection.
  * MODE=apply: applies the frozen Communications 2.0 migrations to canonical staging
  * only, one transaction per migration together with its official migration-history row,
@@ -16,8 +13,7 @@
  *  - no connection string or secret is printed;
  *  - TLS verification remains enabled;
  *  - already-recorded migrations are never re-applied;
- *  - missing base Communications/Marketplace tables fail closed;
- *  - production application is outside this runner's design contract.
+ *  - missing base Communications/Marketplace tables fail closed.
  */
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -29,41 +25,14 @@ const MODE = process.env.MODE === 'apply' ? 'apply' : 'verify';
 const url = process.env.COMMUNICATION_STAGING_DATABASE_URL || process.env.DIASPORA_STAGING_DATABASE_URL;
 
 const MIGRATIONS = [
-  {
-    version: '20260811131500',
-    name: '20260811131500_communications_2_conversation_core.sql',
-    gitBlobSha: '5a70a2ca08840856ec66406cc84bcf91f43955ed',
-  },
-  {
-    version: '20260811131600',
-    name: '20260811131600_communications_2_delivery_monotonicity.sql',
-    gitBlobSha: '3b3f8c195de37491d181897909523be5e66ebea4',
-  },
-  {
-    version: '20260811131700',
-    name: '20260811131700_communications_2_workflow_template_foundations.sql',
-    gitBlobSha: 'b5f28fd2fcbbb80fdf46b801e547d7a0ce395ec8',
-  },
-  {
-    version: '20260811131800',
-    name: '20260811131800_communications_2_participant_auth_hardening.sql',
-    gitBlobSha: '745c0697ac799e87665d042457cf3e32ea5b1b3f',
-  },
-  {
-    version: '20260811131900',
-    name: '20260811131900_communications_2_privacy_binding_hardening.sql',
-    gitBlobSha: '58a7cd1f4673355dd4b9fff32ad42f567720b57d',
-  },
-  {
-    version: '20260811132000',
-    name: '20260811132000_communications_2_template_runtime_registry.sql',
-    gitBlobSha: '2177549f496b5255de8d0948fa22dd2531a4d5c1',
-  },
-  {
-    version: '20260811132100',
-    name: '20260811132100_communications_2_reliability_closure.sql',
-    gitBlobSha: 'c85f301269a27fe29caa7ad8faec47cd27d95c67',
-  },
+  { version: '20260811131500', name: '20260811131500_communications_2_conversation_core.sql', gitBlobSha: '5a70a2ca08840856ec66406cc84bcf91f43955ed' },
+  { version: '20260811131600', name: '20260811131600_communications_2_delivery_monotonicity.sql', gitBlobSha: '3b3f8c195de37491d181897909523be5e66ebea4' },
+  { version: '20260811131700', name: '20260811131700_communications_2_workflow_template_foundations.sql', gitBlobSha: 'b5f28fd2fcbbb80fdf46b801e547d7a0ce395ec8' },
+  { version: '20260811131800', name: '20260811131800_communications_2_participant_auth_hardening.sql', gitBlobSha: '745c0697ac799e87665d042457cf3e32ea5b1b3f' },
+  { version: '20260811131900', name: '20260811131900_communications_2_privacy_binding_hardening.sql', gitBlobSha: '58a7cd1f4673355dd4b9fff32ad42f567720b57d' },
+  { version: '20260811132000', name: '20260811132000_communications_2_template_runtime_registry.sql', gitBlobSha: '2177549f496b5255de8d0948fa22dd2531a4d5c1' },
+  { version: '20260811132100', name: '20260811132100_communications_2_reliability_closure.sql', gitBlobSha: 'c85f301269a27fe29caa7ad8faec47cd27d95c67' },
+  { version: '20260811132200', name: '20260811132200_communications_2_product_capabilities.sql', gitBlobSha: 'f32dfdb1eb82c3ab70cecaef0b279f55b495575f' },
 ];
 
 function fail(message) {
@@ -90,10 +59,7 @@ function readFrozenMigration(migration) {
   return { up, actual };
 }
 
-const frozenMigrations = MIGRATIONS.map((migration) => ({
-  ...migration,
-  ...readFrozenMigration(migration),
-}));
+const frozenMigrations = MIGRATIONS.map((migration) => ({ ...migration, ...readFrozenMigration(migration) }));
 
 function tlsConfig() {
   const supplied = process.env.DIASPORA_STAGING_CA_CERT || process.env.COMMUNICATION_STAGING_CA_CERT;
@@ -115,13 +81,11 @@ function tlsConfig() {
 async function assertBaseContract(client) {
   const required = [
     'message_threads', 'message_participants', 'messages', 'channel_identities',
-    'notification_queue', 'message_delivery_attempts', 'domain_events',
-    'marketplace_inquiries',
+    'notification_queue', 'message_delivery_attempts', 'domain_events', 'marketplace_inquiries',
   ];
-  const { rows } = await client.query('select unnest($1::text[]) as name', [required]);
-  for (const row of rows) {
-    const found = await client.query('select to_regclass($1)::text as v', [`public.${row.name}`]);
-    if (!found.rows[0]?.v) fail(`required base table ${row.name} is absent; wrong/incomplete staging database.`);
+  for (const name of required) {
+    const found = await client.query('select to_regclass($1)::text as v', [`public.${name}`]);
+    if (!found.rows[0]?.v) fail(`required base table ${name} is absent; wrong/incomplete staging database.`);
   }
   const history = await client.query("select to_regclass('supabase_migrations.schema_migrations')::text as v");
   if (!history.rows[0]?.v) fail('supabase_migrations.schema_migrations is absent; refusing untracked migration application.');
@@ -145,6 +109,7 @@ async function verifyContract(client) {
   ]) {
     await expectOne(`table.${table}`, 'select case when to_regclass($1) is null then 0 else 1 end c', [`public.${table}`]);
   }
+
   for (const [table, column] of [
     ['message_threads', 'business_workflow'], ['message_threads', 'conversation_type'],
     ['message_threads', 'funnel_stage'], ['message_threads', 'conversion_status'],
@@ -170,19 +135,15 @@ async function verifyContract(client) {
   console.log(`${legacyHelperRemoved ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} function.legacy_arbitrary_user_helper_count=${legacyHelper.rows[0].c}`);
 
   await expectOne('constraint.binding_participant_same_thread', `
-    select count(*)::int c
-      from pg_constraint
+    select count(*)::int c from pg_constraint
      where conname='conversation_channel_bindings_participant_thread_fkey'
        and conrelid='public.conversation_channel_bindings'::regclass`);
   await expectOne('policy.messages_hide_internal_notes', `
-    select count(*)::int c
-      from pg_policies
+    select count(*)::int c from pg_policies
      where schemaname='public' and tablename='messages' and policyname='messages_participant_read'
-       and qual ilike '%direction%internal%'
-       and qual ilike '%communication_is_thread_participant%'`);
+       and qual ilike '%direction%internal%' and qual ilike '%communication_is_thread_participant%'`);
   await expectOne('policy.templates_active_only', `
-    select count(*)::int c
-      from pg_policies
+    select count(*)::int c from pg_policies
      where schemaname='public' and tablename='communication_templates'
        and policyname='communication_templates_authenticated_read'
        and qual ilike '%status%active%'`);
@@ -194,18 +155,15 @@ async function verifyContract(client) {
   await expectOne('trigger.domain_event_exactly_once_key', `select count(*)::int c from pg_trigger where tgname='trg_domain_events_communication_dedupe' and not tgisinternal`);
   await expectOne('trigger.marketplace_atomic_communication_outbox', `select count(*)::int c from pg_trigger where tgname='trg_marketplace_inquiry_communication_outbox' and not tgisinternal`);
   await expectOne('index.domain_event_exactly_once', `
-    select count(*)::int c
-      from pg_indexes
-     where schemaname='public'
-       and indexname='idx_domain_events_dedupe_key'
-       and indexdef ilike '%unique index%'
-       and indexdef ilike '%(dedupe_key)%'`);
+    select count(*)::int c from pg_indexes
+     where schemaname='public' and indexname='idx_domain_events_dedupe_key'
+       and indexdef ilike '%unique index%' and indexdef ilike '%(dedupe_key)%'`);
 
   const templatesTable = await client.query("select to_regclass('public.communication_templates')::text as v");
   if (templatesTable.rows[0]?.v) {
     const { rows } = await client.query("select count(*)::int c from communication_templates where status='active'");
-    const ok = rows[0].c >= 18;
-    checks.push({ label: 'active_governed_templates>=18', ok, value: rows[0].c });
+    const ok = rows[0].c >= 19;
+    checks.push({ label: 'active_governed_templates>=19', ok, value: rows[0].c });
     console.log(`${ok ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} active_governed_templates=${rows[0].c}`);
 
     await expectOne('runtime_template.marketplace_inquiry_received_v1', `
@@ -213,11 +171,18 @@ async function verifyContract(client) {
         from communication_template_versions v
         join communication_templates t on t.id=v.template_id
        where t.template_key='marketplace_inquiry_received_v1'
-         and t.status='active'
-         and v.version=1
-         and v.channel='default'
-         and v.language='en'
-         and v.approval_status='approved'`);
+         and t.status='active' and v.version=1
+         and v.channel='default' and v.language='en' and v.approval_status='approved'`);
+
+    await expectOne('runtime_template.conversation_reply_whatsapp_v1', `
+      select count(*)::int c
+        from communication_template_versions v
+        join communication_templates t on t.id=v.template_id
+       where t.template_key='conversation_reply_whatsapp_v1'
+         and t.status='active' and v.version=1
+         and v.channel='whatsapp' and v.language='en'
+         and v.approval_status='approved'
+         and v.experiment_metadata ->> 'meta_approval_required'='true'`);
   }
 
   const participantColumn = await client.query(`select count(*)::int c from information_schema.columns where table_schema='public' and table_name='message_participants' and column_name='stakeholder_role'`);
