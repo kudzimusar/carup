@@ -1,7 +1,9 @@
 import { CommunicationRepository } from './communicationRepository.js';
 import { CommunicationIdentityService } from './communicationIdentityService.js';
 import { CommunicationThreadService } from './communicationThreadService.js';
-import { CommunicationNotificationService } from './communicationNotificationService.js';
+import { CommunicationTemplateService } from './communicationTemplateService.js';
+import { CommunicationGovernedTemplateService } from './communicationGovernedTemplateService.js';
+import { CommunicationCanonicalNotificationService } from './communicationCanonicalNotificationService.js';
 import { CommunicationCanonicalConversationService } from './communicationCanonicalConversationService.js';
 import { CommunicationWorkflowService } from './communicationWorkflowService.js';
 import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
@@ -20,7 +22,16 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   const identityService = new CommunicationIdentityService({ repository: repo });
   const threadService = new CommunicationThreadService({ repository: repo });
   const preferenceService = new CommunicationPreferenceService({ repository: repo });
-  const notificationService = new CommunicationNotificationService({ repository: repo, threadService, preferenceService });
+  const templateService = new CommunicationGovernedTemplateService({
+    repository: repo,
+    fallbackService: new CommunicationTemplateService(),
+  });
+  const notificationService = new CommunicationCanonicalNotificationService({
+    repository: repo,
+    threadService,
+    preferenceService,
+    templateService,
+  });
   const conversationService = new CommunicationCanonicalConversationService({
     repository: repo,
     threadService,
@@ -55,6 +66,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     identityService,
     threadService,
     preferenceService,
+    templateService,
     notificationService,
     conversationService,
     workflowService,
