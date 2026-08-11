@@ -16,6 +16,7 @@ const MIGRATIONS = [
   '../../../database/migrations/20260811131700_communications_2_workflow_template_foundations.sql',
   '../../../database/migrations/20260811131800_communications_2_participant_auth_hardening.sql',
   '../../../database/migrations/20260811131900_communications_2_privacy_binding_hardening.sql',
+  '../../../database/migrations/20260811132000_communications_2_template_runtime_registry.sql',
 ];
 
 const readSql = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
