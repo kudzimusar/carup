@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { createCommunicationServices } from '../services/communication/communicationServiceFactory.js';
+import { CommunicationConversationService } from '../services/communication/communicationConversationService.js';
 import { validateCommunicationConfiguration, resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
@@ -66,8 +67,21 @@ async function processWorkerBatch(req, res, services) {
   });
 }
 
+function ensureConversationService(services) {
+  if (services.conversationService) return services.conversationService;
+  const service = new CommunicationConversationService({
+    repository: services.repository,
+    threadService: services.threadService,
+    identityService: services.identityService,
+    notificationService: services.notificationService,
+  });
+  services.conversationService = service;
+  return service;
+}
+
 export function createCommunicationRouter({ services = createCommunicationServices() } = {}) {
   const router = express.Router();
+  const conversationService = ensureConversationService(services);
 
   router.get('/api/communications/health', asyncHandler(async (_req, res) => {
     const configuration = services.configurationValidator?.validate?.()
@@ -83,24 +97,22 @@ export function createCommunicationRouter({ services = createCommunicationServic
   router.get('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
   router.post('/api/internal/communications/process', asyncHandler(async (req, res) => processWorkerBatch(req, res, services)));
 
-  // Communications 2.0 ordinary-user inbox. Authorization is based on active
-  // message_participants rows, never a client-supplied owner id.
   router.get('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
-    res.json({ threads: await services.conversationService.listConversationsForUser(req.userContext.id) });
+    res.json({ threads: await conversationService.listConversationsForUser(req.userContext.id) });
   }));
 
   router.get('/api/communications/threads/:id', authorizeRole([]), asyncHandler(async (req, res) => {
-    res.json(await services.conversationService.getConversation(req.params.id, actorFromReq(req)));
+    res.json(await conversationService.getConversation(req.params.id, actorFromReq(req)));
   }));
 
   router.post('/api/communications/threads', authorizeRole([]), asyncHandler(async (req, res) => {
     const { thread } = await services.threadService.resolveOrCreateThread({
       ...req.body,
-      primary_user_id: req.userContext.id, // compatibility projection
+      primary_user_id: req.userContext.id,
       tenant_id: req.userContext.tenantId || req.body?.tenant_id || null,
       primary_channel: normalizeChannel(req.body?.channel) || 'web_chat',
     });
-    await services.conversationService.ensureParticipant(thread.id, {
+    await conversationService.ensureParticipant(thread.id, {
       participant_type: 'user',
       user_id: req.userContext.id,
       stakeholder_role: req.body?.stakeholder_role || 'requester',
@@ -111,7 +123,26 @@ export function createCommunicationRouter({ services = createCommunicationServic
   }));
 
   router.post('/api/communications/threads/:id/messages', authorizeRole([]), asyncHandler(async (req, res) => {
-    const result = await services.conversationService.sendParticipantMessage(
+    const access = await conversationService.assertParticipantAccess(req.params.id, actorFromReq(req), 'send');
+
+    // Preserve the already-tested Support/AI behavior while the reusable business
+    // conversation workflows move to participant-authored semantic messages. This
+    // is deliberately narrow: Marketplace (and future stakeholder workflows) never
+    // use the old "user message as AI inbound" path.
+    if (access.thread.thread_type === 'support' && services.inboundService) {
+      const result = await services.inboundService.ingest({
+        channel: req.body?.channel || 'web_chat',
+        user_id: req.userContext.id,
+        tenant_id: req.userContext.tenantId || null,
+        text: req.body?.message || req.body?.text || '',
+        target_thread_id: access.thread.id,
+        subject_type: access.thread.subject_type || 'support',
+        subject_id: access.thread.subject_id || null,
+      }, actorFromReq(req));
+      return res.status(201).json(result);
+    }
+
+    const result = await conversationService.sendParticipantMessage(
       req.params.id,
       actorFromReq(req),
       {
@@ -127,12 +158,12 @@ export function createCommunicationRouter({ services = createCommunicationServic
   }));
 
   router.post('/api/communications/threads/:id/read', authorizeRole([]), asyncHandler(async (req, res) => {
-    await services.conversationService.markRead(req.params.id, actorFromReq(req));
+    await conversationService.markRead(req.params.id, actorFromReq(req));
     res.json({ success: true });
   }));
 
   router.post('/api/communications/threads/:id/feedback', authorizeRole([]), asyncHandler(async (req, res) => {
-    const { thread, participant } = await services.conversationService.assertParticipantAccess(req.params.id, actorFromReq(req), 'send');
+    const { thread, participant } = await conversationService.assertParticipantAccess(req.params.id, actorFromReq(req), 'send');
     const message = await services.threadService.recordMessage(thread, {
       direction: 'inbound',
       sender_participant_id: participant.id,
@@ -220,8 +251,6 @@ export function createCommunicationRouter({ services = createCommunicationServic
     res.status(200).type('text/plain').send(challenge);
   }));
 
-  // Proven provider route intentionally preserved. The inbound service now resolves
-  // channel bindings before it considers creating a new provider-owned thread.
   router.post('/api/communications/webhooks/:provider/:channel', asyncHandler(async (req, res) => {
     const isMetaWhatsApp = req.params.provider === 'meta' && normalizeChannel(req.params.channel) === 'whatsapp';
     const receipt = isMetaWhatsApp
