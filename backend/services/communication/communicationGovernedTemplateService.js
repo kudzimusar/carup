@@ -20,6 +20,24 @@ function governanceError(code, message, details = {}) {
   return error;
 }
 
+function isRegistryUnavailableError(error) {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  // Compatibility fallback is intentionally narrow: only a genuinely undeployed
+  // registry/schema may fall back. Network, permission, timeout and arbitrary SQL
+  // failures must surface so governance is not bypassed during an outage.
+  return code === '42P01'
+    || code === 'PGRST205'
+    || (
+      message.includes('communication_templates')
+      && (
+        message.includes('does not exist')
+        || message.includes('could not find the table')
+        || message.includes('schema cache')
+      )
+    );
+}
+
 export class CommunicationGovernedTemplateService {
   constructor({ repository, fallbackService = null } = {}) {
     this.repository = repository;
@@ -68,10 +86,10 @@ export class CommunicationGovernedTemplateService {
       return { registryAvailable: true, template, version: versions[0] };
     } catch (error) {
       if (error?.code === 'template_not_active' || error?.code === 'template_not_approved') throw error;
-      // Pre-migration / unavailable-registry compatibility boundary. Provider transport
-      // remains usable while schema deployment catches up, but an explicit governed
-      // row can never be bypassed through this branch.
-      return { registryAvailable: false, template: null, version: null };
+      if (isRegistryUnavailableError(error)) {
+        return { registryAvailable: false, template: null, version: null };
+      }
+      throw error;
     }
   }
 
@@ -122,8 +140,9 @@ export class CommunicationGovernedTemplateService {
     try {
       const rows = await this.repository.list('communication_templates', { status: 'active' });
       return rows.map((row) => row.template_key);
-    } catch (_error) {
-      return this.fallbackService.listTemplates();
+    } catch (error) {
+      if (isRegistryUnavailableError(error)) return this.fallbackService.listTemplates();
+      throw error;
     }
   }
 }
