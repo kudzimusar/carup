@@ -10,6 +10,8 @@ import { CommunicationIdentityService } from '../services/communication/communic
 import { CommunicationThreadService } from '../services/communication/communicationThreadService.js';
 import { CommunicationNotificationService } from '../services/communication/communicationNotificationService.js';
 import { CommunicationConversationService } from '../services/communication/communicationConversationService.js';
+import { CommunicationWorkflowService } from '../services/communication/communicationWorkflowService.js';
+import { CommunicationIntelligenceService } from '../services/communication/communicationIntelligenceService.js';
 import { CommunicationInboundService } from '../services/communication/communicationInboundService.js';
 
 function createHarness() {
@@ -39,6 +41,8 @@ function createHarness() {
     identityService,
     notificationService,
   });
+  const workflowService = new CommunicationWorkflowService({ repository, threadService, conversationService });
+  const intelligenceService = new CommunicationIntelligenceService({ repository, conversationService });
   const inboundService = new CommunicationInboundService({
     repository,
     identityService,
@@ -51,7 +55,7 @@ function createHarness() {
       },
     },
   });
-  return { repository, identityService, threadService, notificationService, conversationService, inboundService };
+  return { repository, identityService, threadService, notificationService, conversationService, workflowService, intelligenceService, inboundService };
 }
 
 test('Marketplace inquiry becomes one canonical buyer↔seller conversation with exact text', async () => {
@@ -161,4 +165,83 @@ test('identity normalization resolves +263 and 263 to one stored identity', asyn
   assert.equal(second.id, first.id);
   assert.equal(h.repository.rows('channel_identities').length, 1);
   assert.equal(second.normalized_address, '263771234567');
+});
+
+test('dealer and garage workflows reuse one canonical conversation contract', async () => {
+  const h = createHarness();
+  const dealer = await h.workflowService.ensureBusinessConversation({
+    workflow: 'dealer',
+    subject_type: 'marketplace_listing',
+    subject_id: 'DEALER-VIN-1',
+    participants: [
+      { participant_type: 'user', user_id: 'buyer-2', stakeholder_role: 'buyer' },
+      { participant_type: 'business', user_id: 'dealer-agent-1', stakeholder_role: 'dealer' },
+    ],
+    initial_message: {
+      sender_role: 'buyer',
+      text: 'Do you have this model in silver?',
+      source_id: 'dealer-lead-1',
+    },
+    attribution: { source: 'marketplace', referral_code: 'REF-DEALER' },
+  });
+  assert.equal(dealer.thread.business_workflow, 'dealer');
+  assert.equal(dealer.thread.conversation_type, 'dealer');
+  assert.equal(h.repository.rows('messages').at(-1).content_text, 'Do you have this model in silver?');
+
+  const garage = await h.workflowService.ensureBusinessConversation({
+    workflow: 'garage',
+    subject_type: 'work_order',
+    subject_id: 'WO-1',
+    participants: [
+      { participant_type: 'user', user_id: 'owner-1', stakeholder_role: 'vehicle_owner' },
+      { participant_type: 'business', user_id: 'mechanic-1', stakeholder_role: 'mechanic' },
+    ],
+  });
+  assert.equal(garage.thread.business_workflow, 'garage');
+  assert.notEqual(garage.thread.id, dealer.thread.id);
+  assert.equal(h.repository.rows('message_threads').length, 2);
+});
+
+test('AI translation/suggested-reply data is derived and cannot overwrite original message', async () => {
+  const h = createHarness();
+  const conversation = await h.workflowService.ensureBusinessConversation({
+    workflow: 'garage',
+    subject_type: 'work_order',
+    subject_id: 'WO-AI-1',
+    participants: [
+      { participant_type: 'user', user_id: 'owner-ai', stakeholder_role: 'vehicle_owner' },
+      { participant_type: 'business', user_id: 'mechanic-ai', stakeholder_role: 'mechanic' },
+    ],
+    initial_message: {
+      sender_role: 'vehicle_owner',
+      text: 'There is a grinding noise when I brake.',
+      source_id: 'voice-note-transcript-source',
+    },
+  });
+  const source = h.repository.rows('messages')[0];
+  const original = source.content_text;
+
+  const translated = await h.intelligenceService.createTranslation({
+    thread_id: conversation.thread.id,
+    source_message_id: source.id,
+    text: 'ブレーキをかけると、こすれるような音がします。',
+    source_language: 'en',
+    target_language: 'ja',
+    model_provider: 'test-provider',
+    model_name: 'test-model',
+    model_version: '1',
+  }, { id: 'owner-ai' });
+  assert.equal(translated.derivation_type, 'translation');
+  assert.equal(translated.output_json.derived, true);
+  assert.equal(translated.output_json.original_message_unchanged, true);
+
+  const suggestion = await h.intelligenceService.createSuggestedReply({
+    thread_id: conversation.thread.id,
+    source_message_id: source.id,
+    text: 'Please avoid driving if braking feels unsafe; we can arrange an inspection.',
+    model_provider: 'test-provider',
+    model_name: 'test-model',
+  }, { id: 'mechanic-ai' });
+  assert.equal(suggestion.derivation_type, 'suggested_reply');
+  assert.equal(h.repository.rows('messages')[0].content_text, original, 'AI-derived data must not alter authoritative user text');
 });
