@@ -92,3 +92,26 @@ test('suppressed external delivery is not counted as a delivery and does not adv
   assert.deepEqual(canonicalMessage.content_json.suppression_reasons, ['transactional_disabled']);
   assert.equal(h.repository.rows('notification_queue').every((row) => row.status === 'suppressed'), true);
 });
+
+test('domain-event routing queues one primary channel and records ordered fallback instead of broadcasting', async () => {
+  const repository = new MemoryCommunicationRepository();
+  const services = createCommunicationServices({ repository });
+
+  const queued = await services.notificationService.queueFromDomainEvent({
+    id: 'event-no-broadcast',
+    event_type: 'ESCROW_UPDATED',
+    payload: {
+      escrowId: 'escrow-no-broadcast',
+      currentStatus: 'Escrowed',
+      recipientUserId: 'buyer-no-broadcast',
+    },
+  });
+
+  assert.equal(queued.length, 1, 'a single semantic event must have one initial delivery route');
+  const rows = repository.rows('notification_queue');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].channel, 'in_app');
+  assert.equal(rows[0].metadata.routing_mode, 'single_primary_with_ordered_fallback');
+  assert.deepEqual(rows[0].metadata.fallback_channels, ['push', 'email']);
+  assert.equal(repository.rows('messages').length, 1, 'one semantic event creates one canonical outbound message');
+});
