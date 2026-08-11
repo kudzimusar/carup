@@ -31,6 +31,7 @@ type ConversationMessage = ThreadDetail['messages'][number] & {
 type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
   participants?: Array<{ id: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean }>
   self_participant_id?: string
+  read_at?: string | null
   messages: ConversationMessage[]
 }
 
@@ -130,7 +131,16 @@ export default function Communications() {
     }
     let active = true
     fetchCommunicationThread(activeId)
-      .then((result) => { if (active) setDetail(result as ConversationDetail) })
+      .then((result) => {
+        if (!active) return
+        setDetail(result as ConversationDetail)
+        // Opening the thread advances this user's read cursor server-side. Mirror the
+        // resulting state immediately so the inbox badge/filter does not remain stale
+        // until a full refresh.
+        setThreads((current) => current.map((thread) => (
+          thread.id === activeId ? { ...thread, unread_count: 0 } : thread
+        )))
+      })
       .catch(() => { if (active) setDetail(null) })
     return () => { active = false }
   }, [activeId, fetchCommunicationThread])
@@ -309,23 +319,24 @@ export default function Communications() {
 
           <Card className="border-0 card-shadow">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="h-5 w-5 text-orange-500" /> Channels</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="h-5 w-5 text-orange-500" /> Channels & consent</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {[
+                ['transactional_enabled', 'Transactional updates'],
+                ['marketing_enabled', 'Marketing'],
                 ['email_enabled', 'Email'],
                 ['push_enabled', 'Push'],
                 ['in_app_enabled', 'In-app'],
                 ['whatsapp_enabled', 'WhatsApp'],
                 ['sms_enabled', 'SMS'],
-                ['marketing_enabled', 'Marketing'],
               ].map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between gap-3">
                   <Label htmlFor={key}>{label}</Label>
                   <Switch id={key} checked={Boolean(preferences?.[key])} onCheckedChange={(checked) => setPreferences((prev) => ({ ...(prev || {}), [key]: checked }))} />
                 </div>
               ))}
-              <p className="text-[11px] text-gray-500">Transactional and marketing consent remain separate. Turning on a channel does not automatically opt you into campaigns.</p>
+              <p className="text-[11px] text-gray-500">Transactional and marketing consent are independent. Channel availability never opts you into marketing, and delivery suppression does not delete the CarUp conversation.</p>
               <Button onClick={savePreferences} variant="secondary" className="w-full">Save preferences</Button>
             </CardContent>
           </Card>
