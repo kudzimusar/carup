@@ -2,7 +2,7 @@
  * CarUp Communications 2.0 staging-only migration runner.
  *
  * Implementation target: docs/communications/CARUP_COMMUNICATIONS_2_CANONICAL_PLAN.md,
- * sections 0, 8, 11, 25, 26, 28, 29, 31, 32 and 35.
+ * sections 0, 8, 11, 12, 25, 26, 28, 29, 31, 32 and 35.
  *
  * MODE=verify (default): read-only identity/prerequisite/contract inspection.
  * MODE=apply: applies the frozen Communications 2.0 migrations to canonical staging
@@ -54,6 +54,11 @@ const MIGRATIONS = [
     name: '20260811131900_communications_2_privacy_binding_hardening.sql',
     gitBlobSha: '58a7cd1f4673355dd4b9fff32ad42f567720b57d',
   },
+  {
+    version: '20260811132000',
+    name: '20260811132000_communications_2_template_runtime_registry.sql',
+    gitBlobSha: 'd36b54be48394f067527b79535f0c76c5802fc92',
+  },
 ];
 
 function fail(message) {
@@ -80,7 +85,6 @@ function readFrozenMigration(migration) {
   return { up, actual };
 }
 
-// Verify all migration bytes before any network/DB operation.
 const frozenMigrations = MIGRATIONS.map((migration) => ({
   ...migration,
   ...readFrozenMigration(migration),
@@ -108,7 +112,7 @@ async function assertBaseContract(client) {
     'message_threads', 'message_participants', 'messages', 'channel_identities',
     'notification_queue', 'message_delivery_attempts',
   ];
-  const { rows } = await client.query(`select unnest($1::text[]) as name`, [required]);
+  const { rows } = await client.query('select unnest($1::text[]) as name', [required]);
   for (const row of rows) {
     const found = await client.query('select to_regclass($1)::text as v', [`public.${row.name}`]);
     if (!found.rows[0]?.v) fail(`required base Communications table ${row.name} is absent; wrong/incomplete staging database.`);
@@ -133,7 +137,7 @@ async function verifyContract(client) {
     'communication_template_versions', 'communication_brand_assets',
     'conversation_events', 'message_derivations',
   ]) {
-    await expectOne(`table.${table}`, "select case when to_regclass($1) is null then 0 else 1 end c", [`public.${table}`]);
+    await expectOne(`table.${table}`, 'select case when to_regclass($1) is null then 0 else 1 end c', [`public.${table}`]);
   }
   for (const [table, column] of [
     ['message_threads', 'business_workflow'], ['message_threads', 'conversation_type'],
@@ -142,6 +146,7 @@ async function verifyContract(client) {
   ]) {
     await expectOne(`${table}.${column}`, `select count(*)::int c from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2`, [table, column]);
   }
+
   await expectOne(
     'function.communication_is_thread_participant_current_user_only',
     `select count(*)::int c
@@ -183,9 +188,20 @@ async function verifyContract(client) {
   const templatesTable = await client.query("select to_regclass('public.communication_templates')::text as v");
   if (templatesTable.rows[0]?.v) {
     const { rows } = await client.query("select count(*)::int c from communication_templates where status='active'");
-    const ok = rows[0].c >= 10;
-    checks.push({ label: 'active_stakeholder_templates>=10', ok, value: rows[0].c });
-    console.log(`${ok ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} active_stakeholder_templates=${rows[0].c}`);
+    const ok = rows[0].c >= 18;
+    checks.push({ label: 'active_governed_templates>=18', ok, value: rows[0].c });
+    console.log(`${ok ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} active_governed_templates=${rows[0].c}`);
+
+    await expectOne('runtime_template.marketplace_inquiry_received_v1', `
+      select count(*)::int c
+        from communication_template_versions v
+        join communication_templates t on t.id=v.template_id
+       where t.template_key='marketplace_inquiry_received_v1'
+         and t.status='active'
+         and v.version=1
+         and v.channel='default'
+         and v.language='en'
+         and v.approval_status='approved'`);
   }
 
   const participantColumn = await client.query(`select count(*)::int c from information_schema.columns where table_schema='public' and table_name='message_participants' and column_name='stakeholder_role'`);
