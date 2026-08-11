@@ -160,9 +160,25 @@ export default function Communications() {
   }, [activeId, fetchCommunicationThread, loadSideData, loadThreads])
 
   useEffect(() => {
-    void loadThreads()
-    void loadSideData()
-  }, [loadSideData, loadThreads])
+    let active = true
+    Promise.all([
+      fetchCommunicationThreads().catch(() => ({ threads: [] })),
+      fetchCommunicationNotifications().catch(() => ({ notifications: [] })),
+      fetchCommunicationPreferences().catch(() => ({ preferences: null })),
+      fetchAnalytics().catch(() => ({ analytics: null })),
+      fetchAiHealth().catch(() => ({ ai: { available: false } })),
+    ]).then(([threadRes, notificationRes, prefRes, analyticsRes, health]) => {
+      if (!active) return
+      const next = (threadRes.threads || []) as ConversationThread[]
+      setThreads(next)
+      setActiveId((current) => current || next[0]?.id || null)
+      setNotifications(notificationRes.notifications || [])
+      setPreferences(prefRes.preferences || null)
+      setAnalytics(analyticsRes.analytics)
+      setAiAvailable(Boolean(health.ai?.available))
+    })
+    return () => { active = false }
+  }, [fetchAiHealth, fetchAnalytics, fetchCommunicationNotifications, fetchCommunicationPreferences, fetchCommunicationThreads])
 
   useEffect(() => {
     if (!activeId) return
