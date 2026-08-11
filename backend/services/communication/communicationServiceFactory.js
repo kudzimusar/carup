@@ -3,6 +3,8 @@ import { CommunicationIdentityService } from './communicationIdentityService.js'
 import { CommunicationThreadService } from './communicationThreadService.js';
 import { CommunicationNotificationService } from './communicationNotificationService.js';
 import { CommunicationConversationService } from './communicationConversationService.js';
+import { CommunicationWorkflowService } from './communicationWorkflowService.js';
+import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
 import { CommunicationWebhookService } from './communicationWebhookService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
@@ -25,6 +27,15 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     identityService,
     notificationService,
   });
+  const workflowService = new CommunicationWorkflowService({
+    repository: repo,
+    threadService,
+    conversationService,
+  });
+  const intelligenceService = new CommunicationIntelligenceService({
+    repository: repo,
+    conversationService,
+  });
   const inboundService = new CommunicationInboundService({
     repository: repo,
     identityService,
@@ -43,6 +54,8 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     preferenceService,
     notificationService,
     conversationService,
+    workflowService,
+    intelligenceService,
     inboundService,
     webhookService,
     deliveryWorker,
