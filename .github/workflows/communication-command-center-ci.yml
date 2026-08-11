@@ -37,6 +37,7 @@ jobs:
           backend/tests/communications-2-routing-privacy-hardening.test.js
           backend/tests/communications-2-marketplace-outbox-hardening.test.js
           backend/tests/communications-2-receipt-attribution-hardening.test.js
+          backend/tests/communications-2-canonical-service-hardening.test.js
 
   communication-postgres:
     runs-on: ubuntu-latest
