@@ -21,14 +21,16 @@ type ConversationThread = ThreadSummary & {
   latest_message?: { id?: string; text?: string; created_at?: string; channel?: string; ai_generated?: boolean } | null
 }
 
-type ConversationDetail = ThreadDetail & {
+type ConversationMessage = ThreadDetail['messages'][number] & {
+  text?: string
+  author?: { id?: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean } | null
+  ai_generated?: boolean
+}
+
+type ConversationDetail = Omit<ThreadDetail, 'messages'> & {
   participants?: Array<{ id: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean }>
   self_participant_id?: string
-  messages: Array<ThreadDetail['messages'][number] & {
-    text?: string
-    author?: { id?: string; stakeholder_role?: string; display_name?: string | null; is_self?: boolean } | null
-    ai_generated?: boolean
-  }>
+  messages: ConversationMessage[]
 }
 
 function threadLabel(thread: ConversationThread) {
@@ -187,7 +189,7 @@ export default function Communications() {
               ) : detail.messages.length === 0 ? (
                 <p className="text-sm text-gray-500">No messages yet.</p>
               ) : detail.messages.map((item) => {
-                const self = Boolean(item.author?.is_self || item.sender_user_id && item.sender_user_id === detail.self_participant_id)
+                const self = Boolean(item.author?.is_self)
                 const text = item.text ?? item.content_text ?? ''
                 return (
                   <div key={item.id} className={`flex ${self ? 'justify-end' : 'justify-start'}`}>
