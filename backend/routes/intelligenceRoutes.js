@@ -2,19 +2,19 @@
  * Visual & disclosure intelligence routes — Milestone 3 (master plan §7-§9, §15).
  *
  *   POST /api/evidence/:evidenceId/analyze           run a typed analysis task [admin/government]
- *   GET  /api/vehicles/:vin/temporal-findings        component-change findings (role-scoped)
+ *   GET  /api/vehicles/:vin/temporal-findings        component-change findings (role-scoped, public-safe)
  *   POST /api/vehicles/:vin/disclosure-scan          extract claims + classify conflicts [admin]
- *   GET  /api/vehicles/:vin/disclosure-conflicts     disclosure conflicts (role-scoped)
+ *   GET  /api/vehicles/:vin/disclosure-conflicts     disclosure conflicts (role-scoped, public-safe)
  *   POST /api/disclosure-conflicts/:id/seller-response  seller response [owner/dealer/admin]
  *
- * Public output is strictly allowlisted: non-privileged callers receive only
+ * Public output is strictly allowlisted: anonymous/non-privileged callers receive only
  * reviewer-CONFIRMED findings with a neutral public_summary; raw model output, internal
  * explanations, and pending findings never leak (master plan §8.9, §9.6).
  */
 import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { ValidationError, NotFoundError } from '../utils/errors.js';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth } from '../middleware/authMiddleware.js';
 import { analyzeEvidence } from '../services/ai/analysisJobService.js';
 import { listTemporalFindings } from '../services/intelligence/temporalComparison.js';
 import { extractClaims, classifyConflict, persistClaims, persistConflict, applySellerResponse } from '../services/intelligence/disclosureConflict.js';
@@ -48,7 +48,10 @@ router.post('/api/evidence/:evidenceId/analyze', authorizeRole(['admin', 'govern
   res.status(202).json(job);
 }));
 
-router.get('/api/vehicles/:vin/temporal-findings', authorizeRole(), asyncHandler(async (req, res) => {
+// These two reads back public Marketplace. They must not produce a 401 for an
+// anonymous buyer. optionalAuth preserves privileged projections for signed-in
+// reviewers/admins while allowing the deliberately allowlisted public projection.
+router.get('/api/vehicles/:vin/temporal-findings', optionalAuth(), asyncHandler(async (req, res) => {
   const role = req.userContext?.role;
   const all = await listTemporalFindings(supabase, req.params.vin);
   if (PRIVILEGED.includes(role)) return res.json({ findings: all });
@@ -69,7 +72,7 @@ router.post('/api/vehicles/:vin/disclosure-scan', authorizeRole(['admin', 'gover
   res.status(201).json({ claims_extracted: claims.length, conflicts });
 }));
 
-router.get('/api/vehicles/:vin/disclosure-conflicts', authorizeRole(), asyncHandler(async (req, res) => {
+router.get('/api/vehicles/:vin/disclosure-conflicts', optionalAuth(), asyncHandler(async (req, res) => {
   const role = req.userContext?.role;
   const { data } = await supabase.from('disclosure_conflicts').select('*').eq('vin', req.params.vin).order('created_at', { ascending: false });
   const all = data || [];
