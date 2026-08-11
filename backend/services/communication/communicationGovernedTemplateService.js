@@ -47,10 +47,10 @@ export class CommunicationGovernedTemplateService {
   /**
    * Resolve a governed template without allowing approval state to be bypassed.
    *
-   * Compatibility fallback is permitted only when the governed registry/key is not
-   * available at all (for example, before the Communications 2.0 migration has been
-   * applied). Once a template key exists in the DB registry, its status + approved
-   * versions are authoritative. Draft/retired/unapproved rows therefore fail closed.
+   * Compatibility fallback is permitted only when the governed registry itself is not
+   * deployed. Once the registry exists, every runtime key must be registered, active
+   * and backed by an approved channel/language version. Draft, retired, unapproved and
+   * unregistered keys therefore fail closed.
    */
   async resolveGovernedVersion(templateKey, { channel = 'in_app', language = 'en' } = {}) {
     if (!this.repository) return { registryAvailable: false, template: null, version: null };
@@ -108,9 +108,14 @@ export class CommunicationGovernedTemplateService {
   async render(templateKey, variables = {}, options = {}) {
     const governed = await this.resolveGovernedVersion(templateKey, options);
     if (!governed.template) {
-      // A missing governed key is compatibility-only. After migration, all existing
-      // runtime notification keys are registered, so this path is for pre-migration
-      // operation or deliberately ungoverned legacy callers still being converted.
+      if (governed.registryAvailable) {
+        throw governanceError(
+          'template_not_registered',
+          `Template ${templateKey} is not registered in the governed Communications template registry.`,
+          { template_key: templateKey },
+        );
+      }
+      // Pre-migration compatibility only: the governed relation itself is absent.
       return this.fallbackService.render(templateKey, variables);
     }
 
