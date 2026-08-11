@@ -86,6 +86,9 @@ test('suppressed external delivery is not counted as a delivery and does not adv
   assert.equal(result.deliveries.suppressions.length, 2, 'in-app and WhatsApp suppression evidence is retained');
   assert.equal(h.repository.rows('conversation_channel_bindings')[0].last_outbound_message_id, null);
   assert.equal(h.repository.rows('conversation_channel_bindings')[0].last_used_at, null);
-  assert.equal(h.repository.rows('messages').at(-1).content_text, 'Canonical seller message remains in CarUp even though delivery is suppressed');
+  const canonicalMessage = h.repository.rows('messages').at(-1);
+  assert.equal(canonicalMessage.content_text, 'Canonical seller message remains in CarUp even though delivery is suppressed');
+  assert.equal(canonicalMessage.status, 'suppressed');
+  assert.deepEqual(canonicalMessage.content_json.suppression_reasons, ['transactional_disabled']);
   assert.equal(h.repository.rows('notification_queue').every((row) => row.status === 'suppressed'), true);
 });
