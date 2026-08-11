@@ -3,6 +3,7 @@ name: Communication Command Center CI
 # Real CI for the Enterprise Communication Command Center + Communications 2.0 Phase 0-7 closure.
 # Unit: conversation/UAT/routing/outbox/receipt/template/product/media/stakeholder/campaign/runner.
 # Postgres: mandatory existing Command Center + Communications 2 core/privacy + Phase 7 schema gates.
+# Staging: PR #148 only, canonical Supabase ref guard, frozen verify -> apply -> verify.
 
 on:
   pull_request:
@@ -87,3 +88,29 @@ jobs:
             echo "::error::integration suite was SKIPPED — DB gate not satisfied"
             exit 1
           fi
+
+  communication-staging:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 148
+    runs-on: ubuntu-latest
+    env:
+      COMMUNICATION_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Assert canonical staging credential is available
+        run: |
+          if [ -z "$COMMUNICATION_STAGING_DATABASE_URL" ]; then
+            echo "::error::DIASPORA_STAGING_DATABASE_URL is unavailable; Communications staging apply cannot be certified"
+            exit 1
+          fi
+      - name: Communications staging preflight (read-only)
+        run: MODE=verify node backend/scripts/staging-apply-communications-2.mjs
+      - name: Apply frozen Communications 2.0 migrations 315-323 to canonical staging
+        run: MODE=apply node backend/scripts/staging-apply-communications-2.mjs
+      - name: Communications staging post-apply verification
+        run: MODE=verify node backend/scripts/staging-apply-communications-2.mjs
