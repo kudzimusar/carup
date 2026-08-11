@@ -2,7 +2,7 @@
  * CarUp Communications 2.0 staging-only migration runner.
  *
  * Implementation target: docs/communications/CARUP_COMMUNICATIONS_2_CANONICAL_PLAN.md,
- * sections 0, 25, 28, 29, 31, 32 and 35.
+ * sections 0, 8, 11, 25, 26, 28, 29, 31, 32 and 35.
  *
  * MODE=verify (default): read-only identity/prerequisite/contract inspection.
  * MODE=apply: applies the frozen Communications 2.0 migrations to canonical staging
@@ -48,6 +48,11 @@ const MIGRATIONS = [
     version: '20260811131800',
     name: '20260811131800_communications_2_participant_auth_hardening.sql',
     gitBlobSha: '745c0697ac799e87665d042457cf3e32ea5b1b3f',
+  },
+  {
+    version: '20260811131900',
+    name: '20260811131900_communications_2_privacy_binding_hardening.sql',
+    gitBlobSha: '58a7cd1f4673355dd4b9fff32ad42f567720b57d',
   },
 ];
 
@@ -152,6 +157,24 @@ async function verifyContract(client) {
   const legacyHelperRemoved = legacyHelper.rows[0].c === 0;
   checks.push({ label: 'function.legacy_arbitrary_user_helper_removed', ok: legacyHelperRemoved, value: legacyHelper.rows[0].c });
   console.log(`${legacyHelperRemoved ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} function.legacy_arbitrary_user_helper_count=${legacyHelper.rows[0].c}`);
+
+  await expectOne('constraint.binding_participant_same_thread', `
+    select count(*)::int c
+      from pg_constraint
+     where conname='conversation_channel_bindings_participant_thread_fkey'
+       and conrelid='public.conversation_channel_bindings'::regclass`);
+  await expectOne('policy.messages_hide_internal_notes', `
+    select count(*)::int c
+      from pg_policies
+     where schemaname='public' and tablename='messages' and policyname='messages_participant_read'
+       and qual ilike '%direction%internal%'
+       and qual ilike '%communication_is_thread_participant%'`);
+  await expectOne('policy.templates_active_only', `
+    select count(*)::int c
+      from pg_policies
+     where schemaname='public' and tablename='communication_templates'
+       and policyname='communication_templates_authenticated_read'
+       and qual ilike '%status%active%'`);
 
   await expectOne('trigger.messages_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_messages_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.notification_queue_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_notification_queue_monotonic_delivery_status' and not tgisinternal`);
