@@ -2,7 +2,7 @@ import { CommunicationRepository } from './communicationRepository.js';
 import { CommunicationIdentityService } from './communicationIdentityService.js';
 import { CommunicationThreadService } from './communicationThreadService.js';
 import { CommunicationNotificationService } from './communicationNotificationService.js';
-import { CommunicationConversationService } from './communicationConversationService.js';
+import { CommunicationCanonicalConversationService } from './communicationCanonicalConversationService.js';
 import { CommunicationWorkflowService } from './communicationWorkflowService.js';
 import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
@@ -21,7 +21,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   const threadService = new CommunicationThreadService({ repository: repo });
   const preferenceService = new CommunicationPreferenceService({ repository: repo });
   const notificationService = new CommunicationNotificationService({ repository: repo, threadService, preferenceService });
-  const conversationService = new CommunicationConversationService({
+  const conversationService = new CommunicationCanonicalConversationService({
     repository: repo,
     threadService,
     identityService,
