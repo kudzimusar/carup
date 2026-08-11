@@ -31,6 +31,11 @@ test('staging runner remains fail-closed to the canonical staging Supabase ident
   assert.doesNotMatch(runner, /console\.log\([^\n]*(DATABASE_URL|connectionString|process\.env\.COMMUNICATION_STAGING_DATABASE_URL)/);
 });
 
+test('verify mode inspects pending post-migration relations without hard regclass casts', () => {
+  assert.match(runner, /conrelid=to_regclass\('public\.conversation_channel_bindings'\)/);
+  assert.doesNotMatch(runner, /'public\.conversation_channel_bindings'::regclass/);
+});
+
 test('staging runner verifies Marketplace reliability plus Phase 7 campaign/storage closure', () => {
   assert.match(runner, /trg_domain_events_communication_dedupe/);
   assert.match(runner, /trg_marketplace_inquiry_communication_outbox/);

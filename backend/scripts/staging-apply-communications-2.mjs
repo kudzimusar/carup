@@ -102,7 +102,7 @@ async function verifyContract(client) {
   checks.push({ label: 'function.legacy_arbitrary_user_helper_removed', ok: legacyRemoved, value: legacy.rows[0]?.c || 0 });
   console.log(`${legacyRemoved ? 'ok ' : (MODE === 'verify' ? 'note' : 'FAIL')} function.legacy_arbitrary_user_helper_removed=${legacyRemoved ? 1 : 0}`);
 
-  await expectOne('constraint.binding_participant_same_thread', `select count(*)::int c from pg_constraint where conname='conversation_channel_bindings_participant_thread_fkey' and conrelid='public.conversation_channel_bindings'::regclass`);
+  await expectOne('constraint.binding_participant_same_thread', `select count(*)::int c from pg_constraint where conname='conversation_channel_bindings_participant_thread_fkey' and conrelid=to_regclass('public.conversation_channel_bindings')`);
   await expectOne('policy.messages_hide_internal_notes', `select count(*)::int c from pg_policies where schemaname='public' and tablename='messages' and policyname='messages_participant_read' and qual ilike '%direction%internal%' and qual ilike '%communication_is_thread_participant%'`);
   await expectOne('trigger.messages_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_messages_monotonic_delivery_status' and not tgisinternal`);
   await expectOne('trigger.notification_queue_monotonic', `select count(*)::int c from pg_trigger where tgname='trg_notification_queue_monotonic_delivery_status' and not tgisinternal`);
