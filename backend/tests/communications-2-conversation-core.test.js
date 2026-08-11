@@ -77,7 +77,7 @@ test('Marketplace inquiry becomes one canonical buyer↔seller conversation with
   assert.ok(buyer?.external_identity_id);
 
   const identity = h.repository.rows('channel_identities').find((row) => row.id === buyer.external_identity_id);
-  assert.equal(identity.normalized_address, '+263771234567');
+  assert.equal(identity.normalized_address, '263771234567');
   assert.equal(identity.external_id, '+263 77 123 4567');
   assert.equal(identity.consent_status, 'implied_transactional');
 
@@ -105,7 +105,7 @@ test('seller reply queues exact WhatsApp delivery and physical-style WhatsApp re
   const queued = h.repository.rows('notification_queue').find((row) => row.id === whatsappDelivery.notification_id);
   assert.equal(queued.channel, 'whatsapp');
   assert.equal(queued.message, sellerText);
-  assert.equal(queued.payload.phone_number, '+263771234567');
+  assert.equal(queued.payload.phone_number, '263771234567');
   assert.equal(queued.metadata.transactional, true);
 
   const physicalReply = 'C2C exact physical WhatsApp return 2026-08-11';
@@ -160,5 +160,5 @@ test('identity normalization resolves +263 and 263 to one stored identity', asyn
   });
   assert.equal(second.id, first.id);
   assert.equal(h.repository.rows('channel_identities').length, 1);
-  assert.equal(second.normalized_address, '+263771234567');
+  assert.equal(second.normalized_address, '263771234567');
 });
