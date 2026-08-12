@@ -26,8 +26,17 @@ export class CommunicationInboundService {
 
   getReferralChannelGateway() {
     if (this.referralChannelGateway) return this.referralChannelGateway;
+    // Hand the referral engine the same Supabase client this service already reads through.
+    // Constructed with no client it builds a repository that throws "Referral repository
+    // requires a Supabase-compatible client" on every call, and because inbound referral
+    // processing is best-effort the failure is swallowed into referralResult — so inbound
+    // attribution silently never records. Every other construction site passes { client }.
+    // Deliberately NOT falling back to the module-level client: an injected in-memory
+    // repository has none, and inventing one there would put live calls into tests.
     this.referralChannelGateway = new ReferralChannelGatewayService({
-      agentGateway: new ReferralAgentGatewayService({ referralService: new ReferralEngineService() }),
+      agentGateway: new ReferralAgentGatewayService({
+        referralService: new ReferralEngineService({ client: this.repository?.client || null }),
+      }),
     });
     return this.referralChannelGateway;
   }
