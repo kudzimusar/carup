@@ -726,6 +726,55 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     requiresAuth: true,
     icon: 'CheckCircle',
   },
+  // The next four routes were declared in App.tsx but never registered, so the
+  // access boundary bounced even correctly-authenticated admins to /login.
+  // Registered with no placements for now: route access + in-page links work;
+  // sidebar placement follows once the in-flight navigation spec (PR #137)
+  // lands, together with its hardcoded per-role item counts.
+  {
+    id: 'admin.fraud-queue',
+    label: 'Fraud Queue',
+    route: '/admin/fraud-queue',
+    domain: 'trust',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ShieldAlert',
+    description: 'Review and resolve open fraud cases',
+  },
+  {
+    id: 'admin.dealer-compliance',
+    label: 'Dealer Compliance',
+    route: '/admin/dealer-compliance',
+    domain: 'admin',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'Building2',
+    description: 'Dealer verification and compliance decisions',
+  },
+  {
+    id: 'admin.governance-review',
+    label: 'Governance Review',
+    route: '/admin/governance-review',
+    domain: 'trust',
+    roles: ['admin'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    description: 'Governance review queue and decisions',
+  },
+  {
+    id: 'government.governance-review',
+    label: 'Governance Review',
+    route: '/government/governance-review',
+    domain: 'government',
+    roles: ['government'],
+    placements: [],
+    requiresAuth: true,
+    icon: 'ClipboardList',
+    description: 'Governance review queue and decisions',
+  },
   {
     id: 'admin.referrals',
     label: 'Referral Campaigns',
@@ -1306,10 +1355,24 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     label: 'Sell Your Car',
     route: '/dashboard/sell-vehicle',
     domain: 'commerce',
-    roles: ['owner'],
+    // Dealers create inventory through the same wired flow: the backend
+    // /vehicles/add already branches on role==='dealer' and stamps tenant_id,
+    // but the registry only admitted owners, so dealer CTAs bounced.
+    roles: ['owner', 'dealer'],
     placements: [],
     requiresAuth: true,
     icon: 'Car',
+  },
+  {
+    id: 'product.marketplace-compare',
+    label: 'Compare Vehicles',
+    route: '/marketplace/compare',
+    domain: 'commerce',
+    roles: [],
+    placements: [],
+    requiresAuth: false,
+    icon: 'Search',
+    description: 'Side-by-side comparison of saved marketplace listings',
   },
   {
     id: 'owner.import-detail',

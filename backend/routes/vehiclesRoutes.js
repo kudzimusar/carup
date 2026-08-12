@@ -26,6 +26,8 @@ import {
 } from '../services/evidence/evidenceService.js';
 import { withUploadIdempotency } from '../services/evidence/uploadIdempotency.js';
 import { getSourceByCode } from '../services/evidence/sourceRegistryService.js';
+import { evaluateCompleteness } from '../services/evidence/completenessEvaluator.js';
+import { notifyEvidenceReviewDecided } from '../services/evidence/evidenceReviewNotifier.js';
 import {
   isVehicleQuarantinedStatus,
   isVehicleRestoredToMarketplaceStatus,
@@ -104,6 +106,93 @@ router.patch('/api/vehicles/:vin/status', authorizeRole(['admin', 'dealer', 'own
   }
   
   res.json({ success: true, vin, status: afterStatus });
+}));
+
+// --- PUBLICATION LIFECYCLE ---
+// The marketplace read path only shows publication_status in ('publishable','published').
+// Publishing is a deliberate seller action gated on the deterministic completeness
+// evaluator; unpublishing returns the listing to 'publishable' without touching
+// availability status. Scope rules mirror the status PATCH above.
+
+async function loadScopedVehicle(req, vin) {
+  const { data: vehicle, error: vehicleErr } = await supabase
+    .from('vehicles')
+    .select('vin, status, publication_status, owner_id, tenant_id')
+    .eq('vin', vin)
+    .single();
+  if (vehicleErr || !vehicle) throw new NotFoundError('Vehicle not found');
+  if (req.userContext.role !== 'admin') {
+    const isOwner = vehicle.owner_id === req.userContext.id;
+    const isDealerTenant = vehicle.tenant_id && vehicle.tenant_id === req.userContext.tenantId;
+    if (!isOwner && !isDealerTenant) {
+      throw new ForbiddenError('Forbidden. You do not have ownership or organizational scope over this vehicle.');
+    }
+  }
+  return vehicle;
+}
+
+function auditPublicationChange(req, vin, action, before, after) {
+  try {
+    logAuditEvent({
+      req,
+      actorId: req.userContext?.id || 'unknown',
+      actorRole: req.userContext?.role || 'unknown',
+      action,
+      targetType: 'vehicle',
+      targetId: vin,
+      status: 'success',
+      metadata: { beforePublicationStatus: before, afterPublicationStatus: after },
+      severity: 'info',
+    });
+  } catch (auditErr) {
+    console.warn('[Audit Log Error] Failed to log publication change:', auditErr.message);
+  }
+}
+
+router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'admin']), asyncHandler(async (req, res) => {
+  const { vin } = req.params;
+  const vehicle = await loadScopedVehicle(req, vin);
+
+  if (vehicle.publication_status === 'published') {
+    return res.json({ success: true, vin, publication_status: 'published', already_published: true });
+  }
+
+  const completeness = await evaluateCompleteness(vin);
+  if (!completeness.is_publishable) {
+    return res.status(400).json({
+      error: 'Listing is not publishable yet. Resolve the blocking requirements first.',
+      is_publishable: false,
+      blocking_gaps: completeness.blocking_gaps ?? [],
+      completeness_percent: completeness.completeness_percent ?? null,
+    });
+  }
+
+  const { error } = await supabase
+    .from('vehicles')
+    .update({ publication_status: 'published' })
+    .eq('vin', vin);
+  if (error) throw new DatabaseError(error.message);
+
+  auditPublicationChange(req, vin, 'VEHICLE_LISTING_PUBLISHED', vehicle.publication_status, 'published');
+  res.json({ success: true, vin, publication_status: 'published' });
+}));
+
+router.post('/api/vehicles/:vin/unpublish', authorizeRole(['owner', 'dealer', 'admin']), asyncHandler(async (req, res) => {
+  const { vin } = req.params;
+  const vehicle = await loadScopedVehicle(req, vin);
+
+  if (vehicle.publication_status !== 'published') {
+    return res.json({ success: true, vin, publication_status: vehicle.publication_status, already_unpublished: true });
+  }
+
+  const { error } = await supabase
+    .from('vehicles')
+    .update({ publication_status: 'publishable' })
+    .eq('vin', vin);
+  if (error) throw new DatabaseError(error.message);
+
+  auditPublicationChange(req, vin, 'VEHICLE_LISTING_UNPUBLISHED', 'published', 'publishable');
+  res.json({ success: true, vin, publication_status: 'publishable' });
 }));
 
 // --- PASSPORT EVIDENCE ARCHITECTURE ROUTING ---
@@ -507,7 +596,14 @@ router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(asyn
     .order('uploaded_at', { ascending: false })
     .limit(100);
 
-  if (req.userContext.role === 'dealer' && req.userContext.tenantId) {
+  // Tenant scoping applies to every tenant-bound review role, FAIL CLOSED:
+  // only admin and government review globally; a dealer/mechanic session with
+  // no tenant context gets nothing (previously, omitting the tenant header
+  // skipped the filter entirely and exposed every tenant's pending evidence).
+  if (['dealer', 'mechanic'].includes(req.userContext.role)) {
+    if (!req.userContext.tenantId) {
+      return res.json([]);
+    }
     query = query.eq('tenant_id', req.userContext.tenantId);
   }
 
@@ -592,6 +688,15 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['a
     console.warn('[Audit Log Error] Failed to log evidence verification:', auditErr.message);
   }
 
+  // Tell the submitter the outcome through the notification fabric (best-effort).
+  await notifyEvidenceReviewDecided({
+    vin,
+    evidenceId,
+    decision: 'verified',
+    recipientUserId: updated?.uploaded_by || evidence.uploaded_by || null,
+    tenantId: updated?.tenant_id || evidence.tenant_id || null,
+  });
+
   res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
 }));
 
@@ -668,6 +773,15 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
   } catch (auditErr) {
     console.warn('[Audit Log Error] Failed to log evidence rejection:', auditErr.message);
   }
+
+  // Tell the submitter the outcome through the notification fabric (best-effort).
+  await notifyEvidenceReviewDecided({
+    vin,
+    evidenceId,
+    decision: 'rejected',
+    recipientUserId: updated?.uploaded_by || evidence.uploaded_by || null,
+    tenantId: updated?.tenant_id || evidence.tenant_id || null,
+  });
 
   res.json({ success: true, evidence: normalizeEvidenceRecord(updated) });
 }));

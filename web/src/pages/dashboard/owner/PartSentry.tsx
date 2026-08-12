@@ -6,23 +6,37 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Plus, Shield, Search, Wrench, FileText, Loader2, Copy, CheckCircle2 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
-import type { Vehicle, Part } from '@/types'
+import type { Vehicle } from '@/types'
 
-const STATIC_PARTS = [
-  { id: 'p1', name: 'Engine Oil & Filter', type: 'OEM', manufacturer: 'Toyota Genuine', installedDate: '14 Jan 2026', installedBy: 'Simbisa Garages', warranty: '6 months', cost: 85 },
-  { id: 'p2', name: 'Brake Pads (Front)', type: 'OEM', manufacturer: 'Akebono', installedDate: '05 Nov 2025', installedBy: 'AutoPro Bulawayo', warranty: '12 months', cost: 140 },
-  { id: 'p3', name: 'Air Filter', type: 'Aftermarket', manufacturer: 'K&N Filters', installedDate: '05 Nov 2025', installedBy: 'AutoPro Bulawayo', warranty: '3 months', cost: 35 },
-]
+// Matches the DB CHECK constraint on partsentry_logs.action_type.
+const ACTION_TYPES = ['Replaced', 'Repaired', 'Inspected', 'Diagnosed'] as const
+
+// Row shape returned by GET /api/partsentry/:vin
+interface RepairLogRow {
+  id: string | number
+  vin: string
+  part_name: string
+  part_oem?: string
+  action_type: string
+  mileage: number
+  timestamp: string
+  verification_status?: string
+}
 
 export default function PartSentry() {
-  const { addRepairLog, verifyLedger, fetchOwnedVehicles } = useCarUpApi()
+  const { addRepairLog, verifyLedger, fetchOwnedVehicles, fetchRepairHistory } = useCarUpApi()
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [selectedVehicle, setSelectedVehicle] = useState('')
-  const [parts, setParts] = useState<Part[]>(STATIC_PARTS as Part[])
+  const [repairLogs, setRepairLogs] = useState<RepairLogRow[]>([])
+  // Loading is derived (selected vehicle vs last loaded) so the load path never
+  // has to set state synchronously inside the effect.
+  const [loadedHistoryVin, setLoadedHistoryVin] = useState<string | null>(null)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [ledgerVerified, setLedgerVerified] = useState<boolean | null>(null)
+  const [ledgerError, setLedgerError] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [copiedHash, setCopiedHash] = useState<string | null>(null)
@@ -42,16 +56,40 @@ export default function PartSentry() {
         setSelectedVehicle(data[0].vin)
         setRepairForm(f => ({ ...f, vin: data[0].vin }))
       }
-    })
+    }).catch(() => setVehicles([]))
   }, [fetchOwnedVehicles])
 
-  // Fetch ledger verification on mount
+  // Promise-chain form: every setState lives in a .then/.catch/.finally callback
+  // so the effect that invokes this never sets state synchronously.
+  const loadHistory = useCallback((vin: string) => {
+    return fetchRepairHistory(vin)
+      .then(rows => {
+        setRepairLogs(Array.isArray(rows) ? rows : [])
+        setHistoryError(null)
+      })
+      .catch((err: unknown) => {
+        setRepairLogs([])
+        setHistoryError(err instanceof Error ? err.message : 'Failed to load repair history')
+      })
+      .finally(() => setLoadedHistoryVin(vin))
+  }, [fetchRepairHistory])
+  const historyLoading = Boolean(selectedVehicle) && loadedHistoryVin !== selectedVehicle
+
+  // Real repair history + ledger verification for the selected vehicle.
   useEffect(() => {
     if (!selectedVehicle) return
+    loadHistory(selectedVehicle)
     verifyLedger(selectedVehicle)
-      .then(data => setLedgerVerified(data?.integrity === 'verified' || data?.verified === true))
-      .catch(() => setLedgerVerified(true)) // Default to verified in demo mode
-  }, [selectedVehicle, verifyLedger])
+      .then(data => {
+        setLedgerVerified(data?.integrity === 'verified' || data?.verified === true)
+        setLedgerError(null)
+      })
+      .catch((err: unknown) => {
+        // A failed verification is an error, never a fake "verified".
+        setLedgerVerified(null)
+        setLedgerError(err instanceof Error ? err.message : 'Ledger verification unavailable')
+      })
+  }, [selectedVehicle, verifyLedger, loadHistory])
 
   const copyHash = (hash: string) => {
     navigator.clipboard.writeText(hash).catch(() => {})
@@ -66,43 +104,39 @@ export default function PartSentry() {
       return
     }
     setSubmitting(true)
-    let blockchainHash = ''
     try {
+      // Mechanic identity is derived server-side from the authenticated user.
       const result = await addRepairLog(
         repairForm.vin,
-        'u2', // mechanic ID
         repairForm.partName,
         repairForm.partOem || 'UNKNOWN',
         repairForm.actionType,
         repairForm.description || 'Service performed',
         parseInt(repairForm.mileage) || 0,
       )
-      blockchainHash = result?.blockchainEvent?.current_hash?.substring(0, 16) || ''
-    } catch {
-      // Simulate blockchain hash if backend offline
-      blockchainHash = Math.random().toString(36).substring(2, 14)
+      if (!result?.id) {
+        toast.error('The server did not confirm the repair was recorded')
+        return
+      }
+      toast.success(`Repair log #${result.id} recorded on the PartSentry ledger${result.signature ? ` (signature ${result.signature})` : ''}`, { duration: 5000 })
+      setShowAddDialog(false)
+      setRepairForm({ vin: repairForm.vin, partName: '', actionType: 'Replaced', description: '', mileage: '', partOem: '' })
+      if (repairForm.vin === selectedVehicle) {
+        await loadHistory(selectedVehicle)
+      }
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status
+      if (status === 403) {
+        toast.error('You are not authorized to log repairs for this vehicle. Only the vehicle owner, an authorized dealer or a certified mechanic can write to its ledger.')
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Failed to record the repair')
+      }
+    } finally {
+      setSubmitting(false)
     }
-    // Add to local parts list
-    const newPart: Part = {
-      id: 'p_' + Date.now(),
-      name: repairForm.partName,
-      type: 'OEM',
-      manufacturer: repairForm.partOem ? 'OEM Part' : 'Generic',
-      installedDate: new Date().toLocaleDateString(),
-      installedBy: 'Simbisa Garages Ltd',
-      warranty: '12 months',
-      cost: 0,
-      blockchainHash,
-      sku: '',
-      stock: 0,
-      price: 0
-    }
-    setParts(prev => [newPart, ...prev])
-    setShowAddDialog(false)
-    setRepairForm({ vin: repairForm.vin, partName: '', actionType: 'Replaced', description: '', mileage: '', partOem: '' })
-    setSubmitting(false)
-    toast.success(`Repair logged to blockchain! ${blockchainHash ? `Hash: ${blockchainHash}...` : ''}`, { duration: 5000 })
   }
+
+  const lastService = repairLogs.length > 0 ? new Date(repairLogs[0].timestamp).toLocaleDateString() : '—'
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -115,6 +149,9 @@ export default function PartSentry() {
               <Badge className={`text-[10px] ${ledgerVerified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                 {ledgerVerified ? '🔒 Ledger Verified' : '⚠️ Tampered'}
               </Badge>
+            )}
+            {ledgerError && (
+              <Badge className="text-[10px] bg-gray-100 text-gray-600">Verification unavailable</Badge>
             )}
           </div>
           <p className="text-gray-500">Blockchain-backed parts lifecycle tracking</p>
@@ -137,12 +174,12 @@ export default function PartSentry() {
         ))}
       </div>
 
-      {/* Stats */}
+      {/* Stats — derived from the real ledger rows only */}
       <div className="grid sm:grid-cols-4 gap-4">
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Parts</p><p className="text-2xl font-bold">{parts.length}</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">OEM Parts</p><p className="text-2xl font-bold text-green-600">{parts.filter(p => p.type === 'OEM').length}</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Total Value</p><p className="text-2xl font-bold text-orange-600">${parts.reduce((a, p) => a + (p.cost || 0), 0).toLocaleString()}</p></CardContent></Card>
-        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Blockchain Verified</p><p className="text-2xl font-bold text-purple-600">100%</p></CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Logged Repairs</p><p className="text-2xl font-bold">{repairLogs.length}</p></CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Parts Replaced</p><p className="text-2xl font-bold text-green-600">{repairLogs.filter(r => r.action_type === 'Replaced').length}</p></CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Inspections</p><p className="text-2xl font-bold text-orange-600">{repairLogs.filter(r => r.action_type === 'Inspected' || r.action_type === 'Diagnosed').length}</p></CardContent></Card>
+        <Card className="border-0 card-shadow"><CardContent className="p-5"><p className="text-sm text-gray-500">Last Service</p><p className="text-2xl font-bold text-purple-600">{lastService}</p></CardContent></Card>
       </div>
 
       {/* Parts Ledger */}
@@ -150,11 +187,19 @@ export default function PartSentry() {
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Shield className="w-5 h-5 text-purple-500" /> Parts Ledger
+            {historyLoading && <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {parts.length === 0 ? (
-            <div className="text-center py-12">
+          {historyError ? (
+            <div className="text-center py-12" data-testid="parts-ledger-error">
+              <Wrench className="w-12 h-12 text-red-200 mx-auto mb-3" />
+              <p className="text-red-600 font-medium">Could not load the repair history for this vehicle.</p>
+              <p className="text-gray-500 text-sm mt-1">{historyError}</p>
+              <Button variant="outline" className="mt-4" onClick={() => selectedVehicle && loadHistory(selectedVehicle)}>Retry</Button>
+            </div>
+          ) : repairLogs.length === 0 ? (
+            <div className="text-center py-12" data-testid="parts-ledger-empty">
               <Wrench className="w-12 h-12 text-gray-200 mx-auto mb-3" />
               <p className="text-gray-500">No repair history found for this vehicle.</p>
               <Button className="mt-4 bg-orange-500 hover:bg-orange-600" onClick={() => setShowAddDialog(true)}>Log First Repair</Button>
@@ -165,40 +210,42 @@ export default function PartSentry() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Part Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Manufacturer</TableHead>
-                    <TableHead>Installed</TableHead>
-                    <TableHead>By</TableHead>
-                    <TableHead>Warranty</TableHead>
-                    <TableHead className="text-right">Cost</TableHead>
-                    <TableHead>Hash</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>OEM Number</TableHead>
+                    <TableHead>Mileage</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Verification</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {parts.map((part) => (
-                    <TableRow key={part.id} data-testid={`part-row-${part.id}`}>
-                      <TableCell className="font-medium">{part.name}</TableCell>
+                  {repairLogs.map((log) => (
+                    <TableRow key={log.id} data-testid={`part-row-${log.id}`}>
+                      <TableCell className="font-medium">{log.part_name}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={part.type === 'OEM' ? 'text-green-600 border-green-200 bg-green-50' : 'text-blue-600 border-blue-200 bg-blue-50'}>
-                          {part.type}
+                        <Badge variant="outline" className={log.action_type === 'Replaced' ? 'text-green-600 border-green-200 bg-green-50' : 'text-blue-600 border-blue-200 bg-blue-50'}>
+                          {log.action_type}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm">{part.manufacturer}</TableCell>
-                      <TableCell className="text-sm">{part.installedDate}</TableCell>
-                      <TableCell className="text-sm">{part.installedBy}</TableCell>
-                      <TableCell className="text-sm">{part.warranty}</TableCell>
-                      <TableCell className="text-right font-medium">${part.cost}</TableCell>
-                      <TableCell>
-                        {part.blockchainHash ? (
+                      <TableCell className="text-sm">
+                        {log.part_oem ? (
                           <button
-                            onClick={() => copyHash(part.blockchainHash!)}
+                            onClick={() => copyHash(log.part_oem!)}
                             className="font-mono text-[10px] bg-purple-50 text-purple-700 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-purple-100"
                           >
-                            {part.blockchainHash.substring(0, 10)}...
-                            {copiedHash === part.blockchainHash ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            {log.part_oem}
+                            {copiedHash === log.part_oem ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                           </button>
                         ) : (
-                          <span className="text-xs text-gray-400">legacy</span>
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm">{log.mileage?.toLocaleString()} km</TableCell>
+                      <TableCell className="text-sm">{new Date(log.timestamp).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-sm">
+                        {log.verification_status ? (
+                          <Badge variant="outline" className="text-[10px]">{log.verification_status}</Badge>
+                        ) : (
+                          <span className="text-xs text-gray-400">unreviewed</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -254,7 +301,7 @@ export default function PartSentry() {
                 <Select value={repairForm.actionType} onValueChange={v => setRepairForm(f => ({ ...f, actionType: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {['Replaced', 'Inspected', 'Repaired', 'Upgraded', 'Removed'].map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                    {ACTION_TYPES.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -280,7 +327,7 @@ export default function PartSentry() {
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowAddDialog(false)} disabled={submitting}>Cancel</Button>
               <Button className="flex-1 bg-orange-500 hover:bg-orange-600" onClick={handleAddRepair} disabled={submitting}>
-                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Minting...</> : 'Log to Blockchain'}
+                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Recording...</> : 'Log to Blockchain'}
               </Button>
             </div>
           </div>

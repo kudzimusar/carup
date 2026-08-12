@@ -42,6 +42,20 @@
     "betaCapable": true
   },
   {
+    "id": "admin.dealer-compliance",
+    "domain": "admin",
+    "route": "/admin/dealer-compliance",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "admin.evidence",
     "domain": "evidence",
     "route": "/admin/evidence",
@@ -59,6 +73,34 @@
     "id": "admin.features",
     "domain": "admin",
     "route": "/admin/features",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.fraud-queue",
+    "domain": "trust",
+    "route": "/admin/fraud-queue",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "admin"
+    ],
+    "immutableRoles": [
+      "admin"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
+    "id": "admin.governance-review",
+    "domain": "trust",
+    "route": "/admin/governance-review",
     "defaultLifecycle": "active",
     "defaultRoles": [
       "admin"
@@ -730,6 +772,20 @@
     "betaCapable": true
   },
   {
+    "id": "government.governance-review",
+    "domain": "government",
+    "route": "/government/governance-review",
+    "defaultLifecycle": "active",
+    "defaultRoles": [
+      "government"
+    ],
+    "immutableRoles": [
+      "government"
+    ],
+    "requiresAuth": true,
+    "betaCapable": true
+  },
+  {
     "id": "government.overview",
     "domain": "government",
     "route": "/government",
@@ -1113,9 +1169,11 @@
     "route": "/dashboard/sell-vehicle",
     "defaultLifecycle": "active",
     "defaultRoles": [
+      "dealer",
       "owner"
     ],
     "immutableRoles": [
+      "dealer",
       "owner"
     ],
     "requiresAuth": true,
@@ -1193,6 +1251,16 @@
     "id": "product.marketplace",
     "domain": "commerce",
     "route": "/marketplace",
+    "defaultLifecycle": "active",
+    "defaultRoles": [],
+    "immutableRoles": [],
+    "requiresAuth": false,
+    "betaCapable": true
+  },
+  {
+    "id": "product.marketplace-compare",
+    "domain": "commerce",
+    "route": "/marketplace/compare",
     "defaultLifecycle": "active",
     "defaultRoles": [],
     "immutableRoles": [],

@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole } from './middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth } from './middleware/authMiddleware.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -96,7 +96,7 @@ import featureGovernanceRouter from './routes/featureGovernanceRoutes.js';
 import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
-import { normalizeVehicleStatus, publicVehicleStatusFilterValues } from './utils/vehicleStatus.js';
+import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -415,15 +415,20 @@ app.post('/api/auth/switch-role', authorizeRole(), async (req, res, next) => {
   }
 });
 // --- VEHICLE SINGLE FETCH ---
+// Public per-VIN fetch: sanitized projection + the same visibility rules as the
+// marketplace (a draft/quarantined VIN 404s instead of leaking its raw row).
 app.get('/api/vehicles/:vin/details', async (req, res) => {
   const { vin } = req.params;
   try {
     const { data: vehicle, error } = await supabase
       .from('vehicles')
-      .select('*, tenant:tenants(name, type, status)')
+      .select(`${PUBLIC_VEHICLE_COLUMNS}, tenant:tenants(name, type, status)`)
       .eq('vin', vin)
       .single();
     if (error) throw error;
+    if (!isPublicVehicleStatus(vehicle.status) || !isPubliclyVisiblePublication(vehicle.publication_status)) {
+      return res.status(404).json({ error: 'Vehicle not found' });
+    }
     res.json(vehicle);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -433,12 +438,16 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
 // --- PILLAR 8: ADVANCED TAXONOMY & SEARCH ---
 app.get('/api/vehicles', async (req, res) => {
   const { make, model, minPrice, maxPrice, drivetrain, dutyPaid, policeVerified, trustRange } = req.query;
-  
+
   try {
-    let query = supabase.from('vehicles').select('*');
-    
+    // Sanitized projection + full visibility gate: this legacy public endpoint
+    // previously returned raw rows (owner_id, tenant_id, engine/chassis numbers)
+    // and ignored the publication lifecycle entirely.
+    let query = supabase.from('vehicles').select(PUBLIC_VEHICLE_COLUMNS);
+
     // Explicitly enforce public visibility constraint unless specifically fetching for a tenant (handled below or in another endpoint)
     query = query.in('status', publicVehicleStatusFilterValues());
+    query = query.in('publication_status', publiclyVisiblePublicationStatuses());
 
     if (make) query = query.eq('make', make);
     if (model) query = query.eq('model', model);
@@ -872,21 +881,60 @@ app.post('/api/safepay/webhook', async (req, res) => {
 });
 
 // --- PILLAR 3: PARTSENTRY REPAIR LEDGER ---
-app.post('/api/partsentry/add', authorizeRole(['mechanic']), async (req, res) => {
+// Mechanics log freely; an owner/dealer/admin may only log against a vehicle
+// they own or that belongs to their tenant (the owner PartSentry page was
+// 403-dead against the mechanic-only guard while faking success client-side).
+app.post('/api/partsentry/add', authorizeRole(['mechanic', 'owner', 'dealer', 'admin']), async (req, res) => {
   const { vin, partName, partOem, actionType, description, mileage } = req.body;
-  const mechanicId = req.userContext.id;
+  const actorId = req.userContext.id;
   try {
-    const log = await addRepairLog(vin, mechanicId, partName, partOem, actionType, description, mileage);
+    if (req.userContext.role !== 'mechanic' && req.userContext.role !== 'admin') {
+      const { data: vehicleRow, error: vehicleErr } = await supabase
+        .from('vehicles')
+        .select('owner_id, tenant_id')
+        .eq('vin', vin)
+        .maybeSingle();
+      if (vehicleErr) throw new Error('Vehicle ownership lookup failed.');
+      if (!vehicleRow) return res.status(404).json({ error: 'Vehicle not found.' });
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        return res.status(403).json({ error: 'You may only log parts against your own vehicle.' });
+      }
+    }
+    const log = await addRepairLog(vin, actorId, partName, partOem, actionType, description, mileage, req.userContext.tenantId ?? null);
     res.json(log);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-app.get('/api/partsentry/:vin', async (req, res) => {
+// Public callers see the governed public ledger only; the vehicle's verified
+// owner, a mechanic or an admin see the full history — otherwise a mechanic's
+// or owner's fresh write is invisible on re-read until public-card review.
+app.get('/api/partsentry/:vin', optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const history = await getRepairHistory(vin, { publicOnly: true });
+    let publicOnly = true;
+    const ctx = req.userContext;
+    if (ctx?.id) {
+      if (ctx.role === 'mechanic' || ctx.role === 'admin') {
+        publicOnly = false;
+      } else {
+        // optionalAuth() takes tenantId from the UNVERIFIED x-tenant-id header
+        // claim — it never checks tenant membership (authMiddleware is
+        // PR-#137-owned, so the consumer must not trust it). Full-history
+        // widening is therefore granted on the verified owner_id match only;
+        // a forged tenant header must not expose the unreviewed repair ledger.
+        const { data: vehicleRow } = await supabase
+          .from('vehicles')
+          .select('owner_id')
+          .eq('vin', vin)
+          .maybeSingle();
+        publicOnly = !(vehicleRow?.owner_id && vehicleRow.owner_id === ctx.id);
+      }
+    }
+    const history = await getRepairHistory(vin, { publicOnly });
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -930,10 +978,11 @@ app.post('/api/finance/pre-approve', authorizeRole(), async (req, res) => {
   const { vin, bankId, requestedAmount } = req.body;
   const userId = req.userContext.userId;
   try {
-    const result = await submitFinancingApplication(vin, userId, bankId, requestedAmount);
+    // Tenant scope comes from the verified auth context (null = platform), never req.body.
+    const result = await submitFinancingApplication(vin, userId, bankId, requestedAmount, req.userContext.tenantId ?? null);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -1003,11 +1052,14 @@ app.get('/api/vehicles/:vin/recommendations', async (req, res) => {
 });
 
 // --- PILLAR 9: FLEET VEHICLE RESERVATIONS ---
-app.post('/api/vehicles/:vin/reserve', async (req, res) => {
+// Authenticated buyers only; the buyer identity is the session identity — a
+// client-supplied buyerId is ignored (previously any anonymous caller could
+// mass-reserve the marketplace under an arbitrary id).
+app.post('/api/vehicles/:vin/reserve', authorizeRole(), async (req, res) => {
   const { vin } = req.params;
-  const { buyerId, duration } = req.body;
+  const { duration } = req.body;
   try {
-    const result = await reserveVehicle(vin, buyerId, duration);
+    const result = await reserveVehicle(vin, req.userContext.id, duration);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1399,9 +1451,27 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
 });
 
 // --- VEHICLE COMPLETENESS: Publication readiness evaluation ---
+// Scope rule mirrors loadScopedVehicle (vehiclesRoutes): the requirement matrix
+// exposes identity-document state, so a non-admin/non-reviewer may only read a
+// VIN they own or that belongs to their tenant.
 app.get('/api/vehicles/:vin/completeness', authorizeRole(['owner', 'dealer', 'admin', 'reviewer']), async (req, res) => {
+  const { vin } = req.params;
   try {
-    const result = await evaluateCompleteness(req.params.vin);
+    if (req.userContext.role !== 'admin' && req.userContext.role !== 'reviewer') {
+      const { data: vehicleRow, error: vehicleErr } = await supabase
+        .from('vehicles')
+        .select('owner_id, tenant_id')
+        .eq('vin', vin)
+        .maybeSingle();
+      if (vehicleErr) return res.status(500).json({ error: 'Vehicle ownership lookup failed.' });
+      if (!vehicleRow) return res.status(404).json({ error: `Vehicle not found: ${vin}` });
+      const ownsVehicle = vehicleRow.owner_id && vehicleRow.owner_id === req.userContext.id;
+      const sameTenant = vehicleRow.tenant_id && vehicleRow.tenant_id === req.userContext.tenantId;
+      if (!ownsVehicle && !sameTenant) {
+        return res.status(403).json({ error: 'Forbidden. You do not have ownership or organizational scope over this vehicle.' });
+      }
+    }
+    const result = await evaluateCompleteness(vin);
     res.json(result);
   } catch (err) {
     if (err.message.startsWith('Vehicle not found')) {
@@ -1663,9 +1733,11 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
 // GET /api/vehicles/saved - Get vehicles saved by the current user
 app.get('/api/vehicles/saved', authorizeRole(['owner', 'dealer', 'admin']), async (req, res) => {
   try {
+    // Saved vehicles belong to OTHER sellers — embed only the sanitized public
+    // projection, never the raw star embed (engine/chassis/plate/owner_id leak).
     const { data, error } = await supabase
       .from('saved_vehicles')
-      .select('*, vehicles(*)')
+      .select(`*, vehicles(${PUBLIC_VEHICLE_COLUMNS})`)
       .eq('user_id', req.userContext.id)
 
     if (error) throw error

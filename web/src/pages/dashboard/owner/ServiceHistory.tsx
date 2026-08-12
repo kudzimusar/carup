@@ -1,8 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Wrench, Search, Calendar, DollarSign, Plus } from 'lucide-react'
+import { Wrench, Search, Calendar, DollarSign } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import type { Vehicle, ServiceRecord, Part } from '@/types'
@@ -22,9 +21,12 @@ export default function ServiceHistory() {
     })
   }, [fetchOwnedVehicles, fetchServiceHistory])
 
+  // The phase-4 schema stores the text in `description`; historical rows used `issue_description`.
+  const serviceDescription = (s: ServiceRecord) => s.description || s.issue_description || ''
+
   const services = allServices.filter(s =>
     s.vin === selectedVehicle &&
-    (!search || s.issue_description?.toLowerCase().includes(search.toLowerCase()))
+    (!search || serviceDescription(s).toLowerCase().includes(search.toLowerCase()))
   )
 
   const totalCost = services.reduce((a, s) => a + (s.total_cost || 0), 0)
@@ -36,7 +38,6 @@ export default function ServiceHistory() {
           <h1 className="text-2xl font-bold">Service History</h1>
           <p className="text-gray-500">Complete maintenance records for your vehicles</p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 gap-1"><Plus className="w-4 h-4" /> Add Service</Button>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -74,13 +75,13 @@ export default function ServiceHistory() {
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-semibold">{service.issue_description || 'General Service'}</h3>
-                    <Badge className={service.status === 'completed' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}>{service.status}</Badge>
+                    <h3 className="font-semibold">{serviceDescription(service) || 'General Service'}</h3>
+                    <Badge className={String(service.status).toLowerCase() === 'completed' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}>{service.status}</Badge>
                   </div>
-                  <p className="text-sm text-gray-600 mb-2">{service.issue_description}</p>
+                  <p className="text-sm text-gray-600 mb-2">{serviceDescription(service)}</p>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{new Date(service.created_at).toLocaleDateString()}</span>
-                    <span className="flex items-center gap-1">Garage ID: {service.tenant_id?.slice(0,8)}</span>
+                    <span className="flex items-center gap-1">Garage</span>
                     <span className="flex items-center gap-1"><DollarSign className="w-3 h-3" />${service.total_cost || 0}</span>
                   </div>
                   {service.parts && service.parts.length > 0 && (

@@ -112,12 +112,20 @@ class EventWorker {
   }
 
   /**
-   * Concurrency-safe, transactional outbox database poller
+   * Concurrency-safe, transactional outbox database poller.
+   *
+   * Runs ONE bounded poll cycle (batch of up to 10 locked rows) and reports
+   * what happened so scheduled/serverless callers (e.g. the Vercel cron hitting
+   * /api/internal/events/process) can surface progress and remaining backlog.
+   *
+   * @returns {Promise<{ processed: number, backlog: number|null, skipped?: string, error?: string }>}
+   *   processed — events attempted in this cycle; backlog — count of remaining
+   *   deliverable status='pending' domain_events after the cycle.
    */
   async pollEvents() {
     if (!this.pool) {
       console.warn('⚠️ Outbox poll skipped because no event worker database URL is configured.');
-      return;
+      return { processed: 0, backlog: null, skipped: 'no_database_url' };
     }
 
     const client = await this.pool.connect();
@@ -146,7 +154,7 @@ class EventWorker {
 
       if (events.length === 0) {
         await client.query('COMMIT;');
-        return;
+        return { processed: 0, backlog: backlogCount };
       }
 
       logger.info('QUEUE', `Outbox worker locked ${events.length} pending events to process. Current backlog: ${backlogCount}`);
@@ -155,10 +163,20 @@ class EventWorker {
         await this.processEvent(client, event);
       }
 
+      // Re-count inside the transaction so the reported backlog reflects the
+      // status transitions this batch just made (processed/dead_letter/pending).
+      const remainingRes = await client.query(`
+        SELECT COUNT(*) as count FROM domain_events
+        WHERE status = 'pending' AND attempts < $1;
+      `, [MAX_OUTBOX_ATTEMPTS]);
+      const remainingBacklog = parseInt(remainingRes.rows[0].count, 10);
+
       await client.query('COMMIT;');
+      return { processed: events.length, backlog: remainingBacklog };
     } catch (err) {
       await client.query('ROLLBACK;');
       logger.error('QUEUE', `Transaction rolled back in Outbox Worker: ${err.message}`, { error: err });
+      return { processed: 0, backlog: null, error: err.message };
     } finally {
       client.release();
     }

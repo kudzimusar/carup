@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -6,47 +6,68 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import {
-  Wrench, ClipboardList, DollarSign, Star, CheckCircle,
-  ArrowRight, ShieldCheck, Cpu, Plus, Loader2
+  Wrench, ClipboardList, DollarSign, CheckCircle,
+  ArrowRight, Cpu, Plus, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { dashboardStats } from '@/data/mockData'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
+import type { WorkOrder } from '@/types'
 
-const weeklyJobs = [
-  { day: 'Mon', jobs: 5 },
-  { day: 'Tue', jobs: 7 },
-  { day: 'Wed', jobs: 4 },
-  { day: 'Thu', jobs: 8 },
-  { day: 'Fri', jobs: 6 },
-  { day: 'Sat', jobs: 3 },
-  { day: 'Sun', jobs: 1 },
-]
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+// Real jobs-per-weekday counts for the trailing 7 days, Monday-first.
+function weeklyJobsFrom(workOrders: WorkOrder[]) {
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+  const counts = new Map<string, number>(WEEKDAYS.map(d => [d, 0]))
+  for (const order of workOrders) {
+    const created = new Date(order.created_at || order.date || '')
+    if (Number.isNaN(created.getTime()) || created.getTime() < sevenDaysAgo) continue
+    const day = WEEKDAYS[created.getDay()]
+    counts.set(day, (counts.get(day) || 0) + 1)
+  }
+  return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => ({ day, jobs: counts.get(day) || 0 }))
+}
 
 export default function MechanicDashboard() {
-  const stats = dashboardStats.mechanic
-  const { addRepairLog } = useCarUpApi()
+  const { fetchMechanicWorkOrders, createMechanicWorkOrder } = useCarUpApi()
 
-  const [ledgerLogs, setLedgerLogs] = useState([
-    { event: 'Suspension Replacement', mileage: '52,000 km', hash: '5b89c3...a982', time: '2026-05-26T14:15Z' },
-    { event: 'Odometer Calibration check', mileage: '48,500 km', hash: '8e2d41...741d', time: '2026-05-26T12:00Z' }
-  ])
-
-  const [approvals, setApprovals] = useState([
-    { id: 1, vehicle: 'Toyota Hilux GD-6', cost: 180, item: 'Brake pads replacement', client: 'Tendai M.', clientPhone: '263773345678', status: 'Pending Approval' }
-  ])
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
+  const [ordersError, setOrdersError] = useState<string | null>(null)
 
   const [showWorkOrderDialog, setShowWorkOrderDialog] = useState(false)
-  const [workOrderForm, setWorkOrderForm] = useState({ vin: '', customerName: '', issue: '', estimatedDays: '3' })
+  const [workOrderForm, setWorkOrderForm] = useState({ vin: '', customerName: '', issue: '' })
   const [creatingOrder, setCreatingOrder] = useState(false)
 
-  const handleSendApproval = (id: number, phone: string, item: string, vehicle: string) => {
-    const message = encodeURIComponent(`Hi! Your ${vehicle} is ready for repair: ${item}. Please approve to proceed. — Simbisa Garages`)
-    window.open(`https://wa.me/${phone}?text=${message}`, '_blank')
-    setApprovals(prev => prev.map(a => a.id === id ? { ...a, status: 'Sent via WhatsApp' } : a))
-    toast.success('Repair approval sent via WhatsApp to vehicle owner.')
+  // Promise-chain form: every setState lives in a .then/.catch callback so the
+  // effect that invokes this never sets state synchronously.
+  const loadWorkOrders = useCallback(() => {
+    return fetchMechanicWorkOrders()
+      .then(orders => {
+        setWorkOrders(Array.isArray(orders) ? orders : [])
+        setOrdersError(null)
+      })
+      .catch((err: unknown) => {
+        setWorkOrders([])
+        setOrdersError(err instanceof Error ? err.message : 'Failed to load work orders')
+      })
+  }, [fetchMechanicWorkOrders])
+
+  useEffect(() => {
+    loadWorkOrders()
+  }, [loadWorkOrders])
+
+  // Stats derived from the real work order rows only.
+  const now = new Date()
+  const isThisMonth = (iso?: string) => {
+    if (!iso) return false
+    const d = new Date(iso)
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
   }
+  const activeOrders = workOrders.filter(o => o.status === 'In Progress' || o.status === 'pending' || o.status === 'in-progress')
+  const completedThisMonth = workOrders.filter(o => String(o.status).toLowerCase() === 'completed' && isThisMonth(o.created_at || o.date))
+  const monthlyRevenue = completedThisMonth.reduce((sum, o) => sum + (o.total_cost || o.cost || 0), 0)
+  const weeklyJobs = weeklyJobsFrom(workOrders)
 
   const handleCreateWorkOrder = async () => {
     if (!workOrderForm.vin || !workOrderForm.customerName) {
@@ -54,38 +75,34 @@ export default function MechanicDashboard() {
       return
     }
     setCreatingOrder(true)
-    let hash = ''
     try {
-      const result = await addRepairLog(workOrderForm.vin, 'u2', 'Work Order Created', 'WO-001', 'Inspected', workOrderForm.issue || 'Initial inspection', 0)
-      hash = result?.blockchainEvent?.current_hash?.substring(0, 10) || ''
-    } catch {
-      hash = Math.random().toString(36).substring(2, 12)
+      const res = await createMechanicWorkOrder({
+        vin: workOrderForm.vin,
+        customer_name: workOrderForm.customerName,
+        issue_description: workOrderForm.issue,
+      })
+      if (!res?.workOrder?.id) {
+        toast.error('The server did not confirm the work order was created')
+        return
+      }
+      toast.success(`Work order created for ${workOrderForm.vin}`)
+      setShowWorkOrderDialog(false)
+      setWorkOrderForm({ vin: '', customerName: '', issue: '' })
+      await loadWorkOrders()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create work order')
+    } finally {
+      setCreatingOrder(false)
     }
-    setLedgerLogs(prev => [{
-      event: `Work Order: ${workOrderForm.issue || 'Inspection'}`,
-      mileage: '—',
-      hash: hash + '...a1b2',
-      time: new Date().toISOString(),
-    }, ...prev])
-    setShowWorkOrderDialog(false)
-    setWorkOrderForm({ vin: '', customerName: '', issue: '', estimatedDays: '3' })
-    setCreatingOrder(false)
-    toast.success(`Work order created and logged to PartSentry blockchain! Hash: ${hash}...`)
   }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header with Verification Status Badge */}
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">Mechanic Dashboard</h1>
-            <Badge className="bg-emerald-100 text-emerald-800 border-none font-semibold flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              CVR Certified #9082
-            </Badge>
-          </div>
-          <p className="text-gray-500">Simbisa Garages Ltd • Bulawayo Main Workshop</p>
+          <h1 className="text-2xl font-bold">Mechanic Dashboard</h1>
+          <p className="text-gray-500">Workshop overview from your recorded work orders</p>
         </div>
         <Button
           className="bg-orange-500 hover:bg-orange-600 text-white gap-1"
@@ -96,13 +113,13 @@ export default function MechanicDashboard() {
         </Button>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid — real counts from fetched work orders */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Active Orders', value: stats.activeWorkOrders, icon: ClipboardList, color: 'text-amber-500', bg: 'bg-amber-50' },
-          { label: 'Completed (Mo)', value: stats.completedThisMonth, icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
-          { label: 'Revenue (USD)', value: `$${stats.monthlyRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Satisfaction', value: `${stats.customerSatisfaction}/5`, icon: Star, color: 'text-purple-500', bg: 'bg-purple-50' },
+          { label: 'Active Orders', value: String(activeOrders.length), icon: ClipboardList, color: 'text-amber-500', bg: 'bg-amber-50' },
+          { label: 'Completed (Mo)', value: String(completedThisMonth.length), icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
+          { label: 'Revenue (USD)', value: `$${monthlyRevenue.toLocaleString()}`, icon: DollarSign, color: 'text-blue-500', bg: 'bg-blue-50' },
+          { label: 'Total Orders', value: String(workOrders.length), icon: Wrench, color: 'text-purple-500', bg: 'bg-purple-50' },
         ].map((stat) => (
           <Card key={stat.label} className="border-0 card-shadow hover-scale">
             <CardContent className="p-5">
@@ -123,55 +140,55 @@ export default function MechanicDashboard() {
       {/* Main Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          {/* Cryptographic Service Hashing Ledger */}
+          {/* Open Work Orders */}
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-1.5 text-gray-800">
-                <Cpu className="w-5 h-5 text-emerald-600 animate-pulse" />
-                Cryptographic PartSentry Ledger
+                <Cpu className="w-5 h-5 text-emerald-600" />
+                Recent Work Orders
               </CardTitle>
-              <Badge className="bg-emerald-50 text-emerald-700 shadow-none border-none">Secured</Badge>
+              <Badge className="bg-emerald-50 text-emerald-700 shadow-none border-none">Live</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
-              {ledgerLogs.map((log, idx) => (
-                <div key={idx} className="flex justify-between items-center p-3.5 bg-gray-50 hover:bg-gray-100/40 rounded-xl transition-all border border-gray-100 text-xs">
+              {ordersError && (
+                <div className="p-3.5 bg-red-50 rounded-xl border border-red-100 text-xs text-red-700" data-testid="work-orders-error">
+                  Could not load work orders: {ordersError}
+                </div>
+              )}
+              {!ordersError && workOrders.length === 0 && (
+                <div className="text-center py-8" data-testid="work-orders-empty">
+                  <ClipboardList className="w-10 h-10 text-gray-200 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No work orders recorded yet.</p>
+                  <p className="text-xs text-gray-400 mt-1">Create a work order to start building your workshop history.</p>
+                </div>
+              )}
+              {workOrders.slice(0, 5).map((order) => (
+                <div key={order.id} className="flex justify-between items-center p-3.5 bg-gray-50 hover:bg-gray-100/40 rounded-xl transition-all border border-gray-100 text-xs">
                   <div>
-                    <p className="font-semibold text-gray-800">{log.event}</p>
-                    <p className="text-[10px] text-gray-400">Timestamp: {log.time} • Odo: {log.mileage}</p>
+                    <p className="font-semibold text-gray-800">{order.description || order.issue_description || order.service || 'Work order'}</p>
+                    <p className="text-[10px] text-gray-400 font-mono">{order.vin || order.vehicle} • {order.created_at ? new Date(order.created_at).toLocaleDateString() : ''}</p>
                   </div>
                   <div className="text-right">
-                    <span className="font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px]">
-                      {log.hash}
-                    </span>
+                    <Badge className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-[10px] shadow-none border-none">
+                      {order.status}
+                    </Badge>
                   </div>
                 </div>
               ))}
             </CardContent>
           </Card>
 
-          {/* Client Repair Approval Queue */}
+          {/* PartSentry pointer — VIN-scoped service logs live on the Service Logs page */}
           <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Live Client Repair Approvals</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              {approvals.map((app) => (
-                <div key={app.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 text-xs">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm text-gray-800">{app.vehicle}</span>
-                      <Badge className="bg-orange-100 text-orange-700">{app.status}</Badge>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">{app.item} • Requested from <b>{app.client}</b></p>
-                  </div>
-                  <div className="text-right flex items-center gap-2">
-                    <p className="font-bold text-gray-800 mr-2">${app.cost} USD</p>
-                    {app.status === 'Pending Approval' && (
-                        <Button size="sm" onClick={() => handleSendApproval(app.id, app.clientPhone, app.item, app.vehicle)} className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs py-1 px-2.5">
-                          Send to WhatsApp
-                        </Button>
-                      )}
-                  </div>
-                </div>
-              ))}
+            <CardHeader className="pb-3"><CardTitle className="text-lg">Cryptographic PartSentry Ledger</CardTitle></CardHeader>
+            <CardContent>
+              <div className="text-center py-6" data-testid="partsentry-ledger-pointer">
+                <Cpu className="w-10 h-10 text-gray-200 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">Signed service logs are recorded per vehicle.</p>
+                <Link to="/mechanic/service-logs" className="text-xs font-semibold text-emerald-600 hover:underline mt-1 inline-flex items-center gap-1">
+                  Open Service Logs to load a vehicle's ledger <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -179,12 +196,12 @@ export default function MechanicDashboard() {
         {/* Sidebar */}
         <div className="space-y-6">
           <Card className="border-0 card-shadow bg-white">
-            <CardHeader className="pb-3"><CardTitle className="text-lg">Weekly Jobs</CardTitle></CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-lg">Jobs This Week</CardTitle></CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={weeklyJobs}>
                   <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12 }} allowDecimals={false} />
                   <Tooltip />
                   <Bar dataKey="jobs" fill="#10b981" radius={[4, 4, 0, 0]} barSize={20} />
                 </BarChart>
@@ -217,7 +234,7 @@ export default function MechanicDashboard() {
         <DialogContent className="sm:max-w-md" data-testid="create-workorder-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><ClipboardList className="w-5 h-5 text-emerald-500" /> Create Work Order</DialogTitle>
-            <DialogDescription>Log a new vehicle repair job to the PartSentry blockchain</DialogDescription>
+            <DialogDescription>Record a new vehicle repair job for your workshop</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
@@ -242,7 +259,7 @@ export default function MechanicDashboard() {
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowWorkOrderDialog(false)} disabled={creatingOrder}>Cancel</Button>
               <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleCreateWorkOrder} disabled={creatingOrder} data-testid="submit-workorder-button">
-                {creatingOrder ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : 'Create & Mint to Chain'}
+                {creatingOrder ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</> : 'Create Work Order'}
               </Button>
             </div>
           </div>

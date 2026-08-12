@@ -8,6 +8,7 @@
 
 import crypto from 'crypto';
 import { supabase } from '../../db/supabase.js';
+import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { logAuditEvent } from '../auditLogger.js';
 import { DecisionPolicyEngine } from './decisionPolicy.js';
 import {
@@ -20,6 +21,15 @@ import {
 } from './caseWorkflow.js';
 import { getReasonConfig } from './reasonCodes.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../utils/errors.js';
+
+// Decisions that materially change the applicant's verification outcome and
+// therefore surface to the applicant through the communication engine.
+// Internal-only actions (escalate, internal notes) never notify the applicant.
+const APPLICANT_FACING_DECISIONS = Object.freeze([
+  DECISION_ACTION.APPROVE,
+  DECISION_ACTION.REQUEST_RESUBMISSION,
+  DECISION_ACTION.REJECT,
+]);
 
 export class VerificationDecisionRecorder {
   /**
@@ -147,12 +157,15 @@ export class VerificationDecisionRecorder {
       .insert(decisionRecord);
 
     if (decisionError) {
-      // Idempotency check: if duplicate key, fetch existing
+      // Idempotency check: if duplicate key, fetch existing. Scoped to this
+      // session like the proactive check above, so a reused key can never
+      // replay another session's decision.
       if (decisionError.code === '23505' && idempotencyKey) {
         const { data: existing } = await client
           .from('verification_decisions')
           .select('*')
           .eq('idempotency_key', idempotencyKey)
+          .eq('session_id', session.id)
           .maybeSingle();
 
         if (existing) {
@@ -266,6 +279,24 @@ export class VerificationDecisionRecorder {
 
     if (!auditResult.success) {
       console.warn('Decision audit write failed:', auditResult.error);
+    }
+
+    // Bridge the persisted decision into the communication engine (seam-E E5).
+    // Best-effort: the decision is already durable, so an outbox write failure
+    // must never fail the review action itself.
+    if (APPLICANT_FACING_DECISIONS.includes(action)) {
+      await emitDomainEvent(null, 'identity.verification.decided', {
+        sessionId: session.id,
+        userId: session.user_id,
+        recipientUserId: session.user_id,
+        decision: action,
+        reasonCodes: reasonCode ? [reasonCode] : [],
+        // verification_sessions has NO tenant_id column (live-verified), so
+        // session.tenant_id is always undefined — pass the platform scope (null)
+        // explicitly instead of reading a phantom column.
+      }, null).catch((err) => {
+        console.warn('identity.verification.decided outbox emit failed:', err.message);
+      });
     }
 
     // Recompute allowed actions based on new state

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Wrench, Search, Plus, Calendar, User, DollarSign, Clock, Loader2 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import type { WorkOrder } from '@/types'
 
 export default function WorkOrders() {
-  const { fetchMechanicWorkOrders, createMechanicWorkOrder, loading } = useCarUpApi()
+  const { fetchMechanicWorkOrders, createMechanicWorkOrder, updateMechanicWorkOrder, loading } = useCarUpApi()
   const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -24,27 +24,37 @@ export default function WorkOrders() {
     issue_description: ''
   })
 
-  useEffect(() => {
-    fetchMechanicWorkOrders().then(data => {
-      if (data && data.length > 0) {
-        const formatted = data.map((d: WorkOrder) => ({
-          id: d.id.substring(0, 11).toUpperCase(),
-          vehicle: d.vin || d.vehicle || 'Unknown',
-          customer: d.customer_name || d.customer || 'Unknown',
-          service: d.service || d.issue_description || 'General Service',
-          status: d.status?.toLowerCase().replace(' ', '-') as 'pending' | 'in-progress' | 'completed' || 'pending',
-          date: d.date || new Date(d.created_at).toLocaleDateString(),
-          cost: d.total_cost ?? d.cost ?? 0,
-          mechanic: d.mechanic_id || d.mechanic ? `Mechanic (${(d.mechanic_id || d.mechanic).substring(0,4)})` : 'Unassigned',
-          created_at: d.created_at
-        }))
-        setWorkOrders(formatted)
-      }
+  // Per-row action state: which order is collecting a completion cost, and which is mid-request.
+  const [completingId, setCompletingId] = useState<string | null>(null)
+  const [completeCost, setCompleteCost] = useState('')
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null)
+
+  const loadWorkOrders = useCallback(() => {
+    return fetchMechanicWorkOrders().then(data => {
+      const formatted = (Array.isArray(data) ? data : []).map((d: WorkOrder) => ({
+        // Keep the FULL DB id — PATCH /mechanic/work-orders/:id needs it. The short display id
+        // is derived at render time.
+        id: d.id,
+        vehicle: d.vin || d.vehicle || 'Unknown',
+        customer: d.customer_name || d.customer || 'Unknown',
+        // `description` is the Phase-4 column the create form's issue text is stored in.
+        service: d.service || d.description || d.issue_description || 'General Service',
+        status: d.status?.toLowerCase().replace(' ', '-') as WorkOrder['status'] || 'pending',
+        date: d.date || new Date(d.created_at).toLocaleDateString(),
+        cost: d.total_cost ?? d.cost ?? 0,
+        mechanic: d.mechanic_id || d.mechanic ? `Mechanic (${(d.mechanic_id || d.mechanic).substring(0,4)})` : 'Unassigned',
+        created_at: d.created_at
+      }))
+      setWorkOrders(formatted)
     }).catch(err => {
       console.error(err)
       toast.error('Failed to load Work Orders.')
     })
   }, [fetchMechanicWorkOrders])
+
+  useEffect(() => {
+    void loadWorkOrders()
+  }, [loadWorkOrders])
 
   const filtered = workOrders.filter(w =>
     (!search || w.vehicle.toLowerCase().includes(search.toLowerCase()) || w.customer.toLowerCase().includes(search.toLowerCase())) &&
@@ -59,24 +69,47 @@ export default function WorkOrders() {
       if (res.success) {
         toast.success('Work Order created successfully!')
         setIsModalOpen(false)
-        setWorkOrders([{
-          id: `WO-${new Date().getFullYear()}-NEW`,
-          vehicle: formData.vin,
-          customer: formData.customer_name,
-          service: formData.issue_description,
-          status: 'pending',
-          date: new Date().toLocaleDateString(),
-          cost: 0,
-          mechanic: 'Unassigned',
-          created_at: new Date().toISOString()
-        }, ...workOrders])
         setFormData({ vin: '', customer_name: '', issue_description: '' })
+        // Re-sync from the backend so the new row carries its real DB id (needed for actions).
+        await loadWorkOrders()
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Failed to create Work Order'
       toast.error(errMsg)
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  // Status transition through PATCH /mechanic/work-orders/:id — DB CHECK values only.
+  const handleUpdateStatus = async (id: string, status: 'Completed' | 'Cancelled', cost?: string) => {
+    const payload: { status: 'Completed' | 'Cancelled'; total_cost?: number } = { status }
+    if (status === 'Completed' && cost !== undefined && cost.trim() !== '') {
+      const parsed = Number(cost)
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        toast.error('Total cost must be a non-negative number')
+        return
+      }
+      payload.total_cost = parsed
+    }
+    setActionBusyId(id)
+    // Optimistic: reflect the transition immediately; server truth re-syncs (or rolls back) below.
+    const previous = workOrders
+    setWorkOrders(prev => prev.map(o => o.id === id
+      ? { ...o, status: status.toLowerCase() as WorkOrder['status'], ...(payload.total_cost !== undefined ? { cost: payload.total_cost } : {}) }
+      : o))
+    try {
+      await updateMechanicWorkOrder(id, payload)
+      toast.success(status === 'Completed' ? 'Work order completed.' : 'Work order cancelled.')
+      setCompletingId(null)
+      setCompleteCost('')
+      await loadWorkOrders()
+    } catch (err: unknown) {
+      // Honest failure: restore the pre-action rows, then tell the user why.
+      setWorkOrders(previous)
+      toast.error(err instanceof Error ? err.message : 'Failed to update work order')
+    } finally {
+      setActionBusyId(null)
     }
   }
 
@@ -136,7 +169,7 @@ export default function WorkOrders() {
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
-          {['all', 'pending', 'in-progress', 'completed'].map(s => (
+          {['all', 'pending', 'in-progress', 'completed', 'cancelled'].map(s => (
             <Button key={s} variant={filter === s ? 'default' : 'outline'} size="sm" onClick={() => setFilter(s)} className={filter === s ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </Button>
@@ -156,9 +189,9 @@ export default function WorkOrders() {
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-lg">{order.vehicle}</h3>
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{order.id}</span>
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{order.id.substring(0, 11).toUpperCase()}</span>
                     </div>
-                    <Badge className={order.status === 'completed' ? 'bg-green-500 hover:bg-green-600 text-white' : order.status === 'in-progress' ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}>
+                    <Badge className={order.status === 'completed' ? 'bg-green-500 hover:bg-green-600 text-white' : order.status === 'in-progress' ? 'bg-amber-500 hover:bg-amber-600 text-white' : order.status === 'cancelled' ? 'bg-gray-400 hover:bg-gray-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}>
                       {order.status.toUpperCase()}
                     </Badge>
                   </div>
@@ -169,6 +202,67 @@ export default function WorkOrders() {
                     {order.cost > 0 && <span className="flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" />{order.cost}</span>}
                     <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />{order.mechanic}</span>
                   </div>
+                  {(order.status === 'pending' || order.status === 'in-progress') && (
+                    <div className="flex flex-wrap items-center gap-2 mt-3" data-testid={`workorder-actions-${order.id}`}>
+                      {completingId === order.id ? (
+                        <>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Total cost (optional)"
+                            value={completeCost}
+                            onChange={e => setCompleteCost(e.target.value)}
+                            className="h-8 w-44"
+                            data-testid={`workorder-cost-input-${order.id}`}
+                            aria-label="Total cost"
+                          />
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => void handleUpdateStatus(order.id, 'Completed', completeCost)}
+                            disabled={actionBusyId === order.id}
+                            data-testid={`workorder-confirm-complete-${order.id}`}
+                          >
+                            {actionBusyId === order.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                            Confirm completion
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setCompletingId(null); setCompleteCost('') }}
+                            disabled={actionBusyId === order.id}
+                            data-testid={`workorder-complete-back-${order.id}`}
+                          >
+                            Back
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => { setCompletingId(order.id); setCompleteCost('') }}
+                            disabled={actionBusyId !== null}
+                            data-testid={`workorder-complete-${order.id}`}
+                          >
+                            Complete
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-700 border-red-200 hover:bg-red-50"
+                            onClick={() => void handleUpdateStatus(order.id, 'Cancelled')}
+                            disabled={actionBusyId !== null}
+                            data-testid={`workorder-cancel-${order.id}`}
+                          >
+                            {actionBusyId === order.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                            Cancel order
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

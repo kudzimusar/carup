@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -24,10 +24,16 @@ import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 
 export default function VehicleProfile() {
   const { id } = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { fetchVehiclePassport, fetchVehicleEvidence, fetchEvidenceTaxonomy, fetchEvidenceSources } = useCarUpApi()
   const [passportData, setPassportData] = useState<VehiclePassport | null>(null)
   const [evidenceList, setEvidenceList] = useState<VehicleEvidence[]>([])
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(() => searchParams.get('upload') === '1')
+
+  // Deep-link support: /dashboard/garage/<vin>?upload=1 (e.g. from the completeness panel's
+  // "Upload documents" action) opens the evidence upload modal on arrival — via the modal
+  // state's lazy initializer below; the param is consumed when the modal closes so back/
+  // refresh does not reopen it.
   // Vehicle Life Evidence Taxonomy (M1): drives the life-stage timeline grouping.
   const [evidenceTaxonomy, setEvidenceTaxonomy] = useState<EvidenceTaxonomyResponse | null>(null)
   const [evidenceSources, setEvidenceSources] = useState<EvidenceSource[]>([])
@@ -425,7 +431,14 @@ export default function VehicleProfile() {
 
       <EvidenceUploadModal
         isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
+        onClose={() => {
+          setIsUploadModalOpen(false)
+          if (searchParams.get('upload') === '1') {
+            const next = new URLSearchParams(searchParams)
+            next.delete('upload')
+            setSearchParams(next, { replace: true })
+          }
+        }}
         vin={vehicle.vin}
         timelineEvents={passportData.timeline || []}
         onSuccess={() => {

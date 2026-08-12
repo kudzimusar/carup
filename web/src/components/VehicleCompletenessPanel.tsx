@@ -187,7 +187,8 @@ export function VehicleCompletenessPanel({ vin, initialData, className = '' }: P
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-2 pt-1">
           <Button asChild className="bg-orange-500 hover:bg-orange-600 flex-1">
-            <Link to={`/dashboard/vehicles/${encodeURIComponent(data.vin)}/evidence`}>
+            {/* The garage vehicle profile mounts EvidenceUploadModal; ?upload=1 opens it on arrival. */}
+            <Link to={`/dashboard/garage/${encodeURIComponent(data.vin)}?upload=1`}>
               Upload documents <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
             </Link>
           </Button>

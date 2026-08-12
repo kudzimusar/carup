@@ -7,6 +7,7 @@ import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
+import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -35,11 +36,38 @@ export function applyPersistedListingStatus(listings: Vehicle[], vin: string, st
 }
 
 export default function MyListings() {
-  const { fetchOwnedVehicles, updateVehicleStatus } = useCarUpApi()
+  const { fetchOwnedVehicles, updateVehicleStatus, publishVehicleListing, unpublishVehicleListing } = useCarUpApi()
   const [listingStatuses, setListingStatuses] = useState<Record<string, string>>({})
   const [markingId, setMarkingId] = useState<string | null>(null)
+  const [publishingVin, setPublishingVin] = useState<string | null>(null)
+  const [publicationStatuses, setPublicationStatuses] = useState<Record<string, string>>({})
   const [myListings, setMyListings] = useState<Vehicle[]>([])
   const [ownedLoaded, setOwnedLoaded] = useState(false)
+
+  const handlePublishToggle = async (vin: string, currentlyPublished: boolean) => {
+    if (publishingVin) return
+    setPublishingVin(vin)
+    try {
+      const result = currentlyPublished
+        ? await unpublishVehicleListing(vin)
+        : await publishVehicleListing(vin)
+      setPublicationStatuses(prev => ({ ...prev, [vin]: result.publication_status }))
+      toast.success(currentlyPublished
+        ? 'Listing unpublished — it is no longer publicly visible.'
+        : 'Listing published! Buyers can now find it on the marketplace.')
+    } catch (e: unknown) {
+      const err = e as { data?: { blocking_gaps?: Array<{ label?: string; requirement?: string } | string> }; message?: string }
+      const gaps = err?.data?.blocking_gaps
+      if (Array.isArray(gaps) && gaps.length) {
+        const names = gaps.map(g => (typeof g === 'string' ? g : g.label || g.requirement || 'requirement')).slice(0, 3).join(', ')
+        toast.error(`Not publishable yet. Missing: ${names}${gaps.length > 3 ? '…' : ''}`)
+      } else {
+        toast.error(err?.message || 'Could not update publication status.')
+      }
+    } finally {
+      setPublishingVin(null)
+    }
+  }
 
   useEffect(() => {
     let mounted = true
@@ -113,9 +141,20 @@ export default function MyListings() {
                           <h3 className="font-semibold">{listing.year} {listing.make} {listing.model}</h3>
                           <p className="text-lg font-bold text-orange-600 mt-0.5">${listing.price?.toLocaleString() || 'N/A'}</p>
                         </div>
-                        <Badge className={`text-xs font-medium ${STATUS_BADGE[normalizedStatus] || 'bg-gray-100 text-gray-600'}`}>
-                          {formatListingStatus(effectiveStatus)}
-                        </Badge>
+                        <div className="flex gap-1.5 flex-wrap justify-end">
+                          <Badge className={`text-xs font-medium ${STATUS_BADGE[normalizedStatus] || 'bg-gray-100 text-gray-600'}`}>
+                            {formatListingStatus(effectiveStatus)}
+                          </Badge>
+                          {(() => {
+                            const pub = publicationStatuses[listing.vin] || listing.publication_status
+                            const meta = pub ? PUBLICATION_BADGE[pub] : null
+                            return meta ? (
+                              <Badge data-testid={`publication-badge-${listing.vin}`} className={`text-xs font-medium ${meta.className}`}>
+                                {meta.label}
+                              </Badge>
+                            ) : null
+                          })()}
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
                         <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{listing.viewCount || 0} views</span>
@@ -141,6 +180,26 @@ export default function MyListings() {
                             }
                           </Button>
                         )}
+                        {!isSold && (() => {
+                          const pub = publicationStatuses[listing.vin] || listing.publication_status
+                          if (!pub) return null
+                          const isPublished = pub === 'published'
+                          return (
+                            <Button
+                              size="sm"
+                              variant={isPublished ? 'outline' : 'default'}
+                              className={`text-xs gap-1 ${isPublished ? '' : 'bg-green-600 hover:bg-green-700'}`}
+                              data-testid={`publish-toggle-${listing.vin}`}
+                              disabled={publishingVin === listing.vin}
+                              onClick={() => handlePublishToggle(listing.vin, isPublished)}
+                            >
+                              {publishingVin === listing.vin
+                                ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</>
+                                : (isPublished ? 'Unpublish' : 'Publish to Marketplace')
+                              }
+                            </Button>
+                          )
+                        })()}
                         {isSold && <Badge className="text-xs text-gray-400 font-normal">Sale completed</Badge>}
                       </div>
                     </div>

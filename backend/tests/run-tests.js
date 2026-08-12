@@ -200,7 +200,16 @@ async function runTests() {
 
     // 8. Financing Pre-Approval
     console.log('\n🧪 Test 8: Financing Engine Calculations...');
-    const finApplication = await submitFinancingApplication(vin, 'u1', 'u3', 20000);
+    // submitFinancingApplication now verifies bankId references a users row with
+    // role 'bank' (u3 is a dealer) — seed the CBZ partner user before applying.
+    await supabase.from('users').upsert({
+      id: 'u_test_bank_cbz',
+      name: 'CBZ Bank Partner',
+      email: 'cbz-partner@test.co.zw',
+      role: 'bank',
+      join_date: new Date().toISOString()
+    });
+    const finApplication = await submitFinancingApplication(vin, 'u1', 'u_test_bank_cbz', 20000);
     console.log(`Financing Status: ${finApplication.status} | Monthly Payment: $${finApplication.monthlyPayment}`);
     if (finApplication.apr !== 7.5) {
       throw new Error(`Affordability APR calculation failure. Got ${finApplication.apr}`);

@@ -255,7 +255,12 @@ export async function apiRequest<T = any>({
         return retryResponse.json() as Promise<T>
       }
       const retryErrorData = await retryResponse.json().catch(() => ({} as Record<string, unknown>))
-      throw new Error(extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`)
+      const retryError = new Error(extractApiErrorMessage(retryErrorData) || `HTTP error! status: ${retryResponse.status}`) as Error & { status?: number; data?: unknown }
+      // Match the non-retry failure path: callers branch on .status/.data
+      // (e.g. tailored 403 messaging), which a bare Error silently disabled.
+      retryError.status = retryResponse.status
+      retryError.data = retryErrorData
+      throw retryError
     }
 
     if (isSessionFailure(response.status, message)) {

@@ -43,8 +43,12 @@ export interface DrawerLinkItem {
   iconName: string;
   /** Real Expo Router route to navigate to (never a web-only path). */
   expoRoute: string;
-  /** Owning governed feature id (for traceability/route boundaries). */
-  featureId: string;
+  /**
+   * Owning governed feature id (for traceability/route boundaries). Absent
+   * ONLY for links that are deliberately not governance-gated (see
+   * IDENTITY_VERIFICATION_LINK) — every manifest-derived link always has one.
+   */
+  featureId?: string;
 }
 
 /** A non-navigation affordance (role switch, sign in/out, role label, help). */
@@ -114,6 +118,13 @@ const TRUST_ENTRY_IDS = new Set<string>([]);
  * /api/features/effective fetch fails (device Gate 2 found the flow
  * undiscoverable — no drawer entry — exactly when governance was down).
  * The flow's own screens still enforce authentication.
+ *
+ * Accordingly it carries NO `featureId`: the verification flow is deliberately
+ * not governance-gated, and there is no `owner.verification` feature in the
+ * generated manifest (shared/navigation/feature-manifest.json) to point at.
+ * Referencing a non-existent feature id here would be a dangling governance
+ * reference that audits rightly flag. Auth (`ctx.isAuthenticated`) is the only
+ * gate for this link.
  */
 const IDENTITY_VERIFICATION_LINK: DrawerLinkItem = {
   kind: 'link',
@@ -121,7 +132,6 @@ const IDENTITY_VERIFICATION_LINK: DrawerLinkItem = {
   label: 'Identity Verification',
   iconName: 'Shield',
   expoRoute: '/(auth)/verification/intro',
-  featureId: 'owner.verification',
 };
 
 /** Pretty, human label for a role. */
