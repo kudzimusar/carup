@@ -17,6 +17,11 @@ function governanceError(code, message, details = {}) {
   const error = new Error(message);
   error.code = code;
   error.details = details;
+  // A governed template that is inactive, or has no approved version for the requested
+  // channel/language, is a refusal the caller can act on — not a server fault. Without a
+  // status these reached the client as 500: asking for a campaign on a channel the template
+  // has no approved version for looked like an outage instead of governance saying no.
+  error.statusCode = 409;
   return error;
 }
 
