@@ -236,3 +236,69 @@ Impact: it is rejected by `requireWorkerSecret` in ~1 ms before any work, so it 
 duplicate or read anything; the cost is ~1440 wasted invocations/day and auth-failure log noise
 that could mask a real intrusion signal. Not remediated here because the source could not be
 identified from available evidence, and removing the wrong scheduler would break the working one.
+
+## Phase 6 — stakeholder workflows, staging runtime certification (2026-08-12)
+
+All twelve contracts are live and enumerable from the running deployment via
+`/api/communications/capabilities`, every one reporting `canonical_conversation: true`.
+Eleven non-Marketplace domains were opened and exercised on stable staging through the
+worker-secret `/api/internal/communications/workflows/:workflow/ensure` route and the
+ordinary participant product API. Marketplace was already certified physically in Phase 2.
+
+| Domain | Required roles | Regulated | `ai_mode` | Conversation | Both participants read | Non-participant | Reply | Analytics |
+|---|---|---|---|---|---|---|---|---|
+| dealer | buyer + dealer | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| garage | vehicle_owner + garage | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| parts | buyer + parts_seller | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| **insurance** | vehicle_owner + insurer | **yes** | **draft_only** | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| **finance** | applicant + lender | **yes** | **draft_only** | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| diaspora_import | customer + import_coordinator | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| container_logistics | customer + logistics_provider | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| referral | referrer + referred_user | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| **government_public_service** | customer + government_officer | **yes** | **draft_only** | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| **trust_safety** | customer + trust_reviewer | **yes** | **draft_only** | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+| support | customer + support_agent | no | enabled | 1 | 200 / 200 | 404 | 201 / 201 | attributed |
+
+**Domain/workflow identity.** Every thread carries the correct `business_workflow` and
+`conversation_type`, `metadata.communications_2_stakeholder_contract = true`, the contract's
+`required_roles`, and `regulated_workflow`. Participant `stakeholder_role` values match the
+contract exactly, two participants per conversation.
+
+**Regulated flows stay human-governed.** `ai_mode = draft_only` on precisely insurance,
+finance, government_public_service and trust_safety; `enabled` on the seven non-regulated
+domains. Nothing can auto-send or auto-decide on a regulated thread. finance and trust_safety
+additionally route to their own `assigned_team`.
+
+**Exactly one canonical conversation.** The deterministic key
+`communications-2:<workflow>:<tenant>:<subject_type>:<subject_id>` makes `ensure` idempotent:
+replaying all eleven calls left **11 threads, not 22**.
+
+**Contract enforcement (negative proofs).** A missing contract role is rejected 400
+`communication_stakeholder_roles_missing` ("insurance communication requires participant
+role(s): insurer"); an unknown domain is rejected 400
+`communication_stakeholder_workflow_unsupported`; an unauthenticated call is rejected 401
+`Unauthorized communication worker request.` None of the three created a thread.
+
+**No duplicate chat stack.** All eleven domains live in the same `message_threads` /
+`message_participants` / `messages` / `conversation_events` tables as Marketplace, reached
+through the same participant API and the same authorization path. No domain-specific
+messaging tables or endpoints exist.
+
+**Analytics attribution.** `conversation_events` records `message_received` and
+`stakeholder_first_response` per thread, attributed to each `business_workflow`.
+
+**Message persistence.** Every reply persisted with `original_authoritative = true`. Direction
+is derived from the contract role (buyer/requester/customer inbound, provider-side outbound).
+
+**Internal-note privacy.** There is no participant path that can author an internal note —
+`sendParticipantMessage` only ever emits `inbound`/`outbound`, so `direction = 'internal'` is
+reachable only through an admin surface. That boundary is proven against real PostgreSQL by
+`backend/tests/integration/communications-2-privacy-postgres.integration.test.js`, which
+inserts an internal note and asserts an authenticated participant's read returns only the
+visible message with no `internal` row — with table SELECT deliberately granted so the RLS
+policy itself is what is under test. It runs in the green `communication-postgres` CI job.
+Recorded as proven by real-Postgres RLS rather than by a staging demonstration, because
+staging holds zero internal-direction messages.
+
+**Provider routing.** Canonical provider routing is shared with Phase 2 and was physically
+certified there; these domains bind the same way when a participant has a channel identity.
