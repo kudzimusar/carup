@@ -302,3 +302,114 @@ staging holds zero internal-direction messages.
 
 **Provider routing.** Canonical provider routing is shared with Phase 2 and was physically
 certified there; these domains bind the same way when a participant has a channel identity.
+
+## Phase 7 — governed campaigns, staging runtime certification (2026-08-12)
+
+Channel `in_app` (implemented, no external provider) with the governed marketing template
+`carup_reengagement_v1`. One controlled campaign plus a warm-up and an ROI campaign, all
+through the ordinary admin product API and the canonical notification path.
+
+| Capability | Source | DB | Staging runtime | Physical/external |
+|---|---|---|---|---|
+| Governed marketing template | PASS | PASS | **PASS** | n/a |
+| Campaign approval | PASS | PASS | **PASS** | n/a |
+| Explicit segmentation | PASS | PASS | **PASS** | n/a |
+| Marketing opt-out | PASS | PASS | **PASS** | n/a |
+| Frequency cap | PASS | PASS | **PASS** | n/a |
+| A/B allocation | PASS | PASS | **PASS** | n/a |
+| Recipient idempotency | PASS | PASS | **PASS** | n/a |
+| Replay protection | PASS | PASS | **PASS** | n/a |
+| Canonical delivery | PASS | PASS | **PASS** | in_app (no provider) |
+| Attribution | PASS | PASS | **PASS** | n/a |
+| Conversion | PASS | PASS | **PASS** | n/a |
+| Value / cost / ROI | PASS | PASS | **PASS** | n/a |
+| Analytics | PASS | PASS | **PASS** | n/a |
+| Tenant isolation | PASS | PASS | **PASS** | n/a |
+| WhatsApp marketing | PASS (fail-closed) | PASS | **PASS (refuses)** | **EXTERNALLY BLOCKED** |
+
+### Evidence
+
+**Template.** `carup_reengagement_v1` — `classification=marketing`, `status=active`, version 1,
+approved `2026-08-11 12:38:57`, channels `in_app` and `email` (language `en`), required
+variables `[]`, optional `first_name/campaign_name/campaign_code`,
+`provider_template_reference` NULL. No WhatsApp marketing template exists in the registry.
+
+**Campaign** `bb99ef70-3374-499c-990f-5ae847c76a1b` (`p7-main-d485ea`): classification
+`marketing`, `created_by` and `approved_by` both `u_33c846ab45a84a40`, `approved_at` recorded,
+bounded `segment_definition.user_ids` of exactly three users, `frequency_cap_count=1` over
+168 h, variants `A/B` at 50/50, attribution `last_touch` / 168 h.
+
+**Approval gate.** Executing before approval → **409 `communication_campaign_not_approved`**.
+There is no raw-message path: `template_key` is required and must resolve to an active
+marketing template.
+
+**Consent, cap and delivery** — one execution, three recipients, three delivery rows:
+
+| Recipient | Result | Reason | Notification |
+|---|---|---|---|
+| `u_b6ac85546c4a473c` | delivered → converted | — | 307 |
+| `u_b9d07f3de3824034` | **suppressed** | `marketing_or_channel_consent_disabled` | none |
+| `u_241f106e764a4f03` | **suppressed** | `frequency_cap` | none |
+
+**Consent separation is proven, not assumed:** the suppressed recipient had
+`transactional_enabled = true` and `in_app_enabled = true` with only `marketing_enabled =
+false`, and was still suppressed with no notification row. Transactional consent does not
+override marketing consent.
+
+**The frequency cap was earned, not staged:** the capped recipient's prior touch came from a
+real executed warm-up campaign (`p7-warm-d485ea`, queued 1), so the cap of 1 over 168 h was
+exceeded by genuine campaign history. No recipient was hand-marked suppressed.
+
+**Idempotency / replay.** Keys are `campaign:<campaign_id>:<user_id>:<variant>`. Execution #1:
+`targeted 3, queued 1, suppressed 2, existing 0`. Replay of the same execution: `queued 0,
+suppressed 0, existing 3` — deliveries before replay **1**, after replay **1**. No duplicate
+recipient row, notification, delivery attempt or send. Nothing was deleted to achieve this.
+
+**Deterministic A/B.** All three stored assignments were recomputed independently from
+`sha256(campaign_id:user_id)` over the weight-expanded variant list and matched exactly; 1000
+recomputations of one recipient produced a single result; 200 probe ids under the same
+campaign split `A:103 / B:97`, so both variants are reachable and the weighting is honoured.
+Replay reassigned nobody.
+
+**Canonical delivery.** Notification `307` sits in the ordinary `notification_queue` with
+`notification_type=campaign_message`, `template_key=carup_reengagement_v1`,
+`transactional=false`, `dedupe_key=campaign:…:B:in_app`, `attempt_count 1`, status
+`delivered`, carrying `campaign_id` and `variant` in its payload. No campaign-specific sender
+exists — the same worker and tables as every other Communications message.
+
+**Attribution, conversion, ROI.** `conversation_events` records `campaign_queued` and
+`campaign_conversion` with attribution `{model: last_touch, window_hours: 168, campaign_code}`.
+Main campaign report: `total 3, suppressed 2, delivered 1, read 1, converted 1,
+conversion_rate_pct 100, conversion_value 250`, `by_variant {B:3}`, `by_suppression_reason
+{frequency_cap:1, marketing_or_channel_consent_disabled:1}` — reconciled exactly against the
+raw delivery rows. Cost is carried per experiment variant at execution time, so the main
+campaign (no variant cost) correctly reports `cost 0` / `roi_pct null` rather than a fabricated
+figure. A dedicated ROI campaign `b9980bed-3013-4fc2-965d-eeb8f5a2d5ce` with
+`cost_amount 2.5` and a conversion of `100` reported `conversion_value 100, cost 2.5,
+roi_pct 3900`, which matches an independent computation of (100 − 2.5) / 2.5 × 100.
+
+**Tenant isolation / authorization.** A non-admin participant is refused campaign list, create
+and report with **403** on each. The admin campaign list returned only the caller's tenant
+scope, and a report request asserting a different `x-tenant-id` was refused **403**.
+
+### WhatsApp marketing — EXTERNALLY BLOCKED
+
+No approved Meta marketing template exists, and `conversation_reply_whatsapp_v1` is the
+service/conversation-reply template — deliberately **not** bound or reused as a marketing
+template. A WhatsApp marketing campaign is refused at creation because the governed marketing
+template has no approved `whatsapp` version; approval independently refuses with
+`communication_campaign_provider_template_not_configured` when a provider reference is absent.
+**Meta was never contacted** and no campaign row was written. This is a missing external Meta
+marketing-template approval, not a Phase 7 implementation failure.
+
+### Defect found and fixed during Phase 7
+
+**D4 — a governed-template refusal answered 500. Fixed in `a09af29`.** Creating a campaign on
+a channel the governed template has no approved version for returned HTTP 500
+`INTERNAL_SERVER_ERROR` with the real reason buried in `details`. The refusal was correct and
+fail-closed, but governance was indistinguishable from an outage and polluted 5xx alerting.
+`governanceError()` carried `code` and `details` but no `statusCode`; `template_not_active` and
+`template_not_approved` now answer **409**. Four regression tests added; suite 2816 → 2820,
+0 fail, skipped unchanged at 12. The fix is CI-green but **not yet deployed to staging** —
+Vercel's team-wide daily deployment quota is exhausted — so the live probe above still shows
+the pre-fix 500. Behaviour (fail closed, no provider contact) is identical in both builds.
