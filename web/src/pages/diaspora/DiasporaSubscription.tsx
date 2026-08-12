@@ -22,9 +22,9 @@ import { UsageDashboard } from '@/components/diaspora/subscription/UsageDashboar
 import { SubscriptionActions } from '@/components/diaspora/subscription/SubscriptionActions'
 import BillingOperationsPanel from '@/components/diaspora/subscription/BillingOperationsPanel'
 import { EntitlementDenialPanel } from '@/components/diaspora/subscription/EntitlementDenialPanel'
-import { currentPlan, canManageSubscriptionUi } from '@/components/diaspora/subscription/subscriptionHelpers'
+import { currentPlan, canManageSubscriptionUi, classifyEntitlement, humanizeFeatureKey } from '@/components/diaspora/subscription/subscriptionHelpers'
 import { parseEntitlementDenial } from '@/components/diaspora/subscription/entitlementDenial'
-import type { Plan, SubscriptionStatus, EffectiveEntitlements, UsageResponse, StructuredEntitlementDenial } from '@/types'
+import type { Plan, SubscriptionStatus, EffectiveEntitlementsEnvelope, UsageResponse, StructuredEntitlementDenial } from '@/types'
 
 export default function DiasporaSubscription() {
   const flagEnabled = subscriptionUiEnabled()
@@ -35,7 +35,7 @@ export default function DiasporaSubscription() {
 
   const [plans, setPlans] = useState<Plan[]>([])
   const [status, setStatus] = useState<SubscriptionStatus | null>(null)
-  const [, setEntitlements] = useState<EffectiveEntitlements>({})
+  const [entitlements, setEntitlements] = useState<EffectiveEntitlementsEnvelope | null>(null)
   const [usage, setUsage] = useState<UsageResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<StructuredEntitlementDenial | null>(null)
@@ -159,6 +159,9 @@ export default function DiasporaSubscription() {
   }
 
   const planForStatus = currentPlan(plans, status)
+  // The renderable feature map lives INSIDE the envelope — iterating the envelope itself would
+  // present its metadata fields ("Tenant Id", "Plan Key", …) as entitlements.
+  const featureMap = entitlements?.entitlements ?? {}
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8" data-testid="subscription-page">
@@ -192,6 +195,46 @@ export default function DiasporaSubscription() {
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           <div className="space-y-6">
             <SubscriptionStatusCard status={status} plan={planForStatus} />
+
+            {/* Effective entitlements as the backend resolved them for this tenant — the API is the
+                single source of truth; labels are derived, never hardcoded. */}
+            <section className="rounded-lg border border-gray-200 bg-white p-5" data-testid="subscription-entitlements">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-sm font-semibold text-gray-950">Effective entitlements</h2>
+                {entitlements && (
+                  <p className="text-xs text-gray-500" data-testid="subscription-entitlements-plan">
+                    {entitlements.planName || entitlements.planKey}
+                    {entitlements.tier ? ` · ${entitlements.tier}` : ''}
+                    {entitlements.status ? ` · ${entitlements.status}` : ''}
+                  </p>
+                )}
+              </div>
+              {Object.keys(featureMap).length === 0 ? (
+                <p className="mt-2 text-sm text-gray-500" data-testid="subscription-entitlements-empty">
+                  Entitlement details are not available right now.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-1.5">
+                  {Object.keys(featureMap).sort().map((featureKey) => {
+                    const cell = classifyEntitlement(featureKey, featureMap[featureKey])
+                    return (
+                      <li key={featureKey} className="flex items-center justify-between gap-3 text-sm" data-testid="subscription-entitlement-row">
+                        <span className="text-gray-700">{humanizeFeatureKey(featureKey)}</span>
+                        <span className={cell.kind === 'unavailable' ? 'text-gray-400' : 'font-medium text-gray-900'}>
+                          {cell.label}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {entitlements?.source === 'config' && (
+                <p className="mt-3 text-xs text-gray-400" data-testid="subscription-entitlements-source">
+                  source: config fallback
+                </p>
+              )}
+            </section>
+
             <UsageDashboard usage={usage} />
           </div>
 

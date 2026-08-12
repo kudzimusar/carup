@@ -18,6 +18,7 @@ export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   location?: string;
   image_url?: string;
   images?: string[];
+  publication_status?: string;
   condition?: string;
   category?: string;
   viewCount?: number;
@@ -552,6 +553,8 @@ export interface DiasporaWorkbookTemplateSchemaResponse {
 export interface DiasporaWorkbookTemplateDownloadStatus {
   data?: DiasporaWorkbookTemplateSchema;
   downloadReady: boolean;
+  /** Authoritative template route as advertised by the backend (e.g. /api/diaspora/workbook/template.xlsx). */
+  template_xlsx_path?: string;
   message?: string;
 }
 
@@ -1100,6 +1103,26 @@ export interface SubscriptionStatus {
 
 export type EffectiveEntitlements = Record<string, boolean | number>;
 
+/**
+ * GET /diaspora/subscription/entitlements envelope (resolveEffectiveEntitlements): plan identity and
+ * resolution provenance wrapped around the merged feature map. `source` is 'db' when the plan row came
+ * from the database and 'config' when the catalog fallback resolved it; `synthetic` means no
+ * access-granting subscription row existed (Free floor). The feature map itself lives under
+ * `entitlements` — the envelope fields are metadata, never entitlements.
+ */
+export interface EffectiveEntitlementsEnvelope {
+  tenantId: string;
+  userId: string;
+  planKey: string;
+  planName?: string;
+  tier?: string;
+  status?: string;
+  source?: string;
+  synthetic?: boolean;
+  entitlements: EffectiveEntitlements;
+  overrides?: Record<string, unknown>;
+}
+
 export interface UsageEntry {
   featureKey: string;
   planKey?: string;
@@ -1241,8 +1264,11 @@ export interface WorkOrder {
   customer: string;
   customer_name?: string;
   service: string;
+  /** Phase-4 schema column name; historical rows may carry issue_description instead. */
+  description?: string;
   issue_description?: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  /** DB CHECK values ('In Progress'|'Completed'|'Cancelled') plus legacy/normalized lowercase rows. */
+  status: 'pending' | 'in-progress' | 'completed' | 'cancelled' | 'In Progress' | 'Completed' | 'Cancelled';
   date: string;
   created_at: string;
   cost: number;

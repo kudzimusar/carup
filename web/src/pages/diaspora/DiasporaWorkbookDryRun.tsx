@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
+  Download,
   FileText,
   Loader2,
   RefreshCw,
@@ -390,6 +391,7 @@ export default function DiasporaWorkbookDryRun() {
   const {
     fetchDiasporaWorkbookTemplateSchema,
     fetchDiasporaWorkbookTemplateDownloadStatus,
+    downloadDiasporaWorkbookTemplateXlsx,
     runDiasporaWorkbookDryRun,
   } = useCarUpApi()
 
@@ -399,6 +401,8 @@ export default function DiasporaWorkbookDryRun() {
   const [downloadStatus, setDownloadStatus] = useState<DiasporaWorkbookTemplateDownloadStatus | null>(null)
   const [templateLoading, setTemplateLoading] = useState(false)
   const [templateError, setTemplateError] = useState('')
+  const [templateDownloading, setTemplateDownloading] = useState(false)
+  const [templateDownloadError, setTemplateDownloadError] = useState('')
   const [jsonText, setJsonText] = useState('')
   const [parsedWorkbook, setParsedWorkbook] = useState<ParsedWorkbook | null>(null)
   const [jsonError, setJsonError] = useState('')
@@ -493,6 +497,20 @@ export default function DiasporaWorkbookDryRun() {
     setJsonText('')
     setParsedWorkbook(null)
     setDryRunResult(null)
+  }
+
+  const handleTemplateDownload = async () => {
+    if (templateDownloading) return
+    setTemplateDownloading(true)
+    setTemplateDownloadError('')
+    try {
+      // Prefer the backend-advertised route when the status endpoint reported one.
+      await downloadDiasporaWorkbookTemplateXlsx(templateType, downloadStatus?.template_xlsx_path)
+    } catch (err) {
+      setTemplateDownloadError(err instanceof Error ? err.message : 'Unable to download the XLSX template.')
+    } finally {
+      setTemplateDownloading(false)
+    }
   }
 
   const canSubmit = Boolean(templateType && parsedWorkbook && !jsonError && !fileError && !dryRunLoading)
@@ -593,13 +611,41 @@ export default function DiasporaWorkbookDryRun() {
               <Upload className="h-5 w-5 text-slate-700" />
               <h2 className="text-lg font-semibold text-gray-950">Template download</h2>
             </div>
-            <p className="mt-3 text-sm text-gray-600">
-              Binary XLSX template download is not yet available. Use the schema preview to prepare JSON workbook payloads.
-            </p>
-            {downloadStatus?.message && <p className="mt-2 text-xs text-gray-500">{downloadStatus.message}</p>}
-            <Button type="button" variant="secondary" className="mt-4" disabled data-testid="diaspora-workbook-template-download-disabled">
-              XLSX template unavailable
-            </Button>
+            {downloadStatus?.downloadReady ? (
+              <>
+                <p className="mt-3 text-sm text-gray-600">
+                  The binary XLSX template for the selected schema is ready to download.
+                </p>
+                {/* An authenticated fetch, not an <a href>: the SPA rewrite would serve index.html
+                    for a relative /api path, and an anchor cannot carry the session/tenant headers. */}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4"
+                  onClick={() => void handleTemplateDownload()}
+                  disabled={templateDownloading}
+                  data-testid="diaspora-workbook-template-download-button"
+                >
+                  {templateDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {templateDownloading ? 'Downloading…' : 'Download .xlsx template'}
+                </Button>
+                {templateDownloadError && (
+                  <p className="mt-2 text-sm font-medium text-red-700" data-testid="diaspora-workbook-template-download-error">
+                    {templateDownloadError}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="mt-3 text-sm text-gray-600">
+                  Binary XLSX template download is not yet available. Use the schema preview to prepare JSON workbook payloads.
+                </p>
+                {downloadStatus?.message && <p className="mt-2 text-xs text-gray-500">{downloadStatus.message}</p>}
+                <Button type="button" variant="secondary" className="mt-4" disabled data-testid="diaspora-workbook-template-download-disabled">
+                  XLSX template unavailable
+                </Button>
+              </>
+            )}
           </section>
 
           <section className="rounded-md border border-gray-200 bg-white p-5">

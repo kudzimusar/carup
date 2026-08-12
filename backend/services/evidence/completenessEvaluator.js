@@ -11,18 +11,23 @@
  *   3. engine_number    — must be non-empty on the vehicles row
  *   4. plate_number OR temp_plate_id — at least one must be non-empty
  *   5. Ownership document — at least one vehicle_evidence row with evidence_type
- *      IN (registration_document, ownership_transfer) that has been verified
+ *      IN (registration_document, ownership_transfer_document) that has been verified
  *
  * Advisory requirements (non-blocking — shown in the UI but do not gate publication):
- *   customs_entry, duty_clearance_document, vid_inspection, insurance_document
+ *   customs_photo, inspection_photo, insurance_document, police_clearance_document
  *
  * AI confidence is NEVER consulted here: this evaluator is purely deterministic
  * and based on human-verified state.
  */
 import { supabase } from '../../db/supabase.js';
 
-const BLOCKING_DOC_TYPES = ['registration_document', 'ownership_transfer'];
-const ADVISORY_DOC_TYPES = ['customs_entry', 'duty_clearance_document', 'vid_inspection', 'insurance_document'];
+// Every value below MUST be legal under the DB CHECK constraint
+// vehicle_evidence_evidence_type_check — an illegal value can never match a row,
+// silently turning the requirement into a permanent 'missing'. The previous
+// constants (ownership_transfer, customs_entry, duty_clearance_document,
+// vid_inspection) were not in the CHECK and could never be satisfied.
+const BLOCKING_DOC_TYPES = ['registration_document', 'ownership_transfer_document'];
+const ADVISORY_DOC_TYPES = ['customs_photo', 'inspection_photo', 'insurance_document', 'police_clearance_document'];
 const VERIFIED_STATUSES = new Set(['verified', 'confirmed', 'approved']);
 const PENDING_STATUSES  = new Set(['pending', 'submitted', 'under_review']);
 

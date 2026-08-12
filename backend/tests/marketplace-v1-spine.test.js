@@ -694,6 +694,36 @@ test('seller inquiry list excludes inquiries for listings owned by other sellers
   assert.equal(sellerView[0].contact_email, 'owned@example.com');
 });
 
+test('seller inquiry read pushes the ownership predicate into the query (other sellers\' guest PII never leaves the DB)', async () => {
+  const store = {
+    marketplace_inquiries: [
+      { id: 'inq-owned', listing_id: REAL_VIN, seller_id: 'seller-1', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'owned@example.com', created_at: NOW },
+      { id: 'inq-tenant', listing_id: DEALER_VIN, seller_id: 'someone-else', seller_tenant_id: 'tenant-9', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'tenant@example.com', created_at: NOW },
+      { id: 'inq-other', listing_id: DEALER_VIN, seller_id: 'seller-2', inquiry_type: 'vehicle_purchase_interest', status: 'new', guest_email: 'other@example.com', created_at: NOW },
+    ],
+  };
+  const orCalls = [];
+  const spyClient = (base) => ({
+    from(table) {
+      const builder = base.from(table);
+      const originalOr = builder.or.bind(builder);
+      builder.or = (expression) => { orCalls.push(expression); return originalOr(expression); };
+      return builder;
+    },
+  });
+
+  // Tenant-scoped seller: both legs pushed down; own + tenant inquiries visible.
+  const tenantView = await listInquiriesForSeller(spyClient(buildMockSupabase(store)), { id: 'seller-1', tenantId: 'tenant-9' });
+  assert.deepEqual(tenantView.map((v) => v.id).sort(), ['inq-owned', 'inq-tenant']);
+  assert.deepEqual(orCalls, ['seller_id.eq.seller-1,seller_tenant_id.eq.tenant-9']);
+
+  // Tenant-less seller: the tenant leg must be omitted from the predicate.
+  orCalls.length = 0;
+  const soloView = await listInquiriesForSeller(spyClient(buildMockSupabase(store)), { id: 'seller-1' });
+  assert.deepEqual(soloView.map((v) => v.id), ['inq-owned']);
+  assert.deepEqual(orCalls, ['seller_id.eq.seller-1']);
+});
+
 test('admin listing detail can read a suppressed listing (P2 — not 404), public audience 404s it', async () => {
   const store = { vehicles: [publicVehicle({ status: 'Suspended' })] };
   const admin = await getMarketplaceListingDetail(buildMockSupabase(store), REAL_VIN, { audience: 'admin' });

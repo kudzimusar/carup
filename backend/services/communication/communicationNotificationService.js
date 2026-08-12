@@ -41,6 +41,70 @@ export const NOTIFICATION_POLICIES = Object.freeze({
     templateKey: 'finance_status_v1',
     transactional: true,
   },
+  // Decision-specific finance events share the finance_status_v1 rendering but
+  // must have explicit policies: without one, getPolicy falls back to the
+  // generic acknowledgement template and every application would queue a second,
+  // nonsensical notification alongside the real one.
+  'finance.application.approved': {
+    notificationType: 'finance_status',
+    threadType: 'finance',
+    priority: 'high',
+    channels: ['in_app', 'push', 'email'],
+    fallbackChannels: ['sms'],
+    templateKey: 'finance_status_v1',
+    transactional: true,
+  },
+  'finance.application.declined': {
+    notificationType: 'finance_status',
+    threadType: 'finance',
+    priority: 'high',
+    channels: ['in_app', 'push', 'email'],
+    fallbackChannels: ['sms'],
+    templateKey: 'finance_status_v1',
+    transactional: true,
+  },
+  // threadType note for the three policies below: message_threads.thread_type carries the DB
+  // CHECK constraint message_threads_thread_type_check (see
+  // database/migrations/20260623143000_omnichannel_communication_engine.sql), which allows ONLY
+  // support | marketplace_inquiry | referral | escrow | finance | import | container |
+  // trust_safety | feedback | complaint | account | general. Any other value fails the thread
+  // INSERT, so the notification is never queued — thread types here MUST come from that list.
+  //
+  // channels note: the delivery worker resolves email addresses / phone numbers / push tokens
+  // ONLY from notification.payload, which policy-driven notifications never carry, so email/push
+  // deliveries dead-letter. Until recipient address enrichment exists these policies stay
+  // in_app-only with no fallback; policyChannelsOnly stops user-preference fallback channels
+  // (default in_app/email/push) from re-adding the dead channels behind the policy's back.
+  'identity.verification.decided': {
+    notificationType: 'verification_decision',
+    threadType: 'account', // NOT 'verification' — violates message_threads_thread_type_check
+    priority: 'high',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'verification_decision_v1',
+    transactional: true,
+  },
+  'marketplace.listing.moderated': {
+    notificationType: 'listing_moderation',
+    threadType: 'trust_safety', // NOT 'marketplace_listing' — violates message_threads_thread_type_check
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'listing_moderation_v1',
+    transactional: true,
+  },
+  'evidence.review.decided': {
+    notificationType: 'evidence_review',
+    threadType: 'trust_safety', // NOT 'evidence' — violates message_threads_thread_type_check
+    priority: 'normal',
+    channels: ['in_app'],
+    fallbackChannels: [],
+    policyChannelsOnly: true,
+    templateKey: 'evidence_review_v1',
+    transactional: true,
+  },
 });
 
 export class CommunicationNotificationService {
@@ -74,7 +138,9 @@ export class CommunicationNotificationService {
       escrow_id: payload.escrowId || payload.escrow_id || 'escrow',
       status: payload.currentStatus || payload.status || payload.current_status || 'updated',
       application_id: payload.applicationId || payload.application_id || payload.id || 'application',
-      reference: payload.publicReference || payload.reference || payload.escrowId || payload.applicationId || payload.inquiryId || 'CarUp',
+      reference: payload.publicReference || payload.reference || payload.escrowId || payload.applicationId || payload.inquiryId || payload.sessionId || payload.evidenceId || 'CarUp',
+      decision: payload.decision || payload.action || '',
+      reason: payload.reason || '',
       summary: payload.summary || '',
       team: payload.team || 'support',
       share_text: payload.shareText || payload.share_text || 'View this CarUp listing:',
@@ -94,7 +160,7 @@ export class CommunicationNotificationService {
       tenant_id: event.tenant_id || payload.tenant_id || null,
       thread_type: policy.threadType,
       subject_type: payload.subject_type || policy.threadType,
-      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || null,
+      subject_id: payload.inquiryId || payload.inquiry_id || payload.escrowId || payload.applicationId || payload.vin || payload.sessionId || payload.evidenceId || null,
       primary_user_id: recipientUserId,
       primary_channel: 'in_app',
       priority: policy.priority,
@@ -105,7 +171,15 @@ export class CommunicationNotificationService {
     });
 
     const prefs = await this.preferenceService.getPreferences(recipientUserId, thread.tenant_id);
-    const channels = this.preferenceService.selectChannels(prefs, policy);
+    let channels = this.preferenceService.selectChannels(prefs, policy);
+    if (policy.policyChannelsOnly) {
+      // Hard-cap to the policy's channel list: selectChannels merges the user's
+      // preference fallback channels (default in_app/email/push), which would
+      // re-add channels the delivery worker cannot address for policy-driven
+      // notifications (no email/phone/push token in notification.payload).
+      const allowed = new Set((policy.channels || []).map((channel) => normalizeChannel(channel)).filter(Boolean));
+      channels = channels.filter((channel) => allowed.has(channel));
+    }
     const queued = [];
     for (const channel of channels) {
       queued.push(await this.queueNotification({
@@ -118,7 +192,11 @@ export class CommunicationNotificationService {
         variables: this.variablesForEvent(eventType, payload),
         priority: policy.priority,
         transactional: policy.transactional,
-        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId, recipientUserId, policy.templateKey, channel],
+        // Prefer the outbox record id (per-event) as the dedupe discriminator; the payload
+        // fallbacks cover every emitter's subject id (incl. sessionId/evidenceId/vin for
+        // verification, evidence-review, and listing-moderation events) so distinct events
+        // for the same user never collapse into one dedupe key.
+        dedupeParts: [eventType, event.id || event.dedupe_key || event.event_id || payload.id || payload.inquiryId || payload.escrowId || payload.applicationId || payload.sessionId || payload.evidenceId || payload.vin, recipientUserId, policy.templateKey, channel],
         payload: { event_type: eventType, safe_payload: payload },
       }));
     }

@@ -131,9 +131,12 @@ describe('VehicleCompletenessPanel', () => {
     expect(html).toContain('TESTVIN0000000002')
   })
 
-  it('renders upload documents link to evidence upload route', () => {
+  it('renders upload documents link to the real garage route with the upload deep-link param', () => {
     const html = render(blockingGapData)
-    expect(html).toContain('/dashboard/vehicles/TESTVIN0000000001/evidence')
+    // /dashboard/vehicles/:vin/evidence has no route (404); the garage vehicle profile mounts
+    // the evidence upload modal and opens it when ?upload=1 is present.
+    expect(html).toContain('/dashboard/garage/TESTVIN0000000001?upload=1')
+    expect(html).not.toContain('/dashboard/vehicles/TESTVIN0000000001/evidence')
   })
 
   it('renders View my garage link', () => {
