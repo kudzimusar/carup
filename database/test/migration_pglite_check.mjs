@@ -72,6 +72,12 @@ const NEW_MIGRATIONS = [
   '20260808150000_mechanic_work_orders_convergence.sql',
   '20260809100000_trust_side_tables.sql',
   '20260809110000_api_role_write_hardening.sql',
+  // Trust-side convergence: a no-op over the canonical shape created above
+  // (which already satisfies the contract), so its presence here proves the
+  // "already converged" idempotency path inside the full migration chain.
+  // The divergent-legacy-shape proofs live in
+  // backend/tests/trust-side-convergence.test.js.
+  '20260810120000_trust_side_convergence.sql',
 ];
 
 function splitMigration(file) {

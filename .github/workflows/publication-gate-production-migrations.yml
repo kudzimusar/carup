@@ -1,0 +1,135 @@
+name: 'Publication Gate Production Migrations (20260710130000 + 20260808140000-150000 + 20260809100000-120000 + 20260810120000, seven migrations)'
+
+# Production counterpart of publication-gate-staging-migrations.yml, gating the
+# two advancement-pass migrations plus the two database-compatibility-audit
+# migrations (trust side tables; API-role write hardening) behind the
+# repository's production cutover discipline:
+#
+#  · MODE=preflight (the default) is a READ-ONLY inspection — it produces the
+#    owner-review evidence (publication distribution, visible_but_unpublished,
+#    mechanic schema shape, ledger rows, and the FULL PR #139 dependency
+#    inventory: runtime-dependent tables, columns, CHECK values, vin
+#    uniqueness, API-role grant/RLS posture) inside a READ ONLY transaction
+#    and writes nothing. This is the sanctioned "safe read-only visibility"
+#    path: the credential lives only in the repository's environment secrets
+#    and never on a workstation.
+#  · MODE=apply additionally requires the exact owner authorization phrase as a
+#    dispatch input; the runner refuses anything else. Apply runs each file in
+#    one transaction with its official supabase_migrations row, then fails the
+#    job unless every vehicle that existed BEFORE apply and is publicly visible
+#    is 'published' (rows inserted during/after apply are legitimately draft
+#    under the gate and never fail the cutover), unless the full mechanic
+#    convergence contract (10/10 columns) holds whenever 20260808150000 is
+#    recorded, and unless the trust tables + hardened API-role posture hold
+#    whenever 20260809100000/110000 are recorded. Concurrent row-count drift
+#    is an advisory warning, never a failure after the irreversible commits.
+#  · The checkout is hard-pinned to one reviewed commit (advancing the pin is a
+#    reviewable PR); there is no ref input; the workflow only runs from main and
+#    only for the repository owner; the `production` environment lets GitHub
+#    reviewer/wait gates be layered on top.
+#  · The production project ref is NOT written anywhere in this repository
+#    (CR-1): it arrives via the PRODUCTION_PROJECT_REF secret and the runner
+#    refuses a connection string that does not include it — or that references
+#    the staging project.
+#
+# PREREQUISITES — configure BEFORE adding any secret (the inert-until-configured
+# guarantee holds only until the secret exists):
+#   1. Create/protect the `production` GitHub environment with REQUIRED
+#      REVIEWERS and a deployment branch policy restricted to main. An
+#      auto-created environment has neither, and the in-file actor gates only
+#      protect THIS copy of the workflow — environment protection is what stops
+#      a modified side-branch copy from receiving the secret. Environment
+#      approval is also re-requested on re-runs.
+#   2. Then add the environment secrets:
+#        PRODUCTION_DATABASE_URL   — production Postgres connection string
+#        PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin)
+#        PRODUCTION_CA_CERT        — optional PEM trust-anchor override
+#
+# Known accepted risk (shared with the staging dispatcher, follow-up candidate):
+# only pg's top-level version is pinned; its transitive dependencies resolve at
+# dispatch time. Hardening = install from a committed lockfile with `npm ci`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = read-only owner-review evidence; apply = authorized application'
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - apply
+      authorization:
+        description: "Required for apply: the exact phrase APPLY PUBLICATION GATE TO PRODUCTION"
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publication-gate-production-migrations
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose runner and migration files are executed.
+  CANDIDATE_SHA: 9d9af1fe7db9c1d604fde437b2a2821a19aaee9f
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  preflight-or-apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other
+    # collaborators; github.triggering_actor is whoever actually triggered this
+    # run. Both must be the owner, so a write-access collaborator cannot re-run
+    # an owner-dispatched apply (whose frozen inputs still carry the phrase).
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 9d9af1fe7db9c1d604fde437b2a2821a19aaee9f
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope here.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the publication-gate production runner'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+          MODE: ${{ inputs.mode }}
+          AUTHORIZATION_PHRASE: ${{ inputs.authorization }}
+        run: node backend/scripts/production-apply-publication-gate.mjs
