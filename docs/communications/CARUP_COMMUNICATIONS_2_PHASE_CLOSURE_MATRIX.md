@@ -99,3 +99,52 @@ rows do not amount to omnichannel certification.
   Supabase-compatible client.' }`. The gateway was built with `new ReferralEngineService()`
   and no client, and best-effort handling swallowed the throw. Verified live: the stored
   result is now a legitimate domain answer for the channel rather than a wiring failure.
+
+## Post-#139 integration — PR head `7afec27` (2026-08-12)
+
+PR #139 was merged by the owner (`main` @ `36c7df24`), so this branch absorbed the
+event-fabric drain it had been blocked on and **D1 is now closed with physical staging
+evidence**.
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Current-main integration | **SOURCE PASS** | merge of `f1724f1` + `36c7df24`; 2 conflicts, both resolved by union/semantics; 73 files, +4920 −19 |
+| Source CI on exact head | **SOURCE PASS** | CI · Communications · Diaspora · Referral · Navigation all SUCCESS; backend 2816 tests / 2804 pass / **0 fail** / 12 skipped (baseline unchanged) |
+| Repository gates | **SOURCE PASS** | PGlite migration verification exit 0; 11/11 diaspora ledger harnesses; web typecheck clean; web unit 799/799; web build OK |
+| D1 route on stable staging | **STAGING CONFIG PASS** | `/api/internal/events/process` answers **401 (guarded)** where it answered 404 before |
+| **D1 event fabric** | **PHYSICAL PASS** | see chain below |
+| Backend stable staging | **STAGING CONFIG PASS** | `dpl_2ZdX7cwdKrfGeJFbJpoL4fRzQDeN`, `target=production`, alias `carup-backend-staging.vercel.app` |
+| Frontend stable staging | **EXTERNALLY BLOCKED** | Vercel daily quota (`api-deployments-free-per-day`, >100/day, team-wide); still serving `cf33837`, which already targets the staging backend |
+| Marketplace ↔ physical WhatsApp | **NOT CERTIFIED** | needs a real recipient device + a human confirm-and-reply |
+| Meta provider template | **EXTERNALLY BLOCKED** | `provider_template_reference` still NULL; no WhatsApp *marketing* template exists |
+| Gemini / Phase 5 AI | **EXTERNALLY BLOCKED** | `GEMINI_API_KEY` absent from the staging scope |
+| Facebook · Instagram · Email · SMS · Push | **EXTERNALLY BLOCKED** | `CARUP_META_PAGE_ID`; SendGrid trio; Twilio quartet; `EXPO_ACCESS_TOKEN` |
+
+### D1 physical chain — proven end to end
+
+The Marketplace inquiry created during the previous certification run had been stuck
+`pending / attempts=0` for eleven hours because no drain existed. Minutes after this
+candidate reached stable staging, the live chain consumed it:
+
+```
+marketplace_inquiries 04aaf906-4565-43c7-b031-29ce4cd020ad   (2026-08-11 18:29 UTC)
+  → domain_events 18cdddc6-cd3c-4e51-b0ec-0ded7c0b7fc9        pending → processed, attempts 1
+  → Supabase pg_cron carup-events-outbox-every-minute → pg_net
+  → https://carup-backend-staging.vercel.app/api/internal/events/process (worker-secret)
+  → eventWorker.pollEvents() → communication listeners
+  → message_threads f597615f-4c2f-478a-846a-cb018fe7ab4c      (2026-08-12 05:11:05 UTC)
+      thread_key communications-2:marketplace_inquiry:04aaf906…
+      primary_user_id = the listing's seller, business_workflow = marketplace
+  → message_participants: exactly two, seller + buyer, each read+send
+  → messages 42e26bde-692e-4fac-81a6-b13d6154b274             (2026-08-12 05:11:11 UTC)
+      the buyer's exact original inquiry text, preserved verbatim
+```
+
+No duplicate thread and no second outbox row were produced — the `dedupe_key` held.
+
+**Note on notifications.** No `notification_queue` rows accompany this event, and that is
+deliberate rather than a regression: `communicationOrchestratorService` routes
+`marketplace.inquiry.created` to `canonicalizeMarketplaceInquiry` and returns, replacing the
+legacy notification fan-out with the canonical conversation — "provider transports remain
+downstream of that conversation." The older queue rows on this seller date from the
+pre-Communications-2.0 runtime.
