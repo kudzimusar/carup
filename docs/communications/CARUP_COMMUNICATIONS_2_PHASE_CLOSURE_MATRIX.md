@@ -46,3 +46,56 @@ Source implementation is **not** the same as full Communications 2.0 acceptance.
 9. A consented Phase 7 staging campaign proves suppression/frequency/attribution/conversion evidence without production writes.
 
 Production application remains a separate owner-authorized release decision.
+
+## Staging certification run — PR head `cf33837` (2026-08-12)
+
+Exact-head deployment to the dedicated staging projects, then live certification against
+canonical staging `eoyenigwevnxwwhyhaer`. Nothing below is asserted from mocks, source
+tests or HTTP acceptance alone; each row states the evidence that produced it.
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Source CI on exact head | **SOURCE PASS** | CI / Communications / Diaspora / Referral / Navigation all green; `node --test backend/tests/*.test.js` = 2771 tests, 2759 pass, 0 fail, 12 skipped |
+| Migrations 315–323 | **DB PASS** | all nine versions recorded in `supabase_migrations.schema_migrations`; no migration edited by this run |
+| Exact-SHA stable staging | **STAGING CONFIG PASS** | backend `dpl_8RxtuHEVXnLc2jraSXEjnWb3xRSN`, frontend `dpl_qMZ27AHptt8rSN1VxtN7xgYUB1fH`, both `target=production` with `meta.carupSourceSha` = the PR head |
+| Frontend → staging backend (never production) | **STAGING CONFIG PASS** | live browser run: every API call resolved to `carup-backend-staging.vercel.app/api`; zero production-backend requests; bundle carries 8 staging refs and no production host |
+| Engine runtime | **STAGING CONFIG PASS** | scheduler READY, `fakeAdapters.enabled=false`, WhatsApp + Telegram real adapters READY with correct webhook URLs |
+| Canonical conversation core | **STAGING PASS** | conversation created, message accepted, participant read OK, non-participant denied read **and** send (404, no leak), no cross-tenant list leakage — 7/7 live |
+| Exact original content | **STAGING PASS** | stored `content_text` byte-identical including Unicode; `original_authoritative=true`, `ai_derived=false`; classification stored separately as derived metadata |
+| Governed template runtime | **STAGING PASS** | outbound reply carried `governed_template=true`, `template_key=message_acknowledgement_v1`, version + `template_version_id`, one primary channel with an explicit fallback list |
+| Private media bucket | **STAGING CONFIG PASS** | `carup-communication-media` is `public=false`, 100 MB limit, image/audio/video/document MIME allow-list |
+| Phase 7 governance schema | **DB PASS** | transactional and marketing consent separate, per-channel toggles, quiet hours, frequency cap, deterministic A/B variants, `idempotency_key`, `suppression_reason`, cost/conversion columns |
+| Marketplace inquiry → outbox | **STAGING PASS** | real inquiry through the public product API returned 201 and wrote exactly one `marketplace.inquiry.created` row with a `dedupe_key`; the fail-closed write proved itself against real Supabase |
+| Marketplace inquiry → canonical conversation | **BLOCKED — see D1** | the outbox row stays `pending`, `attempts=0`, never locked |
+| Phase 2 physical WhatsApp round trip | **NOT CERTIFIED** | gated by D1 and by a physical recipient device |
+| Meta provider template | **EXTERNALLY BLOCKED** | `conversation_reply_whatsapp_v1` is CarUp-approved but `provider_template_reference` is NULL, and no WhatsApp *marketing* template exists at all |
+| Gemini / Phase 5 AI derivations | **EXTERNALLY BLOCKED** | `GEMINI_API_KEY` is absent from the `carup-backend-staging` production scope (absent, not merely sensitive) |
+| Facebook, Instagram, Email, SMS, Push | **EXTERNALLY BLOCKED** | `CARUP_META_PAGE_ID`; `SENDGRID_API_KEY` / `SENDGRID_FROM_EMAIL` / `SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY`; `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_MESSAGING_SERVICE_SID`-or-`TWILIO_FROM_NUMBER` / `TWILIO_STATUS_CALLBACK_URL`; `EXPO_ACCESS_TOKEN` |
+
+Aggregate `/api/communications/health` remains HTTP 503 **only** because those optional
+providers are unconfigured. Core engine readiness and per-channel readiness are separate
+facts: a 503 aggregate does not retract the WhatsApp/Telegram READY rows above, and those
+rows do not amount to omnichannel certification.
+
+### Defects found by this certification run
+
+* **D1 — no `domain_events` drain in this branch (open, blocking Phase 2).**
+  `eventWorker.start()` deliberately skips interval polling on Vercel and directs operators
+  to a scheduled endpoint. That endpoint, `/api/internal/events/process`, does not exist in
+  this branch: `/api/internal/communications/process` drains `notification_queue` only, and
+  no database trigger materialises conversations. Canonical staging's pg_cron calls the
+  events path every minute and receives HTTP 404. Probing the same path on the previously
+  deployed runtime returns 401 (present, worker-secret guarded) against 404 here. The route,
+  its pg_cron migration and its coverage tests are owned end-to-end by PR #139, which is
+  open and diverged from `main` (ahead 58 / behind 35). `main` carries neither. Resolution is
+  a merge-order decision, not a code change to duplicate here.
+* **D2 — deliberate client statuses answered 500. Fixed in `b59f722`.** A participant who is
+  not on a conversation received HTTP 500; the refusal was correct and fail-closed but was
+  indistinguishable from an outage. `errorHandler` resolved a status only for `CarUpError`
+  subclasses, discarding the numeric `statusCode` used by 13 files / 60 call sites. Verified
+  live: that call now answers 404.
+* **D3 — inbound referral attribution had no client. Fixed in `cf33837`.** Every inbound
+  message stored `referral: { success: false, error: 'Referral repository requires a
+  Supabase-compatible client.' }`. The gateway was built with `new ReferralEngineService()`
+  and no client, and best-effort handling swallowed the throw. Verified live: the stored
+  result is now a legitimate domain answer for the channel rather than a wiring failure.
