@@ -148,3 +148,91 @@ deliberate rather than a regression: `communicationOrchestratorService` routes
 legacy notification fan-out with the canonical conversation — "provider transports remain
 downstream of that conversation." The older queue rows on this seller date from the
 pre-Communications-2.0 runtime.
+
+## Physical certification — 2026-08-12 (deployment `dpl_2ZdX7cwdKrfGeJFbJpoL4fRzQDeN`)
+
+| Capability | Source | DB | Staging config/runtime | Physical |
+|---|---|---|---|---|
+| **D1 event fabric** | **PASS** | **PASS** | **PASS** | **PASS** |
+| **Phase 2 — Marketplace ↔ WhatsApp** | **PASS** | **PASS** | **PASS** | **PASS** |
+| Phase 5 — media (image/document/audio/video/voice/location) | **PASS** | **PASS** | **PASS** | **PASS** |
+| Phase 5 — Gemini AI derivations | PASS | PASS | — | **EXTERNALLY BLOCKED** |
+| Out-of-window business-initiated WhatsApp | PASS | PASS | — | **EXTERNALLY BLOCKED** |
+
+### Phase 2 — physical round trip, one canonical conversation
+
+```
+buyer   u_168d4b79bb8b44fd          seller  u_4c4f7223253d4667
+listing JTMHV05J704518362           inquiry 23de8a4b-7f4f-4f16-8619-f04c057ece06
+domain event  2132e636-2d28-4edb-931a-86cab055458f   processed, attempts 1
+conversation  61acc236-aaab-4d27-815c-9062f9c99f05   (exactly one, for this inquiry)
+outbound msg  a862737c-0691-41bd-8535-8a6e0a77e327
+  notification 277 · delivery attempt 62f69ae1… · attempt_number 1
+  wamid.HBgMODE4MDgxMjAxMzU2FQIAERgSRDMyMzQ0NTQ4RDkyQUQ2NzIyAA==
+  Meta status webhooks (signature-valid): sent 07:39:08 → delivered 07:39:08 → read 07:40:50
+inbound msg   4fa5006b-2026-4adc-b5ed-445a11218ac8
+  wamid.HBgMODE4MDgxMjAxMzU2FQIAEhgUMkE3QTI0MkZDMEFGOUE0RkQwQUUA
+  content_text "CARUP-UAT-148-MARKETPLACE" · original_authoritative true · ai_derived false
+  conversation_resolution = active_channel_binding
+```
+
+**Hard acceptance:** inbound resolved conversation **==** outbound Marketplace conversation **==**
+`61acc236-aaab-4d27-815c-9062f9c99f05`. Exactly one canonical thread, one domain event, one
+outbound provider send (one distinct wamid), one WhatsApp notification, no fallback duplicate, no
+replay duplicate. The outbound text stored and sent was verified byte-exact by hex decode —
+`"CarUp Marketplace UAT — please reply CARUP-UAT-148-MARKETPLACE"`, 62 chars, "Marketplace"
+correctly spelled; a "Makretplace" spelling appeared only in a verbal report, never in the system.
+
+The session was legitimate, not forced: the buyer's real inbound set `last_inbound_message_id` on
+the conversation's own binding, so policy resolved `whatsapp_delivery_mode = session` with
+`whatsapp_policy_reason = customer_service_window_open` (expiry 2026-08-13T07:27:46Z). The earlier
+attempt on the same conversation was correctly **suppressed** (`template` mode, no approved
+provider template) and was left terminal — it was never mutated to force delivery.
+
+### Out-of-window business-initiated WhatsApp — EXTERNALLY BLOCKED
+
+`conversation_reply_whatsapp_v1` is CarUp-approved but its `provider_template_reference` is NULL,
+so business-initiated sends fail closed with `whatsapp_template_not_configured` **before Meta is
+contacted** (`provider_http_status` null; there is no Meta rejection to quote). Governance held: no
+downgrade to free-form, no channel fallback, zero provider attempts. This is a missing external
+Meta template approval and is **not** a Phase 2 failure.
+
+### Phase 5 — media, all six part types physically certified
+
+Real artifacts through `media/prepare → signed PUT → media/commit`, uploaded by a participant:
+
+| Part | MIME | Bytes | part_type | Participant signed fetch | Non-participant |
+|---|---|---|---|---|---|
+| image | image/png | 10362 | image | 200, byte-exact | **404** |
+| document | application/pdf | 612 | document | 200, byte-exact | **404** |
+| audio | audio/wav | 292388 | audio | 200, byte-exact | **404** |
+| video | video/mp4 | 668 | video | 200, byte-exact | **404** |
+| voice note | audio/wav (`capture=voice_note`) | 292388 | audio | 200, byte-exact | **404** |
+| location | — | — | location | n/a | n/a |
+
+Every part carries `original = true`, `metadata.private = true`, a `sha256` matching the local
+digest, and a `thread/participant/artifact` scoped `storage_key`. `carup-communication-media`
+remains **`public = false`**, and an anonymous public-object URL for every stored key returns
+**400** — no public leakage. The image, PDF and WAV are genuinely decodable artifacts (the WAV is
+real 16-bit 48kHz PCM); the MP4 is a structurally valid ISO-BMFF container built on the test host,
+which has no encoder — noted rather than overstated.
+
+### Gemini — EXTERNALLY BLOCKED
+
+`/api/communications/ai/health` → 503, `{provider: google, model: gemini-2.5-flash, available:
+false, mode: real}`. `GEMINI_API_KEY` is absent from the staging scope. No AI acceptance is
+claimed and no key was added.
+
+### Operational note — unauthorized worker caller (open)
+
+`/api/internal/communications/process` receives **three** calls per minute: events→200,
+communications→200, and a third communications→**401** roughly 5 ms earlier. Ruled out with
+evidence as the source: this database's pg_cron (only jobs 1 and 2 exist, 66792/4412 runs, both
+returning 200), its pg_net responses (exactly two per minute, both 200), Vercel project crons
+(`definitions: []`), and this repository's workflows (none reference the endpoint). The caller is
+therefore **external to canonical staging Supabase and to this repo** — most consistent with a
+legacy `communication_supabase_cron` style scheduler elsewhere holding a stale worker secret.
+Impact: it is rejected by `requireWorkerSecret` in ~1 ms before any work, so it cannot drain,
+duplicate or read anything; the cost is ~1440 wasted invocations/day and auth-failure log noise
+that could mask a real intrusion signal. Not remediated here because the source could not be
+identified from available evidence, and removing the wrong scheduler would break the working one.
