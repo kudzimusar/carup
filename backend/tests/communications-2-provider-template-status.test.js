@@ -14,7 +14,8 @@ const routeSource = readFileSync(new URL('../routes/adminCommunicationRoutes.js'
  */
 
 const TOKEN = 'meta-access-token-value-must-never-appear';
-const WABA = 'waba-1234567890';
+// A real WhatsApp Business Account ID is a numeric Graph object ID.
+const WABA = '1234567890123456';
 
 function repositoryWith(rows) {
   return {
@@ -109,7 +110,8 @@ test('the response never contains the access token', async () => {
   const serialized = JSON.stringify(response.body);
   assert.ok(!serialized.includes(TOKEN), 'the token must never reach the response');
   assert.ok(!/authorization/i.test(serialized), 'the auth header must never be echoed');
-  assert.deepEqual(response.body.present, { access_token: true, waba_id: true }, 'presence is reported as booleans only');
+  assert.equal(response.body.present.access_token, true, 'presence is reported as a boolean, never the value');
+  assert.equal(response.body.present.waba_id, true);
 });
 
 test('provider status is joined to the governed binding it is supposed to back', async () => {
@@ -215,11 +217,57 @@ test('a provider failure degrades to ok:false and still reports the governed sid
 });
 
 test('missing configuration is reported, not guessed', async () => {
-  const { response, requests } = await callDiagnostic({ graph: graphOk([]), env: { waba: null } });
+  const { response, requests } = await callDiagnostic({ graph: graphOk([]), env: { waba: null }, rows: GOVERNED_ROWS });
   assert.equal(response.body.ok, false);
   assert.equal(response.body.stage, 'config');
-  assert.deepEqual(response.body.present, { access_token: true, waba_id: false });
+  assert.equal(response.body.present.waba_id, false);
+  assert.equal(response.body.present.waba_id_configured, false);
+  assert.equal(response.body.present.waba_id_source, null);
   assert.equal(requests.length, 0, 'must not call the provider without a WABA id');
+});
+
+/**
+ * The real failure this guards against: CARUP_META_WABA_ID saved with its quotes arrives as the
+ * literal two-character string `""`. Passed straight through it produced a Graph
+ * "Object with ID '\"\"' does not exist" error — which blames Meta for a local misconfiguration.
+ */
+const WEBHOOK_ROWS = {
+  ...GOVERNED_ROWS,
+  webhook_logs: [
+    { channel: 'whatsapp', signature_valid: true, received_at: '2026-08-01T00:00:00Z', payload_redacted: { entry: [{ id: '1111111111111111' }] } },
+    { channel: 'whatsapp', signature_valid: true, received_at: '2026-08-12T07:43:07Z', payload_redacted: { entry: [{ id: '2061495501115454' }] } },
+    // Unsigned traffic is untrusted and must never define which account we query.
+    { channel: 'whatsapp', signature_valid: false, received_at: '2026-08-13T00:00:00Z', payload_redacted: { entry: [{ id: '9999999999999999' }] } },
+    // Test fixtures that are not Graph object IDs.
+    { channel: 'whatsapp', signature_valid: true, received_at: '2026-08-13T01:00:00Z', payload_redacted: { entry: [{ id: 'uat-waba-1' }] } },
+  ],
+};
+
+test('a quoted-empty WABA id is rejected and the account is derived from signed webhook receipts', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk([{ name: 'carup_conversation_reply', language: 'en_US', status: 'APPROVED', category: 'UTILITY', components: [{ type: 'BODY', text: '{{1}}' }] }]),
+    rows: WEBHOOK_ROWS,
+    env: { waba: '""' },
+  });
+
+  assert.equal(response.body.present.waba_id_configured, false, 'a quoted-empty value is not a usable account id');
+  assert.equal(response.body.present.waba_id_source, 'webhook_receipt', 'and the misconfiguration stays visible');
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].url, /\/v20\.0\/2061495501115454\/message_templates/, 'the most recent SIGNED receipt wins');
+  assert.ok(!requests[0].url.includes('9999999999999999'), 'an unsigned receipt must never select the account');
+  assert.ok(!requests[0].url.includes('uat-waba-1'), 'a non-numeric fixture must never select the account');
+  assert.equal(response.body.ok, true);
+});
+
+test('a correctly configured WABA id is used and reported as configured', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk([]),
+    rows: WEBHOOK_ROWS,
+    env: { waba: '3030303030303030' },
+  });
+  assert.equal(response.body.present.waba_id_configured, true);
+  assert.equal(response.body.present.waba_id_source, 'env', 'a valid env value takes precedence over webhook history');
+  assert.match(requests[0].url, /\/3030303030303030\/message_templates/);
 });
 
 test('the diagnostic requires admin or worker-secret authentication', async () => {

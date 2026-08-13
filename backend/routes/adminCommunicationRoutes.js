@@ -1009,8 +1009,43 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
   router.get('/api/admin/communications/provider-template-status', requireAdminOrWorkerSecret, asyncHandler(async (req, res) => {
     const version = 'v20.0';
     const token = trimmedEnvValue(process.env, 'CARUP_META_ACCESS_TOKEN');
-    const wabaId = trimmedEnvValue(process.env, 'CARUP_META_WABA_ID');
-    const present = { access_token: Boolean(token), waba_id: Boolean(wabaId) };
+    const configuredWaba = trimmedEnvValue(process.env, 'CARUP_META_WABA_ID');
+
+    // A WhatsApp Business Account ID is a numeric Graph object ID. Anything else — most commonly a
+    // value saved with its quotes, which arrives as the literal two-character string `""` — is not
+    // usable, and passing it through produces a confusing Graph "object does not exist" error
+    // instead of naming the real problem.
+    const usableWaba = /^\d{10,20}$/.test(configuredWaba) ? configuredWaba : null;
+
+    // Meta stamps the WABA ID on every webhook it delivers (`entry[].id`), so the system already
+    // knows its own account from signature-valid traffic it has received. Falling back to that keeps
+    // the diagnostic working through an environment misconfiguration — but the source is always
+    // reported, so a broken CARUP_META_WABA_ID stays visible rather than being silently papered over.
+    let wabaId = usableWaba;
+    let wabaSource = usableWaba ? 'env' : null;
+    if (!wabaId) {
+      const receipts = await services.repository.list('webhook_logs', { channel: 'whatsapp' })
+        .catch(() => []);
+      const derived = receipts
+        .filter((row) => row.signature_valid === true)
+        .map((row) => ({
+          id: row.payload_redacted?.entry?.[0]?.id,
+          at: new Date(row.received_at || 0).getTime(),
+        }))
+        .filter((row) => /^\d{10,20}$/.test(String(row.id || '')))
+        .sort((a, b) => b.at - a.at)[0];
+      if (derived) {
+        wabaId = String(derived.id);
+        wabaSource = 'webhook_receipt';
+      }
+    }
+
+    const present = {
+      access_token: Boolean(token),
+      waba_id: Boolean(wabaId),
+      waba_id_configured: Boolean(usableWaba),
+      waba_id_source: wabaSource,
+    };
 
     // The governed side is readable regardless of provider reachability, so report it either way.
     const templates = await services.repository.list('communication_templates', {});
@@ -1036,7 +1071,8 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     if (!token || !wabaId) {
       return res.status(200).json({
         ok: false, version, present, stage: 'config',
-        message: 'CARUP_META_ACCESS_TOKEN and/or CARUP_META_WABA_ID is not set; provider status cannot be read.',
+        message: 'CARUP_META_ACCESS_TOKEN is not set, and/or no usable WhatsApp Business Account ID '
+          + 'could be resolved from CARUP_META_WABA_ID or from a signature-valid Meta webhook receipt.',
         governed_bindings: governed, provider_templates: null,
       });
     }
