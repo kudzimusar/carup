@@ -71,6 +71,7 @@ export default function Communications() {
   const {
     fetchCommunicationThreads,
     fetchCommunicationThread,
+    markCommunicationThreadRead,
     fetchCommunicationNotifications,
     fetchCommunicationPreferences,
     sendCommunicationMessage,
@@ -184,17 +185,26 @@ export default function Communications() {
     if (!activeId) return
     let active = true
     fetchCommunicationThread(activeId)
-      .then((result) => {
+      .then(async (result) => {
         if (!active) return
         setDetail(result as ConversationDetail)
         setAiResult(null)
-        setThreads((current) => current.map((thread) => (
-          thread.id === activeId ? { ...thread, unread_count: 0 } : thread
-        )))
+        // Persist the read receipt before clearing the badge. Zeroing unread_count locally made the
+        // conversation look read while last_read_at never moved, so the count came straight back on
+        // the next load — and a failed mutation would have claimed a read state the server never had.
+        try {
+          await markCommunicationThreadRead(activeId)
+          if (!active) return
+          setThreads((current) => current.map((thread) => (
+            thread.id === activeId ? { ...thread, unread_count: 0 } : thread
+          )))
+        } catch {
+          // Leave the unread badge alone: it is the honest state until the server agrees.
+        }
       })
       .catch(() => { if (active) setDetail(null) })
     return () => { active = false }
-  }, [activeId, fetchCommunicationThread])
+  }, [activeId, fetchCommunicationThread, markCommunicationThreadRead])
 
   function selectThread(threadId: string) {
     setActiveId(threadId)
