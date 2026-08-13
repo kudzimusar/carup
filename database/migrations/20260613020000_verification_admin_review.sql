@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Phase 7C: admin / manual-review fields for identity verification sessions.
 --
 -- Additive and idempotent. `reviewed_by` and `reviewed_at` already exist from

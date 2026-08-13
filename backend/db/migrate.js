@@ -2,20 +2,27 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from './database.js';
+import {
+  assertDeterministicVersions,
+  isNonMigrationFile,
+  isRetiredMigration,
+  NON_MIGRATION_FILES,
+  RETIRED_UNAPPLIABLE,
+  parseMigrationSource,
+} from './migrationParser.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, '../../database/migrations');
 
-// Helper to parse migration files into UP and DOWN SQL segments
+// Parse a migration file into its UP and DOWN SQL segments.
+//
+// Delegates to the canonical parser, which THROWS on a missing/duplicate/empty
+// Up section and on malformed boundaries. It previously returned `up: ''` for a
+// marker-less file, which the runner then skipped silently while still reporting
+// overall success. Integrity violations must stop the run.
 function parseMigration(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
-  const upMatch = content.match(/-- \+migrate Up([\s\S]*?)(?:-- \+migrate Down|$)/);
-  const downMatch = content.match(/-- \+migrate Down([\s\S]*?)$/);
-  
-  return {
-    up: upMatch ? upMatch[1].trim() : '',
-    down: downMatch ? downMatch[1].trim() : ''
-  };
+  return parseMigrationSource(content, path.basename(filePath));
 }
 
 export async function runMigrations(action = 'up') {
@@ -34,32 +41,46 @@ export async function runMigrations(action = 'up') {
     throw new Error(`Migrations directory does not exist at: ${migrationsDir}`);
   }
   
-  const files = fs.readdirSync(migrationsDir)
+  const allSqlFiles = fs.readdirSync(migrationsDir)
     .filter(f => f.endsWith('.sql'))
     .sort(); // Lexicographical sort ensures correct execution order
-    
+
+  // Enumerated non-migrations (e.g. the full schema dump) are excluded up front and
+  // named in the log, so an exclusion is always visible and never inferred from a
+  // parse failure.
+  const files = allSqlFiles.filter(f => !isNonMigrationFile(f) && !isRetiredMigration(f));
+  for (const file of allSqlFiles.filter(isNonMigrationFile)) {
+    console.log(`  ⏭️  Excluded non-migration ${file} — ${NON_MIGRATION_FILES[file]}`);
+  }
+  for (const file of allSqlFiles.filter(isRetiredMigration)) {
+    console.log(`  ⏭️  Excluded RETIRED migration ${file} — ${RETIRED_UNAPPLIABLE[file]}`);
+  }
+
+  // Ambiguous versions would make apply order and ledger identity non-deterministic.
+  assertDeterministicVersions(files);
+
   if (action === 'up') {
     console.log('🤖 Running pending migrations...');
+    let appliedCount = 0;
     for (const file of files) {
       const alreadyApplied = await db.get('SELECT 1 FROM schema_migrations WHERE version = ?', [file]);
       if (alreadyApplied) {
         continue;
       }
-      
+
       console.log(`  ➔ Applying UP migration: ${file}`);
+      // Throws MigrationIntegrityError on a missing/empty Up section or malformed
+      // boundaries. Deliberately NOT caught: a migration that cannot be parsed is a
+      // hard failure, not a skip.
       const { up } = parseMigration(path.join(migrationsDir, file));
-      
-      if (!up) {
-        console.warn(`    ⚠️ Warning: No Up section found in migration ${file}`);
-        continue;
-      }
-      
+
       // Execute within transaction for rollback safety
       await db.run('BEGIN TRANSACTION;');
       try {
         await db.exec(up);
         await db.run('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)', [file, new Date().toISOString()]);
         await db.run('COMMIT;');
+        appliedCount += 1;
         console.log(`    ✅ Successfully applied ${file}`);
       } catch (err) {
         await db.run('ROLLBACK;');
@@ -67,7 +88,9 @@ export async function runMigrations(action = 'up') {
         throw err;
       }
     }
-    console.log('🎉 All pending migrations applied successfully.');
+    // Only reachable when every non-excluded migration either was already recorded
+    // or was applied and recorded just now — nothing is skipped on this path.
+    console.log(`🎉 All pending migrations applied successfully (${appliedCount} applied this run).`);
   } else if (action === 'rollback') {
     console.log('🤖 Rolling back the last applied migration...');
     const lastApplied = await db.get('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1');

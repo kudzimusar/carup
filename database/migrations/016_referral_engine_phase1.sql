@@ -1,3 +1,4 @@
+-- +migrate Up
 -- CarUp Referral Engine Phase 1
 -- Foundation schema for codes, campaigns, coupons, wallets, share assets, and audit/event timelines.
 

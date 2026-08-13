@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Navigation Intelligence — privacy-minimized navigation analytics (Milestone F).
 --
 -- Stores ONLY a versioned, enum-bounded navigation telemetry taxonomy. There is

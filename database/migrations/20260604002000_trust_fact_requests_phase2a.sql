@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Phase 2A: governed trust fact request workflow
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
