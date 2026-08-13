@@ -413,3 +413,115 @@ fail-closed, but governance was indistinguishable from an outage and polluted 5x
 0 fail, skipped unchanged at 12. The fix is CI-green but **not yet deployed to staging** —
 Vercel's team-wide daily deployment quota is exhausted — so the live probe above still shows
 the pre-fix 500. Behaviour (fail closed, no provider contact) is identical in both builds.
+
+## Final closure run — PR head `8255e581` (2026-08-13)
+
+Reconciliation with `main` @ `a0ee17b5` (the PR #150 merge), the remaining bounded gates, and the
+current authoritative state of each. Rows above this section are historical receipts; where a row
+below contradicts one above, **this section supersedes it**.
+
+### Reconciliation
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Current-main integration | **SOURCE PASS** | ordinary merge `694d99b`, **0 conflicts**; `main` contributed only the 7 ops files from #149/#150 (workflows, runners, contract tests). No Communications runtime file was touched by the merge. |
+| Frozen migrations 315–323 | **UNCHANGED** | all nine Git blobs byte-identical to `dd7d4de`: `5a70a2ca0884 3b3f8c195de3 b5f28fd2fcbb 745c0697ac79 58a7cd1f4673 2177549f496b c85f301269a2 f32dfdb1eb82 26ad08fd698b` |
+| #149 / #150 ops tooling | **PRESERVED** | both workflows and all three runner/contract files present on the merged head |
+| Migrations 315–323 on staging | **DB PASS (verify only)** | all nine versions present in `supabase_migrations.schema_migrations`; nothing reapplied or rewritten |
+
+### Source regression on the exact head
+
+| Gate | Result |
+|---|---|
+| Backend `node --test backend/tests/*.test.js` | **2851 tests, 2839 pass, 0 fail, 12 skipped** |
+| GitHub CI (all jobs) | **PASS** — Lint·Types·Build·Tests, backend-and-build, communication-unit, communication-postgres, communication-staging, communication-staging-deploy, staging-integration, referral-ci, navigation-gates/e2e/accessibility, playwright, Secret scan, Dependency audit |
+| PGlite migration verification | exit 0 (19 tables up → 0 down → 19 re-up) |
+| Diaspora ledger harnesses | **11 / 11 PASS** |
+| Web typecheck · unit · build | clean · **799 / 799** · see build row |
+| Vercel `carup`, `carup-staging` | **quota, not source** — `Deployment rate limited — retry in 24 hours` |
+
+### A — misrouted production scheduler
+
+| Item | State |
+|---|---|
+| Remediation lane | merged as PR #150 → `main` @ `a0ee17b5` |
+| Dispatch | run **31670651009**, `main`, job `disable-misrouted-comms-cron` |
+| Status | **WAITING at the protected `Production` environment approval gate** (owner-only; not self-approved) |
+| Pre-remediation baseline | stable staging runtime log, deduped by correlation id: **14 / 14 complete minutes** = 1 × `communications/process` 200, **1 × `communications/process` 401**, 1 × `events/process` 200 |
+| Staging's own callers | `net._http_response` shows exactly 2 responses/min, **both 200** — the 401 originates outside canonical staging, as the production preflight proved |
+
+Post-remediation acceptance (≥4 full minute boundaries at 200 = 1/min and **401 = 0/min**, with the
+events drain and WhatsApp/Telegram unchanged) runs immediately after that single approval.
+
+### B — Meta templates
+
+The two owner-created templates (`carup_conversation_reply`, Utility; `carup_reengagement_v1`,
+Marketing) could not be read from this workstation:
+
+* the operator browser has **no Meta session** (`business.facebook.com` redirects to login);
+* Vercel CLI 54.7.1 returns **empty values** for encrypted env vars, so `CARUP_META_ACCESS_TOKEN`
+  is not retrievable locally;
+* preview deployments carry a **different** `COMMUNICATION_WORKER_SECRET` than the production
+  scope, so the canonical staging Vault secret cannot authenticate against a preview build —
+  verified, and reassuring rather than obstructive.
+
+So the read has to run where the token already is. `GET /api/admin/communications/provider-template-status`
+(this head) performs one read-only Graph GET on the WABA's `message_templates` edge behind the
+existing `requireAdminOrWorkerSecret` guard, returning name/language/status/category, Meta's own
+rejection reason, and template **shape** (`component_types`, `body_parameter_count`) — never the
+token, never template copy, never a recipient — joined to the governed registry rows that name each
+template. 11 contract tests; verified load-bearing against a POSTed Graph call, an echoed token,
+and unknown-collapsing-to-false.
+
+| Item | State |
+|---|---|
+| Utility `carup_conversation_reply` | **UNREAD — blocked by the Vercel daily deployment quota** |
+| Marketing `carup_reengagement_v1` | **UNREAD — same** |
+| Governed registry today | `conversation_reply_whatsapp_v1` (service, whatsapp/en, approved) and `carup_reengagement_v1` (marketing, in_app + email only) both have `provider_template_reference` **NULL** |
+| Binding | **not written.** A binding asserts an approval; none is claimed until the provider status is read. |
+
+The binding is one migration away and deliberately unapplied: it would set
+`carup_conversation_reply|en_US` on the service version and add the marketing whatsapp version
+bound to `carup_reengagement_v1|en_US`. The two references stay separate — the Utility template may
+never carry marketing content, and the campaign path resolves the reference from the campaign's own
+governed template, which is what keeps that boundary real rather than declared.
+
+### C — Gemini / Phase 5 AI
+
+| Item | State |
+|---|---|
+| `GEMINI_API_KEY` in the `carup-backend-staging` scope | **absent** (0 matches by name, production and preview) |
+| Runtime agreement | `/api/health` reports `ocrProviders.gemini: false` |
+| Verdict | **EXTERNAL OWNER/COST AUTHORIZATION REQUIRED** — no key added, no billing account created, no plan activated, no quota raised |
+
+### Optional transports — unchanged and truthfully represented
+
+`facebook`, `instagram`, `email`, `sms`, `push` remain **BLOCKED** on absent credentials
+(`CARUP_META_PAGE_ID`; the SendGrid trio; the Twilio quartet; `EXPO_ACCESS_TOKEN`). Aggregate
+`/api/communications/health` is therefore **503 / BLOCKED**, while `whatsapp` and `telegram` are
+**READY** on real adapters with `fakeAdapters.enabled = false` and the scheduler READY. These are
+separate facts and neither retracts the other. Activating those channels is **not required** by the
+Communications 2.0 Definition of Done and is deliberately out of scope.
+
+### Staging provenance — outstanding
+
+The stable staging alias currently serves `dpl_6bJk1oxCBAnc7sXBm3yC4njfhz1a`, built from **branch
+`main`** — the #149/#150 merges displaced the reviewed Communications runtime, exactly the known
+auto-deploy hazard. Redeploying the final exact head to `carup-backend-staging` and `carup-staging`
+is blocked by the same team-wide quota:
+
+```
+Error: Resource is limited - try again in 24 hours (more than 100, code: "api-deployments-free-per-day").
+```
+
+Classified as an infrastructure quota, **not** a source or test failure. Real CarUp production
+(`carup`, `carup-backend`) was not deployed and is not a candidate.
+
+### Impact-based physical regression
+
+`main` contributed **only** ops workflows, ops runners and their tests; the sole Communications
+change on this head is a new read-only diagnostic route. Nothing touched the Marketplace inquiry
+path, WhatsApp routing, template runtime, media path, stakeholder path or campaign path — so the
+prior physical certifications (D1 event fabric, Phase 2 Marketplace ↔ WhatsApp, Phase 5 media,
+Phase 6 11/11, Phase 7 15/15) stand and are **not** re-run from scratch. The concise smoke proof on
+the redeployed exact head is the remaining step, and it is queued behind the quota.
