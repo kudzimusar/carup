@@ -265,7 +265,16 @@ export class CommunicationConversationService {
       .filter((row) => !provider || !row.provider || row.provider === provider)
       .filter((row) => !row.expires_at || Date.parse(row.expires_at) > Date.now())
       .sort((a, b) => bindingTime(b) - bindingTime(a));
-    if (!candidates.length) return null;
+
+    if (!candidates.length) {
+      // No binding for THIS identity row. That is the normal state for a provider callback:
+      // channel identities are tenant-scoped, a public webhook arrives in platform context, so
+      // resolveOrCreateIdentity mints a second identity for an address a tenant conversation
+      // already owns. Routing on that identity alone would open a shadow conversation for a
+      // customer who is already in one.
+      return this.resolveProviderIngressConversation({ identity, channel: normalizedChannel, provider });
+    }
+
     if (candidates.length > 1 && bindingTime(candidates[0]) === bindingTime(candidates[1])) {
       // Ambiguous identity with no recency signal: never guess across business conversations.
       return null;
@@ -275,6 +284,66 @@ export class CommunicationConversationService {
     const participant = await this.repository.findOne('message_participants', { id: binding.participant_id });
     if (!thread || !participant || participant.left_at) return null;
     return { thread, participant, binding };
+  }
+
+  /**
+   * Route a provider callback to an existing canonical conversation held under a DIFFERENT tenant's
+   * channel identity for the same real-world address.
+   *
+   * This is deliberately narrow, and exists only for provider ingress:
+   *
+   *  · the address must match exactly, on the stored normalized_address — never a raw string
+   *    compare and never a prefix/fuzzy match;
+   *  · channel and provider must match exactly;
+   *  · it only ROUTES. Nothing here reassigns tenant ownership, merges identities, or copies one
+   *    tenant's identity into another. The inbound message lands on the conversation that already
+   *    owns the customer, which is the conversation the customer is actually in;
+   *  · exactly one eligible conversation must remain, or it fails closed. An address that legitimately
+   *    belongs to two conversations is genuinely ambiguous, and guessing by recency would put one
+   *    customer's message into another customer's thread.
+   */
+  async resolveProviderIngressConversation({ identity, channel, provider } = {}) {
+    const address = String(identity?.normalized_address || '').trim();
+    if (!address) return null;
+    const normalizedChannel = normalizeChannel(channel || identity.channel);
+    if (!normalizedChannel) return null;
+
+    const siblings = (await this.repository.list('channel_identities', { channel: normalizedChannel }, { limit: 200 })
+      .catch(() => []))
+      .filter((row) => String(row.id) !== String(identity.id))
+      .filter((row) => String(row.normalized_address || '').trim() === address)
+      .filter((row) => !provider || !row.provider || row.provider === provider)
+      .filter((row) => row.consent_status !== 'opted_out' && row.consent_status !== 'revoked');
+    if (!siblings.length) return null;
+
+    const routes = [];
+    for (const sibling of siblings) {
+      const bindings = (await this.repository.list('conversation_channel_bindings', { channel_identity_id: sibling.id })
+        .catch(() => []))
+        .filter((row) => row.can_receive !== false)
+        .filter((row) => row.channel === normalizedChannel)
+        .filter((row) => !provider || !row.provider || row.provider === provider)
+        .filter((row) => !row.expires_at || Date.parse(row.expires_at) > Date.now());
+      for (const binding of bindings) routes.push({ binding, identity: sibling });
+    }
+    if (!routes.length) return null;
+
+    // One customer may legitimately hold several bindings inside a single conversation; several
+    // CONVERSATIONS is the ambiguity that must fail closed.
+    const threadIds = new Set(routes.map((r) => String(r.binding.thread_id)));
+    if (threadIds.size !== 1) return null;
+
+    const chosen = routes.sort((a, b) => bindingTime(b.binding) - bindingTime(a.binding))[0];
+    const thread = await this.repository.findOne('message_threads', { id: chosen.binding.thread_id });
+    const participant = await this.repository.findOne('message_participants', { id: chosen.binding.participant_id });
+    if (!thread || !participant || participant.left_at) return null;
+    return {
+      thread,
+      participant,
+      binding: chosen.binding,
+      resolution: 'provider_ingress_address_binding',
+      matched_identity_id: chosen.identity.id,
+    };
   }
 
   async recordInboundBinding(binding, message) {
@@ -452,6 +521,9 @@ export class CommunicationConversationService {
     const clientMessageId = `marketplace-inquiry:${inquiryId}`;
     let message = (await this.repository.list('messages', { thread_id: thread.id }))
       .find((row) => row.client_message_id === clientMessageId) || null;
+    // The canonical message is deduped by client_message_id, so a replayed domain event reuses it.
+    // Anything that must happen ONCE has to key off this flag rather than off the call itself.
+    const messageCreated = !message;
     if (!message) {
       message = await this.threadService.recordMessage(thread, {
         direction: 'inbound',
@@ -476,34 +548,49 @@ export class CommunicationConversationService {
       await this.repository.updateById('message_threads', thread.id, { last_inbound_at: message.created_at });
     }
 
-    const attribution = {
-      source: inquiry.source_channel || null,
-      referral_code: inquiry.referral_code || null,
-      campaign_code: inquiry.campaign_code || null,
-      ...safeMetadata(inquiry.metadata),
-    };
-    await this.recordAnalytics({
-      threadId: thread.id,
-      messageId: message.id,
-      participantId: buyer.id,
-      eventType: 'conversation_started',
-      workflow: 'marketplace',
-      funnelStage: 'conversation',
-      attribution,
-      metadata: { inquiry_id: inquiryId, listing_id: inquiry.listing_id || null },
-    });
-    await this.recordAnalytics({
-      threadId: thread.id,
-      messageId: message.id,
-      participantId: buyer.id,
-      eventType: 'inquiry_created',
-      workflow: 'marketplace',
-      funnelStage: 'conversation',
-      attribution,
-      metadata: { inquiry_id: inquiryId },
-    });
+    // Route the canonical message to the other participants. The orchestrator returns straight from
+    // here and never reaches queueFromDomainEvent, so without this the seller was never told an
+    // inquiry had arrived — the conversation existed and nobody was notified.
+    //
+    // routeMessage is the canonical primitive and is already correct for this: it excludes the
+    // SENDER (the buyer, so no self-echo), skips system/agent placeholders, requires read
+    // permission, and dedupes on the MESSAGE id — so a replayed event reuses the deduped message
+    // and cannot produce a second seller notification.
+    const deliveries = await this.routeMessage(thread, buyer, message);
 
-    return [{ thread, message, seller, buyer, canonical: true }];
+    // Analytics is only idempotent if it is tied to message creation. conversation_started and
+    // inquiry_created have no dedupe of their own, so emitting them per invocation double-counted
+    // the funnel on every replay of the same inquiry.
+    if (messageCreated) {
+      const attribution = {
+        source: inquiry.source_channel || null,
+        referral_code: inquiry.referral_code || null,
+        campaign_code: inquiry.campaign_code || null,
+        ...safeMetadata(inquiry.metadata),
+      };
+      await this.recordAnalytics({
+        threadId: thread.id,
+        messageId: message.id,
+        participantId: buyer.id,
+        eventType: 'conversation_started',
+        workflow: 'marketplace',
+        funnelStage: 'conversation',
+        attribution,
+        metadata: { inquiry_id: inquiryId, listing_id: inquiry.listing_id || null },
+      });
+      await this.recordAnalytics({
+        threadId: thread.id,
+        messageId: message.id,
+        participantId: buyer.id,
+        eventType: 'inquiry_created',
+        workflow: 'marketplace',
+        funnelStage: 'conversation',
+        attribution,
+        metadata: { inquiry_id: inquiryId },
+      });
+    }
+
+    return [{ thread, message, seller, buyer, deliveries, canonical: true }];
   }
 
   async sendParticipantMessage(threadId, actor = {}, input = {}) {
