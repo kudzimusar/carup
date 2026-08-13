@@ -980,6 +980,118 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     return res.status(200).json({ ok: readOnly.phone_number_id_accessible, channel, version, present, whitespace, read_only: readOnly, post_probe: postProbe });
   }));
 
+  // Reduce a Meta template's components to their shape: which sections exist and how many
+  // positional BODY parameters the template expects. Deliberately returns no text — the count is
+  // what a CarUp binding has to agree with, and the wording is the owner's.
+  function describeTemplateShape(components) {
+    const list = Array.isArray(components) ? components : [];
+    const body = list.find((c) => String(c?.type || '').toUpperCase() === 'BODY');
+    const placeholders = new Set(String(body?.text || '').match(/\{\{\s*\d+\s*\}\}/g) || []);
+    return {
+      component_types: list.map((c) => String(c?.type || 'UNKNOWN').toUpperCase()),
+      body_parameter_count: placeholders.size,
+    };
+  }
+
+  // Read-only Meta provider template status, joined to the governed CarUp registry.
+  //
+  // Business-initiated WhatsApp can only be certified once a Meta-side template is APPROVED and a
+  // CarUp governed version carries its provider reference. Those two facts live in two different
+  // systems, and the only credential that can read the Meta side is the server's own access token —
+  // it is not retrievable from the Vercel CLI, and the operator browser has no Meta session. So the
+  // check has to run here, where the token already is.
+  //
+  // Strictly read-only: one Graph GET on the WABA's message_templates edge. It sends nothing,
+  // creates nothing, and writes nothing. It returns ONLY name/language/status/category and the
+  // provider's own rejection reason — never the token, never template body content, never a
+  // recipient. Pairing each Meta template with the governed rows that reference it is what makes a
+  // binding claim checkable rather than asserted.
+  router.get('/api/admin/communications/provider-template-status', requireAdminOrWorkerSecret, asyncHandler(async (req, res) => {
+    const version = 'v20.0';
+    const token = trimmedEnvValue(process.env, 'CARUP_META_ACCESS_TOKEN');
+    const wabaId = trimmedEnvValue(process.env, 'CARUP_META_WABA_ID');
+    const present = { access_token: Boolean(token), waba_id: Boolean(wabaId) };
+
+    // The governed side is readable regardless of provider reachability, so report it either way.
+    const templates = await services.repository.list('communication_templates', {});
+    const versions = await services.repository.list('communication_template_versions', {});
+    const byId = new Map(templates.map((t) => [t.id, t]));
+    const governed = versions
+      .filter((v) => v.provider_template_reference)
+      .map((v) => {
+        const t = byId.get(v.template_id) || {};
+        return {
+          template_key: t.template_key || null,
+          classification: t.classification || null,
+          template_status: t.status || null,
+          version: v.version,
+          channel: v.channel,
+          language: v.language,
+          approval_status: v.approval_status,
+          provider_template_reference: v.provider_template_reference,
+        };
+      })
+      .sort((a, b) => String(a.template_key).localeCompare(String(b.template_key)));
+
+    if (!token || !wabaId) {
+      return res.status(200).json({
+        ok: false, version, present, stage: 'config',
+        message: 'CARUP_META_ACCESS_TOKEN and/or CARUP_META_WABA_ID is not set; provider status cannot be read.',
+        governed_bindings: governed, provider_templates: null,
+      });
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let providerTemplates = null;
+    let meta = null;
+    let httpStatus = 0;
+    try {
+      const url = `https://graph.facebook.com/${version}/${encodeURIComponent(wabaId)}/message_templates`
+        + '?limit=100&fields=name,language,status,category,rejected_reason,components';
+      const r = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: controller.signal });
+      httpStatus = r.status;
+      const text = await r.text();
+      let parsed = null; try { parsed = JSON.parse(text); } catch { parsed = text; }
+      if (r.ok && parsed && Array.isArray(parsed.data)) {
+        providerTemplates = parsed.data.map((t) => ({
+          name: t.name,
+          language: t.language,
+          status: t.status,
+          category: t.category,
+          rejected_reason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : null,
+          // The reference the governed registry must carry for this exact template.
+          provider_reference: `${t.name}|${t.language}`,
+          // Shape, never copy. A send whose parameter count does not match the template is
+          // rejected by Meta, so the count is the part of the template a binding has to agree
+          // with — the wording is the owner's and stays on Meta's side.
+          ...describeTemplateShape(t.components),
+        }));
+      } else {
+        meta = sanitizeProviderError(r.status, parsed);
+      }
+    } catch (error) {
+      meta = { provider_error_message: error?.name === 'AbortError' ? 'template lookup timed out' : 'template lookup network error' };
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // A governed row pointing at a reference Meta does not report is a binding that cannot deliver.
+    const referenced = new Set((providerTemplates || []).map((t) => t.provider_reference));
+    const bindings = governed.map((g) => ({
+      ...g,
+      provider_reference_found: providerTemplates ? referenced.has(g.provider_template_reference) : null,
+      provider_status: providerTemplates
+        ? (providerTemplates.find((t) => t.provider_reference === g.provider_template_reference)?.status ?? null)
+        : null,
+    }));
+
+    return res.status(200).json({
+      ok: Boolean(providerTemplates), version, present, http_status: httpStatus,
+      meta, provider_templates: providerTemplates, governed_bindings: bindings,
+    });
+  }));
+
   router.get('/api/admin/communications/metrics', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {
     // Tenant-scoped (fail-closed) so a tenant operator's header stats reflect only their own volume.
     // NOTE: still computed in JS over a bounded list; at very large scale prefer the counts RPC.
