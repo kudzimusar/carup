@@ -1021,22 +1021,33 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     // knows its own account from signature-valid traffic it has received. Falling back to that keeps
     // the diagnostic working through an environment misconfiguration — but the source is always
     // reported, so a broken CARUP_META_WABA_ID stays visible rather than being silently papered over.
+    //
+    // The fallback resolves only when the evidence is UNAMBIGUOUS. The account id decides which
+    // Meta template registry is read, and this diagnostic's answer is what authorizes a provider
+    // binding — so "most recent receipt wins" is the wrong rule: with receipts from two accounts it
+    // would quietly pick one and report an approval that belongs to the other. Zero or several
+    // distinct signed accounts both fail closed.
     let wabaId = usableWaba;
     let wabaSource = usableWaba ? 'env' : null;
+    let wabaReason = usableWaba ? null : 'configured_value_unusable';
+    let signedAccounts = [];
     if (!wabaId) {
       const receipts = await services.repository.list('webhook_logs', { channel: 'whatsapp' })
         .catch(() => []);
-      const derived = receipts
-        .filter((row) => row.signature_valid === true)
-        .map((row) => ({
-          id: row.payload_redacted?.entry?.[0]?.id,
-          at: new Date(row.received_at || 0).getTime(),
-        }))
-        .filter((row) => /^\d{10,20}$/.test(String(row.id || '')))
-        .sort((a, b) => b.at - a.at)[0];
-      if (derived) {
-        wabaId = String(derived.id);
+      signedAccounts = [...new Set(
+        receipts
+          .filter((row) => row.signature_valid === true)
+          .map((row) => String(row.payload_redacted?.entry?.[0]?.id ?? ''))
+          .filter((id) => /^\d{10,20}$/.test(id)),
+      )];
+      if (signedAccounts.length === 1) {
+        [wabaId] = signedAccounts;
         wabaSource = 'webhook_receipt';
+        wabaReason = null;
+      } else if (signedAccounts.length === 0) {
+        wabaReason = 'unresolved_no_signed_receipt';
+      } else {
+        wabaReason = 'ambiguous_multiple_signed_accounts';
       }
     }
 
@@ -1045,6 +1056,9 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
       waba_id: Boolean(wabaId),
       waba_id_configured: Boolean(usableWaba),
       waba_id_source: wabaSource,
+      waba_id_reason: wabaReason,
+      // Count only — the ids themselves are account identifiers and are not needed to act on this.
+      signed_account_candidates: usableWaba ? null : signedAccounts.length,
     };
 
     // The governed side is readable regardless of provider reachability, so report it either way.

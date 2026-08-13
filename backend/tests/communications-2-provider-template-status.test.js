@@ -230,44 +230,107 @@ test('missing configuration is reported, not guessed', async () => {
  * The real failure this guards against: CARUP_META_WABA_ID saved with its quotes arrives as the
  * literal two-character string `""`. Passed straight through it produced a Graph
  * "Object with ID '\"\"' does not exist" error — which blames Meta for a local misconfiguration.
+ *
+ * The fallback resolves only on unambiguous evidence. This diagnostic's answer authorizes a
+ * provider binding, and the account id decides which template registry is read, so guessing among
+ * accounts could approve a binding against the wrong business.
  */
-const WEBHOOK_ROWS = {
-  ...GOVERNED_ROWS,
-  webhook_logs: [
-    { channel: 'whatsapp', signature_valid: true, received_at: '2026-08-01T00:00:00Z', payload_redacted: { entry: [{ id: '1111111111111111' }] } },
-    { channel: 'whatsapp', signature_valid: true, received_at: '2026-08-12T07:43:07Z', payload_redacted: { entry: [{ id: '2061495501115454' }] } },
-    // Unsigned traffic is untrusted and must never define which account we query.
-    { channel: 'whatsapp', signature_valid: false, received_at: '2026-08-13T00:00:00Z', payload_redacted: { entry: [{ id: '9999999999999999' }] } },
-    // Test fixtures that are not Graph object IDs.
-    { channel: 'whatsapp', signature_valid: true, received_at: '2026-08-13T01:00:00Z', payload_redacted: { entry: [{ id: 'uat-waba-1' }] } },
-  ],
-};
-
-test('a quoted-empty WABA id is rejected and the account is derived from signed webhook receipts', async () => {
-  const { response, requests } = await callDiagnostic({
-    graph: graphOk([{ name: 'carup_conversation_reply', language: 'en_US', status: 'APPROVED', category: 'UTILITY', components: [{ type: 'BODY', text: '{{1}}' }] }]),
-    rows: WEBHOOK_ROWS,
-    env: { waba: '""' },
-  });
-
-  assert.equal(response.body.present.waba_id_configured, false, 'a quoted-empty value is not a usable account id');
-  assert.equal(response.body.present.waba_id_source, 'webhook_receipt', 'and the misconfiguration stays visible');
-  assert.equal(requests.length, 1);
-  assert.match(requests[0].url, /\/v20\.0\/2061495501115454\/message_templates/, 'the most recent SIGNED receipt wins');
-  assert.ok(!requests[0].url.includes('9999999999999999'), 'an unsigned receipt must never select the account');
-  assert.ok(!requests[0].url.includes('uat-waba-1'), 'a non-numeric fixture must never select the account');
-  assert.equal(response.body.ok, true);
+const receipt = (id, { signed = true, at = '2026-08-01T00:00:00Z' } = {}) => ({
+  channel: 'whatsapp', signature_valid: signed, received_at: at, payload_redacted: { entry: [{ id }] },
 });
 
-test('a correctly configured WABA id is used and reported as configured', async () => {
+const withReceipts = (...rows) => ({ ...GOVERNED_ROWS, webhook_logs: rows });
+
+const APPROVED_UTILITY = [{ name: 'carup_conversation_reply', language: 'en_US', status: 'APPROVED', category: 'UTILITY', components: [{ type: 'BODY', text: '{{1}}' }] }];
+
+test('a valid configured WABA id always wins over webhook history', async () => {
   const { response, requests } = await callDiagnostic({
     graph: graphOk([]),
-    rows: WEBHOOK_ROWS,
+    rows: withReceipts(receipt('2061495501115454')),
     env: { waba: '3030303030303030' },
   });
   assert.equal(response.body.present.waba_id_configured, true);
-  assert.equal(response.body.present.waba_id_source, 'env', 'a valid env value takes precedence over webhook history');
+  assert.equal(response.body.present.waba_id_source, 'env');
+  assert.equal(response.body.present.waba_id_reason, null);
+  assert.equal(response.body.present.signed_account_candidates, null, 'webhook history is not even consulted');
   assert.match(requests[0].url, /\/3030303030303030\/message_templates/);
+});
+
+test('a quoted-empty WABA id falls back to the single distinct signed account', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk(APPROVED_UTILITY),
+    rows: withReceipts(receipt('2061495501115454')),
+    env: { waba: '""' },
+  });
+  assert.equal(response.body.present.waba_id_configured, false, 'a quoted-empty value is not a usable account id');
+  assert.equal(response.body.present.waba_id_source, 'webhook_receipt', 'the misconfiguration stays visible');
+  assert.equal(response.body.present.signed_account_candidates, 1);
+  assert.match(requests[0].url, /\/v20\.0\/2061495501115454\/message_templates/);
+  assert.equal(response.body.ok, true);
+});
+
+test('many receipts of the SAME account still resolve — repetition is not ambiguity', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk(APPROVED_UTILITY),
+    rows: withReceipts(
+      receipt('2061495501115454', { at: '2026-08-01T00:00:00Z' }),
+      receipt('2061495501115454', { at: '2026-08-11T00:00:00Z' }),
+      receipt('2061495501115454', { at: '2026-08-12T07:43:07Z' }),
+    ),
+    env: { waba: '""' },
+  });
+  assert.equal(response.body.present.signed_account_candidates, 1, 'deduplicated');
+  assert.equal(response.body.present.waba_id_source, 'webhook_receipt');
+  assert.match(requests[0].url, /\/2061495501115454\//);
+});
+
+test('two distinct signed accounts fail CLOSED — never most-recent-wins', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk(APPROVED_UTILITY),
+    rows: withReceipts(
+      receipt('2061495501115454', { at: '2026-08-01T00:00:00Z' }),
+      receipt('7777777777777777', { at: '2026-08-13T00:00:00Z' }),
+    ),
+    env: { waba: '""' },
+  });
+  assert.equal(requests.length, 0, 'must not query Meta with a guessed account');
+  assert.equal(response.body.ok, false);
+  assert.equal(response.body.stage, 'config');
+  assert.equal(response.body.present.waba_id, false);
+  assert.equal(response.body.present.waba_id_source, null);
+  assert.equal(response.body.present.waba_id_reason, 'ambiguous_multiple_signed_accounts');
+  assert.equal(response.body.present.signed_account_candidates, 2);
+});
+
+test('unsigned receipts never contribute an account', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk(APPROVED_UTILITY),
+    rows: withReceipts(receipt('9999999999999999', { signed: false, at: '2026-08-13T00:00:00Z' })),
+    env: { waba: '""' },
+  });
+  assert.equal(requests.length, 0);
+  assert.equal(response.body.present.waba_id_reason, 'unresolved_no_signed_receipt');
+  assert.equal(response.body.present.signed_account_candidates, 0);
+});
+
+test('non-numeric receipt ids never contribute an account', async () => {
+  const { response, requests } = await callDiagnostic({
+    graph: graphOk(APPROVED_UTILITY),
+    rows: withReceipts(receipt('uat-waba-1'), receipt('0')),
+    env: { waba: '""' },
+  });
+  assert.equal(requests.length, 0);
+  assert.equal(response.body.present.waba_id_reason, 'unresolved_no_signed_receipt');
+  assert.equal(response.body.present.signed_account_candidates, 0);
+});
+
+test('no token or raw secret is returned by any fallback path', async () => {
+  for (const rows of [withReceipts(receipt('2061495501115454')), withReceipts(receipt('1111111111111111'), receipt('2222222222222222'))]) {
+    const { response } = await callDiagnostic({ graph: graphOk(APPROVED_UTILITY), rows, env: { waba: '""' } });
+    const serialized = JSON.stringify(response.body);
+    assert.ok(!serialized.includes(TOKEN), 'the token must never reach the response');
+    assert.ok(!/authorization/i.test(serialized));
+  }
 });
 
 test('the diagnostic requires admin or worker-secret authentication', async () => {
