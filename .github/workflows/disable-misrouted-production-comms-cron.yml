@@ -1,0 +1,113 @@
+name: Disable Misrouted Production Communications Scheduler
+
+# One-purpose governed lane. It disables the single production pg_cron job that
+# the read-only preflight (run 31664918986, MODE=preflight, zero writes) proved
+# is misrouted: carup-communication-worker-every-minute, jobid 1, '* * * * *',
+# active, with CARUP_WORKER_ENDPOINT_URL resolving to
+# carup-backend-staging.vercel.app. That production scheduler authenticates with
+# the production worker secret against the staging deployment, which rejects it —
+# one HTTP 401 per minute.
+#
+# It does NOT repoint the job at the production backend. Production Communications
+# is not ready to be activated (seven publication-gate migrations unrecorded,
+# partsentry_review_requests missing, trust-side convergence outstanding, 82
+# pending domain_events, no production events scheduler), and repointing would
+# start draining that backlog through a live worker.
+#
+# Deliberately separate from publication-gate-production-migrations.yml: that lane
+# owns seven migrations and its apply path is a different, much larger decision.
+# This lane can only ever unschedule one named job.
+#
+# Controls, matching the publication-gate lane exactly:
+#   · workflow_dispatch only — never on push or pull_request;
+#   · environment: production — protected, owner approval required;
+#   · runs only from refs/heads/main, and only for the owner as BOTH
+#     github.actor (the original dispatcher, which survives re-runs) and
+#     github.triggering_actor (whoever pressed the button now);
+#   · the exact authorization phrase is required, checked in the workflow AND
+#     again inside the runner;
+#   · the executed code is hard-pinned to a reviewed candidate SHA, asserted
+#     after checkout.
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: 'Required: the exact phrase DISABLE MISROUTED PRODUCTION COMMUNICATIONS SCHEDULER'
+        required: true
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: disable-misrouted-production-comms-cron
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose runner is executed.
+  CANDIDATE_SHA: 758c0157f9359e62bccc532876673ddd58e1c447
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  disable-misrouted-comms-cron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Require the exact authorization phrase
+        env:
+          AUTHORIZATION_PHRASE: ${{ inputs.authorization }}
+        run: |
+          expected='DISABLE MISROUTED PRODUCTION COMMUNICATIONS SCHEDULER'
+          if [ "$AUTHORIZATION_PHRASE" != "$expected" ]; then
+            echo "::error::this lane requires the exact owner authorization phrase; refusing."
+            exit 1
+          fi
+          echo 'Authorization phrase accepted.'
+
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 758c0157f9359e62bccc532876673ddd58e1c447
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Disable the misrouted production communications scheduler'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+          AUTHORIZATION_PHRASE: ${{ inputs.authorization }}
+        run: node backend/scripts/production-disable-misrouted-comms-cron.mjs

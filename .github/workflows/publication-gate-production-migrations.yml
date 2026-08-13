@@ -75,7 +75,7 @@ concurrency:
 
 env:
   # The single reviewed commit whose runner and migration files are executed.
-  CANDIDATE_SHA: 9d9af1fe7db9c1d604fde437b2a2821a19aaee9f
+  CANDIDATE_SHA: 8b9230db6d1f513a336bab23180558e46ef6a682
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -93,7 +93,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 9d9af1fe7db9c1d604fde437b2a2821a19aaee9f
+          ref: 8b9230db6d1f513a336bab23180558e46ef6a682
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
