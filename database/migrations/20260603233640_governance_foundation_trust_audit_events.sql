@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Governance Foundation: central trust audit events
 -- Postgres/Supabase-safe immutable audit trail for governed trust facts.
 

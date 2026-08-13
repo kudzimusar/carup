@@ -1,3 +1,4 @@
+-- +migrate Up
 CREATE TABLE IF NOT EXISTS dealer_leads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id TEXT NOT NULL,

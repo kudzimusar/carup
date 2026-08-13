@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Phase 7B: password storage for /api/auth/login.
 --
 -- Until now the users table had no password column, so login could only

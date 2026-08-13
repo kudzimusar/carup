@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Feature governance: runtime rollout overrides.
 --
 -- Backend-persisted, server-owned overrides that overlay the static feature

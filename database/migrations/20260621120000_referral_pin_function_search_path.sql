@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Resolve the Supabase security advisory "Function Search Path Mutable" for the
 -- referral updated_at trigger function (public.set_referral_updated_at), created
 -- in 016_referral_engine_phase1.sql without a pinned search_path.

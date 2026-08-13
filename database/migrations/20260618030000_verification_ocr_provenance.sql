@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Phase 7C Workstream D: OCR provenance for identity verification.
 --
 -- Append-only audit of every automated OCR attempt behind a verification

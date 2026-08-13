@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Phase 7B: missing Postgres schema for Supabase (auth sessions + identity verification).
 --
 -- Discovery (2026-06-13): the live Supabase project has no `user_sessions`,

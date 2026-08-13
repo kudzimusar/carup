@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Phase 7B: backend verification sessions for mobile OCR persistence.
 -- Raw images stay in the private Supabase Storage bucket (`ocr-documents`);
 -- this table stores only secure storage paths, status, and sanitized OCR output.
