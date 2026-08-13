@@ -420,6 +420,95 @@ async function inventoryDependencies(client) {
   return dep;
 }
 
+/**
+ * COMMUNICATIONS SCHEDULER DIAGNOSTIC — preflight-only, strictly read-only.
+ *
+ * Staging observes two callers per minute on
+ * POST /api/internal/communications/process: one authenticated 200 (canonical
+ * staging pg_cron) and one 401 rejected in 1-2ms. Everything reachable from the
+ * operator workstation has been ruled out — staging pg_cron/pg_net (two jobs,
+ * both 200), Vercel project crons (none defined), every branch's GitHub Actions,
+ * and the Cloudflare worker (placeholder only, never activated). The remaining
+ * hypothesis is a production-side scheduler pointed at the staging host.
+ *
+ * This probe answers that one question and nothing else. It never remediates.
+ *
+ * Secret discipline, in order of preference:
+ *   · existence is read from vault.secrets — no decryption at all;
+ *   · the endpoint is reduced to a HOSTNAME inside PostgreSQL, before the value
+ *     can reach Node, using substring(... from '^https?://([^/]+)'). substring
+ *     with a capture group yields the capture or NULL — a malformed value can
+ *     never fall through as the original secret, which a regexp_replace with an
+ *     unanchored pattern could. decrypted_secret is never selected bare.
+ */
+const COMMS_JOB_NAME = 'carup-communication-worker-every-minute';
+const COMMS_EXPECTED_SCHEDULE = '* * * * *';
+const COMMS_SUSPECT_HOST = 'carup-backend-staging.vercel.app';
+
+async function communicationsSchedulerProbe(client) {
+  console.log('── production communications scheduler probe (read-only diagnostic) ──');
+  const finding = { jobReadable: false, job: null, jobCount: null, hostReadable: false, host: null };
+
+  await optionalProbe(client, async () => {
+    const { rows } = await client.query(
+      'select jobid, jobname, schedule, active from cron.job where jobname = $1 order by jobid',
+      [COMMS_JOB_NAME]);
+    const { rows: counted } = await client.query(
+      'select count(*)::int c from cron.job where jobname = $1', [COMMS_JOB_NAME]);
+    finding.jobReadable = true;
+    finding.jobCount = counted[0].c;
+    finding.job = rows[0] || null;
+    console.log(`comms cron jobs named '${COMMS_JOB_NAME}': ${finding.jobCount}`);
+    for (const r of rows) {
+      console.log(`comms cron job: jobid=${r.jobid} jobname='${r.jobname}' schedule='${r.schedule}' active=${r.active}`);
+    }
+    if (!rows.length) console.log('comms cron job: ABSENT in production');
+  }, (e) => `comms cron job: cron schema not readable with this role (informational: ${e.code || e.message})`);
+
+  await optionalProbe(client, async () => {
+    const { rows } = await client.query(`
+      select name from vault.secrets
+      where name in ('CARUP_WORKER_ENDPOINT_URL','CARUP_WORKER_SECRET','COMMUNICATION_WORKER_SECRET','CRON_SECRET')
+      order by name`);
+    console.log(`comms Vault secret NAMES present: ${rows.length ? rows.map((r) => r.name).join(', ') : '(none of the four)'}`);
+  }, (e) => `comms Vault names: vault.secrets not readable with this role (informational: ${e.code || e.message})`);
+
+  // Hostname only. The capture group is the sole thing that can be returned.
+  await optionalProbe(client, async () => {
+    const { rows } = await client.query(`
+      select coalesce(substring(decrypted_secret from '^https?://([^/]+)'), 'NON_URL') as endpoint_host
+      from vault.decrypted_secrets where name = 'CARUP_WORKER_ENDPOINT_URL' limit 1`);
+    finding.hostReadable = true;
+    finding.host = rows.length ? rows[0].endpoint_host : 'UNSET';
+    console.log(`comms endpoint_host (hostname only): ${finding.host}`);
+  }, (e) => `comms endpoint_host: vault.decrypted_secrets not readable with this role (informational: ${e.code || e.message})`);
+
+  let decision = 'INCONCLUSIVE';
+  let because = 'a required probe was not readable with this role';
+  if (finding.jobReadable && finding.job === null) {
+    decision = 'DISPROVED';
+    because = `no cron job named '${COMMS_JOB_NAME}' exists in production`;
+  } else if (finding.jobReadable && finding.job && finding.job.active !== true) {
+    decision = 'DISPROVED';
+    because = 'the production comms cron job exists but is not active';
+  } else if (finding.jobReadable && finding.job && finding.job.schedule !== COMMS_EXPECTED_SCHEDULE) {
+    decision = 'DISPROVED';
+    because = `the production comms cron schedule is '${finding.job.schedule}', not '${COMMS_EXPECTED_SCHEDULE}'`;
+  } else if (finding.jobReadable && finding.job && finding.hostReadable) {
+    if (finding.host === COMMS_SUSPECT_HOST) {
+      decision = 'CONFIRMED';
+      because = `an active ${COMMS_EXPECTED_SCHEDULE} production comms scheduler targets ${COMMS_SUSPECT_HOST}`;
+    } else {
+      decision = 'DISPROVED';
+      because = `the production comms scheduler endpoint host is ${finding.host}, not ${COMMS_SUSPECT_HOST}`;
+    }
+  }
+  console.log(`COMMS_SCHEDULER_PROBE_DECISION=${decision}`);
+  console.log(`COMMS_SCHEDULER_PROBE_REASON=${because}`);
+  console.log('comms scheduler probe: diagnostic only — nothing was scheduled, unscheduled, rotated or written.');
+  return { decision, because };
+}
+
 /** Run a read-only probe that is allowed to fail, without poisoning an
  *  enclosing transaction: savepoint-wrapped when a transaction is open,
  *  bare in autocommit. Failures print `label(err)` and never propagate. */
@@ -492,6 +581,10 @@ try {
   if (MODE === 'preflight') {
     await client.query('BEGIN TRANSACTION READ ONLY');
     await inspect(client, 'PRODUCTION PREFLIGHT (read-only)');
+    // Diagnostic only, and deliberately preflight-only: it must never be
+    // reachable from the apply path, and it runs inside the same READ ONLY
+    // transaction that is rolled back below.
+    await communicationsSchedulerProbe(client);
     await client.query('ROLLBACK');
     console.log('PREFLIGHT COMPLETE — nothing was written. Review the evidence above before authorizing apply.');
   } else {
