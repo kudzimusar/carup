@@ -37,6 +37,38 @@ function unavailable(message) {
 const isAudio = (mimeType) => /^audio\//i.test(String(mimeType || ''));
 const isImage = (mimeType) => /^image\//i.test(String(mimeType || ''));
 
+/**
+ * Whisper validates the uploaded file by its NAME, not by its bytes or content type: a genuine
+ * 16-bit PCM WAV uploaded as "audio" is rejected with
+ * "file must be one of the following types: [flac mp3 mp4 mpeg mpga m4a ogg opus wav webm]".
+ * Canonical parts carry a mime type and bytes, not a filename, so the extension has to be derived
+ * here or every real transcription fails.
+ */
+const AUDIO_EXTENSIONS = {
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/wave': 'wav',
+  'audio/vnd.wave': 'wav',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/m4a': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/aac': 'm4a',
+  'audio/ogg': 'ogg',
+  'audio/opus': 'opus',
+  'audio/webm': 'webm',
+  'audio/flac': 'flac',
+  'audio/x-flac': 'flac',
+};
+
+export function audioFileName(mimeType, provided = null) {
+  const extension = AUDIO_EXTENSIONS[String(mimeType || '').toLowerCase()];
+  if (provided && /\.[a-z0-9]{2,5}$/i.test(provided)) return provided;
+  if (!extension) return null;
+  return `${String(provided || 'audio').replace(/\.+$/, '')}.${extension}`;
+}
+
 export class CommunicationGroqProvider {
   constructor({
     apiKey = process.env.GROQ_API_KEY || process.env.CARUP_KIMI_GROQ_API_KEY,
@@ -108,9 +140,14 @@ export class CommunicationGroqProvider {
     this.assertConfigured();
     if (!this.audioModel) throw unavailable('Communications AI audio transcription is not configured.');
 
+    const filename = audioFileName(item.mimeType, item.filename);
+    if (!filename) {
+      throw unavailable(`Communications AI cannot transcribe audio type ${item.mimeType} with the configured provider.`);
+    }
+
     const bytes = Buffer.from(item.dataBase64, 'base64');
     const form = new FormData();
-    form.append('file', new Blob([bytes], { type: item.mimeType }), item.filename || 'audio');
+    form.append('file', new Blob([bytes], { type: item.mimeType }), filename);
     form.append('model', this.audioModel);
     form.append('response_format', 'json');
 

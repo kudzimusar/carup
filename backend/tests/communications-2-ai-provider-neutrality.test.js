@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 
-import { CommunicationGroqProvider } from '../services/communication/communicationGroqProvider.js';
+import { CommunicationGroqProvider, audioFileName } from '../services/communication/communicationGroqProvider.js';
 import { createCommunicationAiProvider, SUPPORTED_AI_PROVIDERS } from '../services/communication/communicationAiProviderFactory.js';
 import { CommunicationAiRuntimeService } from '../services/communication/communicationAiRuntimeService.js';
 
@@ -148,7 +148,12 @@ test('audio goes to the transcription endpoint as a file, not flattened into a c
   assert.match(calls[0].url, /\/openai\/v1\/audio\/transcriptions$/, 'must use the audio endpoint');
   assert.ok(calls[0].init.body instanceof FormData, 'the artifact is uploaded, not stringified into a prompt');
   assert.equal(calls[0].init.body.get('model'), 'whisper-large-v3');
-  assert.ok(calls[0].init.body.get('file'), 'the audio file itself must be attached');
+  const file = calls[0].init.body.get('file');
+  assert.ok(file, 'the audio file itself must be attached');
+  // Whisper validates by FILENAME, not by bytes or content-type. A real WAV uploaded as "audio"
+  // is rejected with "file must be one of the following types: [...]" — found in live staging,
+  // not by this suite, which originally only asserted that *a* file was attached.
+  assert.equal(file.name, 'audio.wav', 'the upload must carry an extension the provider accepts');
   assert.deepEqual(result, { text: 'transcribed words', provider: 'groq', model: 'whisper-large-v3' });
 });
 
@@ -299,4 +304,29 @@ test('the guardrail prompt is sent on every text operation and forbids autonomou
     assert.equal(prompt, seen[0], 'the same guardrail is used for all operations');
   }
   assert.match(seen[0], /never|not|human/i, 'the guardrail constrains autonomous behaviour');
+});
+
+test('audio uploads carry a provider-acceptable extension derived from the mime type', () => {
+  assert.equal(audioFileName('audio/wav'), 'audio.wav');
+  assert.equal(audioFileName('audio/x-wav'), 'audio.wav');
+  assert.equal(audioFileName('audio/mpeg'), 'audio.mp3');
+  assert.equal(audioFileName('audio/ogg'), 'audio.ogg');
+  assert.equal(audioFileName('audio/webm'), 'audio.webm');
+  assert.equal(audioFileName('audio/mp4'), 'audio.m4a');
+  // An existing usable filename is respected rather than mangled.
+  assert.equal(audioFileName('audio/wav', 'voice-note.wav'), 'voice-note.wav');
+  // A name without an extension still gets one.
+  assert.equal(audioFileName('audio/wav', 'voice-note'), 'voice-note.wav');
+  // An unsupported audio type resolves to nothing so the caller can fail closed.
+  assert.equal(audioFileName('audio/basic'), null);
+});
+
+test('an audio type the provider cannot accept fails closed instead of uploading a rejected file', async () => {
+  const { calls, impl } = captureFetch(() => jsonResponse({ text: 'should never happen' }));
+  const provider = new CommunicationGroqProvider({ apiKey: KEY, fetchImpl: impl });
+  await assert.rejects(
+    () => provider.generate({ media: [{ mimeType: 'audio/basic', dataBase64: 'QUJD' }] }),
+    (e) => e.statusCode === 503 && /cannot transcribe audio type audio\/basic/.test(e.message),
+  );
+  assert.equal(calls.length, 0);
 });
