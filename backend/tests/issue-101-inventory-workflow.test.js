@@ -76,6 +76,20 @@ test('the workflow runs the inventory probe and nothing else', () => {
   assert.deepEqual(runs, ['backend/scripts/production-issue-101-inventory.mjs']);
 });
 
+test('the pin is advanced to the CORRECTED diagnostic, not the superseded original', () => {
+  const sha = /CANDIDATE_SHA:\s*([0-9a-f]{40})/.exec(withoutComments)[1];
+  assert.notEqual(sha, '96b75271f6c910d0255572f2a715c49f9fc60176',
+    'the workflow must not pin the superseded pre-correction commit');
+  // The pinned commit must carry the corrective work.
+  const blob = execFileSync('git', ['show', `${sha}:backend/scripts/production-issue-101-inventory.mjs`], {
+    cwd: path.resolve(__dirname, '../..'), encoding: 'utf8',
+  });
+  assert.match(blob, /KNOWN_ERROR_CLASSES/, 'pinned diagnostic must contain the allowlist sanitiser');
+  assert.match(blob, /api_access_reopened/, 'pinned diagnostic must contain the cutover regression fields');
+  assert.match(blob, /sections\.ANON_AUTH_TABLE_GRANTS = tables\.map\(/, 'pinned diagnostic must carry the complete census');
+  assert.match(blob, /v\.kind === 'view' && !v\.security_invoker/, 'pinned diagnostic must exclude materialized views');
+});
+
 test('the pinned candidate exists in git history', () => {
   const sha = /CANDIDATE_SHA:\s*([0-9a-f]{40})/.exec(withoutComments)[1];
   const out = execFileSync('git', ['cat-file', '-t', sha], {

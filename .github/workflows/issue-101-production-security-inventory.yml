@@ -43,7 +43,7 @@ concurrency:
 env:
   # The single reviewed commit whose diagnostic code is executed. Advancing this
   # pin is a reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 96b75271f6c910d0255572f2a715c49f9fc60176
+  CANDIDATE_SHA: 008e1f4987d598258296753fe8f45090edd05cfc
   PG_DRIVER_VERSION: 8.21.0
 
 jobs:
@@ -61,7 +61,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 96b75271f6c910d0255572f2a715c49f9fc60176
+          ref: 008e1f4987d598258296753fe8f45090edd05cfc
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
