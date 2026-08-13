@@ -560,3 +560,105 @@ path, WhatsApp routing, template runtime, media path, stakeholder path or campai
 prior physical certifications (D1 event fabric, Phase 2 Marketplace ↔ WhatsApp, Phase 5 media,
 Phase 6 11/11, Phase 7 15/15) stand and are **not** re-run from scratch. The concise smoke proof on
 the redeployed exact head is the remaining step, and it is queued behind the quota.
+
+## Exact-head staging certification and Meta read — PR head `5f6b5f64` (2026-08-13)
+
+Supersedes the "UNREAD — blocked by the Vercel daily deployment quota" rows in the previous
+section. The quota cleared, both staging projects now run the exact head, and Meta has been read.
+
+### Staging provenance — PASS
+
+| | Deployment | Target | Stable alias |
+|---|---|---|---|
+| Backend | **`dpl_AZybna9qFPZK45jFCjaxQXiBzJss`** | `production` | `carup-backend-staging.vercel.app` |
+| Frontend | **`dpl_6jqL8MWarZGDGHNewiGJxqV4SH9L`** | `production` | `carup-staging.vercel.app` |
+
+Both built from **`5f6b5f640dbb73e55d3633156c7ff766b2bcaeb8`**. Real production (`carup`,
+`carup-backend`) was not a target and was not deployed.
+
+Provenance is verified by **filtering deployments by metadata** —
+`vercel ls <project> --meta carupSourceSha=5f6b5f640dbb…` and `--meta carupPr=148` each return
+exactly the deployment above. This is the only reliable check available: an archive CLI deploy
+carries no git metadata unless it is stamped explicitly, and `vercel inspect --json` returns no
+`meta` key at all, so reading it back that way proves nothing either way.
+
+### Frontend → staging backend — PASS
+
+Shipped bundle `/assets/index-QOD-noAt.js` (2,599,771 bytes):
+
+| Host | Occurrences |
+|---|---|
+| `carup-backend-staging.vercel.app` | **8** |
+| `carup-backend.vercel.app` (production) | **0** |
+| `carup.vercel.app` (production) | **0** |
+
+### Runtime on the exact head — PASS
+
+scheduler **READY** · `fakeAdapters.enabled` **false** · WhatsApp **READY** (`adapterMode=real`,
+`meta_whatsapp_cloud_api`) · Telegram **READY** (`adapterMode=real`, `telegram_bot_api`) · Supabase
+healthy · outbox backlog **0**. Aggregate `/api/communications/health` remains 503 only from the
+five unconfigured optional transports.
+
+Minute boundaries on `dpl_AZybna9qFPZK45jFCjaxQXiBzJss`, deduped by correlation id — **8 / 8
+complete minutes identical**:
+
+| | per minute |
+|---|---|
+| `communications/process` 200 | **1** |
+| `communications/process` **401** | **0** |
+| `events/process` 200 | **1** |
+
+### Staging configuration defect — CORRECTED
+
+`CARUP_META_WABA_ID` had been stored **with its quotes**, so the runtime received the literal
+two-character string `""`. It is truthy, so it passed the presence check and was sent to Graph,
+which answered `GraphMethodException 100/33 — Object with ID '""' does not exist`. The error reads
+as a Meta permissions problem and is entirely local.
+
+Corrected in the `carup-backend-staging` **production scope** (that scope belongs to the staging
+project) to `2061495501115454`. The runtime now reports `waba_id_configured = true` and
+`waba_id_source = env` — the certification bar, met without relying on the fallback.
+
+The diagnostic was also hardened: an account id must look like a numeric Graph object id before use,
+and the webhook-derived fallback resolves **only** when exactly one distinct signature-valid account
+is present. Zero or several fail closed (`unresolved_no_signed_receipt`,
+`ambiguous_multiple_signed_accounts`) without querying Meta at all — the account id decides which
+template registry is read, so guessing between accounts could report an approval belonging to a
+different business.
+
+### Meta provider status — **BOTH PENDING**
+
+Read `2026-08-13T10:38Z` through `GET /api/admin/communications/provider-template-status` on the
+stable alias, with the configuration gate satisfied.
+
+| | `carup_conversation_reply` | `carup_reengagement_v1` |
+|---|---|---|
+| Provider status | **PENDING** | **PENDING** |
+| Category | UTILITY ✓ | MARKETING ✓ |
+| Language | `en_US` ✓ | **`en`** ✗ (expected `en_US`) |
+| BODY parameter count | **1** ✓ | **0** ✓ |
+| Component types | `[BODY]` | `[BODY]` |
+| Rejection reason | none | none |
+| Reference Meta reports | `carup_conversation_reply\|en_US` | **`carup_reengagement_v1\|en`** |
+
+The other five templates on the account are Meta's own samples (`hello_world`,
+`jaspers_market_*`) — approved, and none of them CarUp's.
+
+**`META_PROVIDER_REVIEW_PENDING`.** Nothing was bound, no duplicate template was created, and
+migrations 315–323 were not touched.
+
+**Language mismatch to resolve before binding.** The prepared migration binds
+`carup_reengagement_v1|en_US`, but Meta registers that template under `en`. Bound as drafted, every
+WhatsApp marketing send would fail at the provider with "template does not exist" — a binding that
+looks correct in the ledger and cannot deliver. Either the Meta template is recreated as `en_US`, or
+the migration's marketing reference becomes `carup_reengagement_v1|en`. That is a provider-side
+decision, so the draft is left unchanged.
+
+### Consequently still open
+
+| Gate | Status |
+|---|---|
+| Provider binding migration | **NOT WRITTEN** — a binding asserts an approval that does not exist yet |
+| Utility physical certification | **EXTERNALLY BLOCKED** — needs an APPROVED Utility template |
+| Marketing physical certification | **EXTERNALLY BLOCKED** — needs an APPROVED Marketing template, and the language reconciled |
+| Gemini / Phase 5 AI | **EXTERNAL OWNER/COST AUTHORIZATION REQUIRED** — `GEMINI_API_KEY` still absent |
