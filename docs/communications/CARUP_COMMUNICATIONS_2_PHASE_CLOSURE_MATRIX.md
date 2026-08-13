@@ -442,16 +442,51 @@ below contradicts one above, **this section supersedes it**.
 
 ### A — misrouted production scheduler
 
+**CLOSED — 2026-08-13 07:10:17Z.**
+
 | Item | State |
 |---|---|
 | Remediation lane | merged as PR #150 → `main` @ `a0ee17b5` |
-| Dispatch | run **31670651009**, `main`, job `disable-misrouted-comms-cron` |
-| Status | **WAITING at the protected `Production` environment approval gate** (owner-only; not self-approved) |
-| Pre-remediation baseline | stable staging runtime log, deduped by correlation id: **14 / 14 complete minutes** = 1 × `communications/process` 200, **1 × `communications/process` 401**, 1 × `events/process` 200 |
-| Staging's own callers | `net._http_response` shows exactly 2 responses/min, **both 200** — the 401 originates outside canonical staging, as the production preflight proved |
+| Execution | run **31670651009**, attempt **2**, job `disable-misrouted-comms-cron`, **success** |
+| Approval | owner-approved at the protected `Production` environment gate; attempt 1 was cancelled at that gate and re-run |
+| Candidate executed | `758c0157f9359e62bccc532876673ddd58e1c447`, asserted against `git rev-parse HEAD` after checkout |
 
-Post-remediation acceptance (≥4 full minute boundaries at 200 = 1/min and **401 = 0/min**, with the
-events drain and WhatsApp/Telegram unchanged) runs immediately after that single approval.
+Runner evidence, verbatim:
+
+```
+BEFORE   jobs named 'carup-communication-worker-every-minute' = 1
+         jobid=1 schedule='* * * * *' active=true
+         CARUP_WORKER_ENDPOINT_URL present (name only)
+         endpoint_host (hostname only) = carup-backend-staging.vercel.app
+MUTATION cron.unschedule result: true
+AFTER    jobs named 'carup-communication-worker-every-minute' = 0
+         pg_cron installed=true pg_net installed=true (both intentionally left in place)
+         COMMITTED — the misrouted production communications scheduler is disabled.
+         Production Communications remains INACTIVE: nothing was repointed, no queue was
+         processed, Vault was not modified.
+```
+
+Every precondition was re-asserted against live state inside the transaction and matched the
+preflight exactly; the post-state was verified before COMMIT.
+
+**Minute-boundary proof** — stable staging runtime log, deduped by correlation id. The transition
+lands precisely on the commit:
+
+| Window | `communications/process` 200 | `communications/process` **401** | `events/process` 200 |
+|---|---|---|---|
+| 07:03–07:10Z (8 min, before) | 1 / min | **1 / min** | 1 / min |
+| 07:11–07:23Z (**12 complete min**, after) | **1 / min, 12/12** | **0 — none** | **1 / min, 12/12** |
+
+Canonical staging `net._http_response` over the same period: 2 responses/min, **both 200**, zero
+non-200. Runtime health after remediation: scheduler **READY**, `fakeAdapters.enabled = false`,
+WhatsApp **READY** (real `meta_whatsapp_cloud_api`), Telegram **READY** (real `telegram_bot_api`),
+events outbox backlog **0**, Supabase healthy.
+
+The one surviving authenticated caller still reaches `communication_worker_invoked` every minute, so
+the legitimate worker was never disturbed — only the misrouted one stopped.
+
+**The stray-401 issue is CLOSED.** Production Communications remains inactive: the job was disabled,
+never repointed.
 
 ### B — Meta templates
 
