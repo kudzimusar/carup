@@ -17,8 +17,12 @@ import {
   P0_TABLES,
   CUTOVER_SEVEN,
   REQUIRED_SECTIONS,
+  REQUIRED_SERVICE_ROLE_PRIVS,
+  TABLE_PRIVS,
+  ProbeError,
   assertProductionIdentity,
   assertInventoryComplete,
+  sanitizeError,
 } from '../scripts/production-issue-101-inventory.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +31,13 @@ const src = fs.readFileSync(SCRIPT, 'utf8');
 
 const PROD_REF = 'abcdefghijklmnopqrst';        // 20-char shape, not a real ref
 const STAGING_REF = 'eoyenigwevnxwwhyhaer';
+
+// Leak-test fixtures are ASSEMBLED AT RUNTIME from fragments. CR-1 forbids a real
+// production project ref or a credential-bearing postgres URI appearing literally
+// in any executable file — including a test that exists to prove they never leak.
+const FAKE_PASSWORD = ['Sup3r', 'Secret', 'Value'].join('');
+const FAKE_HOST = ['db.', PROD_REF, '.example.invalid'].join('');
+const FAKE_URI = ['postgres', '://', 'dbuser', ':', FAKE_PASSWORD, '@', FAKE_HOST, ':5432/postgres'].join('');
 
 // ------------------------------------------------------------ identity gate
 
@@ -115,7 +126,7 @@ test('every inventory query is a read against catalog/metadata only', () => {
 
 test('the transaction read-only state is asserted from the server, not assumed', () => {
   assert.match(src, /show transaction_read_only/i);
-  assert.match(src, /transaction is not READ ONLY/i);
+  assert.match(src, /TRANSACTION_NOT_READ_ONLY/);
 });
 
 test('a conservative statement timeout is set inside the transaction', () => {
@@ -156,9 +167,10 @@ test('no application row contents are selected', () => {
 
 // ------------------------------------------------- completeness (fail-closed)
 
-function fullSections() {
-  const s = { TOTALS: { public_tables: 42 } };
+function fullSections(tableCount = 3) {
+  const s = { TOTALS: { public_tables: tableCount } };
   for (const name of REQUIRED_SECTIONS) s[name] = [];
+  s.ANON_AUTH_TABLE_GRANTS = Array.from({ length: tableCount }, (_, i) => ({ table: `t${i}` }));
   s.P0_TABLE_POSTURE = P0_TABLES.map((t) => ({ table: t, exists: false }));
   s.CUTOVER_SEVEN_REGRESSION = CUTOVER_SEVEN.map((t) => ({ table: t, regressed: false }));
   return s;
@@ -227,4 +239,140 @@ test('the five P0 tables and seven cutover tables are exactly the expected sets'
 test('the RLS section is labelled a catalog equivalent, never literal advisor output', () => {
   assert.match(src, /PRODUCTION CATALOG EQUIVALENT — rls_disabled_in_public/);
   assert.match(src, /NOT literal Supabase get_advisors output/i);
+});
+
+
+// ============================================================ CORRECTIVE GUARDS
+
+// --- 1. the grant census must cover EVERY public table -----------------------
+
+test('the grant census must cover every public table (fail-closed invariant)', () => {
+  const s = fullSections(10);
+  s.ANON_AUTH_TABLE_GRANTS = s.ANON_AUTH_TABLE_GRANTS.slice(0, 4); // write-carrying subset only
+  const r = assertInventoryComplete(s);
+  assert.equal(r.ok, false, 'a partial census must fail');
+  assert.match(r.reason, /covers 4 of 10 public tables/);
+  assert.match(r.reason, /SELECT-only, REFERENCES-only or TRIGGER-only/);
+});
+
+test('a census equal in length to public_tables passes', () => {
+  assert.equal(assertInventoryComplete(fullSections(7)).ok, true);
+});
+
+test('the census emits all four roles across all seven privileges', () => {
+  assert.deepEqual(TABLE_PRIVS, ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']);
+  for (const role of ['anon', 'authenticated', 'public', 'service_role']) {
+    assert.ok(new RegExp(`${role}:\\s*t\\.${role}`).test(src) || src.includes(`${role}: t.${role}`),
+      `census row must carry ${role}`);
+  }
+  // and the census is built from every table, not a filtered subset
+  assert.match(src, /sections\.ANON_AUTH_TABLE_GRANTS = tables\.map\(/);
+});
+
+test('derived write/exposure totals remain separate from the census', () => {
+  assert.match(src, /api_writable_tables:[^\n]*api_write_exposed/);
+  assert.match(src, /api_exposed_tables_any_privilege/);
+  assert.match(src, /grant_census_rows/);
+});
+
+// --- 2. materialized views are not SECURITY DEFINER views --------------------
+
+test('SECURITY_DEFINER_VIEWS includes ordinary views only', () => {
+  assert.match(src, /\.filter\(\(v\) => v\.kind === 'view' && !v\.security_invoker\)/);
+});
+
+test('materialized views remain in VIEW_SECURITY_INVOKER_POSTURE', () => {
+  assert.match(src, /kind: v\.kind === 'm' \? 'materialized' : 'view'/);
+  assert.match(src, /materialized_views:/);
+});
+
+// --- 3. cutover-seven detects BOTH regression directions ---------------------
+
+test('cutover regression reports all four roles', () => {
+  for (const f of ['anon', 'authenticated', 'public:', 'service_role:']) {
+    assert.ok(src.includes(f), `cutover row must report ${f}`);
+  }
+  assert.match(src, /expected_service_role/);
+});
+
+test('cutover regression detects reopened API access', () => {
+  assert.match(src, /api_access_reopened/);
+  assert.match(src, /PUBLIC expected \[none\]/);
+});
+
+test('cutover regression detects LOST service-role access', () => {
+  assert.match(src, /service_role_access_lost/);
+  assert.match(src, /service_role LOST \$\{required\} — backend access broken/);
+  assert.deepEqual(REQUIRED_SERVICE_ROLE_PRIVS, ['SELECT', 'INSERT', 'UPDATE', 'DELETE']);
+});
+
+// --- 4. no uncontrolled error output ----------------------------------------
+
+test('sanitizeError never leaks a message containing credentials', () => {
+  const leaky = new Error(
+    `connection to server at "${FAKE_HOST}" failed: ` +
+    'password authentication failed for user "dbuser"; ' +
+    `connectionString=${FAKE_URI}`,
+  );
+  leaky.code = '28P01';
+  const out = sanitizeError(leaky);
+  assert.equal(out, 'Error/28P01');
+  for (const secret of [PROD_REF, FAKE_PASSWORD, FAKE_HOST, FAKE_URI, 'dbuser', 'password']) {
+    assert.ok(!out.includes(secret), 'sanitized output leaked a fixture value');
+  }
+});
+
+test('sanitizeError bounds a hostile error code AND a hostile class name', () => {
+  // Regression: stripping non-letters from `name` would concatenate the URL and
+  // preserve the project ref verbatim. An unknown class must collapse to 'Error'.
+  const hostile = new Error('boom');
+  hostile.name = `Err ${FAKE_URI}`;
+  hostile.code = FAKE_URI;
+  const out = sanitizeError(hostile);
+  assert.equal(out, 'Error/UNSPECIFIED');
+  for (const secret of [PROD_REF, FAKE_PASSWORD, FAKE_HOST, FAKE_URI, '@', ':']) {
+    assert.ok(!out.includes(secret), 'sanitized output leaked a fixture value');
+  }
+});
+
+test('sanitizeError drops a lowercase project-ref-shaped code', () => {
+  const e = new Error('x'); e.code = PROD_REF; // 20-char lowercase, ref-shaped
+  assert.equal(sanitizeError(e), 'Error/UNSPECIFIED');
+});
+
+test('sanitizeError tolerates non-Error throwables', () => {
+  assert.equal(sanitizeError(undefined), 'Error/UNSPECIFIED');
+  assert.equal(sanitizeError(FAKE_URI), 'Error/UNSPECIFIED');
+  // An unrecognised class collapses to 'Error'; a well-formed code survives.
+  assert.equal(sanitizeError({ name: 'X', code: 'ECONNREFUSED' }), 'Error/ECONNREFUSED');
+  assert.equal(sanitizeError({ name: 'TypeError', code: 'ECONNREFUSED' }), 'TypeError/ECONNREFUSED');
+});
+
+test('the top-level catch emits only the sanitized form', () => {
+  assert.match(src, /inventory failed \(sanitized\): \$\{sanitizeError\(err\)\}/);
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  assert.ok(!/err\.message/.test(code), 'err.message must never be emitted in executable code');
+  assert.ok(!/\$\{[^}]*\berr\b[^}]*\}/.test(code.replace('${sanitizeError(err)}', '')),
+    'no console output may interpolate the raw error');
+});
+
+test('the read-only assertion THROWS so finally still rolls back', () => {
+  assert.match(src, /throw new ProbeError\('TRANSACTION_NOT_READ_ONLY'\)/);
+  // process.exit must not be reachable from inside the transaction body
+  const start = src.indexOf("await client.query('BEGIN READ ONLY')");
+  const end = src.indexOf('} finally {');
+  assert.ok(start > 0 && end > start, 'expected a try/finally around the transaction');
+  // Strip comments: the body documents WHY process.exit() is avoided here.
+  const txnBody = src.slice(start, end)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^\s*\/\/.*$/gm, ' ');
+  assert.ok(!/process\.exit/.test(txnBody), 'no process.exit inside the transaction');
+  assert.ok(!/\bfail\(/.test(txnBody), 'no fail() inside the transaction — it would skip finally');
+  assert.match(src.slice(end), /ROLLBACK[\s\S]*client\.end\(\)/);
+});
+
+test('ProbeError carries a code and no data', () => {
+  const e = new ProbeError('TRANSACTION_NOT_READ_ONLY');
+  assert.equal(e.code, 'TRANSACTION_NOT_READ_ONLY');
+  assert.equal(sanitizeError(e), 'ProbeError/TRANSACTION_NOT_READ_ONLY');
 });

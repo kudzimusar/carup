@@ -78,6 +78,9 @@ export const CUTOVER_EXPECTED = {
   vehicles: 'SELECT',
 };
 
+/** The backend runs exclusively as service_role; losing any of these breaks product paths. */
+export const REQUIRED_SERVICE_ROLE_PRIVS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
+
 export const TABLE_PRIVS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'];
 export const API_ROLES = ['anon', 'authenticated', 'public', 'service_role'];
 
@@ -100,6 +103,44 @@ export const REQUIRED_SECTIONS = [
 function fail(msg) {
   console.error(`::error::${msg}`);
   process.exit(1);
+}
+
+/** Error classes permitted to appear in output verbatim. Anything else → 'Error'. */
+const KNOWN_ERROR_CLASSES = new Set([
+  'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError',
+  'AggregateError', 'ProbeError', 'DatabaseError',
+]);
+
+/** Raised for our own bounded failure conditions; carries a code, never data. */
+export class ProbeError extends Error {
+  constructor(code) {
+    super(code);
+    this.name = 'ProbeError';
+    this.code = code;
+  }
+}
+
+/**
+ * Reduce ANY thrown value to a bounded class/code pair.
+ *
+ * A driver error message can embed the connection string, host, user or password
+ * (pg formats several that way), so err.message is NEVER emitted after a
+ * connection attempt. Only the error class name and a strictly-shaped code
+ * survive; anything not matching the shape becomes UNSPECIFIED.
+ */
+export function sanitizeError(err) {
+  // ALLOWLIST, not sanitisation-by-stripping. Removing non-letters from a hostile
+  // `name` would CONCATENATE a URL into a single token and preserve the project
+  // ref verbatim (proven by regression test) — so an unrecognised class becomes
+  // the constant 'Error' instead.
+  const rawName = err && err.name != null ? String(err.name) : 'Error';
+  const cls = KNOWN_ERROR_CLASSES.has(rawName) ? rawName : 'Error';
+  // Codes are SQLSTATE (5 upper alnum), Node errno-style (ECONNREFUSED), or one of
+  // our own SCREAMING_SNAKE probe codes. Anything else — notably a lowercase
+  // Supabase project ref or a URL — is dropped.
+  const raw = err && err.code != null ? String(err.code) : '';
+  const code = /^(?:[0-9A-Z]{5}|E[A-Z0-9_]{2,30}|[A-Z][A-Z0-9_]{2,31})$/.test(raw) ? raw : 'UNSPECIFIED';
+  return `${cls}/${code}`;
 }
 
 /**
@@ -182,19 +223,26 @@ export async function collectInventory(client) {
     .map((t) => ({ table: t.table_name, rls_enabled: false, policy_count: t.policy_count }));
 
   const writePrivs = ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'];
-  const hasWrite = (v) => typeof v === 'string' && writePrivs.some((p) => v.split(',').includes(p));
+  const privList = (v) => (typeof v === 'string' && v !== 'none' ? v.split(',') : []);
+  const hasWrite = (v) => privList(v).some((p) => writePrivs.includes(p));
+  const hasAny = (v) => privList(v).length > 0;
 
-  sections.ANON_AUTH_TABLE_GRANTS = tables
-    .filter((t) => hasWrite(t.anon) || hasWrite(t.authenticated) || hasWrite(t.public))
-    .map((t) => ({
-      table: t.table_name,
-      rls_enabled: t.rls_enabled,
-      policy_count: t.policy_count,
-      anon: t.anon ?? 'none',
-      authenticated: t.authenticated ?? 'none',
-      public: t.public ?? 'none',
-      service_role: t.service_role ?? 'none',
-    }));
+  // COMPLETE census: every public table, every role, every privilege. Filtering
+  // this to write-carrying tables would silently drop SELECT-only, REFERENCES-only
+  // and TRIGGER-only exposure, which are still exposure. Derived write/exposure
+  // counts live in TOTALS instead, so nothing is lost by keeping the census whole.
+  sections.ANON_AUTH_TABLE_GRANTS = tables.map((t) => ({
+    table: t.table_name,
+    rls_enabled: t.rls_enabled,
+    rls_forced: t.rls_forced,
+    policy_count: t.policy_count,
+    anon: t.anon ?? 'none',
+    authenticated: t.authenticated ?? 'none',
+    public: t.public ?? 'none',
+    service_role: t.service_role ?? 'none',
+    api_write_exposed: hasWrite(t.anon) || hasWrite(t.authenticated) || hasWrite(t.public),
+    api_any_exposed: hasAny(t.anon) || hasAny(t.authenticated) || hasAny(t.public),
+  }));
 
   sections.TRUNCATE_EXPOSURE = tables
     .filter((t) => [t.anon, t.authenticated, t.public].some((v) => typeof v === 'string' && v.split(',').includes('TRUNCATE')))
@@ -256,10 +304,17 @@ export async function collectInventory(client) {
     public: v.public ?? 'none',
   }));
 
-  // A view without security_invoker executes with its OWNER's rights and can
-  // therefore bypass RLS on its base tables — the SECURITY DEFINER view class.
+  // An ORDINARY view without security_invoker executes with its OWNER's rights and
+  // can therefore bypass RLS on its base tables — the SECURITY DEFINER view class.
+  //
+  // Materialized views are deliberately EXCLUDED. They are not a security-definer
+  // class: `security_invoker` does not apply to them, their contents are a stored
+  // snapshot refreshed by their owner rather than an owner-rights query executed on
+  // the caller's behalf, and classifying them here purely because the option is
+  // absent would inflate the finding with a category that has no such bypass. They
+  // remain fully reported in VIEW_SECURITY_INVOKER_POSTURE with their grants.
   sections.SECURITY_DEFINER_VIEWS = sections.VIEW_SECURITY_INVOKER_POSTURE
-    .filter((v) => !v.security_invoker)
+    .filter((v) => v.kind === 'view' && !v.security_invoker)
     .map((v) => ({
       view: v.view,
       owner: v.owner,
@@ -337,21 +392,48 @@ export async function collectInventory(client) {
   });
 
   // ---- cutover-seven regression -------------------------------------------
+  // Two distinct regressions are possible and BOTH are failures:
+  //   (a) API-role access REOPENED — anon/authenticated/PUBLIC regained privileges
+  //       beyond the hardened expectation, i.e. the exposure came back;
+  //   (b) service-role access LOST — the backend runs exclusively as service_role,
+  //       so silently losing it breaks every product path on that table. A naive
+  //       "grants are now none" check would score that as a success.
   sections.CUTOVER_SEVEN_REGRESSION = CUTOVER_SEVEN.map((name) => {
     const t = byName.get(name);
-    if (!t) return { table: name, exists: false, regressed: true, reason: 'table missing' };
+    if (!t) {
+      return { table: name, exists: false, regressed: true, reasons: ['table missing from production'] };
+    }
     const expected = CUTOVER_EXPECTED[name];
     const anon = t.anon ?? 'none';
     const auth = t.authenticated ?? 'none';
-    const matches = anon === expected && auth === expected;
+    const pub = t.public ?? 'none';
+    const svc = t.service_role ?? 'none';
+    const svcPrivs = privList(svc);
+
+    const reasons = [];
+    if (!t.rls_enabled) reasons.push('RLS disabled');
+    if (anon !== expected) reasons.push(`anon expected [${expected}] got [${anon}]`);
+    if (auth !== expected) reasons.push(`authenticated expected [${expected}] got [${auth}]`);
+    if (pub !== 'none') reasons.push(`PUBLIC expected [none] got [${pub}]`);
+    for (const required of REQUIRED_SERVICE_ROLE_PRIVS) {
+      if (!svcPrivs.includes(required)) {
+        reasons.push(`service_role LOST ${required} — backend access broken`);
+      }
+    }
     return {
       table: name,
       exists: true,
       rls_enabled: t.rls_enabled,
       anon,
       authenticated: auth,
-      expected,
-      regressed: !t.rls_enabled || !matches,
+      public: pub,
+      service_role: svc,
+      expected_api_roles: expected,
+      expected_service_role: REQUIRED_SERVICE_ROLE_PRIVS.join(','),
+      api_access_reopened: anon !== expected || auth !== expected || pub !== 'none',
+      service_role_access_lost: REQUIRED_SERVICE_ROLE_PRIVS.some((p) => !svcPrivs.includes(p)),
+      regressed: reasons.length > 0,
+      reasons,
     };
   });
 
@@ -361,12 +443,15 @@ export async function collectInventory(client) {
     rls_enabled: tables.filter((t) => t.rls_enabled).length,
     rls_disabled: sections.RLS_DISABLED_IN_PUBLIC.length,
     rls_enabled_no_policy: tables.filter((t) => t.rls_enabled && t.policy_count === 0).length,
-    api_writable_tables: sections.ANON_AUTH_TABLE_GRANTS.length,
+    api_writable_tables: sections.ANON_AUTH_TABLE_GRANTS.filter((t) => t.api_write_exposed).length,
+    api_exposed_tables_any_privilege: sections.ANON_AUTH_TABLE_GRANTS.filter((t) => t.api_any_exposed).length,
+    grant_census_rows: sections.ANON_AUTH_TABLE_GRANTS.length,
     truncate_exposed_tables: sections.TRUNCATE_EXPOSURE.length,
     policies: policies.length,
     default_acl_entries: defacl.length,
     views: sections.VIEW_SECURITY_INVOKER_POSTURE.length,
     security_definer_views: sections.SECURITY_DEFINER_VIEWS.length,
+    materialized_views: sections.VIEW_SECURITY_INVOKER_POSTURE.filter((v) => v.kind === 'materialized').length,
     functions: functions.length,
     security_definer_functions: sections.SECURITY_DEFINER_FUNCTIONS.length,
     security_definer_unpinned_search_path:
@@ -374,6 +459,8 @@ export async function collectInventory(client) {
     functions_executable_by_api_roles: sections.FUNCTION_EXECUTE_GRANTS.length,
     p0_tables_present: sections.P0_TABLE_POSTURE.filter((t) => t.exists).length,
     cutover_seven_regressed: sections.CUTOVER_SEVEN_REGRESSION.filter((t) => t.regressed).length,
+    cutover_seven_api_reopened: sections.CUTOVER_SEVEN_REGRESSION.filter((t) => t.api_access_reopened).length,
+    cutover_seven_service_role_lost: sections.CUTOVER_SEVEN_REGRESSION.filter((t) => t.service_role_access_lost).length,
   };
 
   return sections;
@@ -398,6 +485,13 @@ export function assertInventoryComplete(sections) {
   if (sections.TOTALS.public_tables <= 0) {
     return { ok: false, reason: 'zero public tables inventoried — the probe did not observe a real schema' };
   }
+  if (sections.ANON_AUTH_TABLE_GRANTS.length !== sections.TOTALS.public_tables) {
+    return {
+      ok: false,
+      reason: `grant census covers ${sections.ANON_AUTH_TABLE_GRANTS.length} of ${sections.TOTALS.public_tables} public tables — ` +
+        'the census must include EVERY table so SELECT-only, REFERENCES-only or TRIGGER-only exposure cannot disappear',
+    };
+  }
   if (sections.P0_TABLE_POSTURE.length !== P0_TABLES.length) {
     return { ok: false, reason: 'P0_TABLE_POSTURE did not cover every P0 table' };
   }
@@ -416,11 +510,13 @@ function report(sections) {
   line(`   count = ${sections.RLS_DISABLED_IN_PUBLIC.length}`);
 
   line('');
-  line('══ ANON_AUTH_TABLE_GRANTS (tables granting anon/authenticated/PUBLIC a write) ══');
+  line('══ ANON_AUTH_TABLE_GRANTS (COMPLETE census — every public table, every role) ══');
   for (const t of sections.ANON_AUTH_TABLE_GRANTS) {
-    line(`   ${t.table}  rls=${t.rls_enabled ? 'on' : 'OFF'} policies=${t.policy_count} anon=[${t.anon}] authenticated=[${t.authenticated}] public=[${t.public}]`);
+    line(`   ${t.table}  rls=${t.rls_enabled ? 'on' : 'OFF'} policies=${t.policy_count}`);
+    line(`      anon=[${t.anon}] authenticated=[${t.authenticated}] PUBLIC=[${t.public}] service_role=[${t.service_role}]`);
   }
-  line(`   count = ${sections.ANON_AUTH_TABLE_GRANTS.length}`);
+  line(`   rows = ${sections.ANON_AUTH_TABLE_GRANTS.length} (must equal public_tables)`);
+  line(`   derived: write-exposed = ${sections.TOTALS.api_writable_tables}, any-privilege-exposed = ${sections.TOTALS.api_exposed_tables_any_privilege}`);
 
   line('');
   line('══ TRUNCATE_EXPOSURE (TRUNCATE is NOT filtered by RLS) ══');
@@ -491,9 +587,11 @@ function report(sections) {
   line('');
   line('══ CUTOVER_SEVEN_REGRESSION ══');
   for (const t of sections.CUTOVER_SEVEN_REGRESSION) {
-    line(`   ${t.table}  ${t.regressed ? 'REGRESSED' : 'ok'}  rls=${t.rls_enabled ? 'on' : 'OFF'} anon=[${t.anon}] expected=[${t.expected}]`);
+    line(`   ${t.table}  ${t.regressed ? 'REGRESSED' : 'ok'}  rls=${t.rls_enabled ? 'on' : 'OFF'}`);
+    line(`      anon=[${t.anon}] authenticated=[${t.authenticated}] PUBLIC=[${t.public}] service_role=[${t.service_role}]`);
+    if (t.reasons && t.reasons.length) for (const r of t.reasons) line(`      ! ${r}`);
   }
-  line(`   regressed = ${sections.TOTALS.cutover_seven_regressed}`);
+  line(`   regressed = ${sections.TOTALS.cutover_seven_regressed} (api reopened = ${sections.TOTALS.cutover_seven_api_reopened}, service_role lost = ${sections.TOTALS.cutover_seven_service_role_lost})`);
 
   line('');
   line('══ TOTALS ══');
@@ -521,7 +619,9 @@ async function main() {
     const { rows: ro } = await client.query('show transaction_read_only');
     const readOnly = ro[0]?.transaction_read_only;
     if (readOnly !== 'on') {
-      fail(`transaction is not READ ONLY (transaction_read_only=${readOnly}); refusing to proceed.`);
+      // Throw rather than exit: the finally block must still ROLLBACK and close
+      // the client. process.exit() here would skip both.
+      throw new ProbeError('TRANSACTION_NOT_READ_ONLY');
     }
     console.log(`Server confirms transaction_read_only=${readOnly}; statement_timeout=${STATEMENT_TIMEOUT}.`);
 
@@ -548,7 +648,7 @@ async function main() {
 const isDirectRun = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (isDirectRun) {
   main().catch((err) => {
-    // Never echo the connection string or any secret in an error path.
-    fail(`inventory failed: ${err.code ? `${err.code} ` : ''}${err.message}`);
+    // Bounded class/code only — err.message may embed the connection string.
+    fail(`inventory failed (sanitized): ${sanitizeError(err)}`);
   });
 }
