@@ -1,0 +1,119 @@
+name: 'Issue #101 Production REACHABILITY Probe (READ-ONLY diagnostic)'
+
+# Probe #2. Probe #1 (run 31749657530) answered DB AUTHORIZATION; this answers
+# REACHABILITY — role state (BYPASSRLS/LOGIN/INHERIT/memberships), table ownership,
+# connect/usage paths, full view internals (security_invoker, security_barrier,
+# is_updatable, rules, INSTEAD OF triggers, base relations and their RLS/owner),
+# the real per-sequence ACL inventory, and whether any API-callable function forms
+# an indirect privilege bridge. Authorization alone is not exploitability; these
+# are the inputs that let severities be finalised honestly.
+#
+# READ-ONLY BY CONSTRUCTION — there is no second mode:
+#   · the runner has no MODE input and no phrase gate; it cannot mutate anything;
+#   · its single session is BEGIN READ ONLY, the state is asserted from the server
+#     before any query runs, and it closes with ROLLBACK;
+#   · every query reads pg_catalog / information_schema. No application row is
+#     ever selected, counted or emitted;
+#   · the connection string, project ref and CA cert are never printed.
+#
+# TWO-COMMIT PINNING. The diagnostic code executed here is frozen at the commit
+# named below, which was authored and reviewed BEFORE this wrapper existed. This
+# file cannot alter what runs: the checkout is hard-pinned to that SHA and the job
+# asserts it. Changing the diagnostic requires a new reviewed commit and a
+# reviewable pin advance, exactly like the publication-gate lane.
+#
+# PREREQUISITES (already satisfied by the publication-gate lane):
+#   the protected `production` GitHub environment with REQUIRED REVIEWERS and a
+#   main-only deployment branch policy, carrying the environment secrets
+#     PRODUCTION_DATABASE_URL   — production Postgres connection string
+#     PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin)
+#     PRODUCTION_CA_CERT        — optional PEM trust-anchor override
+# The production project ref is NOT written anywhere in this repository (CR-1); it
+# arrives as an environment secret and the runner refuses a connection string that
+# does not contain it, or that references the staging project.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-101-production-reachability
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose diagnostic code is executed. Advancing this
+  # pin is a reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: fe51f5b66ab8c3e40e3cbf2ea379cc24a545b2e7
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other
+    # collaborators; github.triggering_actor is whoever actually triggered this
+    # run. Both must be the owner, so a write-access collaborator cannot re-run
+    # an owner-dispatched job against production.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: fe51f5b66ab8c3e40e3cbf2ea379cc24a545b2e7
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Assert the pinned diagnostic has no mutation path
+        # Belt-and-braces: even a compromised pin cannot smuggle in a write, because
+        # the job refuses to proceed if the diagnostic gained transaction-committing
+        # or privilege-granting statements.
+        run: |
+          f=backend/scripts/production-issue-101-reachability.mjs
+          if grep -nE "client\.query\(\s*['\"\`](COMMIT|GRANT|REVOKE|INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|SET ROLE)" "$f"; then
+            echo "::error::the pinned diagnostic contains a mutating statement; refusing to run."
+            exit 1
+          fi
+          if ! grep -q "BEGIN READ ONLY" "$f"; then
+            echo "::error::the pinned diagnostic does not open a READ ONLY transaction; refusing to run."
+            exit 1
+          fi
+          echo "Pinned diagnostic verified: READ ONLY transaction, no mutating statements."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the Issue #101 read-only reachability probe'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+        run: node backend/scripts/production-issue-101-reachability.mjs
