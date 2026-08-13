@@ -9,7 +9,7 @@ import { CommunicationWorkflowService } from './communicationWorkflowService.js'
 import { CommunicationStakeholderContractService } from './communicationStakeholderContractService.js';
 import { CommunicationIntelligenceService } from './communicationIntelligenceService.js';
 import { CommunicationAnalyticsService } from './communicationAnalyticsService.js';
-import { CommunicationGeminiProvider } from './communicationGeminiProvider.js';
+import { createCommunicationAiProvider } from './communicationAiProviderFactory.js';
 import { CommunicationAiRuntimeService } from './communicationAiRuntimeService.js';
 import { CommunicationMediaService } from './communicationMediaService.js';
 import { CommunicationCampaignService } from './communicationCampaignService.js';
@@ -78,7 +78,9 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     storageClient: storageClient || repo.client || null,
   });
   const analyticsService = new CommunicationAnalyticsService({ repository: repo });
-  const communicationAiProvider = aiProvider || new CommunicationGeminiProvider();
+  // Provider chosen explicitly by configuration rather than hard-wired to one vendor; the
+  // canonical plan requires a real provider, not a named one.
+  const communicationAiProvider = aiProvider || createCommunicationAiProvider();
   const aiRuntimeService = new CommunicationAiRuntimeService({
     conversationService,
     intelligenceService,
