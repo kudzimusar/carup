@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Feature governance: deterministic percentage rollout (Milestone G).
 --
 -- Adds a percentage gate to the runtime rollout overrides so a feature can be

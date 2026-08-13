@@ -1,3 +1,4 @@
+-- +migrate Up
 -- Harden the feature_rollout_overrides updated_at trigger function.
 --
 -- The Supabase security advisor flagged

@@ -1,3 +1,4 @@
+-- +migrate Up
 -- =============================================================
 -- Phase 1 Migration: Multi-Tenancy & Auth Operations
 -- Applies Agent 1 (Tenants) and Agent 2 (Auth) requirements
