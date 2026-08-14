@@ -13,7 +13,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import {
-  TARGET_TABLES, REQUIRED_SECTIONS, ProbeError,
+  TARGET_TABLES, REQUIRED_SECTIONS, ProbeError, collectSchemaShape,
   assertProductionIdentity, assertComplete, sanitizeError,
 } from '../scripts/production-issue-101-schema-shape.mjs';
 
@@ -148,11 +148,163 @@ function base() {
   return s;
 }
 
-test('all nine shape sections are required', () => {
+test('all ten shape sections are required', () => {
   assert.deepEqual([...REQUIRED_SECTIONS].sort(), [
     'COLUMNS', 'CONSTRAINTS', 'FOREIGN_KEYS', 'INDEXES', 'POLICIES',
-    'RELATION_ACL', 'SEQUENCE_DEPENDENCIES', 'TABLE_IDENTITY', 'TRIGGERS',
+    'RELATION_ACL', 'SEQUENCE_DEFINITIONS', 'SEQUENCE_DEPENDENCIES',
+    'TABLE_IDENTITY', 'TRIGGERS',
   ]);
+});
+
+// ========== RECONSTRUCTION-COMPLETENESS CORRECTIONS (PR #156 review) ==========
+
+// --- 1. structural sequence shape, and NO application state ---
+
+test('SEQ: pg_sequence structural fields are all collected', () => {
+  const q = [...src.matchAll(/client\.query\(\s*`([^`]+)`/g)].map((m) => m[1])
+    .find((x) => /pg_sequence/.test(x));
+  assert.ok(q, 'a pg_sequence query must exist');
+  for (const f of ['seqstart', 'seqincrement', 'seqmin', 'seqmax', 'seqcache', 'seqcycle',
+                   'seqtypid', 'sequence_schema', 'sequence_name', 'owning_table',
+                   'owning_column', 'dependency_type']) {
+    assert.match(q, new RegExp(f), `SEQUENCE_DEFINITIONS must capture ${f}`);
+  }
+});
+
+test('SEQ: sequence VALUES are never read — shape only, not state', () => {
+  // Checked against the SQL actually sent, not the source text: the report header
+  // legitimately contains the words "no last_value is ever read" as documentation.
+  const queries = [...src.matchAll(/client\.query\(\s*`([^`]+)`/g)].map((m) => m[1]);
+  for (const q of queries) {
+    for (const forbidden of ['last_value', 'currval', 'nextval', 'setval', 'pg_sequence_last_value']) {
+      assert.ok(!q.toLowerCase().includes(forbidden),
+        `no query may read ${forbidden} — that is application state, not DDL shape: ${q.slice(0, 70)}`);
+    }
+  }
+  // pg_sequences (the view exposing last_value) must never be used; pg_sequence is fine.
+  assert.ok(!/\bpg_sequences\b/.test(src), 'must use pg_sequence (catalog), never pg_sequences (exposes last_value)');
+  // and the guarantee is documented in the receipt
+  assert.match(src, /no last_value is ever read/);
+});
+
+test('SEQ: a dependency without a structural definition FAILS completeness', () => {
+  const s = base();
+  s.SEQUENCE_DEPENDENCIES = [{ table_name: 'system_failures', sequence_name: 'system_failures_id_seq', sequence_acl: [] }];
+  const r = assertComplete(s);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /lack structural definition/);
+  assert.match(r.reason, /system_failures_id_seq/);
+});
+
+test('SEQ: a definition missing any DDL parameter FAILS completeness', () => {
+  for (const missing of ['data_type', 'seqstart', 'seqincrement', 'seqmin', 'seqmax', 'seqcache']) {
+    const s = base();
+    const def = {
+      sequence_name: 'x_id_seq', owning_table: 'system_failures', data_type: 'bigint',
+      seqstart: '1', seqincrement: '1', seqmin: '1', seqmax: '9223372036854775807',
+      seqcache: '1', seqcycle: false,
+    };
+    delete def[missing];
+    s.SEQUENCE_DEFINITIONS = [def];
+    s.SEQUENCE_DEPENDENCIES = [{ table_name: 'system_failures', sequence_name: 'x_id_seq', sequence_acl: [] }];
+    const r = assertComplete(s);
+    assert.equal(r.ok, false, `${missing} missing must fail`);
+    assert.match(r.reason, new RegExp(missing));
+  }
+  // seqcycle must be a real boolean, not merely present
+  const s2 = base();
+  s2.SEQUENCE_DEFINITIONS = [{ sequence_name: 'x_id_seq', owning_table: 'system_failures', data_type: 'bigint', seqstart: '1', seqincrement: '1', seqmin: '1', seqmax: '9', seqcache: '1', seqcycle: 'no' }];
+  s2.SEQUENCE_DEPENDENCIES = [{ table_name: 'system_failures', sequence_name: 'x_id_seq', sequence_acl: [] }];
+  assert.match(assertComplete(s2).reason, /seqcycle/);
+});
+
+// --- 2. exact ACL: grantor + grant option survive ---
+
+test('ACL: grantor, grantee, privilege_type and is_grantable are all collected', () => {
+  assert.match(src, /'grantor',\s*a\.grantor::regrole::text/);
+  assert.match(src, /'grantee',\s*case when a\.grantee = 0 then 'PUBLIC'/);
+  assert.match(src, /'privilege_type', a\.privilege_type/);
+  assert.match(src, /'is_grantable',\s*a\.is_grantable/);
+  // and the helper is used for BOTH relations and sequences
+  assert.ok((src.match(/aclJson\(/g) || []).length >= 3, 'aclJson must define and be reused');
+});
+
+test('ACL: SELECT and SELECT WITH GRANT OPTION do not collapse in the receipt', () => {
+  const plain = { grantor: 'postgres', grantee: 'anon', privilege_type: 'SELECT', is_grantable: false };
+  const grantable = { grantor: 'postgres', grantee: 'anon', privilege_type: 'SELECT', is_grantable: true };
+  assert.notEqual(JSON.stringify(plain), JSON.stringify(grantable),
+    'the two privileges must serialize differently');
+  const s = base();
+  s.RELATION_ACL = [{ table_name: 'system_failures', acl_is_default: false, acl: [plain, grantable] }];
+  assert.equal(assertComplete(s).ok, true);
+  const round = JSON.parse(JSON.stringify(s.RELATION_ACL[0].acl));
+  assert.equal(round.filter((a) => a.is_grantable).length, 1, 'grant option survives serialization');
+  assert.equal(round.filter((a) => !a.is_grantable).length, 1);
+});
+
+test('ACL: losing is_grantable or grantor FAILS completeness', () => {
+  for (const field of ['grantor', 'grantee', 'privilege_type', 'is_grantable']) {
+    const entry = { grantor: 'postgres', grantee: 'anon', privilege_type: 'SELECT', is_grantable: false };
+    delete entry[field];
+    const s = base();
+    s.RELATION_ACL = [{ table_name: 'system_failures', acl: [entry] }];
+    const r = assertComplete(s);
+    assert.equal(r.ok, false, `${field} missing must fail`);
+    assert.match(r.reason, new RegExp(field === 'is_grantable' ? 'grant-option' : field));
+  }
+});
+
+test('ACL: the same gate applies to SEQUENCE ACLs', () => {
+  const s = base();
+  s.SEQUENCE_DEFINITIONS = [{ sequence_name: 'q', owning_table: 'system_failures', data_type: 'bigint', seqstart: '1', seqincrement: '1', seqmin: '1', seqmax: '9', seqcache: '1', seqcycle: false }];
+  s.SEQUENCE_DEPENDENCIES = [{ table_name: 'system_failures', sequence_name: 'q',
+    sequence_acl: [{ grantor: 'postgres', grantee: 'anon', privilege_type: 'USAGE' }] }];
+  assert.match(assertComplete(s).reason, /grant-option/);
+});
+
+// --- 3. type / identity reconstruction ---
+
+test('TYPE: udt_schema, domain and identity configuration are collected', () => {
+  const q = [...src.matchAll(/client\.query\(\s*`([^`]+)`/g)].map((m) => m[1])
+    .find((x) => /information_schema\.columns/.test(x));
+  for (const f of ['udt_schema', 'udt_name', 'domain_schema', 'domain_name',
+                   'identity_start', 'identity_increment', 'identity_minimum',
+                   'identity_maximum', 'identity_cycle', 'is_generated',
+                   'generation_expression', 'collation_name', 'numeric_precision']) {
+    assert.match(q, new RegExp(f), `columns must capture ${f}`);
+  }
+});
+
+test('TYPE: custom types/domains are reported as P2 dependencies, never guessed', () => {
+  assert.match(src, /CUSTOM_TYPE_DEPENDENCIES/);
+  assert.match(src, /must not be guessed in P2/);
+  assert.match(src, /custom_type_or_domain_columns/);
+});
+
+// --- 4. constraint <-> backing index linkage ---
+
+test('INDEX: constraints expose their backing index', () => {
+  assert.match(src, /nullif\(con\.conindid, 0\)::regclass::text as backing_index/);
+});
+
+test('INDEX: every index is classified constraint-backed or independent', () => {
+  assert.match(src, /constraint_backed/);
+  assert.match(src, /backing_for_constraint/);
+  assert.match(src, /left join pg_constraint con on con\.conindid = i\.indexrelid/);
+  assert.match(src, /must NOT be recreated as standalone indexes/);
+  assert.match(src, /constraint_backed_indexes/);
+  assert.match(src, /independent_indexes/);
+});
+
+test('INDEX: a constraint whose backing index is unreconcilable FAILS completeness', () => {
+  const s = base();
+  s.CONSTRAINTS = [{ table_name: 'system_failures', constraint_name: 'sf_pkey', backing_index: 'public.sf_pkey_idx' }];
+  const r = assertComplete(s);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /backing index that is not in the index inventory/);
+  // ...and passes once the index IS present
+  s.INDEXES = [{ table_name: 'system_failures', index_name: 'sf_pkey_idx', constraint_backed: true }];
+  assert.equal(assertComplete(s).ok, true);
 });
 
 test('a complete shape passes', () => assert.equal(assertComplete(base()).ok, true));
