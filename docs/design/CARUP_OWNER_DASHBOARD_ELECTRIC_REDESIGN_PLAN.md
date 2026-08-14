@@ -301,3 +301,7 @@ The change is acceptable when:
 8. no database or backend file is changed;
 9. desktop and mobile layouts remain usable;
 10. the branch is submitted as a PR for owner approval before merge.
+
+## 20. Preview deployment verification
+
+After the Vercel account upgrade, the owner-review preview must be rebuilt from the current PR head and verified by commit SHA before the preview URL is treated as authoritative. A stale branch alias or an earlier design-plan-only deployment must not be used for visual approval.
