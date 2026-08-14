@@ -82,7 +82,9 @@ test('the pin names probe #2, not probe #1', () => {
   assert.notEqual(sha, '008e1f4987d598258296753fe8f45090edd05cfc',
     'this workflow must pin the reachability probe, not the inventory probe');
   assert.notEqual(sha, 'fe51f5b66ab8c3e40e3cbf2ea379cc24a545b2e7',
-    'the pin must be advanced to the CORRECTED probe, not the pre-review candidate');
+    'the pin must not name the pre-review candidate');
+  assert.notEqual(sha, 'f1e515c71f6303354c5d75ccb001ed122f0418ce',
+    'the pin must not name the candidate that still carried the pgrst secret-leak vector');
   // The pinned commit must carry the corrective work.
   const blob = execFileSync('git', ['show', `${sha}:backend/scripts/production-issue-101-reachability.mjs`], {
     cwd: path.resolve(__dirname, '../..'), encoding: 'utf8',
@@ -99,6 +101,12 @@ test('the pin names probe #2, not probe #1', () => {
   assert.match(blob, /tgtype & 64/, 'pinned probe must detect INSTEAD OF triggers specifically');
   assert.match(blob, /absence_not_proven/, 'pinned probe must mark unproven absence');
   assert.ok(!/has_function_privilege\(\s*'public'/.test(blob), 'pinned probe must not use the PUBLIC pseudo-grantee');
+  assert.match(blob, /PGRST_SCHEMA_KEYS/, 'pinned probe must use the schema-key allowlist');
+  assert.ok(!/like\s+'pgrst\.%'/i.test(blob), 'pinned probe must not select pgrst.% wholesale');
+  assert.match(blob, /split_part\(cfg, '=', 1\) = any/, 'pinned probe must filter role settings in SQL');
+  assert.match(blob, /ROLE_MEMBERSHIP_COMPLETENESS/, 'pinned probe must prove closure completeness');
+  assert.ok(!/c\.depth < 8/.test(blob), 'pinned probe must not cap the closure depth');
+  assert.match(blob, /ordinary_triggers/, 'pinned probe must classify triggers exclusively');
   assert.ok(!/\bbody:/.test(blob.slice(blob.indexOf('FUNCTION_REACHABILITY = fns.map'), blob.indexOf('s.TOTALS'))),
     'pinned probe must never emit a function body');
 });
