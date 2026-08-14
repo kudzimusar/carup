@@ -293,26 +293,34 @@ export class CommunicationConversationService {
    * This is deliberately narrow, and exists only for provider ingress:
    *
    *  · the address must match exactly, on the stored normalized_address — never a raw string
-   *    compare and never a prefix/fuzzy match;
-   *  · channel and provider must match exactly;
+   *    compare and never a prefix/fuzzy match. The match is expressed as a DATABASE filter, not as
+   *    a JavaScript pass over a bounded page: scanning "the first N identities on this channel"
+   *    would silently stop finding the right customer once N is exceeded, which is the original
+   *    shadow-conversation defect returning under load;
+   *  · channel and provider must match exactly. A null or different provider is NOT compatible —
+   *    this is provider ingress, so the provider is known, and treating "unset" as "matches" would
+   *    let an unrelated identity answer a Meta callback;
    *  · it only ROUTES. Nothing here reassigns tenant ownership, merges identities, or copies one
    *    tenant's identity into another. The inbound message lands on the conversation that already
    *    owns the customer, which is the conversation the customer is actually in;
-   *  · exactly one eligible conversation must remain, or it fails closed. An address that legitimately
-   *    belongs to two conversations is genuinely ambiguous, and guessing by recency would put one
-   *    customer's message into another customer's thread.
+   *  · exactly one conversation AND one participant must remain, or it fails closed. Two
+   *    participants inside one thread is still two different people, and resolving that by recency
+   *    would attribute one customer's message to another.
    */
   async resolveProviderIngressConversation({ identity, channel, provider } = {}) {
     const address = String(identity?.normalized_address || '').trim();
     if (!address) return null;
     const normalizedChannel = normalizeChannel(channel || identity.channel);
-    if (!normalizedChannel) return null;
+    if (!normalizedChannel || !provider) return null;
 
-    const siblings = (await this.repository.list('channel_identities', { channel: normalizedChannel }, { limit: 200 })
-      .catch(() => []))
+    // The routing key is applied at the database boundary. No arbitrary LIMIT is used as a
+    // correctness boundary.
+    const siblings = (await this.repository.list('channel_identities', {
+      channel: normalizedChannel,
+      provider,
+      normalized_address: address,
+    }).catch(() => []))
       .filter((row) => String(row.id) !== String(identity.id))
-      .filter((row) => String(row.normalized_address || '').trim() === address)
-      .filter((row) => !provider || !row.provider || row.provider === provider)
       .filter((row) => row.consent_status !== 'opted_out' && row.consent_status !== 'revoked');
     if (!siblings.length) return null;
 
@@ -322,16 +330,17 @@ export class CommunicationConversationService {
         .catch(() => []))
         .filter((row) => row.can_receive !== false)
         .filter((row) => row.channel === normalizedChannel)
-        .filter((row) => !provider || !row.provider || row.provider === provider)
+        .filter((row) => row.provider === provider)
         .filter((row) => !row.expires_at || Date.parse(row.expires_at) > Date.now());
       for (const binding of bindings) routes.push({ binding, identity: sibling });
     }
     if (!routes.length) return null;
 
-    // One customer may legitimately hold several bindings inside a single conversation; several
-    // CONVERSATIONS is the ambiguity that must fail closed.
+    // Several bindings are fine only when they converge on the same conversation AND the same
+    // person. Either kind of divergence is genuine ambiguity and fails closed.
     const threadIds = new Set(routes.map((r) => String(r.binding.thread_id)));
-    if (threadIds.size !== 1) return null;
+    const participantIds = new Set(routes.map((r) => String(r.binding.participant_id)));
+    if (threadIds.size !== 1 || participantIds.size !== 1) return null;
 
     const chosen = routes.sort((a, b) => bindingTime(b.binding) - bindingTime(a.binding))[0];
     const thread = await this.repository.findOne('message_threads', { id: chosen.binding.thread_id });

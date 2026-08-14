@@ -27,9 +27,13 @@ function makeRepository(seed = {}) {
   let seq = 0;
   return {
     tables,
-    async list(table, filter = {}) {
-      return (tables[table] || []).filter((row) => Object.entries(filter)
+    async list(table, filter = {}, options = {}) {
+      const rows = (tables[table] || []).filter((row) => Object.entries(filter)
         .every(([k, v]) => v === undefined || String(row[k]) === String(v)));
+      // The real repository applies options.limit at the database. Modelling it is what makes the
+      // large-population test meaningful: without it, a bounded page scan passes just as happily
+      // as a DB filter and the assertion proves nothing.
+      return options.limit ? rows.slice(0, options.limit) : rows;
     },
     async findOne(table, filter = {}) {
       return (await this.list(table, filter))[0] || null;
@@ -140,6 +144,88 @@ test('an expired or receive-disabled binding is not a route', async () => {
   assert.equal(await service.resolveInboundConversation({
     identity: webhookIdentity, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
   }), null);
+});
+
+test('the address match is a DB filter, so it still resolves past a large identity population', async () => {
+  const { service, repository, webhookIdentity } = ingressFixture();
+  // 400 unrelated WhatsApp identities on the same provider, inserted BEFORE the real match in the
+  // table order. A bounded page scan would never reach the matching row.
+  for (let i = 0; i < 400; i += 1) {
+    repository.tables.channel_identities.unshift({
+      id: `noise-${i}`, tenant_id: `tenant-${i}`, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+      external_id: `2637710${String(i).padStart(5, '0')}`, normalized_address: `2637710${String(i).padStart(5, '0')}`,
+      consent_status: 'implied_transactional',
+    });
+  }
+  const resolved = await service.resolveInboundConversation({
+    identity: webhookIdentity, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+  });
+  assert.ok(resolved, 'a large identity population must not hide the correct conversation');
+  assert.equal(resolved.thread.id, 'thread-mkt');
+  assert.equal(resolved.matched_identity_id, 'id-tenant');
+});
+
+test('an identity with a null or different provider cannot satisfy a Meta WhatsApp ingress lookup', async () => {
+  for (const provider of [null, 'some_other_provider']) {
+    const { service, repository, webhookIdentity } = ingressFixture();
+    const sibling = repository.tables.channel_identities.find((i) => i.id === 'id-tenant');
+    sibling.provider = provider;
+    const binding = repository.tables.conversation_channel_bindings.find((b) => b.id === 'bind-tenant');
+    binding.provider = provider;
+    const resolved = await service.resolveInboundConversation({
+      identity: webhookIdentity, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+    });
+    assert.equal(resolved, null, `provider=${provider} must not be treated as compatible`);
+  }
+});
+
+test('a binding with a null or mismatched provider is not a route, even when its identity matches', async () => {
+  for (const bindingProvider of [null, 'some_other_provider']) {
+    const { service, repository, webhookIdentity } = ingressFixture();
+    // The identity still matches exactly, so this isolates the BINDING-level provider check.
+    repository.tables.conversation_channel_bindings.find((b) => b.id === 'bind-tenant').provider = bindingProvider;
+    const resolved = await service.resolveInboundConversation({
+      identity: webhookIdentity, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+    });
+    assert.equal(resolved, null, `binding provider=${bindingProvider} must not be treated as compatible`);
+  }
+});
+
+test('several bindings converging on the same thread AND participant still resolve', async () => {
+  const { service, repository, webhookIdentity } = ingressFixture();
+  repository.tables.channel_identities.push({
+    id: 'id-tenant-2', tenant_id: 'tenant-seller', channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+    external_id: ADDRESS, normalized_address: ADDRESS, consent_status: 'implied_transactional',
+  });
+  repository.tables.conversation_channel_bindings.push({
+    id: 'bind-tenant-2', thread_id: 'thread-mkt', participant_id: 'p-buyer', channel: 'whatsapp',
+    provider: 'meta_whatsapp_cloud_api', channel_identity_id: 'id-tenant-2',
+    can_send: true, can_receive: true, last_used_at: '2026-08-13T06:00:00Z',
+  });
+  const resolved = await service.resolveInboundConversation({
+    identity: webhookIdentity, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+  });
+  assert.ok(resolved, 'same conversation and same person is not ambiguity');
+  assert.equal(resolved.thread.id, 'thread-mkt');
+  assert.equal(resolved.participant.id, 'p-buyer');
+});
+
+test('two participants inside ONE thread fail CLOSED — two people is still two people', async () => {
+  const { service, repository, webhookIdentity } = ingressFixture();
+  repository.tables.message_participants.push({ id: 'p-second', thread_id: 'thread-mkt', user_id: 'buyer-2', permissions: { read: true } });
+  repository.tables.channel_identities.push({
+    id: 'id-tenant-3', tenant_id: 'tenant-seller', channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+    external_id: ADDRESS, normalized_address: ADDRESS, consent_status: 'implied_transactional',
+  });
+  repository.tables.conversation_channel_bindings.push({
+    id: 'bind-second', thread_id: 'thread-mkt', participant_id: 'p-second', channel: 'whatsapp',
+    provider: 'meta_whatsapp_cloud_api', channel_identity_id: 'id-tenant-3',
+    can_send: true, can_receive: true, last_used_at: '2026-08-13T09:00:00Z',
+  });
+  const resolved = await service.resolveInboundConversation({
+    identity: webhookIdentity, channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api',
+  });
+  assert.equal(resolved, null, 'must not attribute the message to one of two candidate people');
 });
 
 test('an opted-out sibling identity is never used as a route', async () => {
