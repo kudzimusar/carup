@@ -7,6 +7,8 @@ import {
   Settings,
   LogOut,
   Menu,
+  MessageSquare,
+  Search,
   X,
   Store,
 } from 'lucide-react'
@@ -39,6 +41,7 @@ function resolveIcon(item: FeatureRegistryItem): React.ElementType {
 
 export default function DashboardLayout({ role }: { role: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, loading } = useAuth()
@@ -51,6 +54,13 @@ export default function DashboardLayout({ role }: { role: string }) {
       console.error('Failed to switch stakeholder role:', err)
       toast.error('Could not switch portal role. Please try again.')
     }
+  }
+
+  const handleOwnerSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const query = searchQuery.trim()
+    if (!query) return
+    navigate(`/search?q=${encodeURIComponent(query)}`)
   }
 
   const registryItems = getDashboardItems(role as UserRole)
@@ -104,7 +114,7 @@ export default function DashboardLayout({ role }: { role: string }) {
         {/* Sidebar Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b">
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center shadow-sm shadow-orange-500/20">
               <Car className="w-4 h-4 text-white" />
             </div>
             <span className="text-lg font-bold">
@@ -128,7 +138,7 @@ export default function DashboardLayout({ role }: { role: string }) {
             <img
               src={user?.avatar || '/images/avatars/owner-1.jpg'}
               alt=""
-              className="w-10 h-10 rounded-full object-cover"
+              className="w-10 h-10 rounded-full object-cover ring-2 ring-orange-100"
             />
             <div className="flex-1 min-w-0">
               <p className="font-medium text-sm truncate">{user?.name || 'User'}</p>
@@ -223,11 +233,11 @@ export default function DashboardLayout({ role }: { role: string }) {
       {/* Main Content */}
       <div className="flex-1 min-w-0">
         {/* Top Bar */}
-        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b h-16 flex items-center px-4 lg:px-6">
+        <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b h-16 flex items-center gap-3 px-4 lg:px-6">
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden mr-2"
+            className="lg:hidden mr-1"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open sidebar menu"
             aria-expanded={sidebarOpen}
@@ -235,14 +245,49 @@ export default function DashboardLayout({ role }: { role: string }) {
             <Menu className="w-5 h-5" aria-hidden="true" />
           </Button>
 
-          <div className="flex-1" />
+          {role === 'owner' ? (
+            <form onSubmit={handleOwnerSearch} className="hidden min-w-0 flex-1 md:block">
+              <label className="relative block max-w-lg">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search vehicles, listings, services..."
+                  aria-label="Search CarUp"
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50/70 pl-10 pr-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-orange-300 focus:bg-white focus:ring-2 focus:ring-orange-100"
+                />
+              </label>
+            </form>
+          ) : (
+            <div className="flex-1" />
+          )}
 
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
             <Button variant="ghost" size="icon" className="relative" asChild>
-              <Link to="/dashboard">
+              <Link to="/dashboard" aria-label="Dashboard notifications">
                 <Bell className="w-5 h-5" />
               </Link>
             </Button>
+
+            {role === 'owner' && (
+              <Button variant="ghost" size="icon" className="relative" asChild>
+                <Link to="/dashboard/communications" aria-label="CarUp conversations">
+                  <MessageSquare className="w-5 h-5" />
+                </Link>
+              </Button>
+            )}
+
+            {role === 'owner' && (
+              <div className="hidden items-center gap-2 border-l border-slate-200 pl-3 lg:flex">
+                <img
+                  src={user?.avatar || '/images/avatars/owner-1.jpg'}
+                  alt=""
+                  className="h-8 w-8 rounded-full object-cover ring-2 ring-orange-100"
+                />
+                <span className="max-w-32 truncate text-xs font-semibold text-slate-700">{user?.name || 'Owner'}</span>
+              </div>
+            )}
+
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="gap-1">
                 <Store className="w-4 h-4" />
