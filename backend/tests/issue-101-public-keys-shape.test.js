@@ -179,3 +179,64 @@ test('the inherited gates still apply to this probe', () => {
   s2.SEQUENCE_DEPENDENCIES = [{ table_name: 'public_keys', sequence_name: 'pk_id_seq', sequence_acl: [] }];
   assert.match(assertComplete(s2, DEPENDENCY_TABLES).reason, /lack structural definition/);
 });
+
+// ------------------------------------------------- governed dispatch wrapper
+
+/**
+ * The wrapper is the only thing standing between a reviewed probe and a production
+ * credential, so its gates are asserted here rather than trusted by inspection.
+ * The pin is deliberately checked against the workflow's OWN env, not a literal
+ * copied into this file, so advancing the pin stays a one-place edit.
+ */
+const WORKFLOW = path.resolve(__dirname, '../../.github/workflows/issue-101-production-public-keys-shape.yml');
+const wf = fs.readFileSync(WORKFLOW, 'utf8');
+
+test('the workflow pins one immutable candidate and asserts it at runtime', () => {
+  const pin = wf.match(/CANDIDATE_SHA:\s*([0-9a-f]{40})/)?.[1];
+  assert.ok(pin, 'CANDIDATE_SHA must be a full 40-character SHA, never a branch or tag');
+  // checkout ref and the env pin must be the same commit, else the assertion is theatre
+  assert.match(wf, new RegExp(`ref:\\s*${pin}\\b`), 'checkout ref must equal CANDIDATE_SHA');
+  assert.match(wf, /actual="\$\(git rev-parse HEAD\)"/);
+  assert.match(wf, /!= "\$CANDIDATE_SHA"/);
+  assert.equal(wf.match(/[0-9a-f]{40}/g).every((s) => s === pin), true,
+    'no second, contradictory SHA may appear anywhere in the workflow');
+});
+
+test('dispatch is owner-gated, main-only, and behind the protected production environment', () => {
+  assert.match(wf, /environment: production/);
+  assert.match(wf, /github\.ref == 'refs\/heads\/main'/);
+  // github.actor survives re-runs by another collaborator; triggering_actor is live.
+  assert.match(wf, /github\.actor == 'kudzimusar'/);
+  assert.match(wf, /github\.triggering_actor == 'kudzimusar'/);
+});
+
+test('there is no apply path: manual dispatch only, no mode input, no phrase gate', () => {
+  assert.match(wf, /on:\s*\n\s*workflow_dispatch:\s*\n/);
+  assert.doesNotMatch(wf, /\n\s*inputs:/, 'a dispatch input is the first step towards an apply mode');
+  assert.doesNotMatch(wf, /\bmode\b\s*:/i);
+  assert.match(wf, /permissions:\s*\n\s*contents: read/);
+});
+
+test('the workflow runs THIS probe, not the eleven-table one', () => {
+  assert.match(wf, /node backend\/scripts\/production-issue-101-public-keys-shape\.mjs\s*$/);
+  assert.doesNotMatch(wf, /node backend\/scripts\/production-issue-101-schema-shape\.mjs/);
+});
+
+test('the runtime guard inspects the collector too, not just the wrapper', () => {
+  // A mutation smuggled into the shared collector is invisible to a wrapper-only grep.
+  const guard = wf.slice(wf.indexOf('no mutation path'), wf.indexOf('actions/setup-node'));
+  assert.match(guard, /collector=backend\/scripts\/production-issue-101-schema-shape\.mjs/);
+  assert.match(guard, /for f in "\$wrapper" "\$collector"/);
+  assert.match(guard, /BEGIN READ ONLY/);
+  assert.match(guard, /DEPENDENCY_TABLES = /);
+  assert.match(guard, /collectSchemaShape\(client, DEPENDENCY_TABLES\)/);
+  // a missing file must fail closed rather than silently pass an empty grep
+  assert.match(guard, /if \[ ! -f "\$f" \]/);
+});
+
+test('dependency install cannot see the production credential', () => {
+  const install = wf.slice(wf.indexOf('Install the pinned pg driver'), wf.indexOf('Require the production secrets'));
+  assert.doesNotMatch(install, /PRODUCTION_DATABASE_URL/);
+  assert.match(install, /--ignore-scripts/, 'lifecycle scripts must not execute during install');
+  assert.match(wf, /PG_DRIVER_VERSION: \d+\.\d+\.\d+/, 'the driver version must be pinned exactly');
+});
