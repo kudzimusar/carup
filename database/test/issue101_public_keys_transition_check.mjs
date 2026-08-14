@@ -19,6 +19,11 @@
  * 'SYNTHETIC-NOT-A-KEY' is not a key and is not derived from one.
  */
 import { PGlite } from '@electric-sql/pglite';
+// The REAL production certifier, exercised against a real database rather than mocked.
+import {
+  certify, ALL_TABLE_PRIVILEGES as CERT_PRIVS,
+  PUBLIC_KEYS_SERVICE_ROLE_ABSENT, PUBLIC_KEYS_SERVICE_ROLE_EXPECTED,
+} from '../../backend/scripts/production-issue-101-p0-cutover.mjs';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -435,6 +440,87 @@ await fkCase({
   svlDdl: SVL_CORRECT,
   expectRefusal: false,
 });
+
+// ═══════════════════════════════════ 8. THE PRODUCTION CERTIFIER, ON A REAL DATABASE
+/**
+ * certify(client, 'A') is what decides in production whether migration B is allowed to
+ * run at all. It is exercised here against the same PGlite instance that has just been
+ * hardened, then against each single surviving privilege — including MAINTAIN, which is
+ * new in PostgreSQL 17 and which production actually carries on public_keys.
+ *
+ * A subset-based certifier would report success while MAINTAIN survived. Each case below
+ * proves it does not.
+ */
+eq('certifier.privilege_set_is_all_eight', CERT_PRIVS.length, 8);
+eq('certifier.includes_MAINTAIN', CERT_PRIVS.includes('MAINTAIN'), true);
+eq('certifier.withheld_set_includes_MAINTAIN', PUBLIC_KEYS_SERVICE_ROLE_ABSENT.includes('MAINTAIN'), true);
+
+// the hardened database must certify
+const certClean = await certify(db, 'A');
+eq('certifier.hardened_state_certifies', certClean.ok, true);
+eq('certifier.anon', certClean.metrics.anon, 'none');
+eq('certifier.authenticated', certClean.metrics.authenticated, 'none');
+eq('certifier.service_role', certClean.metrics.service_role, PUBLIC_KEYS_SERVICE_ROLE_EXPECTED);
+eq('certifier.service_role_withheld_but_present', certClean.metrics.service_role_withheld_but_present, '');
+eq('certifier.service_role_required_but_missing', certClean.metrics.service_role_required_but_missing, '');
+
+/** Grant one privilege, re-certify, revoke it again. */
+async function survivingPrivilege(role, priv) {
+  await db.exec(`GRANT ${priv} ON TABLE public.public_keys TO ${role};`);
+  const c = await certify(db, 'A');
+  await db.exec(`REVOKE ${priv} ON TABLE public.public_keys FROM ${role};`);
+  const back = await certify(db, 'A');
+  eq(`certifier.${role}_${priv}_certification_refused`, !c.ok, true);
+  eq(`certifier.${role}_${priv}_recovers_after_revoke`, back.ok, true);
+  return c;
+}
+
+const anonMaintain = await survivingPrivilege('anon', 'MAINTAIN');
+eq('certifier.anon_MAINTAIN_is_reported', /MAINTAIN/.test(anonMaintain.metrics.anon), true);
+eq('certifier.anon_MAINTAIN_counted', anonMaintain.metrics.api_privileges, 1);
+
+const authMaintain = await survivingPrivilege('authenticated', 'MAINTAIN');
+eq('certifier.authenticated_MAINTAIN_is_reported', /MAINTAIN/.test(authMaintain.metrics.authenticated), true);
+
+const svcMaintain = await survivingPrivilege('service_role', 'MAINTAIN');
+eq('certifier.service_role_MAINTAIN_named_as_withheld',
+  svcMaintain.metrics.service_role_withheld_but_present, 'MAINTAIN');
+
+const svcRefs = await survivingPrivilege('service_role', 'REFERENCES');
+eq('certifier.service_role_REFERENCES_named_as_withheld',
+  svcRefs.metrics.service_role_withheld_but_present, 'REFERENCES');
+
+const svcTrig = await survivingPrivilege('service_role', 'TRIGGER');
+eq('certifier.service_role_TRIGGER_named_as_withheld',
+  svcTrig.metrics.service_role_withheld_but_present, 'TRIGGER');
+
+const svcDel = await survivingPrivilege('service_role', 'DELETE');
+eq('certifier.service_role_DELETE_named_as_withheld',
+  svcDel.metrics.service_role_withheld_but_present, 'DELETE');
+
+// a LOST required privilege must fail too, not only an extra one
+await db.exec(`REVOKE UPDATE ON TABLE public.public_keys FROM service_role;`);
+const lost = await certify(db, 'A');
+await db.exec(`GRANT UPDATE ON TABLE public.public_keys TO service_role;`);
+eq('certifier.lost_required_privilege_refused', !lost.ok, true);
+eq('certifier.lost_required_privilege_named', lost.metrics.service_role_required_but_missing, 'UPDATE');
+eq('certifier.restored_after_regrant', (await certify(db, 'A')).ok, true);
+
+// the measured production-style PRE-state must report MAINTAIN, not hide it
+const pre = await PGlite.create(); OPEN.push(pre);
+await pre.exec(`
+  CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN;
+  CREATE ROLE service_role NOLOGIN BYPASSRLS;
+  CREATE TABLE public.users (id text PRIMARY KEY);
+  CREATE TABLE public.public_keys (id text PRIMARY KEY, user_id text);
+  ALTER TABLE public.public_keys ENABLE ROW LEVEL SECURITY;
+  GRANT ALL ON TABLE public.public_keys TO anon, authenticated, service_role;`);
+const preCert = await certify(pre, 'A');
+eq('certifier.production_style_pre_state_reports_MAINTAIN',
+  /MAINTAIN/.test(preCert.metrics.anon) && /MAINTAIN/.test(preCert.metrics.authenticated)
+  && /MAINTAIN/.test(preCert.metrics.service_role), true);
+eq('certifier.production_style_pre_state_refused', !preCert.ok, true);
+eq('certifier.production_style_pre_state_counts_16_api_privileges', preCert.metrics.api_privileges, 16);
 
 // ═══════════════════════════════════════════════ REPORT
 console.log('\nISSUE #101 — public_keys P0 CLOSURE: TRANSITION PROOF (real PostgreSQL via PGlite)\n');

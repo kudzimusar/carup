@@ -37,7 +37,7 @@ export const ALLOWED_MIGRATIONS = Object.freeze([
   Object.freeze({
     order: 'A',
     file: '20260814085000_issue101_public_keys_hardening.sql',
-    sha256: '7225faf31c691fa213e4b96bb0f7cddfc87b6a6c98228967856dd0806ba6a63b',
+    sha256: 'cb5488f14feedb997a02e86826b4935b350cc7b1f6859820fde0d32648b6e68d',
     label: 'public_keys P0 closure',
   }),
   Object.freeze({
@@ -80,6 +80,25 @@ export const CUTOVER_SEVEN = Object.freeze({
   trust_score_history: 'none', vehicle_ownership_history: 'none',
   vehicle_evidence: 'SELECT', vehicles: 'SELECT',
 });
+
+/**
+ * ALL EIGHT table privileges PostgreSQL 17 tracks.
+ *
+ * MAINTAIN is new in 17, and the production measurement proved public_keys carries it
+ * for every role. Any check that omits it can report "no privileges survive" while
+ * MAINTAIN quietly does — so every effective-privilege assertion in this file uses this
+ * array, and nothing uses a subset.
+ */
+export const ALL_TABLE_PRIVILEGES = Object.freeze([
+  'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN',
+]);
+/** What service_role must keep on public_keys, and what it must not have. */
+export const PUBLIC_KEYS_SERVICE_ROLE_PRESENT = Object.freeze(['SELECT', 'INSERT', 'UPDATE']);
+export const PUBLIC_KEYS_SERVICE_ROLE_ABSENT = Object.freeze([
+  'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN',
+]);
+/** Alphabetical, because that is how the catalog aggregation orders them. */
+export const PUBLIC_KEYS_SERVICE_ROLE_EXPECTED = 'INSERT,SELECT,UPDATE';
 
 /** The measured production shape of public_keys (run 31774496416). */
 export const PUBLIC_KEYS_SHAPE =
@@ -196,18 +215,23 @@ export async function preflight(client) {
 
   // "already applied?" is answered from the CATALOG, not from a migration ledger, so a
   // ledger that disagrees with reality cannot mislead the decision.
+  // The pre-state receipt measures ALL THREE roles across ALL EIGHT privileges, so it
+  // shows production exactly as it is — including MAINTAIN if it is still present.
   s.public_keys_hardening_applied = await one(client,
-    `select coalesce((select string_agg(p,',' order by p)
-              from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p
+    `select coalesce((select string_agg(p,',' order by p) from unnest($1::text[]) p
              where has_table_privilege('anon','public.public_keys',p)), 'none') as anon,
-            coalesce((select string_agg(p,',' order by p)
-              from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) p
+            coalesce((select string_agg(p,',' order by p) from unnest($1::text[]) p
+             where has_table_privilege('authenticated','public.public_keys',p)), 'none') as authenticated,
+            coalesce((select string_agg(p,',' order by p) from unnest($1::text[]) p
              where has_table_privilege('service_role','public.public_keys',p)), 'none') as service_role,
             (select relrowsecurity from pg_class where oid='public.public_keys'::regclass) as rls,
-            (select count(*)::int from pg_policy where polrelid='public.public_keys'::regclass) as policies`);
+            (select relforcerowsecurity from pg_class where oid='public.public_keys'::regclass) as forced,
+            (select count(*)::int from pg_policy where polrelid='public.public_keys'::regclass) as policies`,
+    [ALL_TABLE_PRIVILEGES]);
   s.public_keys_hardening_applied.already_hardened =
     s.public_keys_hardening_applied.anon === 'none'
-    && s.public_keys_hardening_applied.service_role === 'INSERT,SELECT,UPDATE';
+    && s.public_keys_hardening_applied.authenticated === 'none'
+    && s.public_keys_hardening_applied.service_role === PUBLIC_KEYS_SERVICE_ROLE_EXPECTED;
 
   s.p0_applied = await one(client,
     `select (select count(*)::int from unnest($1::text[]) t(name)
@@ -222,8 +246,15 @@ export async function preflight(client) {
     && /security_invoker=(true|on)/.test(s.p0_applied.view_reloptions || '')
     && s.p0_applied.p0_policies >= 2;
 
+  // Two views of the same relations, deliberately:
+  //   anon/authenticated/service_role  — the ordinary-DML summary the cutover-seven
+  //                                      regression check is defined in terms of, and
+  //                                      which was certified on staging in those terms;
+  //   *_all_eight                      — every PostgreSQL 17 privilege, so the receipt
+  //                                      under-reports nothing. MAINTAIN shows up here.
   const { rows: posture } = await client.query(
     `select c.relname as name, c.relkind::text as kind, c.relrowsecurity as rls,
+            c.relforcerowsecurity as forced,
             (select count(*)::int from pg_policy p where p.polrelid=c.oid) as policies,
             coalesce((select string_agg(pr,',' order by pr)
                from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) pr
@@ -233,11 +264,17 @@ export async function preflight(client) {
               where has_table_privilege('authenticated',c.oid,pr)),'none') as authenticated,
             coalesce((select string_agg(pr,',' order by pr)
                from unnest(array['SELECT','INSERT','UPDATE','DELETE']) pr
-              where has_table_privilege('service_role',c.oid,pr)),'none') as service_role
+              where has_table_privilege('service_role',c.oid,pr)),'none') as service_role,
+            coalesce((select string_agg(pr,',' order by pr) from unnest($2::text[]) pr
+              where has_table_privilege('anon',c.oid,pr)),'none') as anon_all_eight,
+            coalesce((select string_agg(pr,',' order by pr) from unnest($2::text[]) pr
+              where has_table_privilege('authenticated',c.oid,pr)),'none') as authenticated_all_eight,
+            coalesce((select string_agg(pr,',' order by pr) from unnest($2::text[]) pr
+              where has_table_privilege('service_role',c.oid,pr)),'none') as service_role_all_eight
        from pg_class c join pg_namespace n on n.oid=c.relnamespace
       where n.nspname='public' and c.relname = any($1::text[]) order by 1`,
     [[...FOURTEEN, 'evidence_sources', 'evidence_sources_public', 'public_keys',
-      ...Object.keys(CUTOVER_SEVEN)]]);
+      ...Object.keys(CUTOVER_SEVEN)], ALL_TABLE_PRIVILEGES]);
   s.POSTURE = posture;
 
   const byName = new Map(posture.map((r) => [r.name, r]));
@@ -266,17 +303,33 @@ export async function preflight(client) {
 /** Post-apply certification for one migration, read from the catalog. */
 export async function certify(client, order) {
   if (order === 'A') {
+    // Every effective-privilege assertion spans ALL EIGHT, and the withheld set is
+    // proven absent by name rather than inferred from an aggregate string.
     const r = await one(client,
       `select (select relrowsecurity from pg_class where oid='public.public_keys'::regclass) as rls,
               (select count(*)::int from pg_policy where polrelid='public.public_keys'::regclass) as policies,
+              coalesce((select string_agg(p,',' order by p) from unnest($1::text[]) p
+                where has_table_privilege('anon','public.public_keys',p)),'none') as anon,
+              coalesce((select string_agg(p,',' order by p) from unnest($1::text[]) p
+                where has_table_privilege('authenticated','public.public_keys',p)),'none') as authenticated,
+              coalesce((select string_agg(p,',' order by p) from unnest($1::text[]) p
+                where has_table_privilege('service_role','public.public_keys',p)),'none') as service_role,
               (select count(*)::int from unnest(array['anon','authenticated']) rr(role),
-                 unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) pp(priv)
+                 unnest($1::text[]) pp(priv)
                 where has_table_privilege(rr.role,'public.public_keys',pp.priv)) as api_privileges,
-              coalesce((select string_agg(p,',' order by p)
-                 from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) p
-                where has_table_privilege('service_role','public.public_keys',p)),'none') as service_role`);
-    const ok = r.rls === true && r.policies === 0 && r.api_privileges === 0
-      && r.service_role === 'INSERT,SELECT,UPDATE';
+              coalesce((select string_agg(p,',' order by p) from unnest($2::text[]) p
+                where has_table_privilege('service_role','public.public_keys',p)),'') as service_role_withheld_but_present,
+              coalesce((select string_agg(p,',' order by p) from unnest($3::text[]) p
+                where not has_table_privilege('service_role','public.public_keys',p)),'') as service_role_required_but_missing`,
+      [ALL_TABLE_PRIVILEGES, PUBLIC_KEYS_SERVICE_ROLE_ABSENT, PUBLIC_KEYS_SERVICE_ROLE_PRESENT]);
+    const ok = r.rls === true
+      && r.policies === 0
+      && r.api_privileges === 0
+      && r.anon === 'none'
+      && r.authenticated === 'none'
+      && r.service_role === PUBLIC_KEYS_SERVICE_ROLE_EXPECTED
+      && r.service_role_withheld_but_present === ''
+      && r.service_role_required_but_missing === '';
     return { ok, metrics: r };
   }
   const r = await one(client,

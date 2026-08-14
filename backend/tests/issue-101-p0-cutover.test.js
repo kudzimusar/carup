@@ -19,6 +19,8 @@ import {
   ALLOWED_MIGRATIONS, FORBIDDEN_MIGRATIONS,
   PRODUCTION_PROJECT_REF_SHA256, STAGING_PROJECT_REF_SHA256, refHash,
   FOURTEEN, CUTOVER_SEVEN, PUBLIC_KEYS_SHAPE,
+  ALL_TABLE_PRIVILEGES, PUBLIC_KEYS_SERVICE_ROLE_PRESENT,
+  PUBLIC_KEYS_SERVICE_ROLE_ABSENT, PUBLIC_KEYS_SERVICE_ROLE_EXPECTED,
   assertProductionIdentity, loadPinnedMigration, sanitizeError, CutoverError,
   assertAllowlistIntegrity,
 } from '../scripts/production-issue-101-p0-cutover.mjs';
@@ -284,7 +286,62 @@ test('certification thresholds are the published #155 invariants', () => {
   assert.match(block, /intentional_public_read_surfaces_after === 1/);
   assert.match(block, /service_only_tables_with_select_absent === 13/);
   assert.match(block, /security_invoker=\(true\|on\)/);
-  // and A's own thresholds
+});
+
+test('ALL EIGHT PostgreSQL 17 privileges are the unit of measurement', () => {
+  // MAINTAIN is new in PG17 and production carries it on public_keys. A subset check
+  // would report "no privileges survive" while MAINTAIN quietly did.
+  assert.deepEqual([...ALL_TABLE_PRIVILEGES].sort(),
+    ['DELETE', 'INSERT', 'MAINTAIN', 'REFERENCES', 'SELECT', 'TRIGGER', 'TRUNCATE', 'UPDATE']);
+  assert.equal(ALL_TABLE_PRIVILEGES.length, 8);
+  assert.ok(ALL_TABLE_PRIVILEGES.includes('MAINTAIN'));
+  assert.ok(Object.isFrozen(ALL_TABLE_PRIVILEGES));
+
+  // present + absent must partition the eight exactly — no privilege unaccounted for
+  assert.deepEqual(
+    [...PUBLIC_KEYS_SERVICE_ROLE_PRESENT, ...PUBLIC_KEYS_SERVICE_ROLE_ABSENT].sort(),
+    [...ALL_TABLE_PRIVILEGES].sort());
+  assert.equal(
+    PUBLIC_KEYS_SERVICE_ROLE_PRESENT.filter((p) => PUBLIC_KEYS_SERVICE_ROLE_ABSENT.includes(p)).length, 0);
+  assert.ok(PUBLIC_KEYS_SERVICE_ROLE_ABSENT.includes('MAINTAIN'));
+  assert.ok(PUBLIC_KEYS_SERVICE_ROLE_ABSENT.includes('REFERENCES'));
+  assert.ok(PUBLIC_KEYS_SERVICE_ROLE_ABSENT.includes('TRIGGER'));
+  assert.equal(PUBLIC_KEYS_SERVICE_ROLE_EXPECTED, 'INSERT,SELECT,UPDATE');
+
+  // No subset may be used to make an EXACTNESS claim. The broad POSTURE survey keeps a
+  // DML summary — the cutover-seven regression check is defined in those terms and was
+  // certified that way — but it now also carries all-eight columns, so nothing in the
+  // receipt under-reports.
+  const code = src.split('\n').filter((l) => !/^\s*(\*|\/\*|\/\/)/.test(l)).join('\n');
+  assert.doesNotMatch(code, /'SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'\]/,
+    'a seven-privilege subset omits MAINTAIN');
+  for (const role of ['anon', 'authenticated', 'service_role']) {
+    assert.match(code, new RegExp(`${role}_all_eight`), `POSTURE must report ${role} across all eight`);
+  }
+  // every exactness comparison is against the all-eight measurement
+  assert.doesNotMatch(code, /service_role === 'INSERT,SELECT,UPDATE'/,
+    'exactness must compare the named constant computed over all eight');
+});
+
+test('certify(A) asserts all eight and proves the withheld set absent by name', () => {
+  const block = src.slice(src.indexOf("if (order === 'A')"), src.indexOf('const r = await one(client,\n    `select (select count'));
+  assert.match(block, /ALL_TABLE_PRIVILEGES/);
+  assert.match(block, /PUBLIC_KEYS_SERVICE_ROLE_ABSENT/);
+  assert.match(block, /PUBLIC_KEYS_SERVICE_ROLE_PRESENT/);
+  assert.match(block, /service_role_withheld_but_present === ''/);
+  assert.match(block, /service_role_required_but_missing === ''/);
+  assert.match(block, /r\.anon === 'none'/);
+  assert.match(block, /r\.authenticated === 'none'/);
   assert.match(block, /api_privileges === 0/);
-  assert.match(block, /service_role === 'INSERT,SELECT,UPDATE'/);
+  assert.match(block, /service_role === PUBLIC_KEYS_SERVICE_ROLE_EXPECTED/);
+});
+
+test('preflight reports anon AND authenticated AND service_role across all eight', () => {
+  const block = src.slice(src.indexOf('s.public_keys_hardening_applied'), src.indexOf('s.p0_applied'));
+  for (const role of ['anon', 'authenticated', 'service_role']) {
+    assert.match(block, new RegExp(`has_table_privilege\\('${role}'`), `preflight must measure ${role}`);
+  }
+  assert.match(block, /ALL_TABLE_PRIVILEGES/);
+  assert.match(block, /already_hardened/);
+  assert.match(block, /authenticated === 'none'/);
 });

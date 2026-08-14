@@ -257,24 +257,47 @@ GRANT SELECT, INSERT, UPDATE ON TABLE public.public_keys TO service_role;
 -- had, rather than a partial mixture of old and new.
 DO $pk_postcondition$
 DECLARE
+  -- ALL EIGHT table privileges PostgreSQL 17 tracks. MAINTAIN is new in 17 and the
+  -- production measurement (run 31774496416) proved public_keys carries it for every
+  -- role, so a check that omits it would certify "no privileges survive" while MAINTAIN
+  -- quietly did. REVOKE ALL removes it; this array is what proves that it did.
+  c_all_privs text[] := ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE',
+                              'REFERENCES','TRIGGER','MAINTAIN'];
+  -- What service_role must keep, and what it must NOT have. Stated as two explicit
+  -- sets rather than inferred from a subset comparison.
+  c_svc_present text[] := ARRAY['SELECT','INSERT','UPDATE'];
+  c_svc_absent  text[] := ARRAY['DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'];
   v_rls      boolean;
   v_policies integer;
   v_api      integer;
+  v_api_list text;
   v_svc      text;
+  v_svc_miss text;
+  v_svc_extra text;
 BEGIN
   SELECT c.relrowsecurity INTO v_rls
     FROM pg_class c WHERE c.oid = 'public.public_keys'::regclass;
 
+  SELECT count(*), coalesce(string_agg(r.role || '.' || p.priv, ', ' ORDER BY r.role, p.priv), '')
+    INTO v_api, v_api_list
+    FROM unnest(ARRAY['anon', 'authenticated']) AS r(role),
+         unnest(c_all_privs) AS p(priv)
+   WHERE has_table_privilege(r.role, 'public.public_keys', p.priv);
+
   SELECT count(*) INTO v_policies
     FROM pg_policy WHERE polrelid = 'public.public_keys'::regclass;
 
-  SELECT count(*) INTO v_api
-    FROM unnest(ARRAY['anon', 'authenticated']) AS r(role),
-         unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS p(priv)
-   WHERE has_table_privilege(r.role, 'public.public_keys', p.priv);
-
+  -- service_role measured across ALL EIGHT, not a subset
   SELECT coalesce(string_agg(p.priv, ',' ORDER BY p.priv), 'none') INTO v_svc
-    FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) AS p(priv)
+    FROM unnest(c_all_privs) AS p(priv)
+   WHERE has_table_privilege('service_role', 'public.public_keys', p.priv);
+
+  SELECT coalesce(string_agg(p.priv, ',' ORDER BY p.priv), '') INTO v_svc_miss
+    FROM unnest(c_svc_present) AS p(priv)
+   WHERE NOT has_table_privilege('service_role', 'public.public_keys', p.priv);
+
+  SELECT coalesce(string_agg(p.priv, ',' ORDER BY p.priv), '') INTO v_svc_extra
+    FROM unnest(c_svc_absent) AS p(priv)
    WHERE has_table_privilege('service_role', 'public.public_keys', p.priv);
 
   IF NOT v_rls THEN
@@ -285,12 +308,22 @@ BEGIN
   END IF;
   IF v_api <> 0 THEN
     RAISE EXCEPTION
-      '[issue-101-pk] % anon/authenticated privilege(s) survive on public_keys; expected 0 (TRUNCATE included, since RLS does not govern it)',
-      v_api;
+      '[issue-101-pk] % anon/authenticated privilege(s) survive on public_keys (expected 0, across all eight including TRUNCATE and MAINTAIN): %',
+      v_api, v_api_list;
+  END IF;
+  IF v_svc_miss <> '' THEN
+    RAISE EXCEPTION
+      '[issue-101-pk] service_role LOST required privilege(s) on public_keys: %. The backend selects, inserts and updates this table.',
+      v_svc_miss;
+  END IF;
+  IF v_svc_extra <> '' THEN
+    RAISE EXCEPTION
+      '[issue-101-pk] service_role retains withheld privilege(s) on public_keys: %. DELETE, TRUNCATE, REFERENCES, TRIGGER and MAINTAIN are all withheld.',
+      v_svc_extra;
   END IF;
   IF v_svc <> 'INSERT,SELECT,UPDATE' THEN
     RAISE EXCEPTION
-      '[issue-101-pk] service_role privileges are "%", expected exactly "INSERT,SELECT,UPDATE" (DELETE and TRUNCATE withheld)',
+      '[issue-101-pk] service_role effective privileges across all eight are "%", expected exactly "INSERT,SELECT,UPDATE"',
       v_svc;
   END IF;
 END
