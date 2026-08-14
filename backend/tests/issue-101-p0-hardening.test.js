@@ -40,9 +40,91 @@ test('the migration satisfies the repository integrity contract', () => {
   assert.ok(down.length > 0, 'Down section must exist (documented, deliberate)');
 });
 
-test('its timestamp sorts after every migration it depends on', () => {
-  const all = fs.readdirSync(path.dirname(MIG)).filter(f => /^\d{14}_.*\.sql$/.test(f)).sort();
-  assert.equal(all[all.length - 1], FILE, 'must be the newest timestamped migration');
+/**
+ * Dependency-specific ordering. Asserting "this is the newest migration in the repo"
+ * would be true today and broken by the next unrelated migration, so instead we assert
+ * exactly what this migration needs: that every migration which CREATES one of its
+ * targets sorts before it.
+ *
+ * Verified on origin/main: only SIX of the fourteen targets are created by a migration
+ * at all. The other eight are created out-of-band by scripts/deploy-missing-schemas.js,
+ * which no ordering assertion can cover — the migration's runtime PRECONDITION 1 covers
+ * them instead, by name.
+ */
+const MIGRATION_CREATED_TARGETS = {
+  '004_add_tamper_proofing.sql': ['performance_telemetry', 'signature_verification_logs', 'system_failures'],
+  '006_domain1.sql': ['dealer_promotions'],
+  '011_phase6_schema.sql': ['currency_rates'],
+  '20260621120000_vehicle_life_evidence_taxonomy_provenance.sql':
+    ['evidence_class_taxonomy', 'evidence_sources', 'evidence_sources_public'],
+};
+const OUT_OF_BAND_TARGETS = [
+  'cid_clearance_records', 'cvr_ownership_records', 'vid_inspections',
+  'zimra_declarations', 'zinara_licensing_records',
+  'ocr_customs_declarations', 'ocr_national_ids', 'ocr_registration_books',
+];
+
+test('every dependency migration exists and sorts BEFORE this migration', () => {
+  const dir = path.dirname(MIG);
+  for (const dep of Object.keys(MIGRATION_CREATED_TARGETS)) {
+    assert.ok(fs.existsSync(path.join(dir, dep)), `dependency ${dep} must exist`);
+    assert.ok(dep < FILE, `${dep} must sort before ${FILE} in the runner's lexical order`);
+  }
+});
+
+test('each dependency migration really does create the targets claimed for it', () => {
+  const dir = path.dirname(MIG);
+  for (const [dep, targets] of Object.entries(MIGRATION_CREATED_TARGETS)) {
+    const body = fs.readFileSync(path.join(dir, dep), 'utf8');
+    for (const target of targets) {
+      const creates = new RegExp(`CREATE (TABLE|OR REPLACE VIEW|VIEW)( IF NOT EXISTS)? (public\\.)?${target}\\b`, 'i');
+      assert.match(body, creates, `${dep} should create ${target}`);
+    }
+  }
+});
+
+test('the out-of-band targets are enumerated and covered by a runtime precondition', () => {
+  const dir = path.dirname(MIG);
+  const migrations = fs.readdirSync(dir).filter(f => f.endsWith('.sql') && f !== FILE);
+  for (const target of OUT_OF_BAND_TARGETS) {
+    const creator = migrations.find(f =>
+      new RegExp(`CREATE TABLE( IF NOT EXISTS)? (public\\.)?${target}\\b`, 'i')
+        .test(fs.readFileSync(path.join(dir, f), 'utf8')));
+    assert.equal(creator, undefined,
+      `${target} is expected to be created out-of-band; ${creator} now creates it — move it into MIGRATION_CREATED_TARGETS`);
+    // and the migration must name it in the existence precondition
+    assert.ok(up.includes(`'${target}'`), `${target} must appear in the target precondition list`);
+  }
+});
+
+test('every one of the fourteen is covered by exactly one dependency classification', () => {
+  const declared = [...Object.values(MIGRATION_CREATED_TARGETS).flat(), ...OUT_OF_BAND_TARGETS]
+    .filter(n => FOURTEEN.includes(n));
+  assert.deepEqual([...new Set(declared)].sort(), [...FOURTEEN].sort());
+});
+
+test('PRECONDITION 0 asserts service_role BYPASSRLS before any change', () => {
+  const firstAlter = up.indexOf('ALTER TABLE public.');
+  const firstRevoke = up.indexOf('REVOKE ');
+  const firstPolicy = up.indexOf('CREATE POLICY');
+  const precondition = up.indexOf('rolbypassrls');
+  assert.ok(precondition > 0, 'the precondition must exist');
+  for (const [name, idx] of [['ALTER TABLE', firstAlter], ['REVOKE', firstRevoke], ['CREATE POLICY', firstPolicy]]) {
+    assert.ok(precondition < idx, `the BYPASSRLS precondition must precede the first ${name}`);
+  }
+  assert.match(up, /RAISE EXCEPTION[\s\S]*BYPASSRLS/);
+  assert.match(up, /ERRCODE = 'insufficient_privilege'/);
+});
+
+test('PRECONDITION 1 names every target and fails loudly when one is absent', () => {
+  for (const t of FOURTEEN) assert.ok(up.includes(`'${t}'`), `${t} must be in the existence precondition`);
+  for (const o of ['evidence_sources', 'evidence_sources_public']) {
+    assert.ok(up.includes(`'${o}'`), `${o} must be in the existence precondition`);
+  }
+  assert.match(up, /ERRCODE = 'undefined_table'/);
+  assert.match(up, /Refusing to apply a partial hardening/);
+  const firstAlter = up.indexOf('ALTER TABLE public.');
+  assert.ok(up.indexOf('to_regclass') < firstAlter, 'existence checks must precede the first change');
 });
 
 // ---------------------------------------------------------------- B2: the 14

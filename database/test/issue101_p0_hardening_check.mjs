@@ -162,25 +162,36 @@ results.after = await posture(db);
 
 // ---------------------------------------------------------------- assertions
 // 1. all fourteen: RLS on, and zero ordinary-DML for both API roles.
-let ordinaryExposures = 0;
+let unintendedWriteExposures = 0;
+let unintendedReadExposures = 0;
+let intentionalReadSurfaces = 0;
 for (const t of FOURTEEN) {
   const a = results.after[t];
   if (a.rls !== true) fail(`${t}: RLS not enabled after migration`);
   for (const role of ['anon', 'authenticated']) {
     for (const priv of ['INSERT', 'UPDATE', 'DELETE']) {
-      if (a[role].includes(priv)) { fail(`${t}: ${role} retains ${priv}`); ordinaryExposures += 1; }
+      if (a[role].includes(priv)) { fail(`${t}: ${role} retains ${priv}`); unintendedWriteExposures += 1; }
     }
     if (a[role].includes('TRUNCATE')) fail(`${t}: ${role} retains TRUNCATE — RLS does not govern it`);
     const expectRead = t === KEEPS_READ;
     const hasRead = a[role].includes('SELECT');
     if (expectRead && !hasRead) fail(`${t}: ${role} lost the documented public read`);
-    if (!expectRead && hasRead) fail(`${t}: ${role} unexpectedly retains SELECT`);
+    if (!expectRead && hasRead) { fail(`${t}: ${role} unexpectedly retains SELECT`); unintendedReadExposures += 1; }
+    if (expectRead && hasRead) intentionalReadSurfaces += 1;
   }
   for (const priv of ['SELECT', 'INSERT', 'UPDATE', 'DELETE']) {
     if (!a.service_role.includes(priv)) fail(`${t}: service_role LOST ${priv}`);
   }
 }
-results.ordinary_dml_exposures_after = ordinaryExposures;
+// PRECISE TAXONOMY. "all ordinary DML absent" would be false — one intentional public
+// SELECT is deliberately retained — so the metric names say exactly which is which.
+results.unintended_api_write_exposures_after = unintendedWriteExposures;   // must be 0
+results.unintended_api_read_exposures_after = unintendedReadExposures;     // must be 0
+results.intentional_public_read_surfaces_after = intentionalReadSurfaces / 2; // per table, both roles
+results.service_only_tables_with_select_absent = FOURTEEN.filter((t) =>
+  t !== KEEPS_READ &&
+  !results.after[t].anon.includes('SELECT') &&
+  !results.after[t].authenticated.includes('SELECT')).length;                // must be 13
 
 // 2. negative role tests — the behaviour, not just the catalog.
 for (const t of ['ocr_national_ids', 'cid_clearance_records', 'currency_rates', 'signature_verification_logs']) {
@@ -278,13 +289,82 @@ results.residual_sequence_exposure = {
   total_sequences: seqAcl.length,
 };
 
+// Describe the negative coverage by CATEGORY rather than by a count that could drift.
+results.negative_check_categories = {
+  table_insert_denied: results.negative.filter((n) => n.insert === false && n.table).length,
+  table_select_denied: results.negative.filter((n) => n.select === false).length,
+  table_truncate_denied: results.negative.filter((n) => n.truncate === false).length,
+  view_update_denied: results.negative.filter((n) => n.view && n.update === false).length,
+  view_insert_denied: results.negative.filter((n) => n.view && n.insert === false).length,
+  roles_covered: [...new Set(results.negative.map((n) => n.role))].sort(),
+};
+
+// ---------------------------------------------------------------- 8. precondition
+// PROVE THE FAIL-LOUD PRECONDITION. A second, independent database is built WITHOUT
+// BYPASSRLS on service_role. Applying the migration inside a transaction — exactly as
+// the runner does — must RAISE, and must leave NOT ONE target table hardened.
+{
+  const db2 = await PGlite.create();
+  await db2.exec(`
+    CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN;            -- deliberately WITHOUT BYPASSRLS
+    GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+  `);
+  for (const t2 of FOURTEEN) {
+    await db2.exec(`CREATE TABLE public.${t2} (id bigserial primary key, payload text);`);
+    await db2.exec(`GRANT ALL ON TABLE public.${t2} TO anon, authenticated, service_role;`);
+  }
+  await db2.exec(`
+    CREATE TABLE public.evidence_sources (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text, display_name text,
+      source_type text, organization text, country text, verification_status text,
+      trust_tier text, permitted_evidence_classes text[], active boolean NOT NULL DEFAULT true,
+      contact_reference text, credential_reference text);
+    CREATE VIEW public.evidence_sources_public AS
+      SELECT id, code, display_name, source_type, organization, country,
+             verification_status, trust_tier, permitted_evidence_classes, active
+      FROM public.evidence_sources WHERE active = true;
+  `);
+
+  let raised = null;
+  try {
+    await db2.exec(`BEGIN; ${upSectionOf(MIGRATION)} COMMIT;`);
+  } catch (e) {
+    raised = String(e.message || e).split('\n')[0];
+    try { await db2.exec('ROLLBACK;'); } catch { /* already aborted */ }
+  }
+  const { rows: after2 } = await db2.query(`
+    select count(*)::int as hardened
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname='public' and c.relkind='r' and c.relrowsecurity
+       and c.relname = any($1::text[])`, [FOURTEEN]);
+
+  results.precondition_regression = {
+    raised: raised !== null,
+    error: raised,
+    tables_left_hardened: after2[0].hardened,
+  };
+  if (raised === null) fail('precondition regression: migration did NOT raise without service_role BYPASSRLS');
+  if (raised && !/BYPASSRLS/i.test(raised)) fail(`precondition regression: raised for the wrong reason -> ${raised}`);
+  if (after2[0].hardened !== 0) {
+    fail(`precondition regression: ${after2[0].hardened} table(s) left partially hardened after abort`);
+  }
+  await db2.close();
+}
+
 results.overall = results.failures.length === 0 ? 'PASS' : 'FAIL';
 console.log(JSON.stringify({
   overall: results.overall,
-  ordinary_dml_exposures_after: results.ordinary_dml_exposures_after,
+  unintended_api_write_exposures_after: results.unintended_api_write_exposures_after,
+  unintended_api_read_exposures_after: results.unintended_api_read_exposures_after,
+  intentional_public_read_surfaces_after: results.intentional_public_read_surfaces_after,
+  service_only_tables_with_select_absent: results.service_only_tables_with_select_absent,
+  negative_check_categories: results.negative_check_categories,
   security_invoker: results.security_invoker,
   service_role_bypassrls: results.service_role_bypassrls,
   residual_sequence_exposure: results.residual_sequence_exposure,
+  precondition_regression: results.precondition_regression,
   failures: results.failures,
   positive: results.positive,
   negative: results.negative,

@@ -37,6 +37,73 @@
 -- documented public-read intent in its own migration.
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- PRECONDITION 0 — service_role MUST bypass RLS.  FAIL-LOUD, BEFORE ANY CHANGE.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Enabling RLS on fourteen tables is non-breaking for the backend ONLY because
+-- service_role bypasses RLS — the backend reaches Postgres exclusively through the
+-- service-role client. Production run 31759906271 measured rolbypassrls = true for
+-- service_role, and that measurement is why this migration is expected to pass. It is
+-- NOT a substitute for re-asserting the fact at execution time, against whatever
+-- database is actually in front of us.
+--
+-- This runs FIRST. If it raises, the surrounding transaction aborts and NOT ONE table
+-- is left partially hardened.
+DO $issue101_precondition$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_roles
+     WHERE rolname = 'service_role' AND rolbypassrls
+  ) THEN
+    RAISE EXCEPTION
+      '[issue-101-p0] service_role is absent or lacks BYPASSRLS; enabling RLS would break every backend write. Refusing to apply any security change.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END
+$issue101_precondition$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PRECONDITION 1 — every target object MUST already exist.  FAIL-LOUD.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Dependency reality, verified on origin/main: only SIX of the fourteen are created by
+-- a migration —
+--   004_add_tamper_proofing.sql .................. performance_telemetry,
+--                                                  signature_verification_logs,
+--                                                  system_failures
+--   006_domain1.sql .............................. dealer_promotions
+--   011_phase6_schema.sql ........................ currency_rates
+--   20260621120000_vehicle_life_evidence_taxonomy_provenance.sql
+--                                                  evidence_class_taxonomy,
+--                                                  evidence_sources,
+--                                                  evidence_sources_public (view)
+-- The other EIGHT — the five registry tables and the three OCR children — are created
+-- OUT-OF-BAND by scripts/deploy-missing-schemas.js and by no migration at all. A
+-- migration-order assertion therefore cannot cover them; a runtime precondition can,
+-- and does. Naming the missing objects explicitly is the difference between a
+-- diagnosable failure and a confusing one.
+DO $issue101_targets$
+DECLARE
+  v_missing text[];
+BEGIN
+  SELECT array_agg(name ORDER BY name) INTO v_missing
+    FROM unnest(ARRAY[
+      'cid_clearance_records','currency_rates','cvr_ownership_records','dealer_promotions',
+      'evidence_class_taxonomy','ocr_customs_declarations','ocr_national_ids',
+      'ocr_registration_books','performance_telemetry','signature_verification_logs',
+      'system_failures','vid_inspections','zimra_declarations','zinara_licensing_records',
+      'evidence_sources','evidence_sources_public'
+    ]) AS name
+   WHERE to_regclass('public.' || name) IS NULL;
+
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION
+      '[issue-101-p0] target object(s) absent: %. The five registry and three OCR tables are created out-of-band by scripts/deploy-missing-schemas.js, which must run first. Refusing to apply a partial hardening.',
+      array_to_string(v_missing, ', ')
+      USING ERRCODE = 'undefined_table';
+  END IF;
+END
+$issue101_targets$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- B2a  GOVERNMENT / REGISTRY EVIDENCE — service-role only, no policy
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Readers: backend/services/trustGraph/trustGraphService.js (service-role client).
