@@ -57,6 +57,7 @@ export const REQUIRED_SECTIONS = [
   'VIEW_STATE',
   'SEQUENCE_STATE',
   'FUNCTION_REACHABILITY',
+  'API_EXPOSURE',
 ];
 
 /** Heuristics used only to CLASSIFY a body; the body itself is never emitted. */
@@ -116,6 +117,28 @@ function tlsConfig() {
   return { rejectUnauthorized: true };
 }
 
+/**
+ * Run a probe that may fail on roles without catalog access. Each runs on a
+ * SAVEPOINT so a failure cannot poison the surrounding READ ONLY transaction and
+ * mislabel every probe after it (25P02 cascade).
+ */
+/** Privileges held by one grantee in a decomposed ACL, or 'none'. */
+function privsFor(acl, grantee) {
+  const set = new Set((acl || []).filter((a) => a.grantee === grantee).map((a) => a.privilege));
+  return set.size ? [...set].sort().join(',') : 'none';
+}
+
+async function optionalProbe(client, fn, onErr) {
+  try { await client.query('SAVEPOINT p'); } catch { /* autocommit */ }
+  try {
+    await fn();
+    try { await client.query('RELEASE SAVEPOINT p'); } catch { /* ignore */ }
+  } catch (e) {
+    try { await client.query('ROLLBACK TO SAVEPOINT p'); } catch { /* ignore */ }
+    if (onErr) onErr(e);
+  }
+}
+
 export async function collectReachability(client) {
   const s = {};
 
@@ -129,14 +152,33 @@ export async function collectReachability(client) {
      order by 1`, [FOCUS_ROLES]);
   s.ROLE_STATE = roles;
 
+  // TRANSITIVE closure. One-hop pg_auth_members understates reachability: a role
+  // two hops away still yields a SET ROLE path. Reported alongside pg_has_role
+  // MEMBER semantics, which is PostgreSQL's own authority on the question.
   const { rows: members } = await client.query(`
-    select m.roleid::regrole::text as role_granted,
-           m.member::regrole::text as member,
-           m.admin_option
-      from pg_auth_members m
-     where m.roleid::regrole::text = any($1::text[])
-        or m.member::regrole::text = any($1::text[])
-     order by 1, 2`, [FOCUS_ROLES]);
+    with recursive seed as (
+      select oid, rolname from pg_roles where rolname = any($1::text[])
+    ),
+    closure(start_role, role_oid, depth, path) as (
+      select s.rolname, s.oid, 0, array[s.rolname]::text[] from seed s
+      union all
+      select c.start_role, m.roleid, c.depth + 1, c.path || (m.roleid::regrole::text)
+        from closure c
+        join pg_auth_members m on m.member = c.role_oid
+       where c.depth < 8 and not (m.roleid::regrole::text = any(c.path))
+    )
+    select c.start_role,
+           c.role_oid::regrole::text as reachable_role,
+           c.depth,
+           c.path,
+           r.rolinherit as reachable_role_inherits,
+           r.rolbypassrls as reachable_role_bypassrls,
+           r.rolsuper as reachable_role_super,
+           pg_catalog.pg_has_role(c.start_role, c.role_oid, 'MEMBER') as pg_has_role_member,
+           pg_catalog.pg_has_role(c.start_role, c.role_oid, 'USAGE')  as pg_has_role_usage
+      from closure c join pg_roles r on r.oid = c.role_oid
+     where c.depth > 0
+     order by 1, 3, 2`, [FOCUS_ROLES]);
   s.ROLE_MEMBERSHIPS = members;
 
   // CONNECT on the database, USAGE on public — the preconditions for D.
@@ -147,6 +189,50 @@ export async function collectReachability(client) {
            pg_catalog.has_schema_privilege(r.rolname, 'public', 'CREATE') as public_create
       from pg_roles r where r.rolname = any($1::text[]) order by 1`, [FOCUS_ROLES]);
   s.CONNECTIVITY = conn;
+
+  // (2) API exposure evidence. DB EXECUTE/grants NEVER prove API_REACHABLE — the
+  // Data API only exposes configured schemas. Capture whatever configuration is
+  // legible from inside the database; where it is not legible, downstream
+  // classification must say DB_CALLABLE_IF_SCHEMA_EXPOSED, not API_REACHABLE.
+  const apiExposure = { pgrst_settings: [], role_settings: [], pgrst_watch_event_trigger: false, determinable: false };
+  await optionalProbe(client, async () => {
+    const { rows } = await client.query(`
+      select name, setting, source
+        from pg_settings
+       where name like 'pgrst.%' or name like 'pgrst_%'
+       order by 1`);
+    apiExposure.pgrst_settings = rows;
+  }, () => { apiExposure.pgrst_settings = null; });
+  await optionalProbe(client, async () => {
+    // Supabase commonly pins PostgREST config as role-level settings on authenticator.
+    const { rows } = await client.query(`
+      select r.rolname, d.datname, s.setconfig
+        from pg_db_role_setting s
+        left join pg_roles r on r.oid = s.setrole
+        left join pg_database d on d.oid = s.setdatabase
+       order by 1, 2`);
+    apiExposure.role_settings = rows
+      .map((x) => ({
+        role: x.rolname ?? '(all roles)',
+        database: x.datname ?? '(all databases)',
+        // Only pgrst.* entries are relevant; never emit unrelated settings, which
+        // could contain credentials in other deployments.
+        pgrst: (x.setconfig || []).filter((c) => /^pgrst\./i.test(c)),
+      }))
+      .filter((x) => x.pgrst.length > 0);
+  }, () => { apiExposure.role_settings = null; });
+  await optionalProbe(client, async () => {
+    const { rows } = await client.query(
+      "select count(*)::int c from pg_event_trigger where evtname ilike '%pgrst%'");
+    apiExposure.pgrst_watch_event_trigger = rows[0].c > 0;
+  }, () => {});
+  apiExposure.determinable =
+    (Array.isArray(apiExposure.pgrst_settings) && apiExposure.pgrst_settings.length > 0) ||
+    (Array.isArray(apiExposure.role_settings) && apiExposure.role_settings.length > 0);
+  apiExposure.classification_rule = apiExposure.determinable
+    ? 'exposed-schema configuration was legible; API_REACHABLE may be asserted only for schemas it names'
+    : 'exposed-schema configuration NOT legible from SQL — downstream must report DB_CALLABLE_IF_SCHEMA_EXPOSED, never API_REACHABLE';
+  s.API_EXPOSURE = [apiExposure];
 
   // ---- table state incl. OWNER (probe #1 did not collect ownership) --------
   const { rows: tables } = await client.query(`
@@ -181,7 +267,19 @@ export async function collectReachability(client) {
            v.is_updatable, v.is_insertable_into,
            v.is_trigger_updatable, v.is_trigger_insertable_into, v.is_trigger_deletable,
            (select count(*) from pg_rewrite w where w.ev_class = c.oid and w.rulename <> '_RETURN')::int as extra_rules,
-           (select count(*) from pg_trigger t where t.tgrelid = c.oid and not t.tgisinternal)::int as instead_of_triggers
+           -- TRIGGER_TYPE_INSTEAD = 1<<6 = 64. Counting every non-internal trigger
+           -- conflates ordinary triggers with the INSTEAD OF triggers that actually
+           -- make a view writable.
+           (select count(*) from pg_trigger t
+             where t.tgrelid = c.oid and not t.tgisinternal and (t.tgtype & 64) <> 0)::int as instead_of_triggers,
+           (select count(*) from pg_trigger t
+             where t.tgrelid = c.oid and not t.tgisinternal)::int as other_triggers,
+           coalesce((select jsonb_agg(jsonb_build_object(
+                       'name', t.tgname,
+                       'instead_of', (t.tgtype & 64) <> 0,
+                       'function', t.tgfoid::regprocedure::text))
+                       from pg_trigger t where t.tgrelid = c.oid and not t.tgisinternal),
+                    '[]'::jsonb) as triggers
       from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
       left join information_schema.views v on v.table_schema = n.nspname and v.table_name = c.relname
@@ -189,10 +287,15 @@ export async function collectReachability(client) {
      order by 1`);
 
   // Base relations each view depends on, with their RLS/owner.
+  // Dependencies across ALL schemas — a view reaching auth.*, storage.* or any other
+  // schema is precisely the bypass shape worth knowing about, and filtering to public
+  // would have hidden it.
   const { rows: deps } = await client.query(`
     select dependent.relname as view_name,
-           base.relname       as base_relation,
-           base.relkind       as base_relkind,
+           dn.nspname        as view_schema,
+           bn.nspname        as base_schema,
+           base.relname      as base_relation,
+           base.relkind      as base_relkind,
            pg_get_userbyid(base.relowner) as base_owner,
            base.relrowsecurity as base_rls_enabled,
            base.relforcerowsecurity as base_rls_forced,
@@ -200,15 +303,15 @@ export async function collectReachability(client) {
       from pg_depend d
       join pg_rewrite w   on w.oid = d.objid
       join pg_class dependent on dependent.oid = w.ev_class
+      join pg_namespace dn on dn.oid = dependent.relnamespace
       join pg_class base  on base.oid = d.refobjid
       join pg_namespace bn on bn.oid = base.relnamespace
      where d.classid = 'pg_rewrite'::regclass
        and d.refclassid = 'pg_class'::regclass
        and dependent.relkind in ('v','m')
        and base.oid <> dependent.oid
-       and bn.nspname = 'public'
-     group by 1,2,3,4,5,6,7
-     order by 1,2`);
+     group by 1,2,3,4,5,6,7,8,9
+     order by 1,3,4`);
 
   const depsByView = new Map();
   for (const d of deps) {
@@ -221,31 +324,53 @@ export async function collectReachability(client) {
     base_relations: depsByView.get(v.view_name) || [],
   }));
 
-  // ---- sequences: real ACLs, owner, and owned-by column mapping -----------
+  // ---- sequences: EXACT ACL decomposition -------------------------------
+  //
+  // (1) PUBLIC is a PSEUDO-GRANTEE, not a role in pg_roles. Passing the literal
+  // 'public' to has_sequence_privilege / has_function_privilege is not a sound way
+  // to measure a PUBLIC grant. This decomposes the real ACL with aclexplode(), where
+  // grantee = 0 IS PUBLIC, and falls back to acldefault() when the ACL column is
+  // NULL — because a NULL acl does NOT mean "no privileges", it means "the built-in
+  // default applies", and that default differs per object type.
   const { rows: seqs } = await client.query(`
     select c.relname as sequence_name,
            pg_get_userbyid(c.relowner) as owner,
-           coalesce((select string_agg(pr, ',' order by pr)
-                       from unnest(array['USAGE','SELECT','UPDATE']) pr
-                      where pg_catalog.has_sequence_privilege('anon', c.oid, pr)), 'none') as anon,
-           coalesce((select string_agg(pr, ',' order by pr)
-                       from unnest(array['USAGE','SELECT','UPDATE']) pr
-                      where pg_catalog.has_sequence_privilege('authenticated', c.oid, pr)), 'none') as authenticated,
-           coalesce((select string_agg(pr, ',' order by pr)
-                       from unnest(array['USAGE','SELECT','UPDATE']) pr
-                      where pg_catalog.has_sequence_privilege('public', c.oid, pr)), 'none') as public,
-           coalesce((select string_agg(pr, ',' order by pr)
-                       from unnest(array['USAGE','SELECT','UPDATE']) pr
-                      where pg_catalog.has_sequence_privilege('service_role', c.oid, pr)), 'none') as service_role,
-           (select dc.relname || '.' || a.attname
-              from pg_depend dep
-              join pg_class dc on dc.oid = dep.refobjid
-              join pg_attribute a on a.attrelid = dep.refobjid and a.attnum = dep.refobjsubid
-             where dep.objid = c.oid and dep.deptype in ('a','i') limit 1) as owned_by
+           (c.relacl is null) as acl_is_default,
+           coalesce((
+             select jsonb_agg(distinct jsonb_build_object(
+                      'grantee', case when a.grantee = 0 then 'PUBLIC'
+                                      else a.grantee::regrole::text end,
+                      'privilege', a.privilege_type))
+               from aclexplode(coalesce(c.relacl, acldefault('S', c.relowner))) a
+           ), '[]'::jsonb) as acl
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public' and c.relkind = 'S'
      order by 1`);
-  s.SEQUENCE_STATE = seqs;
+
+  const seqOwned = new Map();
+  await optionalProbe(client, async () => {
+    const { rows } = await client.query(`
+      select c.relname as sequence_name, dc.relname || '.' || a.attname as owned_by
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        join pg_depend dep on dep.objid = c.oid and dep.deptype in ('a','i')
+        join pg_class dc on dc.oid = dep.refobjid
+        join pg_attribute a on a.attrelid = dep.refobjid and a.attnum = dep.refobjsubid
+       where n.nspname = 'public' and c.relkind = 'S'`);
+    for (const r of rows) seqOwned.set(r.sequence_name, r.owned_by);
+  }, () => {});
+
+  s.SEQUENCE_STATE = seqs.map((q) => ({
+    sequence_name: q.sequence_name,
+    owner: q.owner,
+    acl_is_default: q.acl_is_default,
+    owned_by: seqOwned.get(q.sequence_name) ?? null,
+    anon: privsFor(q.acl, 'anon'),
+    authenticated: privsFor(q.acl, 'authenticated'),
+    PUBLIC: privsFor(q.acl, 'PUBLIC'),
+    service_role: privsFor(q.acl, 'service_role'),
+    acl_raw: q.acl,
+  }));
 
   // ---- function reachability: the indirect-bridge question ----------------
   const { rows: fns } = await client.query(`
@@ -257,10 +382,25 @@ export async function collectReachability(client) {
            p.provolatile as volatility,
            p.proconfig,
            (select x from unnest(coalesce(p.proconfig, array[]::text[])) x where x like 'search_path=%' limit 1) as search_path,
-           pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE') as exec_anon,
-           pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE') as exec_authenticated,
-           pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE') as exec_public,
-           pg_catalog.has_function_privilege('service_role', p.oid, 'EXECUTE') as exec_service_role,
+           -- EXACT ACL decomposition. grantee = 0 IS PUBLIC (a pseudo-grantee, not a
+           -- pg_roles entry). acldefault('f', owner) matters enormously here: when
+           -- proacl IS NULL PostgreSQL's BUILT-IN DEFAULT GRANTS EXECUTE TO PUBLIC,
+           -- so such a function is callable by every role — and revoking anon /
+           -- authenticated would not change that.
+           (p.proacl is null) as acl_is_default,
+           coalesce((
+             select jsonb_agg(distinct jsonb_build_object(
+                      'grantee', case when a.grantee = 0 then 'PUBLIC'
+                                      else a.grantee::regrole::text end,
+                      'privilege', a.privilege_type))
+               from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+           ), '[]'::jsonb) as acl,
+           -- has_function_privilege is retained ONLY for named roles, where it
+           -- correctly folds in PUBLIC grants and role inheritance. It is never used
+           -- for the pseudo-grantee.
+           pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE') as effective_anon,
+           pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE') as effective_authenticated,
+           pg_catalog.has_function_privilege('service_role', p.oid, 'EXECUTE') as effective_service_role,
            p.prorettype::regtype::text as returns,
            coalesce(p.prosrc, '') as body
       from pg_proc p
@@ -269,10 +409,21 @@ export async function collectReachability(client) {
      where n.nspname = 'public'
      order by 1, 2`);
 
+  // (5) EVIDENCE, NOT PROOF. Lexical body matching can establish PRESENCE of a
+  // mutating/DDL/TRUNCATE construct; it can NEVER establish ABSENCE of an indirect
+  // bridge, because dynamic SQL, callee functions and operator/trigger paths are not
+  // visible to a regex. Every field below is named as evidence, and any function with
+  // dynamic SQL or an unresolved callee is marked absence_not_proven.
+  const fnNames = new Set(fns.map((f) => f.function_name));
+
   s.FUNCTION_REACHABILITY = fns.map((f) => {
     const body = f.body || '';
-    // The body is classified, never emitted.
-    const credentialSuspected = CREDENTIAL_RE.test(body);
+    const publicExec = privsFor(f.acl, 'PUBLIC') !== 'none';
+    // Deterministic call evidence: which other functions in this schema does the body
+    // name? Resolved callees are reported; dynamic SQL means the callee set is OPEN.
+    const callees = [...fnNames].filter((n) =>
+      n !== f.function_name && new RegExp(`\\b${n.replace(/[^\w]/g, '')}\\s*\\(`).test(body));
+    const dynamic = DYNAMIC_RE.test(body);
     return {
       function: f.function_name,
       args: f.args,
@@ -283,23 +434,34 @@ export async function collectReachability(client) {
       returns: f.returns,
       search_path: f.search_path ?? null,
       is_trigger_function: f.returns === 'trigger',
-      executable_by: ['anon', 'authenticated', 'public', 'service_role']
-        .filter((r) => f[`exec_${r}`]),
-      api_executable: !!(f.exec_anon || f.exec_authenticated || f.exec_public),
-      body_can_mutate: MUTATION_RE.test(body),
-      body_can_ddl: DDL_RE.test(body),
-      body_can_truncate: TRUNCATE_RE.test(body),
-      body_uses_dynamic_sql: DYNAMIC_RE.test(body),
+      acl_is_default: f.acl_is_default,
+      acl: f.acl,
+      // (7) PUBLIC EXECUTE is tracked explicitly and separately: revoking anon /
+      // authenticated does NOT remove a privilege inherited through PUBLIC.
+      public_execute: publicExec,
+      public_execute_source: publicExec ? (f.acl_is_default ? 'acldefault (proacl IS NULL)' : 'explicit GRANT TO PUBLIC') : null,
+      effective_execute_roles: ['anon', 'authenticated', 'service_role'].filter((r) => f[`effective_${r}`]),
+      // (2) DB-callability only. API reachability is NOT asserted here.
+      db_callable_by_api_roles: !!(f.effective_anon || f.effective_authenticated || publicExec),
+      mutation_evidence: MUTATION_RE.test(body),
+      ddl_evidence: DDL_RE.test(body),
+      truncate_evidence: TRUNCATE_RE.test(body),
+      dynamic_sql_evidence: dynamic,
+      resolved_callees: callees,
+      absence_not_proven: dynamic || callees.length > 0,
       body_length: body.length,
-      credential_suspected_REDACTED: credentialSuspected,
+      credential_suspected_REDACTED: CREDENTIAL_RE.test(body),
     };
   }).map((f) => ({
     ...f,
-    // An indirect privilege bridge = API-callable AND capable of privileged effect
-    // AND not a trigger function (a trigger function invoked as an RPC errors out,
-    // so its EXECUTE grant is untidy rather than reachable).
-    indirect_bridge_candidate: f.api_executable && !f.is_trigger_function &&
-      (f.security_definer || f.body_can_mutate || f.body_can_truncate || f.body_can_ddl),
+    // CANDIDATE, not verdict: API-callable in DB terms, not a trigger function, and
+    // carrying either privileged execution rights or evidence of privileged effect.
+    // A false here means "no evidence found", never "proven safe" — see absence_not_proven.
+    indirect_bridge_candidate: f.db_callable_by_api_roles && !f.is_trigger_function &&
+      (f.security_definer || f.mutation_evidence || f.truncate_evidence || f.ddl_evidence || f.absence_not_proven),
+    reachability_classification: f.db_callable_by_api_roles
+      ? 'DB_CALLABLE_IF_SCHEMA_EXPOSED'
+      : 'NOT_DB_CALLABLE_BY_API_ROLES',
   }));
 
   s.TOTALS = {
@@ -312,11 +474,18 @@ export async function collectReachability(client) {
     views: s.VIEW_STATE.length,
     views_updatable: s.VIEW_STATE.filter((v) => v.is_updatable === 'YES').length,
     views_with_instead_of_triggers: s.VIEW_STATE.filter((v) => v.instead_of_triggers > 0).length,
+    views_with_cross_schema_deps: s.VIEW_STATE.filter((v) => (v.base_relations || []).some((b) => b.base_schema !== 'public')).length,
     views_with_extra_rules: s.VIEW_STATE.filter((v) => v.extra_rules > 0).length,
     sequences: s.SEQUENCE_STATE.length,
     sequences_anon_update: s.SEQUENCE_STATE.filter((q) => (q.anon || '').includes('UPDATE')).length,
+    sequences_public_grant: s.SEQUENCE_STATE.filter((q) => (q.PUBLIC || 'none') !== 'none').length,
+    sequences_acl_default: s.SEQUENCE_STATE.filter((q) => q.acl_is_default).length,
+    api_exposure_determinable: s.API_EXPOSURE[0].determinable,
     functions: s.FUNCTION_REACHABILITY.length,
-    functions_api_executable: s.FUNCTION_REACHABILITY.filter((f) => f.api_executable).length,
+    functions_db_callable_by_api_roles: s.FUNCTION_REACHABILITY.filter((f) => f.db_callable_by_api_roles).length,
+    functions_public_execute: s.FUNCTION_REACHABILITY.filter((f) => f.public_execute).length,
+    functions_public_execute_via_acldefault: s.FUNCTION_REACHABILITY.filter((f) => f.public_execute && f.acl_is_default).length,
+    functions_absence_not_proven: s.FUNCTION_REACHABILITY.filter((f) => f.absence_not_proven).length,
     functions_trigger: s.FUNCTION_REACHABILITY.filter((f) => f.is_trigger_function).length,
     indirect_bridge_candidates: s.FUNCTION_REACHABILITY.filter((f) => f.indirect_bridge_candidate).length,
     functions_credential_suspected: s.FUNCTION_REACHABILITY.filter((f) => f.credential_suspected_REDACTED).length,
@@ -365,21 +534,27 @@ function report(s) {
     L(`      is_updatable=${v.is_updatable} is_insertable_into=${v.is_insertable_into} trigger_updatable=${v.is_trigger_updatable}`);
     L(`      extra_rules=${v.extra_rules} instead_of_triggers=${v.instead_of_triggers}`);
     for (const b of v.base_relations) {
-      L(`      base ${b.base_relation}: owner=${b.base_owner} rls=${b.base_rls_enabled} forced=${b.base_rls_forced} policies=${b.base_policy_count}`);
+      L(`      base ${b.base_schema}.${b.base_relation} (${b.base_relkind}): owner=${b.base_owner} rls=${b.base_rls_enabled} forced=${b.base_rls_forced} policies=${b.base_policy_count}`);
     }
   }
   L('');
   L('══ SEQUENCE_STATE ══');
   L(`   sequences=${s.TOTALS.sequences} anon_update=${s.TOTALS.sequences_anon_update}`);
   for (const q of s.SEQUENCE_STATE.filter((x) => (x.anon || '').includes('UPDATE')).slice(0, 40)) {
-    L(`   ${q.sequence_name} owned_by=${q.owned_by ?? '-'} anon=[${q.anon}] auth=[${q.authenticated}]`);
+    L(`   ${q.sequence_name} owned_by=${q.owned_by ?? '-'} anon=[${q.anon}] auth=[${q.authenticated}] PUBLIC=[${q.PUBLIC}] acl_default=${q.acl_is_default}`);
   }
   L('');
-  L('══ FUNCTION_REACHABILITY (API-executable only) ══');
-  for (const f of s.FUNCTION_REACHABILITY.filter((x) => x.api_executable)) {
+  L('══ API_EXPOSURE (decides whether API_REACHABLE may be asserted at all) ══');
+  L(`   determinable=${s.API_EXPOSURE[0].determinable}`);
+  L(`   rule: ${s.API_EXPOSURE[0].classification_rule}`);
+  L('');
+  L('══ FUNCTION_REACHABILITY (DB-callable by API roles — NOT proof of API reach) ══');
+  for (const f of s.FUNCTION_REACHABILITY.filter((x) => x.db_callable_by_api_roles)) {
     L(`   ${f.function}(${f.args}) secdef=${f.security_definer} lang=${f.language} returns=${f.returns} trigger_fn=${f.is_trigger_function}`);
-    L(`      exec=${f.executable_by.join(',')} search_path=${f.search_path ?? 'UNPINNED'} volatility=${f.volatility}`);
-    L(`      can_mutate=${f.body_can_mutate} can_truncate=${f.body_can_truncate} can_ddl=${f.body_can_ddl} dynamic_sql=${f.body_uses_dynamic_sql} BRIDGE=${f.indirect_bridge_candidate}`);
+    L(`      effective_exec=${f.effective_execute_roles.join(',') || 'none'} PUBLIC_execute=${f.public_execute}${f.public_execute_source ? ' via ' + f.public_execute_source : ''}`);
+    L(`      search_path=${f.search_path ?? 'UNPINNED'} volatility=${f.volatility} class=${f.reachability_classification}`);
+    L(`      evidence: mutation=${f.mutation_evidence} truncate=${f.truncate_evidence} ddl=${f.ddl_evidence} dynamic_sql=${f.dynamic_sql_evidence} callees=[${f.resolved_callees.join(',')}]`);
+    L(`      absence_not_proven=${f.absence_not_proven}  BRIDGE_CANDIDATE=${f.indirect_bridge_candidate}`);
     if (f.credential_suspected_REDACTED) L('      ::warning:: credential-like text detected in body — REDACTED, not emitted');
   }
   L('');

@@ -80,7 +80,7 @@ test('every query reads catalog metadata only — no application table is read',
   const sel = q.filter(x => /^select/i.test(x));
   assert.ok(sel.length >= 7, `expected the full catalog sweep, saw ${sel.length}`);
   for (const x of sel) {
-    assert.ok(/pg_roles|pg_auth_members|pg_class|pg_policy|pg_proc|pg_depend|pg_rewrite|pg_trigger|pg_namespace|information_schema|pg_catalog/i.test(x),
+    assert.ok(/pg_roles|pg_auth_members|pg_class|pg_policy|pg_proc|pg_depend|pg_rewrite|pg_trigger|pg_namespace|pg_settings|pg_db_role_setting|pg_event_trigger|pg_database|pg_attribute|information_schema|pg_catalog|aclexplode|acldefault/i.test(x),
       `catalog only: ${x.slice(0, 70)}`);
     assert.ok(!/\bfrom\s+public\.\w/i.test(x), 'must not read application tables');
   }
@@ -151,11 +151,84 @@ test('sanitizeError drops hostile class names, codes and URIs', () => {
 
 // ------------------------------------------------ coverage of the ask
 
-test('all eight required sections are declared', () => {
+test('all nine required sections are declared', () => {
   assert.deepEqual([...REQUIRED_SECTIONS].sort(), [
-    'CONNECTIVITY', 'FUNCTION_REACHABILITY', 'POLICY_DETAIL', 'ROLE_MEMBERSHIPS',
-    'ROLE_STATE', 'SEQUENCE_STATE', 'TABLE_STATE', 'VIEW_STATE',
+    'API_EXPOSURE', 'CONNECTIVITY', 'FUNCTION_REACHABILITY', 'POLICY_DETAIL',
+    'ROLE_MEMBERSHIPS', 'ROLE_STATE', 'SEQUENCE_STATE', 'TABLE_STATE', 'VIEW_STATE',
   ]);
+});
+
+// ================= CORRECTIVE GUARDS (PR #153 review) =====================
+
+test('C1: PUBLIC is never measured via has_*_privilege pseudo-grantee', () => {
+  assert.ok(!/has_sequence_privilege\(\s*'public'/i.test(src), "must not pass 'public' to has_sequence_privilege");
+  assert.ok(!/has_function_privilege\(\s*'public'/i.test(src), "must not pass 'public' to has_function_privilege");
+  assert.ok(!/has_table_privilege\(\s*'public'/i.test(src), "must not pass 'public' to has_table_privilege");
+});
+
+test('C1: exact ACL decomposition with grantee 0 = PUBLIC and acldefault fallback', () => {
+  assert.match(src, /aclexplode/);
+  assert.match(src, /a\.grantee = 0 then 'PUBLIC'/);
+  assert.match(src, /acldefault\('S', c\.relowner\)/, 'sequence ACL must fall back to acldefault');
+  assert.match(src, /acldefault\('f', p\.proowner\)/, 'function ACL must fall back to acldefault');
+  assert.match(src, /BUILT-IN DEFAULT GRANTS EXECUTE TO PUBLIC/i, 'the acldefault consequence must be documented');
+});
+
+test('C2: API reachability is never asserted from DB grants', () => {
+  assert.match(src, /DB_CALLABLE_IF_SCHEMA_EXPOSED/);
+  assert.ok(!/\bAPI_REACHABLE\b\s*[:=]/.test(src), 'must never emit an API_REACHABLE verdict');
+  assert.match(src, /pgrst/i, 'must attempt to read exposed-schema configuration');
+  assert.match(src, /classification_rule/);
+});
+
+test('C3: role membership is transitive, not one-hop', () => {
+  assert.match(src, /with recursive/i);
+  assert.match(src, /pg_has_role/);
+  assert.match(src, /reachable_role/);
+  assert.match(src, /depth/);
+});
+
+test('C4: view dependencies span all schemas and name them', () => {
+  const dep = src.slice(src.indexOf('const { rows: deps }'), src.indexOf('const depsByView'));
+  assert.ok(!/bn\.nspname = 'public'/.test(dep), 'dependency query must not be restricted to public');
+  assert.match(dep, /bn\.nspname\s+as base_schema/);
+  assert.match(src, /base_schema/);
+});
+
+test('C4: INSTEAD OF triggers are identified specifically', () => {
+  assert.match(src, /tgtype & 64/, 'must test TRIGGER_TYPE_INSTEAD');
+  assert.match(src, /other_triggers/, 'ordinary triggers must be counted separately');
+  assert.match(src, /'instead_of', \(t\.tgtype & 64\) <> 0/);
+});
+
+test('C4: view security evidence is preserved', () => {
+  for (const f of ['security_invoker', 'security_barrier', 'is_updatable', 'is_insertable_into']) {
+    assert.ok(src.includes(f), `view state must keep ${f}`);
+  }
+});
+
+test('C5: function output is evidence/candidate, never proof of absence', () => {
+  assert.match(src, /mutation_evidence/);
+  assert.match(src, /ddl_evidence/);
+  assert.match(src, /truncate_evidence/);
+  assert.match(src, /dynamic_sql_evidence/);
+  assert.match(src, /absence_not_proven/);
+  assert.match(src, /resolved_callees/);
+  assert.match(src, /never establish ABSENCE/i);
+  assert.ok(!/body_can_mutate/.test(src), 'the old proof-shaped naming must be gone');
+});
+
+test('C7: PUBLIC EXECUTE is tracked separately from anon/authenticated', () => {
+  assert.match(src, /public_execute:/);
+  assert.match(src, /public_execute_source/);
+  assert.match(src, /functions_public_execute_via_acldefault/);
+  assert.match(src, /does NOT remove a privilege inherited through PUBLIC/i);
+});
+
+test('sequences report PUBLIC and acl-default provenance', () => {
+  assert.match(src, /PUBLIC: privsFor\(q\.acl, 'PUBLIC'\)/);
+  assert.match(src, /acl_is_default/);
+  assert.match(src, /sequences_public_grant/);
 });
 
 test('role state covers the roles that decide reachability', () => {
@@ -185,7 +258,10 @@ test('sequence inventory covers owner, ACLs and owned-by mapping', () => {
 });
 
 test('function reachability classifies the indirect-bridge question', () => {
-  for (const f of ['security_definer', 'language', 'volatility', 'search_path', 'body_can_mutate', 'body_can_ddl', 'body_can_truncate', 'body_uses_dynamic_sql', 'indirect_bridge_candidate', 'is_trigger_function']) {
+  for (const f of ['security_definer', 'language', 'volatility', 'search_path',
+                   'mutation_evidence', 'ddl_evidence', 'truncate_evidence',
+                   'dynamic_sql_evidence', 'indirect_bridge_candidate', 'is_trigger_function',
+                   'reachability_classification']) {
     assert.ok(src.includes(f), `function state must include ${f}`);
   }
 });
