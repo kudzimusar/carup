@@ -1,0 +1,203 @@
+name: 'Issue #101 Production P0 Cutover (public_keys + the fourteen)'
+
+# The final production step of Issue #101. Two migrations, in this order, each in its own
+# transaction and each certified before the next is attempted:
+#
+#   A. 20260814085000_issue101_public_keys_hardening.sql
+#   B. 20260814090000_issue101_p0_rls_and_view_hardening.sql
+#
+# 20260814080000_issue101_staging_parity.sql IS STAGING-ONLY AND MUST NEVER RUN HERE.
+# It creates twelve relations production already has. Four independent controls stop it:
+# it is absent from the script's allowlist; the loader throws on its filename even with a
+# correct hash; any migration containing CREATE TABLE is refused on that property; and
+# the guard step below greps the pinned source before the job is allowed to connect.
+#
+# NOT A MIGRATION RUNNER. There is no "apply everything pending" path. The script
+# enumerates nothing — no readdirSync, no glob — and reads exactly two files, both pinned
+# by SHA256 and verified before any connection is opened.
+#
+# TWO-COMMIT PINNING. The cutover script was authored and reviewed BEFORE this wrapper
+# existed, so the wrapper hard-pins that already-immutable SHA and re-asserts it at
+# runtime from git.
+#
+# MODE:
+#   preflight — READ ONLY. BEGIN READ ONLY asserted from the server, bounded
+#               statement_timeout, ROLLBACK. Proves the state and writes nothing.
+#   apply     — writes. Requires the exact confirmation phrase AND the protected
+#               production environment approval.
+#
+# RUN PREFLIGHT FIRST AND READ ITS RECEIPT. apply is not a retry of preflight.
+#
+# PREREQUISITES (production environment):
+#     PRODUCTION_DATABASE_URL   — production Postgres connection string
+#     PRODUCTION_PROJECT_REF    — must hash to PRODUCTION_REF_SHA256 below
+#     PRODUCTION_CA_CERT        — optional PEM trust-anchor override
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight (read-only) or apply (writes)'
+        required: true
+        default: preflight
+        type: choice
+        options: [preflight, apply]
+      confirmation:
+        description: 'For apply ONLY, type exactly: HARDEN PRODUCTION PUBLIC_KEYS AND THE FOURTEEN'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-101-production-p0-cutover
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose cutover code is executed. Advancing this pin is a
+  # reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: 2be622b63c7081a834bdea40d34c2db7609f1ff7
+  PG_DRIVER_VERSION: 8.21.0
+  APPLY_PHRASE: 'HARDEN PRODUCTION PUBLIC_KEYS AND THE FOURTEEN'
+  MIGRATION_A: database/migrations/20260814085000_issue101_public_keys_hardening.sql
+  MIGRATION_B: database/migrations/20260814090000_issue101_p0_rls_and_view_hardening.sql
+  MIGRATION_A_SHA256: 9d99204e2a7cc74c45521894f1a1774637eccd83152fb1bc2276f3293fda156d
+  MIGRATION_B_SHA256: 997ca9672e04958d9605e62a001799688f9850dc9a0641d35c88a88995d7705d
+  # Never executed here. Pinned so a reviewer can confirm the exclusion is the file they think it is.
+  FORBIDDEN_P2: database/migrations/20260814080000_issue101_staging_parity.sql
+  FORBIDDEN_P2_SHA256: e378bc2c2ba551cea85066b209ee52639f31c73e24a51556e3451fff072076f4
+  # Refs are pinned by SHA256, not in plaintext: a production identifier in an executable
+  # path is exactly what the CR-1 scanner rejects, and weakening its allowlist to carry a
+  # pin would be the wrong trade. Verify with: printf %s <ref> | sha256sum
+  PRODUCTION_REF_SHA256: 642e27dacd0666b76e6cd3cdac900481ea8aae3be56bf2971b153a0deeb2ac1b
+  STAGING_REF_SHA256: 96fafb02439f5a4bbef8ef21a674e3a9609cece81751f114c4e12f9e675ae3ce
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by another
+    # collaborator; github.triggering_actor is whoever actually triggered this run.
+    # Both must be the owner.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 2be622b63c7081a834bdea40d34c2db7609f1ff7
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: 'Gate: apply requires the exact confirmation phrase'
+        run: |
+          mode='${{ inputs.mode }}'
+          echo "mode=$mode"
+          if [ "$mode" = "apply" ]; then
+            if [ '${{ inputs.confirmation }}' != "$APPLY_PHRASE" ]; then
+              echo "::error::apply requires the exact confirmation phrase; refusing."
+              exit 1
+            fi
+            echo 'Confirmation phrase accepted. The production environment approval still applies.'
+          elif [ "$mode" != "preflight" ]; then
+            echo "::error::unknown mode $mode"
+            exit 1
+          else
+            echo 'Preflight is read-only; no phrase required.'
+          fi
+
+      - name: 'Guard: verify the two pinned migrations and REFUSE the staging-parity file'
+        run: |
+          set -euo pipefail
+
+          for pair in "$MIGRATION_A:$MIGRATION_A_SHA256" "$MIGRATION_B:$MIGRATION_B_SHA256"; do
+            f="${pair%%:*}"; want="${pair##*:}"
+            if [ ! -f "$f" ]; then echo "::error::pinned migration $f is missing"; exit 1; fi
+            got="$(sha256sum "$f" | cut -d' ' -f1)"
+            if [ "$got" != "$want" ]; then
+              echo "::error::$f sha256 is $got, expected $want"; exit 1
+            fi
+            echo "verified $f  sha256=$got"
+            # A hardening migration creates nothing. If one did, it would not be this lane.
+            if grep -qiE '^[[:space:]]*CREATE[[:space:]]+TABLE' "$f"; then
+              echo "::error::$f contains CREATE TABLE; this lane only changes privileges."; exit 1
+            fi
+          done
+
+          # The staging-parity file must exist in the tree and must NOT be reachable.
+          if [ -f "$FORBIDDEN_P2" ]; then
+            got="$(sha256sum "$FORBIDDEN_P2" | cut -d' ' -f1)"
+            if [ "$got" != "$FORBIDDEN_P2_SHA256" ]; then
+              echo "::error::the denylisted staging-parity file changed; re-review before any production run."; exit 1
+            fi
+            echo "denylisted (never executed): $FORBIDDEN_P2  sha256=$got"
+          fi
+
+          s=backend/scripts/production-issue-101-p0-cutover.mjs
+          if grep -q "$FORBIDDEN_P2_SHA256" "$s"; then
+            echo "::error::the cutover script pins the staging-parity hash; refusing."; exit 1
+          fi
+          # Match the DENYLIST OBJECT KEY, not the filename anywhere. The script's own
+          # header explains the exclusion in prose, and a loose grep is satisfied by that
+          # prose even after the real denylist entry has been deleted — which is exactly
+          # what mutation-testing this guard exposed.
+          if ! grep -qE "^[[:space:]]*'20260814080000_issue101_staging_parity\.sql':" "$s"; then
+            echo "::error::the cutover script no longer DENYLISTS the staging-parity file; refusing."; exit 1
+          fi
+          if grep -qE 'readdirSync|globSync|opendirSync' "$s"; then
+            echo "::error::the cutover script enumerates the migrations directory; refusing."; exit 1
+          fi
+          if ! grep -q "PRODUCTION_PROJECT_REF_SHA256 = '$PRODUCTION_REF_SHA256'" "$s"; then
+            echo "::error::the cutover script does not pin the expected production ref hash; refusing."; exit 1
+          fi
+          if ! grep -q "STAGING_PROJECT_REF_SHA256 = '$STAGING_REF_SHA256'" "$s"; then
+            echo "::error::the cutover script does not pin the staging ref hash it must refuse; refusing."; exit 1
+          fi
+          echo 'Guard passed: two pinned migrations verified, staging parity unreachable, no directory enumeration.'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets and assert the ref
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment.'
+            exit 1
+          fi
+          got="$(printf %s "$PRODUCTION_PROJECT_REF" | sha256sum | cut -d' ' -f1)"
+          if [ "$got" = "$STAGING_REF_SHA256" ]; then
+            echo '::error::the configured ref is the STAGING project; refusing.'
+            exit 1
+          fi
+          if [ "$got" != "$PRODUCTION_REF_SHA256" ]; then
+            echo '::error::PRODUCTION_PROJECT_REF does not match the pinned production ref; refusing.'
+            exit 1
+          fi
+          echo 'Production secrets present and the ref matches the pin. Values are never printed.'
+
+      - name: 'Run the Issue #101 P0 cutover'
+        env:
+          MODE: ${{ inputs.mode }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+        run: node backend/scripts/production-issue-101-p0-cutover.mjs
