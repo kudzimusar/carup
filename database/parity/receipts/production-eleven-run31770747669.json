@@ -1,0 +1,5974 @@
+{
+  "TABLE_IDENTITY": [
+    {
+      "table_name": "cid_clearance_records",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "performance_telemetry",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "system_failures",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "vid_inspections",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "zimra_declarations",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "exists": true,
+      "relkind": "r",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "relpersistence": "p"
+    }
+  ],
+  "COLUMNS": [
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 2,
+      "column_name": "vin",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 3,
+      "column_name": "clearance_ref_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 4,
+      "column_name": "chassis_verified",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 5,
+      "column_name": "engine_number_verified",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 6,
+      "column_name": "interpol_database_queried",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 7,
+      "column_name": "stolen_check_status",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "'Cleared'::character varying",
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 8,
+      "column_name": "authorized_by_officer",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 9,
+      "column_name": "station_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "ordinal_position": 10,
+      "column_name": "cleared_at",
+      "data_type": "timestamp with time zone",
+      "udt_schema": "pg_catalog",
+      "udt_name": "timestamptz",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 6,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 2,
+      "column_name": "vin",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 3,
+      "column_name": "registration_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 4,
+      "column_name": "owner_id_type",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 50,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 5,
+      "column_name": "owner_id_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 6,
+      "column_name": "owner_full_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 7,
+      "column_name": "previous_registration_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 8,
+      "column_name": "issue_date",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 9,
+      "column_name": "logbook_serial_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "ordinal_position": 10,
+      "column_name": "status",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": "'Current'::character varying",
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 2,
+      "column_name": "ocr_document_id",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 3,
+      "column_name": "extracted_vin",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 17,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 4,
+      "column_name": "extracted_bill_entry_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 50,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 5,
+      "column_name": "extracted_duty_value_zig",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 15,
+      "numeric_scale": 2,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 6,
+      "column_name": "extracted_importer_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 7,
+      "column_name": "extracted_stamp_date",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "ordinal_position": 8,
+      "column_name": "raw_verification_confidence",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 4,
+      "numeric_scale": 3,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 2,
+      "column_name": "ocr_document_id",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 3,
+      "column_name": "extracted_first_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 4,
+      "column_name": "extracted_last_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 5,
+      "column_name": "national_id_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 30,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 6,
+      "column_name": "date_of_birth",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 7,
+      "column_name": "place_of_birth",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 8,
+      "column_name": "sex",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 1,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 9,
+      "column_name": "date_of_issue",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "ordinal_position": 10,
+      "column_name": "raw_verification_confidence",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 4,
+      "numeric_scale": 3,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 2,
+      "column_name": "ocr_document_id",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 3,
+      "column_name": "extracted_vin",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 17,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 4,
+      "column_name": "extracted_engine_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 50,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 5,
+      "column_name": "extracted_make",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 6,
+      "column_name": "extracted_model",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 7,
+      "column_name": "extracted_year",
+      "data_type": "integer",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int4",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 32,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 8,
+      "column_name": "extracted_plate_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 9,
+      "column_name": "extracted_owner_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 10,
+      "column_name": "extracted_chassis_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "ordinal_position": 11,
+      "column_name": "raw_verification_confidence",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 4,
+      "numeric_scale": 3,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "performance_telemetry",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "bigint",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int8",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "nextval('performance_telemetry_id_seq'::regclass)",
+      "character_maximum_length": null,
+      "numeric_precision": 64,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "performance_telemetry",
+      "ordinal_position": 2,
+      "column_name": "metric_name",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "performance_telemetry",
+      "ordinal_position": 3,
+      "column_name": "value",
+      "data_type": "real",
+      "udt_schema": "pg_catalog",
+      "udt_name": "float4",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 24,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "performance_telemetry",
+      "ordinal_position": 4,
+      "column_name": "context_details",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "performance_telemetry",
+      "ordinal_position": 5,
+      "column_name": "timestamp",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "bigint",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int8",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "nextval('signature_verification_logs_id_seq'::regclass)",
+      "character_maximum_length": null,
+      "numeric_precision": 64,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "ordinal_position": 2,
+      "column_name": "payload_hash",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "ordinal_position": 3,
+      "column_name": "signature",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "ordinal_position": 4,
+      "column_name": "public_key_id",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "ordinal_position": 5,
+      "column_name": "verified",
+      "data_type": "integer",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int4",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": "1",
+      "character_maximum_length": null,
+      "numeric_precision": 32,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "ordinal_position": 6,
+      "column_name": "timestamp",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "system_failures",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "bigint",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int8",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "nextval('system_failures_id_seq'::regclass)",
+      "character_maximum_length": null,
+      "numeric_precision": 64,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "system_failures",
+      "ordinal_position": 2,
+      "column_name": "error_message",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "system_failures",
+      "ordinal_position": 3,
+      "column_name": "stack_trace",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "system_failures",
+      "ordinal_position": 4,
+      "column_name": "severity",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "system_failures",
+      "ordinal_position": 5,
+      "column_name": "timestamp",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 2,
+      "column_name": "vin",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 3,
+      "column_name": "inspection_center",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 4,
+      "column_name": "odometer_reading",
+      "data_type": "integer",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int4",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 32,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 5,
+      "column_name": "braking_efficiency_pct",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 5,
+      "numeric_scale": 2,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 6,
+      "column_name": "suspension_passed",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 7,
+      "column_name": "steering_passed",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 8,
+      "column_name": "exhaust_emissions_rating",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 10,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 9,
+      "column_name": "lights_passed",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 10,
+      "column_name": "chassis_verified",
+      "data_type": "boolean",
+      "udt_schema": "pg_catalog",
+      "udt_name": "bool",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "true",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 11,
+      "column_name": "inspection_status",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 12,
+      "column_name": "certificate_serial_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 13,
+      "column_name": "inspector_id",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "ordinal_position": 14,
+      "column_name": "inspected_at",
+      "data_type": "timestamp with time zone",
+      "udt_schema": "pg_catalog",
+      "udt_name": "timestamptz",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 6,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 2,
+      "column_name": "vin",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 3,
+      "column_name": "customs_ref_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 4,
+      "column_name": "importer_name",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 255,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 5,
+      "column_name": "port_of_entry",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 6,
+      "column_name": "duty_calculated_zig",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 15,
+      "numeric_scale": 2,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 7,
+      "column_name": "duty_paid_zig",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 15,
+      "numeric_scale": 2,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 8,
+      "column_name": "exchange_rate_used",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 12,
+      "numeric_scale": 4,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 9,
+      "column_name": "customs_stamp_date",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 10,
+      "column_name": "officer_signature_hash",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 64,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "ordinal_position": 11,
+      "column_name": "verified_at",
+      "data_type": "timestamp with time zone",
+      "udt_schema": "pg_catalog",
+      "udt_name": "timestamptz",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": "now()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 6,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 1,
+      "column_name": "id",
+      "data_type": "uuid",
+      "udt_schema": "pg_catalog",
+      "udt_name": "uuid",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": "gen_random_uuid()",
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 2,
+      "column_name": "vin",
+      "data_type": "text",
+      "udt_schema": "pg_catalog",
+      "udt_name": "text",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 3,
+      "column_name": "plate_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 4,
+      "column_name": "licensing_term_start",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 5,
+      "column_name": "licensing_term_end",
+      "data_type": "date",
+      "udt_schema": "pg_catalog",
+      "udt_name": "date",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 0,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 6,
+      "column_name": "receipt_number",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": 100,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 7,
+      "column_name": "amount_paid_zig",
+      "data_type": "numeric",
+      "udt_schema": "pg_catalog",
+      "udt_name": "numeric",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "NO",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": 12,
+      "numeric_scale": 2,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 8,
+      "column_name": "status",
+      "data_type": "character varying",
+      "udt_schema": "pg_catalog",
+      "udt_name": "varchar",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": 20,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 9,
+      "column_name": "tollgate_checkpoints_passed",
+      "data_type": "integer",
+      "udt_schema": "pg_catalog",
+      "udt_name": "int4",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": "0",
+      "character_maximum_length": null,
+      "numeric_precision": 32,
+      "numeric_scale": 0,
+      "datetime_precision": null,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "ordinal_position": 10,
+      "column_name": "last_tollgate_seen_at",
+      "data_type": "timestamp with time zone",
+      "udt_schema": "pg_catalog",
+      "udt_name": "timestamptz",
+      "domain_schema": null,
+      "domain_name": null,
+      "is_nullable": "YES",
+      "column_default": null,
+      "character_maximum_length": null,
+      "numeric_precision": null,
+      "numeric_scale": null,
+      "datetime_precision": 6,
+      "is_identity": "NO",
+      "identity_generation": null,
+      "identity_start": null,
+      "identity_increment": null,
+      "identity_minimum": null,
+      "identity_maximum": null,
+      "identity_cycle": "NO",
+      "is_generated": "NEVER",
+      "generation_expression": null,
+      "collation_schema": null,
+      "collation_name": null
+    }
+  ],
+  "CONSTRAINTS": [
+    {
+      "table_name": "cid_clearance_records",
+      "constraint_name": "cid_clearance_records_stolen_check_status_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((stolen_check_status)::text = ANY ((ARRAY['Cleared'::character varying, 'Flagged_Stolen'::character varying, 'Under_Investigation'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "stolen_check_status"
+      ]
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "constraint_name": "cid_clearance_records_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "cid_clearance_records_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "constraint_name": "cid_clearance_records_clearance_ref_number_key",
+      "constraint_type": "u",
+      "definition": "UNIQUE (clearance_ref_number)",
+      "backing_index": "cid_clearance_records_clearance_ref_number_key",
+      "columns": [
+        "clearance_ref_number"
+      ]
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "constraint_name": "cvr_ownership_records_owner_id_type_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((owner_id_type)::text = ANY ((ARRAY['National_ID'::character varying, 'Passport'::character varying, 'Company_Reg'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "owner_id_type"
+      ]
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "constraint_name": "cvr_ownership_records_status_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((status)::text = ANY ((ARRAY['Current'::character varying, 'Transferred'::character varying, 'Archived'::character varying, 'Cancelled'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "status"
+      ]
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "constraint_name": "cvr_ownership_records_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "cvr_ownership_records_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "constraint_name": "cvr_ownership_records_logbook_serial_number_key",
+      "constraint_type": "u",
+      "definition": "UNIQUE (logbook_serial_number)",
+      "backing_index": "cvr_ownership_records_logbook_serial_number_key",
+      "columns": [
+        "logbook_serial_number"
+      ]
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "constraint_name": "cvr_ownership_records_registration_number_key",
+      "constraint_type": "u",
+      "definition": "UNIQUE (registration_number)",
+      "backing_index": "cvr_ownership_records_registration_number_key",
+      "columns": [
+        "registration_number"
+      ]
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "constraint_name": "ocr_customs_declarations_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "ocr_customs_declarations_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "constraint_name": "ocr_national_ids_sex_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((sex)::text = ANY ((ARRAY['M'::character varying, 'F'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "sex"
+      ]
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "constraint_name": "ocr_national_ids_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "ocr_national_ids_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "constraint_name": "ocr_registration_books_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "ocr_registration_books_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "performance_telemetry",
+      "constraint_name": "performance_telemetry_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "performance_telemetry_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "constraint_name": "signature_verification_logs_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "signature_verification_logs_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "system_failures",
+      "constraint_name": "system_failures_severity_check",
+      "constraint_type": "c",
+      "definition": "CHECK ((severity = ANY (ARRAY['LOW'::text, 'MEDIUM'::text, 'HIGH'::text, 'CRITICAL'::text])))",
+      "backing_index": null,
+      "columns": [
+        "severity"
+      ]
+    },
+    {
+      "table_name": "system_failures",
+      "constraint_name": "system_failures_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "system_failures_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "vid_inspections",
+      "constraint_name": "vid_inspections_exhaust_emissions_rating_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((exhaust_emissions_rating)::text = ANY ((ARRAY['Pass'::character varying, 'Borderline'::character varying, 'Fail'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "exhaust_emissions_rating"
+      ]
+    },
+    {
+      "table_name": "vid_inspections",
+      "constraint_name": "vid_inspections_inspection_status_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((inspection_status)::text = ANY ((ARRAY['Passed'::character varying, 'Roadworthy_Conditional'::character varying, 'Failed_Unroadworthy'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "inspection_status"
+      ]
+    },
+    {
+      "table_name": "vid_inspections",
+      "constraint_name": "vid_inspections_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "vid_inspections_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "vid_inspections",
+      "constraint_name": "vid_inspections_certificate_serial_number_key",
+      "constraint_type": "u",
+      "definition": "UNIQUE (certificate_serial_number)",
+      "backing_index": "vid_inspections_certificate_serial_number_key",
+      "columns": [
+        "certificate_serial_number"
+      ]
+    },
+    {
+      "table_name": "zimra_declarations",
+      "constraint_name": "zimra_declarations_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "zimra_declarations_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "zimra_declarations",
+      "constraint_name": "zimra_declarations_customs_ref_number_key",
+      "constraint_type": "u",
+      "definition": "UNIQUE (customs_ref_number)",
+      "backing_index": "zimra_declarations_customs_ref_number_key",
+      "columns": [
+        "customs_ref_number"
+      ]
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "constraint_name": "zinara_licensing_records_status_check",
+      "constraint_type": "c",
+      "definition": "CHECK (((status)::text = ANY ((ARRAY['Current'::character varying, 'Arrears'::character varying, 'Exempted'::character varying])::text[])))",
+      "backing_index": null,
+      "columns": [
+        "status"
+      ]
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "constraint_name": "zinara_licensing_records_pkey",
+      "constraint_type": "p",
+      "definition": "PRIMARY KEY (id)",
+      "backing_index": "zinara_licensing_records_pkey",
+      "columns": [
+        "id"
+      ]
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "constraint_name": "zinara_licensing_records_receipt_number_key",
+      "constraint_type": "u",
+      "definition": "UNIQUE (receipt_number)",
+      "backing_index": "zinara_licensing_records_receipt_number_key",
+      "columns": [
+        "receipt_number"
+      ]
+    }
+  ],
+  "FOREIGN_KEYS": [
+    {
+      "table_name": "cid_clearance_records",
+      "constraint_name": "cid_clearance_records_vin_fkey",
+      "definition": "FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE",
+      "columns": [
+        "vin"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "vehicles",
+      "referenced_columns": [
+        "vin"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "constraint_name": "cvr_ownership_records_vin_fkey",
+      "definition": "FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE",
+      "columns": [
+        "vin"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "vehicles",
+      "referenced_columns": [
+        "vin"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "constraint_name": "ocr_customs_declarations_ocr_document_id_fkey",
+      "definition": "FOREIGN KEY (ocr_document_id) REFERENCES ocr_documents(id) ON DELETE CASCADE",
+      "columns": [
+        "ocr_document_id"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "ocr_documents",
+      "referenced_columns": [
+        "id"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "constraint_name": "ocr_national_ids_ocr_document_id_fkey",
+      "definition": "FOREIGN KEY (ocr_document_id) REFERENCES ocr_documents(id) ON DELETE CASCADE",
+      "columns": [
+        "ocr_document_id"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "ocr_documents",
+      "referenced_columns": [
+        "id"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "constraint_name": "ocr_registration_books_ocr_document_id_fkey",
+      "definition": "FOREIGN KEY (ocr_document_id) REFERENCES ocr_documents(id) ON DELETE CASCADE",
+      "columns": [
+        "ocr_document_id"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "ocr_documents",
+      "referenced_columns": [
+        "id"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "constraint_name": "signature_verification_logs_public_key_id_fkey",
+      "definition": "FOREIGN KEY (public_key_id) REFERENCES public_keys(id) ON DELETE CASCADE",
+      "columns": [
+        "public_key_id"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "public_keys",
+      "referenced_columns": [
+        "id"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "vid_inspections",
+      "constraint_name": "vid_inspections_inspector_id_fkey",
+      "definition": "FOREIGN KEY (inspector_id) REFERENCES users(id)",
+      "columns": [
+        "inspector_id"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "users",
+      "referenced_columns": [
+        "id"
+      ],
+      "on_update": "a",
+      "on_delete": "a",
+      "match_type": "s"
+    },
+    {
+      "table_name": "vid_inspections",
+      "constraint_name": "vid_inspections_vin_fkey",
+      "definition": "FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE",
+      "columns": [
+        "vin"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "vehicles",
+      "referenced_columns": [
+        "vin"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "zimra_declarations",
+      "constraint_name": "zimra_declarations_vin_fkey",
+      "definition": "FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE",
+      "columns": [
+        "vin"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "vehicles",
+      "referenced_columns": [
+        "vin"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "constraint_name": "zinara_licensing_records_vin_fkey",
+      "definition": "FOREIGN KEY (vin) REFERENCES vehicles(vin) ON DELETE CASCADE",
+      "columns": [
+        "vin"
+      ],
+      "referenced_schema": "public",
+      "referenced_table": "vehicles",
+      "referenced_columns": [
+        "vin"
+      ],
+      "on_update": "a",
+      "on_delete": "c",
+      "match_type": "s"
+    }
+  ],
+  "INDEXES": [
+    {
+      "table_name": "cid_clearance_records",
+      "index_name": "cid_clearance_records_clearance_ref_number_key",
+      "definition": "CREATE UNIQUE INDEX cid_clearance_records_clearance_ref_number_key ON public.cid_clearance_records USING btree (clearance_ref_number)",
+      "is_primary": false,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "cid_clearance_records_clearance_ref_number_key"
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "index_name": "cid_clearance_records_pkey",
+      "definition": "CREATE UNIQUE INDEX cid_clearance_records_pkey ON public.cid_clearance_records USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "cid_clearance_records_pkey"
+    },
+    {
+      "table_name": "cid_clearance_records",
+      "index_name": "idx_cid_vin",
+      "definition": "CREATE INDEX idx_cid_vin ON public.cid_clearance_records USING btree (vin)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "index_name": "cvr_ownership_records_logbook_serial_number_key",
+      "definition": "CREATE UNIQUE INDEX cvr_ownership_records_logbook_serial_number_key ON public.cvr_ownership_records USING btree (logbook_serial_number)",
+      "is_primary": false,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "cvr_ownership_records_logbook_serial_number_key"
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "index_name": "cvr_ownership_records_pkey",
+      "definition": "CREATE UNIQUE INDEX cvr_ownership_records_pkey ON public.cvr_ownership_records USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "cvr_ownership_records_pkey"
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "index_name": "cvr_ownership_records_registration_number_key",
+      "definition": "CREATE UNIQUE INDEX cvr_ownership_records_registration_number_key ON public.cvr_ownership_records USING btree (registration_number)",
+      "is_primary": false,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "cvr_ownership_records_registration_number_key"
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "index_name": "idx_cvr_vin",
+      "definition": "CREATE INDEX idx_cvr_vin ON public.cvr_ownership_records USING btree (vin)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "index_name": "idx_ocr_customs_ref",
+      "definition": "CREATE INDEX idx_ocr_customs_ref ON public.ocr_customs_declarations USING btree (ocr_document_id)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "index_name": "ocr_customs_declarations_pkey",
+      "definition": "CREATE UNIQUE INDEX ocr_customs_declarations_pkey ON public.ocr_customs_declarations USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "ocr_customs_declarations_pkey"
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "index_name": "idx_ocr_nid_ref",
+      "definition": "CREATE INDEX idx_ocr_nid_ref ON public.ocr_national_ids USING btree (ocr_document_id)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "index_name": "ocr_national_ids_pkey",
+      "definition": "CREATE UNIQUE INDEX ocr_national_ids_pkey ON public.ocr_national_ids USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "ocr_national_ids_pkey"
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "index_name": "idx_ocr_regbook_ref",
+      "definition": "CREATE INDEX idx_ocr_regbook_ref ON public.ocr_registration_books USING btree (ocr_document_id)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "index_name": "ocr_registration_books_pkey",
+      "definition": "CREATE UNIQUE INDEX ocr_registration_books_pkey ON public.ocr_registration_books USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "ocr_registration_books_pkey"
+    },
+    {
+      "table_name": "performance_telemetry",
+      "index_name": "performance_telemetry_pkey",
+      "definition": "CREATE UNIQUE INDEX performance_telemetry_pkey ON public.performance_telemetry USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "performance_telemetry_pkey"
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "index_name": "signature_verification_logs_pkey",
+      "definition": "CREATE UNIQUE INDEX signature_verification_logs_pkey ON public.signature_verification_logs USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "signature_verification_logs_pkey"
+    },
+    {
+      "table_name": "system_failures",
+      "index_name": "system_failures_pkey",
+      "definition": "CREATE UNIQUE INDEX system_failures_pkey ON public.system_failures USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "system_failures_pkey"
+    },
+    {
+      "table_name": "vid_inspections",
+      "index_name": "idx_vid_vin",
+      "definition": "CREATE INDEX idx_vid_vin ON public.vid_inspections USING btree (vin)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "vid_inspections",
+      "index_name": "vid_inspections_certificate_serial_number_key",
+      "definition": "CREATE UNIQUE INDEX vid_inspections_certificate_serial_number_key ON public.vid_inspections USING btree (certificate_serial_number)",
+      "is_primary": false,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "vid_inspections_certificate_serial_number_key"
+    },
+    {
+      "table_name": "vid_inspections",
+      "index_name": "vid_inspections_pkey",
+      "definition": "CREATE UNIQUE INDEX vid_inspections_pkey ON public.vid_inspections USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "vid_inspections_pkey"
+    },
+    {
+      "table_name": "zimra_declarations",
+      "index_name": "idx_zimra_vin",
+      "definition": "CREATE INDEX idx_zimra_vin ON public.zimra_declarations USING btree (vin)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "zimra_declarations",
+      "index_name": "zimra_declarations_customs_ref_number_key",
+      "definition": "CREATE UNIQUE INDEX zimra_declarations_customs_ref_number_key ON public.zimra_declarations USING btree (customs_ref_number)",
+      "is_primary": false,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "zimra_declarations_customs_ref_number_key"
+    },
+    {
+      "table_name": "zimra_declarations",
+      "index_name": "zimra_declarations_pkey",
+      "definition": "CREATE UNIQUE INDEX zimra_declarations_pkey ON public.zimra_declarations USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "zimra_declarations_pkey"
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "index_name": "idx_zinara_vin",
+      "definition": "CREATE INDEX idx_zinara_vin ON public.zinara_licensing_records USING btree (vin)",
+      "is_primary": false,
+      "is_unique": false,
+      "is_exclusion": false,
+      "constraint_backed": false,
+      "backing_for_constraint": null
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "index_name": "zinara_licensing_records_pkey",
+      "definition": "CREATE UNIQUE INDEX zinara_licensing_records_pkey ON public.zinara_licensing_records USING btree (id)",
+      "is_primary": true,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "zinara_licensing_records_pkey"
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "index_name": "zinara_licensing_records_receipt_number_key",
+      "definition": "CREATE UNIQUE INDEX zinara_licensing_records_receipt_number_key ON public.zinara_licensing_records USING btree (receipt_number)",
+      "is_primary": false,
+      "is_unique": true,
+      "is_exclusion": false,
+      "constraint_backed": true,
+      "backing_for_constraint": "zinara_licensing_records_receipt_number_key"
+    }
+  ],
+  "POLICIES": [],
+  "RELATION_ACL": [
+    {
+      "table_name": "cid_clearance_records",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "cvr_ownership_records",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "ocr_customs_declarations",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "ocr_national_ids",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "ocr_registration_books",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "performance_telemetry",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "system_failures",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "vid_inspections",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "zimra_declarations",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    },
+    {
+      "table_name": "zinara_licensing_records",
+      "acl_is_default": false,
+      "acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "DELETE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "INSERT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "MAINTAIN"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "REFERENCES"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRIGGER"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "TRUNCATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        }
+      ]
+    }
+  ],
+  "SEQUENCE_DEPENDENCIES": [
+    {
+      "table_name": "performance_telemetry",
+      "column_name": "id",
+      "sequence_name": "performance_telemetry_id_seq",
+      "sequence_owner": "postgres",
+      "dependency_type": "a",
+      "sequence_acl_is_default": false,
+      "sequence_acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        }
+      ]
+    },
+    {
+      "table_name": "signature_verification_logs",
+      "column_name": "id",
+      "sequence_name": "signature_verification_logs_id_seq",
+      "sequence_owner": "postgres",
+      "dependency_type": "a",
+      "sequence_acl_is_default": false,
+      "sequence_acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        }
+      ]
+    },
+    {
+      "table_name": "system_failures",
+      "column_name": "id",
+      "sequence_name": "system_failures_id_seq",
+      "sequence_owner": "postgres",
+      "dependency_type": "a",
+      "sequence_acl_is_default": false,
+      "sequence_acl": [
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "anon",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "authenticated",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "postgres",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "SELECT"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "UPDATE"
+        },
+        {
+          "grantee": "service_role",
+          "grantor": "postgres",
+          "is_grantable": false,
+          "privilege_type": "USAGE"
+        }
+      ]
+    }
+  ],
+  "SEQUENCE_DEFINITIONS": [
+    {
+      "sequence_schema": "public",
+      "sequence_name": "performance_telemetry_id_seq",
+      "sequence_owner": "postgres",
+      "data_type": "bigint",
+      "seqstart": "1",
+      "seqincrement": "1",
+      "seqmin": "1",
+      "seqmax": "9223372036854775807",
+      "seqcache": "1",
+      "seqcycle": false,
+      "owning_table": "performance_telemetry",
+      "owning_column": "id",
+      "dependency_type": "a"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "signature_verification_logs_id_seq",
+      "sequence_owner": "postgres",
+      "data_type": "bigint",
+      "seqstart": "1",
+      "seqincrement": "1",
+      "seqmin": "1",
+      "seqmax": "9223372036854775807",
+      "seqcache": "1",
+      "seqcycle": false,
+      "owning_table": "signature_verification_logs",
+      "owning_column": "id",
+      "dependency_type": "a"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "system_failures_id_seq",
+      "sequence_owner": "postgres",
+      "data_type": "bigint",
+      "seqstart": "1",
+      "seqincrement": "1",
+      "seqmin": "1",
+      "seqmax": "9223372036854775807",
+      "seqcache": "1",
+      "seqcycle": false,
+      "owning_table": "system_failures",
+      "owning_column": "id",
+      "dependency_type": "a"
+    }
+  ],
+  "TRIGGERS": [],
+  "CUSTOM_TYPE_DEPENDENCIES": [],
+  "TOTALS": {
+    "targets_requested": 11,
+    "targets_present": 11,
+    "targets_absent": 0,
+    "absent_names": [],
+    "distinct_owners": [
+      "postgres"
+    ],
+    "columns": 100,
+    "constraints": 25,
+    "foreign_keys": 10,
+    "indexes": 25,
+    "policies": 0,
+    "sequence_dependencies": 3,
+    "sequence_definitions": 3,
+    "custom_type_or_domain_columns": 0,
+    "identity_columns": 0,
+    "generated_columns": 0,
+    "constraint_backed_indexes": 17,
+    "independent_indexes": 8,
+    "acl_entries_with_grant_option": 0,
+    "triggers": 0,
+    "rls_enabled": 0,
+    "rls_forced": 0
+  }
+}
