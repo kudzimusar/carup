@@ -329,12 +329,20 @@ export async function collectSchemaShape(client, targets = TARGET_TABLES) {
       note: 'DEPENDENCY REQUIRING RECONCILIATION — its definition is NOT captured here and must not be guessed in P2',
     }));
 
-  const present = s.TABLE_IDENTITY.filter((t) => t.exists);
+  // Every scope-size metric derives from the SUPPLIED `targets`, never from the
+  // eleven-table default. The catalog queries were already parameterised, but the
+  // receipt was not: a one-relation caller would truthfully report public_keys and
+  // then claim it had requested eleven. Re-filtering TABLE_IDENTITY through the
+  // supplied scope is redundant today (it is built from unnest($1)) and deliberately
+  // kept so that no out-of-scope row could ever reach TOTALS.
+  const scope = new Set(targets);
+  const inScope = s.TABLE_IDENTITY.filter((t) => scope.has(t.table_name));
+  const present = inScope.filter((t) => t.exists);
   s.TOTALS = {
-    targets_requested: TARGET_TABLES.length,
+    targets_requested: targets.length,
     targets_present: present.length,
-    targets_absent: TARGET_TABLES.length - present.length,
-    absent_names: s.TABLE_IDENTITY.filter((t) => !t.exists).map((t) => t.table_name),
+    targets_absent: targets.length - present.length,
+    absent_names: inScope.filter((t) => !t.exists).map((t) => t.table_name),
     distinct_owners: [...new Set(present.map((t) => t.owner))],
     columns: s.COLUMNS.length,
     constraints: s.CONSTRAINTS.length,
@@ -433,8 +441,11 @@ export function assertComplete(s, targets = TARGET_TABLES) {
   }
 
   // Scope guard: nothing outside the allowlist may appear in any section.
+  // TABLE_IDENTITY is guarded first and explicitly, because it is the one section that
+  // feeds the TOTALS scope-size metrics — an out-of-scope row there would corrupt the
+  // receipt rather than merely the inventory.
   const allowed = new Set(targets);
-  for (const section of ['COLUMNS', 'CONSTRAINTS', 'FOREIGN_KEYS', 'INDEXES', 'POLICIES', 'RELATION_ACL', 'SEQUENCE_DEPENDENCIES', 'TRIGGERS']) {
+  for (const section of ['TABLE_IDENTITY', 'COLUMNS', 'CONSTRAINTS', 'FOREIGN_KEYS', 'INDEXES', 'POLICIES', 'RELATION_ACL', 'SEQUENCE_DEPENDENCIES', 'TRIGGERS']) {
     const stray = s[section].map((r) => r.table_name).filter((n) => !allowed.has(n));
     if (stray.length) return { ok: false, reason: `${section} contains out-of-scope relation(s): ${[...new Set(stray)].join(', ')}` };
   }

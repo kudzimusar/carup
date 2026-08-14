@@ -354,3 +354,45 @@ test('an ABSENT table is reported, not silently dropped', () => {
   assert.equal(assertComplete(s).ok, true, 'absent tables are a legitimate finding');
   assert.match(src, /absent_names/, 'and they must be named in the totals');
 });
+
+/**
+ * The eleven-table receipt is what run 31770747669 already certified, so it is pinned
+ * here independently of the wrapper's suite: parameterising the collector for a
+ * one-relation caller must not have moved this probe's own numbers by one.
+ */
+test('the DEFAULT scope still reports eleven requested targets', async () => {
+  const calls = [];
+  const stub = {
+    async query(sql, params) {
+      calls.push(params);
+      if (/to_regclass/.test(sql)) {
+        return { rows: TARGET_TABLES.map((t) => ({ table_name: t, exists: true, owner: 'postgres', rls_enabled: false, rls_forced: false })) };
+      }
+      return { rows: [] };
+    },
+  };
+  const s = await collectSchemaShape(stub); // no targets argument
+  assert.equal(TARGET_TABLES.length, 11);
+  assert.equal(s.TOTALS.targets_requested, 11);
+  assert.equal(s.TOTALS.targets_present, 11);
+  assert.equal(s.TOTALS.targets_absent, 0);
+  assert.deepEqual(s.TOTALS.absent_names, []);
+  // the default really reached the catalog queries as the eleven-element array
+  for (const p of calls) if (p) assert.deepEqual(p[0], TARGET_TABLES);
+});
+
+test('under the DEFAULT scope an absent target is still named', async () => {
+  const stub = {
+    async query(sql) {
+      if (/to_regclass/.test(sql)) {
+        return { rows: TARGET_TABLES.map((t, i) => ({ table_name: t, exists: i > 1, owner: i > 1 ? 'postgres' : null, rls_enabled: false, rls_forced: false })) };
+      }
+      return { rows: [] };
+    },
+  };
+  const s = await collectSchemaShape(stub);
+  assert.equal(s.TOTALS.targets_requested, 11);
+  assert.equal(s.TOTALS.targets_present, 9);
+  assert.equal(s.TOTALS.targets_absent, 2);
+  assert.deepEqual(s.TOTALS.absent_names, TARGET_TABLES.slice(0, 2));
+});

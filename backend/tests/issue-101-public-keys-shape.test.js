@@ -17,7 +17,7 @@ import {
   DEPENDENCY_TABLES, REQUIRED_SECTIONS, ProbeError,
   assertProductionIdentity, assertComplete, sanitizeError,
 } from '../scripts/production-issue-101-public-keys-shape.mjs';
-import { TARGET_TABLES } from '../scripts/production-issue-101-schema-shape.mjs';
+import { TARGET_TABLES, collectSchemaShape } from '../scripts/production-issue-101-schema-shape.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.resolve(__dirname, '../scripts/production-issue-101-public-keys-shape.mjs');
@@ -239,4 +239,156 @@ test('dependency install cannot see the production credential', () => {
   assert.doesNotMatch(install, /PRODUCTION_DATABASE_URL/);
   assert.match(install, /--ignore-scripts/, 'lifecycle scripts must not execute during install');
   assert.match(wf, /PG_DRIVER_VERSION: \d+\.\d+\.\d+/, 'the driver version must be pinned exactly');
+});
+
+// ------------------------------------------- TOTALS scope-size parameterization
+
+/**
+ * REGRESSION. collectSchemaShape() parameterised its catalog QUERIES but not its
+ * RECEIPT: targets_requested and targets_absent were hardcoded to TARGET_TABLES.length,
+ * so this one-relation probe would have truthfully measured public_keys and then
+ * emitted "targets_requested: 11" — a receipt claiming ten measurements that never
+ * happened, in the very artefact P2 is built from.
+ *
+ * These exercise the REAL collector against a stub client rather than asserting on a
+ * hand-built object, so the arithmetic is proven end to end.
+ */
+const IDENTITY_Q = /to_regclass/;
+const COLUMNS_Q = /information_schema\.columns/;
+
+function stubClient({ identity, columns = [] }) {
+  const calls = [];
+  return {
+    calls,
+    async query(sql, params) {
+      calls.push({ sql, params });
+      if (IDENTITY_Q.test(sql)) return { rows: identity };
+      if (COLUMNS_Q.test(sql)) return { rows: columns };
+      return { rows: [] };
+    },
+  };
+}
+
+const row = (table_name, exists, extra = {}) => ({
+  table_name, exists, owner: exists ? 'postgres' : null,
+  rls_enabled: false, rls_forced: false, relkind: exists ? 'r' : null, ...extra,
+});
+
+test('REGRESSION 1 — one-relation scope, present: TOTALS reports 1, not 11', async () => {
+  const c = stubClient({
+    identity: [row('public_keys', true)],
+    columns: [{ table_name: 'public_keys', column_name: 'id', udt_schema: 'pg_catalog', udt_name: 'uuid' }],
+  });
+  const s = await collectSchemaShape(c, DEPENDENCY_TABLES);
+  assert.equal(s.TOTALS.targets_requested, 1);
+  assert.equal(s.TOTALS.targets_present, 1);
+  assert.equal(s.TOTALS.targets_absent, 0);
+  assert.deepEqual(s.TOTALS.absent_names, []);
+  // and the catalog queries really were bound to the one-element scope
+  for (const { params } of c.calls) {
+    if (params) assert.deepEqual(params[0], ['public_keys']);
+  }
+});
+
+test('REGRESSION 2 — one-relation scope, absent: 1 requested, 0 present, 1 absent', async () => {
+  const c = stubClient({ identity: [row('public_keys', false)] });
+  const s = await collectSchemaShape(c, DEPENDENCY_TABLES);
+  assert.equal(s.TOTALS.targets_requested, 1);
+  assert.equal(s.TOTALS.targets_present, 0);
+  assert.equal(s.TOTALS.targets_absent, 1);
+  assert.deepEqual(s.TOTALS.absent_names, ['public_keys']);
+});
+
+test('REGRESSION 3 — the default eleven-table scope is unchanged', async () => {
+  const c = stubClient({ identity: TARGET_TABLES.map((t) => row(t, true)) });
+  const s = await collectSchemaShape(c); // no targets argument: the #156 default
+  assert.equal(TARGET_TABLES.length, 11);
+  assert.equal(s.TOTALS.targets_requested, 11);
+  assert.equal(s.TOTALS.targets_present, 11);
+  assert.equal(s.TOTALS.targets_absent, 0);
+  // absent tables are still named under the default scope
+  const c2 = stubClient({ identity: TARGET_TABLES.map((t, i) => row(t, i !== 0)) });
+  const s2 = await collectSchemaShape(c2);
+  assert.equal(s2.TOTALS.targets_requested, 11);
+  assert.equal(s2.TOTALS.targets_absent, 1);
+  assert.deepEqual(s2.TOTALS.absent_names, [TARGET_TABLES[0]]);
+});
+
+test('REGRESSION 4 — an out-of-scope relation cannot influence TOTALS', async () => {
+  // A hostile or buggy server answering the identity query with an extra row must not
+  // be able to inflate the receipt, and must not pass the completeness gate either.
+  const c = stubClient({
+    identity: [row('public_keys', true), row('administrative_overrides', true)],
+    columns: [{ table_name: 'public_keys', column_name: 'id', udt_schema: 'pg_catalog', udt_name: 'uuid' }],
+  });
+  const s = await collectSchemaShape(c, DEPENDENCY_TABLES);
+  assert.equal(s.TOTALS.targets_requested, 1, 'requested follows the SUPPLIED scope, not the returned rows');
+  assert.equal(s.TOTALS.targets_present, 1, 'the stray relation is not counted as present');
+  assert.equal(s.TOTALS.targets_absent, 0);
+  assert.deepEqual(s.TOTALS.absent_names, []);
+  assert.equal(s.TOTALS.distinct_owners.length, 1);
+  // The gate rejects it too. Here the arity check fires first — one target was
+  // requested, two rows came back — which is itself the correct refusal.
+  const gate = assertComplete(s, DEPENDENCY_TABLES);
+  assert.equal(gate.ok, false, 'the stray row must also fail the completeness gate');
+  assert.match(gate.reason, /did not cover all 1 target/);
+
+  // A SUBSTITUTED row has the right arity, so it reaches the scope guard proper —
+  // which must name the intruder rather than silently accepting a same-sized answer.
+  const c2 = stubClient({
+    identity: [row('administrative_overrides', true)],
+    columns: [{ table_name: 'administrative_overrides', column_name: 'id', udt_schema: 'pg_catalog', udt_name: 'uuid' }],
+  });
+  const s2 = await collectSchemaShape(c2, DEPENDENCY_TABLES);
+  assert.equal(s2.TOTALS.targets_requested, 1);
+  assert.equal(s2.TOTALS.targets_present, 0, 'a relation outside the supplied scope is never counted present');
+  assert.equal(s2.TOTALS.targets_absent, 1);
+  assert.deepEqual(s2.TOTALS.absent_names, [], 'and it is not misreported as an absent target either');
+  const gate2 = assertComplete(s2, DEPENDENCY_TABLES);
+  assert.equal(gate2.ok, false);
+  assert.match(gate2.reason, /administrative_overrides/);
+});
+
+test('REGRESSION 4b — a stray reaching ONLY TABLE_IDENTITY is still caught', async () => {
+  // Mutation-testing found REGRESSION 4 could pass for the wrong reason: its stray also
+  // appeared in COLUMNS, so the COLUMNS guard caught it and TABLE_IDENTITY's own guard
+  // was never exercised. These two cases isolate TABLE_IDENTITY.
+
+  // (i) the stray is ABSENT, so no other section carries it and no zero-columns gate
+  //     applies — TABLE_IDENTITY's scope guard is the only thing that can refuse it.
+  const c = stubClient({ identity: [row('administrative_overrides', false)] });
+  const s = await collectSchemaShape(c, DEPENDENCY_TABLES);
+  const gate = assertComplete(s, DEPENDENCY_TABLES);
+  assert.equal(gate.ok, false, 'an out-of-scope relation in TABLE_IDENTITY alone must be refused');
+  assert.match(gate.reason, /TABLE_IDENTITY.*administrative_overrides/);
+
+  // (ii) an ABSENT stray must not be misreported as an absent TARGET — absent_names is
+  //      what P2 reads to decide which tables to create.
+  const c2 = stubClient({ identity: [row('public_keys', false), row('administrative_overrides', false)] });
+  const s2 = await collectSchemaShape(c2, DEPENDENCY_TABLES);
+  assert.deepEqual(s2.TOTALS.absent_names, ['public_keys'],
+    'absent_names must list only supplied targets, never a stray the server volunteered');
+  assert.equal(s2.TOTALS.targets_absent, 1);
+  assert.equal(s2.TOTALS.targets_requested, 1);
+});
+
+test('REGRESSION 5 — the emitted JSON receipt cannot report a count other than 1', async () => {
+  const c = stubClient({
+    identity: [row('public_keys', true)],
+    columns: [{ table_name: 'public_keys', column_name: 'id', udt_schema: 'pg_catalog', udt_name: 'uuid' }],
+  });
+  // serialised exactly as the wrapper serialises it, then re-parsed
+  const receipt = JSON.parse(JSON.stringify(await collectSchemaShape(c, DEPENDENCY_TABLES), null, 2));
+  assert.equal(receipt.TOTALS.targets_requested, 1);
+  assert.equal(receipt.TABLE_IDENTITY.length, 1);
+  assert.deepEqual(receipt.TABLE_IDENTITY.map((t) => t.table_name), ['public_keys']);
+  assert.equal(JSON.stringify(receipt).includes('"targets_requested": 11'), false);
+
+  // and the shipped wrapper really is that pairing: one collector call bound to
+  // DEPENDENCY_TABLES, whose result is the object placed between the markers.
+  assert.match(src, /s = await collectSchemaShape\(client, DEPENDENCY_TABLES\)/);
+  assert.equal((src.match(/collectSchemaShape\(client/g) || []).length, 1, 'exactly one collector call site');
+  assert.doesNotMatch(src, /collectSchemaShape\(client\)/, 'the collector is never called with the default scope');
+  const emitted = src.slice(src.indexOf('ISSUE_101_PUBLIC_KEYS_SHAPE_JSON_BEGIN'), src.indexOf('ISSUE_101_PUBLIC_KEYS_SHAPE_JSON_END'));
+  assert.match(emitted, /JSON\.stringify\(s, null, 2\)/);
 });
