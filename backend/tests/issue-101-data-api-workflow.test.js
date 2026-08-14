@@ -54,7 +54,7 @@ test('the pre-run guard refuses mutating methods, RPC invocation and row fetches
 });
 
 test('a missing Data API key is a WARNING that yields INDETERMINATE, not an error', () => {
-  assert.match(wf, /PRODUCTION_DATA_API_KEY is not configured/);
+  assert.match(wf, /PRODUCTION_DATA_API_METADATA_KEY is not configured/);
   assert.match(wf, /INDETERMINATE and stop/);
   assert.match(wf, /intended fail-closed behaviour, not an error/);
 });
@@ -74,6 +74,10 @@ test('the pinned candidate exists and carries the safety properties', () => {
   assert.match(blob, /ADVERTISED != EXPLOITABLE/, 'pinned probe must carry the caveat');
   assert.ok(!/method:\s*['"`](POST|PATCH|PUT|DELETE)/.test(blob), 'pinned probe must have no mutating method');
   assert.ok(!/select=|limit=|offset=/.test(blob), 'pinned probe must not request rows');
+  assert.match(blob, /METADATA_KEY_ENV = 'PRODUCTION_DATA_API_METADATA_KEY'/, 'pinned probe must use the elevated metadata key name');
+  assert.ok(!/Authorization: \`Bearer/.test(blob), 'pinned probe must never bearer-frame the key');
+  assert.match(blob, /SCHEMA_ADVERTISED/, 'pinned probe must use the layered evidence taxonomy');
+  assert.match(blob, /FROZEN_DB_AUTHORIZATION/, 'pinned probe must combine the frozen layer-2 evidence');
 });
 
 test('the pin does not name any earlier Issue #101 probe', () => {
@@ -83,5 +87,6 @@ test('the pin does not name any earlier Issue #101 probe', () => {
     'ea6b65650e913d30dfa25389ab64cdcfeb5a3768', // reachability probe
     'fe51f5b66ab8c3e40e3cbf2ea379cc24a545b2e7',
     'f1e515c71f6303354c5d75ccb001ed122f0418ce',
+    '23c31397c200c08168b01c6d4ad649294265752c', // pre-review surface candidate
   ]) assert.notEqual(sha, earlier, 'this workflow must pin the Data API surface probe');
 });

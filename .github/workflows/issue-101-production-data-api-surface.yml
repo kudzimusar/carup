@@ -29,7 +29,7 @@ name: 'Issue #101 Production Data API Surface Probe (METADATA-ONLY diagnostic)'
 #     PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin; the
 #                                 Data API origin is DERIVED from it, so no URL secret
 #                                 exists and no arbitrary host can be targeted)
-#     PRODUCTION_DATA_API_KEY   — Data API key used ONLY to read the OpenAPI root.
+#     PRODUCTION_DATA_API_METADATA_KEY   — Data API key used ONLY to read the OpenAPI root.
 #                                 If absent the probe reports INDETERMINATE and stops.
 
 on:
@@ -45,7 +45,7 @@ concurrency:
 env:
   # The single reviewed commit whose probe code is executed. Advancing this pin is a
   # reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 23c31397c200c08168b01c6d4ad649294265752c
+  CANDIDATE_SHA: c39d2119627e1f33638f1eb9b5890cdc497a3762
 
 jobs:
   surface:
@@ -61,7 +61,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 23c31397c200c08168b01c6d4ad649294265752c
+          ref: c39d2119627e1f33638f1eb9b5890cdc497a3762
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
@@ -104,19 +104,19 @@ jobs:
       - name: Require the production identity secret
         env:
           PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
-          PRODUCTION_DATA_API_KEY: ${{ secrets.PRODUCTION_DATA_API_KEY }}
+          PRODUCTION_DATA_API_METADATA_KEY: ${{ secrets.PRODUCTION_DATA_API_METADATA_KEY }}
         run: |
           if [ -z "$PRODUCTION_PROJECT_REF" ]; then
             echo '::error::PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
             exit 1
           fi
-          if [ -z "$PRODUCTION_DATA_API_KEY" ]; then
-            echo '::warning::PRODUCTION_DATA_API_KEY is not configured — the probe will report DATA_API_SURFACE = INDETERMINATE and stop. That is the intended fail-closed behaviour, not an error.'
+          if [ -z "$PRODUCTION_DATA_API_METADATA_KEY" ]; then
+            echo '::warning::PRODUCTION_DATA_API_METADATA_KEY is not configured — the probe will report DATA_API_SURFACE = INDETERMINATE and stop. That is the intended fail-closed behaviour, not an error.'
           fi
           echo 'Production identity secret is present.'
 
       - name: 'Run the Issue #101 Data API surface probe'
         env:
           PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
-          PRODUCTION_DATA_API_KEY: ${{ secrets.PRODUCTION_DATA_API_KEY }}
+          PRODUCTION_DATA_API_METADATA_KEY: ${{ secrets.PRODUCTION_DATA_API_METADATA_KEY }}
         run: node backend/scripts/production-data-api-surface.mjs
