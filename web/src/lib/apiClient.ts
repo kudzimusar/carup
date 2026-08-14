@@ -23,7 +23,8 @@ export interface AuthHeaders {
 type FetchLike = typeof fetch
 
 /**
- * Last-resort backend when no VITE_API_URL is configured and the host isn't local.
+ * Last-resort production backend when no VITE_API_URL is configured and the host is not a
+ * recognized staging/local host.
  *
  * Keep this assembled instead of a single literal so staging/preview bundles can be scanned for
  * accidental production targets without flagging this fallback text.
@@ -40,23 +41,37 @@ function buildProductionApiBaseUrl(): string {
 }
 
 export const DEFAULT_PRODUCTION_API_BASE_URL = buildProductionApiBaseUrl()
+export const DEFAULT_STAGING_API_BASE_URL = 'https://carup-backend-staging.vercel.app/api'
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+
+/**
+ * Vercel creates several valid frontend host shapes for the carup-staging project, including
+ * stable, branch, PR and deployment aliases. A missing Preview-scoped VITE_API_URL must never make
+ * one of those staging hosts silently cross the environment boundary into production.
+ */
+function isStagingFrontendHost(hostname?: string): boolean {
+  if (!hostname) return false
+  const host = hostname.toLowerCase()
+  return host === 'carup-staging.vercel.app' ||
+    (host.startsWith('carup-staging-') && host.endsWith('.vercel.app'))
+}
 
 /**
  * Resolve the API base URL, with explicit configuration taking precedence so each environment
  * targets its own backend:
  *   1. `VITE_API_URL` (set per Vercel project — staging → staging backend, prod → prod backend)
  *   2. local dev on a localhost host with no override → same-origin `/api`
- *   3. any other host with no override → the production backend (safe default)
+ *   3. a `carup-staging` stable/preview/deployment host with no override → staging backend
+ *   4. any other host with no override → production backend
  *
- * Previously the non-localhost branch was hardcoded to production, so the staging frontend always
- * read the production backend and ignored `VITE_API_URL`. Honoring the env var lets staging call the
- * staging backend while leaving production behavior unchanged.
+ * The staging-host fallback is a safety net, not a replacement for Vercel environment variables.
+ * It prevents a Preview env omission from authenticating staging-only users against production.
  */
 export function resolveApiBaseUrl(configuredUrl?: string | null, hostname?: string): string {
   const configured = configuredUrl?.trim()
   if (configured) return normalizeApiBase(configured)
   if (hostname && LOCAL_HOSTS.includes(hostname)) return '/api'
+  if (isStagingFrontendHost(hostname)) return DEFAULT_STAGING_API_BASE_URL
   return DEFAULT_PRODUCTION_API_BASE_URL
 }
 
