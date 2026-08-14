@@ -63,6 +63,11 @@ test('the pinned commit exists and carries the scoped probe', () => {
   assert.match(blob, /TARGET_TABLES/);
   assert.match(blob, /BEGIN READ ONLY/);
   assert.match(blob, /out-of-scope relation/);
+  assert.match(blob, /SEQUENCE_DEFINITIONS/, 'pinned probe must collect structural sequence shape');
+  assert.match(blob, /is_grantable/, 'pinned probe must preserve grant-option information');
+  assert.match(blob, /CUSTOM_TYPE_DEPENDENCIES/, 'pinned probe must surface custom type dependencies');
+  assert.match(blob, /constraint_backed/, 'pinned probe must classify backing indexes');
+  assert.ok(!/pg_sequences/.test(blob), 'pinned probe must never read sequence values');
   assert.ok(!/administrative_overrides/.test(blob), 'pinned probe must not reference the out-of-scope table');
   assert.ok(!/\bGRANT\b|\bREVOKE\b/.test(blob.replace(/^\s*(\*|\/\/).*$/gm, '')), 'pinned probe must contain no grant statements');
 });
@@ -73,5 +78,6 @@ test('the pin names no earlier Issue #101 probe', () => {
     '008e1f4987d598258296753fe8f45090edd05cfc',
     'ea6b65650e913d30dfa25389ab64cdcfeb5a3768',
     'c39d2119627e1f33638f1eb9b5890cdc497a3762',
+    'c5e93d17b90fe9f3acb57eca71df271ee2c4fa33', // pre-review schema-shape candidate
   ]) assert.notEqual(sha, earlier);
 });
