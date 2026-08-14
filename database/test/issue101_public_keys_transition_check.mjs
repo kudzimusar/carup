@@ -303,6 +303,139 @@ let noSvcRefused = false;
 try { await noSvc.exec(upSectionOf(MIGRATION)); } catch { noSvcRefused = true; }
 eq('missing_service_role.refused', noSvcRefused, true);
 
+// ═══════════════════════════════════════════════ 7. FK ENDPOINT COLUMNS ARE PROVEN
+/**
+ * conname + referenced-relation + ON DELETE is NOT enough. Each case below builds a
+ * constraint that would satisfy a name/referent/action check while pointing at the wrong
+ * columns — or, for the incoming FK, hanging off the wrong relation entirely — and proves
+ * the migration refuses BEFORE any ALTER/REVOKE/GRANT, leaving the ACL untouched.
+ */
+const PK_COLUMNS = `
+      id              text NOT NULL,
+      user_id         text NOT NULL,
+      public_key_pem  text NOT NULL,
+      private_key_pem text,
+      key_type        text DEFAULT 'secp256k1'::text,
+      status          text DEFAULT 'ACTIVE'::text,
+      created_at      text NOT NULL,
+      revoked_at      text,
+      CONSTRAINT public_keys_pkey PRIMARY KEY (id),
+      CONSTRAINT public_keys_status_check CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'REVOKED'::text])))`;
+
+/** Build a fixture whose FK wiring is supplied, then attempt the migration. */
+async function fkCase({ label, pkFk, svlDdl, expectRefusal = true }) {
+  const alt = await PGlite.create(); OPEN.push(alt);
+  await alt.exec(`
+    CREATE ROLE anon NOLOGIN;
+    CREATE ROLE authenticated NOLOGIN;
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+    GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+    -- users carries a SECOND unique column so a wrong-referenced-column FK is buildable
+    CREATE TABLE public.users (id text PRIMARY KEY, email text UNIQUE);
+    CREATE TABLE public.public_keys (${PK_COLUMNS},
+      ${pkFk}
+    );
+    CREATE INDEX idx_public_keys_user ON public.public_keys USING btree (user_id);
+    ${svlDdl}
+    ALTER TABLE public.public_keys ENABLE ROW LEVEL SECURITY;
+    GRANT ALL ON TABLE public.public_keys TO anon, authenticated, service_role;
+  `);
+
+  const aclBefore = {
+    anon: await privsOf(alt, 'anon'),
+    authenticated: await privsOf(alt, 'authenticated'),
+    service_role: await privsOf(alt, 'service_role'),
+  };
+
+  let refused = false; let msg = '';
+  try { await alt.exec(upSectionOf(MIGRATION)); }
+  catch (e) { refused = true; msg = String(e.message || e); }
+
+  const aclAfter = {
+    anon: await privsOf(alt, 'anon'),
+    authenticated: await privsOf(alt, 'authenticated'),
+    service_role: await privsOf(alt, 'service_role'),
+  };
+
+  eq(`fk.${label}.refused`, refused, expectRefusal);
+  if (expectRefusal) {
+    eq(`fk.${label}.acl_unchanged`,
+      JSON.stringify(aclBefore) === JSON.stringify(aclAfter), true);
+    eq(`fk.${label}.error_is_the_precondition`, /\[issue-101-pk\]/.test(msg), true);
+    if (!/\[issue-101-pk\]/.test(msg)) fail(`  ${label}: refused with "${msg.split('\n')[0].slice(0, 120)}"`);
+  } else {
+    // the positive control must actually harden
+    eq(`fk.${label}.anon_closed`, aclAfter.anon, 'none');
+    eq(`fk.${label}.service_role_narrowed`, aclAfter.service_role, 'INSERT,SELECT,UPDATE');
+  }
+  return msg;
+}
+
+const SVL_CORRECT = `
+  CREATE TABLE public.signature_verification_logs (
+    id bigserial PRIMARY KEY, payload_hash text NOT NULL, signature text NOT NULL,
+    public_key_id text NOT NULL, verified integer DEFAULT 1, timestamp text NOT NULL,
+    CONSTRAINT signature_verification_logs_public_key_id_fkey
+      FOREIGN KEY (public_key_id) REFERENCES public.public_keys(id) ON DELETE CASCADE);`;
+
+// 1. right name, right users referent, right CASCADE — WRONG referencing column on public_keys
+await fkCase({
+  label: 'outgoing_wrong_referencing_column',
+  pkFk: `CONSTRAINT public_keys_user_id_fkey FOREIGN KEY (created_at) REFERENCES public.users(id) ON DELETE CASCADE`,
+  svlDdl: SVL_CORRECT,
+});
+
+// 2. right referencing column public_keys.user_id — WRONG referenced column on users
+await fkCase({
+  label: 'outgoing_wrong_referenced_column',
+  pkFk: `CONSTRAINT public_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(email) ON DELETE CASCADE`,
+  svlDdl: SVL_CORRECT,
+});
+
+// 3. incoming FK: right name, right public_keys referent, right CASCADE — WRONG referencing column
+await fkCase({
+  label: 'incoming_wrong_referencing_column',
+  pkFk: `CONSTRAINT public_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE`,
+  svlDdl: `
+    CREATE TABLE public.signature_verification_logs (
+      id bigserial PRIMARY KEY, payload_hash text NOT NULL, signature text NOT NULL,
+      public_key_id text NOT NULL, decoy text NOT NULL,
+      verified integer DEFAULT 1, timestamp text NOT NULL,
+      CONSTRAINT signature_verification_logs_public_key_id_fkey
+        FOREIGN KEY (decoy) REFERENCES public.public_keys(id) ON DELETE CASCADE);`,
+});
+
+// 4. a same-named incoming constraint hanging off the WRONG relation
+await fkCase({
+  label: 'incoming_same_name_on_wrong_relation',
+  pkFk: `CONSTRAINT public_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE`,
+  svlDdl: `
+    CREATE TABLE public.signature_verification_logs (
+      id bigserial PRIMARY KEY, payload_hash text NOT NULL, signature text NOT NULL,
+      public_key_id text NOT NULL, verified integer DEFAULT 1, timestamp text NOT NULL);
+    -- the constraint exists, with the right name, referencing public_keys(id) with
+    -- CASCADE — but on an unrelated table. A conrelid-blind check would accept it.
+    CREATE TABLE public.decoy_relation (
+      id bigserial PRIMARY KEY, public_key_id text NOT NULL,
+      CONSTRAINT signature_verification_logs_public_key_id_fkey
+        FOREIGN KEY (public_key_id) REFERENCES public.public_keys(id) ON DELETE CASCADE);`,
+});
+
+// 5. ON DELETE weakened to NO ACTION while everything else is right
+await fkCase({
+  label: 'outgoing_wrong_on_delete',
+  pkFk: `CONSTRAINT public_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)`,
+  svlDdl: SVL_CORRECT,
+});
+
+// 6. POSITIVE CONTROL — production-shaped constraints must pass and must harden
+await fkCase({
+  label: 'production_shaped_passes',
+  pkFk: `CONSTRAINT public_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE`,
+  svlDdl: SVL_CORRECT,
+  expectRefusal: false,
+});
+
 // ═══════════════════════════════════════════════ REPORT
 console.log('\nISSUE #101 — public_keys P0 CLOSURE: TRANSITION PROOF (real PostgreSQL via PGlite)\n');
 for (const [k, v] of Object.entries(results)) console.log(`  ${k.padEnd(46)} = ${JSON.stringify(v)}`);

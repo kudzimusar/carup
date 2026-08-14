@@ -103,16 +103,32 @@ $pk_shape$;
 -- PRECONDITION 2 — the constraints and BOTH cascades MUST already be in place.
 -- ─────────────────────────────────────────────────────────────────────────────
 -- This migration must not silently run against a table whose referential behaviour
--- differs from production's. Both cascades are asserted by name AND by on-delete action:
---   users(id)        -> public_keys.user_id                    ON DELETE CASCADE
---   public_keys(id)  -> signature_verification_logs.public_key_id  ON DELETE CASCADE
--- Neither is altered below. They are asserted because withholding DELETE from
+-- differs from production's. Both cascades are asserted as COMPLETE ENDPOINT SIGNATURES:
+--
+--   public.public_keys(user_id)                     -> public.users(id)
+--   public.signature_verification_logs(public_key_id) -> public.public_keys(id)
+--   both: ON DELETE c (CASCADE), ON UPDATE a (NO ACTION), MATCH s (SIMPLE)
+--
+-- Name plus referenced-relation is NOT sufficient and is not what is checked. conkey and
+-- confkey are resolved through pg_attribute to real column NAMES, so a constraint with
+-- the right name, the right referent and the right on-delete action but the WRONG
+-- endpoint columns is refused. conrelid is asserted explicitly on both, so the incoming
+-- check cannot be satisfied by a same-named foreign key attached to some other relation.
+-- Arity is pinned too: a multi-column key with a matching first column is refused.
+--
+-- ON UPDATE and MATCH come from the same production receipt as ON DELETE and are part of
+-- the signature, so a constraint that merely cascades on delete is not mistaken for the
+-- measured one.
+--
+-- Neither cascade is altered below. They are asserted because withholding DELETE from
 -- service_role is only safe while they behave as measured — a referential action runs
 -- with the referencing table's OWNER privileges, not the caller's, so the cascades keep
 -- working. The transition harness proves that behaviourally rather than trusting it.
 DO $pk_constraints$
 DECLARE
-  v_missing text[] := ARRAY[]::text[];
+  v_missing  text[] := ARRAY[]::text[];
+  v_expected text;
+  v_actual   text;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
@@ -126,22 +142,70 @@ BEGIN
        AND conname = 'public_keys_status_check' AND contype = 'c'
   ) THEN v_missing := v_missing || 'public_keys_status_check (CHECK)'; END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conrelid = 'public.public_keys'::regclass
-       AND conname = 'public_keys_user_id_fkey' AND contype = 'f'
-       AND confrelid = 'public.users'::regclass
-       AND confdeltype = 'c'
-  ) THEN v_missing := v_missing || 'public_keys_user_id_fkey -> users(id) ON DELETE CASCADE'; END IF;
+  -- ── OUTGOING: public_keys.user_id -> users.id
+  v_expected := 'public.public_keys(user_id) -> public.users(id) ON DELETE c ON UPDATE a MATCH s';
+  SELECT rn.nspname || '.' || rc.relname
+         || '(' || (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                      FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) || ')'
+         || ' -> ' || fn.nspname || '.' || fc.relname
+         || '(' || (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                      FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                      JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum) || ')'
+         || ' ON DELETE ' || c.confdeltype::text
+         || ' ON UPDATE ' || c.confupdtype::text
+         || ' MATCH ' || c.confmatchtype::text
+    INTO v_actual
+    FROM pg_constraint c
+    JOIN pg_class rc ON rc.oid = c.conrelid
+    JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+    JOIN pg_class fc ON fc.oid = c.confrelid
+    JOIN pg_namespace fn ON fn.oid = fc.relnamespace
+   WHERE c.conname = 'public_keys_user_id_fkey'
+     AND c.contype = 'f'
+     AND c.conrelid = 'public.public_keys'::regclass
+     AND array_length(c.conkey, 1) = 1
+     AND array_length(c.confkey, 1) = 1;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conname = 'signature_verification_logs_public_key_id_fkey' AND contype = 'f'
-       AND confrelid = 'public.public_keys'::regclass
-       AND confdeltype = 'c'
-  ) THEN
-    v_missing := v_missing
-      || 'signature_verification_logs_public_key_id_fkey -> public_keys(id) ON DELETE CASCADE';
+  IF v_actual IS NULL THEN
+    v_missing := v_missing || format('public_keys_user_id_fkey absent, or not a single-column FK on public.public_keys; expected %L', v_expected);
+  ELSIF v_actual <> v_expected THEN
+    v_missing := v_missing || format('public_keys_user_id_fkey is %L, expected %L', v_actual, v_expected);
+  END IF;
+
+  -- ── INCOMING: signature_verification_logs.public_key_id -> public_keys.id
+  -- conrelid is pinned here, so a same-named constraint on another relation cannot
+  -- satisfy this check.
+  v_expected := 'public.signature_verification_logs(public_key_id) -> public.public_keys(id) ON DELETE c ON UPDATE a MATCH s';
+  v_actual := NULL;
+  SELECT rn.nspname || '.' || rc.relname
+         || '(' || (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                      FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+                      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) || ')'
+         || ' -> ' || fn.nspname || '.' || fc.relname
+         || '(' || (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+                      FROM unnest(c.confkey) WITH ORDINALITY AS k(attnum, ord)
+                      JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum) || ')'
+         || ' ON DELETE ' || c.confdeltype::text
+         || ' ON UPDATE ' || c.confupdtype::text
+         || ' MATCH ' || c.confmatchtype::text
+    INTO v_actual
+    FROM pg_constraint c
+    JOIN pg_class rc ON rc.oid = c.conrelid
+    JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+    JOIN pg_class fc ON fc.oid = c.confrelid
+    JOIN pg_namespace fn ON fn.oid = fc.relnamespace
+   WHERE c.conname = 'signature_verification_logs_public_key_id_fkey'
+     AND c.contype = 'f'
+     AND c.conrelid = 'public.signature_verification_logs'::regclass
+     AND c.confrelid = 'public.public_keys'::regclass
+     AND array_length(c.conkey, 1) = 1
+     AND array_length(c.confkey, 1) = 1;
+
+  IF v_actual IS NULL THEN
+    v_missing := v_missing || format('signature_verification_logs_public_key_id_fkey absent, or not a single-column FK on public.signature_verification_logs referencing public.public_keys; expected %L', v_expected);
+  ELSIF v_actual <> v_expected THEN
+    v_missing := v_missing || format('signature_verification_logs_public_key_id_fkey is %L, expected %L', v_actual, v_expected);
   END IF;
 
   IF array_length(v_missing, 1) > 0 THEN
