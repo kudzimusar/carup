@@ -1,0 +1,122 @@
+name: 'Issue #101 Production Data API Surface Probe (METADATA-ONLY diagnostic)'
+
+# Probe #3. Probes #1 and #2 answered DB AUTHORIZATION and DB REACHABILITY, and
+# proved anon/authenticated cannot hold a direct session (rolcanlogin = false). They
+# could NOT read the PostgREST exposed-schema configuration, so dimension B
+# (API_REACHABLE) stayed open. This probe closes it by asking the Data API what it
+# ADVERTISES — metadata only.
+#
+# METADATA-ONLY BY CONSTRUCTION:
+#   · exactly one HTTP method is ever used — GET, sourced from a single constant;
+#   · exactly one URL is ever requested — the PostgREST OpenAPI root;
+#   · no /rpc/ path is requested, so no RPC is invoked;
+#   · no table resource is requested, so no application row can be returned;
+#   · response bodies are parsed for path identifiers and discarded — never emitted;
+#   · the Data API origin is DERIVED from the project ref, so no arbitrary host can
+#     be targeted; the staging ref is refused; key and ref are never printed.
+#
+# FAIL-CLOSED: missing key, non-2xx, non-JSON, OpenAPI disabled, or a document with
+# no paths object all yield DATA_API_SURFACE = INDETERMINATE and stop. There is no
+# fallback to querying tables or invoking RPCs.
+#
+# ADVERTISED != EXPLOITABLE. Combining this surface with the DB authorization from
+# probes #1/#2 is a separate, deliberate analysis step.
+#
+# TWO-COMMIT PINNING. The probe was authored and reviewed BEFORE this wrapper existed,
+# so the wrapper hard-pins an already-known immutable SHA and asserts it at runtime.
+#
+# PREREQUISITES (production environment, already protected by the earlier lanes):
+#     PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin; the
+#                                 Data API origin is DERIVED from it, so no URL secret
+#                                 exists and no arbitrary host can be targeted)
+#     PRODUCTION_DATA_API_METADATA_KEY   — Data API key used ONLY to read the OpenAPI root.
+#                                 If absent the probe reports INDETERMINATE and stops.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-101-production-data-api-surface
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose probe code is executed. Advancing this pin is a
+  # reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: c39d2119627e1f33638f1eb9b5890cdc497a3762
+
+jobs:
+  surface:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other
+    # collaborators; github.triggering_actor is whoever actually triggered this run.
+    # Both must be the owner.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: c39d2119627e1f33638f1eb9b5890cdc497a3762
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Assert the pinned probe has no mutating or invoking HTTP path
+        # Belt-and-braces: even a compromised pin cannot smuggle in a write, an RPC
+        # invocation or a row fetch, because the job refuses to run if the probe
+        # gained any of them.
+        run: |
+          f=backend/scripts/production-data-api-surface.mjs
+          if grep -nE "method: *['\"\`](POST|PATCH|PUT|DELETE|HEAD|OPTIONS)" "$f"; then
+            echo "::error::the pinned probe contains a mutating HTTP method; refusing to run."
+            exit 1
+          fi
+          if grep -nE "fetch(Impl)?\([^)]*rpc/" "$f"; then
+            echo "::error::the pinned probe would invoke an RPC; refusing to run."
+            exit 1
+          fi
+          if grep -nE "(select=|limit=|offset=)" "$f"; then
+            echo "::error::the pinned probe would request application rows; refusing to run."
+            exit 1
+          fi
+          if ! grep -q "ALLOWED_HTTP_METHOD = 'GET'" "$f"; then
+            echo "::error::the pinned probe does not pin GET as its only method; refusing to run."
+            exit 1
+          fi
+          echo "Pinned probe verified: GET only, no RPC invocation, no row requests."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Require the production identity secret
+        env:
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_DATA_API_METADATA_KEY: ${{ secrets.PRODUCTION_DATA_API_METADATA_KEY }}
+        run: |
+          if [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_DATA_API_METADATA_KEY" ]; then
+            echo '::warning::PRODUCTION_DATA_API_METADATA_KEY is not configured — the probe will report DATA_API_SURFACE = INDETERMINATE and stop. That is the intended fail-closed behaviour, not an error.'
+          fi
+          echo 'Production identity secret is present.'
+
+      - name: 'Run the Issue #101 Data API surface probe'
+        env:
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_DATA_API_METADATA_KEY: ${{ secrets.PRODUCTION_DATA_API_METADATA_KEY }}
+        run: node backend/scripts/production-data-api-surface.mjs
