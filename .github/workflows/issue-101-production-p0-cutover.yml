@@ -57,12 +57,12 @@ concurrency:
 env:
   # The single reviewed commit whose cutover code is executed. Advancing this pin is a
   # reviewable pull request, never an edit to this workflow alone.
-  CANDIDATE_SHA: 2be622b63c7081a834bdea40d34c2db7609f1ff7
+  CANDIDATE_SHA: 31df0422ad20de9fae3159bb6d219138e65bf2cf
   PG_DRIVER_VERSION: 8.21.0
   APPLY_PHRASE: 'HARDEN PRODUCTION PUBLIC_KEYS AND THE FOURTEEN'
   MIGRATION_A: database/migrations/20260814085000_issue101_public_keys_hardening.sql
   MIGRATION_B: database/migrations/20260814090000_issue101_p0_rls_and_view_hardening.sql
-  MIGRATION_A_SHA256: 9d99204e2a7cc74c45521894f1a1774637eccd83152fb1bc2276f3293fda156d
+  MIGRATION_A_SHA256: 7225faf31c691fa213e4b96bb0f7cddfc87b6a6c98228967856dd0806ba6a63b
   MIGRATION_B_SHA256: 997ca9672e04958d9605e62a001799688f9850dc9a0641d35c88a88995d7705d
   # Never executed here. Pinned so a reviewer can confirm the exclusion is the file they think it is.
   FORBIDDEN_P2: database/migrations/20260814080000_issue101_staging_parity.sql
@@ -87,7 +87,7 @@ jobs:
       - name: Check out the pinned candidate commit
         uses: actions/checkout@v4
         with:
-          ref: 2be622b63c7081a834bdea40d34c2db7609f1ff7
+          ref: 31df0422ad20de9fae3159bb6d219138e65bf2cf
           persist-credentials: false
 
       - name: Assert the checked-out commit is the pinned candidate
