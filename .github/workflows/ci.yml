@@ -82,6 +82,21 @@ jobs:
       - name: Migration verification (isolated PGlite Postgres)
         run: node database/test/migration_pglite_check.mjs
 
+      # Issue #101 P0 hardening — BLOCKING behavioural proof, not a shape check.
+      #
+      # This is load-bearing security evidence: it runs the migration against real
+      # PostgreSQL as the actual anon / authenticated / service_role roles and fails if
+      # ANY of the following regresses — anon denial, authenticated denial, TRUNCATE
+      # removal, evidence_sources_public write denial and intended read behaviour,
+      # security_invoker on that view, service_role access, hidden-column protection,
+      # or the fail-loud service_role BYPASSRLS precondition (including that an aborted
+      # apply leaves zero tables partially hardened).
+      #
+      # It is listed explicitly rather than globbed because it must never be silently
+      # dropped, and it exits non-zero on any failure.
+      - name: Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)
+        run: node database/test/issue101_p0_hardening_check.mjs
+
       # The backend suite runs against an in-memory mock, and a mock that models a constraint is a
       # statement about the mock. What these harnesses catch are properties only real PostgreSQL
       # has: an ACL under Supabase's ALTER DEFAULT PRIVILEGES hazard, a UNIQUE index's missing
