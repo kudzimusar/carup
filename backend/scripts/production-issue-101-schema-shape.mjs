@@ -133,9 +133,9 @@ function tlsConfig() {
   return { rejectUnauthorized: true };
 }
 
-export async function collectSchemaShape(client) {
+export async function collectSchemaShape(client, targets = TARGET_TABLES) {
   const s = {};
-  const T = [TARGET_TABLES];
+  const T = [targets];
 
   // Which of the eleven exist, plus owner and row-security posture.
   const { rows: identity } = await client.query(`
@@ -359,7 +359,7 @@ export async function collectSchemaShape(client) {
   return s;
 }
 
-export function assertComplete(s) {
+export function assertComplete(s, targets = TARGET_TABLES) {
   const missing = REQUIRED_SECTIONS.filter((k) => !(k in s));
   if (missing.length) return { ok: false, reason: `missing section(s): ${missing.join(', ')}` };
   const notArray = REQUIRED_SECTIONS.filter((k) => !Array.isArray(s[k]));
@@ -367,8 +367,8 @@ export function assertComplete(s) {
   if (!s.TOTALS || typeof s.TOTALS.targets_present !== 'number') {
     return { ok: false, reason: 'TOTALS is missing or malformed' };
   }
-  if (s.TABLE_IDENTITY.length !== TARGET_TABLES.length) {
-    return { ok: false, reason: 'TABLE_IDENTITY did not cover all eleven targets' };
+  if (s.TABLE_IDENTITY.length !== targets.length) {
+    return { ok: false, reason: `TABLE_IDENTITY did not cover all ${targets.length} target(s)` };
   }
   // A shape cannot be reconstructed from nothing: every PRESENT table must have columns.
   const presentWithoutColumns = s.TABLE_IDENTITY
@@ -433,7 +433,7 @@ export function assertComplete(s) {
   }
 
   // Scope guard: nothing outside the allowlist may appear in any section.
-  const allowed = new Set(TARGET_TABLES);
+  const allowed = new Set(targets);
   for (const section of ['COLUMNS', 'CONSTRAINTS', 'FOREIGN_KEYS', 'INDEXES', 'POLICIES', 'RELATION_ACL', 'SEQUENCE_DEPENDENCIES', 'TRIGGERS']) {
     const stray = s[section].map((r) => r.table_name).filter((n) => !allowed.has(n));
     if (stray.length) return { ok: false, reason: `${section} contains out-of-scope relation(s): ${[...new Set(stray)].join(', ')}` };

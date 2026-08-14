@@ -148,6 +148,20 @@ function base() {
   return s;
 }
 
+test('the collector is parameterisable so a dependency-only probe reuses it', () => {
+  // The default is the eleven; passing an explicit set lets the public_keys
+  // dependency probe use the IDENTICAL catalog model instead of a second one.
+  assert.match(src, /collectSchemaShape\(client, targets = TARGET_TABLES\)/);
+  assert.match(src, /assertComplete\(s, targets = TARGET_TABLES\)/);
+  const s = base();
+  s.TABLE_IDENTITY = [{ table_name: 'public_keys', exists: true }];
+  s.COLUMNS = [{ table_name: 'public_keys', column_name: 'id' }];
+  assert.equal(assertComplete(s, ['public_keys']).ok, true, 'a single-target run is valid');
+  // and scope is still enforced against the SUPPLIED set
+  s.COLUMNS.push({ table_name: 'system_failures', column_name: 'x' });
+  assert.match(assertComplete(s, ['public_keys']).reason, /out-of-scope relation/);
+});
+
 test('all ten shape sections are required', () => {
   assert.deepEqual([...REQUIRED_SECTIONS].sort(), [
     'COLUMNS', 'CONSTRAINTS', 'FOREIGN_KEYS', 'INDEXES', 'POLICIES',
@@ -330,7 +344,7 @@ test('a PRESENT table with no columns FAILS — a shape cannot be reconstructed 
 test('incomplete target coverage fails', () => {
   const s = base();
   s.TABLE_IDENTITY = s.TABLE_IDENTITY.slice(0, 5);
-  assert.match(assertComplete(s).reason, /all eleven targets/);
+  assert.match(assertComplete(s).reason, /did not cover all 11 target/);
 });
 
 test('an ABSENT table is reported, not silently dropped', () => {
