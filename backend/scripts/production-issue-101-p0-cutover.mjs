@@ -37,7 +37,7 @@ export const ALLOWED_MIGRATIONS = Object.freeze([
   Object.freeze({
     order: 'A',
     file: '20260814085000_issue101_public_keys_hardening.sql',
-    sha256: '9d99204e2a7cc74c45521894f1a1774637eccd83152fb1bc2276f3293fda156d',
+    sha256: '7225faf31c691fa213e4b96bb0f7cddfc87b6a6c98228967856dd0806ba6a63b',
     label: 'public_keys P0 closure',
   }),
   Object.freeze({
