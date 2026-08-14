@@ -1,0 +1,118 @@
+name: 'Issue #101 Production Schema-Shape Probe (READ-ONLY, eleven tables)'
+
+# Probe #4, and the unblocker for staging parity.
+#
+# The merged #155 hardening migration targets 14 tables. Governed staging holds only 3;
+# 11 are absent, so #155 cannot be certified there. Creating those 11 on staging
+# requires PRODUCTION'S ACTUAL SHAPE — which cannot be inferred, because eight come
+# from a deploy script rather than a migration, three come from a SQLite-flavoured
+# migration never run against Postgres, and production may have drifted from either.
+#
+# Probes #1/#2/#3 collected RLS, grants, policies, roles, views, sequences and
+# functions. None of them collects columns, constraints, indexes or foreign keys. This
+# probe collects exactly that, for exactly eleven named tables.
+#
+# READ-ONLY BY CONSTRUCTION:
+#   · no MODE input and no phrase gate — there is no apply path;
+#   · BEGIN READ ONLY, asserted from the server, bounded statement_timeout, ROLLBACK;
+#   · catalog metadata only — no application row is selected, counted or emitted;
+#   · every query is bound to the eleven-table allowlist, and the completeness gate
+#     rejects the whole result if any out-of-scope relation appears;
+#   · trigger FUNCTIONS are recorded by signature and never invoked;
+#   · production identity asserted, staging ref refused, secrets never printed.
+#
+# TWO-COMMIT PINNING. The probe was authored and reviewed BEFORE this wrapper existed,
+# so the wrapper hard-pins an already-known immutable SHA and asserts it at runtime.
+#
+# PREREQUISITES (production environment, already protected by the earlier lanes):
+#     PRODUCTION_DATABASE_URL   — production Postgres connection string
+#     PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin)
+#     PRODUCTION_CA_CERT        — optional PEM trust-anchor override
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-101-production-schema-shape
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose probe code is executed. Advancing this pin is a
+  # reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: c5e93d17b90fe9f3acb57eca71df271ee2c4fa33
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  shape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other
+    # collaborators; github.triggering_actor is whoever actually triggered this run.
+    # Both must be the owner.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: c5e93d17b90fe9f3acb57eca71df271ee2c4fa33
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Assert the pinned probe has no mutation path and stays in scope
+        # Belt-and-braces: even a compromised pin cannot smuggle in a write, a role
+        # assumption, or an unscoped catalog sweep.
+        run: |
+          f=backend/scripts/production-issue-101-schema-shape.mjs
+          if grep -nE "client\.query\( *['\"\`](COMMIT|GRANT|REVOKE|INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|SET ROLE)" "$f"; then
+            echo "::error::the pinned probe contains a mutating statement; refusing to run."
+            exit 1
+          fi
+          if ! grep -q "BEGIN READ ONLY" "$f"; then
+            echo "::error::the pinned probe does not open a READ ONLY transaction; refusing to run."
+            exit 1
+          fi
+          if grep -q "administrative_overrides" "$f"; then
+            echo "::error::the pinned probe references an out-of-scope relation; refusing to run."
+            exit 1
+          fi
+          echo "Pinned probe verified: READ ONLY transaction, no mutating statements, scope intact."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the Issue #101 schema-shape probe'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+        run: node backend/scripts/production-issue-101-schema-shape.mjs
