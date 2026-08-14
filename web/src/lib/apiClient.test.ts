@@ -9,6 +9,7 @@ import {
   CSRF_ERROR_MESSAGE,
   resolveApiBaseUrl,
   DEFAULT_PRODUCTION_API_BASE_URL,
+  DEFAULT_STAGING_API_BASE_URL,
   type AuthHeaders,
 } from './apiClient'
 
@@ -227,8 +228,15 @@ describe('resolveApiBaseUrl', () => {
     expect(resolveApiBaseUrl('   ', 'localhost')).toBe('/api') // whitespace-only is ignored
   })
 
-  it('falls back to the production backend for non-localhost hosts with no override', () => {
-    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  it('keeps staging frontend hosts on the staging backend when no override is present', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feat-owner-dashboard-electric-redesign-11-11.vercel.app'))
+      .toBe(DEFAULT_STAGING_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-3xmzmf9zx-11-11.vercel.app'))
+      .toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+
+  it('falls back to the production backend for production/unknown non-local hosts with no override', () => {
     expect(resolveApiBaseUrl(null, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
     expect(resolveApiBaseUrl(undefined, undefined)).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
   })
