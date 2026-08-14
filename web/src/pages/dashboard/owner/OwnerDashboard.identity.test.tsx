@@ -24,6 +24,8 @@ vi.mock('@/hooks/useCarUpApi', () => ({
     fetchSafePayEscrows: vi.fn().mockResolvedValue([]),
     fetchOwnedVehicles: vi.fn().mockResolvedValue([]),
     fetchNotifications: vi.fn().mockResolvedValue([]),
+    fetchSavedMarketplaceListings: vi.fn().mockResolvedValue({ listings: [] }),
+    fetchCommunicationThreads: vi.fn().mockResolvedValue({ threads: [] }),
   }),
 }))
 
@@ -33,7 +35,9 @@ const SRC = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'Owner
 describe('OwnerDashboard identity (Defect 1)', () => {
   it('renders the authenticated user\'s name in the greeting', () => {
     const html = renderToStaticMarkup(<MemoryRouter><OwnerDashboard /></MemoryRouter>)
-    expect(html).toContain('Welcome back, QA Staging Buyer!')
+    // The electric redesign intentionally replaces the old trailing exclamation mark with a
+    // decorative energy mark. Identity is the contract: the authenticated name must be present.
+    expect(html).toContain('Welcome back, QA Staging Buyer')
   })
 
   it('no longer hardcodes "Tendai Moyo" and derives the greeting from the auth session', () => {
