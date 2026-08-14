@@ -37,6 +37,34 @@ const REQUEST_TIMEOUT_MS = 20000;
 /** The ONLY HTTP method this probe may use. */
 export const ALLOWED_HTTP_METHOD = 'GET';
 
+/**
+ * CREDENTIAL MODEL — metadata-only ELEVATED key.
+ *
+ * On the current Supabase platform the /rest/v1/ OpenAPI root requires an elevated
+ * secret/service-role key; publishable/anon access to the OpenAPI document has been
+ * removed. The secret is therefore named PRODUCTION_DATA_API_METADATA_KEY to make
+ * its class unambiguous, and it is used for ONE read of the OpenAPI root and nothing
+ * else. It is never used to read a table, invoke an RPC, or fetch a row.
+ *
+ * TRANSPORT: the key is sent ONLY as the `apikey` header. It is NOT placed in an
+ * `Authorization: Bearer` header, because modern sb_secret_* keys are not JWTs and
+ * bearer-framing them is both wrong and a needless second place for a secret to land.
+ *
+ * PRE-FLIGHT REFUSAL: an obviously publishable-class credential is refused BEFORE any
+ * request is made. A legacy JWT cannot be distinguished by prefix, so if one is
+ * supplied and the endpoint rejects it the result is INDETERMINATE — never a fallback.
+ */
+export const METADATA_KEY_ENV = 'PRODUCTION_DATA_API_METADATA_KEY';
+
+/** Credential classes accepted for metadata reads. Detected internally, never printed. */
+export function classifyMetadataKey(key) {
+  if (typeof key !== 'string' || key.length < 20) return 'MISSING_OR_TOO_SHORT';
+  if (key.startsWith('sb_publishable_')) return 'PUBLISHABLE_REFUSED';
+  if (key.startsWith('sb_secret_')) return 'SECRET_KEY';
+  if (key.startsWith('eyJ')) return 'LEGACY_JWT';
+  return 'UNRECOGNISED';
+}
+
 /** The 14 RLS-disabled production tables (probe #1, run 31749657530). */
 export const RLS_OFF_TABLES = [
   'cid_clearance_records', 'currency_rates', 'cvr_ownership_records', 'dealer_promotions',
@@ -99,7 +127,82 @@ export const REQUIRED_SECTIONS = [
   'TOTALS',
 ];
 
-export const CLASSIFICATIONS = ['API_ADVERTISED', 'NOT_API_ADVERTISED', 'INDETERMINATE'];
+/**
+ * EVIDENCE TAXONOMY — three layers, never conflated.
+ *
+ * The OpenAPI document is read with an ELEVATED key, so it establishes only that an
+ * object lives in an exposed Data API schema. It does NOT establish that the object
+ * is advertised to anon or to authenticated — those roles see a filtered surface, and
+ * deriving role-specific advertisement from an elevated-key document would be wrong.
+ *
+ *   layer 1 (probe #3, this run) SCHEMA_ADVERTISED
+ *   layer 2 (probes #1/#2, frozen) ANON_DB_AUTHORIZED / AUTHENTICATED_DB_AUTHORIZED
+ *   layer 3 (probe #2, frozen) role/reachability state
+ *
+ * A role-specific reachability verdict requires layer 1 AND layer 2 together.
+ */
+export const CLASSIFICATIONS = [
+  'SCHEMA_ADVERTISED',
+  'NOT_SCHEMA_ADVERTISED',
+  'ANON_DB_AUTHORIZED',
+  'AUTHENTICATED_DB_AUTHORIZED',
+  'ANON_DATA_API_REACHABLE',
+  'AUTHENTICATED_DATA_API_REACHABLE',
+  'INDETERMINATE',
+];
+
+/**
+ * FROZEN layer-2/3 evidence from production runs 31749657530 (probe #1) and
+ * 31759906271 (probe #2). Embedded so this probe can combine layers WITHOUT an
+ * authenticated user session and WITHOUT any application-row request.
+ */
+export const FROZEN_DB_AUTHORIZATION = Object.freeze({
+  provenance: 'probe #1 run 31749657530 + probe #2 run 31759906271',
+  // The 14 RLS-off tables: RLS disabled, anon+authenticated hold full DML =>
+  // EFFECTIVE_EXPOSURE_CONFIRMED for both roles.
+  rls_off_tables: { anon: true, authenticated: true },
+  // All three views carry full anon+authenticated relation grants; they execute with
+  // owner rights (security_invoker false), so base RLS does not filter them.
+  views: { anon: true, authenticated: true },
+  // Per-function EXECUTE, measured by probe #2.
+  functions: Object.freeze({
+    current_tenant_id: { anon: true, authenticated: true },
+    diaspora_can_access_order: { anon: false, authenticated: true },
+    diaspora_trade_os_can_access_row: { anon: false, authenticated: true },
+    diaspora_trade_os_current_user_id: { anon: false, authenticated: true },
+    diaspora_trade_os_is_platform_admin: { anon: false, authenticated: true },
+    diaspora_trade_os_is_tenant_member: { anon: false, authenticated: true },
+    is_diaspora_platform_admin: { anon: false, authenticated: true },
+  }),
+  // All 14 sequences grant anon+authenticated SELECT,UPDATE,USAGE.
+  sequences: { anon: true, authenticated: true },
+  // Layer 3: neither API role can hold a direct session.
+  role_state: { anon_can_login: false, authenticated_can_login: false, anon_bypassrls: false, authenticated_bypassrls: false },
+});
+
+/**
+ * Combine layer 1 (advertised in an exposed schema) with layer 2 (role DB
+ * authorization) into a role-specific verdict. Either layer missing => INDETERMINATE.
+ */
+export function combineEvidence(advertised, metadataAvailable, dbAuth) {
+  if (!metadataAvailable) {
+    return {
+      schema: 'INDETERMINATE',
+      anon: 'INDETERMINATE',
+      authenticated: 'INDETERMINATE',
+    };
+  }
+  const schema = advertised ? 'SCHEMA_ADVERTISED' : 'NOT_SCHEMA_ADVERTISED';
+  return {
+    schema,
+    anon: !advertised ? 'NOT_SCHEMA_ADVERTISED'
+      : dbAuth.anon ? 'ANON_DATA_API_REACHABLE' : 'SCHEMA_ADVERTISED',
+    authenticated: !advertised ? 'NOT_SCHEMA_ADVERTISED'
+      : dbAuth.authenticated ? 'AUTHENTICATED_DATA_API_REACHABLE' : 'SCHEMA_ADVERTISED',
+    anon_db_authorized: dbAuth.anon ? 'ANON_DB_AUTHORIZED' : null,
+    authenticated_db_authorized: dbAuth.authenticated ? 'AUTHENTICATED_DB_AUTHORIZED' : null,
+  };
+}
 
 function fail(msg) {
   console.error(`::error::${msg}`);
@@ -136,8 +239,16 @@ export function assertProductionIdentity(projectRef, apiKey) {
   if (projectRef === STAGING_REF) {
     return { ok: false, reason: 'PRODUCTION_PROJECT_REF is the STAGING ref; refusing.' };
   }
-  if (!apiKey || apiKey.length < 20) {
-    return { ok: false, reason: 'PRODUCTION_DATA_API_KEY is not configured; cannot query the Data API surface.' };
+  const cls = classifyMetadataKey(apiKey);
+  if (cls === 'MISSING_OR_TOO_SHORT') {
+    return { ok: false, reason: `${METADATA_KEY_ENV} is not configured; cannot read the Data API metadata surface.` };
+  }
+  if (cls === 'PUBLISHABLE_REFUSED') {
+    // Neutral wording: the rejected credential's class is not echoed.
+    return { ok: false, reason: `${METADATA_KEY_ENV} is not an accepted metadata credential; an elevated metadata-only key is required.` };
+  }
+  if (cls === 'UNRECOGNISED') {
+    return { ok: false, reason: `${METADATA_KEY_ENV} is not a recognised credential class; refusing to send it.` };
   }
   const origin = `https://${projectRef}.supabase.co`;
   if (origin.includes(STAGING_REF)) {
@@ -181,7 +292,9 @@ export async function fetchMetadata(metadataUrl, apiKey, fetchImpl = fetch) {
   try {
     const res = await fetchImpl(metadataUrl, {
       method: ALLOWED_HTTP_METHOD,
-      headers: { apikey: apiKey, Authorization: `Bearer ${apiKey}`, Accept: 'application/openapi+json, application/json' },
+      // apikey ONLY. The key is never bearer-framed: sb_secret_* keys are not JWTs,
+      // and one transport header is one place for a secret rather than two.
+      headers: { apikey: apiKey, Accept: 'application/openapi+json, application/json' },
       signal: controller.signal,
       redirect: 'error',
     });
@@ -220,17 +333,25 @@ export function buildSections(parsed) {
   s.EXPOSED_TABLE_RESOURCES = (parsed ? parsed.tables : []).map((t) => ({ resource: t }));
   s.RPC_RESOURCES = (parsed ? parsed.rpcs : []).map((f) => ({ resource: f }));
 
+  const row = (name, set, dbAuth) => {
+    const ev = combineEvidence(set.has(name), available, dbAuth);
+    return {
+      classification: ev.schema,
+      anon_classification: ev.anon,
+      authenticated_classification: ev.authenticated,
+      anon_db_authorized: ev.anon_db_authorized,
+      authenticated_db_authorized: ev.authenticated_db_authorized,
+    };
+  };
+
   s.RLS_OFF_TABLE_REACHABILITY = RLS_OFF_TABLES.map((t) => ({
-    table: t,
-    classification: classify(t, tableSet, available),
+    table: t, ...row(t, tableSet, FROZEN_DB_AUTHORIZATION.rls_off_tables),
   }));
   s.FOCUS_VIEW_REACHABILITY = FOCUS_VIEWS.map((v) => ({
-    view: v,
-    classification: classify(v, tableSet, available),
+    view: v, ...row(v, tableSet, FROZEN_DB_AUTHORIZATION.views),
   }));
   s.NON_TRIGGER_RPC_REACHABILITY = DB_CALLABLE_NON_TRIGGER_FUNCTIONS.map((f) => ({
-    function: f,
-    classification: classify(f, rpcSet, available),
+    function: f, ...row(f, rpcSet, FROZEN_DB_AUTHORIZATION.functions[f]),
   }));
   s.TRIGGER_FUNCTION_RPC_REACHABILITY = DB_CALLABLE_TRIGGER_FUNCTIONS.map((f) => ({
     function: f,
@@ -238,8 +359,7 @@ export function buildSections(parsed) {
     note: 'a trigger function invoked as an RPC errors regardless; advertised here would be untidy, not exploitable',
   }));
   s.SEQUENCE_RESOURCE_REACHABILITY = SEQUENCES.map((q) => ({
-    sequence: q,
-    classification: classify(q, tableSet, available),
+    sequence: q, ...row(q, tableSet, FROZEN_DB_AUTHORIZATION.sequences),
   }));
 
   // Sequence bridge: is any ADVERTISED rpc one that could manipulate a sequence?
@@ -247,28 +367,51 @@ export function buildSections(parsed) {
   // function inventory, whose bodies were already classified by probe #2.
   const advertisedRpcs = [...rpcSet];
   const knownFns = new Set([...DB_CALLABLE_NON_TRIGGER_FUNCTIONS, ...DB_CALLABLE_TRIGGER_FUNCTIONS]);
+  const unknownRpcs = advertisedRpcs.filter((f) => !knownFns.has(f));
+  // An advertised callable function that has never been classified is exactly the
+  // shape a sequence bridge would take. While one exists the answer is INDETERMINATE
+  // — NO_ADVERTISED_SEQUENCE_BRIDGE_FOUND may never be emitted alongside it.
+  const bridgeClassification = !available
+    ? 'INDETERMINATE'
+    : unknownRpcs.length > 0
+      ? 'INDETERMINATE'
+      : 'NO_ADVERTISED_SEQUENCE_BRIDGE_FOUND';
   s.SEQUENCE_BRIDGE_EVIDENCE = [{
+    classification: bridgeClassification,
     advertised_rpc_count: advertisedRpcs.length,
-    advertised_rpcs_not_in_known_inventory: advertisedRpcs.filter((f) => !knownFns.has(f)),
+    advertised_rpcs_not_in_known_inventory: unknownRpcs,
+    indeterminate_reason: !available
+      ? 'metadata unavailable'
+      : unknownRpcs.length > 0
+        ? `${unknownRpcs.length} advertised callable function(s) are not in the classified inventory; each must be classified before any bridge conclusion`
+        : null,
     sequence_primitive_source_evidence:
-      'zero occurrences of setval/nextval/currval in any function body across the 106 migrations on main',
+      'SOURCE EVIDENCE ONLY (not production proof): zero occurrences of setval/nextval/currval in any function body across the 106 migrations on main',
     caveat:
       'probe #2 did not test bodies for sequence primitives, and two SECURITY DEFINER functions exist that no migration defines — a definitive answer needs a body-level regex probe',
-    classification: available ? 'NO_ADVERTISED_SEQUENCE_BRIDGE_FOUND' : 'INDETERMINATE',
+    scope_note:
+      'B1-SEQ may remain probe-gated on this. It does NOT gate B2: the 14 RLS-off tables carry independent production DB-authorization evidence from run 31749657530.',
   }];
 
   const count = (arr, c) => arr.filter((x) => x.classification === c).length;
+  const countRole = (arr, role, c) => arr.filter((x) => x[`${role}_classification`] === c).length;
   s.TOTALS = {
     metadata_available: available,
     exposed_table_resources: s.EXPOSED_TABLE_RESOURCES.length,
     exposed_rpc_resources: s.RPC_RESOURCES.length,
-    rls_off_advertised: count(s.RLS_OFF_TABLE_REACHABILITY, 'API_ADVERTISED'),
-    rls_off_not_advertised: count(s.RLS_OFF_TABLE_REACHABILITY, 'NOT_API_ADVERTISED'),
+    rls_off_schema_advertised: count(s.RLS_OFF_TABLE_REACHABILITY, 'SCHEMA_ADVERTISED'),
     rls_off_indeterminate: count(s.RLS_OFF_TABLE_REACHABILITY, 'INDETERMINATE'),
-    focus_views_advertised: count(s.FOCUS_VIEW_REACHABILITY, 'API_ADVERTISED'),
-    non_trigger_rpc_advertised: count(s.NON_TRIGGER_RPC_REACHABILITY, 'API_ADVERTISED'),
+    rls_off_anon_reachable: countRole(s.RLS_OFF_TABLE_REACHABILITY, 'anon', 'ANON_DATA_API_REACHABLE'),
+    rls_off_authenticated_reachable: countRole(s.RLS_OFF_TABLE_REACHABILITY, 'authenticated', 'AUTHENTICATED_DATA_API_REACHABLE'),
+    focus_views_schema_advertised: count(s.FOCUS_VIEW_REACHABILITY, 'SCHEMA_ADVERTISED'),
+    focus_views_anon_reachable: countRole(s.FOCUS_VIEW_REACHABILITY, 'anon', 'ANON_DATA_API_REACHABLE'),
+    non_trigger_rpc_schema_advertised: count(s.NON_TRIGGER_RPC_REACHABILITY, 'SCHEMA_ADVERTISED'),
+    non_trigger_rpc_anon_reachable: countRole(s.NON_TRIGGER_RPC_REACHABILITY, 'anon', 'ANON_DATA_API_REACHABLE'),
+    non_trigger_rpc_authenticated_reachable: countRole(s.NON_TRIGGER_RPC_REACHABILITY, 'authenticated', 'AUTHENTICATED_DATA_API_REACHABLE'),
     trigger_rpc_advertised: count(s.TRIGGER_FUNCTION_RPC_REACHABILITY, 'API_ADVERTISED'),
-    sequences_advertised: count(s.SEQUENCE_RESOURCE_REACHABILITY, 'API_ADVERTISED'),
+    sequences_schema_advertised: count(s.SEQUENCE_RESOURCE_REACHABILITY, 'SCHEMA_ADVERTISED'),
+    sequence_bridge: s.SEQUENCE_BRIDGE_EVIDENCE[0].classification,
+    evidence_provenance: FROZEN_DB_AUTHORIZATION.provenance,
     function_arithmetic: {
       total: 34, trigger: 14, non_trigger: 20,
       db_callable_trigger: 12, db_callable_non_trigger: 7, db_callable_total: 19,
@@ -303,7 +446,16 @@ export function assertComplete(s) {
 
 function report(s) {
   const L = console.log;
-  const line = (arr, key) => arr.forEach((x) => L(`   ${String(x[key]).padEnd(38)} ${x.classification}`));
+  const line = (arr, key) => arr.forEach((x) => L(
+    `   ${String(x[key]).padEnd(38)} schema=${x.classification}` +
+    (x.anon_classification ? `  anon=${x.anon_classification}  auth=${x.authenticated_classification}` : '')));
+  L('');
+  L('══ EVIDENCE MODEL ══');
+  L('   layer 1 (this probe, elevated key): SCHEMA_ADVERTISED — object lives in an exposed Data API schema');
+  L('   layer 2 (probes #1/#2, frozen)    : ANON_/AUTHENTICATED_DB_AUTHORIZED');
+  L('   layer 3 (probe #2, frozen)        : anon/authenticated cannot hold a direct session');
+  L('   role reachability requires layer 1 AND layer 2. The elevated-key document alone');
+  L('   NEVER establishes advertisement to anon or authenticated.');
   L('');
   L('══ DATA_API_METADATA_AVAILABLE ══');
   const m = s.DATA_API_METADATA_AVAILABLE[0];
@@ -336,6 +488,8 @@ function report(s) {
   L('══ SEQUENCE_BRIDGE_EVIDENCE ══');
   const b = s.SEQUENCE_BRIDGE_EVIDENCE[0];
   L(`   classification=${b.classification} advertised_rpcs=${b.advertised_rpc_count}`);
+  if (b.indeterminate_reason) L(`   indeterminate because: ${b.indeterminate_reason}`);
+  L(`   scope: ${b.scope_note}`);
   L(`   advertised RPCs not in the known inventory: ${JSON.stringify(b.advertised_rpcs_not_in_known_inventory)}`);
   L(`   source evidence: ${b.sequence_primitive_source_evidence}`);
   L(`   caveat: ${b.caveat}`);
@@ -346,7 +500,7 @@ function report(s) {
 
 async function main() {
   const projectRef = process.env.PRODUCTION_PROJECT_REF;
-  const apiKey = process.env.PRODUCTION_DATA_API_KEY;
+  const apiKey = process.env[METADATA_KEY_ENV];
 
   const identity = assertProductionIdentity(projectRef, apiKey);
   if (!identity.ok) {

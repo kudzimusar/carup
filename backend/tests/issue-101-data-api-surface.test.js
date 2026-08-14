@@ -13,7 +13,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import {
-  ALLOWED_HTTP_METHOD, REQUIRED_SECTIONS, CLASSIFICATIONS,
+  ALLOWED_HTTP_METHOD, REQUIRED_SECTIONS, CLASSIFICATIONS, METADATA_KEY_ENV,
+  FROZEN_DB_AUTHORIZATION, classifyMetadataKey, combineEvidence,
   RLS_OFF_TABLES, FOCUS_VIEWS, DB_CALLABLE_NON_TRIGGER_FUNCTIONS,
   DB_CALLABLE_TRIGGER_FUNCTIONS, SEQUENCES,
   assertProductionIdentity, assertComplete, buildSections, classify,
@@ -143,15 +144,127 @@ test('a document without paths yields null, which becomes INDETERMINATE', () => 
   assert.equal(parseOpenApiPaths({ paths: 'nope' }), null);
   const s = buildSections(null);
   assert.equal(s.DATA_API_METADATA_AVAILABLE[0].available, false);
-  for (const row of s.RLS_OFF_TABLE_REACHABILITY) assert.equal(row.classification, 'INDETERMINATE');
+  for (const row of s.RLS_OFF_TABLE_REACHABILITY) {
+    assert.equal(row.classification, 'INDETERMINATE');
+    assert.equal(row.anon_classification, 'INDETERMINATE');
+    assert.equal(row.authenticated_classification, 'INDETERMINATE');
+  }
 });
 
-test('classification is one of the three fixed values', () => {
+// ============== FINAL CORRECTION (PR #154 review) ==============
+
+test('CRED: the metadata key env is explicitly named as elevated/metadata-only', () => {
+  assert.equal(METADATA_KEY_ENV, 'PRODUCTION_DATA_API_METADATA_KEY');
+  assert.ok(!/PRODUCTION_DATA_API_KEY\b/.test(src), 'the ambiguous old name must be gone');
+  assert.match(src, /metadata-only ELEVATED key/i);
+  assert.match(src.replace(/\s+/g, ' '), /publishable\/anon access to the OpenAPI document has been \* removed/i);
+});
+
+test('CRED: a publishable key is refused BEFORE any request, without echoing its class', () => {
+  assert.equal(classifyMetadataKey('sb_publishable_abcdefghijklmnop'), 'PUBLISHABLE_REFUSED');
+  const r = assertProductionIdentity(PROD_REF, 'sb_publishable_abcdefghijklmnop');
+  assert.equal(r.ok, false);
+  assert.ok(!/publishable/i.test(r.reason), 'the refusal must not echo the credential class');
+  assert.match(r.reason, /elevated metadata-only key is required/);
+});
+
+test('CRED: secret keys and legacy JWTs are accepted classes', () => {
+  assert.equal(classifyMetadataKey('sb_secret_abcdefghijklmnopqrst'), 'SECRET_KEY');
+  assert.equal(classifyMetadataKey('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.x'), 'LEGACY_JWT');
+  assert.equal(assertProductionIdentity(PROD_REF, 'sb_secret_abcdefghijklmnopqrst').ok, true);
+  assert.equal(classifyMetadataKey('random-thing-that-is-long-enough'), 'UNRECOGNISED');
+  assert.equal(assertProductionIdentity(PROD_REF, 'random-thing-that-is-long-enough').ok, false);
+});
+
+test('CRED: sb_secret_* is NEVER placed in an Authorization Bearer header', async () => {
+  const SECRET = 'sb_secret_abcdefghijklmnopqrst';
+  let seen = null;
+  await fetchMetadata('https://x/rest/v1/', SECRET, async (url, opts) => {
+    seen = opts;
+    return { ok: true, status: 200, json: async () => ({ paths: {} }) };
+  });
+  assert.equal(seen.headers.apikey, SECRET, 'the key travels as apikey');
+  assert.ok(!('Authorization' in seen.headers), 'no Authorization header may exist');
+  assert.ok(!JSON.stringify(seen.headers).includes('Bearer'), 'the key must never be bearer-framed');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  assert.ok(!/Authorization:\s*`Bearer/.test(code), 'no Bearer construction may remain in code');
+});
+
+test('EVIDENCE: OpenAPI proves schema advertisement, not anon/auth advertisement', () => {
+  assert.match(src.replace(/\s+/g, ' '), /It does NOT establish that the object \* is advertised to anon or to authenticated/);
+  assert.match(src, /NEVER establishes advertisement to anon or authenticated/);
+  for (const c of ['SCHEMA_ADVERTISED', 'ANON_DB_AUTHORIZED', 'AUTHENTICATED_DB_AUTHORIZED',
+                   'ANON_DATA_API_REACHABLE', 'AUTHENTICATED_DATA_API_REACHABLE', 'INDETERMINATE']) {
+    assert.ok(CLASSIFICATIONS.includes(c), `${c} must be in the taxonomy`);
+  }
+});
+
+test('EVIDENCE: role reachability requires layer 1 AND the frozen layer-2 evidence', () => {
+  // advertised + db-authorized => reachable
+  let ev = combineEvidence(true, true, { anon: true, authenticated: true });
+  assert.equal(ev.schema, 'SCHEMA_ADVERTISED');
+  assert.equal(ev.anon, 'ANON_DATA_API_REACHABLE');
+  assert.equal(ev.authenticated, 'AUTHENTICATED_DATA_API_REACHABLE');
+  // advertised but NOT db-authorized => stays schema-advertised only
+  ev = combineEvidence(true, true, { anon: false, authenticated: true });
+  assert.equal(ev.anon, 'SCHEMA_ADVERTISED');
+  assert.equal(ev.authenticated, 'AUTHENTICATED_DATA_API_REACHABLE');
+  // not advertised => not reachable regardless of db authorization
+  ev = combineEvidence(false, true, { anon: true, authenticated: true });
+  assert.equal(ev.anon, 'NOT_SCHEMA_ADVERTISED');
+  // metadata missing => everything indeterminate
+  ev = combineEvidence(true, false, { anon: true, authenticated: true });
+  assert.equal(ev.anon, 'INDETERMINATE');
+});
+
+test('EVIDENCE: frozen layer-2/3 facts carry their provenance', () => {
+  assert.match(FROZEN_DB_AUTHORIZATION.provenance, /31749657530/);
+  assert.match(FROZEN_DB_AUTHORIZATION.provenance, /31759906271/);
+  // current_tenant_id is the only anon-executable function measured by probe #2.
+  assert.equal(FROZEN_DB_AUTHORIZATION.functions.current_tenant_id.anon, true);
+  assert.equal(FROZEN_DB_AUTHORIZATION.functions.diaspora_can_access_order.anon, false);
+  assert.equal(FROZEN_DB_AUTHORIZATION.role_state.anon_can_login, false);
+});
+
+test('BRIDGE: an unknown advertised RPC forces INDETERMINATE', () => {
+  const s = buildSections({ tables: [], rpcs: ['current_tenant_id', 'mystery_fn'] });
+  const b = s.SEQUENCE_BRIDGE_EVIDENCE[0];
+  assert.equal(b.classification, 'INDETERMINATE');
+  assert.deepEqual(b.advertised_rpcs_not_in_known_inventory, ['mystery_fn']);
+  assert.match(b.indeterminate_reason, /not in the classified inventory/);
+});
+
+test('BRIDGE: NO_ADVERTISED_SEQUENCE_BRIDGE_FOUND only when every advertised RPC is classified', () => {
+  const s = buildSections({ tables: [], rpcs: ['current_tenant_id'] });
+  assert.equal(s.SEQUENCE_BRIDGE_EVIDENCE[0].classification, 'NO_ADVERTISED_SEQUENCE_BRIDGE_FOUND');
+  assert.equal(s.SEQUENCE_BRIDGE_EVIDENCE[0].indeterminate_reason, null);
+});
+
+test('BRIDGE: the migration grep is labelled SOURCE EVIDENCE ONLY', () => {
+  const s = buildSections({ tables: [], rpcs: [] });
+  assert.match(s.SEQUENCE_BRIDGE_EVIDENCE[0].sequence_primitive_source_evidence, /SOURCE EVIDENCE ONLY \(not production proof\)/);
+});
+
+test('BRIDGE: sequence uncertainty is scoped away from B2', () => {
+  const s = buildSections({ tables: [], rpcs: [] });
+  assert.match(s.SEQUENCE_BRIDGE_EVIDENCE[0].scope_note, /does NOT gate B2/);
+  assert.match(s.SEQUENCE_BRIDGE_EVIDENCE[0].scope_note, /B1-SEQ may remain probe-gated/);
+});
+
+test('SAFETY: no new HTTP call sites, row requests or RPC invocations were introduced', () => {
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  assert.equal((code.match(/fetchImpl\(/g) || []).length, 1, 'still exactly one fetch call site');
+  const fetches = [...src.matchAll(/fetchImpl\(\s*([A-Za-z_.]+)/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(fetches)], ['metadataUrl']);
+  assert.ok(!/select=|limit=|offset=/.test(code));
+  assert.ok(!/['"`]rpc\/\$/.test(code), 'no rpc URL may be constructed');
+});
+
+test('classify() still yields the three fixed values for trigger-function rows', () => {
   const set = new Set(['vehicles']);
   assert.equal(classify('vehicles', set, true), 'API_ADVERTISED');
   assert.equal(classify('other', set, true), 'NOT_API_ADVERTISED');
   assert.equal(classify('vehicles', set, false), 'INDETERMINATE');
-  for (const c of ['API_ADVERTISED', 'NOT_API_ADVERTISED', 'INDETERMINATE']) assert.ok(CLASSIFICATIONS.includes(c));
 });
 
 // ------------------------------------------------- fail-closed on failure
