@@ -762,3 +762,49 @@ Web suite **807/807**, typecheck clean. Both fixes are mutation-verified.
 Exactly one synthetic row changed and it was returned to its original value; no real admin account
 was touched, and no permanent credential was created — `authorizeRole` re-reads the role per
 request, so the elevation ended the moment it was reverted.
+
+## P1 found by physical certification — admin replies addressed a projection, not a participant
+
+Physical staging certification (not review) surfaced a genuine production-path defect.
+
+`recordAdminThreadReply` treated `thread.primary_user_id` as the authoritative external delivery
+recipient. That field is only a compatibility projection: `canonicalizeMarketplaceInquiry` sets it
+to the **seller** and says so in a comment. On the certification thread
+`61acc236-aaab-4d27-815c-9062f9c99f05` the seller had no WhatsApp binding while the **buyer**
+participant owned it (`fbd711fb…` → identity `e1756bdd…`), so the reply resolved no address and
+returned 422. A whole-database scan then showed the blast radius: **zero** threads in staging had
+their `primary_user_id` holding a send-capable WhatsApp binding, so no canonical Marketplace
+conversation could drive a governed WhatsApp admin reply at all. Two independent live 422s
+(threads `c9972e1e…` and `61acc236…`) confirmed it before any code changed.
+
+The fix makes delivery **participant-authoritative** via `resolveAdminReplyRecipient()`:
+
+* an explicitly requested `recipient_participant_id` is re-validated against *this* thread —
+  active, addressable, send-capable binding on the exact channel, unexpired, identity present,
+  identity channel matching, not opted-out/revoked, and participant/identity ownership agreeing;
+* otherwise the primary user's participant is used when it is genuinely deliverable, so simple
+  threads keep their existing behaviour;
+* otherwise the single eligible participant is used;
+* zero eligible → the existing 422; **more than one → a distinct `recipient_ambiguous` failure.**
+
+Ambiguity is never settled by cross-participant recency — delivering one customer's reply to
+another is worse than not delivering. `recipient_user_id` is now taken from the addressed
+participant and never copied from `thread.primary_user_id`.
+
+`recipient_participant_id` is **optional** on `POST /api/admin/communications/threads/:id/reply`,
+so the current UI body keeps working on simple threads. No admin reply is ever broadcast to all
+participants.
+
+24 tests across the two admin-reply files, with seven mutation proofs — the suite fails if the
+resolver falls back to `primary_user_id` only, if the first eligible participant is chosen during
+ambiguity, if `recipient_user_id` is taken from the thread projection, if the participant/identity
+ownership check is dropped, if the explicit participant's thread-ownership check is dropped, if the
+system/agent filter is dropped, or if the opted-out consent check is dropped.
+
+One prior assertion was deliberately retired: "only another participant is bound → 422" encoded the
+old, defective model and is now a PASS case. The multi-party safety it protected is still covered —
+the primary user still wins when deliverable, and genuine ambiguity still fails closed.
+
+The `e818a6e9…` role fingerprint above is **retired** as an acceptance assertion: its generating
+formula could not be reproduced. Role restoration is now asserted with
+`md5(string_agg(id::text || ':' || coalesce(role,''), '|' order by id::text))` over `users`.

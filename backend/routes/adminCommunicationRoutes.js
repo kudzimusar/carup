@@ -374,67 +374,146 @@ async function resolveExternalReplyIdentity({ repository, thread }) {
   return repository.findOne('channel_identities', { id: participant.external_identity_id });
 }
 
+// Participants that exist to hold thread state rather than to be written to. Addressing one of
+// these would queue a notification nobody can receive.
+const NON_ADDRESSABLE_PARTICIPANT_TYPES = new Set(['system', 'agent', 'bot']);
+// An identity the customer has actively turned off is never a valid delivery target, whatever the
+// binding still says.
+const UNUSABLE_CONSENT_STATUSES = new Set(['opted_out', 'revoked']);
+
+function participantIsActive(participant) {
+  return Boolean(participant)
+    && participant.is_active !== false
+    && participant.active !== false
+    && !participant.left_at;
+}
+
+function participantIsAddressable(participant) {
+  if (!participantIsActive(participant)) return false;
+  return !NON_ADDRESSABLE_PARTICIPANT_TYPES.has(normalizeChannelName(participant.participant_type));
+}
+
+function bindingTimestamp(binding) {
+  return Date.parse(binding?.last_used_at || binding?.updated_at || binding?.created_at || 0) || 0;
+}
+
+function bindingIsLive(binding) {
+  if (!binding?.expires_at) return true;
+  const expiry = Date.parse(binding.expires_at);
+  return Number.isNaN(expiry) ? true : expiry > Date.now();
+}
+
 /**
- * Resolve the channel identity for an admin reply addressed to the thread's PRIMARY USER.
+ * Pick the single deliverable binding WITHIN one participant.
  *
- * The thread-wide resolveExternalReplyIdentity() above is right for a thread with no primary user —
- * it finds "the external contact" — but on a multi-party thread it would happily return a different
- * participant's identity, which would send one customer's reply to another. So this walks the
- * canonical relationship instead, pinned to the exact recipient at every hop:
- *
- *   message_participants (thread + user, active)
- *     → conversation_channel_bindings (thread + that participant + that channel, can_send)
- *       → channel_identities (the binding's identity)
- *
- * Anything it cannot resolve unambiguously returns null, and the caller fails closed with the
- * existing 422 rather than guessing an address.
+ * Returns { binding } when exactly one binding wins, or { ambiguous: true } when the participant
+ * genuinely offers two equally-ranked distinct addresses. Never guesses between addresses.
  */
-async function resolvePrimaryUserChannelIdentity({ repository, thread, userId, channel }) {
-  if (!repository || !thread?.id || !userId || !channel) return null;
-
-  const participants = await repository.list('message_participants', { thread_id: thread.id })
-    .catch(() => []);
-  const candidates = participants.filter((p) => String(p.user_id) === String(userId)
-    && p.is_active !== false && p.active !== false);
-  if (!candidates.length) return null;
-
-  const bindings = await repository.list('conversation_channel_bindings', { thread_id: thread.id })
-    .catch(() => []);
-  const participantIds = new Set(candidates.map((p) => String(p.id)));
-  const usable = bindings.filter((b) => participantIds.has(String(b.participant_id))
+function selectBindingForParticipant({ bindings, participant, channel }) {
+  const usable = bindings.filter((b) => String(b.participant_id) === String(participant.id)
     && normalizeChannelName(b.channel) === normalizeChannelName(channel)
     && b.can_send !== false
-    && b.channel_identity_id);
-
+    && b.channel_identity_id
+    && bindingIsLive(b));
   if (!usable.length) return null;
 
   // Deterministic routing, matching the rest of Communications: an explicitly primary binding wins,
-  // otherwise the most recently used. Ambiguity that neither rule settles fails closed.
+  // otherwise the most recently used. Several bindings pointing at the SAME address is not
+  // ambiguity; several distinct addresses that no rule separates is.
   const primary = usable.filter((b) => b.is_primary === true);
-  const ordered = (primary.length ? primary : usable).slice().sort((a, b) => {
-    const at = Date.parse(a.last_used_at || a.updated_at || a.created_at || 0) || 0;
-    const bt = Date.parse(b.last_used_at || b.updated_at || b.created_at || 0) || 0;
-    return bt - at;
-  });
-  if (primary.length > 1) return null;
-  if (!primary.length && ordered.length > 1) {
+  const pool = primary.length ? primary : usable;
+  const ordered = pool.slice().sort((a, b) => bindingTimestamp(b) - bindingTimestamp(a));
+  if (ordered.length > 1) {
     const distinct = new Set(ordered.map((b) => String(b.channel_identity_id)));
-    // Several bindings pointing at the same address is not ambiguity; several addresses is.
-    if (distinct.size > 1) {
-      const [first, second] = ordered;
-      const ft = Date.parse(first.last_used_at || first.updated_at || first.created_at || 0) || 0;
-      const st = Date.parse(second.last_used_at || second.updated_at || second.created_at || 0) || 0;
-      if (ft === st) return null;
+    if (distinct.size > 1 && bindingTimestamp(ordered[0]) === bindingTimestamp(ordered[1])) {
+      return { ambiguous: true };
     }
   }
+  return { binding: ordered[0] };
+}
 
-  const identity = await repository.findOne('channel_identities', { id: ordered[0].channel_identity_id })
-    .catch(() => null);
-  if (!identity) return null;
+function identityUsableForParticipant({ identity, participant, channel }) {
+  if (!identity) return false;
+  if (normalizeChannelName(identity.channel) !== normalizeChannelName(channel)) return false;
+  if (UNUSABLE_CONSENT_STATUSES.has(normalizeChannelName(identity.consent_status))) return false;
   // Never hand back an identity that belongs to somebody else, whatever the binding claimed.
-  if (identity.user_id && String(identity.user_id) !== String(userId)) return null;
-  if (normalizeChannelName(identity.channel) !== normalizeChannelName(channel)) return null;
+  if (identity.user_id && participant.user_id
+    && String(identity.user_id) !== String(participant.user_id)) return false;
+  return true;
+}
+
+async function deliverableIdentityFor({ repository, bindings, participant, channel }) {
+  const selection = selectBindingForParticipant({ bindings, participant, channel });
+  if (!selection || selection.ambiguous) return null;
+  const identity = await repository.findOne('channel_identities', { id: selection.binding.channel_identity_id })
+    .catch(() => null);
+  if (!identityUsableForParticipant({ identity, participant, channel })) return null;
   return identity;
+}
+
+/**
+ * Resolve WHO an admin reply is actually delivered to, on an external channel.
+ *
+ * thread.primary_user_id is only a compatibility projection — canonicalizeMarketplaceInquiry sets it
+ * to the SELLER — so treating it as the delivery recipient meant a Marketplace thread could never
+ * reach the buyer who owns the WhatsApp binding, and every admin reply on such a thread failed
+ * closed. Delivery is therefore resolved from PARTICIPANTS, which is where bindings actually hang.
+ *
+ * Resolution order:
+ *   · an explicitly requested participant, fully re-validated against this thread;
+ *   · else the primary user's participant when it is genuinely deliverable (legacy/simple threads);
+ *   · else the one eligible participant, if there is exactly one;
+ *   · zero → no_recipient (the existing 422); more than one → recipient_ambiguous.
+ *
+ * Ambiguity is never settled by cross-participant recency: sending one customer's reply to another
+ * is worse than not sending.
+ */
+export async function resolveAdminReplyRecipient({
+  repository, thread, channel, requestedParticipantId = null,
+} = {}) {
+  if (!repository || !thread?.id || !channel) return { ok: false, reason: 'no_recipient' };
+  const bindings = await repository.list('conversation_channel_bindings', { thread_id: thread.id })
+    .catch(() => []);
+
+  if (requestedParticipantId) {
+    // Fetched by id, not filtered out of the thread's list, so the thread-ownership check below is
+    // load-bearing rather than incidental.
+    const participant = await repository.findOne('message_participants', { id: requestedParticipantId })
+      .catch(() => null);
+    if (!participant) return { ok: false, reason: 'no_recipient' };
+    if (String(participant.thread_id) !== String(thread.id)) return { ok: false, reason: 'no_recipient' };
+    if (!participantIsAddressable(participant)) return { ok: false, reason: 'no_recipient' };
+    const identity = await deliverableIdentityFor({ repository, bindings, participant, channel });
+    if (!identity) return { ok: false, reason: 'no_recipient' };
+    return { ok: true, participant, identity };
+  }
+
+  const participants = (await repository.list('message_participants', { thread_id: thread.id })
+    .catch(() => []))
+    .filter((p) => String(p.thread_id) === String(thread.id))
+    .filter(participantIsAddressable);
+
+  const eligible = [];
+  for (const participant of participants) {
+    // Sequential on purpose: the identity lookup is per-selected-binding, so this is one round trip
+    // per participant that actually has a candidate binding, not per participant.
+    const identity = await deliverableIdentityFor({ repository, bindings, participant, channel });
+    if (identity) eligible.push({ participant, identity });
+  }
+
+  if (thread.primary_user_id) {
+    const primaryHits = eligible.filter(
+      (hit) => String(hit.participant.user_id) === String(thread.primary_user_id),
+    );
+    // Simple threads keep behaving exactly as before: if the primary user is deliverable, they are
+    // the recipient, even when other participants are also reachable.
+    if (primaryHits.length === 1) return { ok: true, ...primaryHits[0] };
+    if (primaryHits.length > 1) return { ok: false, reason: 'recipient_ambiguous' };
+  }
+
+  if (eligible.length === 1) return { ok: true, ...eligible[0] };
+  if (eligible.length === 0) return { ok: false, reason: 'no_recipient' };
+  return { ok: false, reason: 'recipient_ambiguous' };
 }
 
 function normalizeChannelName(value) {
@@ -493,40 +572,66 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
   });
   let notification = null;
   try {
-    if (!internal && thread.primary_user_id) {
-      const channel = body?.channel || thread.primary_channel || 'in_app';
+    const requestedParticipantId = body?.recipient_participant_id || body?.recipientParticipantId || null;
+    const replyChannel = body?.channel || thread.primary_channel || 'in_app';
+    const isInApp = normalizeChannelName(replyChannel) === 'in_app';
 
-      // in_app is addressed by user id alone. Every other channel is addressed by a provider
-      // address, and queueing without one produced a notification the worker could never send —
-      // it dead-lettered as recipient_missing on every admin reply to a WhatsApp/Telegram thread.
-      const identity = normalizeChannelName(channel) === 'in_app'
-        ? null
-        : await resolvePrimaryUserChannelIdentity({
-          repository, thread, userId: thread.primary_user_id, channel,
-        });
-
-      if (normalizeChannelName(channel) === 'in_app' || identity) {
+    // in_app is addressed by user id alone, so it keeps its existing behaviour unless the caller
+    // explicitly targets a participant. Every other channel is addressed by a provider address, and
+    // queueing without one produced a notification the worker could never send — it dead-lettered
+    // as recipient_missing on every admin reply to a WhatsApp/Telegram thread.
+    if (!internal && isInApp && !requestedParticipantId && thread.primary_user_id) {
+      notification = (await services.notificationService.queueExistingMessage({
+        recipientUserId: thread.primary_user_id,
+        thread,
+        message,
+        channel: replyChannel,
+        notificationType: 'admin_reply',
+        templateKey: 'admin_reply_v1',
+        priority: thread.priority || 'normal',
+        humanApproved: true,
+        dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
+        payload: { thread_id: thread.id, admin_reply: true },
+      })).notification;
+    } else if (!internal && (!isInApp || requestedParticipantId)) {
+      const resolved = await resolveAdminReplyRecipient({
+        repository, thread, channel: replyChannel, requestedParticipantId,
+      });
+      if (resolved.reason === 'recipient_ambiguous') {
+        const err = new Error('Admin reply recipient is ambiguous: more than one participant is deliverable on this channel. Specify recipient_participant_id.');
+        err.statusCode = 422;
+        err.code = 'recipient_ambiguous';
+        throw err;
+      }
+      if (resolved.ok) {
+        const { participant, identity } = resolved;
         notification = (await services.notificationService.queueExistingMessage({
           // Both are kept on purpose: preferences and transactional policy are user-scoped, while
-          // provider delivery is address-scoped.
-          recipientUserId: thread.primary_user_id,
-          ...(identity ? { recipientIdentityId: identity.id, provider: identity.provider || message.provider || null } : {}),
+          // provider delivery is address-scoped. The user id comes from the PARTICIPANT actually
+          // being addressed — never from thread.primary_user_id, which may be somebody else.
+          recipientUserId: participant.user_id || null,
+          recipientIdentityId: identity.id,
+          provider: identity.provider || message.provider || null,
           thread,
           message,
-          channel,
+          channel: replyChannel,
           notificationType: 'admin_reply',
           templateKey: 'admin_reply_v1',
           priority: thread.priority || 'normal',
           humanApproved: true,
-          dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
+          // Keyed on the recipient USER (never the address), now sourced from the addressed
+          // participant. External contacts have no user id, so the participant id stands in — still
+          // not an address, so rotating a customer's number cannot split the dedupe key.
+          dedupeParts: ['admin_reply', thread.id, clientMessageId, participant.user_id || participant.id],
           payload: {
             thread_id: thread.id,
             admin_reply: true,
-            ...(identity ? deliveryPayloadForIdentity(identity) : {}),
+            ...deliveryPayloadForIdentity(identity),
           },
         })).notification;
       }
-    } else if (!internal) {
+    }
+    if (!internal && !notification && !thread.primary_user_id) {
       const identity = await resolveExternalReplyIdentity({ repository, thread });
       if (identity) {
         notification = (await services.notificationService.queueExistingMessage({

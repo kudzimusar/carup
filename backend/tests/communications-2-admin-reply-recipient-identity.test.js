@@ -148,11 +148,15 @@ test('a WhatsApp reply never silently goes out over Telegram', async () => {
 });
 
 // ── 6. MISSING IDENTITY ───────────────────────────────────────────────────────────────────────
+// NOTE: "only another participant is bound" is deliberately NOT in this list any more. It used to
+// fail closed because delivery was pinned to thread.primary_user_id, which is only a compatibility
+// projection — on a Marketplace thread it is the SELLER, so the buyer who owns the WhatsApp binding
+// was unreachable and every such reply 422'd. Delivery is now participant-authoritative; that case
+// is covered as a PASS in communications-2-admin-reply-participant-recipient.test.js.
 test('an external channel with no send-capable identity fails closed with 422', async () => {
   for (const bindings of [
     [],
     [bind('p-primary', 'whatsapp', 'id-wa-primary', { can_send: false })],
-    [bind('p-other', 'whatsapp', 'id-wa-other')],
   ]) {
     const { run, queued } = harness({
       participants: [PRIMARY_PARTICIPANT, OTHER_PARTICIPANT],
