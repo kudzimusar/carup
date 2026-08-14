@@ -148,6 +148,20 @@ function base() {
   return s;
 }
 
+test('the collector is parameterisable so a dependency-only probe reuses it', () => {
+  // The default is the eleven; passing an explicit set lets the public_keys
+  // dependency probe use the IDENTICAL catalog model instead of a second one.
+  assert.match(src, /collectSchemaShape\(client, targets = TARGET_TABLES\)/);
+  assert.match(src, /assertComplete\(s, targets = TARGET_TABLES\)/);
+  const s = base();
+  s.TABLE_IDENTITY = [{ table_name: 'public_keys', exists: true }];
+  s.COLUMNS = [{ table_name: 'public_keys', column_name: 'id' }];
+  assert.equal(assertComplete(s, ['public_keys']).ok, true, 'a single-target run is valid');
+  // and scope is still enforced against the SUPPLIED set
+  s.COLUMNS.push({ table_name: 'system_failures', column_name: 'x' });
+  assert.match(assertComplete(s, ['public_keys']).reason, /out-of-scope relation/);
+});
+
 test('all ten shape sections are required', () => {
   assert.deepEqual([...REQUIRED_SECTIONS].sort(), [
     'COLUMNS', 'CONSTRAINTS', 'FOREIGN_KEYS', 'INDEXES', 'POLICIES',
@@ -330,7 +344,7 @@ test('a PRESENT table with no columns FAILS — a shape cannot be reconstructed 
 test('incomplete target coverage fails', () => {
   const s = base();
   s.TABLE_IDENTITY = s.TABLE_IDENTITY.slice(0, 5);
-  assert.match(assertComplete(s).reason, /all eleven targets/);
+  assert.match(assertComplete(s).reason, /did not cover all 11 target/);
 });
 
 test('an ABSENT table is reported, not silently dropped', () => {
@@ -339,4 +353,46 @@ test('an ABSENT table is reported, not silently dropped', () => {
   s.COLUMNS = s.COLUMNS.filter((c) => c.table_name !== s.TABLE_IDENTITY[0].table_name);
   assert.equal(assertComplete(s).ok, true, 'absent tables are a legitimate finding');
   assert.match(src, /absent_names/, 'and they must be named in the totals');
+});
+
+/**
+ * The eleven-table receipt is what run 31770747669 already certified, so it is pinned
+ * here independently of the wrapper's suite: parameterising the collector for a
+ * one-relation caller must not have moved this probe's own numbers by one.
+ */
+test('the DEFAULT scope still reports eleven requested targets', async () => {
+  const calls = [];
+  const stub = {
+    async query(sql, params) {
+      calls.push(params);
+      if (/to_regclass/.test(sql)) {
+        return { rows: TARGET_TABLES.map((t) => ({ table_name: t, exists: true, owner: 'postgres', rls_enabled: false, rls_forced: false })) };
+      }
+      return { rows: [] };
+    },
+  };
+  const s = await collectSchemaShape(stub); // no targets argument
+  assert.equal(TARGET_TABLES.length, 11);
+  assert.equal(s.TOTALS.targets_requested, 11);
+  assert.equal(s.TOTALS.targets_present, 11);
+  assert.equal(s.TOTALS.targets_absent, 0);
+  assert.deepEqual(s.TOTALS.absent_names, []);
+  // the default really reached the catalog queries as the eleven-element array
+  for (const p of calls) if (p) assert.deepEqual(p[0], TARGET_TABLES);
+});
+
+test('under the DEFAULT scope an absent target is still named', async () => {
+  const stub = {
+    async query(sql) {
+      if (/to_regclass/.test(sql)) {
+        return { rows: TARGET_TABLES.map((t, i) => ({ table_name: t, exists: i > 1, owner: i > 1 ? 'postgres' : null, rls_enabled: false, rls_forced: false })) };
+      }
+      return { rows: [] };
+    },
+  };
+  const s = await collectSchemaShape(stub);
+  assert.equal(s.TOTALS.targets_requested, 11);
+  assert.equal(s.TOTALS.targets_present, 9);
+  assert.equal(s.TOTALS.targets_absent, 2);
+  assert.deepEqual(s.TOTALS.absent_names, TARGET_TABLES.slice(0, 2));
 });
