@@ -242,6 +242,121 @@ await breakAndCheck('cutover_seven_service_role_lost',
   `GRANT UPDATE ON TABLE public.vehicle_evidence TO service_role;`,
   /cutover vehicle_evidence: service_role is/);
 
+// ═══════════════════════ 2b. THE SIX REVIEW FINDINGS — each break must be caught
+/**
+ * Six defects found in review, each of which let a genuinely broken production state
+ * certify as clean. Every one gets a break here, and every one of these cases fails if
+ * its check is removed from evaluate() — proven by the mutation matrix in the PR.
+ */
+
+// F1 — a cutover-seven table with RLS silently disabled. Grants still look right.
+await breakAndCheck('F1_cutover_seven_rls_disabled',
+  `ALTER TABLE public.trust_score_history DISABLE ROW LEVEL SECURITY;`,
+  `ALTER TABLE public.trust_score_history ENABLE ROW LEVEL SECURITY;`,
+  /cutover trust_score_history: RLS is not enabled/);
+
+// F2 — a cutover-seven target missing entirely. The old loop simply skipped it.
+{
+  const before = evaluate(await collectCertification(db));
+  eq('F2.baseline_clean', before.ok, true);
+  await db.exec(`ALTER TABLE public.mechanic_parts RENAME TO mechanic_parts_moved;`);
+  const v = evaluate(await collectCertification(db));
+  await db.exec(`ALTER TABLE public.mechanic_parts_moved RENAME TO mechanic_parts;`);
+  const back = evaluate(await collectCertification(db));
+  eq('caught.F2_cutover_seven_target_absent', !v.ok, true);
+  eq('caught.F2_cutover_seven_target_absent.named',
+    v.problems.some((p) => /cutover-seven: 1 target\(s\) absent: mechanic_parts/.test(p))
+    && v.problems.some((p) => /cutover-seven: 6\/7 targets present/.test(p)), true);
+  eq('caught.F2_cutover_seven_target_absent.recovers', back.ok, true);
+}
+
+// F3 — a grant to PUBLIC on the view. Reaches anon regardless of the per-role grants,
+//      and an anon/authenticated-only check cannot see it.
+await breakAndCheck('F3_view_granted_to_PUBLIC',
+  `GRANT SELECT ON TABLE public.evidence_sources_public TO PUBLIC;`,
+  `REVOKE SELECT ON TABLE public.evidence_sources_public FROM PUBLIC;`,
+  /evidence_sources_public: unexpected grantee\(s\) PUBLIC/);
+
+// F3b — an unrelated role granted on the view
+{
+  await db.exec(`CREATE ROLE interloper NOLOGIN;
+                 GRANT SELECT ON TABLE public.evidence_sources_public TO interloper;`);
+  const v = evaluate(await collectCertification(db));
+  await db.exec(`REVOKE SELECT ON TABLE public.evidence_sources_public FROM interloper; DROP ROLE interloper;`);
+  const back = evaluate(await collectCertification(db));
+  eq('caught.F3b_view_unexpected_role', !v.ok, true);
+  eq('caught.F3b_view_unexpected_role.named',
+    v.problems.some((p) => /unexpected grantee\(s\) interloper/.test(p)), true);
+  eq('caught.F3b_view_unexpected_role.recovers', back.ok, true);
+}
+
+// F3c — service_role LOSING its read of the view is a defect too, not just excess
+await breakAndCheck('F3c_view_service_role_lost_select',
+  `REVOKE SELECT ON TABLE public.evidence_sources_public FROM service_role;`,
+  `GRANT SELECT ON TABLE public.evidence_sources_public TO service_role;`,
+  /evidence_sources_public: service_role lost SELECT/);
+
+// F4 — an ELEVENTH column reaching the projection. "contains the ten" would accept it.
+//      The view must be dropped and rebuilt on both legs: CREATE OR REPLACE VIEW cannot
+//      remove a column, and dropping a view discards its reloptions and its whole ACL,
+//      so security_invoker and the grants are restored explicitly.
+{
+  const rebuildView = (columns) => `
+    DROP VIEW public.evidence_sources_public;
+    CREATE VIEW public.evidence_sources_public AS
+      SELECT ${columns} FROM public.evidence_sources WHERE active = true;
+    ALTER VIEW public.evidence_sources_public SET (security_invoker = true);
+    GRANT SELECT ON TABLE public.evidence_sources_public TO anon, authenticated;
+    GRANT ALL    ON TABLE public.evidence_sources_public TO service_role;`;
+  const TEN = VIEW_PROJECTED_COLUMNS.join(', ');
+
+  await db.exec(`ALTER TABLE public.evidence_sources ADD COLUMN internal_note text;`);
+  await db.exec(rebuildView(`${TEN}, internal_note`));
+  const v = evaluate(await collectCertification(db));
+
+  await db.exec(rebuildView(TEN));
+  await db.exec(`ALTER TABLE public.evidence_sources DROP COLUMN internal_note;`);
+  const back = evaluate(await collectCertification(db));
+
+  eq('caught.F4_view_projects_eleventh_column', !v.ok, true);
+  eq('caught.F4_view_projects_eleventh_column.named',
+    v.problems.some((p) => /view projects UNEXPECTED column\(s\): internal_note/.test(p)), true);
+  eq('caught.F4_view_projects_eleventh_column.recovers', back.ok, true);
+  if (!back.ok) fail(`  F4 restore left: ${JSON.stringify(back.problems).slice(0, 200)}`);
+}
+
+// F5 — the base read policy widened to PUBLIC (no TO clause) or to an extra role
+await breakAndCheck('F5_base_policy_roles_public',
+  `DROP POLICY evidence_sources_public_read ON public.evidence_sources;
+   CREATE POLICY evidence_sources_public_read ON public.evidence_sources
+     FOR SELECT USING (active = true);`,
+  `DROP POLICY evidence_sources_public_read ON public.evidence_sources;
+   CREATE POLICY evidence_sources_public_read ON public.evidence_sources
+     FOR SELECT TO anon, authenticated USING (active = true);`,
+  /base policy roles are \[PUBLIC\], expected exactly \[anon,authenticated\]/);
+
+await breakAndCheck('F5b_base_policy_roles_extra',
+  `DROP POLICY evidence_sources_public_read ON public.evidence_sources;
+   CREATE POLICY evidence_sources_public_read ON public.evidence_sources
+     FOR SELECT TO anon, authenticated, service_role USING (active = true);`,
+  `DROP POLICY evidence_sources_public_read ON public.evidence_sources;
+   CREATE POLICY evidence_sources_public_read ON public.evidence_sources
+     FOR SELECT TO anon, authenticated USING (active = true);`,
+  /base policy roles are \[anon,authenticated,service_role\]/);
+
+// F6 — a projected column losing its base column-level grant. Because the view is
+//      security_invoker, this breaks the read for anon at RUNTIME while every
+//      "nothing is over-exposed" check still passes.
+await breakAndCheck('F6_projected_column_grant_lost',
+  `REVOKE SELECT (display_name) ON TABLE public.evidence_sources FROM anon;`,
+  `GRANT SELECT (display_name) ON TABLE public.evidence_sources TO anon;`,
+  /projected column\(s\) not SELECT-able by both API roles: display_name\(authenticated\)/);
+
+await breakAndCheck('F6b_projected_column_grant_lost_both',
+  `REVOKE SELECT (country) ON TABLE public.evidence_sources FROM anon, authenticated;`,
+  `GRANT SELECT (country) ON TABLE public.evidence_sources TO anon, authenticated;`,
+  /projected column\(s\) not SELECT-able by both API roles: country\(none\)/);
+
 // ═══════════════════════════════════════════ 3. THE CERTIFIER READS NO ROWS
 // Proven by construction: every statement targets pg_catalog or information_schema. The
 // source contract test asserts that; here we prove the collected receipt carries no row
@@ -270,6 +385,6 @@ if (failures.length) {
   failures.forEach((f) => console.error('  ✗ ' + f));
   process.exit(1);
 }
-console.log('PASS — the correct post-cutover state certifies; seventeen distinct breaks are each');
-console.log('       caught and named; and no application row or key value reaches the receipt.');
+console.log('PASS — the correct post-cutover state certifies; 27 distinct breaks are each caught');
+console.log('       and named; and no application row or key value reaches the receipt.');
 process.exit(0);

@@ -13,7 +13,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import {
-  ALL_TABLE_PRIVILEGES, FOURTEEN, CUTOVER_SEVEN, KEEPS_PUBLIC_READ,
+  ALL_TABLE_PRIVILEGES, FOURTEEN, CUTOVER_SEVEN, KEEPS_PUBLIC_READ, VIEW_ALLOWED_GRANTEES,
   PUBLIC_KEYS_SERVICE_ROLE_EXPECTED, PUBLIC_KEYS_SERVICE_ROLE_ABSENT,
   VIEW_PROJECTED_COLUMNS, VIEW_HIDDEN_COLUMNS,
   PRODUCTION_PROJECT_REF_SHA256, STAGING_PROJECT_REF_SHA256, refHash,
@@ -126,15 +126,24 @@ test('evaluate() requires the taxonomy exception to be exactly SELECT', () => {
     },
     VIEW: {
       relkind: 'v', security_invoker: true, reloptions: '{security_invoker=true}',
+      owner: 'db_owner',
       acl: [{ grantee: 'anon', privilege_type: 'SELECT', is_grantable: false },
-        { grantee: 'authenticated', privilege_type: 'SELECT', is_grantable: false }],
+        { grantee: 'authenticated', privilege_type: 'SELECT', is_grantable: false },
+        { grantee: 'service_role', privilege_type: 'SELECT', is_grantable: false },
+        { grantee: 'db_owner', privilege_type: 'SELECT', is_grantable: false }],
     },
     VIEW_COLUMNS: [...VIEW_PROJECTED_COLUMNS],
     EVIDENCE_SOURCES: {
       rls: true,
-      policies: [{ policy: 'evidence_sources_public_read', command: 'SELECT', using: '(active = true)' }],
+      policies: [{
+        policy: 'evidence_sources_public_read', command: 'SELECT',
+        roles: ['anon', 'authenticated'], using: '(active = true)',
+      }],
     },
-    EVIDENCE_SOURCES_COLUMN_GRANTS: VIEW_HIDDEN_COLUMNS.map((c) => ({ column_name: c, select_granted_to: 'none' })),
+    EVIDENCE_SOURCES_COLUMN_GRANTS: [
+      ...VIEW_PROJECTED_COLUMNS.map((c) => ({ column_name: c, select_granted_to: 'anon,authenticated' })),
+      ...VIEW_HIDDEN_COLUMNS.map((c) => ({ column_name: c, select_granted_to: 'none' })),
+    ],
     CUTOVER_SEVEN: Object.entries(CUTOVER_SEVEN).map(([t, e]) => ({
       table_name: t, rls: true, policies: 0,
       anon: e, authenticated: e, service_role: 'DELETE,INSERT,SELECT,UPDATE',
@@ -167,6 +176,95 @@ test('evaluate() requires the taxonomy exception to be exactly SELECT', () => {
   const h = JSON.parse(JSON.stringify(base));
   h.VIEW_COLUMNS.push('contact_reference');
   assert.equal(evaluate(h).ok, false);
+
+  // ── the six review findings, at the pure-function level ──
+  const bad = (mutate) => { const c = JSON.parse(JSON.stringify(base)); mutate(c); return evaluate(c); };
+
+  // F1 cutover-seven RLS off
+  const f1 = bad((c) => { c.CUTOVER_SEVEN[0].rls = false; });
+  assert.equal(f1.ok, false);
+  assert.ok(f1.problems.some((p) => /RLS is not enabled/.test(p)));
+
+  // F2 a cutover-seven target missing
+  const f2 = bad((c) => { c.CUTOVER_SEVEN.pop(); });
+  assert.equal(f2.ok, false);
+  assert.ok(f2.problems.some((p) => /target\(s\) absent/.test(p)));
+  assert.ok(f2.problems.some((p) => /6\/7 targets present/.test(p)));
+
+  // F3 PUBLIC on the view, an unexpected role, and service_role losing SELECT
+  const f3 = bad((c) => c.VIEW.acl.push({ grantee: 'PUBLIC', privilege_type: 'SELECT', is_grantable: false }));
+  assert.equal(f3.ok, false);
+  assert.ok(f3.problems.some((p) => /unexpected grantee\(s\) PUBLIC/.test(p)));
+  const f3b = bad((c) => c.VIEW.acl.push({ grantee: 'interloper', privilege_type: 'SELECT', is_grantable: false }));
+  assert.equal(f3b.ok, false);
+  const f3c = bad((c) => { c.VIEW.acl = c.VIEW.acl.filter((a) => a.grantee !== 'service_role'); });
+  assert.equal(f3c.ok, false);
+  assert.ok(f3c.problems.some((p) => /service_role lost SELECT/.test(p)));
+  // the OWNER, whatever it is called, must NOT be flagged
+  const ownerOk = bad((c) => { c.VIEW.owner = 'some_other_owner';
+    c.VIEW.acl = c.VIEW.acl.map((a) => (a.grantee === 'db_owner' ? { ...a, grantee: 'some_other_owner' } : a)); });
+  assert.equal(ownerOk.ok, true, `owner must be derived: ${JSON.stringify(ownerOk.problems)}`);
+
+  // F4 an eleventh projected column
+  const f4 = bad((c) => c.VIEW_COLUMNS.push('internal_note'));
+  assert.equal(f4.ok, false);
+  assert.ok(f4.problems.some((p) => /UNEXPECTED column\(s\): internal_note/.test(p)));
+
+  // F5 base policy roles widened, and narrowed
+  const f5 = bad((c) => { c.EVIDENCE_SOURCES.policies[0].roles = ['PUBLIC']; });
+  assert.equal(f5.ok, false);
+  assert.ok(f5.problems.some((p) => /roles are \[PUBLIC\]/.test(p)));
+  const f5b = bad((c) => { c.EVIDENCE_SOURCES.policies[0].roles = ['anon']; });
+  assert.equal(f5b.ok, false);
+
+  // F6 a projected base column losing its grant, for one role and for both
+  const f6 = bad((c) => { c.EVIDENCE_SOURCES_COLUMN_GRANTS
+    .find((x) => x.column_name === 'display_name').select_granted_to = 'authenticated'; });
+  assert.equal(f6.ok, false);
+  assert.ok(f6.problems.some((p) => /display_name\(authenticated\)/.test(p)));
+  const f6b = bad((c) => { c.EVIDENCE_SOURCES_COLUMN_GRANTS
+    .find((x) => x.column_name === 'country').select_granted_to = 'none'; });
+  assert.equal(f6b.ok, false);
+});
+
+test('the six review findings are each asserted, not merely collected', () => {
+  const ev = src.slice(src.indexOf('export function evaluate'));
+
+  // F1 — cutover-seven RLS must be ASSERTED, not just gathered
+  assert.match(ev, /cutover \$\{t\.table_name\}: RLS is not enabled/);
+  // F2 — 7/7 presence, both as a named-absentee list and as a count
+  assert.match(ev, /cutover-seven: \$\{missingCutover\.length\} target\(s\) absent/);
+  assert.match(ev, /m\.cutover_seven_present !== Object\.keys\(CUTOVER_SEVEN\)\.length/);
+  assert.match(ev, /m\.cutover_seven_rls_on !== Object\.keys\(CUTOVER_SEVEN\)\.length/);
+  // F3 — the WHOLE view ACL, including PUBLIC and any other grantee, plus service_role
+  assert.match(ev, /unexpected grantee\(s\)/);
+  assert.match(ev, /allowedGrantees/);
+  assert.match(ev, /service_role lost SELECT/);
+  // F4 — projection must EQUAL the allowlist
+  assert.match(ev, /extraProjected/);
+  assert.match(ev, /view projects UNEXPECTED column\(s\)/);
+  assert.match(ev, /m\.view_projection_exact/);
+  // F5 — base policy roles exactly anon + authenticated
+  assert.match(ev, /JSON\.stringify\(roles\) !== JSON\.stringify\(\['anon', 'authenticated'\]\)/);
+  // F6 — every projected base column SELECT-able by BOTH API roles
+  assert.match(ev, /underGranted/);
+  assert.match(ev, /not SELECT-able by both API roles/);
+});
+
+test('the view owner is derived, never hardcoded', () => {
+  // Hardcoding an owner name would false-fail wherever the owner differs, and would
+  // silently accept a different role that happened to share the name.
+  assert.deepEqual([...VIEW_ALLOWED_GRANTEES], ['anon', 'authenticated', 'service_role']);
+  assert.ok(!VIEW_ALLOWED_GRANTEES.includes('postgres'));
+  assert.match(src, /\[\.\.\.VIEW_ALLOWED_GRANTEES, v\.owner\]/);
+  assert.match(src, /pg_get_userbyid\(c\.relowner\) as owner/);
+});
+
+test('the PUBLIC pseudo-role is rendered by name in both ACL and policy roles', () => {
+  // aclexplode reports grantee 0, and a policy with no TO clause carries polroles {0}.
+  // Both must surface as PUBLIC — "unknown (OID=0)" tells a reviewer nothing.
+  assert.match(src, /when a\.grantee = 0 then 'PUBLIC'/);
+  assert.match(src, /when r = 0 then 'PUBLIC'/);
 });
 
 // ─────────────────────────────────────────────────────── identity and secrets

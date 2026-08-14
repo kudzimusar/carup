@@ -65,6 +65,18 @@ export const VIEW_PROJECTED_COLUMNS = Object.freeze([
 /** The two the view exists to hide. */
 export const VIEW_HIDDEN_COLUMNS = Object.freeze(['contact_reference', 'credential_reference']);
 
+/**
+ * The non-owner grantees allowed on evidence_sources_public. The OWNER is added at
+ * evaluation time from the collected value rather than hardcoded, because the owning
+ * role differs between environments and pinning a name would both false-fail elsewhere
+ * and silently accept a different role that happened to share the name.
+ *
+ * Anything outside this set — most importantly PUBLIC, which aclexplode reports for the
+ * pseudo-grantee 0 — is a finding: a grant to PUBLIC reaches every role including anon
+ * no matter what the per-role grants say.
+ */
+export const VIEW_ALLOWED_GRANTEES = Object.freeze(['anon', 'authenticated', 'service_role']);
+
 /** Refs pinned by hash: no production identifier in an executable path. */
 export const PRODUCTION_PROJECT_REF_SHA256 = '642e27dacd0666b76e6cd3cdac900481ea8aae3be56bf2971b153a0deeb2ac1b';
 export const STAGING_PROJECT_REF_SHA256 = '96fafb02439f5a4bbef8ef21a674e3a9609cece81751f114c4e12f9e675ae3ce';
@@ -181,7 +193,11 @@ export async function collectCertification(client) {
                 'policy', p.polname,
                 'command', case p.polcmd when 'r' then 'SELECT' when 'a' then 'INSERT'
                                          when 'w' then 'UPDATE' when 'd' then 'DELETE' else 'ALL' end,
-                'roles', (select array_agg(pg_get_userbyid(r) order by r) from unnest(p.polroles) r),
+                -- OID 0 is the PUBLIC pseudo-role, which is what a policy with no TO
+                -- clause carries. pg_get_userbyid(0) renders it as "unknown (OID=0)";
+                -- naming it PUBLIC is both accurate and the thing a reviewer needs to see.
+                'roles', (select array_agg(case when r = 0 then 'PUBLIC' else pg_get_userbyid(r) end order by r)
+                            from unnest(p.polroles) r),
                 'using', pg_get_expr(p.polqual, p.polrelid)) order by p.polname)
                from pg_policy p where p.polrelid = c.oid) as policies
        from pg_class c join pg_namespace n on n.oid=c.relnamespace
@@ -295,7 +311,23 @@ export function evaluate(s) {
   else {
     if (v.relkind !== 'v') problems.push(`evidence_sources_public relkind is ${v.relkind}, expected v`);
     if (v.security_invoker !== true) problems.push('evidence_sources_public: security_invoker is not true');
-    const apiGrants = (v.acl || []).filter((a) => ['anon', 'authenticated'].includes(a.grantee));
+
+    const acl = v.acl || [];
+    m.view_acl = acl.map((a) => `${a.grantee}:${a.privilege_type}${a.is_grantable ? '*' : ''}`).sort();
+
+    // The WHOLE ACL is validated, not just the two API roles. A grant to PUBLIC reaches
+    // every role — including anon — no matter what the per-role grants say, so an
+    // anon-and-authenticated-only check would miss the most dangerous case entirely.
+    const allowedGrantees = [...VIEW_ALLOWED_GRANTEES, v.owner].filter(Boolean);
+    m.view_owner = v.owner;
+    const unexpected = [...new Set(acl.map((a) => a.grantee))]
+      .filter((g) => !allowedGrantees.includes(g));
+    m.view_unexpected_grantees = unexpected;
+    if (unexpected.length) {
+      problems.push(`evidence_sources_public: unexpected grantee(s) ${unexpected.join(',')}`);
+    }
+
+    const apiGrants = acl.filter((a) => ['anon', 'authenticated'].includes(a.grantee));
     m.view_api_grants = apiGrants.map((a) => `${a.grantee}:${a.privilege_type}`).sort();
     const nonSelect = apiGrants.filter((a) => a.privilege_type !== 'SELECT');
     if (nonSelect.length) {
@@ -306,14 +338,30 @@ export function evaluate(s) {
         problems.push(`evidence_sources_public: ${role} lost SELECT`);
       }
     }
-    if ((v.acl || []).some((a) => a.is_grantable)) problems.push('evidence_sources_public: a grant is grantable');
+
+    // service_role reads this view through the backend. Losing it is as much a defect as
+    // an API role gaining it, and a check that only looks for excess would miss it.
+    const svcView = acl.filter((a) => a.grantee === 'service_role').map((a) => a.privilege_type).sort();
+    m.view_service_role_grants = svcView;
+    if (!svcView.includes('SELECT')) {
+      problems.push('evidence_sources_public: service_role lost SELECT — the backend reads this view');
+    }
+
+    if (acl.some((a) => a.is_grantable)) problems.push('evidence_sources_public: a grant is grantable');
   }
 
+  // The projection must EQUAL the allowlist. "Contains the ten" would accept an
+  // eleventh column added to the base and picked up by a SELECT *, which is exactly how
+  // a hidden column would arrive here unnoticed.
   m.view_columns = s.VIEW_COLUMNS;
-  const missingProjected = VIEW_PROJECTED_COLUMNS.filter((c) => !(s.VIEW_COLUMNS || []).includes(c));
-  const leakedHidden = VIEW_HIDDEN_COLUMNS.filter((c) => (s.VIEW_COLUMNS || []).includes(c));
+  const projected = s.VIEW_COLUMNS || [];
+  const missingProjected = VIEW_PROJECTED_COLUMNS.filter((c) => !projected.includes(c));
+  const extraProjected = projected.filter((c) => !VIEW_PROJECTED_COLUMNS.includes(c));
+  const leakedHidden = VIEW_HIDDEN_COLUMNS.filter((c) => projected.includes(c));
   if (missingProjected.length) problems.push(`view is missing projected column(s): ${missingProjected.join(',')}`);
+  if (extraProjected.length) problems.push(`view projects UNEXPECTED column(s): ${extraProjected.join(',')}`);
   if (leakedHidden.length) problems.push(`view PROJECTS hidden column(s): ${leakedHidden.join(',')}`);
+  m.view_projection_exact = missingProjected.length === 0 && extraProjected.length === 0;
   m.view_hidden_columns_absent = leakedHidden.length === 0;
 
   const es = s.EVIDENCE_SOURCES;
@@ -330,11 +378,18 @@ export function evaluate(s) {
         problems.push(`evidence_sources: base policy USING is ${readPolicy.using}, expected active = true`);
       }
       if (readPolicy.command !== 'SELECT') problems.push('evidence_sources: base policy is not SELECT-only');
+      // A policy with no TO clause applies to PUBLIC, and one naming an extra role widens
+      // the read beyond the two the design intends. Exact set membership, both ways.
+      const roles = [...(readPolicy.roles || [])].sort();
+      m.evidence_sources_base_policy_roles = roles;
+      if (JSON.stringify(roles) !== JSON.stringify(['anon', 'authenticated'])) {
+        problems.push(`evidence_sources: base policy roles are [${roles.join(',')}], expected exactly [anon,authenticated]`);
+      }
     }
   }
 
-  const hidden = (s.EVIDENCE_SOURCES_COLUMN_GRANTS || [])
-    .filter((c) => VIEW_HIDDEN_COLUMNS.includes(c.column_name));
+  const grants = s.EVIDENCE_SOURCES_COLUMN_GRANTS || [];
+  const hidden = grants.filter((c) => VIEW_HIDDEN_COLUMNS.includes(c.column_name));
   m.evidence_sources_hidden_column_grants = hidden;
   for (const c of hidden) {
     if (c.select_granted_to !== 'none') {
@@ -342,10 +397,38 @@ export function evaluate(s) {
     }
   }
 
+  // The other half of the same remedy. Because the view is security_invoker, its reads
+  // are evaluated AS THE CALLER against the base table — so a projected column that lost
+  // its column-level grant makes the view fail for anon at runtime while every
+  // "nothing is over-exposed" check still passes. Under-granting is a defect too.
+  const byColumn = new Map(grants.map((c) => [c.column_name, c.select_granted_to]));
+  const underGranted = [];
+  for (const col of VIEW_PROJECTED_COLUMNS) {
+    const granted = byColumn.get(col);
+    if (granted === undefined) { underGranted.push(`${col}(absent)`); continue; }
+    if (granted !== 'anon,authenticated') underGranted.push(`${col}(${granted})`);
+  }
+  m.evidence_sources_projected_column_grants_complete = underGranted.length === 0;
+  if (underGranted.length) {
+    problems.push(`evidence_sources: projected column(s) not SELECT-able by both API roles: ${underGranted.join(', ')}`);
+  }
+
   // ── cutover-seven
   let reopened = 0; let lost = 0;
+  const seen = new Set((s.CUTOVER_SEVEN || []).map((t) => t.table_name));
+  const missingCutover = Object.keys(CUTOVER_SEVEN).filter((t) => !seen.has(t));
+  if (missingCutover.length) {
+    problems.push(`cutover-seven: ${missingCutover.length} target(s) absent: ${missingCutover.join(',')}`);
+  }
   for (const t of s.CUTOVER_SEVEN || []) {
     const expected = CUTOVER_SEVEN[t.table_name];
+    // Every one of the seven was hardened WITH RLS by the publication-gate cutover.
+    // A silently disabled RLS leaves the grants looking correct while the row-level
+    // control is gone, so it is asserted rather than merely collected.
+    if (t.rls !== true) {
+      reopened += 1;
+      problems.push(`cutover ${t.table_name}: RLS is not enabled`);
+    }
     for (const role of ['anon', 'authenticated']) {
       const held = t[role] === 'none' ? [] : t[role].split(',');
       const allowed = expected === 'none' ? [] : expected.split(',');
@@ -360,8 +443,15 @@ export function evaluate(s) {
     }
   }
   m.cutover_seven_present = (s.CUTOVER_SEVEN || []).length;
+  m.cutover_seven_rls_on = (s.CUTOVER_SEVEN || []).filter((t) => t.rls).length;
   m.cutover_seven_api_reopened = reopened;
   m.cutover_seven_service_role_lost = lost;
+  if (m.cutover_seven_present !== Object.keys(CUTOVER_SEVEN).length) {
+    problems.push(`cutover-seven: ${m.cutover_seven_present}/${Object.keys(CUTOVER_SEVEN).length} targets present`);
+  }
+  if (m.cutover_seven_rls_on !== Object.keys(CUTOVER_SEVEN).length) {
+    problems.push(`cutover-seven: RLS enabled on only ${m.cutover_seven_rls_on}/${Object.keys(CUTOVER_SEVEN).length}`);
+  }
 
   return { ok: problems.length === 0, metrics: m, problems };
 }
