@@ -53,13 +53,20 @@ test('it sorts BEFORE #155, matching the cutover order', () => {
 test('exactly ONE relation is named in executable SQL', () => {
   const named = [...CODE.matchAll(/\bpublic\.([a-z_]+)/g)].map((m) => m[1]);
   const distinct = [...new Set(named)].sort();
-  // Only two relations are named with a schema qualifier: public_keys (the target) and
-  // users (named once, as the referenced side of the FK assertion).
-  // signature_verification_logs is referenced by CONSTRAINT NAME only, never as a
-  // relation — so the migration cannot alter it even accidentally.
-  assert.deepEqual(distinct, ['public_keys', 'users']);
-  assert.match(CODE, /signature_verification_logs_public_key_id_fkey/);
-  assert.doesNotMatch(CODE, /public\.signature_verification_logs/);
+  // Three relations are named with a schema qualifier: public_keys (the target) and
+  // users + signature_verification_logs, which appear ONLY as regclass literals inside
+  // the FK endpoint assertions. Naming signature_verification_logs explicitly is
+  // deliberate and required — pinning conrelid is what stops a same-named foreign key on
+  // another relation from satisfying the incoming check.
+  assert.deepEqual(distinct, ['public_keys', 'signature_verification_logs', 'users']);
+  // ...and neither may appear OUTSIDE the constraint precondition block, where they are
+  // only ever a regclass literal or part of an expected-signature string.
+  const preconditionBlock = CODE.slice(CODE.indexOf('$pk_constraints$'), CODE.lastIndexOf('$pk_constraints$'));
+  const outside = CODE.replace(preconditionBlock, '');
+  for (const rel of ['users', 'signature_verification_logs']) {
+    assert.ok(!outside.includes(`public.${rel}`),
+      `public.${rel} may only be named inside the constraint precondition`);
+  }
   for (const stmt of CODE.split(';')) {
     if (/^\s*(ALTER TABLE|REVOKE|GRANT)\b/i.test(stmt)) {
       assert.match(stmt, /public\.public_keys/, `privilege statement must target public_keys only: ${stmt.trim().slice(0, 80)}`);
@@ -179,14 +186,50 @@ test('the shape assertion is byte-derived from the production receipt', () => {
   assert.equal(RECEIPT.COLUMNS.find((c) => c.column_name === 'private_key_pem').ordinal_position, 4);
 });
 
-test('both cascades are asserted by name and by on-delete action', () => {
+test('both cascades are asserted as COMPLETE ENDPOINT SIGNATURES', () => {
   const block = CODE.slice(CODE.indexOf('$pk_constraints$'));
-  assert.match(block, /public_keys_user_id_fkey/);
-  assert.match(block, /signature_verification_logs_public_key_id_fkey/);
-  assert.equal((block.match(/confdeltype = 'c'/g) || []).length, 2,
-    'both foreign keys must be asserted as ON DELETE CASCADE');
+
+  // The exact signatures, derived from the production receipts.
+  assert.match(block,
+    /'public\.public_keys\(user_id\) -> public\.users\(id\) ON DELETE c ON UPDATE a MATCH s'/);
+  assert.match(block,
+    /'public\.signature_verification_logs\(public_key_id\) -> public\.public_keys\(id\) ON DELETE c ON UPDATE a MATCH s'/);
+
+  // Endpoint COLUMNS must be resolved from the catalog, not inferred from the name.
+  // Each FK unnests conkey and confkey once, and joins each to pg_attribute.
+  assert.equal((block.match(/unnest\(c\.conkey\)/g) || []).length, 2, 'both FKs must unnest conkey');
+  assert.equal((block.match(/unnest\(c\.confkey\)/g) || []).length, 2, 'both FKs must unnest confkey');
+  assert.equal((block.match(/JOIN pg_attribute a/g) || []).length, 4,
+    'conkey and confkey must each be joined to pg_attribute, for both FKs');
+
+  // conrelid pinned on BOTH — this is what stops a same-named FK on another relation.
+  assert.match(block, /c\.conrelid = 'public\.public_keys'::regclass/);
+  assert.match(block, /c\.conrelid = 'public\.signature_verification_logs'::regclass/);
+  assert.match(block, /c\.confrelid = 'public\.public_keys'::regclass/);
+
+  // arity pinned, so a multi-column key with a matching first column is refused
+  assert.equal((block.match(/array_length\(c\.conkey, 1\) = 1/g) || []).length, 2);
+  assert.equal((block.match(/array_length\(c\.confkey, 1\) = 1/g) || []).length, 2);
+
   assert.match(block, /public_keys_pkey/);
   assert.match(block, /public_keys_status_check/);
+});
+
+test('the asserted FK signatures equal the measured production receipts', () => {
+  const block = CODE.slice(CODE.indexOf('$pk_constraints$'));
+  const ELEVEN = JSON.parse(fs.readFileSync(
+    path.join(ROOT, 'database/parity/receipts/production-eleven-run31770747669.json'), 'utf8'));
+  const sig = (f) => `public.${f.table_name}(${f.columns.join(',')}) -> `
+    + `${f.referenced_schema}.${f.referenced_table}(${f.referenced_columns.join(',')})`
+    + ` ON DELETE ${f.on_delete} ON UPDATE ${f.on_update} MATCH ${f.match_type}`;
+
+  const outgoing = RECEIPT.FOREIGN_KEYS.find((f) => f.constraint_name === 'public_keys_user_id_fkey');
+  const incoming = ELEVEN.FOREIGN_KEYS.find((f) => f.constraint_name === 'signature_verification_logs_public_key_id_fkey');
+  assert.ok(outgoing && incoming, 'both measured foreign keys must be present in the receipts');
+
+  // Every element of each signature is the measured value, not a guess.
+  assert.ok(block.includes(`'${sig(outgoing)}'`), `migration must assert: ${sig(outgoing)}`);
+  assert.ok(block.includes(`'${sig(incoming)}'`), `migration must assert: ${sig(incoming)}`);
 });
 
 test('a postcondition proves the end state before commit', () => {
