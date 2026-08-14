@@ -94,8 +94,34 @@ jobs:
       #
       # It is listed explicitly rather than globbed because it must never be silently
       # dropped, and it exits non-zero on any failure.
-      - name: Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)
+      - name: 'Issue #101 P0 hardening behavioural proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_p0_hardening_check.mjs
+
+      # P2 staging parity. The first proves the twelve reconstructed relations match the
+      # committed production receipts column-for-column, that the posture is deliberately
+      # stricter than production's, and that a re-apply or a production-like database is
+      # refused before anything is created.
+      #
+      # The second is the one that matters most: #155 must still be blocked BEFORE parity
+      # and apply UNMODIFIED after it, with all four of its published invariants and both
+      # cutover-seven regression directions intact. A parity migration that quietly made
+      # #155 vacuous would pass the first harness and fail this one.
+      #
+      # Listed explicitly, like the P0 proof above, so neither can be silently dropped.
+      - name: 'Issue #101 P2 staging parity proof (real PostgreSQL via PGlite)'
+        run: node database/test/issue101_parity_check.mjs
+
+      - name: 'Issue #101 parity → P0 chain proof (real PostgreSQL via PGlite)'
+        run: node database/test/issue101_parity_then_p0_chain.mjs
+
+      # public_keys P0 closure. Staging is already in the target posture — P2 created the
+      # table hardened — so a staging apply can only ever prove the migration is a safe
+      # no-op. This harness builds the MEASURED PRODUCTION PRE-STATE instead (RLS on, zero
+      # policies, anon/authenticated holding all eight privileges including the ungoverned
+      # TRUNCATE) and proves the transition that production will actually undergo,
+      # including that withholding service_role DELETE does not disarm either cascade.
+      - name: 'Issue #101 public_keys transition proof (real PostgreSQL via PGlite)'
+        run: node database/test/issue101_public_keys_transition_check.mjs
 
       # The backend suite runs against an in-memory mock, and a mock that models a constraint is a
       # statement about the mock. What these harnesses catch are properties only real PostgreSQL

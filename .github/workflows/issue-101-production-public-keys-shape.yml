@@ -1,0 +1,154 @@
+name: 'Issue #101 public_keys Dependency Shape Probe (READ-ONLY, one relation)'
+
+# Phase P0b — the last measurement standing between us and staging parity.
+#
+# Probe #4 measured the eleven absent #155 targets. It also measured their foreign
+# keys, and one of them points outside that set:
+#
+#     signature_verification_logs.public_key_id -> public.public_keys(id) ON DELETE CASCADE
+#
+# public_keys does not exist on staging. Dropping the FK to avoid creating it was
+# rejected — staging must preserve the production constraint — so the referent has to
+# be created as well, and its shape must be MEASURED rather than reconstructed from
+# scripts/deploy-hardening-schema.js or 004/005, exactly as for the eleven.
+#
+# SCOPE IS EXACTLY ONE RELATION: public.public_keys.
+#
+# public_keys is a DEPENDENCY-ONLY parity object. It is NOT joining #155's fourteen-
+# table remediation target set, and the other tables that deploy-hardening-schema.js
+# happens to create alongside it are deliberately NOT measured here.
+#
+# REUSE, NOT REINVENTION. The probe is a thin wrapper over the reconstruction-complete
+# collectSchemaShape()/assertComplete() machinery reviewed in #156 and exercised in run
+# 31770747669, parameterised with a one-element target set. Every completeness gate
+# proven for the eleven — sequence structural shape, ACL grant-option, backing-index
+# reconciliation, zero-columns — therefore applies here unchanged.
+#
+# READ-ONLY BY CONSTRUCTION:
+#   · no MODE input and no phrase gate — there is no apply path;
+#   · BEGIN READ ONLY, asserted from the server, bounded statement_timeout, ROLLBACK;
+#   · catalog metadata only — no application row is selected, counted or emitted;
+#   · every query is bound to the one-table allowlist, and the completeness gate
+#     rejects the whole result if any out-of-scope relation appears;
+#   · trigger FUNCTIONS are recorded by signature and never invoked;
+#   · production identity asserted, staging ref refused, secrets never printed.
+#
+# KEY MATERIAL. public_keys holds cryptographic material and historically a
+# private_key_pem column. This probe reads column NAMES and types from the catalog and
+# never reads a column VALUE, so no key, row, or fragment of either can be emitted.
+#
+# TWO-COMMIT PINNING. The probe was authored and reviewed BEFORE this wrapper existed,
+# so the wrapper hard-pins an already-known immutable SHA and asserts it at runtime.
+#
+# PREREQUISITES (production environment, already protected by the earlier lanes):
+#     PRODUCTION_DATABASE_URL   — production Postgres connection string
+#     PRODUCTION_PROJECT_REF    — 20-char production project ref (identity pin)
+#     PRODUCTION_CA_CERT        — optional PEM trust-anchor override
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-101-production-public-keys-shape
+  cancel-in-progress: false
+
+env:
+  # The single reviewed commit whose probe code is executed. Advancing this pin is a
+  # reviewable pull request, never an edit to this workflow alone.
+  CANDIDATE_SHA: 0d0ff9a7e8862a07910855020246c9960961d2fc
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  public_keys_shape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    # github.actor is the ORIGINAL dispatcher and survives re-runs by other
+    # collaborators; github.triggering_actor is whoever actually triggered this run.
+    # Both must be the owner.
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.triggering_actor == 'kudzimusar'
+
+    steps:
+      - name: Check out the pinned candidate commit
+        uses: actions/checkout@v4
+        with:
+          ref: 0d0ff9a7e8862a07910855020246c9960961d2fc
+          persist-credentials: false
+
+      - name: Assert the checked-out commit is the pinned candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual, expected the pinned candidate $CANDIDATE_SHA"
+            exit 1
+          fi
+          echo "Running the reviewed candidate $CANDIDATE_SHA"
+
+      - name: Assert the pinned probe has no mutation path and stays in scope
+        # Belt-and-braces: even a compromised pin cannot smuggle in a write, a role
+        # assumption, or an unscoped catalog sweep. The wrapper delegates its catalog
+        # queries to the #156 collector, so BOTH files are checked for mutation paths.
+        run: |
+          wrapper=backend/scripts/production-issue-101-public-keys-shape.mjs
+          collector=backend/scripts/production-issue-101-schema-shape.mjs
+          for f in "$wrapper" "$collector"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::expected probe file $f is missing from the pinned commit; refusing to run."
+              exit 1
+            fi
+            if grep -nE "client\.query\( *['\"\`](COMMIT|GRANT|REVOKE|INSERT|UPDATE|DELETE|TRUNCATE|CREATE|ALTER|DROP|SET ROLE)" "$f"; then
+              echo "::error::$f contains a mutating statement; refusing to run."
+              exit 1
+            fi
+          done
+          if ! grep -q "BEGIN READ ONLY" "$wrapper"; then
+            echo "::error::the pinned probe does not open a READ ONLY transaction; refusing to run."
+            exit 1
+          fi
+          # The wrapper, not the collector, defines this run's scope. The collector still
+          # carries the eleven-table default from #156, so it is exempt from this check.
+          if ! grep -q "DEPENDENCY_TABLES = \['public_keys'\]" "$wrapper"; then
+            echo "::error::the pinned probe is not scoped to exactly public_keys; refusing to run."
+            exit 1
+          fi
+          if ! grep -q "collectSchemaShape(client, DEPENDENCY_TABLES)" "$wrapper"; then
+            echo "::error::the pinned probe does not pass its one-relation scope to the collector; refusing to run."
+            exit 1
+          fi
+          for forbidden in administrative_overrides system_failures performance_telemetry signature_verification_logs; do
+            if grep -q "\"$forbidden\"\|'$forbidden'" "$wrapper"; then
+              echo "::error::the pinned probe names out-of-scope relation $forbidden as a target; refusing to run."
+              exit 1
+            fi
+          done
+          echo "Pinned probe verified: READ ONLY transaction, no mutating statements in wrapper or collector, scope is exactly public_keys."
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Dependency installation executes third-party package code; the database
+      # credential is deliberately not in scope for this step.
+      - name: Install the pinned pg driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require the production secrets
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ] || [ -z "$PRODUCTION_PROJECT_REF" ]; then
+            echo '::error::PRODUCTION_DATABASE_URL and PRODUCTION_PROJECT_REF must be configured on the production environment; cannot run.'
+            exit 1
+          fi
+          echo 'Production secrets are present.'
+
+      - name: 'Run the Issue #101 public_keys shape probe'
+        env:
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PRODUCTION_PROJECT_REF: ${{ secrets.PRODUCTION_PROJECT_REF }}
+          PRODUCTION_CA_CERT: ${{ secrets.PRODUCTION_CA_CERT }}
+        run: node backend/scripts/production-issue-101-public-keys-shape.mjs

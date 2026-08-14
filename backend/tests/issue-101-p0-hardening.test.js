@@ -46,10 +46,19 @@ test('the migration satisfies the repository integrity contract', () => {
  * exactly what this migration needs: that every migration which CREATES one of its
  * targets sorts before it.
  *
- * Verified on origin/main: only SIX of the fourteen targets are created by a migration
- * at all. The other eight are created out-of-band by scripts/deploy-missing-schemas.js,
- * which no ordering assertion can cover — the migration's runtime PRECONDITION 1 covers
- * them instead, by name.
+ * This was verified on origin/main when #155 landed: only SIX of the fourteen were
+ * created by a migration, and the other EIGHT existed only because
+ * scripts/deploy-missing-schemas.js had been run by hand. No ordering assertion could
+ * cover those eight, so #155's runtime PRECONDITION 1 covered them by name instead.
+ *
+ * The Issue #101 P2 staging-parity migration closed that gap: it creates the eight, and
+ * re-creates the three from 004 (which is SQLite-flavoured and has never run against
+ * Postgres), reconstructed from the production receipts. So all fourteen now have a
+ * migration creator and OUT_OF_BAND_TARGETS is empty.
+ *
+ * Parity is dated 20260814080000 so it sorts BEFORE this migration. That ordering is not
+ * cosmetic: #155 is not applied to any environment yet, so a sequential run must build
+ * the tables before hardening them. The `dep < FILE` assertion below is what enforces it.
  */
 const MIGRATION_CREATED_TARGETS = {
   '004_add_tamper_proofing.sql': ['performance_telemetry', 'signature_verification_logs', 'system_failures'],
@@ -57,12 +66,22 @@ const MIGRATION_CREATED_TARGETS = {
   '011_phase6_schema.sql': ['currency_rates'],
   '20260621120000_vehicle_life_evidence_taxonomy_provenance.sql':
     ['evidence_class_taxonomy', 'evidence_sources', 'evidence_sources_public'],
+  // Issue #101 P2. Creates the eight that had no migration at all, plus the three 004
+  // declares — 004 is SQLite-flavoured and was never applied to Postgres, so on a real
+  // PostgreSQL these three arrive here, in their measured production shape.
+  '20260814080000_issue101_staging_parity.sql': [
+    'cid_clearance_records', 'cvr_ownership_records', 'vid_inspections',
+    'zimra_declarations', 'zinara_licensing_records',
+    'ocr_customs_declarations', 'ocr_national_ids', 'ocr_registration_books',
+    'performance_telemetry', 'signature_verification_logs', 'system_failures',
+  ],
 };
-const OUT_OF_BAND_TARGETS = [
-  'cid_clearance_records', 'cvr_ownership_records', 'vid_inspections',
-  'zimra_declarations', 'zinara_licensing_records',
-  'ocr_customs_declarations', 'ocr_national_ids', 'ocr_registration_books',
-];
+/**
+ * Empty since Issue #101 P2. Kept as a named, asserted-empty list rather than deleted:
+ * if a future target is ever introduced with no migration creator, it belongs here and
+ * the test below will say so.
+ */
+const OUT_OF_BAND_TARGETS = [];
 
 test('every dependency migration exists and sorts BEFORE this migration', () => {
   const dir = path.dirname(MIG);
@@ -83,17 +102,26 @@ test('each dependency migration really does create the targets claimed for it', 
   }
 });
 
-test('the out-of-band targets are enumerated and covered by a runtime precondition', () => {
+test('every target is named in the runtime existence precondition', () => {
+  // This is the assertion that actually protects #155, and it holds whether a target is
+  // created by a migration or out-of-band: if the object is missing at apply time, the
+  // precondition must name it rather than letting a partial hardening through.
+  for (const target of [...FOURTEEN, 'evidence_sources', 'evidence_sources_public']) {
+    assert.ok(up.includes(`'${target}'`), `${target} must appear in the target precondition list`);
+  }
+});
+
+test('no target is left without a migration creator', () => {
   const dir = path.dirname(MIG);
   const migrations = fs.readdirSync(dir).filter(f => f.endsWith('.sql') && f !== FILE);
-  for (const target of OUT_OF_BAND_TARGETS) {
+  assert.deepEqual(OUT_OF_BAND_TARGETS, [],
+    'Issue #101 P2 gave every target a migration creator; a non-empty list means that regressed');
+  for (const target of FOURTEEN) {
     const creator = migrations.find(f =>
       new RegExp(`CREATE TABLE( IF NOT EXISTS)? (public\\.)?${target}\\b`, 'i')
         .test(fs.readFileSync(path.join(dir, f), 'utf8')));
-    assert.equal(creator, undefined,
-      `${target} is expected to be created out-of-band; ${creator} now creates it — move it into MIGRATION_CREATED_TARGETS`);
-    // and the migration must name it in the existence precondition
-    assert.ok(up.includes(`'${target}'`), `${target} must appear in the target precondition list`);
+    assert.ok(creator, `${target} has no migration that creates it — add one or list it in OUT_OF_BAND_TARGETS`);
+    assert.ok(creator < FILE, `${creator} creates ${target} but sorts AFTER ${FILE}; hardening would run before the table exists`);
   }
 });
 
