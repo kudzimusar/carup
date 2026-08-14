@@ -81,6 +81,8 @@ test('the pin names probe #2, not probe #1', () => {
   const sha = /CANDIDATE_SHA:\s*([0-9a-f]{40})/.exec(withoutComments)[1];
   assert.notEqual(sha, '008e1f4987d598258296753fe8f45090edd05cfc',
     'this workflow must pin the reachability probe, not the inventory probe');
+  assert.notEqual(sha, 'fe51f5b66ab8c3e40e3cbf2ea379cc24a545b2e7',
+    'the pin must be advanced to the CORRECTED probe, not the pre-review candidate');
   // The pinned commit must carry the corrective work.
   const blob = execFileSync('git', ['show', `${sha}:backend/scripts/production-issue-101-reachability.mjs`], {
     cwd: path.resolve(__dirname, '../..'), encoding: 'utf8',
@@ -91,6 +93,12 @@ test('the pin names probe #2, not probe #1', () => {
   assert.match(blob, /security_barrier/, 'pinned probe must collect view security_barrier');
   assert.match(blob, /has_sequence_privilege/, 'pinned probe must collect real sequence ACLs');
   assert.match(blob, /indirect_bridge_candidate/, 'pinned probe must classify indirect privilege bridges');
+  assert.match(blob, /aclexplode/, 'pinned probe must use exact ACL decomposition');
+  assert.match(blob, /DB_CALLABLE_IF_SCHEMA_EXPOSED/, 'pinned probe must not assert API reachability');
+  assert.match(blob, /with recursive/i, 'pinned probe must compute transitive role membership');
+  assert.match(blob, /tgtype & 64/, 'pinned probe must detect INSTEAD OF triggers specifically');
+  assert.match(blob, /absence_not_proven/, 'pinned probe must mark unproven absence');
+  assert.ok(!/has_function_privilege\(\s*'public'/.test(blob), 'pinned probe must not use the PUBLIC pseudo-grantee');
   assert.ok(!/\bbody:/.test(blob.slice(blob.indexOf('FUNCTION_REACHABILITY = fns.map'), blob.indexOf('s.TOTALS'))),
     'pinned probe must never emit a function body');
 });
