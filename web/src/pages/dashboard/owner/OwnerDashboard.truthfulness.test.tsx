@@ -15,6 +15,8 @@ import { MemoryRouter } from 'react-router-dom'
 const fetchSafePayEscrows = vi.fn()
 const fetchOwnedVehicles = vi.fn()
 const fetchNotifications = vi.fn()
+const fetchSavedMarketplaceListings = vi.fn()
+const fetchCommunicationThreads = vi.fn()
 const runOcrParsing = vi.fn()
 
 // Capture every toast so a fabricated "document uploaded/parsed" success cannot slip back in.
@@ -32,7 +34,14 @@ vi.mock('@/context/AuthContext', () => ({
 }))
 
 vi.mock('@/hooks/useCarUpApi', () => ({
-  useCarUpApi: () => ({ runOcrParsing, fetchSafePayEscrows, fetchOwnedVehicles, fetchNotifications }),
+  useCarUpApi: () => ({
+    runOcrParsing,
+    fetchSafePayEscrows,
+    fetchOwnedVehicles,
+    fetchNotifications,
+    fetchSavedMarketplaceListings,
+    fetchCommunicationThreads,
+  }),
 }))
 
 const OwnerDashboard = (await import('./OwnerDashboard')).default
@@ -52,6 +61,8 @@ beforeEach(() => {
   fetchSafePayEscrows.mockResolvedValue([])
   fetchOwnedVehicles.mockResolvedValue([])
   fetchNotifications.mockResolvedValue([])
+  fetchSavedMarketplaceListings.mockResolvedValue({ listings: [] })
+  fetchCommunicationThreads.mockResolvedValue({ threads: [] })
 })
 
 describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', () => {
@@ -145,19 +156,37 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     expect(fetchOwnedVehicles).toHaveBeenCalledWith()
     expect(fetchNotifications).toHaveBeenCalledWith()
     expect(fetchSafePayEscrows).toHaveBeenCalledWith()
+    expect(fetchSavedMarketplaceListings).toHaveBeenCalledWith()
+    expect(fetchCommunicationThreads).toHaveBeenCalledWith()
   })
 
-  it('still renders real vehicles and notifications when the account has them', async () => {
+  it('still renders real vehicles, saved cars and notifications when the account has them', async () => {
     fetchOwnedVehicles.mockResolvedValue([
       { vin: 'VIN123', year: 2019, make: 'Toyota', model: 'Hilux', mileage: 45000, trust_score: 88 },
     ])
+    fetchSavedMarketplaceListings.mockResolvedValue({
+      listings: [
+        { vin: 'SAVE1', year: 2020, make: 'Mazda', model: 'CX-5', price: 18000, trust_score: 84 },
+      ],
+    })
     fetchNotifications.mockResolvedValue([
       { id: 'n1', title: 'Service due', message: 'Book a service', type: 'info', read: false },
     ])
     const { container } = renderFreshDashboard()
 
     await waitFor(() => expect(container.textContent).toContain('Toyota'))
+    expect(container.textContent).toContain('Mazda')
     expect(container.textContent).toContain('Service due')
+  })
+
+  it('guides a fresh owner toward real next actions instead of unavailable system cards', async () => {
+    const { container } = renderFreshDashboard()
+    await waitFor(() => expect(fetchOwnedVehicles).toHaveBeenCalled())
+
+    expect(container.textContent).toContain('Add your first vehicle')
+    expect(container.textContent).toContain('Build your shortlist')
+    expect(container.textContent).toContain('Start your CarUp journey')
+    expect(container.textContent).toContain('Gutu AI Assistant')
   })
 
   it('the source no longer contains the prototype constants', () => {
