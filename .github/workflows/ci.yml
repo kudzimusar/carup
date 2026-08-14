@@ -114,6 +114,15 @@ jobs:
       - name: 'Issue #101 parity → P0 chain proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_parity_then_p0_chain.mjs
 
+      # public_keys P0 closure. Staging is already in the target posture — P2 created the
+      # table hardened — so a staging apply can only ever prove the migration is a safe
+      # no-op. This harness builds the MEASURED PRODUCTION PRE-STATE instead (RLS on, zero
+      # policies, anon/authenticated holding all eight privileges including the ungoverned
+      # TRUNCATE) and proves the transition that production will actually undergo,
+      # including that withholding service_role DELETE does not disarm either cascade.
+      - name: 'Issue #101 public_keys transition proof (real PostgreSQL via PGlite)'
+        run: node database/test/issue101_public_keys_transition_check.mjs
+
       # The backend suite runs against an in-memory mock, and a mock that models a constraint is a
       # statement about the mock. What these harnesses catch are properties only real PostgreSQL
       # has: an ACL under Supabase's ALTER DEFAULT PRIVILEGES hazard, a UNIQUE index's missing
