@@ -14,8 +14,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import {
-  FOCUS_ROLES, FOCUS_VIEWS, REQUIRED_SECTIONS, ProbeError,
-  assertProductionIdentity, assertComplete, sanitizeError,
+  FOCUS_ROLES, FOCUS_VIEWS, REQUIRED_SECTIONS, ProbeError, PGRST_SCHEMA_KEYS,
+  assertProductionIdentity, assertComplete, sanitizeError, parseExposedSchemas,
 } from '../scripts/production-issue-101-reachability.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -151,10 +151,11 @@ test('sanitizeError drops hostile class names, codes and URIs', () => {
 
 // ------------------------------------------------ coverage of the ask
 
-test('all nine required sections are declared', () => {
+test('all ten required sections are declared', () => {
   assert.deepEqual([...REQUIRED_SECTIONS].sort(), [
     'API_EXPOSURE', 'CONNECTIVITY', 'FUNCTION_REACHABILITY', 'POLICY_DETAIL',
-    'ROLE_MEMBERSHIPS', 'ROLE_STATE', 'SEQUENCE_STATE', 'TABLE_STATE', 'VIEW_STATE',
+    'ROLE_MEMBERSHIPS', 'ROLE_MEMBERSHIP_COMPLETENESS', 'ROLE_STATE',
+    'SEQUENCE_STATE', 'TABLE_STATE', 'VIEW_STATE',
   ]);
 });
 
@@ -197,7 +198,7 @@ test('C4: view dependencies span all schemas and name them', () => {
 
 test('C4: INSTEAD OF triggers are identified specifically', () => {
   assert.match(src, /tgtype & 64/, 'must test TRIGGER_TYPE_INSTEAD');
-  assert.match(src, /other_triggers/, 'ordinary triggers must be counted separately');
+  assert.match(src, /ordinary_triggers/, 'ordinary triggers must be counted separately and exclusively');
   assert.match(src, /'instead_of', \(t\.tgtype & 64\) <> 0/);
 });
 
@@ -294,4 +295,139 @@ test('zero tables, zero roles, or a missing focus view fails', () => {
   assert.match(assertComplete(b).reason, /role state/);
   const c = full(); c.VIEW_STATE = c.VIEW_STATE.slice(0, 1);
   assert.match(assertComplete(c).reason, /focus view/);
+});
+
+
+// ============ FINAL SECURITY CORRECTION (PR #153 review round 2) ============
+
+// --- 1. SECURITY BLOCKER: pgrst secrets must be unreachable by construction ---
+
+test('SECURITY: only schema-exposure keys are allowlisted — no secret GUCs', () => {
+  assert.deepEqual(PGRST_SCHEMA_KEYS, ['pgrst.db_schemas', 'pgrst.db_schema']);
+  for (const secret of ['jwt_secret', 'db_uri', 'db_anon_role', 'app.settings']) {
+    assert.ok(!PGRST_SCHEMA_KEYS.some((k) => k.includes(secret)), `${secret} must never be allowlisted`);
+  }
+});
+
+test('SECURITY: no wildcard pgrst.* selection anywhere', () => {
+  assert.ok(!/like\s+'pgrst\.%'/i.test(src), "must not select pgrst.% from pg_settings");
+  assert.ok(!/like\s+'pgrst_%'/i.test(src), 'must not select pgrst_% either');
+  assert.ok(!/\/\^pgrst\\\./.test(src), 'must not regex-filter pgrst. prefixes in Node');
+  // Every pg_settings / pg_db_role_setting read must be keyed to the allowlist.
+  const queries = [...src.matchAll(/client\.query\(\s*`([^`]+)`/g)].map((m) => m[1]);
+  for (const q of queries) {
+    if (/pg_settings|pg_db_role_setting/.test(q)) {
+      assert.match(q, /any\(\$1::text\[\]\)/, `must bind the allowlist: ${q.slice(0, 90)}`);
+    }
+  }
+});
+
+test('SECURITY: pg_db_role_setting is filtered IN SQL before values reach Node', () => {
+  const q = [...src.matchAll(/client\.query\(\s*`([^`]+)`/g)].map((m) => m[1])
+    .find((x) => /pg_db_role_setting/.test(x));
+  assert.ok(q, 'expected a pg_db_role_setting query');
+  assert.match(q, /split_part\(cfg, '=', 1\) = any\(\$1::text\[\]\)/,
+    'the key filter must be applied in SQL, not after the value is returned');
+});
+
+test('SECURITY: a synthetic pgrst.jwt_secret cannot reach any emitted structure', () => {
+  const FAKE_SECRET = ['nOtA', 'ReaL', 'JwtSecret', '9f2b'].join('-');
+  // Simulate exactly what the database could hand back for both read paths.
+  const pgSettingsRows = [
+    { name: 'pgrst.jwt_secret', setting: FAKE_SECRET },
+    { name: 'pgrst.db_uri', setting: `postgres://u:${FAKE_SECRET}@h/db` },
+    { name: 'pgrst.db_schemas', setting: 'public, graphql_public' },
+  ];
+  // The allowlist is what the SQL binds; only matching rows can ever be returned.
+  const allowed = pgSettingsRows.filter((r) => PGRST_SCHEMA_KEYS.includes(r.name));
+  assert.deepEqual(allowed.map((r) => r.name), ['pgrst.db_schemas']);
+  const parsed = parseExposedSchemas(allowed[0].setting);
+  const emitted = JSON.stringify({
+    exposed_schemas: parsed,
+    determinable: true,
+    evidence_source: `pg_settings.${allowed[0].name}`,
+  });
+  assert.ok(!emitted.includes(FAKE_SECRET), 'the fake secret must not appear in the emitted structure');
+  assert.ok(!emitted.includes('jwt_secret'), 'the secret key name must not appear either');
+  assert.ok(!emitted.includes('db_uri'));
+
+  // And the same for the role-setting path, where the SQL key filter is the control.
+  const roleCfg = [`pgrst.jwt_secret=${FAKE_SECRET}`, 'pgrst.db_schemas=public'];
+  const filtered = roleCfg.filter((c) => PGRST_SCHEMA_KEYS.includes(c.split('=')[0]));
+  assert.deepEqual(filtered, ['pgrst.db_schemas=public']);
+  assert.ok(!JSON.stringify(filtered).includes(FAKE_SECRET));
+});
+
+test('SECURITY: no console line can print a pgrst setting value', () => {
+  const logged = [...src.matchAll(/console\.log\(([^\n]*)/g)].map((m) => m[1]);
+  for (const l of logged) {
+    assert.ok(!/\bsetting\b/.test(l), `must not print a raw setting value: ${l.slice(0, 80)}`);
+    assert.ok(!/setconfig|schema_settings/.test(l), `must not print raw role config: ${l.slice(0, 80)}`);
+  }
+});
+
+// --- 2. determinable is earned only by a parsed schema value ---------------
+
+test('determinable requires a PARSED exposed-schema value', () => {
+  assert.match(src, /exposed_schemas/);
+  assert.match(src, /evidence_source/);
+  assert.match(src, /schema_setting_present/);
+  // A present-but-unparseable setting must not promote determinable.
+  assert.equal(parseExposedSchemas(''), null);
+  assert.equal(parseExposedSchemas('   '), null);
+  assert.equal(parseExposedSchemas(undefined), null);
+  assert.deepEqual(parseExposedSchemas('public'), ['public']);
+  assert.deepEqual(parseExposedSchemas(' public , graphql_public '), ['public', 'graphql_public']);
+  // determinable is only ever assigned alongside a successful parse.
+  const assigns = [...src.matchAll(/determinable = true/g)];
+  assert.ok(assigns.length > 0);
+  for (const m of assigns) {
+    const before = src.slice(Math.max(0, m.index - 300), m.index);
+    assert.match(before, /if \(parsed\)/, 'determinable=true must be guarded by a successful parse');
+  }
+});
+
+test('a watch trigger or unrelated setting can no longer promote determinable', () => {
+  assert.ok(!/pgrst_watch_event_trigger/.test(src), 'the watch-trigger signal must be gone');
+  assert.ok(!/pgrst_settings/.test(src), 'the arbitrary settings bag must be gone');
+});
+
+test('when not determinable the classification stays DB_CALLABLE_IF_SCHEMA_EXPOSED', () => {
+  assert.match(src, /API_REACHABLE must never be asserted/);
+  assert.match(src, /out-of-band OpenAPI\/API census is required/);
+});
+
+// --- 3. trigger sets are mutually exclusive -------------------------------
+
+test('instead_of and ordinary trigger sets are mutually exclusive', () => {
+  assert.match(src, /\(t\.tgtype & 64\) <> 0\)::int as instead_of_triggers/);
+  assert.match(src, /\(t\.tgtype & 64\) = 0\)::int as ordinary_triggers/);
+  assert.ok(!/not t\.tgisinternal\)::int as other_triggers/.test(src),
+    'the old all-triggers counter must be gone');
+  assert.match(src, /views_with_ordinary_triggers/);
+});
+
+// --- 4. no arbitrary depth cap; completeness proven -----------------------
+
+test('the transitive closure has no arbitrary depth cap', () => {
+  assert.ok(!/c\.depth < 8/.test(src), 'the depth-8 cap must be gone');
+  assert.match(src, /No depth cap/);
+  assert.match(src, /not \(m\.roleid::regrole::text = any\(c\.path\)\)/, 'cycle guard must remain');
+});
+
+test('closure completeness is proven against pg_has_role and gaps are flagged', () => {
+  assert.ok(REQUIRED_SECTIONS.includes('ROLE_MEMBERSHIP_COMPLETENESS'));
+  assert.match(src, /path_materialised/);
+  assert.match(src, /role_paths_unmaterialised/);
+  assert.match(src, /reachable per pg_has_role but NO path materialised/);
+});
+
+test('the completeness section is required for a complete run', () => {
+  const s = { TOTALS: { tables: 1 } };
+  for (const k of REQUIRED_SECTIONS) s[k] = [];
+  s.ROLE_STATE = [{ rolname: 'anon' }];
+  s.VIEW_STATE = FOCUS_VIEWS.map((v) => ({ view_name: v, focus: true }));
+  assert.equal(assertComplete(s).ok, true);
+  delete s.ROLE_MEMBERSHIP_COMPLETENESS;
+  assert.match(assertComplete(s).reason, /ROLE_MEMBERSHIP_COMPLETENESS/);
 });

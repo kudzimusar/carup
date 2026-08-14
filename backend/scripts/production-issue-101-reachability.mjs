@@ -58,7 +58,24 @@ export const REQUIRED_SECTIONS = [
   'SEQUENCE_STATE',
   'FUNCTION_REACHABILITY',
   'API_EXPOSURE',
+  'ROLE_MEMBERSHIP_COMPLETENESS',
 ];
+
+/**
+ * The ONLY PostgREST settings this probe may read. PostgREST also supports
+ * pgrst.jwt_secret and pgrst.db_uri; reading pgrst.* wholesale would print a
+ * production secret into CI logs. This list is exhaustive by design: it names the
+ * current in-database schema-exposure key and the documented backward-compatible
+ * singular form, and nothing else.
+ */
+export const PGRST_SCHEMA_KEYS = ['pgrst.db_schemas', 'pgrst.db_schema'];
+
+/** Parse an exposed-schema setting value into a schema list, or null if unusable. */
+export function parseExposedSchemas(value) {
+  if (typeof value !== 'string') return null;
+  const parts = value.split(',').map((x) => x.trim().replace(/^"|"$/g, '')).filter(Boolean);
+  return parts.length ? parts : null;
+}
 
 /** Heuristics used only to CLASSIFY a body; the body itself is never emitted. */
 const MUTATION_RE = /\b(insert\s+into|update\s+\w|delete\s+from|truncate|merge\s+into)\b/i;
@@ -165,7 +182,9 @@ export async function collectReachability(client) {
       select c.start_role, m.roleid, c.depth + 1, c.path || (m.roleid::regrole::text)
         from closure c
         join pg_auth_members m on m.member = c.role_oid
-       where c.depth < 8 and not (m.roleid::regrole::text = any(c.path))
+       -- No depth cap: the path guard already makes this cycle-safe, and an
+       -- arbitrary cap would silently report a PARTIAL closure as complete.
+       where not (m.roleid::regrole::text = any(c.path))
     )
     select c.start_role,
            c.role_oid::regrole::text as reachable_role,
@@ -181,6 +200,23 @@ export async function collectReachability(client) {
      order by 1, 3, 2`, [FOCUS_ROLES]);
   s.ROLE_MEMBERSHIPS = members;
 
+  // Completeness proof: pg_has_role is PostgreSQL's own authority. Any role it says
+  // is reachable but for which the recursion materialised no path is flagged, so a
+  // partial closure can never be presented as complete.
+  const { rows: authoritative } = await client.query(`
+    select s.rolname as start_role, r.rolname as reachable_role
+      from (select rolname from pg_roles where rolname = any($1::text[])) s
+      cross join pg_roles r
+     where r.rolname <> s.rolname
+       and pg_catalog.pg_has_role(s.rolname, r.oid, 'MEMBER')
+     order by 1, 2`, [FOCUS_ROLES]);
+  const materialised = new Set(members.map((m) => `${m.start_role}|${m.reachable_role}`));
+  s.ROLE_MEMBERSHIP_COMPLETENESS = authoritative.map((a) => ({
+    start_role: a.start_role,
+    reachable_role: a.reachable_role,
+    path_materialised: materialised.has(`${a.start_role}|${a.reachable_role}`),
+  }));
+
   // CONNECT on the database, USAGE on public — the preconditions for D.
   const { rows: conn } = await client.query(`
     select r.rolname,
@@ -190,48 +226,67 @@ export async function collectReachability(client) {
       from pg_roles r where r.rolname = any($1::text[]) order by 1`, [FOCUS_ROLES]);
   s.CONNECTIVITY = conn;
 
-  // (2) API exposure evidence. DB EXECUTE/grants NEVER prove API_REACHABLE — the
-  // Data API only exposes configured schemas. Capture whatever configuration is
-  // legible from inside the database; where it is not legible, downstream
-  // classification must say DB_CALLABLE_IF_SCHEMA_EXPOSED, not API_REACHABLE.
-  const apiExposure = { pgrst_settings: [], role_settings: [], pgrst_watch_event_trigger: false, determinable: false };
-  await optionalProbe(client, async () => {
-    const { rows } = await client.query(`
-      select name, setting, source
-        from pg_settings
-       where name like 'pgrst.%' or name like 'pgrst_%'
-       order by 1`);
-    apiExposure.pgrst_settings = rows;
-  }, () => { apiExposure.pgrst_settings = null; });
-  await optionalProbe(client, async () => {
-    // Supabase commonly pins PostgREST config as role-level settings on authenticator.
-    const { rows } = await client.query(`
-      select r.rolname, d.datname, s.setconfig
-        from pg_db_role_setting s
-        left join pg_roles r on r.oid = s.setrole
-        left join pg_database d on d.oid = s.setdatabase
-       order by 1, 2`);
-    apiExposure.role_settings = rows
-      .map((x) => ({
-        role: x.rolname ?? '(all roles)',
-        database: x.datname ?? '(all databases)',
-        // Only pgrst.* entries are relevant; never emit unrelated settings, which
-        // could contain credentials in other deployments.
-        pgrst: (x.setconfig || []).filter((c) => /^pgrst\./i.test(c)),
-      }))
-      .filter((x) => x.pgrst.length > 0);
-  }, () => { apiExposure.role_settings = null; });
+  // (2) API exposure evidence — STRICT ALLOWLIST.
+  //
+  // SECURITY: PostgREST supports pgrst.jwt_secret, pgrst.db_uri and other secret
+  // GUCs. Selecting pgrst.* wholesale would print a production JWT secret into the
+  // Actions log. Only the in-database SCHEMA-EXPOSURE keys are ever read, and the
+  // filter is applied IN SQL so a secret value never reaches Node at all.
+  const apiExposure = {
+    exposed_schemas: null,
+    determinable: false,
+    evidence_source: null,
+    schema_setting_present: false,
+    classification_rule: null,
+  };
+
   await optionalProbe(client, async () => {
     const { rows } = await client.query(
-      "select count(*)::int c from pg_event_trigger where evtname ilike '%pgrst%'");
-    apiExposure.pgrst_watch_event_trigger = rows[0].c > 0;
+      `select name, setting from pg_settings where name = any($1::text[]) order by 1`,
+      [PGRST_SCHEMA_KEYS]);
+    if (rows.length) {
+      const parsed = parseExposedSchemas(rows[0].setting);
+      if (parsed) {
+        apiExposure.exposed_schemas = parsed;
+        apiExposure.determinable = true;
+        apiExposure.evidence_source = `pg_settings.${rows[0].name}`;
+      }
+      apiExposure.schema_setting_present = true;
+    }
   }, () => {});
-  apiExposure.determinable =
-    (Array.isArray(apiExposure.pgrst_settings) && apiExposure.pgrst_settings.length > 0) ||
-    (Array.isArray(apiExposure.role_settings) && apiExposure.role_settings.length > 0);
+
+  if (!apiExposure.determinable) {
+    await optionalProbe(client, async () => {
+      // Filtered in SQL by exact key: only allowlisted schema settings are returned.
+      const { rows } = await client.query(`
+        select r.rolname as role, d.datname as database,
+               array_agg(cfg order by cfg) as schema_settings
+          from pg_db_role_setting s
+          left join pg_roles r on r.oid = s.setrole
+          left join pg_database d on d.oid = s.setdatabase
+          cross join lateral unnest(coalesce(s.setconfig, '{}'::text[])) as cfg
+         where split_part(cfg, '=', 1) = any($1::text[])
+         group by 1, 2
+         order by 1, 2`, [PGRST_SCHEMA_KEYS]);
+      if (rows.length) {
+        apiExposure.schema_setting_present = true;
+        const first = rows[0].schema_settings[0];
+        const parsed = parseExposedSchemas(first.slice(first.indexOf('=') + 1));
+        if (parsed) {
+          apiExposure.exposed_schemas = parsed;
+          apiExposure.determinable = true;
+          apiExposure.evidence_source =
+            `pg_db_role_setting role=${rows[0].role ?? '(all roles)'} key=${first.split('=')[0]}`;
+        }
+      }
+    }, () => {});
+  }
+
+  // determinable is TRUE only when an actual exposed-schema value was obtained AND
+  // parsed. No other PostgREST artefact may promote it.
   apiExposure.classification_rule = apiExposure.determinable
-    ? 'exposed-schema configuration was legible; API_REACHABLE may be asserted only for schemas it names'
-    : 'exposed-schema configuration NOT legible from SQL — downstream must report DB_CALLABLE_IF_SCHEMA_EXPOSED, never API_REACHABLE';
+    ? 'exposed-schema configuration was read and parsed; API_REACHABLE may be asserted only for the schemas listed in exposed_schemas'
+    : 'exposed-schema configuration NOT readable from SQL — every function stays DB_CALLABLE_IF_SCHEMA_EXPOSED and API_REACHABLE must never be asserted; an out-of-band OpenAPI/API census is required';
   s.API_EXPOSURE = [apiExposure];
 
   // ---- table state incl. OWNER (probe #1 did not collect ownership) --------
@@ -272,8 +327,9 @@ export async function collectReachability(client) {
            -- make a view writable.
            (select count(*) from pg_trigger t
              where t.tgrelid = c.oid and not t.tgisinternal and (t.tgtype & 64) <> 0)::int as instead_of_triggers,
+           -- Mutually exclusive with instead_of_triggers by construction.
            (select count(*) from pg_trigger t
-             where t.tgrelid = c.oid and not t.tgisinternal)::int as other_triggers,
+             where t.tgrelid = c.oid and not t.tgisinternal and (t.tgtype & 64) = 0)::int as ordinary_triggers,
            coalesce((select jsonb_agg(jsonb_build_object(
                        'name', t.tgname,
                        'instead_of', (t.tgtype & 64) <> 0,
@@ -481,6 +537,9 @@ export async function collectReachability(client) {
     sequences_public_grant: s.SEQUENCE_STATE.filter((q) => (q.PUBLIC || 'none') !== 'none').length,
     sequences_acl_default: s.SEQUENCE_STATE.filter((q) => q.acl_is_default).length,
     api_exposure_determinable: s.API_EXPOSURE[0].determinable,
+    role_paths_materialised: s.ROLE_MEMBERSHIP_COMPLETENESS.filter((x) => x.path_materialised).length,
+    role_paths_unmaterialised: s.ROLE_MEMBERSHIP_COMPLETENESS.filter((x) => !x.path_materialised).length,
+    views_with_ordinary_triggers: s.VIEW_STATE.filter((v) => v.ordinary_triggers > 0).length,
     functions: s.FUNCTION_REACHABILITY.length,
     functions_db_callable_by_api_roles: s.FUNCTION_REACHABILITY.filter((f) => f.db_callable_by_api_roles).length,
     functions_public_execute: s.FUNCTION_REACHABILITY.filter((f) => f.public_execute).length,
@@ -516,8 +575,13 @@ function report(s) {
   }
   L('');
   L('══ ROLE_MEMBERSHIPS (SET ROLE / privilege inheritance paths) ══');
-  for (const m of s.ROLE_MEMBERSHIPS) L(`   ${m.member} -> ${m.role_granted} admin=${m.admin_option}`);
+  for (const m of s.ROLE_MEMBERSHIPS) {
+    L(`   ${m.start_role} -> ${m.reachable_role} depth=${m.depth} path=${(m.path || []).join('>')} member=${m.pg_has_role_member} bypassrls=${m.reachable_role_bypassrls}`);
+  }
   L(`   count = ${s.ROLE_MEMBERSHIPS.length}`);
+  const unmat = s.ROLE_MEMBERSHIP_COMPLETENESS.filter((x) => !x.path_materialised);
+  L(`   completeness: ${s.ROLE_MEMBERSHIP_COMPLETENESS.length - unmat.length}/${s.ROLE_MEMBERSHIP_COMPLETENESS.length} pg_has_role edges materialised`);
+  for (const u of unmat) L(`   ::warning:: reachable per pg_has_role but NO path materialised: ${u.start_role} -> ${u.reachable_role}`);
   L('');
   L('══ CONNECTIVITY ══');
   for (const c of s.CONNECTIVITY) L(`   ${c.rolname}: db_connect=${c.db_connect} public_usage=${c.public_usage} public_create=${c.public_create}`);
@@ -532,7 +596,7 @@ function report(s) {
   for (const v of s.VIEW_STATE.filter((x) => x.focus)) {
     L(`   ${v.view_name}: kind=${v.relkind} owner=${v.owner} security_invoker=${v.security_invoker} security_barrier=${v.security_barrier}`);
     L(`      is_updatable=${v.is_updatable} is_insertable_into=${v.is_insertable_into} trigger_updatable=${v.is_trigger_updatable}`);
-    L(`      extra_rules=${v.extra_rules} instead_of_triggers=${v.instead_of_triggers}`);
+    L(`      extra_rules=${v.extra_rules} instead_of_triggers=${v.instead_of_triggers} ordinary_triggers=${v.ordinary_triggers}`);
     for (const b of v.base_relations) {
       L(`      base ${b.base_schema}.${b.base_relation} (${b.base_relkind}): owner=${b.base_owner} rls=${b.base_rls_enabled} forced=${b.base_rls_forced} policies=${b.base_policy_count}`);
     }
@@ -545,7 +609,9 @@ function report(s) {
   }
   L('');
   L('══ API_EXPOSURE (decides whether API_REACHABLE may be asserted at all) ══');
-  L(`   determinable=${s.API_EXPOSURE[0].determinable}`);
+  L(`   exposed_schemas=${JSON.stringify(s.API_EXPOSURE[0].exposed_schemas)}`);
+  L(`   determinable=${s.API_EXPOSURE[0].determinable} evidence_source=${s.API_EXPOSURE[0].evidence_source ?? 'none'}`);
+  L(`   schema_setting_present=${s.API_EXPOSURE[0].schema_setting_present}`);
   L(`   rule: ${s.API_EXPOSURE[0].classification_rule}`);
   L('');
   L('══ FUNCTION_REACHABILITY (DB-callable by API roles — NOT proof of API reach) ══');
