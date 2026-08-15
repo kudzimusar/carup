@@ -217,23 +217,50 @@ export class CommunicationInboundService {
       created = resolved.created;
     }
 
-    const participant = this.conversationService
-      ? await this.conversationService.ensureParticipant(thread.id, {
+    // When the inbound resolved to an existing conversation, THAT conversation's participant is the
+    // authoritative sender. Calling ensureParticipant here instead used to mint a second participant
+    // built from the INGRESS identity — physically reproduced on staging: a provider-ingress inbound
+    // routed correctly to a tenant-owned Marketplace thread, then attributed the message to a new
+    // participant carrying the platform-context (tenant-null) identity, linking that identity into
+    // another tenant's conversation. The ingress identity is an ingress identity only; it must never
+    // be projected into a conversation the resolver did not select it for.
+    let participant;
+    if (boundConversation?.participant) {
+      const bound = boundConversation.participant;
+      // Fail closed rather than manufacture a replacement: an invariant break here means the
+      // resolution cannot be trusted, and inventing a participant is what caused the defect.
+      if (!thread?.id
+        || String(bound.thread_id) !== String(thread.id)
+        || bound.left_at) {
+        const error = new Error('Resolved inbound conversation participant failed thread/active invariants.');
+        error.statusCode = 422;
+        error.code = 'inbound_participant_invariant_failed';
+        throw error;
+      }
+      participant = bound;
+    } else if (this.conversationService) {
+      // Genuinely unbound inbound: this is the only path allowed to create a participant.
+      participant = await this.conversationService.ensureParticipant(thread.id, {
         participant_type: identity.user_id ? 'user' : 'external_contact',
         user_id: identity.user_id || null,
         external_identity_id: identity.id,
-        // A bound business participant keeps their existing stakeholder role;
-        // an unbound inbound retains the legacy requester role.
-        stakeholder_role: boundConversation?.participant?.stakeholder_role || boundConversation?.participant?.role || 'requester',
+        stakeholder_role: 'requester',
         display_name: identity.display_name || null,
-      })
-      : await this.threadService.addParticipant(thread.id, {
+      });
+    } else {
+      participant = await this.threadService.addParticipant(thread.id, {
         participant_type: identity.user_id ? 'user' : 'external_contact',
         user_id: identity.user_id || null,
         external_identity_id: identity.id,
         role: 'requester',
         display_name: identity.display_name || null,
       });
+    }
+    // Attribution follows the SELECTED participant, never the ingress identity, so a tenant-owned
+    // conversation is not silently credited to a platform-scoped user id.
+    const senderUserId = boundConversation?.participant
+      ? (participant.user_id || null)
+      : (identity.user_id || null);
 
     const providerMessageId = input.providerMessageId || input.provider_message_id || input.message_id || null;
     const findExistingProviderMessage = async () => {
@@ -248,7 +275,7 @@ export class CommunicationInboundService {
         message = await this.threadService.recordMessage(thread, {
           direction: 'inbound',
           sender_participant_id: participant.id,
-          sender_user_id: identity.user_id || null,
+          sender_user_id: senderUserId,
           channel,
           provider,
           provider_message_id: providerMessageId,
