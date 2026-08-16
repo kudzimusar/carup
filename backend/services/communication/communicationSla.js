@@ -16,6 +16,22 @@ export const SLA_STATES = Object.freeze({
 const TERMINAL = new Set(['resolved', 'closed', 'spam']);
 const DUE_SOON_MS = 15 * 60 * 1000;
 
+// Keep exact minutes for analytics/API compatibility, but never show users absurd
+// historical values such as "First response overdue 41892m" on a reused thread.
+// Human-facing labels progressively use minutes, hours and days while preserving the
+// underlying deadline and raw minute count for SLA evidence.
+function formatSlaDuration(minutes) {
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 24 * 60) {
+    const hours = Math.floor(minutes / 60);
+    const remainder = minutes % 60;
+    return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+  }
+  const days = Math.floor(minutes / (24 * 60));
+  const remainingHours = Math.floor((minutes % (24 * 60)) / 60);
+  return remainingHours ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
 // The single most urgent unmet target on a thread drives the badge: prefer the earliest of the
 // first-response (if not yet responded), next-response, resolution, or the legacy sla_due_at.
 function activeTarget(thread) {
@@ -51,10 +67,11 @@ export function computeSlaState(thread = {}, now = Date.now()) {
 
   const diffMs = dueTime - now;
   const minutes = Math.max(0, Math.round(Math.abs(diffMs) / 60000));
+  const duration = formatSlaDuration(minutes);
   const noun = target.kind === 'resolution' ? 'Resolution' : target.kind === 'first_response' ? 'First response' : 'SLA';
-  if (diffMs < 0) return { state: SLA_STATES.BREACHED, kind: target.kind, dueAt: target.dueAt, minutes, label: `${noun} overdue ${minutes}m` };
-  if (diffMs < DUE_SOON_MS) return { state: SLA_STATES.DUE_SOON, kind: target.kind, dueAt: target.dueAt, minutes, label: `${noun} due in ${minutes}m` };
-  return { state: SLA_STATES.HEALTHY, kind: target.kind, dueAt: target.dueAt, minutes, label: `${noun} in ${minutes}m` };
+  if (diffMs < 0) return { state: SLA_STATES.BREACHED, kind: target.kind, dueAt: target.dueAt, minutes, label: `${noun} overdue ${duration}` };
+  if (diffMs < DUE_SOON_MS) return { state: SLA_STATES.DUE_SOON, kind: target.kind, dueAt: target.dueAt, minutes, label: `${noun} due in ${duration}` };
+  return { state: SLA_STATES.HEALTHY, kind: target.kind, dueAt: target.dueAt, minutes, label: `${noun} in ${duration}` };
 }
 
 // Column patch to PAUSE the SLA clock (records when + why).

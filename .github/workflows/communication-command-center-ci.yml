@@ -1,11 +1,10 @@
 name: Communication Command Center CI
 
-# Real CI for the Enterprise Communication Command Center (Agent 8, issues #107/#110).
-#   • unit job: the full communication engine node --test suite (self-mocked, no DB);
-#   • postgres job: the REQUIRED real-Postgres integration gate (P1.12) against a disposable service
-#     container — applies the actual base + Command Center migrations into the container's own `public`
-#     schema and verifies migrations/audit-id/RPC search+count/registered-user search/per-agent unread/
-#     SLA columns/RLS tenant isolation/rollback and the follow-up direct-privilege hardening.
+# Real CI for the Enterprise Communication Command Center + Communications 2.0 Phase 0-7 closure.
+# Unit: conversation/UAT/routing/outbox/receipt/template/product/media/stakeholder/campaign/runner.
+# Postgres: mandatory existing Command Center + Communications 2 core/privacy + Phase 7 schema gates.
+# Staging: PR #148 only, canonical Supabase ref guard, frozen verify -> apply -> verify,
+# then exact-head deployment to the dedicated staging Vercel projects when the repository token exists.
 
 on:
   pull_request:
@@ -30,7 +29,20 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Communication engine unit suite
-        run: node --test backend/tests/communication-engine.test.js backend/tests/communication-privilege-migration.test.js
+        run: >-
+          node --test
+          backend/tests/communication-engine.test.js
+          backend/tests/communication-privilege-migration.test.js
+          backend/tests/communications-2-conversation-core.test.js
+          backend/tests/communications-2-uat-defects.test.js
+          backend/tests/communications-2-routing-privacy-hardening.test.js
+          backend/tests/communications-2-marketplace-outbox-hardening.test.js
+          backend/tests/communications-2-receipt-attribution-hardening.test.js
+          backend/tests/communications-2-canonical-service-hardening.test.js
+          backend/tests/communications-2-governed-template-runtime.test.js
+          backend/tests/communications-2-product-capabilities.test.js
+          backend/tests/communications-2-completion.test.js
+          backend/tests/communications-2-staging-runner-contract.test.js
 
   communication-postgres:
     runs-on: ubuntu-latest
@@ -70,7 +82,91 @@ jobs:
           set -eo pipefail
           node --test backend/tests/integration/communication-postgres.integration.test.js 2>&1 | tee /tmp/it-main.log
           node --test backend/tests/integration/communication-privilege-postgres.integration.test.js 2>&1 | tee /tmp/it-privileges.log
-          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log; then
+          node --test backend/tests/integration/communications-2-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2.log
+          node --test backend/tests/integration/communications-2-privacy-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2-privacy.log
+          node --test backend/tests/integration/communications-2-completion-postgres.integration.test.js 2>&1 | tee /tmp/it-comms2-completion.log
+          if grep -qE "# skipped 1" /tmp/it-main.log /tmp/it-privileges.log /tmp/it-comms2.log /tmp/it-comms2-privacy.log /tmp/it-comms2-completion.log; then
             echo "::error::integration suite was SKIPPED — DB gate not satisfied"
             exit 1
           fi
+
+  communication-staging:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 148
+    runs-on: ubuntu-latest
+    env:
+      COMMUNICATION_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Assert canonical staging credential is available
+        run: |
+          if [ -z "$COMMUNICATION_STAGING_DATABASE_URL" ]; then
+            echo "::error::DIASPORA_STAGING_DATABASE_URL is unavailable; Communications staging apply cannot be certified"
+            exit 1
+          fi
+      - name: Communications staging preflight (read-only)
+        run: MODE=verify node backend/scripts/staging-apply-communications-2.mjs
+      - name: Apply frozen Communications 2.0 migrations 315-323 to canonical staging
+        run: MODE=apply node backend/scripts/staging-apply-communications-2.mjs
+      - name: Communications staging post-apply verification
+        run: MODE=verify node backend/scripts/staging-apply-communications-2.mjs
+
+  communication-staging-deploy:
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 148
+    needs: [communication-unit, communication-postgres, communication-staging]
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN_PRIMARY: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TOKEN_FALLBACK: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      VERCEL_ORG_ID: team_InL2Jmsg4dbG0rFY8nxriTha
+      BACKEND_STAGING_PROJECT_ID: prj_ddsVeXDxxHxyMAaZxX4v5ORya27W
+      FRONTEND_STAGING_PROJECT_ID: prj_auYmL5hA2ppWA15jdTK4GAdy3AYm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve staging deployment credential without printing it
+        id: vercel-auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$VERCEL_TOKEN_PRIMARY" ]; then
+            echo "token=$VERCEL_TOKEN_PRIMARY" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          elif [ -n "$VERCEL_TOKEN_FALLBACK" ]; then
+            echo "token=$VERCEL_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No repository Vercel CLI token is available. Exact-head stable-staging deployment remains an authenticated owner/operator gate; no deployment write was attempted."
+          fi
+      - name: Deploy exact head to backend STAGING project production target
+        if: steps.vercel-auth.outputs.available == 'true'
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ env.BACKEND_STAGING_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
+      - name: Deploy exact head to frontend STAGING project production target
+        if: steps.vercel-auth.outputs.available == 'true'
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
+          VERCEL_PROJECT_ID: ${{ env.FRONTEND_STAGING_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          npx --yes vercel@58.1.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope pay-pass-project --project "$VERCEL_PROJECT_ID" --meta carupSourceSha="$GITHUB_SHA"
+      - name: Record staging-only safety boundary
+        run: |
+          if [ "${{ steps.vercel-auth.outputs.available }}" = "true" ]; then
+            echo "Deployment lane targeted only carup-backend-staging and carup-staging project IDs."
+          else
+            echo "Deployment not attempted: authenticated Vercel owner/operator action remains required."
+          fi
+          echo "No carup-backend or carup production project ID is present in this job."

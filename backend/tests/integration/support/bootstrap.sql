@@ -25,7 +25,6 @@ CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
-  -- `->> 'sub'` yields text; the declared return type is uuid, so cast (NULL sub → NULL uuid).
   SELECT (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid;
 $$;
 
@@ -64,4 +63,30 @@ CREATE TABLE IF NOT EXISTS public.domain_events (
   attempts INTEGER NOT NULL DEFAULT 0,
   tenant_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Minimal Marketplace inquiry shape required by the Communications 2.0 reliability trigger.
+-- This is disposable CI only; the real table comes from the Marketplace migration chain.
+CREATE TABLE IF NOT EXISTS public.marketplace_inquiries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  listing_id TEXT,
+  listing_type TEXT NOT NULL DEFAULT 'vehicle',
+  buyer_id TEXT,
+  guest_name TEXT,
+  guest_email TEXT,
+  guest_phone TEXT,
+  seller_id TEXT,
+  seller_tenant_id TEXT,
+  inquiry_type TEXT NOT NULL,
+  message TEXT,
+  referral_code TEXT,
+  campaign_code TEXT,
+  source_channel TEXT NOT NULL DEFAULT 'web',
+  status TEXT NOT NULL DEFAULT 'new',
+  risk_status TEXT NOT NULL DEFAULT 'clear',
+  assigned_operator TEXT,
+  country TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

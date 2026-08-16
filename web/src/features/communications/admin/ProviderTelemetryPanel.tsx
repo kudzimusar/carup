@@ -29,10 +29,18 @@ export interface ProviderTelemetryPanelProps {
 
 function modeBadge(t: ProviderTelemetry) {
   const mode = String(t.mode || '').toLowerCase()
-  if (mode === 'real' || (t.available && mode !== 'fake')) return <Badge className="text-[10px]">Ready</Badge>
   if (mode === 'fake') return <Badge variant="destructive" className="text-[10px]">Fake — no live send</Badge>
   if (mode === 'planned') return <Badge variant="secondary" className="text-[10px]">Planned</Badge>
-  return <Badge variant="outline" className="text-[10px]">Not configured</Badge>
+
+  // "Ready" must mean the channel can actually send. `mode === 'real'` only says which adapter is
+  // wired, not that it is usable — every unconfigured provider here is a real adapter — so keying
+  // the badge on the mode alone labelled SendGrid, Twilio, Expo, Messenger and Instagram "Ready"
+  // on the same card that listed their missing credentials. An operator reading the provider board
+  // during an incident would have taken those channels as healthy.
+  const credentialsMissing = t.credentials?.complete === false && (t.credentials.missing?.length ?? 0) > 0
+  if (t.available && !credentialsMissing) return <Badge className="text-[10px]">Ready</Badge>
+  if (credentialsMissing) return <Badge variant="outline" className="text-[10px]">Not configured</Badge>
+  return <Badge variant="outline" className="text-[10px]">Unavailable</Badge>
 }
 
 export function ProviderTelemetryPanel({ channels, staleLocks }: ProviderTelemetryPanelProps) {

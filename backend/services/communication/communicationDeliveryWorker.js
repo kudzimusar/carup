@@ -3,13 +3,13 @@ import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, nowIso } from 
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 export class CommunicationDeliveryWorker {
-  constructor({ repository, adapterRegistry = null, workerId = 'communication-worker' } = {}) {
+  constructor({ repository, adapterRegistry = null, notificationService = null, workerId = 'communication-worker' } = {}) {
     this.repository = repository;
     this.adapterRegistry = adapterRegistry || createDefaultAdapterRegistry();
+    this.notificationService = notificationService;
     this.workerId = workerId;
   }
 
-  // Shared fail-soft audit for a notification lifecycle transition (item 2).
   auditNotification(notification, eventType, extra = {}) {
     return logCommunicationAuditEvent(this.repository, {
       tenant_id: notification.tenant_id ?? null,
@@ -97,8 +97,6 @@ export class CommunicationDeliveryWorker {
       provider_request_id: result.providerRequestId || null,
       provider_message_id: result.providerMessageId || null,
       request_metadata: { idempotency_key: notification.dedupe_key },
-      // Preserve sanitized provider failure details (Meta http status/code/subcode/type/message/trace)
-      // for diagnosis. NEVER stores tokens, auth headers, or full provider payloads/PII.
       response_metadata: {
         provider_status: result.providerStatus || null,
         ...(result.provider_http_status != null ? { provider_http_status: result.provider_http_status } : {}),
@@ -136,6 +134,7 @@ export class CommunicationDeliveryWorker {
           sent_at: nowIso(),
           delivered_at: result.providerStatus === 'delivered' ? nowIso() : null,
           provider_message_id: result.providerMessageId || null,
+          failed_at: null,
         });
       }
       const receiptState = result.providerStatus === 'delivered' ? 'delivered' : 'sent';
@@ -187,16 +186,45 @@ export class CommunicationDeliveryWorker {
       locked_at: null,
       locked_by: null,
     });
+    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DEAD_LETTERED, {
+      summary: `Dead-lettered (${result.errorCode || 'delivery_failed'})`,
+      metadata: { error_code: result.errorCode || 'delivery_failed', error_message: result.errorMessage || null },
+    });
+
+    let fallback = null;
+    if (this.notificationService?.queueNextFallback) {
+      try {
+        fallback = await this.notificationService.queueNextFallback(notification, {
+          trigger: 'worker_terminal_failure',
+          errorCode: result.errorCode || 'delivery_failed',
+          errorMessage: result.errorMessage || null,
+          actor_type: 'worker',
+          actor_id: this.workerId,
+        });
+      } catch (error) {
+        await this.auditNotification(notification, 'fallback_orchestration_failed', {
+          summary: 'Automatic fallback orchestration failed',
+          metadata: { error: error?.message || 'unknown fallback orchestration failure' },
+        });
+      }
+    }
+
+    if (fallback?.queued) {
+      return {
+        notificationId: notification.id,
+        status: 'fallback_queued',
+        fallbackNotificationId: fallback.notification?.id || null,
+        fallbackChannel: fallback.channel || null,
+        event: COMMUNICATION_EVENTS.NOTIFICATION_DEAD_LETTERED,
+      };
+    }
+
     if (notification.message_id) {
       await this.repository.updateById('messages', notification.message_id, {
         status: 'dead_letter',
         failed_at: nowIso(),
       });
     }
-    await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DEAD_LETTERED, {
-      summary: `Dead-lettered (${result.errorCode || 'delivery_failed'})`,
-      metadata: { error_code: result.errorCode || 'delivery_failed', error_message: result.errorMessage || null },
-    });
     return { notificationId: notification.id, status: 'dead_letter', event: COMMUNICATION_EVENTS.NOTIFICATION_DEAD_LETTERED };
   }
 

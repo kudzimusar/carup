@@ -281,16 +281,55 @@ export class CommunicationNotificationService {
     }
   }
 
+  async existingMessageSuppressionReason(input, channel) {
+    const thread = input.thread;
+    const transactional = input.transactional !== false;
+
+    let participant = null;
+    if (input.recipientUserId) {
+      participant = await this.repository.findOne('message_participants', {
+        thread_id: thread.id,
+        user_id: input.recipientUserId,
+      }).catch(() => null);
+    } else if (input.recipientIdentityId) {
+      participant = await this.repository.findOne('message_participants', {
+        thread_id: thread.id,
+        external_identity_id: input.recipientIdentityId,
+      }).catch(() => null);
+    }
+    if (participant?.notification_muted && !input.quietHoursBypass) return 'participant_muted';
+
+    if (input.recipientUserId) {
+      const prefs = await this.preferenceService.getPreferences(input.recipientUserId, thread.tenant_id || null);
+      if (transactional && prefs.transactional_enabled === false && !input.quietHoursBypass) {
+        return 'transactional_disabled';
+      }
+      if (channel === 'in_app' && prefs.in_app_enabled === false) return 'in_app_disabled';
+      if (
+        channel !== 'in_app'
+        && this.preferenceService.isInQuietHours(prefs)
+        && !input.quietHoursBypass
+        && (input.priority || thread.priority || 'normal') !== 'urgent'
+      ) {
+        return 'quiet_hours';
+      }
+    }
+    return null;
+  }
+
   async queueExistingMessage(input = {}) {
     const message = input.message;
     const thread = input.thread;
     if (!message?.id || !thread?.id) throw new Error('Existing message and thread are required to queue delivery.');
     if (!input.recipientUserId && !input.recipientIdentityId) throw new Error('A recipient user or channel identity is required to queue delivery.');
     const channel = normalizeChannel(input.channel || message.channel || thread.primary_channel) || 'in_app';
+    const transactional = input.transactional !== false;
     const recipientKey = input.recipientUserId || input.recipientIdentityId;
     const dedupeKey = buildDedupeKey(input.dedupeParts || ['message', message.id, recipientKey, channel]);
     const existingNotification = await this.repository.findOne('notification_queue', { dedupe_key: dedupeKey });
     if (existingNotification) return { notification: existingNotification, message, thread };
+
+    const suppressionReason = await this.existingMessageSuppressionReason(input, channel);
     const notificationRow = {
       tenant_id: thread.tenant_id || null,
       recipient_id: input.recipientUserId || null,
@@ -308,7 +347,7 @@ export class CommunicationNotificationService {
       template_key: input.templateKey || 'admin_reply_v1',
       payload: input.payload || {},
       priority: input.priority || thread.priority || 'normal',
-      status: 'queued',
+      status: suppressionReason ? 'suppressed' : 'queued',
       dedupe_key: dedupeKey,
       scheduled_at: input.scheduledAt || nowIso(),
       next_attempt_at: input.nextAttemptAt || null,
@@ -317,11 +356,15 @@ export class CommunicationNotificationService {
       read: false,
       created_at: nowIso(),
       updated_at: nowIso(),
-      metadata: { transactional: input.transactional !== false, source: 'existing_message' },
+      metadata: {
+        transactional,
+        source: 'existing_message',
+        suppression_reason: suppressionReason,
+      },
     };
     if (input.id) notificationRow.id = input.id;
     const notification = await this.insertNotificationIdempotently(notificationRow);
-    return { notification, message, thread };
+    return { notification, message, thread, suppressed: Boolean(suppressionReason), suppression_reason: suppressionReason };
   }
 
   async insertNotificationIdempotently(notificationRow) {
