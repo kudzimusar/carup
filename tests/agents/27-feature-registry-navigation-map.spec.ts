@@ -199,8 +199,9 @@ test.describe('Feature Registry & Navigation Map', () => {
       await expect(page.locator('[data-testid="nav-garage"]')).toBeVisible();
       await expect(page.locator('[data-testid="nav-diaspora-imports"]')).toBeVisible();
 
-      // Check key sidebar links exist by text
-      const sidebar = page.locator('aside');
+      // Anchor the check to the actual dashboard navigation sidebar. Owner pages may legitimately
+      // contain other complementary <aside> regions (for example an action rail).
+      const sidebar = page.getByTestId('nav-dashboard').locator('xpath=ancestor::aside[1]');
       await expect(sidebar.getByText('My Garage')).toBeVisible();
       await expect(sidebar.getByText('Evidence Vault')).toBeVisible();
       await expect(sidebar.getByText('Service History')).toBeVisible();
@@ -213,7 +214,8 @@ test.describe('Feature Registry & Navigation Map', () => {
       await page.goto('http://localhost:5173/dashboard');
       await page.waitForLoadState('networkidle');
 
-      const evidenceVault = page.locator('aside').getByText('Evidence Vault').locator('..');
+      const sidebar = page.getByTestId('nav-dashboard').locator('xpath=ancestor::aside[1]');
+      const evidenceVault = sidebar.getByText('Evidence Vault').locator('..');
       await expect(evidenceVault).toBeVisible();
       await expect(evidenceVault.getByText('Upload')).toBeVisible();
     });
