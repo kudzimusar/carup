@@ -53,10 +53,28 @@ export default function OwnerNotificationBell() {
   }, [fetchCommunicationNotifications])
 
   useEffect(() => {
-    // Initial loading state is already true. Do not synchronously write state from the effect;
-    // all loader mutations occur after the awaited Communications read settles.
-    void load()
-  }, [load, location.pathname])
+    let cancelled = false
+
+    // The effect owns only the subscription to the asynchronous read. State changes happen from
+    // the promise callbacks after the Communications request settles, which keeps this refresh
+    // compatible with react-hooks/set-state-in-effect while still refreshing across owner routes.
+    fetchCommunicationNotifications()
+      .then((response) => {
+        if (cancelled) return
+        setNotifications((response?.notifications || []) as OwnerNotification[])
+        setLoadError(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setNotifications([])
+        setLoadError(true)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [fetchCommunicationNotifications, location.pathname])
 
   const unread = useMemo(() => notifications.filter((notification) => !notification.read), [notifications])
 
