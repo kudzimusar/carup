@@ -39,7 +39,6 @@ export default function OwnerNotificationBell() {
   const [markingAll, setMarkingAll] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const response = await fetchCommunicationNotifications()
       setNotifications((response?.notifications || []) as OwnerNotification[])
@@ -54,6 +53,8 @@ export default function OwnerNotificationBell() {
   }, [fetchCommunicationNotifications])
 
   useEffect(() => {
+    // Initial loading state is already true. Do not synchronously write state from the effect;
+    // all loader mutations occur after the awaited Communications read settles.
     void load()
   }, [load, location.pathname])
 
@@ -95,7 +96,15 @@ export default function OwnerNotificationBell() {
   async function togglePanel() {
     const next = !open
     setOpen(next)
-    if (next) await load()
+    if (next) {
+      setLoading(true)
+      await load()
+    }
+  }
+
+  function retryLoad() {
+    setLoading(true)
+    void load()
   }
 
   return (
@@ -161,7 +170,7 @@ export default function OwnerNotificationBell() {
                 <AlertCircle className="mx-auto h-8 w-8 text-amber-500" />
                 <p className="mt-2 text-sm font-semibold text-slate-700">Notifications are unavailable right now</p>
                 <p className="mt-1 text-xs text-slate-500">CarUp could not confirm your live notification state. No zero count has been assumed.</p>
-                <Button variant="outline" size="sm" type="button" className="mt-4 gap-1.5" onClick={() => { void load() }}>
+                <Button variant="outline" size="sm" type="button" className="mt-4 gap-1.5" onClick={retryLoad}>
                   <RefreshCw className="h-3.5 w-3.5" /> Retry
                 </Button>
               </div>
@@ -190,7 +199,7 @@ export default function OwnerNotificationBell() {
                     {!notification.read && <Badge className="bg-orange-100 text-[9px] text-orange-700 hover:bg-orange-100">New</Badge>}
                   </div>
                 </button>
-              ))
+              ))}
             )}
           </div>
 
