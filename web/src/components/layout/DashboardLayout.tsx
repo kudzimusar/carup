@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
+import OwnerNotificationBell from '@/components/owner/OwnerNotificationBell'
 import {
   getDashboardItems,
   getDashboardRoute,
@@ -263,11 +264,15 @@ export default function DashboardLayout({ role }: { role: string }) {
           )}
 
           <div className="ml-auto flex items-center gap-1.5">
-            <Button variant="ghost" size="icon" className="relative" asChild>
-              <Link to="/dashboard" aria-label="Dashboard notifications">
-                <Bell className="w-5 h-5" />
-              </Link>
-            </Button>
+            {role === 'owner' ? (
+              <OwnerNotificationBell />
+            ) : (
+              <Button variant="ghost" size="icon" className="relative" asChild>
+                <Link to={getDashboardRoute(role as UserRole)} aria-label="Dashboard notifications">
+                  <Bell className="w-5 h-5" />
+                </Link>
+              </Button>
+            )}
 
             {role === 'owner' && (
               <Button variant="ghost" size="icon" className="relative" asChild>
