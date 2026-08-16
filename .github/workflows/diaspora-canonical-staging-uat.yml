@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      STAGING_WEB_URL: https://carup-staging.vercel.app
-      STAGING_API_URL: https://carup-backend-staging.vercel.app/api
+      STAGING_WEB_URL: https://staging.carup.dev
+      STAGING_API_URL: https://api-staging.carup.dev/api
       STAGING_RUN_ID: canonical-${{ github.run_id }}
       DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
       EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer

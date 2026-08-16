@@ -30,15 +30,15 @@ function createService() {
 
 const adminActor = Object.freeze({ actor_user_id: 'admin-1', actor_role: 'admin', actor_tenant_id: 'tenant-1', actor_type: 'admin' });
 const shareOverrideTampering = Object.freeze({
-  baseUrl: 'https://carup.app',
-  base_url: 'https://carup.app',
-  publicAppUrl: 'https://carup.app',
-  public_app_url: 'https://carup.app',
-  PUBLIC_APP_URL: 'https://carup.app',
-  VITE_PUBLIC_APP_URL: 'https://carup.app',
-  CARUP_PUBLIC_BASE_URL: 'https://carup.app',
-  CARUP_PUBLIC_APP_URL: 'https://carup.app',
-  env: { PUBLIC_APP_URL: 'https://carup.app' },
+  baseUrl: 'https://carup.dev',
+  base_url: 'https://carup.dev',
+  publicAppUrl: 'https://carup.dev',
+  public_app_url: 'https://carup.dev',
+  PUBLIC_APP_URL: 'https://carup.dev',
+  VITE_PUBLIC_APP_URL: 'https://carup.dev',
+  CARUP_PUBLIC_BASE_URL: 'https://carup.dev',
+  CARUP_PUBLIC_APP_URL: 'https://carup.dev',
+  env: { PUBLIC_APP_URL: 'https://carup.dev' },
   telegramBot: 'CarUpTestBot',
 });
 
@@ -135,27 +135,27 @@ test('share assets include URL, QR payload, barcode, chat links, social URL, and
 });
 
 test('share assets resolve public app URL by trusted environment, not staging user input', () => {
-  assert.equal(resolveReferralPublicAppUrl({}, { CARUP_PUBLIC_BASE_URL: 'https://carup.app' }), 'https://carup.app');
+  assert.equal(resolveReferralPublicAppUrl({}, { CARUP_PUBLIC_BASE_URL: 'https://carup.dev' }), 'https://carup.dev');
   assert.equal(resolveReferralPublicAppUrl({}, {
     VERCEL: '1',
     VERCEL_ENV: 'production',
     VERCEL_PROJECT_PRODUCTION_URL: 'carup-backend.vercel.app',
     NODE_ENV: 'production',
-  }), 'https://carup.app');
+  }), 'https://carup.dev');
   assert.equal(resolveReferralPublicAppUrl({}, {
     VERCEL: '1',
     VERCEL_ENV: 'production',
     VERCEL_PROJECT_PRODUCTION_URL: 'carup-backend-staging.vercel.app',
     VERCEL_URL: 'carup-backend-staging-abc123-pay-pass-project.vercel.app',
     NODE_ENV: 'test',
-  }), 'https://carup-staging.vercel.app');
+  }), 'https://staging.carup.dev');
   assert.equal(resolveReferralPublicAppUrl({}, {
     VERCEL: '1',
     VERCEL_ENV: 'preview',
     VERCEL_PROJECT_PRODUCTION_URL: 'carup-backend-staging.vercel.app',
     VERCEL_URL: 'carup-backend-staging-git-fix-referral-v1-post-stage4-governance-pay-pass-project.vercel.app',
     NODE_ENV: 'test',
-  }), 'https://carup-staging.vercel.app');
+  }), 'https://staging.carup.dev');
   assert.equal(resolveReferralPublicAppUrl({}, {
     VERCEL: '1',
     VERCEL_ENV: 'preview',
@@ -174,7 +174,7 @@ test('share assets resolve public app URL by trusted environment, not staging us
     VERCEL_ENV: 'preview',
     VERCEL_PROJECT_PRODUCTION_URL: 'carup-backend-staging.vercel.app',
     NODE_ENV: 'test',
-  }), 'https://carup.app');
+  }), 'https://carup.dev');
   assert.equal(resolveReferralPublicAppUrl({}, { NODE_ENV: 'development' }), 'http://localhost:5173');
 
   const stagingAssets = buildReferralShareAssets(
@@ -182,22 +182,24 @@ test('share assets resolve public app URL by trusted environment, not staging us
     { slug: 'stage-four' },
     { env: { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_PROJECT_PRODUCTION_URL: 'carup-backend-staging.vercel.app', NODE_ENV: 'test' } },
   );
-  assert.equal(stagingAssets.short_referral_url, 'https://carup-staging.vercel.app/r/STAGE-CODE-50');
-  assert.equal(stagingAssets.short_referral_url.includes('carup.app'), false);
+  assert.equal(stagingAssets.short_referral_url, 'https://staging.carup.dev/r/STAGE-CODE-50');
+  // Must be the staging subdomain, not the bare production origin (a plain .includes('carup.dev')
+  // would false-pass here since 'staging.carup.dev' contains 'carup.dev' as a substring).
+  assert.equal(stagingAssets.short_referral_url.startsWith('https://carup.dev'), false);
   assert.equal(stagingAssets.short_referral_url.includes('/admin'), false);
   assert.equal(stagingAssets.social_campaign_url.startsWith(`${stagingAssets.short_referral_url}?`), true);
 });
 
 test('request-supplied share options cannot override the trusted public app URL', async () => {
   const { repository, service } = createService();
-  service.shareOptions = { baseUrl: 'https://carup-staging.vercel.app' };
+  service.shareOptions = { baseUrl: 'https://staging.carup.dev' };
   const campaign = await service.createCampaign({ name: 'Staging Share Isolation', status: 'ACTIVE' }, adminActor);
   await service.createReferralCode({ campaign_id: campaign.id, owner_user_id: 'seller-1', code: 'stage-safe-code', code_type: REFERRAL_CODE_TYPES.MEMBER, channel: 'web' }, adminActor);
   const asset = await service.createShareAssets(
     { code: 'stage-safe-code', options: shareOverrideTampering },
     adminActor,
   );
-  assert.equal(asset.payload.short_referral_url, 'https://carup-staging.vercel.app/r/STAGE-SAFE-CODE');
+  assert.equal(asset.payload.short_referral_url, 'https://staging.carup.dev/r/STAGE-SAFE-CODE');
   assert.deepEqual(sanitizeCallerShareOptions(shareOverrideTampering), { telegramBot: 'CarUpTestBot' });
 });
 

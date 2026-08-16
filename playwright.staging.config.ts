@@ -5,8 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * Runs specs 32–35 against the REAL deployed staging frontend/backend — no webServer, no mocks,
  * no page.route() for core journeys. Configure via env:
- *   STAGING_WEB_URL   (default https://carup-staging.vercel.app)
- *   STAGING_API_URL   (default https://carup-backend-staging.vercel.app/api)
+ *   STAGING_WEB_URL   (default https://staging.carup.dev)
+ *   STAGING_API_URL   (default https://api-staging.carup.dev/api)
  *   STAGING_EXPECTED_BUNDLE  — bundle hash fingerprint (e.g. index-AbC123.js) the deployed frontend
  *                              must serve; global-setup FAILS on mismatch so acceptance can never
  *                              silently run against a stale deployment.
@@ -33,7 +33,7 @@ export default defineConfig({
   ],
   globalSetup: './tests/agents/staging-global-setup.ts',
   use: {
-    baseURL: process.env.STAGING_WEB_URL || 'https://carup-staging.vercel.app',
+    baseURL: process.env.STAGING_WEB_URL || 'https://staging.carup.dev',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

@@ -5,7 +5,7 @@
 - Router: `web/src/App.tsx` uses React Router route groups under `MainLayout` for public pages and `DashboardLayout` for stakeholder dashboards.
 - Layouts: public routes use `MainLayout`; role-specific operational pages use `DashboardLayout`.
 - Auth/session: `web/src/context/AuthContext.tsx` reads `carup_user` and `carup_token` from `localStorage`, exposes `useAuth()`, and passes `x-session-token`, `x-user-id`, `x-stakeholder-role`, and `x-tenant-id` through the API hook.
-- API client: `web/src/hooks/useCarUpApi.ts` centralizes gateway calls and selects `http://localhost:5001/api` on localhost, otherwise `https://carup-backend.vercel.app/api`.
+- API client: `web/src/hooks/useCarUpApi.ts` centralizes gateway calls and selects `http://localhost:5001/api` on localhost, otherwise `https://api.carup.dev/api` (the canonical production API domain; overridden per-environment via `VITE_API_URL`).
 - Role-based UI: dashboard routes are grouped by role and some pages, such as Trust Review, perform in-page authorization checks from `user.role`.
 - Tests: Playwright E2E tests live in `web/e2e`; unit tests use Vitest where present. Playwright expects a Vite dev server at `http://localhost:5173`.
 - `data-testid`: existing coverage is strongest on tested flows such as marketplace, vehicle detail, trust review, owner dashboard, and auth forms.

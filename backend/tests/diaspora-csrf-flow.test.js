@@ -143,6 +143,27 @@ test('CORS preflight from carup.vercel.app allows x-csrf-token and the auth head
   }
 });
 
+test('CORS preflight from the canonical carup.dev origin allows x-csrf-token and the auth headers, with credentials', async () => {
+  const requested = 'x-csrf-token,x-session-token,x-user-id,x-stakeholder-role,x-tenant-id';
+  const res = await fetch(`${baseUrl}/api/diaspora/import-orders`, {
+    method: 'OPTIONS',
+    headers: {
+      origin: 'https://carup.dev',
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': requested,
+    },
+  });
+
+  assert.ok(res.status === 204 || res.status === 200, `preflight status ${res.status}`);
+  assert.equal(res.headers.get('access-control-allow-origin'), 'https://carup.dev');
+  assert.equal(res.headers.get('access-control-allow-credentials'), 'true');
+
+  const allowHeaders = (res.headers.get('access-control-allow-headers') || '').toLowerCase();
+  for (const h of ['x-csrf-token', 'x-session-token', 'x-user-id', 'x-stakeholder-role', 'x-tenant-id']) {
+    assert.ok(allowHeaders.includes(h), `preflight must allow ${h} (got: ${allowHeaders})`);
+  }
+});
+
 test('CORS rejects a disallowed origin (no allow-origin header)', async () => {
   const res = await fetch(`${baseUrl}/api/security/csrf-token`, {
     headers: { origin: 'https://evil.example.com' },

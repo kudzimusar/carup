@@ -12,8 +12,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 export default async function globalSetup() {
-  const webUrl = process.env.STAGING_WEB_URL || 'https://carup-staging.vercel.app';
-  const apiUrl = process.env.STAGING_API_URL || 'https://carup-backend-staging.vercel.app/api';
+  const webUrl = process.env.STAGING_WEB_URL || 'https://staging.carup.dev';
+  const apiUrl = process.env.STAGING_API_URL || 'https://api-staging.carup.dev/api';
   const runId = process.env.STAGING_RUN_ID || `staging-${Date.now()}`;
   const expected = process.env.STAGING_EXPECTED_BUNDLE || '';
   const allowStale = process.env.STAGING_ALLOW_STALE === '1';
