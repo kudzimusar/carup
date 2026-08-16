@@ -77,4 +77,15 @@ describe('OwnerNotificationBell', () => {
     expect(markCommunicationNotificationRead).toHaveBeenCalledWith('n2')
     await waitFor(() => expect(screen.queryByTestId('owner-notification-count')).toBeNull())
   })
+
+  it('renders an unavailable state instead of fabricating a zero when the read fails', async () => {
+    fetchCommunicationNotifications.mockRejectedValue(new Error('backend unavailable'))
+    renderBell()
+
+    await waitFor(() => expect(screen.getByTestId('owner-notification-error-dot')).toBeTruthy())
+    expect(screen.queryByTestId('owner-notification-count')).toBeNull()
+    fireEvent.click(screen.getByTestId('owner-notification-bell'))
+    expect(await screen.findByTestId('owner-notification-unavailable')).toBeTruthy()
+    expect(screen.getByText(/No zero count has been assumed/i)).toBeTruthy()
+  })
 })
