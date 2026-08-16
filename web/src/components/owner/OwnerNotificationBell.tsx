@@ -111,12 +111,13 @@ export default function OwnerNotificationBell() {
     setMarkingAll(false)
   }
 
-  async function togglePanel() {
+  function togglePanel() {
     const next = !open
     setOpen(next)
     if (next) {
-      setLoading(true)
-      await load()
+      // Refresh in the background without disabling actions backed by the already-known state.
+      // This avoids a brief dead period where an owner can see unread items but cannot act on them.
+      void load()
     }
   }
 
@@ -132,7 +133,7 @@ export default function OwnerNotificationBell() {
         size="icon"
         className="relative"
         type="button"
-        onClick={() => { void togglePanel() }}
+        onClick={togglePanel}
         aria-label={loadError ? 'Notifications unavailable' : unread.length ? `Notifications, ${unread.length} unread` : 'Notifications'}
         aria-expanded={open}
         data-testid="owner-notification-bell"
