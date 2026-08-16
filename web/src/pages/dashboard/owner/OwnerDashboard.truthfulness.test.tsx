@@ -14,7 +14,7 @@ import { MemoryRouter } from 'react-router-dom'
 
 const fetchSafePayEscrows = vi.fn()
 const fetchOwnedVehicles = vi.fn()
-const fetchNotifications = vi.fn()
+const fetchCommunicationNotifications = vi.fn()
 const fetchSavedMarketplaceListings = vi.fn()
 const fetchCommunicationThreads = vi.fn()
 const runOcrParsing = vi.fn()
@@ -38,7 +38,7 @@ vi.mock('@/hooks/useCarUpApi', () => ({
     runOcrParsing,
     fetchSafePayEscrows,
     fetchOwnedVehicles,
-    fetchNotifications,
+    fetchCommunicationNotifications,
     fetchSavedMarketplaceListings,
     fetchCommunicationThreads,
   }),
@@ -60,7 +60,7 @@ beforeEach(() => {
   // A brand-new account: every authoritative source is legitimately empty.
   fetchSafePayEscrows.mockResolvedValue([])
   fetchOwnedVehicles.mockResolvedValue([])
-  fetchNotifications.mockResolvedValue([])
+  fetchCommunicationNotifications.mockResolvedValue({ notifications: [] })
   fetchSavedMarketplaceListings.mockResolvedValue({ listings: [] })
   fetchCommunicationThreads.mockResolvedValue({ threads: [] })
 })
@@ -154,13 +154,13 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     // These endpoints are all caller-scoped server-side; the dashboard must not pass any
     // user/tenant selector that could widen them.
     expect(fetchOwnedVehicles).toHaveBeenCalledWith()
-    expect(fetchNotifications).toHaveBeenCalledWith()
+    expect(fetchCommunicationNotifications).toHaveBeenCalledWith()
     expect(fetchSafePayEscrows).toHaveBeenCalledWith()
     expect(fetchSavedMarketplaceListings).toHaveBeenCalledWith()
     expect(fetchCommunicationThreads).toHaveBeenCalledWith()
   })
 
-  it('still renders real vehicles, saved cars and notifications when the account has them', async () => {
+  it('still renders real vehicles, saved cars and canonical notifications when the account has them', async () => {
     fetchOwnedVehicles.mockResolvedValue([
       { vin: 'VIN123', year: 2019, make: 'Toyota', model: 'Hilux', mileage: 45000, trust_score: 88 },
     ])
@@ -169,14 +169,27 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
         { vin: 'SAVE1', year: 2020, make: 'Mazda', model: 'CX-5', price: 18000, trust_score: 84 },
       ],
     })
-    fetchNotifications.mockResolvedValue([
-      { id: 'n1', title: 'Service due', message: 'Book a service', type: 'info', read: false },
-    ])
+    fetchCommunicationNotifications.mockResolvedValue({
+      notifications: [
+        { id: 'n1', title: 'Service due', message: 'Book a service', notification_type: 'service_due', read: false },
+      ],
+    })
     const { container } = renderFreshDashboard()
 
     await waitFor(() => expect(container.textContent).toContain('Toyota'))
     expect(container.textContent).toContain('Mazda')
     expect(container.textContent).toContain('Service due')
+    expect(container.textContent).toContain('1 new')
+  })
+
+  it('routes unread notification attention into the canonical Communications center', async () => {
+    fetchCommunicationNotifications.mockResolvedValue({
+      notifications: [{ id: 'n1', title: 'Action required', message: 'Review this update', read: false }],
+    })
+    renderFreshDashboard()
+
+    const reviewLink = await screen.findByRole('link', { name: /Review new activity/i })
+    expect(reviewLink.getAttribute('href')).toBe('/dashboard/communications')
   })
 
   it('guides a fresh owner toward real next actions instead of unavailable system cards', async () => {
@@ -189,12 +202,14 @@ describe('OwnerDashboard truthfulness for a fresh account (issue #128 Fix B)', (
     expect(container.textContent).toContain('Gutu AI Assistant')
   })
 
-  it('the source no longer contains the prototype constants', () => {
+  it('the source no longer contains the prototype constants or legacy notification read', () => {
     expect(SRC).not.toMatch(/usd:\s*350/)
     expect(SRC).not.toMatch(/zig:\s*4800/)
     expect(SRC).not.toContain('>92.5%<')
     expect(SRC).not.toContain('ZIMRA Customs Cleared Form 21.pdf')
     expect(SRC).not.toContain('NicozDiamond Policy.pdf')
+    expect(SRC).not.toContain('fetchNotifications')
+    expect(SRC).toContain('fetchCommunicationNotifications')
   })
 })
 
