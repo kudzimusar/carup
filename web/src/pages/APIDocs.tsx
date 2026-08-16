@@ -187,10 +187,10 @@ const ENDPOINTS: EndpointConfig[] = [
       { name: 'currency', type: 'string', req: false, def: 'USD', desc: 'Preferred financial output representation. Allowed formats: USD, ZiG, ZAR, BWP.' }
     ],
     codeSnippets: {
-      curl: `curl -X GET "https://api.carup.co.zw/v1/vehicles/NHP10-8201948?include_compliance=true" \\
+      curl: `curl -X GET "https://api.carup.dev/v1/vehicles/NHP10-8201948?include_compliance=true" \\
   -H "Authorization: Bearer cu_live_7e8a9f4c3b2a1a"`
       ,
-      javascript: `const response = await fetch('https://api.carup.co.zw/v1/vehicles/NHP10-8201948?include_compliance=true', {
+      javascript: `const response = await fetch('https://api.carup.dev/v1/vehicles/NHP10-8201948?include_compliance=true', {
   headers: {
     'Authorization': 'Bearer cu_live_7e8a9f4c3b2a1a',
     'Accept': 'application/json'
@@ -208,7 +208,7 @@ headers = {
 }
 
 response = requests.get(
-    'https://api.carup.co.zw/v1/vehicles/NHP10-8201948?include_compliance=true',
+    'https://api.carup.dev/v1/vehicles/NHP10-8201948?include_compliance=true',
     headers=headers
 )
 
@@ -224,7 +224,7 @@ import (
 )
 
 func main() {
-	url := "https://api.carup.co.zw/v1/vehicles/NHP10-8201948?include_compliance=true"
+	url := "https://api.carup.dev/v1/vehicles/NHP10-8201948?include_compliance=true"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("Authorization", "Bearer cu_live_7e8a9f4c3b2a1a")
 
@@ -253,7 +253,7 @@ func main() {
       { name: 'condition', type: 'string', req: false, def: 'Good', desc: 'Physical condition rating: Excellent, Good, Fair, Poor.' }
     ],
     codeSnippets: {
-      curl: `curl -X GET "https://api.carup.co.zw/v1/vehicles/valuations?make=Toyota&model=Aqua&year=2018&mileage=85000" \\
+      curl: `curl -X GET "https://api.carup.dev/v1/vehicles/valuations?make=Toyota&model=Aqua&year=2018&mileage=85000" \\
   -H "Authorization: Bearer cu_live_7e8a9f4c3b2a1a"`
       ,
       javascript: `const params = new URLSearchParams({
@@ -264,7 +264,7 @@ func main() {
   condition: 'Good'
 });
 
-const response = await fetch(\`https://api.carup.co.zw/v1/vehicles/valuations?\${params}\`, {
+const response = await fetch(\`https://api.carup.dev/v1/vehicles/valuations?\${params}\`, {
   headers: {
     'Authorization': 'Bearer cu_live_7e8a9f4c3b2a1a'
   }
@@ -288,7 +288,7 @@ headers = {
 }
 
 response = requests.get(
-    'https://api.carup.co.zw/v1/vehicles/valuations',
+    'https://api.carup.dev/v1/vehicles/valuations',
     params=params,
     headers=headers
 )
@@ -305,7 +305,7 @@ import (
 )
 
 func main() {
-	url := "https://api.carup.co.zw/v1/vehicles/valuations?make=Toyota&model=Aqua&year=2018&mileage=85000&condition=Good"
+	url := "https://api.carup.dev/v1/vehicles/valuations?make=Toyota&model=Aqua&year=2018&mileage=85000&condition=Good"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("Authorization", "Bearer cu_live_7e8a9f4c3b2a1a")
 
@@ -352,10 +352,10 @@ func main() {
       { name: 'limit', type: 'integer', req: false, def: '20', desc: 'Maximum number of dealers to return in a single page limit query.' }
     ],
     codeSnippets: {
-      curl: `curl -X GET "https://api.carup.co.zw/v1/dealers?city=Harare&verified_only=true&limit=1" \\
+      curl: `curl -X GET "https://api.carup.dev/v1/dealers?city=Harare&verified_only=true&limit=1" \\
   -H "Authorization: Bearer cu_live_7e8a9f4c3b2a1a"`
       ,
-      javascript: `const response = await fetch('https://api.carup.co.zw/v1/dealers?city=Harare&verified_only=true&limit=1', {
+      javascript: `const response = await fetch('https://api.carup.dev/v1/dealers?city=Harare&verified_only=true&limit=1', {
   headers: {
     'Authorization': 'Bearer cu_live_7e8a9f4c3b2a1a'
   }
@@ -371,7 +371,7 @@ headers = {
 }
 
 response = requests.get(
-    'https://api.carup.co.zw/v1/dealers?city=Harare&verified_only=true&limit=1',
+    'https://api.carup.dev/v1/dealers?city=Harare&verified_only=true&limit=1',
     headers=headers
 )
 
@@ -387,7 +387,7 @@ import (
 )
 
 func main() {
-	url := "https://api.carup.co.zw/v1/dealers?city=Harare&verified_only=true&limit=1"
+	url := "https://api.carup.dev/v1/dealers?city=Harare&verified_only=true&limit=1"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("Authorization", "Bearer cu_live_7e8a9f4c3b2a1a")
 
@@ -434,7 +434,7 @@ func main() {
       { name: 'checks', type: 'object', req: true, desc: 'JSON object detailing statuses for engine, suspension, electronics, tires, and body.' }
     ],
     codeSnippets: {
-      curl: `curl -X POST "https://api.carup.co.zw/v1/inspections" \\
+      curl: `curl -X POST "https://api.carup.dev/v1/inspections" \\
   -H "Authorization: Bearer cu_live_7e8a9f4c3b2a1a" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -465,7 +465,7 @@ func main() {
   }
 };
 
-const response = await fetch('https://api.carup.co.zw/v1/inspections', {
+const response = await fetch('https://api.carup.dev/v1/inspections', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer cu_live_7e8a9f4c3b2a1a',
@@ -499,7 +499,7 @@ headers = {
 }
 
 response = requests.post(
-    'https://api.carup.co.zw/v1/inspections',
+    'https://api.carup.dev/v1/inspections',
     json=payload,
     headers=headers
 )
@@ -517,7 +517,7 @@ import (
 )
 
 func main() {
-	url := "https://api.carup.co.zw/v1/inspections"
+	url := "https://api.carup.dev/v1/inspections"
 	jsonData := []byte(\`{
 		"vin": "NHP10-8201948",
 		"inspector_id": "insp_byo_8920",
@@ -549,7 +549,7 @@ func main() {
   "vin": "NHP10-8201948",
   "grade": "A",
   "verified_timestamp": "2026-05-26T17:09:16Z",
-  "report_url": "https://carup.co.zw/reports/CU-INSP-902348.pdf",
+  "report_url": "https://carup.dev/reports/CU-INSP-902348.pdf",
   "active_alerts": [],
   "next_scheduled_inspection": "2027-05-26T00:00:00Z"
 }`
