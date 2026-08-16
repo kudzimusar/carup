@@ -30,7 +30,7 @@ import {
 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { useAuth } from '@/context/AuthContext'
-import type { Escrow, MarketplaceListingSummary, Notification, Vehicle } from '@/types'
+import type { Escrow, MarketplaceListingSummary, Vehicle } from '@/types'
 
 type DashboardThread = {
   id: string
@@ -39,6 +39,16 @@ type DashboardThread = {
   identity_display_name?: string | null
   latest_message_text?: string | null
   updated_at?: string | null
+}
+
+type DashboardNotification = {
+  id: string
+  read?: boolean
+  title?: string
+  message?: string
+  type?: string
+  notification_type?: string
+  created_at?: string | null
 }
 
 type AttentionItem = {
@@ -76,8 +86,8 @@ function notificationDot(type?: string) {
 
 export default function OwnerDashboard() {
   const {
+    fetchCommunicationNotifications,
     fetchCommunicationThreads,
-    fetchNotifications,
     fetchOwnedVehicles,
     fetchSafePayEscrows,
     fetchSavedMarketplaceListings,
@@ -86,7 +96,7 @@ export default function OwnerDashboard() {
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [savedCars, setSavedCars] = useState<MarketplaceListingSummary[]>([])
-  const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
+  const [liveNotifications, setLiveNotifications] = useState<DashboardNotification[]>([])
   const [threads, setThreads] = useState<DashboardThread[]>([])
   const [lowBandwidth, setLowBandwidth] = useState(false)
   const [readWarning, setReadWarning] = useState(false)
@@ -107,8 +117,10 @@ export default function OwnerDashboard() {
       .then((data) => { if (mounted) setVehicles(data || []) })
       .catch(() => { if (mounted) setReadWarning(true) })
 
-    fetchNotifications()
-      .then((data) => { if (mounted) setLiveNotifications(data || []) })
+    // Communications 2.0 owns the canonical notification/read-state contract. Keep the dashboard
+    // on that same surface so its count/activity can never drift from the notification center.
+    fetchCommunicationNotifications()
+      .then((data) => { if (mounted) setLiveNotifications((data?.notifications || []) as DashboardNotification[]) })
       .catch(() => { if (mounted) setReadWarning(true) })
 
     fetchSavedMarketplaceListings()
@@ -124,7 +136,7 @@ export default function OwnerDashboard() {
       })
 
     return () => { mounted = false }
-  }, [fetchCommunicationThreads, fetchNotifications, fetchOwnedVehicles, fetchSavedMarketplaceListings])
+  }, [fetchCommunicationNotifications, fetchCommunicationThreads, fetchOwnedVehicles, fetchSavedMarketplaceListings])
 
   useEffect(() => {
     let mounted = true
@@ -217,7 +229,7 @@ export default function OwnerDashboard() {
         title: 'Review new activity',
         detail: `${unreadNotifications.length} unread account alert${unreadNotifications.length === 1 ? '' : 's'} need your attention.`,
         action: 'Review',
-        href: '/dashboard',
+        href: '/dashboard/communications',
         icon: Bell,
       })
     }
@@ -597,7 +609,12 @@ export default function OwnerDashboard() {
                   <CardTitle className="text-lg text-slate-950">Recent Activity</CardTitle>
                   <p className="mt-1 text-xs text-slate-400">Account alerts and trust events</p>
                 </div>
-                <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">{unreadNotifications.length} new</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100">{unreadNotifications.length} new</Badge>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to="/dashboard/communications" className="gap-1 text-xs">Center <ArrowRight className="h-3.5 w-3.5" /></Link>
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-2">
                 {recentNotifications.length > 0 ? recentNotifications.map((notification) => (
@@ -606,10 +623,10 @@ export default function OwnerDashboard() {
                     className={`rounded-xl border p-3 ${notification.read ? 'border-slate-100 bg-slate-50/70' : 'border-orange-100 bg-orange-50/70'}`}
                   >
                     <div className="flex items-start gap-3">
-                      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notificationDot(notification.type)}`} aria-hidden="true" />
+                      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notificationDot(notification.notification_type || notification.type)}`} aria-hidden="true" />
                       <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-800">{notification.title}</p>
-                        <p className="mt-1 text-[11px] leading-4 text-slate-500">{notification.message}</p>
+                        <p className="text-xs font-bold text-slate-800">{notification.title || notification.notification_type || 'CarUp update'}</p>
+                        <p className="mt-1 text-[11px] leading-4 text-slate-500">{notification.message || 'Open Communications for details.'}</p>
                       </div>
                     </div>
                   </div>
