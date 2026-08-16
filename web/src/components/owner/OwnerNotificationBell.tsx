@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bell, CheckCheck, Loader2 } from 'lucide-react'
+import { AlertCircle, Bell, CheckCheck, Loader2, RefreshCw } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,8 @@ function formatWhen(value?: string | null) {
  * Canonical owner notification center trigger.
  *
  * Reads and mutations both use Communications 2.0 so the badge, panel and persisted read state
- * share one backend contract. A failed read mutation never clears the local unread indicator.
+ * share one backend contract. Failed reads are rendered as unavailable (never a fake zero), and a
+ * failed read mutation never clears the local unread indicator.
  */
 export default function OwnerNotificationBell() {
   const { fetchCommunicationNotifications, markCommunicationNotificationRead } = useCarUpApi()
@@ -34,6 +35,7 @@ export default function OwnerNotificationBell() {
   const [open, setOpen] = useState(false)
   const [notifications, setNotifications] = useState<OwnerNotification[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [markingAll, setMarkingAll] = useState(false)
 
   const load = useCallback(async () => {
@@ -41,9 +43,11 @@ export default function OwnerNotificationBell() {
     try {
       const response = await fetchCommunicationNotifications()
       setNotifications((response?.notifications || []) as OwnerNotification[])
+      setLoadError(false)
     } catch {
-      // A missing count is more truthful than a fabricated zero. The panel explains the read failure.
+      // Preserve truthfulness: an unread count is unknown on transport/backend failure, not zero.
       setNotifications([])
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -102,18 +106,21 @@ export default function OwnerNotificationBell() {
         className="relative"
         type="button"
         onClick={() => { void togglePanel() }}
-        aria-label={unread.length ? `Notifications, ${unread.length} unread` : 'Notifications'}
+        aria-label={loadError ? 'Notifications unavailable' : unread.length ? `Notifications, ${unread.length} unread` : 'Notifications'}
         aria-expanded={open}
         data-testid="owner-notification-bell"
       >
         <Bell className="h-5 w-5" aria-hidden="true" />
-        {!loading && unread.length > 0 && (
+        {!loading && !loadError && unread.length > 0 && (
           <span
             className="absolute -right-1 -top-1 flex min-h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-black leading-4 text-white ring-2 ring-white"
             data-testid="owner-notification-count"
           >
             {unread.length > 99 ? '99+' : unread.length}
           </span>
+        )}
+        {!loading && loadError && (
+          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white" data-testid="owner-notification-error-dot" />
         )}
       </Button>
 
@@ -125,25 +132,38 @@ export default function OwnerNotificationBell() {
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
             <div>
               <p className="text-sm font-black text-slate-900">Notifications</p>
-              <p className="text-[11px] text-slate-500">{loading ? 'Loading live activity…' : `${unread.length} unread`}</p>
+              <p className="text-[11px] text-slate-500">
+                {loading ? 'Loading live activity…' : loadError ? 'Live notification data unavailable' : `${unread.length} unread`}
+              </p>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              disabled={loading || unread.length === 0 || markingAll}
-              onClick={() => { void markAllRead() }}
-              className="gap-1.5 text-xs"
-            >
-              {markingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
-              Mark all read
-            </Button>
+            {!loadError && (
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                disabled={loading || unread.length === 0 || markingAll}
+                onClick={() => { void markAllRead() }}
+                className="gap-1.5 text-xs"
+              >
+                {markingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+                Mark all read
+              </Button>
+            )}
           </div>
 
           <div className="max-h-[420px] overflow-y-auto p-2">
             {loading ? (
               <div className="flex items-center justify-center gap-2 px-4 py-8 text-xs text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading notifications
+              </div>
+            ) : loadError ? (
+              <div className="px-4 py-8 text-center" data-testid="owner-notification-unavailable">
+                <AlertCircle className="mx-auto h-8 w-8 text-amber-500" />
+                <p className="mt-2 text-sm font-semibold text-slate-700">Notifications are unavailable right now</p>
+                <p className="mt-1 text-xs text-slate-500">CarUp could not confirm your live notification state. No zero count has been assumed.</p>
+                <Button variant="outline" size="sm" type="button" className="mt-4 gap-1.5" onClick={() => { void load() }}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Retry
+                </Button>
               </div>
             ) : notifications.length === 0 ? (
               <div className="px-4 py-8 text-center">
