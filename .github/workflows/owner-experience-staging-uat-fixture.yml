@@ -1,0 +1,95 @@
+name: Owner Experience — Staging UAT Fixture
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - backend/scripts/owner-experience-staging-uat-fixture.mjs
+      - web/public/uat/owner/**
+      - .github/workflows/owner-experience-staging-uat-fixture.yml
+  push:
+    branches:
+      - feat/owner-dashboard-electric-redesign
+    paths:
+      - backend/scripts/owner-experience-staging-uat-fixture.mjs
+      - web/public/uat/owner/**
+      - .github/workflows/owner-experience-staging-uat-fixture.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Bounded fixture action
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - bootstrap
+          - cleanup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-experience-staging-uat-fixture
+  cancel-in-progress: false
+
+jobs:
+  owner-uat-fixture:
+    if: github.ref == 'refs/heads/feat/owner-dashboard-electric-redesign' || github.head_ref == 'feat/owner-dashboard-electric-redesign'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: staging
+    env:
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+      DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+
+    steps:
+      - name: Checkout exact Owner candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install isolated PostgreSQL client
+        run: npm install --no-save --ignore-scripts pg@8.21.0
+
+      - name: Resolve bounded mode
+        id: mode
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "value=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=bootstrap" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply/inspect Owner UAT fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node backend/scripts/owner-experience-staging-uat-fixture.mjs --mode="${{ steps.mode.outputs.value }}" \
+            | tee owner-uat-fixture-result.txt
+
+      - name: Post-bootstrap exact verification
+        if: steps.mode.outputs.value == 'bootstrap'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node backend/scripts/owner-experience-staging-uat-fixture.mjs --mode=verify \
+            | tee owner-uat-fixture-verify.txt
+
+      - name: Preserve sanitized evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-experience-staging-uat-fixture-${{ github.run_id }}
+          path: |
+            owner-uat-fixture-result.txt
+            owner-uat-fixture-verify.txt
+          if-no-files-found: ignore
+          retention-days: 14
