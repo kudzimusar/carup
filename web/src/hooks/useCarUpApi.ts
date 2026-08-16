@@ -2203,6 +2203,12 @@ export function useCarUpApi() {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}`, { method: 'GET' })
   }, [request])
 
+  // Participant-facing read receipt. The owner inbox previously only zeroed unread_count in local
+  // state, so the badge reappeared on every reload and last_read_at never moved server-side.
+  const markCommunicationThreadRead = useCallback(async (id: string): Promise<{ ok?: boolean; thread_id?: string; last_read_at?: string | null }> => {
+    return request(`/communications/threads/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
+  }, [request])
+
   const markAdminCommunicationThreadRead = useCallback(async (id: string): Promise<{ ok?: boolean; thread_id?: string; last_read_at?: string | null }> => {
     return request(`/admin/communications/threads/${encodeURIComponent(id)}/read`, { method: 'POST', body: JSON.stringify({}) })
   }, [request])
@@ -2570,6 +2576,7 @@ export function useCarUpApi() {
     createCommunicationShare,
     fetchAdminCommunicationThreads,
     fetchAdminCommunicationThread,
+    markCommunicationThreadRead,
     markAdminCommunicationThreadRead,
     fetchAdminCommunicationThreadAudit,
     fetchCommunicationAudit,

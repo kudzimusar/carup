@@ -32,6 +32,8 @@ const INQUIRY_TYPE_LABELS: Record<string, string> = {
 
 const DEFAULT_TYPES: MarketplaceInquiryType[] = ['vehicle_purchase_interest', 'vehicle_inspection_request']
 
+type PreferredContact = 'carup' | 'whatsapp' | 'email'
+
 export function InquiryModal({
   listingId,
   inquiryTypes = DEFAULT_TYPES,
@@ -58,11 +60,20 @@ export function InquiryModal({
   const [email, setEmail] = useState(user?.email || '')
   const [phone, setPhone] = useState(user?.phone || '')
   const [message, setMessage] = useState('')
+  const [preferredContact, setPreferredContact] = useState<PreferredContact>(user ? 'carup' : 'whatsapp')
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!user && !email && !phone) {
-      toast.error('Please add an email or phone so the seller can reply.')
+      toast.error('Please add an email or phone so the conversation can continue.')
+      return
+    }
+    if (preferredContact === 'whatsapp' && !phone) {
+      toast.error('Add the WhatsApp number you want CarUp to use for this inquiry.')
+      return
+    }
+    if (preferredContact === 'email' && !email) {
+      toast.error('Add the email address you want CarUp to use for this inquiry.')
       return
     }
     setSubmitting(true)
@@ -75,9 +86,10 @@ export function InquiryModal({
         guest_name: name || undefined,
         guest_email: email || undefined,
         guest_phone: phone || undefined,
+        metadata: { preferred_contact: preferredContact },
         ...attribution,
       })
-      toast.success('Inquiry sent. The CarUp team will help connect you safely.')
+      toast.success('Inquiry sent. Continue the conversation safely through CarUp.')
       setOpen(false)
       setMessage('')
       onSubmitted?.(inquiry.id)
@@ -100,7 +112,7 @@ export function InquiryModal({
         <DialogHeader>
           <DialogTitle>Send an inquiry</DialogTitle>
           <DialogDescription>
-            We'll connect you safely through CarUp. Add your contact details and an optional message.
+            Your message stays in a CarUp conversation. You can choose where CarUp should deliver replies.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-3">
@@ -127,9 +139,23 @@ export function InquiryModal({
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" data-testid="marketplace-inquiry-email" />
             </div>
             <div>
-              <Label className="mb-1 block text-xs">Phone</Label>
+              <Label className="mb-1 block text-xs">Phone / WhatsApp</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+263…" data-testid="marketplace-inquiry-phone" />
             </div>
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs">Deliver seller replies through</Label>
+            <Select value={preferredContact} onValueChange={(v) => setPreferredContact(v as PreferredContact)}>
+              <SelectTrigger data-testid="marketplace-inquiry-preferred-contact"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {user && <SelectItem value="carup">CarUp</SelectItem>}
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="email">Email</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-[11px] text-gray-500">
+              This grants transactional contact for this inquiry only. It does not opt you into marketing.
+            </p>
           </div>
           <div>
             <Label className="mb-1 block text-xs">Message</Label>

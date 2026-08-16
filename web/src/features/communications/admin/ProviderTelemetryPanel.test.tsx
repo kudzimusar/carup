@@ -41,3 +41,42 @@ describe('ProviderTelemetryPanel', () => {
     expect(renderToStaticMarkup(<ProviderTelemetryPanel channels={[]} />)).toContain('No provider telemetry.')
   })
 })
+
+describe('ProviderTelemetryPanel readiness honesty', () => {
+  // Found by the live Issue #107 UAT: the badge keyed off mode === 'real', which only says which
+  // adapter is wired. Every unconfigured provider is still a real adapter, so SendGrid, Twilio,
+  // Expo, Messenger and Instagram all rendered "Ready" on the very card that listed their missing
+  // credentials — the provider board told an operator those channels were healthy.
+  const base = { channel: 'email', provider: 'sendgrid', mode: 'real' as const }
+
+  it('does not call a real adapter Ready when its credentials are missing', () => {
+    const html = renderToStaticMarkup(
+      <ProviderTelemetryPanel channels={[{ ...base, available: false, credentials: { complete: false, missing: ['SENDGRID_API_KEY'] } }]} />,
+    )
+    expect(html).toContain('Not configured')
+    expect(html).not.toContain('>Ready<')
+  })
+
+  it('calls a real adapter Ready when it is available with complete credentials', () => {
+    const html = renderToStaticMarkup(
+      <ProviderTelemetryPanel channels={[{ channel: 'whatsapp', provider: 'meta_whatsapp_cloud_api', mode: 'real', available: true, credentials: { complete: true, missing: [] } }]} />,
+    )
+    expect(html).toContain('>Ready<')
+  })
+
+  it('still marks a fake adapter as non-sending', () => {
+    const html = renderToStaticMarkup(
+      <ProviderTelemetryPanel channels={[{ channel: 'in_app', provider: 'in_app', mode: 'fake', available: true }]} />,
+    )
+    expect(html).toContain('Fake')
+    expect(html).not.toContain('>Ready<')
+  })
+
+  it('reports an unavailable adapter without blaming credentials it does have', () => {
+    const html = renderToStaticMarkup(
+      <ProviderTelemetryPanel channels={[{ ...base, available: false, credentials: { complete: true, missing: [] } }]} />,
+    )
+    expect(html).toContain('Unavailable')
+    expect(html).not.toContain('>Ready<')
+  })
+})

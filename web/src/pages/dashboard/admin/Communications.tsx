@@ -159,6 +159,7 @@ export default function AdminCommunications() {
     assignCommunicationThread,
     escalateCommunicationThread,
     resolveCommunicationThread,
+    reopenCommunicationThread,
     pauseCommunicationThreadSla,
     resumeCommunicationThreadSla,
     retryCommunicationDeadLetter,
@@ -586,6 +587,9 @@ export default function AdminCommunications() {
   const assignToTeam = (team: string) => runAction('assign-team', () => assignCommunicationThread(selected!.id, { assigned_team: team }))
   const escalate = () => runAction('escalate', () => escalateCommunicationThread(selected!.id, { reason_code: 'admin_escalation', severity: 'high', assigned_team: selected!.assigned_team || 'support' }))
   const resolve = () => runAction('resolve', () => resolveCommunicationThread(selected!.id, 'Resolved from admin command center.'))
+  // Resolve is one click, so the operator needs a way back. The server already supports it; only
+  // the affordance was missing, which left a mis-resolved thread unrecoverable from the UI.
+  const reopen = () => runAction('reopen', () => reopenCommunicationThread(selected!.id, 'Reopened from admin command center.'))
   const pauseSla = () => runAction('sla-pause', () => pauseCommunicationThreadSla(selected!.id, 'paused_by_admin'))
   const resumeSla = () => runAction('sla-resume', () => resumeCommunicationThreadSla(selected!.id))
 
@@ -868,6 +872,8 @@ export default function AdminCommunications() {
                     onAssignAdminId={(id) => runAction('assign-id', () => assignCommunicationThread(selected!.id, { assigned_admin_id: id || undefined, assigned_team: selected!.assigned_team || 'support' }))}
                     onEscalate={escalate}
                     onResolve={resolve}
+                    canReopen={['resolved', 'closed'].includes(String(selected?.status || ''))}
+                    onReopen={reopen}
                   />
                 </CardContent>
               </>

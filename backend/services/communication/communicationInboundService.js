@@ -11,6 +11,7 @@ export class CommunicationInboundService {
     identityService,
     threadService,
     notificationService,
+    conversationService = null,
     referralChannelGateway = null,
     aiService = null,
   } = {}) {
@@ -18,16 +19,87 @@ export class CommunicationInboundService {
     this.identityService = identityService;
     this.threadService = threadService;
     this.notificationService = notificationService;
+    this.conversationService = conversationService;
     this.referralChannelGateway = referralChannelGateway;
     this.aiService = aiService || new CommunicationAiService();
   }
 
   getReferralChannelGateway() {
     if (this.referralChannelGateway) return this.referralChannelGateway;
+    // Hand the referral engine the same Supabase client this service already reads through.
+    // Constructed with no client it builds a repository that throws "Referral repository
+    // requires a Supabase-compatible client" on every call, and because inbound referral
+    // processing is best-effort the failure is swallowed into referralResult — so inbound
+    // attribution silently never records. Every other construction site passes { client }.
+    // Deliberately NOT falling back to the module-level client: an injected in-memory
+    // repository has none, and inventing one there would put live calls into tests.
     this.referralChannelGateway = new ReferralChannelGatewayService({
-      agentGateway: new ReferralAgentGatewayService({ referralService: new ReferralEngineService() }),
+      agentGateway: new ReferralAgentGatewayService({
+        referralService: new ReferralEngineService({ client: this.repository?.client || null }),
+      }),
     });
     return this.referralChannelGateway;
+  }
+
+  /**
+   * Prefer explicit provider reply context over a recency guess.
+   *
+   * Meta WhatsApp sends the provider message id being replied to in message.context.id.
+   * The parser passes that value as externalConversationId. Delivery attempts already
+   * persist the provider message id together with the canonical CarUp message id, so
+   * this gives us a deterministic bridge:
+   * provider reply context -> delivery attempt -> canonical message -> conversation.
+   *
+   * The identity must also have a live binding to that exact conversation. This
+   * prevents an unrelated/stale provider id from being used to jump conversations.
+   */
+  async resolveProviderReplyContext({ identity, channel, provider, externalConversationId } = {}) {
+    const contextId = String(externalConversationId || '').trim();
+    if (!identity?.id || !contextId) return null;
+
+    const normalizedChannel = normalizeChannel(channel);
+    const attempts = await this.repository.list('message_delivery_attempts', { provider_message_id: contextId });
+    const candidates = new Map();
+
+    for (const attempt of attempts) {
+      if (!attempt?.message_id) continue;
+      if (normalizedChannel && normalizeChannel(attempt.channel) !== normalizedChannel) continue;
+      if (provider && attempt.provider && attempt.provider !== provider) continue;
+
+      const outboundMessage = await this.repository.findOne('messages', { id: attempt.message_id });
+      if (!outboundMessage?.thread_id) continue;
+
+      const bindings = (await this.repository.list('conversation_channel_bindings', {
+        thread_id: outboundMessage.thread_id,
+        channel_identity_id: identity.id,
+      }))
+        .filter((binding) => binding.can_receive !== false)
+        .filter((binding) => !normalizedChannel || binding.channel === normalizedChannel)
+        .filter((binding) => !provider || !binding.provider || binding.provider === provider)
+        .filter((binding) => !binding.expires_at || Date.parse(binding.expires_at) > Date.now());
+
+      for (const binding of bindings) {
+        const participant = await this.repository.findOne('message_participants', { id: binding.participant_id });
+        if (!participant || participant.left_at || participant.thread_id !== outboundMessage.thread_id) continue;
+        const thread = await this.repository.findOne('message_threads', { id: outboundMessage.thread_id });
+        if (!thread) continue;
+        candidates.set(thread.id, {
+          thread,
+          participant,
+          binding,
+          resolution: 'provider_reply_context',
+          replied_to_message_id: outboundMessage.id,
+          provider_message_id: contextId,
+        });
+      }
+    }
+
+    // Never guess if corrupted/ambiguous provider data resolves to multiple CarUp
+    // conversations. The normal binding resolver can still use a separately
+    // unambiguous active binding; otherwise the message lands in a safe new/support
+    // path instead of leaking across business conversations.
+    if (candidates.size !== 1) return null;
+    return [...candidates.values()][0];
   }
 
   async ingest(input = {}, actor = {}) {
@@ -86,11 +158,36 @@ export class CommunicationInboundService {
 
     let thread = input.thread?.id ? input.thread : null;
     let created = false;
+    let boundConversation = null;
     const targetThreadId = input.target_thread_id || input.threadId || input.thread_id || null;
     if (!thread && targetThreadId) {
       thread = await this.repository.findOne('message_threads', { id: targetThreadId });
       if (!thread) throw new Error('Target communication thread not found.');
     }
+
+    // Communications 2.0: explicit provider reply context wins. If there is no
+    // exact context match, fall back to the canonical identity/channel binding
+    // resolver, which itself refuses ambiguous equal-recency candidates.
+    if (!thread && !targetThreadId && this.conversationService) {
+      const externalConversationId = input.externalConversationId || input.conversation_id || null;
+      boundConversation = await this.resolveProviderReplyContext({
+        identity,
+        channel,
+        provider,
+        externalConversationId,
+      });
+      if (!boundConversation) {
+        boundConversation = await this.conversationService.resolveInboundConversation({
+          identity,
+          channel,
+          provider,
+          externalConversationId,
+        });
+        if (boundConversation) boundConversation.resolution = boundConversation.resolution || 'active_channel_binding';
+      }
+      if (boundConversation?.thread) thread = boundConversation.thread;
+    }
+
     if (!thread) {
       const resolved = await this.threadService.resolveOrCreateThread({
         tenant_id: input.tenant_id || actor.actor_tenant_id || null,
@@ -120,13 +217,50 @@ export class CommunicationInboundService {
       created = resolved.created;
     }
 
-    const participant = await this.threadService.addParticipant(thread.id, {
-      participant_type: identity.user_id ? 'user' : 'external_contact',
-      user_id: identity.user_id || null,
-      external_identity_id: identity.id,
-      role: 'requester',
-      display_name: identity.display_name || null,
-    });
+    // When the inbound resolved to an existing conversation, THAT conversation's participant is the
+    // authoritative sender. Calling ensureParticipant here instead used to mint a second participant
+    // built from the INGRESS identity — physically reproduced on staging: a provider-ingress inbound
+    // routed correctly to a tenant-owned Marketplace thread, then attributed the message to a new
+    // participant carrying the platform-context (tenant-null) identity, linking that identity into
+    // another tenant's conversation. The ingress identity is an ingress identity only; it must never
+    // be projected into a conversation the resolver did not select it for.
+    let participant;
+    if (boundConversation?.participant) {
+      const bound = boundConversation.participant;
+      // Fail closed rather than manufacture a replacement: an invariant break here means the
+      // resolution cannot be trusted, and inventing a participant is what caused the defect.
+      if (!thread?.id
+        || String(bound.thread_id) !== String(thread.id)
+        || bound.left_at) {
+        const error = new Error('Resolved inbound conversation participant failed thread/active invariants.');
+        error.statusCode = 422;
+        error.code = 'inbound_participant_invariant_failed';
+        throw error;
+      }
+      participant = bound;
+    } else if (this.conversationService) {
+      // Genuinely unbound inbound: this is the only path allowed to create a participant.
+      participant = await this.conversationService.ensureParticipant(thread.id, {
+        participant_type: identity.user_id ? 'user' : 'external_contact',
+        user_id: identity.user_id || null,
+        external_identity_id: identity.id,
+        stakeholder_role: 'requester',
+        display_name: identity.display_name || null,
+      });
+    } else {
+      participant = await this.threadService.addParticipant(thread.id, {
+        participant_type: identity.user_id ? 'user' : 'external_contact',
+        user_id: identity.user_id || null,
+        external_identity_id: identity.id,
+        role: 'requester',
+        display_name: identity.display_name || null,
+      });
+    }
+    // Attribution follows the SELECTED participant, never the ingress identity, so a tenant-owned
+    // conversation is not silently credited to a platform-scoped user id.
+    const senderUserId = boundConversation?.participant
+      ? (participant.user_id || null)
+      : (identity.user_id || null);
 
     const providerMessageId = input.providerMessageId || input.provider_message_id || input.message_id || null;
     const findExistingProviderMessage = async () => {
@@ -141,20 +275,27 @@ export class CommunicationInboundService {
         message = await this.threadService.recordMessage(thread, {
           direction: 'inbound',
           sender_participant_id: participant.id,
-          sender_user_id: identity.user_id || null,
+          sender_user_id: senderUserId,
           channel,
           provider,
           provider_message_id: providerMessageId,
           content_text: text,
           content_json: {
             canonical_event: COMMUNICATION_EVENTS.MESSAGE_RECEIVED,
+            original_authoritative: true,
+            ai_derived: false,
             provider_timestamp: input.providerTimestamp || input.provider_timestamp || null,
             technical_metadata: input.metadata || {},
             referral: referralResult,
             classification,
+            conversation_binding_id: boundConversation?.binding?.id || null,
+            conversation_resolution: boundConversation?.resolution || null,
+            replied_to_message_id: boundConversation?.replied_to_message_id || null,
           },
           status: 'received',
-          thread_status: classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai',
+          // A provider reply that returned to a business conversation should
+          // reopen/continue that conversation, not reclassify it as an AI queue.
+          thread_status: boundConversation ? 'open' : (classification.handoffRequired || aiAnswer.handoffRequired ? 'awaiting_human' : 'awaiting_ai'),
         });
       } catch (error) {
         if (error.code !== '23505' || !providerMessageId) throw error;
@@ -164,13 +305,36 @@ export class CommunicationInboundService {
       }
     }
 
-    if (!duplicateMessage && (classification.handoffRequired || aiAnswer.handoffRequired)) {
+    if (boundConversation?.binding && !duplicateMessage && this.conversationService) {
+      await this.conversationService.recordInboundBinding(boundConversation.binding, message);
+      await this.repository.updateById('message_threads', thread.id, {
+        last_inbound_at: message.created_at,
+        status: 'open',
+      }).catch(() => null);
+      await this.conversationService.recordAnalytics({
+        threadId: thread.id,
+        messageId: message.id,
+        participantId: participant.id,
+        eventType: 'message_received',
+        workflow: thread.business_workflow || thread.thread_type,
+        funnelStage: thread.funnel_stage || 'conversation',
+        metadata: {
+          channel,
+          provider,
+          same_thread_return: true,
+          resolution: boundConversation.resolution || 'active_channel_binding',
+          replied_to_message_id: boundConversation.replied_to_message_id || null,
+        },
+      });
+    }
+
+    if (!boundConversation && !duplicateMessage && (classification.handoffRequired || aiAnswer.handoffRequired)) {
       await this.threadService.escalateThread(thread.id, classification.intent || 'human_request', {
         severity: priority === 'high' ? 'high' : 'normal',
         source: 'ai_policy',
         team: this.threadService.teamForThread(thread.thread_type || threadType),
       });
-    } else if (!duplicateMessage && this.notificationService && (identity.user_id || input.user_id)) {
+    } else if (!boundConversation && !duplicateMessage && this.notificationService && (identity.user_id || input.user_id)) {
       await this.notificationService.queueNotification({
         recipientUserId: identity.user_id || input.user_id,
         thread,
@@ -183,21 +347,28 @@ export class CommunicationInboundService {
       });
     }
 
-    // Lifecycle audit (fail-soft): inbound receipt → AI classification → AI draft (item 2).
     const auditBase = { tenant_id: thread.tenant_id ?? null, thread_id: thread.id, message_id: message.id, channel };
     await logCommunicationAuditEvent(this.repository, {
       ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.INBOUND_RECEIVED, actor_type: 'customer',
-      actor_id: identity.user_id || null, correlation_id: message.provider_message_id || null, summary: 'Inbound message received',
+      actor_id: identity.user_id || null, correlation_id: message.provider_message_id || null,
+      summary: boundConversation ? 'Inbound message returned to canonical conversation' : 'Inbound message received',
+      metadata: {
+        same_thread_return: Boolean(boundConversation),
+        conversation_binding_id: boundConversation?.binding?.id || null,
+        resolution: boundConversation?.resolution || null,
+        replied_to_message_id: boundConversation?.replied_to_message_id || null,
+      },
     });
     await logCommunicationAuditEvent(this.repository, {
       ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_CLASSIFIED, actor_type: 'ai',
       summary: `AI classified as ${classification.intent || 'unknown'}`,
-      metadata: { intent: classification.intent ?? null, handoff_required: Boolean(classification.handoffRequired || aiAnswer.handoffRequired) },
+      metadata: { intent: classification.intent ?? null, handoff_required: Boolean(classification.handoffRequired || aiAnswer.handoffRequired), derived_only: true },
     });
     if (aiAnswer && (aiAnswer.reply || aiAnswer.draft)) {
       await logCommunicationAuditEvent(this.repository, {
         ...auditBase, event_type: COMMUNICATION_AUDIT_EVENTS.AI_DRAFTED, actor_type: 'ai',
         summary: aiAnswer.handoffRequired ? 'AI drafted a reply (pending human)' : 'AI drafted a reply',
+        metadata: { derived_only: true },
       });
     }
 
@@ -205,13 +376,16 @@ export class CommunicationInboundService {
       success: true,
       duplicate: duplicateMessage,
       created_thread: created,
+      same_thread_return: Boolean(boundConversation),
+      conversation_resolution: boundConversation?.resolution || null,
+      replied_to_message_id: boundConversation?.replied_to_message_id || null,
       thread,
       message,
       identity,
       classification,
       ai: aiAnswer,
       referral: referralResult,
-      reply: aiAnswer.reply || referralResult?.reply || 'CarUp received your message.',
+      reply: boundConversation ? null : (aiAnswer.reply || referralResult?.reply || 'CarUp received your message.'),
       received_at: nowIso(),
     };
   }

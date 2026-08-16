@@ -14,6 +14,33 @@ const DEFAULT_PREFS = Object.freeze({
   fallback_channels: ['in_app', 'email', 'push'],
 });
 
+function clockMinutes(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function localClockMinutes(date, timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timeZone || 'UTC',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+    if (Number.isFinite(hour) && Number.isFinite(minute)) return hour * 60 + minute;
+  } catch (_error) {
+    // Invalid/unknown timezone must not crash message routing. Fall back to UTC.
+  }
+  return date.getUTCHours() * 60 + date.getUTCMinutes();
+}
+
 export class CommunicationPreferenceService {
   constructor({ repository }) {
     this.repository = repository;
@@ -29,6 +56,11 @@ export class CommunicationPreferenceService {
     const existing = await this.repository.findOne('communication_preferences', { user_id: userId, tenant_id: tenantId });
     const allowedPatch = {};
     for (const key of Object.keys(DEFAULT_PREFS)) {
+      if (Object.prototype.hasOwnProperty.call(patch, key)) allowedPatch[key] = patch[key];
+    }
+    // Quiet hours, timezone and language are existing governed preference columns even
+    // though they are not part of the Boolean/default channel map above.
+    for (const key of ['quiet_hours_start', 'quiet_hours_end', 'timezone', 'language', 'consent_source', 'consent_version', 'consented_at', 'withdrawn_at']) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) allowedPatch[key] = patch[key];
     }
     const normalizedFallback = Array.isArray(patch.fallback_channels)
@@ -47,32 +79,50 @@ export class CommunicationPreferenceService {
       ? await this.repository.updateById('communication_preferences', existing.id, row)
       : await this.repository.insert('communication_preferences', row);
 
-    // Audit preference change, and separately consent change when a consent field moved (item 2).
     await logCommunicationAuditEvent(this.repository, {
       tenant_id: tenantId ?? null, event_type: COMMUNICATION_AUDIT_EVENTS.PREFERENCE_CHANGED,
       actor_type: 'customer', actor_id: userId, summary: 'Communication preferences updated',
       metadata: { changed: Object.keys(allowedPatch), preferred_channel: row.preferred_channel },
     });
-    const consentChanged = ['consent_status', 'consent_source', 'consent_version', 'consented_at', 'marketing_enabled']
+    const consentChanged = ['consent_status', 'consent_source', 'consent_version', 'consented_at', 'withdrawn_at', 'marketing_enabled', 'transactional_enabled']
       .some((k) => Object.prototype.hasOwnProperty.call(patch, k));
     if (consentChanged) {
       await logCommunicationAuditEvent(this.repository, {
         tenant_id: tenantId ?? null, event_type: COMMUNICATION_AUDIT_EVENTS.CONSENT_CHANGED,
-        actor_type: 'customer', actor_id: userId, summary: 'Consent/marketing preference changed',
-        metadata: { consent_status: patch.consent_status ?? null, marketing_enabled: patch.marketing_enabled ?? null, consent_version: patch.consent_version ?? null },
+        actor_type: 'customer', actor_id: userId, summary: 'Consent/communication preference changed',
+        metadata: {
+          consent_status: patch.consent_status ?? null,
+          marketing_enabled: patch.marketing_enabled ?? null,
+          transactional_enabled: patch.transactional_enabled ?? null,
+          consent_version: patch.consent_version ?? null,
+        },
       });
     }
     return saved;
   }
 
-  isChannelAllowed(prefs, channel, { transactional = true, urgent = false } = {}) {
+  isInQuietHours(prefs = {}, at = new Date()) {
+    const start = clockMinutes(prefs.quiet_hours_start);
+    const end = clockMinutes(prefs.quiet_hours_end);
+    if (start === null || end === null || start === end) return false;
+    const current = localClockMinutes(at, prefs.timezone || 'UTC');
+    if (start < end) return current >= start && current < end;
+    // Overnight window, e.g. 22:00 -> 07:00.
+    return current >= start || current < end;
+  }
+
+  isChannelAllowed(prefs, channel, { transactional = true, urgent = false, quietHoursBypass = false, at = new Date() } = {}) {
     const normalized = normalizeChannel(channel);
     if (!normalized) return false;
     if (!transactional && !prefs.marketing_enabled) return false;
     if (transactional && prefs.transactional_enabled === false && !urgent) return false;
     const key = `${normalized}_enabled`;
-    if (normalized === CHANNELS.IN_APP) return prefs.in_app_enabled !== false;
-    return prefs[key] === true;
+    const enabled = normalized === CHANNELS.IN_APP ? prefs.in_app_enabled !== false : prefs[key] === true;
+    if (!enabled) return false;
+    // Quiet hours suppress external/push interruption but do not hide the canonical
+    // in-app conversation. Urgent/security policies may opt into bypass explicitly.
+    if (normalized !== CHANNELS.IN_APP && this.isInQuietHours(prefs, at) && !quietHoursBypass && !urgent) return false;
+    return true;
   }
 
   selectChannels(prefs, policy = {}) {
@@ -85,7 +135,9 @@ export class CommunicationPreferenceService {
     ].map(normalizeChannel).filter(Boolean);
     return [...new Set(candidates)].filter((channel) => this.isChannelAllowed(prefs, channel, {
       transactional: policy.transactional !== false,
-      urgent: policy.priority === 'urgent' || policy.quietHoursBypass,
+      urgent: policy.priority === 'urgent',
+      quietHoursBypass: Boolean(policy.quietHoursBypass),
+      at: policy.at || new Date(),
     }));
   }
 }

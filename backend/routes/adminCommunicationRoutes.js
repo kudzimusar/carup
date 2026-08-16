@@ -374,6 +374,152 @@ async function resolveExternalReplyIdentity({ repository, thread }) {
   return repository.findOne('channel_identities', { id: participant.external_identity_id });
 }
 
+// Participants that exist to hold thread state rather than to be written to. Addressing one of
+// these would queue a notification nobody can receive.
+const NON_ADDRESSABLE_PARTICIPANT_TYPES = new Set(['system', 'agent', 'bot']);
+// An identity the customer has actively turned off is never a valid delivery target, whatever the
+// binding still says.
+const UNUSABLE_CONSENT_STATUSES = new Set(['opted_out', 'revoked']);
+
+function participantIsActive(participant) {
+  return Boolean(participant)
+    && participant.is_active !== false
+    && participant.active !== false
+    && !participant.left_at;
+}
+
+function participantIsAddressable(participant) {
+  if (!participantIsActive(participant)) return false;
+  return !NON_ADDRESSABLE_PARTICIPANT_TYPES.has(normalizeChannelName(participant.participant_type));
+}
+
+function bindingTimestamp(binding) {
+  return Date.parse(binding?.last_used_at || binding?.updated_at || binding?.created_at || 0) || 0;
+}
+
+function bindingIsLive(binding) {
+  if (!binding?.expires_at) return true;
+  const expiry = Date.parse(binding.expires_at);
+  return Number.isNaN(expiry) ? true : expiry > Date.now();
+}
+
+/**
+ * Pick the single deliverable binding WITHIN one participant.
+ *
+ * Returns { binding } when exactly one binding wins, or { ambiguous: true } when the participant
+ * genuinely offers two equally-ranked distinct addresses. Never guesses between addresses.
+ */
+function selectBindingForParticipant({ bindings, participant, channel }) {
+  const usable = bindings.filter((b) => String(b.participant_id) === String(participant.id)
+    && normalizeChannelName(b.channel) === normalizeChannelName(channel)
+    && b.can_send !== false
+    && b.channel_identity_id
+    && bindingIsLive(b));
+  if (!usable.length) return null;
+
+  // Deterministic routing, matching the rest of Communications: an explicitly primary binding wins,
+  // otherwise the most recently used. Several bindings pointing at the SAME address is not
+  // ambiguity; several distinct addresses that no rule separates is.
+  const primary = usable.filter((b) => b.is_primary === true);
+  const pool = primary.length ? primary : usable;
+  const ordered = pool.slice().sort((a, b) => bindingTimestamp(b) - bindingTimestamp(a));
+  if (ordered.length > 1) {
+    const distinct = new Set(ordered.map((b) => String(b.channel_identity_id)));
+    if (distinct.size > 1 && bindingTimestamp(ordered[0]) === bindingTimestamp(ordered[1])) {
+      return { ambiguous: true };
+    }
+  }
+  return { binding: ordered[0] };
+}
+
+function identityUsableForParticipant({ identity, participant, channel }) {
+  if (!identity) return false;
+  if (normalizeChannelName(identity.channel) !== normalizeChannelName(channel)) return false;
+  if (UNUSABLE_CONSENT_STATUSES.has(normalizeChannelName(identity.consent_status))) return false;
+  // Never hand back an identity that belongs to somebody else, whatever the binding claimed.
+  if (identity.user_id && participant.user_id
+    && String(identity.user_id) !== String(participant.user_id)) return false;
+  return true;
+}
+
+async function deliverableIdentityFor({ repository, bindings, participant, channel }) {
+  const selection = selectBindingForParticipant({ bindings, participant, channel });
+  if (!selection || selection.ambiguous) return null;
+  const identity = await repository.findOne('channel_identities', { id: selection.binding.channel_identity_id })
+    .catch(() => null);
+  if (!identityUsableForParticipant({ identity, participant, channel })) return null;
+  return identity;
+}
+
+/**
+ * Resolve WHO an admin reply is actually delivered to, on an external channel.
+ *
+ * thread.primary_user_id is only a compatibility projection — canonicalizeMarketplaceInquiry sets it
+ * to the SELLER — so treating it as the delivery recipient meant a Marketplace thread could never
+ * reach the buyer who owns the WhatsApp binding, and every admin reply on such a thread failed
+ * closed. Delivery is therefore resolved from PARTICIPANTS, which is where bindings actually hang.
+ *
+ * Resolution order:
+ *   · an explicitly requested participant, fully re-validated against this thread;
+ *   · else the primary user's participant when it is genuinely deliverable (legacy/simple threads);
+ *   · else the one eligible participant, if there is exactly one;
+ *   · zero → no_recipient (the existing 422); more than one → recipient_ambiguous.
+ *
+ * Ambiguity is never settled by cross-participant recency: sending one customer's reply to another
+ * is worse than not sending.
+ */
+export async function resolveAdminReplyRecipient({
+  repository, thread, channel, requestedParticipantId = null,
+} = {}) {
+  if (!repository || !thread?.id || !channel) return { ok: false, reason: 'no_recipient' };
+  const bindings = await repository.list('conversation_channel_bindings', { thread_id: thread.id })
+    .catch(() => []);
+
+  if (requestedParticipantId) {
+    // Fetched by id, not filtered out of the thread's list, so the thread-ownership check below is
+    // load-bearing rather than incidental.
+    const participant = await repository.findOne('message_participants', { id: requestedParticipantId })
+      .catch(() => null);
+    if (!participant) return { ok: false, reason: 'no_recipient' };
+    if (String(participant.thread_id) !== String(thread.id)) return { ok: false, reason: 'no_recipient' };
+    if (!participantIsAddressable(participant)) return { ok: false, reason: 'no_recipient' };
+    const identity = await deliverableIdentityFor({ repository, bindings, participant, channel });
+    if (!identity) return { ok: false, reason: 'no_recipient' };
+    return { ok: true, participant, identity };
+  }
+
+  const participants = (await repository.list('message_participants', { thread_id: thread.id })
+    .catch(() => []))
+    .filter((p) => String(p.thread_id) === String(thread.id))
+    .filter(participantIsAddressable);
+
+  const eligible = [];
+  for (const participant of participants) {
+    // Sequential on purpose: the identity lookup is per-selected-binding, so this is one round trip
+    // per participant that actually has a candidate binding, not per participant.
+    const identity = await deliverableIdentityFor({ repository, bindings, participant, channel });
+    if (identity) eligible.push({ participant, identity });
+  }
+
+  if (thread.primary_user_id) {
+    const primaryHits = eligible.filter(
+      (hit) => String(hit.participant.user_id) === String(thread.primary_user_id),
+    );
+    // Simple threads keep behaving exactly as before: if the primary user is deliverable, they are
+    // the recipient, even when other participants are also reachable.
+    if (primaryHits.length === 1) return { ok: true, ...primaryHits[0] };
+    if (primaryHits.length > 1) return { ok: false, reason: 'recipient_ambiguous' };
+  }
+
+  if (eligible.length === 1) return { ok: true, ...eligible[0] };
+  if (eligible.length === 0) return { ok: false, reason: 'no_recipient' };
+  return { ok: false, reason: 'recipient_ambiguous' };
+}
+
+function normalizeChannelName(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 async function findExistingClientMessage({ repository, thread, clientMessageId }) {
   if (!clientMessageId) return null;
   const matches = await repository.list('messages', { client_message_id: clientMessageId });
@@ -426,12 +572,20 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
   });
   let notification = null;
   try {
-    if (!internal && thread.primary_user_id) {
+    const requestedParticipantId = body?.recipient_participant_id || body?.recipientParticipantId || null;
+    const replyChannel = body?.channel || thread.primary_channel || 'in_app';
+    const isInApp = normalizeChannelName(replyChannel) === 'in_app';
+
+    // in_app is addressed by user id alone, so it keeps its existing behaviour unless the caller
+    // explicitly targets a participant. Every other channel is addressed by a provider address, and
+    // queueing without one produced a notification the worker could never send — it dead-lettered
+    // as recipient_missing on every admin reply to a WhatsApp/Telegram thread.
+    if (!internal && isInApp && !requestedParticipantId && thread.primary_user_id) {
       notification = (await services.notificationService.queueExistingMessage({
         recipientUserId: thread.primary_user_id,
         thread,
         message,
-        channel: body?.channel || thread.primary_channel || 'in_app',
+        channel: replyChannel,
         notificationType: 'admin_reply',
         templateKey: 'admin_reply_v1',
         priority: thread.priority || 'normal',
@@ -439,7 +593,45 @@ export async function recordAdminThreadReply({ services, thread, actor, body = {
         dedupeParts: ['admin_reply', thread.id, clientMessageId, thread.primary_user_id],
         payload: { thread_id: thread.id, admin_reply: true },
       })).notification;
-    } else if (!internal) {
+    } else if (!internal && (!isInApp || requestedParticipantId)) {
+      const resolved = await resolveAdminReplyRecipient({
+        repository, thread, channel: replyChannel, requestedParticipantId,
+      });
+      if (resolved.reason === 'recipient_ambiguous') {
+        const err = new Error('Admin reply recipient is ambiguous: more than one participant is deliverable on this channel. Specify recipient_participant_id.');
+        err.statusCode = 422;
+        err.code = 'recipient_ambiguous';
+        throw err;
+      }
+      if (resolved.ok) {
+        const { participant, identity } = resolved;
+        notification = (await services.notificationService.queueExistingMessage({
+          // Both are kept on purpose: preferences and transactional policy are user-scoped, while
+          // provider delivery is address-scoped. The user id comes from the PARTICIPANT actually
+          // being addressed — never from thread.primary_user_id, which may be somebody else.
+          recipientUserId: participant.user_id || null,
+          recipientIdentityId: identity.id,
+          provider: identity.provider || message.provider || null,
+          thread,
+          message,
+          channel: replyChannel,
+          notificationType: 'admin_reply',
+          templateKey: 'admin_reply_v1',
+          priority: thread.priority || 'normal',
+          humanApproved: true,
+          // Keyed on the recipient USER (never the address), now sourced from the addressed
+          // participant. External contacts have no user id, so the participant id stands in — still
+          // not an address, so rotating a customer's number cannot split the dedupe key.
+          dedupeParts: ['admin_reply', thread.id, clientMessageId, participant.user_id || participant.id],
+          payload: {
+            thread_id: thread.id,
+            admin_reply: true,
+            ...deliveryPayloadForIdentity(identity),
+          },
+        })).notification;
+      }
+    }
+    if (!internal && !notification && !thread.primary_user_id) {
       const identity = await resolveExternalReplyIdentity({ repository, thread });
       if (identity) {
         notification = (await services.notificationService.queueExistingMessage({
@@ -978,6 +1170,168 @@ export function createAdminCommunicationRouter({ services = createCommunicationS
     }
 
     return res.status(200).json({ ok: readOnly.phone_number_id_accessible, channel, version, present, whitespace, read_only: readOnly, post_probe: postProbe });
+  }));
+
+  // Reduce a Meta template's components to their shape: which sections exist and how many
+  // positional BODY parameters the template expects. Deliberately returns no text — the count is
+  // what a CarUp binding has to agree with, and the wording is the owner's.
+  function describeTemplateShape(components) {
+    const list = Array.isArray(components) ? components : [];
+    const body = list.find((c) => String(c?.type || '').toUpperCase() === 'BODY');
+    const placeholders = new Set(String(body?.text || '').match(/\{\{\s*\d+\s*\}\}/g) || []);
+    return {
+      component_types: list.map((c) => String(c?.type || 'UNKNOWN').toUpperCase()),
+      body_parameter_count: placeholders.size,
+    };
+  }
+
+  // Read-only Meta provider template status, joined to the governed CarUp registry.
+  //
+  // Business-initiated WhatsApp can only be certified once a Meta-side template is APPROVED and a
+  // CarUp governed version carries its provider reference. Those two facts live in two different
+  // systems, and the only credential that can read the Meta side is the server's own access token —
+  // it is not retrievable from the Vercel CLI, and the operator browser has no Meta session. So the
+  // check has to run here, where the token already is.
+  //
+  // Strictly read-only: one Graph GET on the WABA's message_templates edge. It sends nothing,
+  // creates nothing, and writes nothing. It returns ONLY name/language/status/category and the
+  // provider's own rejection reason — never the token, never template body content, never a
+  // recipient. Pairing each Meta template with the governed rows that reference it is what makes a
+  // binding claim checkable rather than asserted.
+  router.get('/api/admin/communications/provider-template-status', requireAdminOrWorkerSecret, asyncHandler(async (req, res) => {
+    const version = 'v20.0';
+    const token = trimmedEnvValue(process.env, 'CARUP_META_ACCESS_TOKEN');
+    const configuredWaba = trimmedEnvValue(process.env, 'CARUP_META_WABA_ID');
+
+    // A WhatsApp Business Account ID is a numeric Graph object ID. Anything else — most commonly a
+    // value saved with its quotes, which arrives as the literal two-character string `""` — is not
+    // usable, and passing it through produces a confusing Graph "object does not exist" error
+    // instead of naming the real problem.
+    const usableWaba = /^\d{10,20}$/.test(configuredWaba) ? configuredWaba : null;
+
+    // Meta stamps the WABA ID on every webhook it delivers (`entry[].id`), so the system already
+    // knows its own account from signature-valid traffic it has received. Falling back to that keeps
+    // the diagnostic working through an environment misconfiguration — but the source is always
+    // reported, so a broken CARUP_META_WABA_ID stays visible rather than being silently papered over.
+    //
+    // The fallback resolves only when the evidence is UNAMBIGUOUS. The account id decides which
+    // Meta template registry is read, and this diagnostic's answer is what authorizes a provider
+    // binding — so "most recent receipt wins" is the wrong rule: with receipts from two accounts it
+    // would quietly pick one and report an approval that belongs to the other. Zero or several
+    // distinct signed accounts both fail closed.
+    let wabaId = usableWaba;
+    let wabaSource = usableWaba ? 'env' : null;
+    let wabaReason = usableWaba ? null : 'configured_value_unusable';
+    let signedAccounts = [];
+    if (!wabaId) {
+      const receipts = await services.repository.list('webhook_logs', { channel: 'whatsapp' })
+        .catch(() => []);
+      signedAccounts = [...new Set(
+        receipts
+          .filter((row) => row.signature_valid === true)
+          .map((row) => String(row.payload_redacted?.entry?.[0]?.id ?? ''))
+          .filter((id) => /^\d{10,20}$/.test(id)),
+      )];
+      if (signedAccounts.length === 1) {
+        [wabaId] = signedAccounts;
+        wabaSource = 'webhook_receipt';
+        wabaReason = null;
+      } else if (signedAccounts.length === 0) {
+        wabaReason = 'unresolved_no_signed_receipt';
+      } else {
+        wabaReason = 'ambiguous_multiple_signed_accounts';
+      }
+    }
+
+    const present = {
+      access_token: Boolean(token),
+      waba_id: Boolean(wabaId),
+      waba_id_configured: Boolean(usableWaba),
+      waba_id_source: wabaSource,
+      waba_id_reason: wabaReason,
+      // Count only — the ids themselves are account identifiers and are not needed to act on this.
+      signed_account_candidates: usableWaba ? null : signedAccounts.length,
+    };
+
+    // The governed side is readable regardless of provider reachability, so report it either way.
+    const templates = await services.repository.list('communication_templates', {});
+    const versions = await services.repository.list('communication_template_versions', {});
+    const byId = new Map(templates.map((t) => [t.id, t]));
+    const governed = versions
+      .filter((v) => v.provider_template_reference)
+      .map((v) => {
+        const t = byId.get(v.template_id) || {};
+        return {
+          template_key: t.template_key || null,
+          classification: t.classification || null,
+          template_status: t.status || null,
+          version: v.version,
+          channel: v.channel,
+          language: v.language,
+          approval_status: v.approval_status,
+          provider_template_reference: v.provider_template_reference,
+        };
+      })
+      .sort((a, b) => String(a.template_key).localeCompare(String(b.template_key)));
+
+    if (!token || !wabaId) {
+      return res.status(200).json({
+        ok: false, version, present, stage: 'config',
+        message: 'CARUP_META_ACCESS_TOKEN is not set, and/or no usable WhatsApp Business Account ID '
+          + 'could be resolved from CARUP_META_WABA_ID or from a signature-valid Meta webhook receipt.',
+        governed_bindings: governed, provider_templates: null,
+      });
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let providerTemplates = null;
+    let meta = null;
+    let httpStatus = 0;
+    try {
+      const url = `https://graph.facebook.com/${version}/${encodeURIComponent(wabaId)}/message_templates`
+        + '?limit=100&fields=name,language,status,category,rejected_reason,components';
+      const r = await fetch(url, { headers: { authorization: `Bearer ${token}` }, signal: controller.signal });
+      httpStatus = r.status;
+      const text = await r.text();
+      let parsed = null; try { parsed = JSON.parse(text); } catch { parsed = text; }
+      if (r.ok && parsed && Array.isArray(parsed.data)) {
+        providerTemplates = parsed.data.map((t) => ({
+          name: t.name,
+          language: t.language,
+          status: t.status,
+          category: t.category,
+          rejected_reason: t.rejected_reason && t.rejected_reason !== 'NONE' ? t.rejected_reason : null,
+          // The reference the governed registry must carry for this exact template.
+          provider_reference: `${t.name}|${t.language}`,
+          // Shape, never copy. A send whose parameter count does not match the template is
+          // rejected by Meta, so the count is the part of the template a binding has to agree
+          // with — the wording is the owner's and stays on Meta's side.
+          ...describeTemplateShape(t.components),
+        }));
+      } else {
+        meta = sanitizeProviderError(r.status, parsed);
+      }
+    } catch (error) {
+      meta = { provider_error_message: error?.name === 'AbortError' ? 'template lookup timed out' : 'template lookup network error' };
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // A governed row pointing at a reference Meta does not report is a binding that cannot deliver.
+    const referenced = new Set((providerTemplates || []).map((t) => t.provider_reference));
+    const bindings = governed.map((g) => ({
+      ...g,
+      provider_reference_found: providerTemplates ? referenced.has(g.provider_template_reference) : null,
+      provider_status: providerTemplates
+        ? (providerTemplates.find((t) => t.provider_reference === g.provider_template_reference)?.status ?? null)
+        : null,
+    }));
+
+    return res.status(200).json({
+      ok: Boolean(providerTemplates), version, present, http_status: httpStatus,
+      meta, provider_templates: providerTemplates, governed_bindings: bindings,
+    });
   }));
 
   router.get('/api/admin/communications/metrics', authorizeRole(ADMIN_ROLES), asyncHandler(async (req, res) => {

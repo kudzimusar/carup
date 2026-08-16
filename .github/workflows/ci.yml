@@ -123,6 +123,14 @@ jobs:
       - name: 'Issue #101 public_keys transition proof (real PostgreSQL via PGlite)'
         run: node database/test/issue101_public_keys_transition_check.mjs
 
+      # The post-cutover certifier, validated before it is ever pointed at production.
+      # A certifier that cannot fail is worse than none — it turns "we did not look" into
+      # "we checked and it was fine". This applies the two REAL merged migrations to a
+      # production-shaped pre-state, proves the correct result certifies, then breaks one
+      # thing at a time and proves each break is caught AND named.
+      - name: 'Issue #101 post-cutover certifier proof (real PostgreSQL via PGlite)'
+        run: node database/test/issue101_post_cutover_certifier_check.mjs
+
       # The backend suite runs against an in-memory mock, and a mock that models a constraint is a
       # statement about the mock. What these harnesses catch are properties only real PostgreSQL
       # has: an ACL under Supabase's ALTER DEFAULT PRIVILEGES hazard, a UNIQUE index's missing
