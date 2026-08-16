@@ -1,10 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL } from './apiClient'
+import {
+  extractApiErrorMessage,
+  resolveApiBaseUrl,
+  DEFAULT_PRODUCTION_API_BASE_URL,
+  DEFAULT_STAGING_API_BASE_URL,
+} from './apiClient'
 import { getErrorMessage } from './errorMessage'
 import { withMockFallback } from '../pages/Marketplace'
 
-// QA Round 2 — a staging/preview frontend MUST set VITE_API_URL, or it targets the production backend
-// (unseeded + missing this PR's routes -> 0 vehicles + "Route not found"). Pin the behavior.
+// Environment isolation — a staging/preview frontend must never silently authenticate against the
+// production backend when VITE_API_URL is missing. The resolver keeps recognized carup-staging
+// hosts on staging, while genuine non-staging hosts retain the production last-resort fallback.
 describe('resolveApiBaseUrl — which backend the frontend targets', () => {
   it('honors a configured VITE_API_URL (staging -> staging backend)', () => {
     expect(resolveApiBaseUrl('https://carup-backend-staging.example.app', 'carup-staging.example.app')).toBe(
@@ -14,8 +20,11 @@ describe('resolveApiBaseUrl — which backend the frontend targets', () => {
   it('uses same-origin /api on localhost', () => {
     expect(resolveApiBaseUrl(undefined, 'localhost')).toBe('/api')
   })
-  it('falls back to the PRODUCTION backend when VITE_API_URL is unset on a non-localhost host (the staging trap)', () => {
-    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  it('keeps a recognized staging preview on the STAGING backend when VITE_API_URL is unset', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+  it('retains the PRODUCTION fallback for a genuine non-staging host with no configured URL', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
   })
 })
 
