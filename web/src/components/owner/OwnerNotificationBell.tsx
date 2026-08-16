@@ -199,7 +199,7 @@ export default function OwnerNotificationBell() {
                     {!notification.read && <Badge className="bg-orange-100 text-[9px] text-orange-700 hover:bg-orange-100">New</Badge>}
                   </div>
                 </button>
-              ))}
+              ))
             )}
           </div>
 
