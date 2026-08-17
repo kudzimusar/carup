@@ -344,3 +344,62 @@ test('a lifecycle event extracts the RFC Message-ID for reply correlation', asyn
   assert.equal(receipt.providerMessageId, '<010601a0@ap-northeast-1.amazonses.com>');
   assert.equal(receipt.providerRequestId, '667c199e-164d-4bb0-9214-40b4467c6a2d');
 });
+
+// ---------- E3 regression: receipt correlation across Resend's two identifiers ----------
+
+function receiptRepo(attempts) {
+  const updates = [];
+  return {
+    updates,
+    async list(table, filters) {
+      if (table !== 'message_delivery_attempts') return [];
+      return attempts.filter((a) => Object.entries(filters).every(([k, v]) => a[k] === v));
+    },
+    async updateById(table, id, patch) { updates.push({ table, id, patch }); return { id, ...patch }; },
+    async insert() { return {}; },
+    async findOne() { return null; },
+  };
+}
+
+test('a Resend receipt correlates via provider_request_id when the RFC id differs', async () => {
+  // The live defect: the send response yields only Resend's uuid, while the webhook reports the
+  // RFC Message-ID. Matching solely on provider_message_id left the attempt stuck at "sent".
+  const { CommunicationCanonicalWebhookService } = await import('../services/communication/communicationCanonicalWebhookService.js');
+  const attempts = [{
+    id: 'att-1', notification_id: '325', message_id: 'msg-1',
+    provider: 'resend', channel: 'email',
+    provider_request_id: '16f332c6-6f74-45ee-9805-12a851623f35',
+    provider_message_id: '16f332c6-6f74-45ee-9805-12a851623f35',
+  }];
+  const repo = receiptRepo(attempts);
+  const svc = new CommunicationCanonicalWebhookService({ repository: repo });
+
+  const result = await svc.applyDeliveryReceipt({
+    provider: 'resend', channel: 'email', status: 'delivered', rawStatus: 'email.delivered',
+    providerMessageId: '<0106@ap-northeast-1.amazonses.com>',
+    providerRequestId: '16f332c6-6f74-45ee-9805-12a851623f35',
+  });
+
+  assert.notEqual(result.status, 'unattributed', 'receipt must attribute to the attempt');
+  const attemptUpdate = repo.updates.find((u) => u.table === 'message_delivery_attempts');
+  assert.ok(attemptUpdate, 'the delivery attempt must be updated');
+  assert.equal(attemptUpdate.patch.status, 'delivered');
+  // And the RFC id must be backfilled so an inbound reply can be mapped back to this message.
+  assert.equal(attemptUpdate.patch.provider_message_id, '<0106@ap-northeast-1.amazonses.com>');
+});
+
+test('receipt backfill never overwrites an already-correct RFC Message-ID', async () => {
+  const { CommunicationCanonicalWebhookService } = await import('../services/communication/communicationCanonicalWebhookService.js');
+  const rfc = '<already@mail.carup.dev>';
+  const repo = receiptRepo([{
+    id: 'att-2', notification_id: '400', message_id: 'msg-2', provider: 'resend', channel: 'email',
+    provider_request_id: 'req-2', provider_message_id: rfc,
+  }]);
+  const svc = new CommunicationCanonicalWebhookService({ repository: repo });
+  await svc.applyDeliveryReceipt({
+    provider: 'resend', channel: 'email', status: 'delivered',
+    providerMessageId: rfc, providerRequestId: 'req-2',
+  });
+  const update = repo.updates.find((u) => u.table === 'message_delivery_attempts');
+  assert.equal(update.patch.provider_message_id, undefined, 'no rewrite when the RFC id already matches');
+});

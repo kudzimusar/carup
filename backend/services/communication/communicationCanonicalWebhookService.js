@@ -17,11 +17,23 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
   }
 
   async resolveDeliveryAttempt(receipt = {}) {
-    if (!receipt.providerMessageId) return { attempt: null, ambiguous: false };
+    if (!receipt.providerMessageId && !receipt.providerRequestId) return { attempt: null, ambiguous: false };
     const normalizedChannel = normalizeChannel(receipt.channel);
-    let attempts = await this.repository.list('message_delivery_attempts', {
-      provider_message_id: receipt.providerMessageId,
-    });
+    let attempts = receipt.providerMessageId
+      ? await this.repository.list('message_delivery_attempts', { provider_message_id: receipt.providerMessageId })
+      : [];
+
+    // Fall back to the provider REQUEST id.
+    //
+    // Resend's send response returns only its own email id, while the lifecycle webhook reports
+    // the RFC Message-ID. Correlating solely on provider_message_id therefore misses every real
+    // Resend receipt: the attempt holds the Resend uuid and the receipt carries the RFC id.
+    // The request id is the one identifier present on both sides.
+    if (!attempts.length && receipt.providerRequestId) {
+      attempts = await this.repository.list('message_delivery_attempts', {
+        provider_request_id: receipt.providerRequestId,
+      });
+    }
     if (receipt.provider) attempts = attempts.filter((row) => !row.provider || row.provider === receipt.provider);
     if (normalizedChannel) attempts = attempts.filter((row) => !row.channel || normalizeChannel(row.channel) === normalizedChannel);
     if (receipt.notificationId) attempts = attempts.filter((row) => String(row.notification_id) === String(receipt.notificationId));
@@ -86,13 +98,24 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
     }
 
     if (attempt?.id) {
-      await this.repository.updateById('message_delivery_attempts', attempt.id, {
+      const patch = {
         status: receipt.status === 'failed' ? 'failed' : receipt.status,
         response_metadata: { ...(attempt.response_metadata || {}), provider_receipt_status: receipt.rawStatus || receipt.status },
         error_code: receipt.errorCode || null,
         error_message: receipt.errorMessage || null,
         completed_at: nowIso(),
-      });
+      };
+      // Backfill the RFC Message-ID the first time a lifecycle event reveals it.
+      //
+      // This is load-bearing for inbound reply routing (E4): a reply's In-Reply-To/References
+      // carry the RFC id, but the send response never exposes it, so without this backfill there
+      // is nothing to map a real reply back to. Only ever fills an empty/less-specific value —
+      // it never overwrites an existing RFC id.
+      const looksRfc = typeof receipt.providerMessageId === 'string' && receipt.providerMessageId.includes('@');
+      if (looksRfc && attempt.provider_message_id !== receipt.providerMessageId) {
+        patch.provider_message_id = receipt.providerMessageId;
+      }
+      await this.repository.updateById('message_delivery_attempts', attempt.id, patch);
     }
     if (notificationId) {
       await this.repository.updateById('notification_queue', notificationId, {
