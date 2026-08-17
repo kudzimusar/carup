@@ -59,6 +59,12 @@ export type MarketplaceTag =
   | 'repair_history_available'
   | 'verified_parts';
 
+/**
+ * The anonymous listing payload. Registry identifiers (plate_number,
+ * normalized_plate_number, chassis_number) are absent by contract — see
+ * PRIVATE_VEHICLE_FIELDS in backend/utils/publicVehicleProjection.js. Declaring them here
+ * would let a consumer compile against a field the API will never send.
+ */
 export interface MarketplaceListingSummary {
   vin: string;
   make: string;
@@ -74,9 +80,6 @@ export interface MarketplaceListingSummary {
   marketplace_tags: MarketplaceTag[];
   trust_score: number;
   primary_image_url?: string | null;
-  plate_number?: string | null;
-  normalized_plate_number?: string | null;
-  chassis_number?: string | null;
   plate_verified: boolean;
   plate_status?: string | null;
   passport_verified: boolean;

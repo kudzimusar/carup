@@ -3,8 +3,11 @@
  *
  * Returns a fully sanitized MarketplaceListingDetail (summary + trust/verification/pricing summaries +
  * media + seller summary + safety warnings + SafePay-ready intent contract). Only PUBLIC, non-fixture,
- * eligible listings resolve — everything else 404s (NotFoundError). Never echoes owner_id/tenant_id or
- * any private trust/evidence/identity data.
+ * eligible listings resolve — everything else 404s (NotFoundError). Never echoes owner_id/tenant_id,
+ * registry identifiers (plate_number/normalized_plate_number/chassis_number), or any private
+ * trust/evidence data. The whole payload derives from buildMarketplaceListingSummary and the trust/
+ * verification/pricing summaries — the raw vehicle row is never spread into the response, and
+ * LISTING_SELECT_COLUMNS does not fetch those identifiers in the first place.
  */
 
 import {

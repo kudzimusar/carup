@@ -1930,8 +1930,11 @@ export interface VehiclePlateHistory {
 }
 
 export interface OwnershipSummary {
-  currentSellerDisplayName?: string;
-  currentSellerType?: string;
+  /** null means either withheld or unrecorded — disambiguate with currentSellerRecorded. */
+  currentSellerDisplayName?: string | null;
+  currentSellerType?: string | null;
+  /** A seller IS on file. With a null display name this means withheld, not absent. */
+  currentSellerRecorded?: boolean;
   previousOwnerCount: number;
   previousOwnersPublicLabel: string;
   ownerNamesRedacted: boolean;

@@ -97,6 +97,7 @@ import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
+import { PUBLIC_VEHICLE_SELECT, projectVehicle, toPublicEvidence, toPublicPlateHistory } from './utils/publicVehicleProjection.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -422,7 +423,7 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
   try {
     const { data: vehicle, error } = await supabase
       .from('vehicles')
-      .select(`${PUBLIC_VEHICLE_COLUMNS}, tenant:tenants(name, type, status)`)
+      .select(`${PUBLIC_VEHICLE_SELECT}, tenant:tenants(name, type, status)`)
       .eq('vin', vin)
       .single();
     if (error) throw error;
@@ -443,7 +444,7 @@ app.get('/api/vehicles', async (req, res) => {
     // Sanitized projection + full visibility gate: this legacy public endpoint
     // previously returned raw rows (owner_id, tenant_id, engine/chassis numbers)
     // and ignored the publication lifecycle entirely.
-    let query = supabase.from('vehicles').select(PUBLIC_VEHICLE_COLUMNS);
+    let query = supabase.from('vehicles').select(PUBLIC_VEHICLE_SELECT);
 
     // Explicitly enforce public visibility constraint unless specifically fetching for a tenant (handled below or in another endpoint)
     query = query.in('status', publicVehicleStatusFilterValues());
@@ -511,7 +512,14 @@ async function collectPassportLookupMatches(identifier) {
   return matchingVins;
 }
 
-// Structured helper to build and redact vehicle passport
+// Roles that may read a passport at the owner audience regardless of who owns the
+// vehicle. Kept narrow: widening this widens the unredacted identity surface.
+const PASSPORT_PRIVILEGED_ROLES = new Set(['admin', 'government']);
+
+// Structured helper to build and redact vehicle passport.
+// Caller identity MUST already be resolved by optionalAuth() on the route: this
+// function never reads x-session-token/x-user-id itself, because an unverified
+// header must not be able to buy the owner audience.
 async function buildVehiclePassport(vin, req) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
@@ -521,39 +529,14 @@ async function buildVehiclePassport(vin, req) {
 
   if (vehicleError || !vehicle) return null;
 
-  // Determine requester identity
-  const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-  const fallbackUserId = req.headers['x-user-id'];
-  let activeUserId = fallbackUserId || null;
-  let activeUserRole = null;
-
-  if (sessionToken) {
-    const { data: session } = await supabase
-      .from('user_sessions')
-      .select('user_id')
-      .eq('token', sessionToken)
-      .eq('is_valid', true)
-      .single();
-    if (session) {
-      activeUserId = session.user_id;
-    }
-  }
-
-  if (activeUserId) {
-    const { data: user } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', activeUserId)
-      .single();
-    if (user) {
-      activeUserRole = user.role;
-    }
-  }
-
-  const isAuthorized = 
-    activeUserRole === 'admin' || 
-    activeUserRole === 'government' || 
-    (activeUserId && activeUserId === vehicle.owner_id);
+  // Audience decision. req.userContext is set only when optionalAuth() matched a
+  // live, unexpired, is_valid session (or accepted the x-user-id fallback, which
+  // isUserIdFallbackAllowed() refuses outside local/test). No context => public.
+  const actor = req.userContext || null;
+  const isAuthorized = Boolean(actor?.id) && (
+    PASSPORT_PRIVILEGED_ROLES.has(actor.role) ||
+    actor.id === vehicle.owner_id
+  );
 
   // Fetch timeline, visual evidence, trust score report, and ledger verification
   const timeline = await getVehicleTimeline(vin);
@@ -586,15 +569,18 @@ async function buildVehiclePassport(vin, req) {
     .eq('vin', vin);
   const previousOwnerCount = ownershipHistory ? ownershipHistory.length : 0;
 
-  // Resolve current seller details
-  let currentSellerDisplayName = 'Private Seller';
-  if (vehicle.current_seller_id) {
+  // Resolve current seller details. Principle 4: a seller that is not recorded, or
+  // whose name we cannot resolve, stays null — never a stand-in like 'Private Seller',
+  // which reads as a recorded fact and is indistinguishable from a real answer.
+  const currentSellerRecorded = Boolean(vehicle.current_seller_id);
+  let currentSellerDisplayName = null;
+  if (currentSellerRecorded) {
     const { data: sellerUser } = await supabase
       .from('users')
       .select('name')
       .eq('id', vehicle.current_seller_id)
       .single();
-    if (sellerUser) {
+    if (sellerUser?.name) {
       currentSellerDisplayName = sellerUser.name;
     }
   }
@@ -602,22 +588,63 @@ async function buildVehiclePassport(vin, req) {
   const currentOwnerVisible = isAuthorized || !!vehicle.public_seller_display_enabled;
 
   const ownershipSummary = {
-    currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : 'Private Seller',
-    currentSellerType: vehicle.current_seller_type || 'Private Owner',
+    // null + currentSellerRecorded true + currentOwnerVisible false => withheld.
+    // null + currentSellerRecorded false                            => not recorded.
+    currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : null,
+    currentSellerType: vehicle.current_seller_type ?? null,
+    currentSellerRecorded,
     previousOwnerCount,
     previousOwnersPublicLabel: 'Redacted for privacy',
     ownerNamesRedacted: !isAuthorized,
     currentOwnerVisible
   };
 
-  // Structured Privacy Redaction Layer
-  const sanitizedTimeline = visualTimeline.map(event => {
+  // Structured Privacy Redaction Layer.
+  // Free text is part of the response body: an identifier interpolated into a
+  // sentence escapes the structured redaction in `identity` just as surely as a
+  // stray column would, and a key-name leak scan cannot see it. Every identifier
+  // read below is therefore gated on isAuthorized, and an unauthorized description
+  // names the EVENT rather than emitting a placeholder where a value would sit.
+  // A plate-history row that is not marked public governs its derived timeline events too:
+  // suppressing the number while still announcing "plate flagged: <reason>" would publish the
+  // very record the row withheld. Event ids are `<source>:<plateHistoryId>`, so the withheld
+  // rows identify their own events.
+  const withheldPlateEventIds = isAuthorized
+    ? new Set()
+    : new Set(
+        (plateHistory || [])
+          .filter(row => row.record_visibility !== 'public')
+          .map(row => String(row.id))
+      );
+
+  const audienceTimeline = withheldPlateEventIds.size === 0
+    ? visualTimeline
+    : visualTimeline.filter(event => {
+        if (!String(event.event_source || '').startsWith('plate_') &&
+            event.event_source !== 'temporary_id_issued') return true;
+        return !withheldPlateEventIds.has(String(event.id || '').split(':').pop());
+      });
+
+  const sanitizedTimeline = audienceTimeline.map(event => {
+    const plateValue = isAuthorized
+      ? (event.details?.plateNumber || vehicle.plate_number || null)
+      : null;
+    const tempIdValue = isAuthorized
+      ? (event.details?.plateNumber || vehicle.temporary_identification_number || null)
+      : null;
+    // plate_verification_source is owner-audience only in the projection contract.
+    const verificationSource = event.details?.verificationSource
+      || (isAuthorized ? vehicle.plate_verification_source : null)
+      || null;
+
     // Generate publicDescription and publicSummary
     let publicDescription = event.desc || '';
     let publicSummary = event.label || '';
 
     if (event.event_source === 'cvr') {
-      publicDescription = `Registered plate ${event.details?.plateNumber || vehicle.plate_number || '—'}. Owner name redacted for privacy.`;
+      publicDescription = plateValue
+        ? `Registered plate ${plateValue}. Owner name redacted for privacy.`
+        : 'Registration recorded with CVR. Owner name redacted for privacy.';
       publicSummary = 'CVR Registration';
     } else if (event.event_source === 'ownership_transfer') {
       publicDescription = 'Ownership transferred to next owner';
@@ -629,22 +656,31 @@ async function buildVehiclePassport(vin, req) {
       publicDescription = 'Insurance policy premium set';
       publicSummary = 'Insurance Insured';
     } else if (event.event_source === 'plate_assigned') {
-      publicDescription = `Number plate assigned: ${event.details?.plateNumber || vehicle.plate_number || '—'}`;
+      publicDescription = plateValue
+        ? `Number plate assigned: ${plateValue}`
+        : 'Number plate assigned';
       publicSummary = 'Plate Assigned';
     } else if (event.event_source === 'temporary_id_issued') {
-      publicDescription = `Temporary identification number issued: ${event.details?.plateNumber || vehicle.temporary_identification_number || '—'}`;
+      publicDescription = tempIdValue
+        ? `Temporary identification number issued: ${tempIdValue}`
+        : 'Temporary identification number issued';
       publicSummary = 'Temporary ID Issued';
     } else if (event.event_source === 'plate_verified') {
-      publicDescription = `Number plate ${event.details?.plateNumber || vehicle.plate_number || '—'} verified via ${event.details?.verificationSource || vehicle.plate_verification_source || 'CVR'}`;
+      const subject = plateValue ? `Number plate ${plateValue} verified` : 'Number plate verified';
+      publicDescription = verificationSource ? `${subject} via ${verificationSource}` : subject;
       publicSummary = 'Plate Verified';
     } else if (event.event_source === 'plate_changed') {
-      publicDescription = `Number plate ${event.details?.plateNumber || '—'} retired or changed`;
+      publicDescription = plateValue
+        ? `Number plate ${plateValue} retired or changed`
+        : 'Number plate retired or changed';
       publicSummary = 'Plate Changed';
     } else if (event.event_source === 'plate_flagged') {
-      publicDescription = `Number plate ${event.details?.plateNumber || '—'} flagged: ${event.details?.reason || 'No reason provided'}`;
+      const subject = plateValue ? `Number plate ${plateValue} flagged` : 'Number plate flagged';
+      publicDescription = `${subject}: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Flagged';
     } else if (event.event_source === 'plate_suspended') {
-      publicDescription = `Number plate ${event.details?.plateNumber || '—'} suspended: ${event.details?.reason || 'No reason provided'}`;
+      const subject = plateValue ? `Number plate ${plateValue} suspended` : 'Number plate suspended';
+      publicDescription = `${subject}: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Suspended';
     } else if (event.event_source === 'evidence') {
       publicDescription = event.desc || 'Verified evidence linked to this vehicle passport';
@@ -666,10 +702,12 @@ async function buildVehiclePassport(vin, req) {
       sanitizedEvent.desc = publicDescriptionVal;
       sanitizedEvent.label = publicSummaryVal;
       sanitizedEvent.details = {
-        // Keep safe details
+        // Keep safe details. plateNumber is not one of them: it is the value
+        // identity.plateNumber withholds, only camelCased onto a timeline row.
+        // Blanked rather than dropped, so the client renders a withheld state;
+        // identity.identifiersRedacted says which state a null means.
         mileage: event.details?.mileage,
         stage: event.details?.stage,
-        plateNumber: event.details?.plateNumber,
         plateType: event.details?.plateType,
         status: event.details?.status,
         brakingEfficiency: event.details?.brakingEfficiency,
@@ -679,6 +717,7 @@ async function buildVehiclePassport(vin, req) {
         termEnd: event.details?.termEnd,
         reason: event.details?.reason,
         verificationSource: event.details?.verificationSource,
+        plateNumber: null,
       };
     }
 
@@ -686,33 +725,42 @@ async function buildVehiclePassport(vin, req) {
   });
 
   return {
-    vehicle,
+    vehicle: projectVehicle(vehicle, isAuthorized ? 'owner' : 'public'),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
-    evidenceVault,
+    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
     trustReport,
-    chainVerification,
+    // chain[] carries each ledger event's raw uncontrolled payload, which in practice holds
+    // owner names. Unauthorized callers get the integrity verdict only, never the entries.
+    chainVerification: isAuthorized
+      ? chainVerification
+      : { verified: chainVerification.verified, count: chainVerification.count, chain: [] },
     identity: {
       vin: vehicle.vin,
-      chassisNumber: vehicle.chassis_number,
-      plateNumber: vehicle.plate_number,
-      normalizedPlateNumber: vehicle.normalized_plate_number,
+      chassisNumber: isAuthorized ? vehicle.chassis_number : null,
+      plateNumber: isAuthorized ? vehicle.plate_number : null,
+      normalizedPlateNumber: isAuthorized ? vehicle.normalized_plate_number : null,
       plateStatus: vehicle.plate_status,
-      temporaryIdentificationNumber: vehicle.temporary_identification_number,
-      engineNumber: vehicle.engine_number,
+      temporaryIdentificationNumber: isAuthorized ? vehicle.temporary_identification_number : null,
+      engineNumber: isAuthorized ? vehicle.engine_number : null,
       registrationStatus: vehicle.registration_status,
       registrationCountry: vehicle.registration_country,
       registrationAuthority: vehicle.registration_authority,
-      plateVerifiedAt: vehicle.plate_verified_at,
-      plateVerificationSource: vehicle.plate_verification_source
+      plateVerifiedAt: isAuthorized ? vehicle.plate_verified_at : null,
+      plateVerificationSource: isAuthorized ? vehicle.plate_verification_source : null,
+      // A null identifier above means withheld from this audience, not unrecorded —
+      // the client must not render it as an absent fact.
+      identifiersRedacted: !isAuthorized
     },
-    plateHistory: plateHistory || [],
+    plateHistory: isAuthorized ? (plateHistory || []) : toPublicPlateHistory(plateHistory),
     ownershipSummary
   };
 }
 
-// Canonical VIN passport lookup
-app.get('/api/vehicles/:vin/passport', async (req, res) => {
+// Canonical VIN passport lookup.
+// optionalAuth() resolves identity when one is genuinely present and never blocks:
+// the passport stays publicly reachable, only its audience changes.
+app.get('/api/vehicles/:vin/passport', optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
     const passport = await buildVehiclePassport(vin, req);
@@ -725,8 +773,9 @@ app.get('/api/vehicles/:vin/passport', async (req, res) => {
   }
 });
 
-// Multi-identifier passport lookup route
-app.get('/api/vehicles/passport/lookup/:identifier', async (req, res) => {
+// Multi-identifier passport lookup route. Same audience rule as /:vin/passport —
+// resolving by plate/temp id must not be a cheaper route to the owner audience.
+app.get('/api/vehicles/passport/lookup/:identifier', optionalAuth(), async (req, res) => {
   const identifier = validatePassportLookupIdentifier(req.params.identifier);
   if (!identifier) {
     return res.status(400).json({ error: 'Invalid lookup identifier' });

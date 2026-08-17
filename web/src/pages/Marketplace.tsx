@@ -91,10 +91,6 @@ function normalizeText(value?: string | null) {
   return (value || '').toLowerCase()
 }
 
-function normalizePlate(value?: string | null) {
-  return (value || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-}
-
 function getTrustScore(vehicle: Vehicle) {
   return vehicle.trust_score ?? vehicle.trustScore ?? 0
 }
@@ -150,6 +146,18 @@ function getSellerLabel(vehicle: Vehicle) {
   return 'Private seller'
 }
 
+/**
+ * Plate posture for a listing card. The plate itself is never in a public payload
+ * (PRIVATE_VEHICLE_FIELDS in backend/utils/publicVehicleProjection.js), so the posture is read
+ * from the non-identifying signals the API does return. No signal is an explicit unknown, never
+ * a blank line the buyer could mistake for "no plate".
+ */
+function getPlateStatusLabel(vehicle: Vehicle) {
+  if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) return 'Plate verified'
+  if (normalizeText(vehicle.plate_status)) return 'Plate on file'
+  return 'Plate status unknown'
+}
+
 function getVehicleLabels(vehicle: Vehicle) {
   const labels: string[] = []
   const condition = normalizeText(vehicle.condition)
@@ -163,7 +171,7 @@ function getVehicleLabels(vehicle: Vehicle) {
   // 'Certified Pre-Owned' is a dealer-certified condition, not a CarUp verification claim.
   if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Certified Pre-Owned')
   // Source-specific trust signals (plate and police are separate, not whole-vehicle verification)
-  if ((vehicle as Vehicle & { plate_verified_at?: string }).plate_verified_at) labels.push('Plate Confirmed')
+  if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) labels.push('Plate Confirmed')
   if ((vehicle as Vehicle & { police_verified?: boolean }).police_verified) labels.push('Police Checked')
   if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Evidence Reviewed')
   if ((vehicle as Vehicle & { duty_paid?: boolean }).duty_paid) labels.push('Duty Cleared')
@@ -218,7 +226,14 @@ function setFavorites(ids: string[]) {
   localStorage.setItem('carup_favorites', JSON.stringify(ids))
 }
 
-function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicle {
+/**
+ * Adapt one public listing summary to the card model. Every field here must already exist on the
+ * summary: the public listing contract is the only source of truth for a listing, so nothing is
+ * substituted for a missing value (Issue #164 principles 4 and 5). Registry identifiers
+ * (plate/chassis) are absent from that contract by design — `plate_verified`/`plate_status` carry
+ * the plate trust signal instead.
+ */
+function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicle & { plate_verified: boolean } {
   return {
     vin: summary.vin,
     make: summary.make,
@@ -232,16 +247,13 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     price: summary.price,
     currency: summary.currency,
     created_at: summary.created_at || undefined,
-    location: summary.location || 'Zimbabwe',
+    location: summary.location || undefined,
     images: summary.primary_image_url ? [summary.primary_image_url] : undefined,
-    plate_number: summary.plate_number || undefined,
-    normalized_plate_number: summary.normalized_plate_number || undefined,
-    chassis_number: summary.chassis_number || undefined,
     vehicle_condition_category: summary.condition_category,
     marketplace_tags: summary.marketplace_tags,
     passport_verified: summary.passport_verified,
     plate_status: summary.plate_status || undefined,
-    plate_verified_at: summary.plate_verified ? summary.created_at || new Date(0).toISOString() : undefined,
+    plate_verified: summary.plate_verified,
     evidence_count: summary.evidence_count,
     partsentry_checked: summary.partsentry_checked,
     repair_history_count: summary.repair_history_count,
@@ -595,15 +607,13 @@ export default function Marketplace() {
   const filtered = liveVehicles.filter((v: Vehicle) => {
     const loc = v.location || ''
     const q = searchQuery.toLowerCase()
-    const normalizedQuery = normalizePlate(searchQuery)
+    // Plate/chassis are not searchable client-side: they are absent from the public listing
+    // contract, and matching on them would turn the grid into an identifier oracle.
     const searchableText = [
       v.make,
       v.model,
       loc,
       v.vin,
-      v.plate_number,
-      v.normalized_plate_number,
-      v.chassis_number,
       v.condition,
       v.category,
       v.sellerName,
@@ -613,11 +623,7 @@ export default function Marketplace() {
       hasPartSentrySignal(v) ? 'partsentry repair part history checked' : '',
       getRepairHistoryCount(v) > 0 ? 'repair history service logs work orders' : '',
     ].map(value => value || '').join(' ').toLowerCase()
-    const matchSearch = !searchQuery ||
-      searchableText.includes(q) ||
-      normalizePlate(v.plate_number).includes(normalizedQuery) ||
-      normalizePlate(v.normalized_plate_number).includes(normalizedQuery) ||
-      normalizePlate(v.chassis_number).includes(normalizedQuery)
+    const matchSearch = !searchQuery || searchableText.includes(q)
     const matchCat = selectedCategory === 'All' || v.category === selectedCategory
     const matchMarketplaceCategory = matchesConditionChip(v, marketplaceCategory)
     const matchTrustTags = matchesAllTrustTags(v, trustTags)
@@ -979,9 +985,7 @@ export default function Marketplace() {
               // not suppress the listing — buyers see conservative signal, not a false positive.
               const hasInsufficientEvidence = trustScore > 0 && trustScore < 30
               const passportHref = `/marketplace/${encodeURIComponent(vehicle.vin || vehicle.id || '')}`
-              const plateStatus = vehicle.plate_number
-                ? vehicle.plate_verified_at ? 'Plate verified' : 'Plate on file'
-                : ''
+              const plateStatus = getPlateStatusLabel(vehicle)
               return (
                 <Link
                   key={vehicle.vin || vehicle.id || ''}
@@ -998,7 +1002,7 @@ export default function Marketplace() {
                         imgClassName="group-hover:scale-105 transition-transform duration-500"
                       />
                       <div className="absolute top-3 left-3 flex flex-wrap gap-2">
-                        {(vehicle as Vehicle & { plate_verified_at?: string }).plate_verified_at && (
+                        {(vehicle as Vehicle & { plate_verified?: boolean }).plate_verified && (
                           <Badge className="bg-green-600 text-white text-[10px]" data-testid="marketplace-plate-confirmed-badge">
                             <CheckCircle className="w-3 h-3 mr-1" /> Plate Confirmed
                           </Badge>
@@ -1089,11 +1093,9 @@ export default function Marketplace() {
                         <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission || 'Auto'}</span>
                         <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{getFuelType(vehicle)}</span>
                       </div>
-                      {plateStatus && (
-                        <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
-                          {plateStatus}
-                        </p>
-                      )}
+                      <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
+                        {plateStatus}
+                      </p>
                       <Separator className="my-3" />
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-1.5">
@@ -1101,7 +1103,7 @@ export default function Marketplace() {
                           <span className="text-xs text-gray-600 line-clamp-1">{getSellerLabel(vehicle)}</span>
                         </div>
                         <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <MapPin className="w-3 h-3" />{vehicle.location || 'Zimbabwe'}
+                          <MapPin className="w-3 h-3" />{vehicle.location || 'Location unknown'}
                         </span>
                       </div>
                       <Button

@@ -30,6 +30,7 @@ import { useAuth } from '@/context/AuthContext'
 import { toast } from 'sonner'
 import type {
   Vehicle,
+  VehicleIdentity,
   VehiclePassport,
   TimelineEvent,
   PassportVerificationSource,
@@ -65,19 +66,38 @@ function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
     status: d.status,
     trust_score: d.trust_score,
     images: (d.media || []).filter((m) => m.type === 'image').map((m) => m.url),
-    location: d.location || 'Zimbabwe',
-    sellerName: d.seller_summary?.display_label || 'Seller',
-    sellerType: d.seller_summary?.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
+    location: d.location,
+    sellerName: d.seller_summary?.display_label,
+    sellerType: d.seller_summary?.seller_type === 'dealer' ? 'Dealership'
+      : d.seller_summary?.seller_type === 'private' ? 'Private Owner'
+      : undefined,
     created_at: d.created_at || undefined,
   } as Vehicle
+}
+
+// ── Governed identifier states ───────────────────────────────────────────────
+/**
+ * The passport identity block carries `identifiersRedacted`, which the shared
+ * VehicleIdentity type does not declare yet.
+ */
+type PassportIdentity = VehicleIdentity & { identifiersRedacted?: boolean }
+
+/**
+ * A governed identifier has three distinct truths and the page must never collapse them:
+ * `withheld` means this audience is not allowed to see it, `unrecorded` means it does not
+ * exist. Withheld is a rule about the caller — never a data-quality finding about the
+ * vehicle, and never an input to a confidence or trust claim.
+ */
+type IdentifierState = 'present' | 'withheld' | 'unrecorded'
+
+function identifierState(value: string | null | undefined, redacted: boolean): IdentifierState {
+  if (value) return 'present'
+  return redacted ? 'withheld' : 'unrecorded'
 }
 
 // ── localStorage helpers ─────────────────────────────────────────────────────
 function getFavorites(): string[] {
   try { return JSON.parse(localStorage.getItem('carup_favorites') || '[]') } catch { return [] }
-}
-function getReservations(): Record<string, unknown> {
-  try { return JSON.parse(localStorage.getItem('carup_reservations') || '{}') } catch { return {} }
 }
 
 // ── Timeline event icon & color mapping ────────────────────────────────────
@@ -213,7 +233,9 @@ export default function VehicleDetail() {
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
   const [isFav, setIsFav]         = useState(() => getFavorites().includes(id || ''))
-  const [isReserved, setIsReserved] = useState(false)
+  // Session-only acknowledgement that this browser submitted a reservation request. It never
+  // asserts reserved state on its own — `status` from the server is the only source of "Reserved".
+  const [reserveRequested, setReserveRequested] = useState(false)
   const [isFinanced, setIsFinanced] = useState(false)
 
   const [showReserveModal, setShowReserveModal] = useState(false)
@@ -346,17 +368,15 @@ export default function VehicleDetail() {
             id: d.vin,
             images: (d.images && d.images.length > 0) ? d.images : [],
             features: d.features ?? [],
-            sellerName:   d.tenant?.name  ?? passportData.ownershipSummary?.currentSellerDisplayName ?? 'Private Seller',
-            sellerPhone:  d.tenant?.phone ?? '+263 77 123 4567',
+            sellerName:   d.tenant?.name  ?? passportData.ownershipSummary?.currentSellerDisplayName ?? undefined,
+            sellerPhone:  d.tenant?.phone,
             sellerAvatar: d.tenant?.logo_url ?? null,
-            sellerType:   passportData.ownershipSummary?.currentSellerType ?? (d.tenant?.name ? 'Dealership' : 'Private Owner'),
-            location:     d.location ?? 'Harare',
-            province:     d.province  ?? 'Harare Province',
-            listingDate:  d.created_at ?? new Date().toISOString(),
+            sellerType:   passportData.ownershipSummary?.currentSellerType ?? undefined,
+            location:     d.location,
+            province:     d.province,
+            listingDate:  d.created_at,
           })
           setLoanAmount((d.price ?? 0).toString())
-          const reservations = getReservations()
-          if (reservations[d.vin ?? '']) setIsReserved(true)
           setLoading(false)
           return
         }
@@ -380,17 +400,15 @@ export default function VehicleDetail() {
             id: d.vin,
             images: (d.images && d.images.length > 0) ? d.images : [],
             features: d.features ?? [],
-            sellerName:   d.tenant?.name  ?? 'Private Seller',
-            sellerPhone:  d.tenant?.phone ?? '+263 77 123 4567',
+            sellerName:   d.tenant?.name,
+            sellerPhone:  d.tenant?.phone,
             sellerAvatar: d.tenant?.logo_url ?? null,
-            sellerType:   d.tenant?.name ? 'Dealership' : 'Private Owner',
-            location:     d.location ?? 'Harare',
-            province:     d.province  ?? 'Harare Province',
-            listingDate:  d.created_at ?? new Date().toISOString(),
+            sellerType:   d.current_seller_type,
+            location:     d.location,
+            province:     d.province,
+            listingDate:  d.created_at,
           })
           setLoanAmount((d.price ?? 0).toString())
-          const reservations = getReservations()
-          if (reservations[d.vin ?? '']) setIsReserved(true)
         }
 
         if (passportData.status === 'fulfilled' && passportData.value) {
@@ -493,17 +511,20 @@ export default function VehicleDetail() {
 
   const handleReserve = async () => {
     if (!vehicle) return
+    // An escrow needs a real counterparty. Without one we fail closed rather than opening a
+    // payment instrument against a placeholder.
+    const sellerId = vehicle.tenant_id ?? vehicle.sellerId ?? null
+    if (!sellerId) {
+      toast.error('SafePay escrow is opened by CarUp once a verified inquiry confirms the seller. Send an inquiry to begin.')
+      return
+    }
     setReserveLoading(true)
     try {
-      const seller = vehicle.tenant_id ?? vehicle.sellerId ?? 'unknown_seller'
       await reserveVehicle(vehicle.vin ?? '', 7)
-      await createSafePayEscrow(vehicle.vin ?? '', seller, 500)
-      const reservations = getReservations()
-      ;(reservations as Record<string, unknown>)[vehicle.vin ?? ''] = { vehicleId: vehicle.id ?? '', timestamp: new Date().toISOString() }
-      localStorage.setItem('carup_reservations', JSON.stringify(reservations))
-      setIsReserved(true)
+      await createSafePayEscrow(vehicle.vin ?? '', sellerId, 500)
+      setReserveRequested(true)
       setShowReserveModal(false)
-      toast.success('Vehicle reserved! SafePay escrow of $500 initiated.', { duration: 5000 })
+      toast.success('Reservation requested. SafePay escrow of $500 initiated.', { duration: 5000 })
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Failed to initiate Escrow. Make sure you are logged in.')
     } finally {
@@ -513,9 +534,14 @@ export default function VehicleDetail() {
 
   const handleFinance = async () => {
     if (!vehicle) return
+    // The applicant is the signed-in user; there is no fallback identity to apply on behalf of.
+    if (!user?.id) {
+      toast.error('Sign in to apply — a financing application is submitted under your CarUp account.')
+      return
+    }
     setFinanceLoading(true)
     try {
-      await submitFinancing(vehicle.vin ?? '', 'u1', selectedBank, parseFloat(loanAmount))
+      await submitFinancing(vehicle.vin ?? '', user.id, selectedBank, parseFloat(loanAmount))
       setIsFinanced(true)
       setShowFinanceModal(false)
       toast.success('Financing application submitted!', { duration: 6000 })
@@ -560,7 +586,24 @@ export default function VehicleDetail() {
   const trustScore     = passport?.trustReport?.trustScore ?? vehicle.trust_score ?? 0
   const trustColor     = trustScore >= 90 ? 'bg-green-500' : trustScore >= 75 ? 'bg-amber-500' : 'bg-red-500'
   const trustLabel     = trustScore >= 90 ? 'Excellent' : trustScore >= 75 ? 'Good' : 'Fair'
-  const waLink         = `https://wa.me/${(vehicle.sellerPhone ?? '').replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
+
+  // Direct contact exists only when the listing carries a real number. There is no fallback
+  // number — an unknown contact stays unknown and the buyer is routed to the governed inquiry flow.
+  const sellerContactNumber = vehicle.sellerPhone && /[0-9]/.test(vehicle.sellerPhone) ? vehicle.sellerPhone : null
+  const sellerWhatsAppLink  = sellerContactNumber
+    ? `https://wa.me/${sellerContactNumber.replace(/[^0-9]/g, '')}?text=Hi%2C%20I%20am%20interested%20in%20your%20${vehicle.year ?? ''}%20${vehicle.make ?? ''}%20${vehicle.model ?? ''}%20listed%20on%20CarUp.`
+    : null
+
+  // Transaction identity. Reserved state is read from the server listing status; the escrow
+  // counterparty must resolve to a real seller or the reserve path stays closed.
+  const resolvedSellerId    = vehicle.tenant_id ?? vehicle.sellerId ?? null
+  const isReservedOnServer  = vehicle.status === 'reserved' || vehicle.status === 'Reserved'
+  const canApplyForFinancing = isAuthenticated && Boolean(user?.id)
+
+  // A null identifier on the passport means "withheld from this audience" when
+  // identifiersRedacted is set, and "unrecorded" only when it is not.
+  const identity             = passport?.identity as PassportIdentity | undefined
+  const identifiersRedacted  = identity?.identifiersRedacted === true
 
   const timeline            = passport?.timeline ?? []
   const evidenceVault       = passport?.evidenceVault ?? []
@@ -645,10 +688,15 @@ export default function VehicleDetail() {
             {/* Plate Advisory Banner */}
             {passport && (
               (() => {
-                const isMissing = !passport.identity?.plateNumber && !passport.identity?.temporaryIdentificationNumber;
-                const isUnverified = passport.identity?.plateNumber && !passport.identity?.plateVerifiedAt;
-                const isFlagged = passport.identity?.plateStatus === 'Flagged' || passport.identity?.plateStatus === 'Suspended';
-                
+                const plateState = identifierState(identity?.plateNumber, identifiersRedacted);
+                const tempIdState = identifierState(identity?.temporaryIdentificationNumber, identifiersRedacted);
+                // Only assertable once the identifiers are visible: under redaction the page knows
+                // neither whether a plate exists nor whether it was verified.
+                const isMissing = plateState === 'unrecorded' && tempIdState === 'unrecorded';
+                const isUnverified = plateState === 'present' && !identity?.plateVerifiedAt;
+                // plateStatus is public in every audience, so a flag is assertable even under redaction.
+                const isFlagged = identity?.plateStatus === 'Flagged' || identity?.plateStatus === 'Suspended';
+
                 if (isFlagged) {
                   return (
                     <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg text-red-800 flex items-start gap-3" data-testid="plate-advisory">
@@ -656,6 +704,16 @@ export default function VehicleDetail() {
                       <div>
                         <p className="font-bold text-sm">SECURITY WARNING: Plate Flagged/Suspended</p>
                         <p className="text-xs mt-0.5">The registration plate registered to this vehicle has been marked as Flagged or Suspended by the registry authority. Proceed with caution.</p>
+                      </div>
+                    </div>
+                  );
+                } else if (identifiersRedacted) {
+                  return (
+                    <div className="bg-gray-50 border-l-4 border-gray-300 p-4 rounded-r-lg text-gray-700 flex items-start gap-3" data-testid="plate-advisory-withheld">
+                      <Lock className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-sm">Registration identifiers are not shown publicly</p>
+                        <p className="text-xs mt-0.5">Plate, temporary ID, chassis and engine numbers are withheld from public view. This is a privacy rule for every listing — it says nothing about this vehicle and does not affect its trust score.</p>
                       </div>
                     </div>
                   );
@@ -726,12 +784,12 @@ export default function VehicleDetail() {
               )}
               <div className="absolute top-4 left-4 flex gap-2">
                 {vehicle.police_verified && (
-                  <Badge className="bg-green-500 text-white"><CheckCircle className="w-3 h-3 mr-1" /> CarUp Verified</Badge>
+                  <Badge className="bg-blue-700 text-white" data-testid="police-checked-badge">Police Checked</Badge>
                 )}
                 {(trustScore ?? 0) > 90 && (
                   <Badge className="bg-orange-500 text-white">Featured</Badge>
                 )}
-                {isReserved && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
+                {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
               </div>
               <div className="absolute top-4 right-4 flex gap-2">
                 <button onClick={toggleFavorite} className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
@@ -767,13 +825,17 @@ export default function VehicleDetail() {
                       <span className="text-xs font-semibold px-2 py-1 bg-gray-100 rounded text-gray-700 font-mono">
                         VIN: {vehicle.vin}
                       </span>
-                      {passport?.identity?.plateNumber ? (
+                      {identity?.plateNumber ? (
                         <span className="text-xs font-bold px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded font-mono flex items-center gap-1" data-testid="identity-plate">
-                          Plate: {passport.identity.plateNumber}
+                          Plate: {identity.plateNumber}
                         </span>
-                      ) : passport?.identity?.temporaryIdentificationNumber ? (
+                      ) : identity?.temporaryIdentificationNumber ? (
                         <span className="text-xs font-bold px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded font-mono flex items-center gap-1" data-testid="identity-temp-id">
-                          Temp ID: {passport.identity.temporaryIdentificationNumber}
+                          Temp ID: {identity.temporaryIdentificationNumber}
+                        </span>
+                      ) : identifiersRedacted ? (
+                        <span className="text-xs font-medium px-2 py-1 bg-gray-100 text-gray-600 border border-gray-200 rounded flex items-center gap-1" data-testid="identity-plate-withheld">
+                          <Lock className="w-3 h-3" /> Plate: not shown publicly
                         </span>
                       ) : (
                         <span className="text-xs font-bold px-2 py-1 bg-red-50 text-red-700 border border-red-200 rounded" data-testid="identity-no-plate">
@@ -791,9 +853,9 @@ export default function VehicleDetail() {
                     </div>
 
                     <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
-                      <MapPin className="w-4 h-4" />{vehicle.location ?? ''}, {vehicle.province ?? ''}
+                      <MapPin className="w-4 h-4" />{[vehicle.location, vehicle.province].filter(Boolean).join(', ') || 'Location not recorded'}
                       <span className="mx-1">•</span>
-                      <Calendar className="w-4 h-4" />Listed {vehicle.listingDate ? new Date(vehicle.listingDate).toLocaleDateString() : 'N/A'}
+                      <Calendar className="w-4 h-4" />Listed {vehicle.listingDate ? new Date(vehicle.listingDate).toLocaleDateString() : 'date not recorded'}
                     </div>
                   </div>
                   <div className={`${trustColor} text-white px-4 py-2 rounded-xl text-center min-w-[70px]`} data-testid="trust-score-badge">
@@ -804,15 +866,20 @@ export default function VehicleDetail() {
                 {vehicle.description && <p className="text-gray-700 mb-6 leading-relaxed">{vehicle.description}</p>}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                   {[
-                    { label: 'Mileage',       value: `${(vehicle.mileage ?? 0).toLocaleString()} km`, icon: Gauge },
-                    { label: 'Transmission',  value: vehicle.transmission ?? 'Auto', icon: Settings2 },
-                    { label: 'Fuel Type',     value: vehicle.fuel_type ?? vehicle.fuelType ?? 'Petrol', icon: Fuel },
-                    { label: 'Condition',     value: vehicle.condition ?? 'Used', icon: FileCheck },
+                    // 0 km is a real reading, so presence is tested on the number, not on truthiness.
+                    { label: 'Mileage',       value: Number.isFinite(vehicle.mileage) ? `${vehicle.mileage.toLocaleString()} km` : null, icon: Gauge },
+                    { label: 'Transmission',  value: vehicle.transmission || null, icon: Settings2 },
+                    { label: 'Fuel Type',     value: vehicle.fuel_type || vehicle.fuelType || null, icon: Fuel },
+                    { label: 'Condition',     value: vehicle.condition || null, icon: FileCheck },
                   ].map((item) => (
                     <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
                       <item.icon className="w-5 h-5 text-orange-500 mx-auto mb-1" />
                       <p className="text-xs text-gray-500">{item.label}</p>
-                      <p className="font-semibold text-sm">{item.value}</p>
+                      {item.value ? (
+                        <p className="font-semibold text-sm">{item.value}</p>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic" data-testid="spec-not-recorded">Not recorded</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1099,32 +1166,76 @@ export default function VehicleDetail() {
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                   <span className="text-sm text-gray-300">CarUp Trust Score: {Math.round(trustScore)}</span>
                 </div>
-                <div className="flex gap-2 mt-6">
-                  <a href={`tel:${vehicle.sellerPhone}`} onClick={() => toast.info(`Calling ${vehicle.sellerName}...`)} className="flex-1">
-                    <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
-                  </a>
-                  <a href={waLink} target="_blank" rel="noopener noreferrer" className="flex-1">
-                    <Button variant="outline" className="w-full border-white/30 text-white hover:bg-white/10 gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
-                  </a>
-                </div>
-                <Separator className="my-4 border-white/20" />
-                {isReserved ? (
-                  <div className="w-full flex items-center justify-center gap-2 bg-green-600/20 border border-green-500/40 rounded-lg py-3 text-green-400 font-semibold text-sm">
-                    <CheckCircle className="w-4 h-4" /> Vehicle Reserved — SafePay Active
+                {sellerContactNumber && sellerWhatsAppLink ? (
+                  <div className="flex gap-2 mt-6">
+                    <a href={`tel:${sellerContactNumber}`} onClick={() => toast.info(`Calling ${vehicle.sellerName ?? 'the seller'}...`)} className="flex-1">
+                      <Button className="w-full bg-orange-500 hover:bg-orange-600 gap-1"><Phone className="w-4 h-4" /> Call</Button>
+                    </a>
+                    <a href={sellerWhatsAppLink} target="_blank" rel="noopener noreferrer" className="flex-1">
+                      <Button variant="outline" className="w-full border-white/30 text-white hover:bg-white/10 gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                    </a>
                   </div>
                 ) : (
-                  <Button className="w-full bg-white text-gray-900 hover:bg-gray-100 font-semibold gap-2" onClick={() => setShowReserveModal(true)}>
-                    <Lock className="w-4 h-4" /> Reserve Vehicle
-                  </Button>
+                  <div className="mt-6" data-testid="seller-contact-unavailable">
+                    <div className="flex gap-2">
+                      <Button disabled className="flex-1 bg-orange-500 gap-1"><Phone className="w-4 h-4" /> Call</Button>
+                      <Button disabled variant="outline" className="flex-1 border-white/30 text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      No contact number is published for this seller.
+                      {detail
+                        ? ' Use “Send inquiry” above — CarUp routes your request to the seller.'
+                        : ' Direct contact opens once the seller publishes a number.'}
+                    </p>
+                  </div>
+                )}
+                <Separator className="my-4 border-white/20" />
+                {isReservedOnServer ? (
+                  <div className="w-full flex items-center justify-center gap-2 bg-amber-600/20 border border-amber-500/40 rounded-lg py-3 text-amber-300 font-semibold text-sm" data-testid="reserved-state">
+                    <Lock className="w-4 h-4" /> Reserved
+                  </div>
+                ) : reserveRequested ? (
+                  <div className="w-full flex items-center justify-center gap-2 bg-white/10 border border-white/20 rounded-lg py-3 text-gray-200 font-semibold text-sm" data-testid="reserve-requested-state">
+                    <Clock className="w-4 h-4" /> Reservation requested — awaiting confirmation
+                  </div>
+                ) : (
+                  <>
+                    <Button
+                      className="w-full bg-white text-gray-900 hover:bg-gray-100 font-semibold gap-2"
+                      onClick={() => setShowReserveModal(true)}
+                      disabled={!resolvedSellerId}
+                    >
+                      <Lock className="w-4 h-4" /> Reserve Vehicle
+                    </Button>
+                    {!resolvedSellerId && (
+                      <p className="text-xs text-gray-400 mt-2" data-testid="reserve-unavailable">
+                        SafePay escrow is opened by CarUp once a verified inquiry confirms the seller, so it cannot be
+                        started from this page.
+                        {detail ? ' Use “Send inquiry” above to begin.' : ''}
+                      </p>
+                    )}
+                  </>
                 )}
                 {isFinanced ? (
                   <div className="w-full flex items-center justify-center gap-2 bg-blue-600/20 border border-blue-500/40 rounded-lg py-3 text-blue-400 font-semibold text-sm mt-3">
                     <CheckCircle className="w-4 h-4" /> Financing Applied ✓
                   </div>
                 ) : (
-                  <Button variant="outline" className="w-full mt-3 border-white/20 text-white hover:bg-white/10 gap-2" onClick={() => setShowFinanceModal(true)}>
-                    <CreditCard className="w-4 h-4" /> Apply for Financing
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      className="w-full mt-3 border-white/20 text-white hover:bg-white/10 gap-2"
+                      onClick={() => setShowFinanceModal(true)}
+                      disabled={!canApplyForFinancing}
+                    >
+                      <CreditCard className="w-4 h-4" /> Apply for Financing
+                    </Button>
+                    {!canApplyForFinancing && (
+                      <p className="text-xs text-gray-400 mt-2" data-testid="financing-signin-required">
+                        Sign in to apply — the application is submitted under your CarUp account.
+                      </p>
+                    )}
+                  </>
                 )}
                 <p className="text-xs text-gray-400 text-center mt-3">🔒 Protected by CarUp SafePay Escrow</p>
               </CardContent>
@@ -1137,14 +1248,23 @@ export default function VehicleDetail() {
                 <div className="flex items-center gap-3 mb-4">
                   {vehicle.sellerAvatar && <img src={vehicle.sellerAvatar} alt="" className="w-12 h-12 rounded-full object-cover" />}
                   <div>
-                    <p className="font-medium">{vehicle.sellerName}</p>
-                    <Badge variant="outline" className="text-[10px] mt-0.5">{vehicle.sellerType}</Badge>
+                    <p className="font-medium" data-testid="seller-name">
+                      {vehicle.sellerName
+                        ?? (passport?.ownershipSummary?.currentSellerRecorded ? 'Not shown publicly' : 'Not recorded')}
+                    </p>
+                    {vehicle.sellerType && (
+                      <Badge variant="outline" className="text-[10px] mt-0.5">{vehicle.sellerType}</Badge>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-gray-400" />
-                    <a href={`tel:${vehicle.sellerPhone}`} className="hover:text-orange-500">{vehicle.sellerPhone}</a>
+                    {sellerContactNumber ? (
+                      <a href={`tel:${sellerContactNumber}`} className="hover:text-orange-500">{sellerContactNumber}</a>
+                    ) : (
+                      <span className="text-gray-500" data-testid="seller-phone-unavailable">No contact number published</span>
+                    )}
                   </div>
                 </div>
                 <Button variant="outline" className="w-full mt-4" asChild>
@@ -1159,18 +1279,29 @@ export default function VehicleDetail() {
                 <h3 className="font-semibold mb-4">Vehicle Identity</h3>
                 <div className="space-y-3 text-sm">
                   {[
-                    ['VIN', passport?.identity?.vin || vehicle.vin || '—'],
-                    ['Chassis No.', passport?.identity?.chassisNumber || vehicle.chassis_number || '—'],
-                    ['Engine No.', passport?.identity?.engineNumber || vehicle.engine_number || vehicle.engineNumber || '—'],
-                    ['Reg. Country', passport?.identity?.registrationCountry || vehicle.registration_country || 'ZW'],
-                    ['Reg. Authority', passport?.identity?.registrationAuthority || vehicle.registration_authority || 'CVR'],
-                    ['Color', vehicle.color ?? '—']
-                  ].map(([label, value]) => (
-                    <div key={label} className="flex justify-between">
-                      <span className="text-gray-500">{label}</span>
-                      <span className="font-mono text-xs">{value}</span>
-                    </div>
-                  ))}
+                    // `redactable` marks the rows the projection withholds from an unauthorized
+                    // audience; the rest are public, so absence there can only mean unrecorded.
+                    { label: 'VIN', value: identity?.vin || vehicle.vin, redactable: false },
+                    { label: 'Chassis No.', value: identity?.chassisNumber || vehicle.chassis_number, redactable: true },
+                    { label: 'Engine No.', value: identity?.engineNumber || vehicle.engine_number || vehicle.engineNumber, redactable: true },
+                    { label: 'Reg. Country', value: identity?.registrationCountry || vehicle.registration_country, redactable: false },
+                    { label: 'Reg. Authority', value: identity?.registrationAuthority || vehicle.registration_authority, redactable: false },
+                    { label: 'Color', value: vehicle.color, redactable: false },
+                  ].map(({ label, value, redactable }) => {
+                    const state = identifierState(value, redactable && identifiersRedacted)
+                    return (
+                      <div key={label} className="flex justify-between">
+                        <span className="text-gray-500">{label}</span>
+                        {state === 'present' ? (
+                          <span className="font-mono text-xs" data-testid="identity-field-present" data-field={label}>{value}</span>
+                        ) : state === 'withheld' ? (
+                          <span className="text-xs text-gray-500 italic" data-testid="identity-field-withheld" data-field={label}>Not shown publicly</span>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic" data-testid="identity-field-unrecorded" data-field={label}>Not recorded</span>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -1183,11 +1314,31 @@ export default function VehicleDetail() {
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-500">Current Seller</span>
-                      <span className="font-medium">{passport.ownershipSummary.currentSellerDisplayName}</span>
+                      {passport.ownershipSummary.currentSellerDisplayName ? (
+                        <span className="font-medium" data-testid="ownership-seller-present">
+                          {passport.ownershipSummary.currentSellerDisplayName}
+                        </span>
+                      ) : passport.ownershipSummary.currentSellerRecorded ? (
+                        <span className="font-medium text-gray-500" data-testid="ownership-seller-withheld">
+                          Not shown publicly
+                        </span>
+                      ) : (
+                        <span className="font-medium text-gray-500" data-testid="ownership-seller-unrecorded">
+                          Not recorded
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Current Owner Type</span>
-                      <span className="font-medium">{passport.ownershipSummary.currentSellerType}</span>
+                      {passport.ownershipSummary.currentSellerType ? (
+                        <span className="font-medium" data-testid="ownership-seller-type-present">
+                          {passport.ownershipSummary.currentSellerType}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-gray-500" data-testid="ownership-seller-type-unrecorded">
+                          Not recorded
+                        </span>
+                      )}
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Previous Owners</span>
@@ -1215,23 +1366,32 @@ export default function VehicleDetail() {
                     <p className="text-xs text-gray-400">No previous plates logged in history.</p>
                   ) : (
                     <div className="space-y-3">
-                      {passport.plateHistory.map((h, i) => (
+                      {passport.plateHistory.map((h, i) => {
+                        const plateState = identifierState(h.plate_number, identifiersRedacted)
+                        return (
                         <div key={h.id || i} className="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
                           <div className="flex justify-between items-center text-sm">
-                            <span className="font-mono font-bold text-xs">{h.plate_number}</span>
+                            {plateState === 'present' ? (
+                              <span className="font-mono font-bold text-xs" data-testid="plate-history-number-present">{h.plate_number}</span>
+                            ) : plateState === 'withheld' ? (
+                              <span className="text-xs text-gray-500 italic" data-testid="plate-history-number-withheld">Plate not shown publicly</span>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic" data-testid="plate-history-number-unrecorded">Plate not recorded</span>
+                            )}
                             <Badge variant="outline" className={`text-[9px] uppercase ${
                               h.status === 'active' ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-200 text-gray-500'
                             }`}>
-                              {h.status}
+                              {h.status || 'status not recorded'}
                             </Badge>
                           </div>
                           <div className="flex justify-between text-[11px] text-gray-400 mt-1">
-                            <span>Type: {h.plate_type}</span>
-                            <span>{h.issued_at ? new Date(h.issued_at).toLocaleDateString() : '—'}</span>
+                            <span>Type: {h.plate_type || 'not recorded'}</span>
+                            <span>{h.issued_at ? new Date(h.issued_at).toLocaleDateString() : 'date not recorded'}</span>
                           </div>
                           {h.reason && <p className="text-[10px] text-gray-500 mt-1 italic">Reason: {h.reason}</p>}
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -1301,7 +1461,7 @@ export default function VehicleDetail() {
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowReserveModal(false)} disabled={reserveLoading}>Cancel</Button>
-              <Button className="flex-1 bg-orange-500 hover:bg-orange-600" onClick={handleReserve} disabled={reserveLoading}>
+              <Button className="flex-1 bg-orange-500 hover:bg-orange-600" onClick={handleReserve} disabled={reserveLoading || !resolvedSellerId}>
                 {reserveLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processing...</> : 'Confirm Reservation'}
               </Button>
             </div>

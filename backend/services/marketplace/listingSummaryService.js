@@ -243,9 +243,6 @@ export function buildMarketplaceListingSummary({
     marketplace_tags: marketplaceTags,
     trust_score: numericValue(vehicle.trust_score),
     primary_image_url: primaryImage,
-    plate_number: vehicle.plate_number || null,
-    normalized_plate_number: vehicle.normalized_plate_number || null,
-    chassis_number: vehicle.chassis_number || null,
     plate_verified: marketplaceTags.includes('plate_verified'),
     plate_status: vehicle.plate_status || null,
     passport_verified: marketplaceTags.includes('passport_verified'),
@@ -264,14 +261,16 @@ export function buildMarketplaceListingSummary({
   };
 }
 
+/**
+ * Anonymous free-text search. Plate and chassis are absent by design: matching on them would make
+ * this endpoint an identifier oracle (confirm/deny a plate or chassis) even though the value is no
+ * longer echoed. Registry-identifier lookup belongs to authenticated/owner paths only.
+ */
 function summaryMatchesSearch(summary, query) {
   if (!query) return true;
   const normalized = normalizeText(query);
   const haystack = [
     summary.vin,
-    summary.plate_number,
-    summary.normalized_plate_number,
-    summary.chassis_number,
     summary.make,
     summary.model,
     summary.condition_category,
@@ -410,7 +409,11 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
 }
 
 /** Columns selected for a marketplace listing. owner_id/tenant_id are fetched ONLY for fixture
- *  filtering + seller derivation and are NEVER echoed in the public summary. */
+ *  filtering + seller derivation and are NEVER echoed in the public summary. Registry identifiers
+ *  (plate_number, normalized_plate_number, chassis_number — see PRIVATE_VEHICLE_FIELDS in
+ *  utils/publicVehicleProjection.js) are not selected at all: no derivation here reads them, so the
+ *  row that reaches every marketplace consumer cannot carry them. plate_status/plate_verified_at are
+ *  status signals, not identifiers, and stay. */
 export const LISTING_SELECT_COLUMNS = `
       vin,
       owner_id,
@@ -430,10 +433,7 @@ export const LISTING_SELECT_COLUMNS = `
       price,
       currency,
       created_at,
-      plate_number,
-      normalized_plate_number,
       plate_status,
-      chassis_number,
       registration_country,
       plate_verified_at,
       current_seller_type,
