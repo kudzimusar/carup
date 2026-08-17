@@ -532,3 +532,35 @@ test('a retried webhook delivery that previously FAILED is not masked as a dupli
   const statuses = updates.flatMap((u) => (u.patch.processing_status ? [u.patch.processing_status] : []));
   assert.ok(!statuses.includes('duplicate'), 'a failed row must not be relabelled as a duplicate');
 });
+
+test('an authenticated Email lifecycle event with no canonical transition is ignored, not failed', async () => {
+  // Brevo's `request` and `unique_opened` authenticate correctly but map to no CarUp delivery state.
+  // They previously fell through to the referral parser and were recorded as failures. With failed
+  // rows now deliberately retried via a non-2xx, that would make a provider retry an open-tracking
+  // ping forever and risk it disabling the webhook.
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+  const updates = [];
+  const repository = {
+    findOne: async () => null,
+    insert: async () => ({ id: 'log-1' }),
+    updateById: async (table, id, patch) => { updates.push(patch); return { id }; },
+    list: async () => [],
+  };
+  const service = new CommunicationWebhookService({
+    repository, inboundService: {}, env: { BREVO_WEBHOOK_SECRET: 'shared-secret' },
+  });
+
+  for (const event of ['request', 'unique_opened']) {
+    const body = { event, email: 'x@example.test', 'message-id': '<m@brevo>' };
+    const result = await service.handleWebhook('brevo', 'email', body, {
+      headers: { 'x-carup-brevo-secret': 'shared-secret' },
+      rawBody: JSON.stringify(body),
+    });
+    assert.equal(result.success, true, `${event} must be acknowledged`);
+    assert.equal(result.ignored, true, `${event} must be marked ignored`);
+  }
+  const finals = updates.filter((p) => p.processing_status);
+  assert.ok(finals.length >= 2);
+  assert.ok(finals.every((p) => p.processing_status === 'processed'), 'must not be recorded as failed');
+  assert.ok(finals.every((p) => p.error_code === 'ignored_no_canonical_transition'));
+});

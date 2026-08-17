@@ -664,6 +664,33 @@ export class CommunicationWebhookService {
         });
         return { success: true, duplicate: false, webhook_log_id: log.id, count: 0, receipt_count: receiptResults.length, results: [], receipts: receiptResults };
       }
+      // An AUTHENTICATED Email lifecycle event that carries no canonical delivery transition —
+      // Brevo's `request` and `unique_opened` are the live examples — must be acknowledged and
+      // ignored, not failed. Previously these fell through to parseChannelPayload(), which has no
+      // 'email' parser and throws "Unsupported referral channel.", so genuine provider traffic was
+      // recorded as a failure. That is now actively harmful: a failed row is deliberately retried
+      // with a non-2xx (see the dedupe branch above), so the provider would retry an open-tracking
+      // ping indefinitely and could disable the webhook for persistent errors.
+      //
+      // Recorded as 'processed' because the delivery WAS handled; the marker distinguishes "nothing
+      // to transition" from a real receipt. ('ignored' is not an allowed processing_status, and this
+      // does not warrant widening a CHECK constraint on a shared table.)
+      const emailLifecycleProviders = ['resend', 'brevo'];
+      const isUnmappedEmailLifecycle = normalized === 'email'
+        && emailLifecycleProviders.includes(String(provider || '').toLowerCase())
+        && receiptResults.length === 0
+        && !(String(provider || '').toLowerCase() === 'resend' && body.type === 'email.received');
+      if (isUnmappedEmailLifecycle) {
+        await this.repository.updateById('webhook_logs', log.id, {
+          processing_status: 'processed',
+          message_count: 0,
+          processed_at: nowIso(),
+          error_code: 'ignored_no_canonical_transition',
+          error_message: `Authenticated ${provider} event '${body.event || body.type || 'unknown'}' carries no canonical CarUp delivery transition.`,
+        });
+        return { success: true, duplicate: false, ignored: true, webhook_log_id: log.id, count: 0, receipt_count: 0, results: [] };
+      }
+
       const results = [];
       if (String(provider || '').toLowerCase() === 'resend' && normalized === 'email' && body.type === 'email.received') {
         results.push(await this.handleResendInboundWebhook(body, actor));
