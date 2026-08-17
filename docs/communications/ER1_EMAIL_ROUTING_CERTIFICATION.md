@@ -303,7 +303,7 @@ webhook_logs 820c9e1e-b9d9-4da7-8902-578d46ff4ea2
   provider          resend
   type              email.received
   signature_valid   TRUE          <- genuinely signed by Resend, verified by CarUp
-  to                conversation+imMTsG49NDv0pOdCbs972g@mail.carup.dev
+  to                conversation+<redacted-reply-handle>@mail.carup.dev
   from              eleven.eleven.testing@gmail.com
   subject           Re: CarUp conversation - E7 certification
   error_code        VALIDATION_FAILED

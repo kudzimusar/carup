@@ -22,7 +22,7 @@ webhook_logs 820c9e1e-b9d9-4da7-8902-578d46ff4ea2   2026-08-17 11:30:16 UTC
   provider          resend
   type              email.received
   signature_valid   TRUE
-  to                conversation+imMTsG49NDv0pOdCbs972g@mail.carup.dev
+  to                conversation+<redacted-reply-handle>@mail.carup.dev
   from              eleven.eleven.testing@gmail.com
   subject           Re: CarUp conversation - E7 certification
   error_code        VALIDATION_FAILED
@@ -438,3 +438,104 @@ inbound messages with NULL body   1   <- the defect that must not recur
 
 Certification message `CarUp conversation - E7 inbound body retrieval` (notification 345) delivered
 14:34 UTC with a **fresh** reply token. Awaiting one human reply and one unsubscribe confirmation.
+
+---
+
+# FINAL — E7 human proof complete (2026-08-17)
+
+Both human actions were performed from the authorized certification inbox and both are now proven
+from live data.
+
+## INBOUND_REPLY_ROUTING + INBOUND_BODY_RETRIEVAL = PASS
+
+```text
+webhook_logs   email.received   signature_valid=TRUE   processing_status=processed
+               message_count=1  attempt_count=1        (succeeded first attempt, no retry)
+               from    eleven.eleven.testing@gmail.com
+               to      conversation+<redacted-reply-handle>@mail.carup.dev
+               subject Re: CarUp conversation - E7 inbound body retrieval
+```
+
+| # | Claim | Evidence |
+|---|---|---|
+| 1 | Signed `email.received` accepted | `signature_valid=true`, `processed` |
+| 2 | Receiving API fetch succeeded | `content_source = resend:emails.receiving.get` — the primary documented endpoint, not the fallback |
+| 3 | Actual content retrieved | 297-byte body persisted; `content_derived_from_html=false`, so the provider's own plain-text part was used |
+| 4 | Persisted body contains the human reply | `content_text` begins `CarUp E7 inbound body retrieval certification.` |
+| 5 | Same canonical thread | `9b0383f2-…` |
+| 6 | Same original participant | `3940882f-…` — the participant bound to the reply token |
+| 7 | Exactly +1 inbound message | 1 → **2** |
+| 8 | +0 threads | 45 → **45** |
+| 9 | +0 participants | 1 → **1** |
+| 10 | +0 identities | 1 → **1** |
+| 11 | Reply-token `use_count` advanced once | 0 → **1** |
+| 12 | Replay cannot duplicate | exactly **1** message for that RFC Message-ID; `ingest` dedupes on `(provider, provider_message_id)` including the unique-violation race |
+| 13 | No sender-to-most-recent fallback | `conversation_resolution = authenticated_reply_token` |
+| 14 | No empty body | 297 bytes; the only null-body inbound row remains the pre-fix one from 12:44 |
+
+Gmail's quoted history is present in the stored body, **by design**: CarUp has no reply-cleaning
+semantics anywhere, so nothing is stripped. The first line is the human's own text.
+
+## UNSUBSCRIBE = PASS
+
+```text
+handle   view_count 0 -> 1   (page rendered 15:28:56)
+         use_count  0 -> 1   (confirmed      15:29:40)   exactly once
+suppression   marketing / unsubscribe / source=carup_one_click   ACTIVE
+preference    marketing_enabled=false   transactional_enabled=TRUE
+identity      consent_status=opted_out
+```
+
+All written by the **deployed** confirmation flow — `source=carup_one_click` is set only by the
+route, so this state cannot have come from a manual edit.
+
+**Zero eligible marketing, physically proven.** A marketing notification was queued *directly*,
+deliberately bypassing the queue-time gate, to test the send layer:
+
+| Notification | Classification | Result | Provider sends |
+|---|---|---|---|
+| 346 post-unsubscribe probe | marketing | **dead_letter — `recipient_suppressed`** | **0** |
+| 347 security control | security | **delivered** | 1 |
+
+Brevo provider-send total: **3 before, 3 after** — no provider send occurred after suppression, and
+essential security Email to the same address remains unaffected.
+
+**Replay idempotency** was proven on a throwaway handle rather than the owner's: two POSTs (browser
+form + RFC 8058 one-click) produced **exactly one** suppression row. The certification handle was
+deliberately left at `use_count=1` so "advanced exactly once" stays literally true.
+
+### A gap this closed
+
+Suppression had been enforced **only at queue time**. Anything inserting into `notification_queue`
+directly — a backfill, a script, a future code path — would have sailed past it and mailed someone
+who had unsubscribed. That is the one failure mode a consent system must not have, so the check is
+now repeated in the delivery worker immediately before dispatch. Notification 346 above is that guard
+firing on real data.
+
+### Another defect found by a misdirected reply
+
+The owner briefly replied from the alias inbox to a transactional notification at
+`notifications@mail.carup.dev`. With no reply token and no RFC reference that can never be routed —
+yet it returned 400, so Resend retried it repeatedly (`attempt_count` reached 4 and climbing).
+Persistent non-2xx on permanently unroutable mail is how a provider decides to disable an endpoint.
+Permanent resolution failures are now recorded as failed but **acknowledged**; transient faults still
+answer 503 so nothing is lost.
+
+## E8 cleanup
+
+| Action | Result |
+|---|---|
+| Certification reply tokens | **revoked** (0 active) |
+| Certification unsubscribe handles | **revoked** (0 active) |
+| Throwaway probe handle + synthetic suppression | **deleted** |
+| Temporary `routing-certification@carup.dev` alias | retired earlier, permanent routing proven |
+| Opaque handles in receipts / PR / docs | **none** — the one reply handle previously quoted is redacted |
+| Retained as durable audit evidence | webhook_logs, delivery attempts + provenance, canonical messages, the ACTIVE consent suppression |
+
+The recipient remains **unsubscribed**: that suppression is real consent state, not a test artefact,
+and is deliberately not cleaned up.
+
+> **Residual, stated plainly:** the redacted reply handle still appears in this branch's git history
+> from earlier commits. It is now **revoked and inert**, so it is not a live credential. Rewriting
+> published history on a shared PR branch is the owner's call, not mine — say the word if you want it
+> purged.
