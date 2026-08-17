@@ -92,12 +92,25 @@
  *
  * THE OTHER WRITERS OF vehicles.trust_score, for the surfaces converging onto this contract.
  * They are NOT removed here (this phase adds the read path; it does not re-point the writers):
- *   trustGraphService.js:435            calculateVehicleTrustScore — the deprecated 70-baseline engine
- *   documentIntelligenceService.js:382  writes a score off OCR output
- *   trustEnforcementEngine.js:77,158    penalty writes over an assumed 80.0 baseline
- *   server.js:1517                      stamps trust_score: 50 at listing creation
- * Each write lands with NO version stamp, so this service classifies whatever they leave as
- * `unversioned` and refuses to publish it. Retiring them is INV-TRUST-2's remaining work.
+ *   trustGraphService.js:435            calculateVehicleTrustScore — the deprecated 70-baseline
+ *                                       engine. No production caller remains (server.js does not
+ *                                       import it and the evidence-review routes now call
+ *                                       refreshCanonicalTrust); backend/tests/run-tests.js still
+ *                                       invokes it, and it still writes an UNCLEARED stamp.
+ *   documentIntelligenceService.js      writes a score off OCR approval
+ *   trustEnforcementEngine.js           penalty writes over an assumed 80.0 baseline
+ * Listing creation is NO LONGER one of them: server.js inserts an explicit `trust_score: null`,
+ * because the column DEFAULTS TO 80.0 and omitting it would fabricate a score.
+ *
+ * WHY CLEARING THE STAMP IS THE FOREIGN WRITER'S JOB, NOT THIS SERVICE'S. A foreign write is
+ * refused only when the row it leaves behind classifies as `unversioned`, and an `update({
+ * trust_score })` that touches the score alone does NOT produce such a row: after a legitimate
+ * refresh the stamp columns are already populated, so the foreign score inherits that
+ * calculation_version and publishes as `evaluated`, described by a band, confidence and evidence
+ * basis belonging to the score it replaced. The two writers above therefore null all six stamp
+ * columns in the SAME update as the score, which is what puts the row back into `unversioned` and
+ * makes the refusal real. A new writer of this column must do the same, or it is publishing under
+ * refreshCanonicalTrust's authority. Retiring them is INV-TRUST-2's remaining work.
  */
 import { supabase } from '../../db/supabase.js';
 import {

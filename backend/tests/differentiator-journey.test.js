@@ -22,6 +22,8 @@ const elig = await import('../services/eligibility/eligibilityService.js');
 const escrow = await import('../services/escrow/escrowTrustService.js');
 const td = await import('../services/trustDecision/trustDecisionService.js');
 const { withUploadIdempotency } = await import('../services/evidence/uploadIdempotency.js');
+const { CALCULATION_VERSION, toPublicTrust, publicTrustViolations } =
+  await import('../services/trustDecision/canonicalTrustService.js');
 
 // ── shared in-memory supabase (supports eq/in/order/single/maybeSingle/update) ──
 let db;
@@ -127,7 +129,11 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
 
   // 19-21. Dealer compliant + completeness passes -> publication eligible (no fraud block now).
   assert.equal(dealer.deriveCanPublish({ identity_status: 'verified', compliance_review_state: 'passed', suspension_state: 'none', restriction_state: 'none' }, []), true, 'step19: dealer can publish');
-  const okDecision = td.assembleDecision({ vin: 'JOURNEYVEH000001', vehicle: db.vehicles[0], completeness: { completeness_percent: 100, is_publishable: true, publication_status: 'publishable', blocking_gaps: [], pending_gaps: [] }, coverage, fraudInput: null, dealerCompliance: { suspension_state: 'none', restriction_state: 'none', identity_status: 'verified', compliance_review_state: 'passed', can_publish: true } });
+  // `now` is supplied because step 25 below reads this decision as the buyer's passport position:
+  // an UNSTAMPED decision is not canonical (a score that cannot be shown to be current or stale is
+  // reported `not_evaluated`), and the real path — getTrustDecision — always stamps. Without it the
+  // journey would be exercising a shape production never produces.
+  const okDecision = td.assembleDecision({ vin: 'JOURNEYVEH000001', vehicle: db.vehicles[0], completeness: { completeness_percent: 100, is_publishable: true, publication_status: 'publishable', blocking_gaps: [], pending_gaps: [] }, coverage, fraudInput: null, dealerCompliance: { suspension_state: 'none', restriction_state: 'none', identity_status: 'verified', compliance_review_state: 'passed', can_publish: true }, now: '2026-06-26T00:00:00Z' });
   assert.equal(okDecision.dimensions.publication_eligibility.status, 'publishable', 'step20-21: publication eligible');
 
   // 22. Insurance -> conditionally eligible.
@@ -141,9 +147,24 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
   assert.equal(es.status, 'eligible', 'step24: escrow eligible');
 
   // 25-26. Buyer passport + partner redacted summary.
+  //
+  // REWRITTEN — Issue #164 Phase 3. Step 25 was `assert.ok(publicDecision.overall_trust)`, which
+  // encoded the OLD shape: the buyer-safe decision restated a live-recomputed score. That is the
+  // second public trust position this phase removes — one VIN must not carry two. Step 25's real
+  // guarantee ("the buyer sees a governed passport, not a bare number") is asserted here against
+  // the ONE authority every surface now reads, and is stronger than the original: the passport must
+  // be the canonical ten-field projection, honour the shared contract checker, be stamped with the
+  // rules version that produced it, and agree exactly with the decision it was derived from.
   const publicDecision = td.toPublicDecision(okDecision);
   assert.equal(publicDecision.dimensions.finance_eligibility, undefined, 'step26: finance stripped from public/partner');
-  assert.ok(publicDecision.overall_trust, 'step25: buyer sees governed passport');
+  assert.equal(publicDecision.overall_trust, undefined, 'step25-26: the buyer-safe decision states no position of its own');
+  const passport = toPublicTrust(okDecision);
+  assert.deepEqual(publicTrustViolations(passport), [], 'step25: passport honours the canonical public contract');
+  assert.equal(passport.evaluation_state, 'evaluated', 'step25: buyer sees a governed passport');
+  assert.equal(passport.calculation_version, CALCULATION_VERSION, 'step25: with the rules that produced it');
+  assert.equal(passport.score, okDecision.overall_trust.value, 'step25: one VIN, one number');
+  assert.equal(passport.band, okDecision.overall_trust.status);
+  assert.ok(passport.known_limitations.length > 0, 'step25: and the limitations disclosed alongside it');
 
   // 27. Private evidence/raw never in public coverage.
   const cov2 = await sv.getCoverage('JOURNEYVEH000001');

@@ -24,6 +24,8 @@ const { supabase } = await import('../db/supabase.js');
 const sv = await import('../services/sourceVerification/sourceVerificationService.js');
 const td = await import('../services/trustDecision/trustDecisionService.js');
 const partnerAuth = await import('../services/partner/partnerAuthService.js');
+const { CALCULATION_VERSION, toPublicTrust, publicTrustViolations } =
+  await import('../services/trustDecision/canonicalTrustService.js');
 
 // shared in-memory supabase
 let db;
@@ -116,9 +118,23 @@ test('differentiator journey: sources -> unified decision -> partner consumption
   const { apiKey } = await partnerAuth.createPartnerClient({ name: 'Lender Co', scopes: ['vehicle:trust', 'vehicle:sources'] });
   const client = await partnerAuth.verifyPartnerKey(apiKey);
   assert.ok(client, 'partner key verifies');
+  // REWRITTEN — Issue #164 Phase 3. Was:
+  //   assert.ok(publicDecision.overall_trust && publicDecision.overall_trust.reason_codes === undefined,
+  //             'score internals hidden');
+  // which encoded the OLD shape: the redacted decision restated the score with its reason codes
+  // stripped. The partner still receives a trust position — it is now the CANONICAL projection, the
+  // same authority the marketplace/passport/vehicle-detail publish, so a partner can never be shown
+  // a number that disagrees with them for this VIN. The redacted decision is the explanation only.
   const publicDecision = td.toPublicDecision(cleanDecision);
   assert.equal(publicDecision.dimensions.finance_eligibility, undefined, 'finance is private');
-  assert.ok(publicDecision.overall_trust && publicDecision.overall_trust.reason_codes === undefined, 'score internals hidden');
+  assert.equal(publicDecision.overall_trust, undefined, 'the explanation states no position of its own');
+  const partnerPosition = toPublicTrust(cleanDecision);
+  assert.deepEqual(publicTrustViolations(partnerPosition), [], 'partner position honours the canonical contract');
+  assert.equal(partnerPosition.evaluation_state, 'evaluated', 'partner still gets a governed position');
+  assert.equal(partnerPosition.calculation_version, CALCULATION_VERSION, 'and the rules that produced it');
+  assert.equal(partnerPosition.score, cleanDecision.overall_trust.value, 'one VIN, one number');
+  assert.equal(partnerPosition.band, cleanDecision.overall_trust.status);
+  assert.equal(partnerPosition.reason_codes, undefined, 'score internals stay out of the public shape');
 
   // 5. Every source check left an immutable, honestly-moded record.
   assert.equal(db.source_verification_results.length, 10, '5 + 5 source results persisted');

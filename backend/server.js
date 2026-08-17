@@ -453,8 +453,9 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
     if (!isPublicVehicleStatus(vehicle.status) || !isPubliclyVisiblePublication(vehicle.publication_status)) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
-    // The row's stored trust_score is an unversioned cache: it is replaced by the canonical
-    // projection here so this endpoint cannot be the one that still hands a shopper the 84.
+    // The public projection no longer fetches the stored trust_score (an unversioned cache): the
+    // canonical projection is attached here instead, so this endpoint cannot be the one that still
+    // hands a shopper the 84.
     const [projected] = await withCanonicalTrust([vehicle]);
     res.json(projected);
   } catch (error) {
@@ -572,10 +573,11 @@ app.get('/api/vehicles', async (req, res) => {
     const { data: vehicles, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
 
-    // PUBLIC_VEHICLE_SELECT still carries the raw trust_score column (the projection contract owns
-    // that list), so the VALUE is overwritten with the canonical projection before anything leaves
-    // this route. One query for the whole page; a vehicle with no canonical evaluation publishes
-    // null plus the state that says why, never the stored number.
+    // PUBLIC_VEHICLE_SELECT no longer names the raw trust_score column at all (the projection
+    // contract owns that list, and demoted it), so the only trust figure this route can publish is
+    // the one attached here from the canonical projection. One query for the whole page; a vehicle
+    // with no canonical evaluation publishes null plus the state that says why, never a stored
+    // number — there is no longer a stored number in the row to fall back to.
     const projected = await withCanonicalTrust(vehicles);
 
     const threshold = trustRange === undefined ? null : parseFloat(trustRange);
@@ -1345,9 +1347,11 @@ app.get('/api/vehicles/:vin/recommendations', async (req, res) => {
   const { vin } = req.params;
   try {
     const result = await getSmartRecommendations(vin);
-    // This route is public and unauthenticated. getSmartRecommendations selects and ORDERs BY the
-    // raw trust_score column, so without this projection it republishes — and ranks by — the
-    // unversioned legacy number every other surface has stopped publishing.
+    // This route is public and unauthenticated. The recommendation service no longer orders by the
+    // raw trust_score column — it selects through PUBLIC_VEHICLE_SELECT and orders by created_at —
+    // so what remains for this route to do is state a trust position at all: the canonical
+    // projection supplies it, and the ranking below is by that attributable score rather than by
+    // the unversioned legacy number.
     const rows = Array.isArray(result) ? result : (result?.recommendations || result?.vehicles || []);
     const ranked = rankByCanonicalTrust(await withCanonicalTrust(rows));
     res.json(Array.isArray(result)

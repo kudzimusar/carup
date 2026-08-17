@@ -9,7 +9,10 @@
  * The guarantees, and the regression each test is watching for:
  *
  *   1. utils/publicVehicleProjection.js is the SINGLE definition of the public
- *      surface. Adding a column to `vehicles` must not widen it.
+ *      surface. Adding a column to `vehicles` must not widen it, and the demoted
+ *      `trust_score` cache column must not re-enter it — a trust position is
+ *      published only through canonicalTrustService's projection, which carries
+ *      the calculation_version that makes the number attributable.
  *   2. findPrivateFieldLeaks() is the detector the rest of the suite leans on.
  *      A vacuous detector would make every other assertion pass silently, so it
  *      is proved against a nested/array-nested leak before it is trusted.
@@ -511,8 +514,51 @@ test('an unrecognised audience falls back to the public projection rather than t
 test('a field missing from the row projects as null instead of a plausible default', () => {
   const projected = toPublicVehicle({ vin: VIN });
   assert.equal(projected.make, null, 'unknown stays unknown — never a stand-in value');
-  assert.equal(projected.trust_score, null, 'an unscored vehicle must not read as a scored one');
+  // This was `trust_score` until Phase 3 removed that column from the contract outright (see the
+  // regression test below, which now holds it out). `duty_paid` carries the same guarantee in the
+  // shape that matters most here: a governed boolean whose absence must not project as a decided
+  // `false`, which a shopper would read as "we checked, and duty was not paid".
+  assert.equal(projected.duty_paid, null, 'an unrecorded fact must not read as a decided one');
   assert.ok('mileage' in projected, 'the key is present so the client can render a withheld or unknown state');
+});
+
+test('the raw trust_score column can never reappear in the public contract', () => {
+  // The regression this exists for, exactly as it shipped: the passport published the vehicle row's
+  // raw `trust_score: 84` — an unversioned legacy number with several writers — beside a
+  // `trustReport` that said `not_evaluated`, for the same VIN, in the same response body, on an
+  // anonymous route. Two trust positions in one body, and the raw one looked like the answer.
+  //
+  // `vehicles.trust_score` is a materialized CACHE, not a fact about the vehicle. A trust position
+  // is publishable ONLY through canonicalTrustService's projection, which carries the
+  // calculation_version that makes the number attributable to the rules that produced it. Naming
+  // the column here would republish whatever the last writer happened to leave in the row.
+  assert.ok(
+    !PUBLIC_VEHICLE_FIELDS.includes('trust_score'),
+    'trust_score is a cache column, not a public field — publish it through toPublicTrust(), which carries its calculation_version',
+  );
+  assert.ok(
+    !selectTokens(PUBLIC_VEHICLE_SELECT).includes('trust_score'),
+    'PUBLIC_VEHICLE_SELECT must not even FETCH the raw cache column on a public read',
+  );
+  assert.ok(
+    !selectTokens(OWNER_VEHICLE_SELECT).includes('trust_score'),
+    'the owner audience reads the canonical projection too — the raw column is not an owner field either',
+  );
+
+  // Behavioural, because a list assertion alone would pass if the projector grew a special case:
+  // the key is ABSENT, not null. A null `trust_score` beside a canonical `trust` block is still a
+  // second trust position, and a renderer that finds the key will use it.
+  const scored = toPublicVehicle(rawVehicleRow({ trust_score: 84 }));
+  assert.ok(!('trust_score' in scored), 'a projected vehicle row carries no trust_score key at all');
+  assert.equal(
+    serializeDeep(scored).includes('trust_score'),
+    false,
+    'the serialized public row must not mention the cache column anywhere',
+  );
+  assert.ok(
+    !('trust_score' in toOwnerVehicle(rawVehicleRow({ trust_score: 84 }))),
+    'the owner projection drops it too — the owner of an unattributable score is no better served by it',
+  );
 });
 
 // ---------------------------------------------------------------------------

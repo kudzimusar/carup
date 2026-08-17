@@ -16,6 +16,7 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { requirePartnerScope } from '../middleware/partnerAuth.js';
 import { getTrustDecision, toPublicDecision } from '../services/trustDecision/trustDecisionService.js';
+import { RECOMPUTE, getCanonicalTrust, toPublicTrust } from '../services/trustDecision/canonicalTrustService.js';
 import { getCoverage } from '../services/sourceVerification/sourceVerificationService.js';
 import { requestEligibility, getLatestStatus } from '../services/eligibility/eligibilityService.js';
 import { listSessionsForVin } from '../services/escrow/escrowTrustService.js';
@@ -38,6 +39,30 @@ async function partnerGateContext(vin) {
   } catch { return { identity_status: 'incomplete' }; }
 }
 
+/**
+ * The partner-facing trust payload — ONE stated position, and it is the canonical one.
+ *
+ * `trust` is the canonical projection (canonicalTrustService.toPublicTrust), read CACHE-ONLY from
+ * the same authority the marketplace, the passport and vehicle detail read. A partner therefore
+ * cannot be handed a number that disagrees with what CarUp publishes for the same VIN at the same
+ * instant, and whatever it is handed carries `calculation_version` and `evaluated_at`, so the
+ * partner can tell an evaluated score from an absent one (`score: null`, never 0).
+ *
+ * Recomputing here is precisely what produced two public answers for one VIN: this route reported a
+ * freshly-recomputed score while every cache-only surface reported none.
+ *
+ * `decision` is the redacted EXPLANATION — public dimensions and reason codes, private dimensions
+ * (finance) stripped. `toPublicDecision` deliberately carries no `overall_trust`, so it explains a
+ * position without restating it.
+ */
+async function partnerTrustPayload(vin) {
+  const [decision, canonical] = await Promise.all([
+    getTrustDecision(vin),
+    getCanonicalTrust(vin, { recompute: RECOMPUTE.NEVER }),
+  ]);
+  return { trust: toPublicTrust(canonical), decision: toPublicDecision(decision) };
+}
+
 router.get(`${BASE}/ping`, requirePartnerScope(null), (req, res) => {
   res.json({ ok: true, partner: req.partner?.name, ts: new Date().toISOString() });
 });
@@ -57,11 +82,10 @@ router.get(`${BASE}/vehicles/:vin/identity`, requirePartnerScope('vehicle:identi
   } catch (err) { next(err); }
 });
 
-// Trust summary — buyer/partner-safe unified decision (private dimensions stripped).
+// Trust summary — the canonical position (`trust`) plus the redacted explanation (`decision`).
 router.get(`${BASE}/vehicles/:vin/trust-summary`, requirePartnerScope('vehicle:trust'), async (req, res, next) => {
   try {
-    const decision = await getTrustDecision(req.params.vin);
-    res.json({ trust: toPublicDecision(decision) });
+    res.json(await partnerTrustPayload(req.params.vin));
   } catch (err) { next(err); }
 });
 
@@ -83,10 +107,12 @@ router.get(`${BASE}/vehicles/:vin/fraud-summary`, requirePartnerScope('fraud:rea
   } catch (err) { next(err); }
 });
 
-// Unified trust decision — redacted public projection (private dims stripped).
+// Unified trust decision — same single canonical position + redacted explanation as trust-summary.
+// Two endpoints that both speak about trust must not be able to disagree, so they share one payload
+// builder; they differ only in the scope required to reach them.
 router.get(`${BASE}/vehicles/:vin/decision`, requirePartnerScope('trust:read'), async (req, res, next) => {
   try {
-    res.json({ decision: toPublicDecision(await getTrustDecision(req.params.vin)) });
+    res.json(await partnerTrustPayload(req.params.vin));
   } catch (err) { next(err); }
 });
 

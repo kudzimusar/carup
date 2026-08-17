@@ -45,7 +45,12 @@ export const PUBLIC_VEHICLE_FIELDS = Object.freeze([
   'import_source', 'registration_country', 'registration_authority',
   'registration_status', 'plate_status', 'vehicle_condition_category',
   // derived/verified facts (values remain governed upstream)
-  'trust_score', 'duty_paid', 'police_verified', 'zimra_verified',
+  // NOT trust_score. The raw column is an UNVERSIONED legacy value, and projecting the vehicle row
+  // published it straight onto the public passport — `vehicle.trust_score: 84` sitting beside a
+  // `trustReport` that said `not_evaluated`, for the same VIN in the same body. A trust position is
+  // published only through canonicalTrustService's projection, which carries the calculation_version
+  // that makes it attributable. A row is not a place a score may leak from.
+  'duty_paid', 'police_verified', 'zimra_verified',
   'passport_verified', 'inspection_ready', 'safe_pay_ready',
   // public seller display posture (not seller identity)
   'current_seller_type', 'public_seller_display_enabled',

@@ -90,12 +90,30 @@ test('publication eligibility reflects completeness gate', () => {
   assert.ok(blocked.dimensions.publication_eligibility.reason_codes.some((r) => r.includes('ownership_document')));
 });
 
-test('public projection strips private dimensions (finance) and reason internals', () => {
+/**
+ * REWRITTEN — Issue #164 Phase 3. The last assertion previously read:
+ *
+ *   assert.equal(pub.overall_trust.reason_codes, undefined, 'public overall trust hides score reason internals');
+ *
+ * That encoded the OLD shape: the public decision restated the score and merely hid the reason
+ * codes behind it. The public decision now carries NO `overall_trust` at all, because the single
+ * public statement of a trust position is the canonical projection
+ * (canonicalTrustService.toPublicTrust) and a second, live-recomputed score in the same response
+ * body is the defect this phase exists to remove.
+ *
+ * The guarantee is NOT weakened. "No score is published here" strictly implies "no score internals
+ * are published here" — the old assertion's subject cannot leak if the subject does not exist. The
+ * final assertion adds what the old test never checked: the full decision still carries
+ * `overall_trust` for the privileged path (/trust-decision/full) and for canonicalTrustService,
+ * which is the ONE consumer allowed to turn it into a published position.
+ */
+test('public projection strips private dimensions (finance) and states no trust position of its own', () => {
   const d = assembleDecision({ vin: 'V1', vehicle: completeVehicle, completeness: null, coverage: [] });
   const pub = toPublicDecision(d);
   assert.equal(pub.dimensions.finance_eligibility, undefined, 'finance is private and must be stripped');
   assert.ok(pub.dimensions.identity, 'identity is public');
-  assert.equal(pub.overall_trust.reason_codes, undefined, 'public overall trust hides score reason internals');
+  assert.equal(pub.overall_trust, undefined, 'the public decision explains a position, it never restates one');
+  assert.ok(d.overall_trust, 'the full decision keeps it for the privileged path and the canonical service');
 });
 
 test('decision carries a calculation_version for explainability', () => {

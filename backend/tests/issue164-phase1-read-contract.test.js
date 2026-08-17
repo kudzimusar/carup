@@ -23,7 +23,9 @@
  *   4. A vehicle reached through an EMBED is held to the same rule as a vehicle
  *      reached through `.from('vehicles')`. PostgREST publishes an embedded row
  *      with the same authority as a top-level one, so the leak surface is the
- *      union of both and the guard must be too.
+ *      union of both and the guard must be too. One declared exemption exists —
+ *      the raw `trust_score` cache on two authenticated operator queues — and it
+ *      is declared per registered embed, for that one column, never as a rule.
  *   5. No anonymous read touches a PRIVATE_VEHICLE_FIELDS column unless it is
  *      registered as an authorization check — a read whose private column is
  *      compared and then dropped, never echoed.
@@ -96,6 +98,9 @@ const UTILS_DIR = path.join(BACKEND, 'utils');
  * here so the convergence is provably a WIDENING within the already-public set:
  * if a future edit to the canonical list drops one of these, /api/vehicles/saved
  * silently stops returning it and this test says which one.
+ *
+ * `trust_score` is the one deliberate exception, removed by Phase 3 — see the
+ * dropped-list test below for why it may go and why nothing else may follow it.
  */
 const LEGACY_PUBLIC_VEHICLE_COLUMNS = [
   'vin', 'make', 'model', 'generation', 'trim', 'year', 'color', 'mileage',
@@ -152,6 +157,14 @@ const BOUNDARY_PROJECTED_STAR_READS = [
  * `table` is the parent table the embed hangs off; it is documentation, checked only
  * for staleness (the name must still appear in the file). The load-bearing assertions
  * are on the embed itself: auth-guarded, never `*`, and inside PUBLIC_VEHICLE_FIELDS.
+ *
+ * `readsRawTrustCache` is the ONE declared exemption from that last rule, and it buys
+ * exactly one column: `trust_score`, which Phase 3 removed from the public contract
+ * because it is a materialized cache published only through canonicalTrustService's
+ * versioned projection. Two authenticated OPERATOR surfaces still read the column off
+ * the row; both are marked below, and the marking is what makes them visible rather
+ * than absorbed. It is not a waiver: an exempt embed must still be auth-guarded, must
+ * still name no private column, and may still name no OTHER out-of-contract column.
  */
 const EMBEDDED_VEHICLE_READS = [
   {
@@ -172,12 +185,21 @@ const EMBEDDED_VEHICLE_READS = [
   {
     key: 'routes/financeRoutes.js (GET /api/finance/applications) vehicles(make, model, year, price, trust_score)',
     table: 'finance_applications',
-    why: 'lender pipeline needs the collateral summary; price/trust_score are already public facts',
+    why: 'lender pipeline needs the collateral summary; authorizeRole([admin, finance, bank])',
+    readsRawTrustCache: true,
+    trustCacheWhy: 'an internal credit-review queue, not a public surface. The route already refuses '
+      + 'to fabricate (`Number.isFinite(...) ? ... : null`), so a lender sees "unscored" rather than a '
+      + 'default — but the number it does show is the raw cache, unattributed to a calculation '
+      + 'version. Re-pointing it at canonicalTrustService is INV-TRUST-2 follow-up work.',
   },
   {
     key: 'routes/vehiclesRoutes.js (GET /api/evidence/review) vehicles(make, model, year, trust_score)',
     table: 'vehicle_evidence',
-    why: 'reviewer queue needs to identify the car an evidence item belongs to',
+    why: 'reviewer queue needs to identify the car an evidence item belongs to; authorizeRole(reviewRoles)',
+    readsRawTrustCache: true,
+    trustCacheWhy: 'a moderator queue behind authorizeRole(reviewRoles) and tenant scoping. The '
+      + 'reviewer is looking at the cache to decide whether to refresh it, which is the one audience '
+      + 'for whom the raw column is the subject rather than a claim. Same follow-up work.',
   },
 ];
 
@@ -709,13 +731,21 @@ test('vehicleStatus.js declares no vehicle column list of its own', () => {
   );
 });
 
-test('aliasing PUBLIC_VEHICLE_COLUMNS widened the legacy list and dropped nothing', () => {
+test('aliasing PUBLIC_VEHICLE_COLUMNS dropped exactly the trust_score cache and nothing else', () => {
   const aliased = PUBLIC_VEHICLE_COLUMNS.split(',').map(token => token.trim()).filter(Boolean);
   const dropped = LEGACY_PUBLIC_VEHICLE_COLUMNS.filter(column => !aliased.includes(column));
+  // EXACTLY ONE historically-public column may be missing, and it is named here rather than
+  // tolerated as a hole: `trust_score`. It is exempt because it is not a vehicle fact at all — it
+  // is a materialized CACHE of a trust decision, published only through canonicalTrustService's
+  // projection, which carries the calculation_version that makes the number attributable. Projecting
+  // it off the row republished an unversioned legacy score as a public fact (`vehicle.trust_score:
+  // 84` beside a `trustReport` that said `not_evaluated`). Any OTHER column disappearing from the
+  // canonical list is still a silent narrowing of a live public response, and still fails here.
   assert.deepEqual(
     dropped,
-    [],
-    `the canonical list must still name every historically public column: missing ${dropped.join(', ')}`,
+    ['trust_score'],
+    'the canonical list must still name every historically public column except the deliberately '
+    + `demoted trust_score cache: ${dropped.join(', ')}`,
   );
   const leaked = aliased.filter(column => PRIVATE_VEHICLE_FIELDS.includes(column));
   assert.deepEqual(leaked, [], `PUBLIC_VEHICLE_COLUMNS must fetch no private column: ${leaked.join(', ')}`);
@@ -859,6 +889,20 @@ test('anonymous select(*) vehicle reads are exactly the registered boundary-proj
 test('every vehicles(...) embed is registered, auth-guarded and inside the public contract', () => {
   const embeds = [...routeLayerReads, ...publicServiceReads].filter(site => site.kind === 'embed');
 
+  // The only column an embed may name that the public contract does not, and only where the
+  // register declares it (see EMBEDDED_VEHICLE_READS.readsRawTrustCache).
+  const RAW_TRUST_CACHE_COLUMN = 'trust_score';
+  const staleExemptions = EMBEDDED_VEHICLE_READS
+    .filter(entry => entry.readsRawTrustCache)
+    .filter(entry => !entry.key.includes(RAW_TRUST_CACHE_COLUMN))
+    .map(entry => entry.key);
+  assert.deepEqual(
+    staleExemptions,
+    [],
+    'a readsRawTrustCache exemption on an embed that does not name trust_score is a blanket waiver '
+    + `on an out-of-contract column; drop the flag: ${staleExemptions.join(' | ')}`,
+  );
+
   assert.deepEqual(
     embeds.map(embedKey).sort(),
     EMBEDDED_VEHICLE_READS.map(entry => entry.key).sort(),
@@ -889,12 +933,30 @@ test('every vehicles(...) embed is registered, auth-guarded and inside the publi
       [],
       `embed at ${describeSite(site)} selects a private column`,
     );
+    const entry = EMBEDDED_VEHICLE_READS.find(candidate => candidate.key === embedKey(site));
+    const exempt = Boolean(entry?.readsRawTrustCache);
     const outside = site.tokens.filter(token => !PUBLIC_VEHICLE_FIELDS.includes(token));
+    // An exempt embed must name trust_score AND NOTHING ELSE outside the contract: the expectation
+    // is the exact column list, not a filtered-down one, so the exemption cannot be used to smuggle
+    // a second column through, and cannot go stale if the embed stops reading the cache.
     assert.deepEqual(
       outside,
-      [],
-      `embed at ${describeSite(site)} names a column the public contract does not: ${outside.join(', ')}`,
+      exempt ? [RAW_TRUST_CACHE_COLUMN] : [],
+      `embed at ${describeSite(site)} names a column the public contract does not: ${outside.join(', ')}`
+      + (exempt
+        ? ' — the readsRawTrustCache exemption covers trust_score alone'
+        : '. If it is the raw trust cache on an authenticated operator surface, register it with '
+          + 'readsRawTrustCache and a reason; on any public surface, publish canonical trust instead'),
     );
+    if (exempt) {
+      // Restated per site rather than left to the blanket anonymity assertion above, because THIS
+      // is the column whose whole defect was reaching an anonymous reader unattributed.
+      assert.equal(
+        site.anonymous,
+        false,
+        `the raw trust cache is readable only behind auth: ${describeSite(site)}`,
+      );
+    }
   }
 
   for (const entry of EMBEDDED_VEHICLE_READS) {

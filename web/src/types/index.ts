@@ -1601,7 +1601,17 @@ export interface TrustDecision {
   vin: string;
   calculation_version: string;
   last_updated: string | null;
-  overall_trust: { status: string; value: string | number | null };
+  /**
+   * OPTIONAL, and never a trust claim on a public surface (Issue #164 Phase 3).
+   *
+   * The buyer-safe projection (`toPublicDecision`) carries NO `overall_trust`: the single public
+   * statement of a trust position is the canonical `trust` projection served alongside this object.
+   * Only the PRIVILEGED responses — /api/vehicles/:vin/trust-decision for admin/government/reviewer/
+   * owner/dealer, and /trust-decision/full — return the raw decision, which still carries it. Typing
+   * it as required was a lie about what a buyer actually receives, and reading it to render a score
+   * is what put "50 · moderate" beside "Not evaluated" on one listing.
+   */
+  overall_trust?: { status: string; value: string | number | null };
   dimensions: Record<string, TrustDimension>;
   known_limitations: string[];
 }
