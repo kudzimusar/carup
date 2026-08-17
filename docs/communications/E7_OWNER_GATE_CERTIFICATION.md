@@ -336,3 +336,105 @@ So routing is fully proven — right thread, right participant, token consumed �
 was not captured**, because it was never in the event. Retrieving it requires a follow-up fetch to
 Resend's API with the server-side key. Recorded as an open defect rather than glossed: a reply that
 routes correctly but arrives empty is not a finished conversational feature.
+
+---
+
+# Round 3 (2026-08-17) — inbound body retrieval, and the unsubscribe that never confirmed
+
+## Unsubscribe: the deployed flow works; the click did not complete
+
+The owner reported clicking the unsubscribe action. CarUp's consent state was unchanged:
+`use_count=0`, no suppression row, `marketing_enabled=true`, `consent_status=opted_in`.
+
+The flow itself is sound — proven end to end on a **throwaway handle** (deliberately not the owner's,
+so their handle stayed unused):
+
+```text
+POST /api/communications/unsubscribe  (browser form)      -> 200, "You have been unsubscribed"
+POST /api/communications/unsubscribe  (RFC 8058 one-click) -> 200 {"success":true,"unsubscribed":true}
+```
+
+**Idempotency proven at the same time:** those two POSTs produced **exactly one**
+`communication_suppressions` row. Replaying an unsubscribe re-asserts the same suppression rather
+than duplicating or failing, which is what RFC 8058 one-click requires.
+
+So the emailed link reached the confirmation page, and the **Confirm** button was never pressed.
+There was no way to establish that from data, which is a genuine instrumentation gap: a human said
+"I clicked" and the system could not say what it saw.
+
+Fixed two ways, neither of which weakens the safety model:
+
+1. `marketing_unsubscribe_tokens` now records `view_count` / `last_viewed_at`. Viewing still **never**
+   changes consent — mail clients and corporate security gateways prefetch every URL in a body, so an
+   unsubscribe-on-GET would opt people out of marketing they never chose to leave.
+2. The confirmation page states explicitly: *"One more step: press the button below to confirm.
+   Nothing changes until you do."*
+
+Verified live after deploy: a GET incremented `view_count` 0 → 1 while `use_count` stayed 0.
+
+> Note on the owner's earlier click: it predates this instrumentation, so `view_count=0` on their
+> handle proves nothing about it either way. Stated rather than back-filled with a guess.
+
+## Inbound body retrieval — implemented
+
+The prior position, that an empty inbound body was an acceptable provider limitation, was **wrong**.
+Resend's Receiving API exposes the full received message via the webhook's `data.email_id`, so the
+content was always retrievable.
+
+**Reconciled before implementing, as required:** CarUp has **no reply-cleaning semantics anywhere** —
+no quote stripping, no signature detection, no `htmlToText` helper. So no parsing architecture was
+invented. Quoted history and signatures are preserved verbatim; inventing quote-stripping on the very
+path whose purpose is to stop discarding content would be perverse.
+
+| Requirement | Implementation |
+|---|---|
+| Capture `email_id` | taken from the verified `email.received` payload |
+| Retrieve via Receiving API | `GET /emails/receiving/{id}`, falling back to `/emails/{id}` **only** on 404, so auth and rate-limit errors are never masked |
+| Never trust unverified body data | runs only after Svix verification **and** routing resolution; provider-fetched content is authoritative, request body fields are last-resort |
+| Same canonical message | ingested into the same `inboundService.ingest` call — no second message path |
+| Deterministic content policy | plain text preferred; conservative HTML derivation only when absent; HTML preserved in `content_json` |
+| Reply-cleaning | none invented — see above |
+| Fail closed / retry safely | missing credential, network fault, 429, 5xx → **503** so the provider retries rather than committing an empty body; durable 4xx → 400 |
+| Idempotency | already guaranteed: `ingest` dedupes on `(provider, provider_message_id)` including the unique-violation race |
+| No secret exposure | the API key never appears in a result object (asserted by test); URLs, tokens and bodies are never logged |
+
+### A correction this forced to my own earlier fix
+
+The previous change made a retry of a **failed** delivery throw without reprocessing. That was wrong
+in the opposite direction from the original defect: a **transient** fault could then never recover,
+because every retry would be rejected on the strength of the first failure — which would have made
+the fail-closed retrieval above useless.
+
+A failed delivery is now **reprocessed** against the **same** `webhook_logs` row. It recovers if it
+can, and stays `failed` with a non-2xx if it cannot. Neither path can silently mask a failure as a
+duplicate, which was the original defect.
+
+```text
+original  : retry -> 200 duplicate, 'failed' rewritten          (hides real failures)      WRONG
+first fix : retry -> throw, never reprocessed                   (transient faults permanent) WRONG
+now       : retry -> reprocess same row; recover or stay failed                             CORRECT
+```
+
+## Deployment integrity
+
+Both staging hosts now serve exact-head, closing the split that caused the round-2 failure:
+
+```text
+carup-backend-staging.vercel.app   health=200  /unsubscribe=400   (the SENDER — cron worker target)
+api-staging.carup.dev              health=200  /unsubscribe=400   (webhooks / API)
+```
+
+## Pre-reply baseline recorded for the round-3 proof
+
+```text
+inbound email messages            1
+messages in cert thread           3
+participants in cert thread       1
+identities for the address        1
+threads total                    45
+new reply token use_count         0
+inbound messages with NULL body   1   <- the defect that must not recur
+```
+
+Certification message `CarUp conversation - E7 inbound body retrieval` (notification 345) delivered
+14:34 UTC with a **fresh** reply token. Awaiting one human reply and one unsubscribe confirmation.
