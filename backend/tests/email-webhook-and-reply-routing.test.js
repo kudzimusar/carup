@@ -701,3 +701,46 @@ test('a retry of a FAILED delivery is reprocessed against the SAME row, so trans
   assert.ok(!updates.some((p) => p.processing_status === 'duplicate'), 'must not be relabelled a duplicate');
   assert.ok(updates.some((p) => p.processing_status === 'processed'), 'a recovered retry ends processed');
 });
+
+test('a PERMANENTLY unroutable inbound is acknowledged, not retried forever', async () => {
+  // Observed live: a human replied to a transactional notification at notifications@mail.carup.dev.
+  // With no reply token and no RFC reference it can NEVER be routed, yet it returned 400, so Resend
+  // retried it repeatedly (attempt_count reached 3 and climbing). Persistent non-2xx on permanently
+  // unroutable mail is how a provider decides to disable a webhook endpoint.
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+  const updates = [];
+  const repository = {
+    findOne: async () => null,
+    insert: async () => ({ id: 'wl-1' }),
+    updateById: async (t, id, patch) => { updates.push(patch); return { id }; },
+    list: async () => [],
+  };
+
+  const build = (reason) => new CommunicationWebhookService({
+    repository,
+    inboundService: {},
+    inboundResolver: { resolve: async () => ({ ok: false, reason }) },
+    replyTokenService: {},
+    env: { RESEND_WEBHOOK_SECRET: SECRET },
+  });
+
+  const rawBody = JSON.stringify({ type: 'email.received', data: { email_id: 'e-perm', from: 'x@y.z' } });
+  const signed = signResend(rawBody);
+
+  // Permanent: acknowledged so the provider stops retrying, but still RECORDED as failed.
+  const permanent = await build('no_rfc_reference').handleWebhook('resend', 'email', JSON.parse(rawBody), { headers: signed, rawBody });
+  assert.equal(permanent.success, true);
+  assert.equal(permanent.unroutable, true);
+  assert.equal(permanent.count, 0, 'nothing may be ingested');
+  assert.ok(updates.some((p) => p.processing_status === 'failed'), 'must stay visible as failed');
+
+  // Transient: must NOT be acknowledged — the provider has to retry or the message is lost.
+  updates.length = 0;
+  await assert.rejects(
+    () => build('lookup_failed:connection reset').handleWebhook('resend', 'email', JSON.parse(rawBody), { headers: signed, rawBody }),
+    (error) => {
+      assert.equal(error.statusCode, 503, 'a transient resolution fault must ask the provider to retry');
+      return true;
+    },
+  );
+});

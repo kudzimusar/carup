@@ -451,11 +451,35 @@ export class CommunicationWebhookService {
 
     const resolution = await this.inboundResolver.resolve(data);
     if (!resolution.ok) {
-      // Fail closed: record why, mutate nothing.
-      throw new ValidationError(`Inbound Email could not be routed: ${resolution.reason}`, {
+      // Fail closed — mutate nothing — but distinguish PERMANENT unroutability from a transient
+      // fault, because the two need opposite answers to the provider.
+      //
+      // Observed live: a human replied to a transactional notification at notifications@mail.carup.dev
+      // (no reply token, no RFC reference). That can never be routed, yet it returned 400, so Resend
+      // retried it repeatedly and would have gone on retrying. Persistent non-2xx on permanently
+      // unroutable mail is how a provider decides to disable a webhook endpoint — the same hazard
+      // already fixed for Brevo's unmapped lifecycle events.
+      //
+      // So: permanent -> acknowledge (2xx) and record as unroutable, visible but not retried.
+      //     transient  -> 503, so the provider retries and the message is not lost.
+      const permanentReasons = new Set([
+        'no_reply_token', 'no_rfc_reference', 'unknown_token', 'unknown_rfc_reference',
+        'revoked_token', 'expired_token', 'multiple_reply_tokens', 'ambiguous_rfc_reference',
+        'token_rfc_disagreement', 'participant_missing', 'participant_inactive',
+        'participant_thread_mismatch', 'thread_missing', 'tenant_invariant_failed',
+        'binding_cannot_receive', 'binding_expired', 'unprovable_sender',
+        'no_channel_identity_for_sender', 'no_active_binding_for_sender',
+        'ambiguous_binding_for_sender', 'rfc_message_missing',
+      ]);
+      const permanent = permanentReasons.has(resolution.reason);
+      const error = new ValidationError(`Inbound Email could not be routed: ${resolution.reason}`, {
         reason: resolution.reason,
         provider: 'resend',
+        unroutable: permanent,
       });
+      if (!permanent) error.statusCode = 503;
+      error.acknowledge = permanent;
+      throw error;
     }
 
     const headers = data.headers || {};
@@ -796,6 +820,20 @@ export class CommunicationWebhookService {
         summary: `Inbound webhook failed (${error.code || 'processing_failed'})`,
         correlation_id: actor.correlation_id || null, metadata: { result: 'failed', provider, error_code: error.code || 'processing_failed' },
       });
+      // A PERMANENTLY unroutable inbound is recorded as failed above — it stays fully visible — but is
+      // ACKNOWLEDGED to the provider, because no number of retries can make it routable and endless
+      // non-2xx responses are how a provider decides to disable the endpoint.
+      if (error.acknowledge) {
+        return {
+          success: true,
+          duplicate: false,
+          unroutable: true,
+          reason: error.details?.reason || null,
+          webhook_log_id: log.id,
+          count: 0,
+          results: [],
+        };
+      }
       throw error;
     }
   }
