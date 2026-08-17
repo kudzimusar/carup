@@ -18,6 +18,7 @@ import { CommunicationCanonicalWebhookService } from './communicationCanonicalWe
 import { createEmailReplyTokenService } from './emailReplyTokenService.js';
 import { createMarketingUnsubscribeService } from './marketingUnsubscribeService.js';
 import { ResendInboundResolver } from './resendWebhookService.js';
+import { createResendInboundContentService } from './resendInboundContentService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { CommunicationMetaWhatsAppGovernedAdapter } from './communicationMetaWhatsAppGovernedAdapter.js';
@@ -113,11 +114,14 @@ export function createCommunicationServices({ repository = null, adapterRegistry
   // rejected every signed inbound reply with "Resend inbound routing is not configured."
   const replyTokenService = createEmailReplyTokenService({ supabase: repo.client });
   const inboundResolver = new ResendInboundResolver({ supabase: repo.client, replyTokenService });
+  // Resend's email.received carries metadata only; the real body is fetched by email_id.
+  const inboundContentService = createResendInboundContentService({});
   const webhookService = new CommunicationCanonicalWebhookService({
     repository: repo,
     inboundService,
     inboundResolver,
     replyTokenService,
+    inboundContentService,
     notificationService,
   });
   const deliveryWorker = new CommunicationDeliveryWorker({
@@ -152,6 +156,7 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     replyTokenService,
     unsubscribeService,
     inboundResolver,
+    inboundContentService,
     webhookService,
     deliveryWorker,
     orchestrator,

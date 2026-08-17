@@ -61,9 +61,13 @@ function validateCloudflareAttachments(attachments = [], maxBytes = 5 * 1024 * 1
 }
 
 export class CommunicationWebhookService {
-  constructor({ repository, inboundService, inboundResolver = null, replyTokenService = null, env = process.env } = {}) {
+  constructor({
+    repository, inboundService, inboundResolver = null, replyTokenService = null,
+    inboundContentService = null, env = process.env,
+  } = {}) {
     this.repository = repository;
     this.inboundService = inboundService;
+    this.inboundContentService = inboundContentService;
     // E4 inbound reply routing. These were previously read by handleResendInboundWebhook but never
     // assigned by any constructor or factory, so every legitimate signed `email.received` threw
     // "Resend inbound routing is not configured." before reaching the resolver. Tests passed only
@@ -474,6 +478,29 @@ export class CommunicationWebhookService {
     if (!thread) throw new ValidationError('Inbound Email resolved to a missing thread.');
     if (!participant) throw new ValidationError('Inbound Email resolved to a missing participant.');
 
+    // Retrieve the ACTUAL body. Resend's email.received carries metadata only, so the body is fetched
+    // from the Receiving API by the webhook's email_id — never taken from the request, which an
+    // unverified caller could forge. This runs only after signature verification and after the
+    // canonical thread/participant are resolved.
+    //
+    // Fails CLOSED on a transient fault: better that the provider retries than that a reply is
+    // committed with an empty body, which is the exact defect this closes. Ingest is idempotent on
+    // (provider, provider_message_id), so a retry re-attaches to the same canonical message.
+    const emailId = data.email_id || data.id || null;
+    let inboundContent = { text: '', html: null, derivedFromHtml: false, endpoint: null };
+    if (this.inboundContentService) {
+      const fetched = await this.inboundContentService.fetchReceivedEmail(emailId);
+      if (!fetched.ok) {
+        const error = new ValidationError(`Inbound Email body could not be retrieved: ${fetched.reason}`, {
+          reason: fetched.reason, provider: 'resend', retryable: Boolean(fetched.retryable),
+        });
+        // Transient faults must return a 5xx so the provider retries; a durable refusal stays 400.
+        if (fetched.retryable) error.statusCode = 503;
+        throw error;
+      }
+      inboundContent = fetched;
+    }
+
     const result = await this.inboundService.ingest({
       channel: 'email',
       provider: 'resend',
@@ -484,12 +511,22 @@ export class CommunicationWebhookService {
       providerMessageId: rfcMessageId,
       externalConversationId: rfcMessageId,
       from: data.from || data.From || null,
-      text: data.text || data.plain || data.body || '',
+      // Provider-retrieved content is authoritative. The request's own body fields are used only as a
+      // last resort, because a webhook payload is attacker-controllable in a way the fetched
+      // received-email object is not.
+      text: inboundContent.text || data.text || data.plain || data.body || '',
       attachments: data.attachments || [],
       metadata: {
         resolution: resolution.resolution,
         reply_token_id: resolution.tokenId || null,
         subject: data.subject || null,
+        // HTML is preserved only in content_json, which the canonical schema supports; content_text
+        // stays the single deterministic plain-text representation.
+        email_html: inboundContent.html || null,
+        content_source: this.inboundContentService
+          ? `resend:${inboundContent.endpoint || 'unknown'}`
+          : 'webhook_payload',
+        content_derived_from_html: Boolean(inboundContent.derivedFromHtml),
       },
     }, { gateway_trusted: true, surface: 'email', actor });
 
@@ -583,21 +620,29 @@ export class CommunicationWebhookService {
         });
         throw new ForbiddenError('Webhook verification failed.');
       }
-      // Only a delivery that previously SUCCEEDED is an inert duplicate. Treating a retry of a
-      // FAILED delivery as a duplicate returns 200 and rewrites 'failed' to 'duplicate' — which is
-      // exactly how a hard CarUp-side failure on a real inbound reply was made to look like provider
-      // silence: the first attempt 400'd, the provider retried, the retry was deduped into a 200,
-      // and the provider then reported the delivery as successful. A failed row must stay failed and
-      // must keep returning a non-2xx so the failure remains visible and the provider keeps retrying.
+      // Only a delivery that previously SUCCEEDED is an inert duplicate. Treating a retry of a FAILED
+      // delivery as a duplicate returned 200 and rewrote 'failed' to 'duplicate' — which is exactly
+      // how a hard CarUp-side failure on a real inbound reply was made to look like provider silence:
+      // the first attempt 400'd, the provider retried, the retry was deduped into a 200, and the
+      // provider then reported the delivery as successful.
+      //
+      // A failed delivery is therefore REPROCESSED rather than short-circuited. Refusing outright
+      // would be just as wrong in the other direction: a transient fault (say, the provider content
+      // fetch timing out) could then never recover, because every retry would be rejected on the
+      // strength of the first failure. Reprocessing recovers; if it fails again it stays failed and
+      // still answers non-2xx, so the failure remains visible either way.
+      //
+      // Idempotency is preserved on both sides: this reuses the SAME webhook_logs row, and
+      // inboundService.ingest is idempotent on (provider, provider_message_id).
       if (existing.processing_status === 'failed') {
         await this.repository.updateById('webhook_logs', existing.id, {
           attempt_count: Number(existing.attempt_count || 0) + 1,
-          processed_at: nowIso(),
+          processing_status: 'received',
         });
-        throw new ValidationError(
-          `Webhook delivery previously failed and has not been remediated: ${existing.error_message || existing.error_code || 'unknown error'}`,
-          { reason: 'duplicate_of_failed_delivery', provider, webhook_log_id: existing.id },
-        );
+        return this.processVerifiedWebhook(provider, normalized, body, {
+          log: { ...existing, attempt_count: Number(existing.attempt_count || 0) + 1 },
+          actor,
+        });
       }
       await this.repository.updateById('webhook_logs', existing.id, {
         processing_status: 'duplicate',
@@ -643,6 +688,17 @@ export class CommunicationWebhookService {
       throw new ForbiddenError('Webhook verification failed.');
     }
 
+    return this.processVerifiedWebhook(provider, normalized, body, { log, actor });
+  }
+
+  /**
+   * Process an already-signature-verified webhook against an existing webhook_logs row.
+   *
+   * Extracted so a RETRY of a previously failed delivery runs the identical path against the SAME
+   * row, rather than being short-circuited (which would make transient faults permanent) or deduped
+   * into a 200 (which would hide real failures).
+   */
+  async processVerifiedWebhook(provider, normalized, body, { log, actor = {} } = {}) {
     try {
       const receipts = this.extractDeliveryReceipts(provider, normalized, body);
       const receiptResults = [];

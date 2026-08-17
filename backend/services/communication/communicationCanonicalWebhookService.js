@@ -13,9 +13,9 @@ import { normalizeChannel, nowIso } from './communicationUtils.js';
 export class CommunicationCanonicalWebhookService extends CommunicationWebhookService {
   constructor({
     repository, inboundService, inboundResolver = null, replyTokenService = null,
-    notificationService = null, env = process.env,
+    inboundContentService = null, notificationService = null, env = process.env,
   } = {}) {
-    super({ repository, inboundService, inboundResolver, replyTokenService, env });
+    super({ repository, inboundService, inboundResolver, replyTokenService, inboundContentService, env });
     this.notificationService = notificationService;
   }
 

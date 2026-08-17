@@ -31,6 +31,11 @@ CREATE TABLE IF NOT EXISTS public.marketing_unsubscribe_tokens (
   revoked_at       timestamptz,
   use_count        integer NOT NULL DEFAULT 0,
   last_used_at     timestamptz,
+  -- Observability only: rendering the confirmation page NEVER changes consent (mail clients and
+  -- security gateways prefetch links). Recorded because a human reported clicking an unsubscribe
+  -- that left no trace, and there was no way to tell whether the page had even been reached.
+  view_count       integer NOT NULL DEFAULT 0,
+  last_viewed_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
 

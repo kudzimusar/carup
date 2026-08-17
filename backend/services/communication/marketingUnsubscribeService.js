@@ -110,6 +110,30 @@ export class MarketingUnsubscribeService {
   }
 
   /**
+   * Record that the confirmation page was rendered. Observability ONLY — this never touches consent.
+   *
+   * Exists because a human reported clicking an unsubscribe and nothing changed, and there was no
+   * way to tell whether the page had been reached at all, whether the confirm step was never pressed,
+   * or whether the POST had failed. Best-effort: a bookkeeping failure must never block the page.
+   */
+  async recordView(tokenId) {
+    if (!tokenId) return;
+    try {
+      const { data } = await this.supabase
+        .from('marketing_unsubscribe_tokens')
+        .select('view_count')
+        .eq('id', tokenId)
+        .maybeSingle();
+      await this.supabase
+        .from('marketing_unsubscribe_tokens')
+        .update({ view_count: Number(data?.view_count || 0) + 1, last_viewed_at: this.now().toISOString() })
+        .eq('id', tokenId);
+    } catch {
+      // Deliberately swallowed: never let instrumentation break an unsubscribe.
+    }
+  }
+
+  /**
    * Apply the unsubscribe across CarUp's canonical consent state.
    *
    * Idempotent: replaying the same handle re-asserts the same suppression rather than failing, which

@@ -500,37 +500,36 @@ test('the production factory wires the inbound resolver and reply token service'
   );
 });
 
-test('a retried webhook delivery that previously FAILED is not masked as a duplicate', async () => {
-  // The defect that turned a loud CarUp-side failure into apparent provider silence: the first
-  // delivery failed and returned 400, the provider retried, and the retry hit the dedupe branch —
-  // which returned HTTP 200 and rewrote processing_status from 'failed' to 'duplicate'. The provider
-  // saw a success, stopped retrying, and the failure became invisible.
+test('a retried webhook delivery that previously FAILED is never masked as a duplicate', async () => {
+  // The original defect: the first delivery failed and returned 400, the provider retried, and the
+  // retry hit the dedupe branch — which returned HTTP 200 and rewrote 'failed' to 'duplicate'. The
+  // provider saw a success, stopped retrying, and the failure became invisible for eight hours.
+  //
+  // The contract asserted here is narrow and permanent: a previously-failed delivery must NEVER be
+  // recorded as an inert duplicate. Whether the retry then succeeds or fails again is covered by the
+  // reprocessing test further below.
   const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
-
   const updates = [];
   const repository = {
     findOne: async (table) => (table === 'webhook_logs'
       ? { id: 'wl-1', processing_status: 'failed', attempt_count: 1, error_message: 'Resend inbound routing is not configured.' }
       : null),
-    updateById: async (table, id, patch) => { updates.push({ table, id, patch }); return { id }; },
-    insert: async () => ({ id: 'x' }),
+    updateById: async (table, id, patch) => { updates.push(patch); return { id }; },
+    insert: async () => ({ id: 'wl-1' }),
     list: async () => [],
   };
+  // Inbound handling is deliberately left unconfigured so the reprocess attempt fails again.
   const service = new CommunicationWebhookService({ repository, inboundService: {}, env: { RESEND_WEBHOOK_SECRET: SECRET } });
   const rawBody = JSON.stringify({ type: 'email.received', data: { email_id: 'e-1' } });
   const signed = signResend(rawBody);
 
   await assert.rejects(
     () => service.handleWebhook('resend', 'email', JSON.parse(rawBody), { headers: signed, rawBody }),
-    (error) => {
-      assert.match(error.message, /previously failed/i);
-      return true;
-    },
-    'a retry of a failed delivery must surface an error, never a 200 duplicate',
+    'a retry that fails again must still surface an error, never a 200 duplicate',
   );
-  // The row must NOT have been rewritten to 'duplicate'.
-  const statuses = updates.flatMap((u) => (u.patch.processing_status ? [u.patch.processing_status] : []));
+  const statuses = updates.flatMap((p) => (p.processing_status ? [p.processing_status] : []));
   assert.ok(!statuses.includes('duplicate'), 'a failed row must not be relabelled as a duplicate');
+  assert.ok(statuses.includes('failed'), 'a retry that fails again stays failed');
 });
 
 test('an authenticated Email lifecycle event with no canonical transition is ignored, not failed', async () => {
@@ -592,4 +591,113 @@ test('a marketing send records provenance proving the unsubscribe action was act
   assert.equal(m.marketing_text_link_present, true);
   assert.equal(m.list_unsubscribe_header_sent, true);
   assert.equal(m.list_unsubscribe_post_header_sent, true);
+});
+
+// ---------- E4: inbound BODY retrieval via Resend's Receiving API ----------
+
+test('inbound content prefers provider plain text and derives from HTML only when absent', async () => {
+  const { selectInboundContent, deriveTextFromHtml } = await import('../services/communication/resendInboundContentService.js');
+
+  const withText = selectInboundContent({ text: 'CarUp E7 inbound body retrieval certification.', html: '<p>ignored</p>' });
+  assert.equal(withText.text, 'CarUp E7 inbound body retrieval certification.');
+  assert.equal(withText.derivedFromHtml, false);
+  assert.equal(withText.html, '<p>ignored</p>', 'HTML is preserved alongside, not discarded');
+
+  const htmlOnly = selectInboundContent({ html: '<div>Hello<br>world</div><script>bad()</script>' });
+  assert.equal(htmlOnly.text, 'Hello\nworld');
+  assert.equal(htmlOnly.derivedFromHtml, true);
+
+  // Quoted history is deliberately preserved: CarUp has no reply-cleaning semantics anywhere, and
+  // inventing quote-stripping on the path whose purpose is to stop losing content would be perverse.
+  const quoted = deriveTextFromHtml('<p>My reply</p><blockquote><p>On Monday you wrote:</p></blockquote>');
+  assert.match(quoted, /My reply/);
+  assert.match(quoted, /On Monday you wrote:/);
+});
+
+test('inbound content retrieval fails CLOSED and retryably on a transient fault', async () => {
+  const { ResendInboundContentService } = await import('../services/communication/resendInboundContentService.js');
+
+  const noKey = new ResendInboundContentService({ env: {} });
+  const r1 = await noKey.fetchReceivedEmail('e_1');
+  assert.equal(r1.ok, false);
+  assert.equal(r1.retryable, true, 'a missing credential must retry, never commit an empty body');
+
+  const boom = new ResendInboundContentService({
+    env: { RESEND_API_KEY: 'k' },
+    fetchImpl: async () => { const e = new Error('socket hang up'); e.name = 'FetchError'; throw e; },
+  });
+  const r2 = await boom.fetchReceivedEmail('e_1');
+  assert.equal(r2.ok, false);
+  assert.equal(r2.retryable, true);
+
+  const rate = new ResendInboundContentService({
+    env: { RESEND_API_KEY: 'k' },
+    fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({}) }),
+  });
+  assert.equal((await rate.fetchReceivedEmail('e_1')).retryable, true);
+
+  const gone = new ResendInboundContentService({
+    env: { RESEND_API_KEY: 'k' },
+    fetchImpl: async () => ({ ok: false, status: 403, json: async () => ({}) }),
+  });
+  assert.equal((await gone.fetchReceivedEmail('e_1')).retryable, false, '403 is durable, not a retry loop');
+});
+
+test('inbound content retrieval falls back to the general email resource only on 404', async () => {
+  const { ResendInboundContentService } = await import('../services/communication/resendInboundContentService.js');
+  const seen = [];
+  const svc = new ResendInboundContentService({
+    env: { RESEND_API_KEY: 'k' },
+    fetchImpl: async (url) => {
+      seen.push(url);
+      if (url.includes('/emails/receiving/')) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ text: 'body from fallback' }) };
+    },
+  });
+  const r = await svc.fetchReceivedEmail('e_9');
+  assert.equal(r.ok, true);
+  assert.equal(r.text, 'body from fallback');
+  assert.equal(r.endpoint, 'emails.get');
+  assert.equal(seen.length, 2);
+  assert.match(seen[0], /\/emails\/receiving\/e_9$/);
+});
+
+test('the API key never appears in a retrieval failure result', async () => {
+  const { ResendInboundContentService } = await import('../services/communication/resendInboundContentService.js');
+  const SECRET_KEY = 're_super_secret_value_0123456789';
+  const svc = new ResendInboundContentService({
+    env: { RESEND_API_KEY: SECRET_KEY },
+    fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({ error: 'boom' }) }),
+  });
+  const r = await svc.fetchReceivedEmail('e_1');
+  assert.ok(!JSON.stringify(r).includes(SECRET_KEY), 'a failure result must never carry the credential');
+});
+
+test('a retry of a FAILED delivery is reprocessed against the SAME row, so transient faults recover', async () => {
+  // Both prior behaviours were wrong: returning 200/duplicate hid real failures, and refusing
+  // outright made transient faults permanent because every retry was rejected on the strength of the
+  // first failure. A retry must run the identical path again against the same webhook_logs row.
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+  const updates = [];
+  const repository = {
+    findOne: async (table) => (table === 'webhook_logs'
+      ? { id: 'wl-1', processing_status: 'failed', attempt_count: 1, error_message: 'transient' }
+      : null),
+    updateById: async (table, id, patch) => { updates.push(patch); return { id }; },
+    insert: async () => ({ id: 'wl-1' }),
+    list: async () => [],
+  };
+  const service = new CommunicationWebhookService({
+    repository, inboundService: {}, env: { BREVO_WEBHOOK_SECRET: 'shared-secret' },
+  });
+  const body = { event: 'delivered', email: 'x@example.test', 'message-id': '<m@brevo>' };
+  const result = await service.handleWebhook('brevo', 'email', body, {
+    headers: { 'x-carup-brevo-secret': 'shared-secret' },
+    rawBody: JSON.stringify(body),
+  });
+
+  assert.equal(result.success, true, 'the retry must be allowed to succeed');
+  assert.equal(result.webhook_log_id, 'wl-1', 'must reuse the SAME row, never insert a second');
+  assert.ok(!updates.some((p) => p.processing_status === 'duplicate'), 'must not be relabelled a duplicate');
+  assert.ok(updates.some((p) => p.processing_status === 'processed'), 'a recovered retry ends processed');
 });

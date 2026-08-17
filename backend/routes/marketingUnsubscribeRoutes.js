@@ -79,11 +79,15 @@ export function marketingUnsubscribeRouter({ supabaseClient = supabase, env = pr
       }));
     }
 
+    // Observability only — never a consent change. See recordView().
+    await service.recordView(resolved.token.id);
+
     return res.status(200).type('html').send(page({
       title: 'CarUp — confirm unsubscribe',
       heading: 'Stop receiving CarUp marketing email?',
       body: `<p>This will stop CarUp marketing email to <strong>${escapeHtml(resolved.token.address)}</strong>.</p>
-             <p>You will still receive essential account, security and transaction email — those are not marketing and are not affected.</p>`,
+             <p>You will still receive essential account, security and transaction email — those are not marketing and are not affected.</p>
+             <p style="font-size:14px;color:#64748b;">One more step: press the button below to confirm. Nothing changes until you do.</p>`,
       token,
       showButton: true,
     }));
