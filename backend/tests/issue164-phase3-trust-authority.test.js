@@ -29,6 +29,14 @@
  *   7. THE FACT RESOLVER IS PROVENANCE, NOT SCORE. Phase 2's resolver adds disclosure and
  *      withholds legacy claims; it cannot move the number, because that would break the replay
  *      guarantee under an unchanged CALCULATION_VERSION.
+ *   8. EVERY PARTNER TRUST ENDPOINT PUBLISHES THE SAME ONE POSITION (§10). `/trust-summary` and
+ *      `/decision` both carry the canonical `trust` projection and neither restates the score as
+ *      `overall_trust`. Guarding only `/trust-summary` is how Blocker 2 happened: `/decision`
+ *      shipped as `{decision}` alone and the whole suite stayed green.
+ *   9. A FOREIGN WRITER OF trust_score CANNOT INHERIT THE STAMP (§11). The three writers that are
+ *      not `refreshCanonicalTrust` null all six stamp columns in the SAME update, so the row they
+ *      leave behind classifies `unversioned` and is refused. Without that, a write landing after a
+ *      legitimate refresh publishes as `evaluated`, banded by the score it replaced.
  *
  * TESTING APPROACH. Every I/O dependency of the service is an injectable option with a real
  * default, so this suite runs hermetically against the SHIPPED module — no mocking of internals,
@@ -890,4 +898,404 @@ test('the public record is frozen, so a surface cannot mutate the contract in pl
   const shape = toPublicTrust(canonicalFromDecision(evidencedDecision()));
   assert.throws(() => { shape.score = 100; }, TypeError);
   assert.throws(() => { shape.known_limitations.push('made up'); }, TypeError);
+});
+
+// ===========================================================================================
+// 10. THE PARTNER API — BOTH trust endpoints, ONE position.
+//
+// backend/routes/partnerApiRoutes.js serves two endpoints that speak about trust:
+//
+//   GET /api/partner/v1/vehicles/:vin/trust-summary   scope vehicle:trust
+//   GET /api/partner/v1/vehicles/:vin/decision        scope trust:read
+//
+// They share `partnerTrustPayload`, which returns `{trust, decision}`: `trust` is the canonical
+// ten-field projection read CACHE-ONLY from this service, `decision` is the redacted explanation
+// (`toPublicDecision`, which deliberately carries NO overall_trust).
+//
+// Only `/trust-summary` was guarded. `/decision` could be reverted to its pre-Phase-3 shape —
+// `{decision: toPublicDecision(...)}`, no canonical position at all, the exact Blocker-2 defect —
+// and the entire backend suite stayed green. These tests close that: a partner must never be handed
+// a position that disagrees with the OTHER partner endpoint or with the marketplace list, and
+// neither body may restate the score as a second answer.
+//
+// The assertions are made against the SHIPPED shared checker (`publicTrustViolations`) and against
+// the imported PUBLIC_TRUST_FIELDS, not against a hand-copied field list — a contract restated by
+// hand in a test is a second contract that can drift.
+// ===========================================================================================
+
+const express = (await import('express')).default;
+const http = (await import('node:http')).default;
+const partnerRouter = (await import('../routes/partnerApiRoutes.js')).default;
+const partnerErrorHandler = (await import('../middleware/errorMiddleware.js')).default;
+const { supabase } = await import('../db/supabase.js');
+const { createPartnerClient } = await import('../services/partner/partnerAuthService.js');
+const { DocumentIntelligenceService } = await import('../services/document-intelligence/documentIntelligenceService.js');
+const { TrustEnforcementEngine } = await import('../services/trust-service/trustEnforcementEngine.js');
+
+/**
+ * An in-memory stand-in for the service-role client, for the two things in §10/§11 that read the
+ * SINGLETON rather than an injected client: the partner routes and the three foreign writers.
+ * Everything above this line injects `client` explicitly and never touches the singleton, so
+ * installing this at module scope changes nothing for tests 1–35.
+ *
+ * It is a store, not a mock of the code under test: updates really mutate the row, so a write that
+ * stopped nulling a column is observable as that column's value.
+ */
+let memoryDb = {};
+
+function memoryRun(state) {
+  const ok = (data) => ({ data, error: null });
+  const rows = (memoryDb[state.table] = memoryDb[state.table] || []);
+  const matches = (row) => Object.entries(state.filters)
+    .every(([column, value]) => String(row[column]) === String(value));
+
+  if (state.op === 'insert') {
+    const list = Array.isArray(state.payload) ? state.payload : [state.payload];
+    const inserted = list.map((row, i) => ({
+      id: row.id || `${state.table}-${rows.length + i + 1}`,
+      created_at: `2026-08-17T12:0${rows.length + i}:00.000Z`,
+      ...row,
+    }));
+    rows.push(...inserted);
+    return ok(state.single ? inserted[0] : inserted);
+  }
+  if (state.op === 'update') {
+    let updated = null;
+    for (const row of rows) if (matches(row)) { Object.assign(row, state.payload); updated = row; }
+    return ok(state.single ? updated : (updated ? [updated] : []));
+  }
+
+  let out = rows.filter(matches);
+  if (state.in) out = out.filter((row) => state.in.values.has(String(row[state.in.column])));
+  if (state.order) {
+    out = out.slice().sort((a, b) => (state.order.asc ? 1 : -1) * (a[state.order.col] > b[state.order.col] ? 1 : -1));
+  }
+  if (state.maybe) return ok(out[0] || null);
+  if (state.single) return out[0] ? ok(out[0]) : { data: null, error: { message: 'not found' } };
+  return ok(out);
+}
+
+function memoryBuilder(table) {
+  const state = { table, op: 'select', filters: {}, in: null, single: false, maybe: false, order: null, payload: null };
+  const chain = {
+    select() { return chain; },
+    insert(payload) { state.op = 'insert'; state.payload = payload; return chain; },
+    update(payload) { state.op = 'update'; state.payload = payload; return chain; },
+    eq(column, value) { state.filters[column] = value; return chain; },
+    in(column, values) { state.in = { column, values: new Set(values.map(String)) }; return chain; },
+    order(col, opts) { state.order = { col, asc: opts?.ascending ?? false }; return chain; },
+    single() { state.single = true; return chain; },
+    maybeSingle() { state.maybe = true; return chain; },
+    then(resolve, reject) {
+      try { return Promise.resolve(memoryRun(state)).then(resolve, reject); }
+      catch (err) { return reject ? reject(err) : Promise.reject(err); }
+    },
+  };
+  return chain;
+}
+
+supabase.from = (table) => memoryBuilder(table);
+
+function seedDb(tables) {
+  memoryDb = { partner_clients: [], partner_api_requests: [], ...tables };
+  return memoryDb;
+}
+
+const partnerApp = (() => {
+  const app = express();
+  app.use(express.json());
+  app.use(partnerRouter);
+  app.use(partnerErrorHandler);
+  return app;
+})();
+
+function partnerGet(path, apiKey) {
+  return new Promise((resolve, reject) => {
+    const server = partnerApp.listen(0, () => {
+      const { port } = server.address();
+      const req = http.request(
+        { host: '127.0.0.1', port, path, method: 'GET', headers: { 'x-api-key': apiKey } },
+        (res) => {
+          let buf = '';
+          res.on('data', (c) => { buf += c; });
+          res.on('end', () => { server.close(); resolve({ status: res.statusCode, body: buf ? JSON.parse(buf) : null }); });
+        },
+      );
+      req.on('error', (err) => { server.close(); reject(err); });
+      req.end();
+    });
+  });
+}
+
+const PARTNER_VIN = 'JTDBR32E870JJ00007';
+
+/** The stamped cache row the partner endpoints are expected to publish verbatim. */
+function partnerVehicleRow(overrides = {}) {
+  return freshCacheRow({
+    vin: PARTNER_VIN,
+    make: 'Toyota',
+    model: 'Hilux',
+    year: 2018,
+    chassis_number: 'CH-0007',
+    engine_number: 'EN-0007',
+    plate_number: 'ABC0007',
+    tenant_id: 't1',
+    ...overrides,
+  });
+}
+
+/**
+ * Read both trust endpoints for one VIN, each through a key carrying ONLY that endpoint's own
+ * scope — so the two answers cannot be explained away as "the same caller got the same cache".
+ */
+async function bothPartnerTrustEndpoints(vehicleRow) {
+  seedDb({ vehicles: [vehicleRow] });
+  const trustKey = (await createPartnerClient({ name: 'Trust scope only', scopes: ['vehicle:trust'] })).apiKey;
+  const decisionKey = (await createPartnerClient({ name: 'Decision scope only', scopes: ['trust:read'] })).apiKey;
+  const summary = await partnerGet(`/api/partner/v1/vehicles/${PARTNER_VIN}/trust-summary`, trustKey);
+  const decision = await partnerGet(`/api/partner/v1/vehicles/${PARTNER_VIN}/decision`, decisionKey);
+  return { summary, decision };
+}
+
+test('BOTH partner trust endpoints publish the canonical ten-field position — /decision is not exempt', async () => {
+  const { summary, decision } = await bothPartnerTrustEndpoints(partnerVehicleRow());
+
+  for (const [endpoint, res] of [['trust-summary', summary], ['decision', decision]]) {
+    assert.equal(res.status, 200, `${endpoint} did not answer`);
+    // The shared checker, not a restatement of the rules: the same function every converging
+    // surface uses, and the one test 33 proves is capable of rejecting.
+    assert.deepEqual(publicTrustViolations(res.body.trust), [], `${endpoint} published an off-contract position`);
+    // Exact key equality with the imported contract — not a subset, not a superset.
+    assert.deepEqual(
+      Object.keys(res.body.trust).sort(),
+      [...PUBLIC_TRUST_FIELDS].sort(),
+      `${endpoint} published a key set that is not the ten-field contract`,
+    );
+    assert.equal(res.body.trust.vin, PARTNER_VIN, `${endpoint} answered about the wrong vehicle`);
+    // ANTI-VACUITY: this fixture has a stamped, current cache entry, so the honest answer is a REAL
+    // evaluated position. A test that passed on "not evaluated everywhere" would prove nothing.
+    assert.equal(res.body.trust.evaluation_state, TRUST_EVALUATION_STATES.EVALUATED, endpoint);
+    assert.equal(res.body.trust.score, 84, endpoint);
+    assert.equal(res.body.trust.band, 'high', endpoint);
+    assert.equal(res.body.trust.calculation_version, CALCULATION_VERSION, endpoint);
+    // The redacted explanation is still served alongside the position, finance still stripped.
+    assert.ok(res.body.decision.dimensions, `${endpoint} dropped the explanation`);
+    assert.equal(res.body.decision.dimensions.finance_eligibility, undefined, endpoint);
+  }
+});
+
+test('the two partner trust endpoints publish the IDENTICAL position for one VIN, and it is the position the marketplace list publishes', async () => {
+  const row = partnerVehicleRow();
+  const { summary, decision } = await bothPartnerTrustEndpoints(row);
+
+  // The invariant that matters: a partner cannot be handed a position that disagrees with the
+  // other partner endpoint...
+  assert.deepEqual(
+    decision.body.trust,
+    summary.body.trust,
+    'the two partner trust endpoints disagreed about the same VIN at the same instant',
+  );
+  // ...or with what the 48-card marketplace list publishes for the same row (INV-TRUST-1).
+  const marketplace = toPublicTrust(
+    (await getCanonicalTrustBatch([PARTNER_VIN], { client: fakeClient({ vehicles: [row] }) })).get(PARTNER_VIN),
+  );
+  assert.deepEqual(summary.body.trust, marketplace, 'the partner position disagreed with the marketplace list');
+});
+
+test('neither partner trust endpoint restates the score as overall_trust, anywhere in the response body', async () => {
+  const { summary, decision } = await bothPartnerTrustEndpoints(partnerVehicleRow());
+
+  for (const [endpoint, res] of [['trust-summary', summary], ['decision', decision]]) {
+    assert.equal(res.body.trust.overall_trust, undefined, `${endpoint} restated the position inside trust`);
+    assert.equal(res.body.decision.overall_trust, undefined, `${endpoint} restated the position inside decision`);
+    // Nowhere else either — a second stated score at any depth is a second public answer.
+    assert.equal(
+      /overall_trust/.test(JSON.stringify(res.body)),
+      false,
+      `${endpoint} carries overall_trust somewhere in its body`,
+    );
+  }
+});
+
+test('a legacy unversioned score is withheld from BOTH partner trust endpoints, exactly as it is from every other surface', async () => {
+  // The state every production and staging vehicle is in today: a hand-set number, no version.
+  const { summary, decision } = await bothPartnerTrustEndpoints({
+    vin: PARTNER_VIN, make: 'Toyota', model: 'Hilux', year: 2018, trust_score: 96.8,
+  });
+
+  for (const [endpoint, res] of [['trust-summary', summary], ['decision', decision]]) {
+    assert.equal(res.status, 200, endpoint);
+    assert.deepEqual(publicTrustViolations(res.body.trust), [], endpoint);
+    assert.equal(res.body.trust.score, null, `${endpoint} published the unversioned 96.8`);
+    assert.equal(res.body.trust.band, null, endpoint);
+    assert.equal(res.body.trust.evaluation_state, TRUST_EVALUATION_STATES.NOT_EVALUATED, endpoint);
+  }
+  assert.deepEqual(decision.body.trust, summary.body.trust);
+});
+
+// ===========================================================================================
+// 11. THE FOREIGN WRITERS OF vehicles.trust_score MUST NOT INHERIT THE STAMP.
+//
+// `refreshCanonicalTrust` is the only writer permitted to STAMP a score. Three other functions
+// still write `trust_score`:
+//
+//   documentIntelligenceService.approveDocumentVerification   (+20 on OCR approval)
+//   trustEnforcementEngine.verifyDocumentDataMatch            (OCR mismatch penalty)
+//   trustEnforcementEngine.propagateStakeholderRisk           (seller-reputation propagation)
+//
+// A write that touches ONLY the number does not produce a refusable row: after a legitimate
+// refresh the six stamp columns are already populated, so the foreign score inherits that
+// calculation_version and classifies `fresh` — published as `evaluated`, described by a band,
+// confidence and evidence basis belonging to the score it REPLACED. The fix is that each of the
+// three nulls all six stamp columns in the SAME update (their frozen UNSTAMPED_TRUST_CACHE).
+//
+// These are BEHAVIOURAL: the real, shipped service function runs against the in-memory store above,
+// and the assertion is made on the row it actually left behind, then on what the canonical read
+// path makes of that row. Each test also asserts the COUNTERFACTUAL — the row the same write would
+// have left had it kept the stamp — so "the stamp is cleared" is never a vacuous claim about a
+// column that was empty anyway.
+// ===========================================================================================
+
+/** The six stamp columns, DERIVED from the shipped cache-column list rather than retyped. */
+const STAMP_COLUMNS = TRUST_CACHE_COLUMNS.filter((column) => column !== 'vin' && column !== 'trust_score');
+
+test('the stamp is exactly the six columns a foreign writer must clear', () => {
+  assert.deepEqual([...STAMP_COLUMNS].sort(), [
+    'trust_band', 'trust_calculation_version', 'trust_confidence', 'trust_evaluated_at',
+    'trust_evidence_basis', 'trust_known_limitations',
+  ]);
+});
+
+/** The row a foreign write must leave behind: the new number, and nothing claiming to justify it. */
+function assertForeignWriteIsUnstamped(row, expectedScore, label) {
+  assert.equal(row.trust_score, expectedScore, `${label}: the foreign write did not land`);
+  for (const column of STAMP_COLUMNS) {
+    assert.equal(row[column], null, `${label}: ${column} survived the foreign write and would be inherited`);
+  }
+  assert.equal(classifyCache(row), TRUST_CACHE_STATUS.UNVERSIONED, `${label}: the row is still classifiable as a cache`);
+
+  const shape = toPublicTrust(canonicalFromCache(row.vin, row));
+  assert.notEqual(shape.evaluation_state, TRUST_EVALUATION_STATES.EVALUATED, `${label}: published as evaluated`);
+  assert.equal(shape.evaluation_state, TRUST_EVALUATION_STATES.NOT_EVALUATED, label);
+  assert.equal(shape.score, null, `${label}: the foreign number reached a public surface`);
+  assert.equal(shape.band, null, label);
+  assert.deepEqual(publicTrustViolations(shape), [], label);
+}
+
+/**
+ * ANTI-VACUITY control. The same write WITHOUT the nulling — the exact defect — and what the
+ * canonical read path would then publish: the foreign number, `evaluated`, under the running
+ * calculation version, banded by the score it replaced.
+ */
+function assertInheritedStampWouldPublish(stampedRowBefore, foreignScore, label) {
+  const inherited = { ...stampedRowBefore, trust_score: foreignScore };
+  assert.equal(classifyCache(inherited), TRUST_CACHE_STATUS.FRESH, `${label}: control row is not fresh`);
+  const shape = toPublicTrust(canonicalFromCache(inherited.vin, inherited));
+  assert.equal(shape.evaluation_state, TRUST_EVALUATION_STATES.EVALUATED, label);
+  assert.equal(shape.score, foreignScore, label);
+  assert.equal(shape.band, stampedRowBefore.trust_band, `${label}: banded by the score it replaced`);
+  assert.equal(shape.calculation_version, CALCULATION_VERSION, label);
+}
+
+test('approving an OCR document writes a trust score that CANNOT publish as canonical — the six stamp columns are nulled in the same update', async () => {
+  const vin = 'JTDBR32E870JJ00011';
+  // A vehicle whose cache was legitimately refreshed: score 60, band moderate, fully stamped.
+  const vehicle = freshCacheRow({
+    vin, trust_score: 60, trust_band: 'moderate', trust_confidence: 'medium',
+    status: 'Pending_Review', owner_id: null, make: 'Toyota', model: 'Corolla', year: 2018,
+  });
+  const stampedBefore = { ...vehicle };
+  seedDb({
+    vehicles: [vehicle],
+    ocr_documents: [{
+      id: 'ocr-doc-1',
+      document_type: 'national_id',
+      file_path: 'inline_b64',
+      confidence_score: 0.95,
+      extracted_json: JSON.stringify({ first_name: 'Tinashe', last_name: 'Moyo', additional_fields: {} }),
+      status: 'Pending_Verification',
+    }],
+  });
+
+  const result = await DocumentIntelligenceService.approveDocumentVerification('ocr-doc-1', 'admin-1', vin);
+
+  // The write really happened and really moved the number (60 + 20), so the guard below is not
+  // passing on a write that never ran.
+  assert.equal(result.success, true);
+  assert.equal(result.newTrustScore, 80);
+  assert.equal(memoryDb.vehicles[0].status, 'Available', 'the approval write landed');
+  assertForeignWriteIsUnstamped(memoryDb.vehicles[0], 80, 'approveDocumentVerification');
+  assertInheritedStampWouldPublish(stampedBefore, 80, 'approveDocumentVerification');
+});
+
+test('an OCR-mismatch penalty writes a trust score that CANNOT publish as canonical — the penalised number never inherits the previous stamp', async () => {
+  const vin = 'JTDBR32E870JJ00012';
+  const vehicle = freshCacheRow({
+    vin, trust_score: 80, trust_band: 'high', trust_confidence: 'high',
+    status: 'Available', owner_id: null, make: 'Toyota', model: 'Hilux', year: 2020,
+  });
+  const stampedBefore = { ...vehicle };
+  seedDb({ vehicles: [vehicle] });
+
+  // A registration book whose OCR'd VIN is not this vehicle's: -50, i.e. 80 -> 30.
+  const outcome = await TrustEnforcementEngine.verifyDocumentDataMatch(vin, 'registration_book', {
+    vin: 'JTDBR32E870JJ99999',
+  });
+
+  assert.equal(outcome.match, false);
+  assert.equal(outcome.newScore, 30, 'the penalty must actually have been applied');
+  assertForeignWriteIsUnstamped(memoryDb.vehicles[0], 30, 'verifyDocumentDataMatch');
+  // Had the stamp survived, a vehicle just penalised to 30 would have been published as a `high`
+  // band evaluated score — the band belonging to the 80 it replaced.
+  assertInheritedStampWouldPublish(stampedBefore, 30, 'verifyDocumentDataMatch');
+});
+
+test('propagating a degraded seller reputation writes trust scores that CANNOT publish as canonical — every affected vehicle is left unstamped', async () => {
+  const vins = ['JTDBR32E870JJ00013', 'JTDBR32E870JJ00014'];
+  const vehicles = vins.map((vin) => freshCacheRow({
+    vin, trust_score: 80, trust_band: 'high', trust_confidence: 'high',
+    status: 'Available', owner_id: 'seller-risky', make: 'Toyota', model: 'Vitz', year: 2016,
+  }));
+  const stampedBefore = vehicles.map((row) => ({ ...row }));
+  seedDb({
+    vehicles,
+    stakeholder_profiles: [{ user_id: 'seller-risky', trust_score: 30 }],
+  });
+
+  await TrustEnforcementEngine.propagateStakeholderRisk('seller-risky');
+
+  // 30 reputation -> 0.2 multiplier -> 80 - 16 = 64 on every listing this seller owns.
+  for (const [i, row] of memoryDb.vehicles.entries()) {
+    assertForeignWriteIsUnstamped(row, 64, `propagateStakeholderRisk[${i}]`);
+    assertInheritedStampWouldPublish(stampedBefore[i], 64, `propagateStakeholderRisk[${i}]`);
+  }
+  assert.equal(memoryDb.vehicles.length, 2, 'both of the seller\'s listings must have been rewritten');
+});
+
+test('a foreign writer cannot restore the stamp indirectly: a refresh after a foreign write is the ONLY way a score becomes publishable again', async () => {
+  const vin = 'JTDBR32E870JJ00015';
+  const vehicle = freshCacheRow({
+    vin, trust_score: 80, trust_band: 'high', status: 'Available', owner_id: null,
+  });
+  seedDb({ vehicles: [vehicle] });
+
+  await TrustEnforcementEngine.verifyDocumentDataMatch(vin, 'registration_book', { vin: 'JTDBR32E870JJ99999' });
+  assert.equal(toPublicTrust(canonicalFromCache(vin, memoryDb.vehicles[0])).score, null);
+
+  // The one writer runs, and only now is a score publishable again — with ITS OWN stamp, not the
+  // one the foreign write happened to leave lying around.
+  const refreshed = await refreshCanonicalTrust(vin, {
+    client: fakeClient({ vehicles: [memoryDb.vehicles[0]] }),
+    decide: decideWith(assembleDecision({
+      vin,
+      vehicle: { vin, chassis_number: 'CH-0015', engine_number: 'EN-0015', plate_number: 'ABC0015' },
+      completeness: fullCompleteness,
+      coverage: connectedCoverage,
+      now: NOW,
+    })),
+    read: EMPTY_READ,
+  });
+  assert.equal(refreshed.written, true);
+  assert.equal(refreshed.patch.trust_calculation_version, CALCULATION_VERSION);
+  assert.equal(refreshed.patch.trust_score, 84);
 });
