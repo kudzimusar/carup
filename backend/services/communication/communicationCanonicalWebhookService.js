@@ -120,7 +120,10 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
     if (notificationId) {
       await this.repository.updateById('notification_queue', notificationId, {
         status: receipt.status,
-        delivered_at: receipt.status === 'delivered' ? nowIso() : null,
+        // Only ever SET this. Writing null on a weaker/later event erased a real delivery
+        // timestamp when a provider's delivered webhook raced the worker's own 'sent' write —
+        // the same regression the monotonic status trigger prevents for `status`.
+        ...(receipt.status === 'delivered' ? { delivered_at: nowIso() } : {}),
         last_error_code: receipt.status === 'failed' ? receipt.errorCode || 'provider_receipt_failed' : null,
         last_error_message: receipt.status === 'failed' ? receipt.errorMessage || `Provider receipt status: ${receipt.rawStatus || 'failed'}` : null,
         locked_at: null,
@@ -130,7 +133,10 @@ export class CommunicationCanonicalWebhookService extends CommunicationWebhookSe
     if (messageId) {
       await this.repository.updateById('messages', messageId, {
         status: receipt.status === 'failed' ? 'failed' : receipt.status,
-        delivered_at: receipt.status === 'delivered' ? nowIso() : null,
+        // Only ever SET this. Writing null on a weaker/later event erased a real delivery
+        // timestamp when a provider's delivered webhook raced the worker's own 'sent' write —
+        // the same regression the monotonic status trigger prevents for `status`.
+        ...(receipt.status === 'delivered' ? { delivered_at: nowIso() } : {}),
         failed_at: receipt.status === 'failed' ? nowIso() : null,
       });
     }

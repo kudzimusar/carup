@@ -126,7 +126,8 @@ export class CommunicationDeliveryWorker {
       await this.repository.updateById('notification_queue', notification.id, {
         status: result.providerStatus === 'delivered' ? 'delivered' : 'sent',
         sent_at: nowIso(),
-        delivered_at: result.providerStatus === 'delivered' ? nowIso() : null,
+        // Never null a delivery timestamp that a provider receipt may already have set.
+        ...(result.providerStatus === 'delivered' ? { delivered_at: nowIso() } : {}),
         last_error_code: null,
         last_error_message: null,
         locked_at: null,
@@ -136,7 +137,8 @@ export class CommunicationDeliveryWorker {
         await this.repository.updateById('messages', notification.message_id, {
           status: result.providerStatus === 'delivered' ? 'delivered' : 'sent',
           sent_at: nowIso(),
-          delivered_at: result.providerStatus === 'delivered' ? nowIso() : null,
+          // Never null a delivery timestamp that a provider receipt may already have set.
+          ...(result.providerStatus === 'delivered' ? { delivered_at: nowIso() } : {}),
           provider_message_id: result.providerMessageId || null,
           failed_at: null,
         });
