@@ -267,3 +267,77 @@ list state, as required.
 Rendering of the received marketing message and the behaviour of its unsubscribe link can only be
 confirmed from the mailbox. The send itself, its provider identity, its idempotency and the
 suppression behaviour are all certified above from server-side evidence.
+
+---
+
+## Final gate attempt — 2026-08-17: two provider-configuration defects
+
+### Permanent human aliases — BLOCKED by Cloudflare, not by choice
+
+`buynsellpvtltd@gmail.com` was added as a Cloudflare Email Routing destination. Cloudflare
+created it **unverified** and emailed a confirmation link to that mailbox.
+
+All seven alias creations were then attempted and **all seven were refused by Cloudflare**:
+
+```text
+security@ privacy@ legal@ dpo@ support@ info@ press@   ->  "Destination address is not verified"
+```
+
+This is a Cloudflare-side constraint, not a design decision: routing rules cannot target an
+unverified destination. No catch-all was created. The temporary `routing-certification@carup.dev`
+alias is deliberately retained, because retiring it before permanent routing works would leave the
+domain with no proven inbound path at all.
+
+### Inbound conversational reply — still not received by CarUp
+
+```text
+resend email.received events (legitimate)   0   (the single logged one is our own forged probe at 03:45)
+inbound email messages                      0
+reply token use_count                       0   (never resolved)
+recent resend events                        email.sent, email.delivered only
+```
+
+The outbound side is confirmed working — notification 331 delivered with a
+`conversation+<opaque-token>@mail.carup.dev` Reply-To. The reply was reportedly sent, but **no
+`email.received` event has ever reached the webhook**, so nothing entered the inbound path and
+there is nothing to resolve.
+
+DNS is correct (`mail.carup.dev` MX → `inbound-smtp.ap-northeast-1.amazonaws.com`), so the gap is
+in Resend's inbound configuration — either receiving is not actually routing to the webhook
+endpoint, or the endpoint is not subscribed to `email.received`. That configuration is only
+visible from the Resend dashboard.
+
+**Consequence:** the same-thread / same-participant inbound invariants remain proven at source
+level across eleven scenarios, but **not** physically. This is recorded as unproven rather than
+inferred from the outbound success.
+
+### Brevo lifecycle — real events arriving, all rejected
+
+This is the most consequential finding of the final pass. Genuine Brevo events for the
+certification campaign reached the endpoint:
+
+```text
+09:06:10  request         tag campaign:217ac5d8-00cd-48ff-91df-a3972638e9e5   rejected/invalid_signature
+09:06:11  unique_opened   tag campaign:217ac5d8-…                             rejected/invalid_signature
+09:06:21  delivered       tag campaign:217ac5d8-…                             rejected/invalid_signature
+```
+
+Two things follow.
+
+**Good news:** `delivered` and `unique_opened` are independent provider confirmation that the
+governed marketing message reached the inbox and was opened — corroborating the reported rendering
+PASS from the server side.
+
+**The defect:** every one of those events was rejected as `invalid_signature`, so **no Brevo
+lifecycle state reconciles into CarUp**. The registered webhook is not presenting the shared secret
+in either form the implementation accepts (`x-carup-brevo-secret` / `x-brevo-webhook-secret`
+header, or `?token=` query parameter). The authentication itself is behaving correctly — it is
+failing closed on an unauthenticated request, exactly as designed — but the registration and the
+implementation disagree.
+
+The suppression currently in `communication_suppressions` came from the **CarUp-side** withdrawal
+(F3), not from the provider webhook. So CarUp's consent authority is intact and the withdrawal is
+correctly enforced; what is missing is the provider→CarUp reconciliation path.
+
+Nothing was weakened to make these pass. Fixing this requires re-registering the Brevo webhook URL
+with the shared secret, after which the lifecycle and unsubscribe reconciliation can be certified.
