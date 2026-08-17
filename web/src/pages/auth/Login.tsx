@@ -194,7 +194,7 @@ export default function Login() {
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="rounded" /> Remember me
                 </label>
-                <Link to="#" className="text-orange-600 hover:underline">Forgot password?</Link>
+                <Link to="/auth/forgot-password" className="text-orange-600 hover:underline">Forgot password?</Link>
               </div>
               <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading} data-testid="login-button">
                 {loading ? 'Signing in...' : 'Sign In'} <ArrowRight className="w-4 h-4 ml-2" />

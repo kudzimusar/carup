@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
+import { renderAuthEmail } from '../authEmailTemplates.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -58,6 +59,24 @@ function subjectText(input, fallback = 'CarUp notification') {
 
 function emailHtml(input) {
   return input?.content?.html || input?.content?.data?.html || null;
+}
+
+/**
+ * Render branded auth/security HTML for a notification that names an auth template.
+ *
+ * Kept lazy and failure-tolerant: a template problem must never block a P0 security Email, which
+ * still carries its full meaning in the plain-text body.
+ */
+function resolveAuthHtml(input) {
+  const key = input?.content?.data?.auth_template_key;
+  if (!key) return null;
+  try {
+    return renderAuthEmail(key, process.env, input?.content?.data || {}).html;
+  } catch (_error) {
+    // A template problem must never block a P0 security Email — the plain-text body still
+    // carries the full meaning, so fall back to text-only rather than failing the send.
+    return null;
+  }
 }
 
 function replyToAddress(input, env) {
@@ -248,6 +267,152 @@ export class SendGridEmailAdapter extends HttpCommunicationAdapter {
       providerStatus: 'accepted',
     };
   }
+}
+
+/**
+ * Resend — canonical transactional/conversational Email transport (directive §0A.2).
+ *
+ * Two behaviours matter beyond a plain send:
+ *
+ *  1. Idempotency. The canonical dedupe identity is mapped to Resend's Idempotency-Key header so
+ *     one canonical send intent causes at most one provider send, even if the worker replays or a
+ *     network response is lost.
+ *  2. Durable reply correlation. Resend returns its own id, and the RFC Message-ID is what an
+ *     inbound reply will carry in In-Reply-To/References. Both are persisted — the RFC id as the
+ *     provider message id — so a reply can be resolved back to the exact canonical message.
+ *
+ * Branded auth/security Email: when the notification carries `data.auth_template_key`, the HTML
+ * body is rendered from authEmailTemplates.js (single source of truth for the design system)
+ * while the canonical plain-text body is still sent as text/plain.
+ */
+export class ResendEmailAdapter extends HttpCommunicationAdapter {
+  constructor(options = {}) {
+    super({ channel: 'email', provider: 'resend', requiredEnv: ['RESEND_API_KEY', 'RESEND_FROM_EMAIL'], ...options });
+  }
+
+  fromAddress(input) {
+    // Auth/security Email is sent from the security sender; everything else from the default.
+    const authKey = input?.content?.data?.auth_template_key;
+    if (authKey) {
+      return envValue(this.env, 'RESEND_AUTH_FROM_EMAIL') || 'CarUp Security <auth@mail.carup.dev>';
+    }
+    const from = envValue(this.env, 'RESEND_FROM_EMAIL');
+    const name = envValue(this.env, 'RESEND_FROM_NAME') || 'CarUp';
+    return from && !from.includes('<') ? `${name} <${from}>` : from;
+  }
+
+  async send(input = {}) {
+    if (!this.validateConfiguration().available) return this.missingConfigurationResult();
+    const to = recipientField(input, 'email', 'address', 'to');
+    if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'Email recipient address is required.' };
+
+    const headers = jsonHeaders({ authorization: `Bearer ${envValue(this.env, 'RESEND_API_KEY')}` });
+    // One canonical send intent -> at most one provider send.
+    const idempotencyKey = input.idempotencyKey || input.messageId || input.notificationId;
+    if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey);
+
+    const body = {
+      from: this.fromAddress(input),
+      to: [to],
+      subject: subjectText(input),
+      text: textBody(input),
+      headers: {
+        'X-CarUp-Notification-Id': String(input.notificationId || ''),
+        'X-CarUp-Message-Id': String(input.messageId || ''),
+      },
+    };
+
+    const html = resolveAuthHtml(input) || emailHtml(input);
+    if (html) body.html = html;
+
+    const replyTo = input?.content?.data?.reply_to || envValue(this.env, 'RESEND_REPLY_TO');
+    if (replyTo) body.reply_to = replyTo;
+
+    const response = await this.requestJson('https://api.resend.com/emails', { headers, body });
+    if (!response.ok) return this.providerFailure(response);
+
+    const providerRequestId = response.body?.id || stableRequestId('resend', input);
+    // Resend exposes the RFC Message-ID on the send response; fall back to its own id so reply
+    // correlation always has something durable to match against.
+    const rfcMessageId = response.body?.message_id || response.headers?.get?.('message-id') || null;
+
+    return {
+      accepted: true,
+      providerRequestId,
+      providerMessageId: rfcMessageId || providerRequestId,
+      providerStatus: 'accepted',
+    };
+  }
+}
+
+/**
+ * Governed Email transport router (directive §0A / E2).
+ *
+ * Provider choice derives from CarUp's own governed classification, never from arbitrary caller
+ * choice:
+ *
+ *   security | auth | transactional | conversational | service  ->  Resend
+ *   marketing                                                   ->  Brevo
+ *
+ * This replaces the previous single `EMAIL_PROVIDER` ternary, which allowed exactly one email
+ * provider per deployment and had no notion of what kind of message was being sent. Legacy
+ * SendGrid/Cloudflare adapters remain constructible for compatibility but are quarantined from
+ * canonical routing: they are only selected when explicitly named by EMAIL_PROVIDER_LEGACY.
+ */
+export const MARKETING_EMAIL_CLASSIFICATIONS = new Set(['marketing']);
+
+export class EmailTransportRouter {
+  constructor(options = {}) {
+    this.channel = 'email';
+    this.provider = 'carup_email_router';
+    this.env = options.env || process.env;
+    this.resend = new ResendEmailAdapter(options);
+    this.brevo = null; // wired in E5; marketing has no transport until Brevo is configured
+    this.legacy = this.buildLegacyAdapter(options);
+  }
+
+  buildLegacyAdapter(options) {
+    const legacy = String(this.env.EMAIL_PROVIDER_LEGACY || '').toLowerCase();
+    if (legacy === 'sendgrid') return new SendGridEmailAdapter(options);
+    if (legacy === 'cloudflare') return new CloudflareEmailAdapter(options);
+    return null;
+  }
+
+  /** Governed classification -> adapter. Marketing never rides the transactional transport. */
+  selectAdapter(input = {}) {
+    const classification = String(
+      input?.content?.data?.classification || input?.classification || 'transactional',
+    ).toLowerCase();
+    if (MARKETING_EMAIL_CLASSIFICATIONS.has(classification)) {
+      return { adapter: this.brevo, classification, reason: 'marketing_to_brevo' };
+    }
+    if (this.legacy) return { adapter: this.legacy, classification, reason: 'legacy_override' };
+    return { adapter: this.resend, classification, reason: 'canonical_to_resend' };
+  }
+
+  validateConfiguration(env = this.env) {
+    const selected = this.legacy || this.resend;
+    const config = selected.validateConfiguration(env);
+    return { ...config, provider: selected.provider, router: 'carup_email_router' };
+  }
+
+  async send(input = {}) {
+    const { adapter, classification, reason } = this.selectAdapter(input);
+    if (!adapter) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'provider_not_configured',
+        errorMessage: `No Email transport is configured for classification '${classification}'.`,
+      };
+    }
+    const result = await adapter.send(input);
+    return { ...result, routedProvider: adapter.provider, routingReason: reason };
+  }
+}
+
+export function createEmailTransportRouter(options = {}) {
+  return new EmailTransportRouter(options);
 }
 
 export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
@@ -553,11 +718,7 @@ export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.
 
   put('whatsapp', configured('whatsapp', new MetaWhatsAppAdapter(realOptions)));
   put('telegram', configured('telegram', new TelegramBotAdapter(realOptions)));
-  const emailProvider = String(env.EMAIL_PROVIDER || 'sendgrid').toLowerCase();
-  const emailAdapter = emailProvider === 'cloudflare'
-    ? new CloudflareEmailAdapter(realOptions)
-    : new SendGridEmailAdapter(realOptions);
-  put('email', configured('email', emailAdapter));
+  put('email', configured('email', createEmailTransportRouter(realOptions)));
   put('sms', configured('sms', new TwilioSmsAdapter(realOptions)));
   put('instagram', configured('instagram', new InstagramMessagingAdapter(realOptions)));
   put('facebook', configured('facebook', new FacebookMessengerAdapter(realOptions)));

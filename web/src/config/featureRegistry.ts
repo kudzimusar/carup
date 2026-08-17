@@ -1309,16 +1309,6 @@ export const FEATURE_REGISTRY: FeatureRegistryItem[] = [
     icon: 'Users',
   },
   {
-    id: 'auth.verify-otp',
-    label: 'OTP Verification',
-    route: '/verify-otp',
-    domain: 'admin',
-    roles: [],
-    placements: [],
-    requiresAuth: false,
-    icon: 'Users',
-  },
-  {
     id: 'auth.kyc',
     label: 'KYC Verification',
     route: '/kyc',
