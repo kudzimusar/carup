@@ -16,7 +16,90 @@ Architectural invariant:
 
 > **CarUp owns the conversation. Email providers are transports.**
 
-Run continuously through E0–E10. Do not stop after ordinary phase completions to ask whether to continue. Stop only at the hard owner/manual gates defined below.
+Run continuously through E0–E10, plus **CF1** (see §0A.5), which must complete before E7 physical certification. Do not stop after ordinary phase completions to ask whether to continue. Stop only at the hard owner/manual gates defined below.
+
+## 0A. AMENDMENT 1 — Free-tier provider allocation (governing, owner-frozen 2026-08-17)
+
+This amendment is **governing** and takes precedence over any conflicting statement elsewhere in this directive. Providers are assigned narrowly to what their **free tiers** do well. CarUp remains the canonical Communications system; providers are transports.
+
+### 0A.1 Cloudflare — DNS and human aliases only
+
+Role: eventual authoritative DNS for `carup.dev`, DNS/security infrastructure, and root-domain **human** Email Routing for:
+
+```text
+support@carup.dev   security@carup.dev   privacy@carup.dev   legal@carup.dev
+dpo@carup.dev       info@carup.dev       press@carup.dev
+```
+
+routed to verified human destination inboxes, or Workers where appropriate.
+
+> **Cloudflare MUST NOT become canonical automated customer outbound Email on the Free plan.** Arbitrary-customer outbound through Cloudflare requires paid sending functionality — do not design it.
+
+Vercel remains the application hosting provider. When Cloudflare becomes authoritative DNS, the four canonical product hostnames stay **DNS-only** (grey cloud):
+
+```text
+carup.dev   api.carup.dev   staging.carup.dev   api-staging.carup.dev
+```
+
+Do **not** automatically place Cloudflare reverse proxy/WAF in front of the Vercel application. Any future proxy activation is a separately proven decision.
+
+### 0A.2 Resend — canonical transactional and conversational (`mail.carup.dev`)
+
+Covers account/security Email, transactional notifications, canonical conversation Email, inbound user replies, lifecycle events, bounce/failure handling, and same-thread/same-participant reply routing.
+
+Free-tier governance: provider daily limit currently **100**. CarUp must have configurable warning/critical quota thresholds. No automatic paid upgrade. No hidden billable fallback. Security and conversational Email take priority over lower-priority notifications.
+
+### 0A.3 Brevo — marketing only (`marketing.carup.dev`)
+
+Newsletters, re-engagement, marketing campaigns, optional recommendations, governed promotions.
+
+> Even though Brevo technically supports transactional Email, it **must not** become a competing normal transactional provider in Email 1.0.
+
+CarUp remains authoritative for consent, withdrawal, campaign eligibility, recipient selection, frequency, suppression, and audit history. Brevo is provider projection only.
+
+Free-tier governance: current free allocation approximately **300 sends/day**. Configurable warning/critical thresholds. Never automatically upgrade or buy credits. **Marketing pauses first** if free quota becomes constrained.
+
+### 0A.4 Cost governance
+
+Required invariant:
+
+```text
+NO provider may silently move CarUp from free usage into paid usage.
+```
+
+Configurable thresholds (sensible defaults below provider ceilings):
+
+```text
+RESEND_DAILY_SOFT_LIMIT     RESEND_DAILY_CRITICAL_LIMIT
+BREVO_DAILY_SOFT_LIMIT      BREVO_DAILY_CRITICAL_LIMIT
+```
+
+- **Soft threshold** → warn and audit.
+- **Critical threshold** → preserve critical transactional/conversational capacity, defer lower-priority Email, suppress/defer marketing, and **never auto-purchase capacity**.
+
+Do not hardcode today's provider pricing as permanent business logic. Current limits are **operational configuration**, not eternal architecture.
+
+### 0A.5 CF1 — Cloudflare Free infrastructure migration (bounded phase)
+
+Must occur **before** final E7 physical certification. **Do not change nameservers yet.**
+
+1. Inventory every current Vercel DNS record.
+2. Create/reconcile the `carup.dev` Cloudflare Free zone.
+3. Clone all required DNS records.
+4. Preserve the four canonical Vercel-hosted product domains.
+5. Preserve Resend `mail.carup.dev` records exactly.
+6. Preserve Brevo `marketing.carup.dev` records exactly.
+7. Reconcile CAA / SPF / DKIM / DMARC / MX.
+8. Handle DNSSEC safely.
+9. **Stop at OWNER approval immediately before nameserver cutover.**
+10. Change authoritative nameservers only after explicit owner approval.
+11. Verify all web/API/staging/email surfaces after cutover.
+12. Keep Vercel-hosted app records DNS-only.
+13. Enable Cloudflare Email Routing.
+14. Create and physically prove the human aliases.
+15. Only **after** aliases physically work, migrate the `@carup.co.zw` legal/contact copy to `@carup.dev`.
+
+> Do not remove working `@carup.co.zw` contact addresses before the replacement aliases physically deliver. See `docs/CARUP_DOMAIN_CANONICALIZATION_RECEIPT.md` for the exact alias list required.
 
 ## 1. Baseline and live-truth rule
 
@@ -72,6 +155,8 @@ Root human aliases / DNS              -> Cloudflare where appropriate
 Do not create `email_threads`, `email_conversations`, `email_participants`, `email_messages`, `email_users`, or a provider-owned consent source of truth. Do not mutate a tenant to make Email routing fit. Do not duplicate canonical participants because a provider sends an inbound message.
 
 ## 3. Target domain/provider topology
+
+> Governed by **§0A Amendment 1** (free-tier allocation). Cloudflare is DNS + human aliases only and must never become canonical automated customer outbound on the Free plan.
 
 Root: `carup.dev`.
 
