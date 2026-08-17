@@ -122,3 +122,84 @@ be worse than the current state, so it was not done.
 
 No `@carup.co.zw` contact copy has been migrated, and none will be until the replacement aliases
 physically deliver to an approved destination.
+
+---
+
+## Addendum — 2026-08-17: reported results vs live evidence
+
+The owner reported the mailbox certification as complete. Live database evidence agrees on one
+item and contradicts two others. Recording this rather than accepting the reported status, because
+the whole programme has run on the rule that live evidence overrides.
+
+### Confirmed
+
+**`ER4_ROUTING_EMAIL_ARRIVED=YES` / `RESEND_BRANDED_RENDERING=PASS`** — consistent with the
+server-side evidence already captured (notification 330 `delivered`, Cloudflare MX accepted). These
+are exactly the facts only a mailbox can supply, and nothing contradicts them.
+
+### Contradicted — no inbound conversational reply exists
+
+```text
+messages (direction=inbound, channel=email)   0
+email_reply_tokens issued (before this run)   0
+resend email.received events                  1  -> rejected/invalid_signature (our own forged probe)
+```
+
+**Root cause is ours, not the owner's.** Every email this programme had sent was
+*auth/security* classification — password reset and password-changed. Those deliberately carry no
+conversation Reply-To. **No conversational email with a `conversation+<token>@mail.carup.dev`
+Reply-To had ever been sent**, so there was nothing in the mailbox whose reply could route back to
+a canonical thread. A reply to those messages would have gone to `auth@mail.carup.dev`.
+
+Remediated in this run by creating the missing canonical conversation and sending a genuine
+conversational message:
+
+```text
+thread          9b0383f2-9a94-4db5-af15-a2f6a02f305e
+participant     3940882f-b0fd-497a-8ffd-bb0e4f59e733
+binding         email / resend / conversation, can_send + can_receive
+reply token     6db499d2-0a9e-4907-a73c-2245a612240b  (hash-only, 90-day expiry)
+Reply-To        conversation+<opaque-token>@mail.carup.dev
+notification    331
+```
+
+The reply round-trip therefore remains **UNPROVEN** and needs one more mailbox action once that
+message arrives.
+
+### Contradicted — the Brevo marketing path was never exercised through CarUp
+
+```text
+message_delivery_attempts where provider='brevo'      0
+notification_queue where classification='marketing'   0
+communication_suppressions                            0   (an unsubscribe via CarUp would create one)
+communication_preferences row for the cert account    NONE
+brevo webhook_logs                                    3   -> all our own forged 403 probes
+campaigns                                             4   -> all pre-existing (3 in_app, 1 whatsapp)
+```
+
+CarUp holds no record of a marketing opt-in, no governed campaign, no Brevo delivery attempt and no
+suppression. Whatever was received, it did not travel the required path:
+
+```text
+CarUp consent -> CarUp campaign -> CarUp eligibility -> Brevo projection -> send
+```
+
+The directive is explicit that Brevo list membership must never be the authority, and that the
+controlled inbox must not be added to Brevo directly to manufacture a PASS. So
+`BREVO_OPT_IN_COMPLETED` / `BREVO_RENDERING` / `BREVO_UNSUBSCRIBE` **cannot be certified** —
+not because the owner did not act, but because the canonical chain that E7 requires produced no
+evidence. This needs to be re-run through the CarUp preference and campaign path.
+
+### Blocked — permanent alias destinations were not supplied
+
+The instruction contained unsubstituted template placeholders:
+
+```text
+REGULATORY_SECURITY_DESTINATION=<REAL EMAIL ADDRESS>
+OPERATIONS_DESTINATION=<REAL EMAIL ADDRESS>
+```
+
+No destination was created and no permanent alias was created. Routing `privacy@`, `dpo@` and
+`legal@` — statutory contact channels — to a placeholder or a guessed address would be materially
+worse than the current state, so nothing was invented. The `routing-certification@carup.dev`
+alias remains in place pending that decision.
