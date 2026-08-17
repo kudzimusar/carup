@@ -141,7 +141,33 @@ P0 Supabase Auth / account security   P1 conversational   P2 transactional
 P3 service                            P4 marketing (Brevo only)
 ```
 
-> **SA1.0 reconciliation outcome (2026-08-17): the premise above does not currently hold.**
+### SA1 CORRECTED — PATH A (owner decision, 2026-08-17)
+
+SA1.0 reconciliation disproved the Supabase-Auth premise, and the owner approved **Path A**:
+
+```text
+CARUP CUSTOM AUTH      authentication authority (public.users -> public.user_sessions)
+SUPABASE POSTGRES      persistence / database only
+CARUP COMMUNICATIONS   governed auth/security Email generation, delivery state, audit, quota
+RESEND                 auth/security + transactional/conversational transport
+BREVO                  marketing only
+```
+
+CarUp is **not** migrated to Supabase Auth, and Supabase Auth SMTP/templates are **not** configured
+in this programme. Supabase must not become a fourth outbound provider. A future migration to
+Supabase Auth, and the Supabase Send Email Hook, are separate programmes requiring their own
+migration and certification — neither is part of Email 1.0. The existing custom login/session
+architecture stays authoritative, and the login token format and session contract were not changed
+to add recovery Email.
+
+**SA1 (Path A) is COMPLETE.** Delivered: `auth_action_tokens` (hash-only, atomic single-use,
+purpose-bound), `POST /api/auth/forgot-password` / `/reset-password` / `/verify-email`, real
+frontend reset screens, removal of the fake `/verify-otp` control, branded auth templates through
+CarUp Communications -> Resend at P0, and the E2 transport core (Resend adapter + governed
+classification router). Certification and bounded-cleanup receipts:
+`docs/communications/EMAIL_1_0_SA1_PATH_A_CERTIFICATION.md`.
+
+> **Superseded note — SA1.0 reconciliation outcome (2026-08-17): the original premise did not hold.**
 > CarUp does not use Supabase Auth — `auth.users` is empty, there are zero `supabase.auth.*` call
 > sites, and authentication runs on a custom backend (`public.users.password_hash` →
 > `public.user_sessions`, 864 sessions / 75 users). CarUp also has **no password reset or email

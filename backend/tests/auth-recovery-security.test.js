@@ -283,3 +283,19 @@ test('every auth sender address is under the verified mail.carup.dev domain', ()
     assert.match(router.resend.fromAddress({ content: { data } }), /@mail\.carup\.dev/);
   }
 });
+
+test('a delivery attempt records the ROUTED transport, not the router name', async () => {
+  // Provider lifecycle webhooks arrive stamped 'resend'; reconciliation looks attempts up by
+  // (provider, provider_message_id). Recording the router's own name would silently break that.
+  const router = new EmailTransportRouter({ env: { RESEND_API_KEY: 'k', RESEND_FROM_EMAIL: 'notifications@mail.carup.dev' } });
+  router.resend.send = async () => ({ accepted: true, providerRequestId: 'req_1', providerMessageId: '<rfc@mail.carup.dev>', providerStatus: 'accepted' });
+
+  const result = await router.send({
+    content: { data: { classification: 'security', email: 'probe@example.test' } },
+  });
+  assert.equal(result.accepted, true);
+  assert.equal(result.routedProvider, 'resend');
+  assert.notEqual(result.routedProvider, 'carup_email_router');
+  // The RFC Message-ID is what an inbound reply will reference, so it must be the persisted id.
+  assert.equal(result.providerMessageId, '<rfc@mail.carup.dev>');
+});

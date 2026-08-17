@@ -92,7 +92,11 @@ export class CommunicationDeliveryWorker {
       notification_id: String(notification.id),
       message_id: notification.message_id || null,
       attempt_number: attemptNumber,
-      provider: adapter.provider || notification.provider || channel,
+      // A routing adapter (e.g. the governed Email transport router) reports the transport it
+      // actually used as `routedProvider`. Record THAT, not the router's own name: provider
+      // lifecycle webhooks arrive stamped with the real provider, and reconciliation looks
+      // attempts up by (provider, provider_message_id).
+      provider: result.routedProvider || adapter.provider || notification.provider || channel,
       channel,
       provider_request_id: result.providerRequestId || null,
       provider_message_id: result.providerMessageId || null,
@@ -115,7 +119,7 @@ export class CommunicationDeliveryWorker {
     await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DELIVERY_ATTEMPT, {
       summary: `Delivery attempt ${attemptNumber} → ${result.accepted ? 'accepted' : 'failed'}`,
       correlation_id: result.providerMessageId || result.providerRequestId || null,
-      metadata: { attempt: attemptNumber, provider: adapter.provider || channel, accepted: Boolean(result.accepted), error_code: result.errorCode || null, provider_message_id: result.providerMessageId || null },
+      metadata: { attempt: attemptNumber, provider: result.routedProvider || adapter.provider || channel, accepted: Boolean(result.accepted), error_code: result.errorCode || null, provider_message_id: result.providerMessageId || null },
     });
 
     if (result.accepted) {
