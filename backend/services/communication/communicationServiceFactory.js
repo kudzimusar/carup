@@ -15,6 +15,9 @@ import { CommunicationMediaService } from './communicationMediaService.js';
 import { CommunicationCampaignService } from './communicationCampaignService.js';
 import { CommunicationInboundService } from './communicationInboundService.js';
 import { CommunicationCanonicalWebhookService } from './communicationCanonicalWebhookService.js';
+import { createEmailReplyTokenService } from './emailReplyTokenService.js';
+import { createMarketingUnsubscribeService } from './marketingUnsubscribeService.js';
+import { ResendInboundResolver } from './resendWebhookService.js';
 import { CommunicationDeliveryWorker } from './communicationDeliveryWorker.js';
 import { CommunicationPreferenceService } from './communicationPreferenceService.js';
 import { CommunicationMetaWhatsAppGovernedAdapter } from './communicationMetaWhatsAppGovernedAdapter.js';
@@ -87,8 +90,11 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     mediaService,
     provider: communicationAiProvider,
   });
+  // E5/E7: minted per marketing send so the recipient's own copy carries a working unsubscribe.
+  const unsubscribeService = createMarketingUnsubscribeService({ supabase: repo.client });
   const campaignService = new CommunicationCampaignService({
     repository: repo,
+    unsubscribeService,
     threadService,
     conversationService,
     preferenceService,
@@ -102,9 +108,16 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     notificationService,
     conversationService,
   });
+  // E4 inbound reply routing. Both of these take the raw Supabase client (they issue .from().select()
+  // directly), not the repository wrapper. Until they were injected here, handleResendInboundWebhook
+  // rejected every signed inbound reply with "Resend inbound routing is not configured."
+  const replyTokenService = createEmailReplyTokenService({ supabase: repo.client });
+  const inboundResolver = new ResendInboundResolver({ supabase: repo.client, replyTokenService });
   const webhookService = new CommunicationCanonicalWebhookService({
     repository: repo,
     inboundService,
+    inboundResolver,
+    replyTokenService,
     notificationService,
   });
   const deliveryWorker = new CommunicationDeliveryWorker({
@@ -136,6 +149,9 @@ export function createCommunicationServices({ repository = null, adapterRegistry
     aiRuntimeService,
     campaignService,
     inboundService,
+    replyTokenService,
+    unsubscribeService,
+    inboundResolver,
     webhookService,
     deliveryWorker,
     orchestrator,

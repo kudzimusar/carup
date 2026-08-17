@@ -61,6 +61,38 @@ function emailHtml(input) {
   return input?.content?.html || input?.content?.data?.html || null;
 }
 
+function escapeHtmlText(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Visible, actionable unsubscribe footer for the plain-text part of a marketing Email. */
+function appendUnsubscribeText(text, unsubscribeUrl) {
+  const body = String(text || '').trim();
+  return `${body}\n\n—\nDon't want CarUp marketing email? Unsubscribe here:\n${unsubscribeUrl}\n\nYou will still receive essential account, security and transaction email.`;
+}
+
+/**
+ * Visible, actionable unsubscribe footer for the HTML part.
+ *
+ * When a template supplies no HTML, one is built from the plain text rather than omitting the HTML
+ * part — a text-only marketing message has nowhere to put a clickable control.
+ */
+function appendUnsubscribeHtml(html, fallbackText, unsubscribeUrl) {
+  const href = escapeHtmlText(unsubscribeUrl);
+  const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#475569;">`
+    + `<p style="margin:0 0 8px;">You are receiving this because you opted in to CarUp marketing email.</p>`
+    + `<p style="margin:0;"><a href="${href}" style="color:#C2410C;font-weight:600;text-decoration:underline;">Unsubscribe from CarUp marketing email</a></p>`
+    + `<p style="margin:8px 0 0;color:#64748b;">You will still receive essential account, security and transaction email.</p>`
+    + `</div>`;
+  if (html) return `${html}${footer}`;
+  const paragraphs = String(fallbackText || '').trim().split(/\n{2,}/)
+    .map((p) => `<p style="margin:0 0 14px;">${escapeHtmlText(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;">${paragraphs}${footer}</div>`;
+}
+
 /**
  * Render branded auth/security HTML for a notification that names an auth template.
  *
@@ -398,22 +430,46 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
     const to = recipientField(input, 'email', 'address', 'to');
     if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'Email recipient address is required.' };
 
+    // Marketing Email MUST carry a working unsubscribe control, and this is the one choke point every
+    // marketing send passes through. Found during E7 certification: a real marketing message reached
+    // a human inbox whose body asserted "use the unsubscribe link" while containing no link, no HTML
+    // part and no List-Unsubscribe header — because this endpoint is Brevo's TRANSACTIONAL API, which
+    // injects no footer of its own. Refusing here makes that state unreachable rather than relying on
+    // every future template author to remember.
+    const unsubscribeUrl = data.unsubscribe_url || null;
+    if (!unsubscribeUrl) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'unsubscribe_action_missing',
+        errorMessage: 'Marketing Email requires a governed CarUp unsubscribe URL; refusing to send without one.',
+      };
+    }
+    const unsubscribeMailto = data.unsubscribe_mailto || null;
+
     const headers = jsonHeaders({ 'api-key': envValue(this.env, 'BREVO_API_KEY'), accept: 'application/json' });
     const body = {
       sender: this.senderFrom(),
       to: [{ email: to }],
       subject: subjectText(input, 'CarUp'),
-      textContent: textBody(input),
+      textContent: appendUnsubscribeText(textBody(input), unsubscribeUrl),
       // Every provider object maps back to canonical CarUp identifiers.
       tags: [`campaign:${campaignId}`, `delivery:${campaignDeliveryId}`],
       headers: {
         'X-CarUp-Campaign-Id': String(campaignId),
         'X-CarUp-Campaign-Delivery-Id': String(campaignDeliveryId),
         'X-CarUp-Notification-Id': String(input.notificationId || ''),
+        // RFC 8058. The https URI is the one-click target; the mailto is the fallback for clients
+        // that only understand the original RFC 2369 form.
+        'List-Unsubscribe': unsubscribeMailto
+          ? `<${unsubscribeUrl}>, <mailto:${unsubscribeMailto}>`
+          : `<${unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
       },
     };
-    const html = emailHtml(input);
-    if (html) body.htmlContent = html;
+    // Always send an HTML part for marketing: a text-only body cannot render an actionable control,
+    // which is precisely how the defect above reached a real inbox.
+    body.htmlContent = appendUnsubscribeHtml(emailHtml(input), textBody(input), unsubscribeUrl);
 
     const response = await this.requestJson('https://api.brevo.com/v3/smtp/email', { headers, body });
     if (!response.ok) return this.providerFailure(response);

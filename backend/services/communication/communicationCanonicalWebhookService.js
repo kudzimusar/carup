@@ -11,8 +11,11 @@ import { normalizeChannel, nowIso } from './communicationUtils.js';
  * through its ordered fallback sequence.
  */
 export class CommunicationCanonicalWebhookService extends CommunicationWebhookService {
-  constructor({ repository, inboundService, notificationService = null, env = process.env } = {}) {
-    super({ repository, inboundService, env });
+  constructor({
+    repository, inboundService, inboundResolver = null, replyTokenService = null,
+    notificationService = null, env = process.env,
+  } = {}) {
+    super({ repository, inboundService, inboundResolver, replyTokenService, env });
     this.notificationService = notificationService;
   }
 

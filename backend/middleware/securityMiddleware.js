@@ -178,6 +178,10 @@ export function csrfMiddleware(req, res, next) {
                     // Omnichannel communication engine webhooks (signature-verified in-service)
                     /^\/api\/communications\/webhooks\/[a-z0-9_-]+\/[a-z0-9_-]+(?:$|[/?#])/.test(url) ||
                     /^\/api\/internal\/communications\/process(?:$|[/?#])/.test(url) ||
+                    // RFC 8058 one-click unsubscribe: the mail client POSTs this directly and
+                    // cannot carry a CarUp CSRF token. Authority is the opaque unsubscribe
+                    // handle in the URI, and the action is idempotent and marketing-scoped.
+                    /^\/api\/communications\/unsubscribe(?:$|[/?#])/.test(url) ||
                     // Serverless outbox drain (worker-secret guarded in-route)
                     /^\/api\/internal\/events\/process(?:$|[/?#])/.test(url) ||
                     // Full Activation signed provider webhooks (HMAC + timestamp + idempotency verified in-service)

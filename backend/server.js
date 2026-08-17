@@ -64,6 +64,7 @@ import claimsRouter from './routes/claimsRoutes.js';
 import adminRouter from './routes/adminRoutes.js';
 import { edgeClientIpMiddleware } from './middleware/edgeClientIp.js';
 import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
+import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
@@ -261,6 +262,7 @@ app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
 app.use(authRecoveryRouter());
+app.use(marketingUnsubscribeRouter());
 app.use(adminRouter);
 app.use(communicationRouter());
 app.use(adminCommunicationRouter());

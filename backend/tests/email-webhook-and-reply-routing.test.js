@@ -276,7 +276,15 @@ test('Brevo sends from the verified marketing sender and tags canonical ids', as
     },
   });
   const r = await brevo.send({
-    content: { data: { classification: 'marketing', email: 'buyer@example.test', campaign_id: 'camp-1', campaign_delivery_id: 'del-1' }, subject: 'News', body: 'hello' },
+    content: {
+      data: {
+        classification: 'marketing', email: 'buyer@example.test', campaign_id: 'camp-1', campaign_delivery_id: 'del-1',
+        unsubscribe_url: 'https://api-staging.carup.dev/api/communications/unsubscribe?token=abc',
+        unsubscribe_mailto: 'unsubscribe+abc@mail.carup.dev',
+      },
+      subject: 'News',
+      body: 'hello',
+    },
   });
   assert.equal(r.accepted, true);
   assert.equal(r.providerMessageId, '<brevo-1@marketing.carup.dev>');
@@ -286,6 +294,58 @@ test('Brevo sends from the verified marketing sender and tags canonical ids', as
   assert.ok(captured.body.tags.includes('delivery:del-1'));
   // The MCP credential must never be used by application code.
   assert.ok(!JSON.stringify(captured.headers).includes('MCP'));
+});
+
+// ---------- E7: a marketing Email must carry a real, actionable unsubscribe control ----------
+
+test('Brevo REFUSES a marketing send that carries no governed unsubscribe URL', async () => {
+  // Found physically: a governed marketing message reached a human inbox whose body claimed an
+  // unsubscribe link existed while containing none. This is the choke point that makes that state
+  // unreachable, rather than trusting each template author to remember.
+  const brevo = new BrevoMarketingAdapter({
+    env: BREVO_ENV,
+    fetchImpl: async () => { throw new Error('no provider call must be made'); },
+  });
+  const r = await brevo.send({
+    content: { data: { classification: 'marketing', email: 'b@example.test', campaign_id: 'c', campaign_delivery_id: 'd' }, body: 'hi' },
+  });
+  assert.equal(r.accepted, false);
+  assert.equal(r.errorCode, 'unsubscribe_action_missing');
+  assert.equal(r.retryable, false);
+});
+
+test('marketing Email carries RFC 8058 headers and a visible unsubscribe action in BOTH parts', async () => {
+  let captured = null;
+  const brevo = new BrevoMarketingAdapter({
+    env: BREVO_ENV,
+    fetchImpl: async (url, init) => {
+      captured = JSON.parse(init.body);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ messageId: '<m@x>' }), headers: new Map() };
+    },
+  });
+  const url = 'https://api-staging.carup.dev/api/communications/unsubscribe?token=tok123';
+  await brevo.send({
+    content: {
+      data: {
+        classification: 'marketing', email: 'b@example.test', campaign_id: 'c', campaign_delivery_id: 'd',
+        unsubscribe_url: url, unsubscribe_mailto: 'unsubscribe+tok123@mail.carup.dev',
+      },
+      subject: 'News', body: 'Body copy.',
+    },
+  });
+
+  // RFC 8058 one-click.
+  assert.equal(captured.headers['List-Unsubscribe'], `<${url}>, <mailto:unsubscribe+tok123@mail.carup.dev>`);
+  assert.equal(captured.headers['List-Unsubscribe-Post'], 'List-Unsubscribe=One-Click');
+  // Headers alone are not an actionable control for a human reader, so both rendered parts must
+  // carry the link too — and an HTML part must exist even when the template supplies only text.
+  assert.ok(captured.textContent.includes(url), 'plain-text part must contain the unsubscribe URL');
+  assert.ok(captured.htmlContent, 'marketing Email must always have an HTML part');
+  assert.ok(captured.htmlContent.includes(`href="${url}"`), 'HTML part must contain a clickable unsubscribe anchor');
+  assert.ok(/unsubscribe/i.test(captured.htmlContent));
+  // The original copy must survive footer injection.
+  assert.ok(captured.textContent.includes('Body copy.'));
+  assert.ok(captured.htmlContent.includes('Body copy.'));
 });
 
 test('the router keeps marketing on Brevo and everything else on Resend', () => {
@@ -402,4 +462,73 @@ test('receipt backfill never overwrites an already-correct RFC Message-ID', asyn
   });
   const update = repo.updates.find((u) => u.table === 'message_delivery_attempts');
   assert.equal(update.patch.provider_message_id, undefined, 'no rewrite when the RFC id already matches');
+});
+
+// ---------- E4 regression: the inbound path must be WIRED, not merely implemented ----------
+
+test('the production factory wires the inbound resolver and reply token service', async () => {
+  // This is the test whose absence let a dead inbound path ship green. Every previous inbound test
+  // constructed ResendInboundResolver by hand and injected it, so it proved the resolver worked
+  // while the real composition never built one: CommunicationWebhookService's constructor did not
+  // accept `inboundResolver` at all, and the factory never passed one. Every genuine, signature-
+  // verified `email.received` therefore threw "Resend inbound routing is not configured." before
+  // reaching any of the logic under test — physically observed on staging against a real human reply.
+  //
+  // Asserted structurally (no network, no database): the constructor must ACCEPT and ASSIGN both
+  // collaborators, and the factory must pass them.
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+  const { CommunicationCanonicalWebhookService } = await import('../services/communication/communicationCanonicalWebhookService.js');
+
+  const resolver = { resolve: async () => ({ ok: false, reason: 'stub' }) };
+  const replyTokens = { recordUse: async () => {} };
+
+  for (const Service of [CommunicationWebhookService, CommunicationCanonicalWebhookService]) {
+    const svc = new Service({ repository: {}, inboundService: {}, inboundResolver: resolver, replyTokenService: replyTokens });
+    assert.equal(svc.inboundResolver, resolver, `${Service.name} must assign inboundResolver`);
+    assert.equal(svc.replyTokenService, replyTokens, `${Service.name} must assign replyTokenService`);
+  }
+
+  // And the sole production construction site must actually supply them.
+  const { readFileSync } = await import('node:fs');
+  const factory = readFileSync(new URL('../services/communication/communicationServiceFactory.js', import.meta.url), 'utf8');
+  assert.match(factory, /new ResendInboundResolver\(/, 'factory must construct the inbound resolver');
+  assert.match(factory, /createEmailReplyTokenService\(/, 'factory must construct the reply token service');
+  assert.match(
+    factory,
+    /new CommunicationCanonicalWebhookService\(\{[\s\S]*?inboundResolver[\s\S]*?replyTokenService[\s\S]*?\}\)/,
+    'factory must inject BOTH into the webhook service',
+  );
+});
+
+test('a retried webhook delivery that previously FAILED is not masked as a duplicate', async () => {
+  // The defect that turned a loud CarUp-side failure into apparent provider silence: the first
+  // delivery failed and returned 400, the provider retried, and the retry hit the dedupe branch —
+  // which returned HTTP 200 and rewrote processing_status from 'failed' to 'duplicate'. The provider
+  // saw a success, stopped retrying, and the failure became invisible.
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+
+  const updates = [];
+  const repository = {
+    findOne: async (table) => (table === 'webhook_logs'
+      ? { id: 'wl-1', processing_status: 'failed', attempt_count: 1, error_message: 'Resend inbound routing is not configured.' }
+      : null),
+    updateById: async (table, id, patch) => { updates.push({ table, id, patch }); return { id }; },
+    insert: async () => ({ id: 'x' }),
+    list: async () => [],
+  };
+  const service = new CommunicationWebhookService({ repository, inboundService: {}, env: { RESEND_WEBHOOK_SECRET: SECRET } });
+  const rawBody = JSON.stringify({ type: 'email.received', data: { email_id: 'e-1' } });
+  const signed = signResend(rawBody);
+
+  await assert.rejects(
+    () => service.handleWebhook('resend', 'email', JSON.parse(rawBody), { headers: signed, rawBody }),
+    (error) => {
+      assert.match(error.message, /previously failed/i);
+      return true;
+    },
+    'a retry of a failed delivery must surface an error, never a 200 duplicate',
+  );
+  // The row must NOT have been rewritten to 'duplicate'.
+  const statuses = updates.flatMap((u) => (u.patch.processing_status ? [u.patch.processing_status] : []));
+  assert.ok(!statuses.includes('duplicate'), 'a failed row must not be relabelled as a duplicate');
 });

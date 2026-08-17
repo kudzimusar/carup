@@ -158,8 +158,15 @@ export class CommunicationInboundService {
 
     let thread = input.thread?.id ? input.thread : null;
     let created = false;
-    let boundConversation = null;
+    // A caller that has ALREADY resolved the conversation authoritatively (the Resend inbound
+    // resolver proves thread + participant from a signed reply token) supplies its resolution here.
+    // It is treated exactly like an internally-resolved binding, so the authoritative participant is
+    // reused and the fail-closed invariant check below still applies. Without this, supplying only a
+    // threadId disables the binding branch and falls through to ensureParticipant — which mints a
+    // second identity and participant, breaking the "participants +0" invariant on the first reply.
+    let boundConversation = input.boundConversation || null;
     const targetThreadId = input.target_thread_id || input.threadId || input.thread_id || null;
+    if (!thread && boundConversation?.thread) thread = boundConversation.thread;
     if (!thread && targetThreadId) {
       thread = await this.repository.findOne('message_threads', { id: targetThreadId });
       if (!thread) throw new Error('Target communication thread not found.');
@@ -168,7 +175,7 @@ export class CommunicationInboundService {
     // Communications 2.0: explicit provider reply context wins. If there is no
     // exact context match, fall back to the canonical identity/channel binding
     // resolver, which itself refuses ambiguous equal-recency candidates.
-    if (!thread && !targetThreadId && this.conversationService) {
+    if (!thread && !targetThreadId && !boundConversation && this.conversationService) {
       const externalConversationId = input.externalConversationId || input.conversation_id || null;
       boundConversation = await this.resolveProviderReplyContext({
         identity,

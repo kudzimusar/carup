@@ -61,9 +61,15 @@ function validateCloudflareAttachments(attachments = [], maxBytes = 5 * 1024 * 1
 }
 
 export class CommunicationWebhookService {
-  constructor({ repository, inboundService, env = process.env } = {}) {
+  constructor({ repository, inboundService, inboundResolver = null, replyTokenService = null, env = process.env } = {}) {
     this.repository = repository;
     this.inboundService = inboundService;
+    // E4 inbound reply routing. These were previously read by handleResendInboundWebhook but never
+    // assigned by any constructor or factory, so every legitimate signed `email.received` threw
+    // "Resend inbound routing is not configured." before reaching the resolver. Tests passed only
+    // because they injected a resolver directly, so the production path was dead by construction.
+    this.inboundResolver = inboundResolver;
+    this.replyTokenService = replyTokenService;
     this.env = env;
   }
 
@@ -453,9 +459,26 @@ export class CommunicationWebhookService {
       || (Array.isArray(headers) ? headers.find((h) => String(h.name).toLowerCase() === 'message-id')?.value : headers['message-id'])
       || null;
 
+    // Hand the resolver's proven thread + participant to ingest as an authoritative binding.
+    // Passing only threadId/participantId is NOT enough: ingest never reads `participantId`, and a
+    // bare threadId disables its binding branch and falls through to ensureParticipant. With no
+    // tenant on a webhook actor, identity lookup would filter on tenant_id IS NULL, miss the real
+    // identity, and mint a duplicate identity AND participant — violating the +0 participants
+    // invariant this path exists to uphold.
+    const [thread, participant] = await Promise.all([
+      this.repository.findOne('message_threads', { id: resolution.threadId }),
+      resolution.participantId
+        ? this.repository.findOne('message_participants', { id: resolution.participantId })
+        : Promise.resolve(null),
+    ]);
+    if (!thread) throw new ValidationError('Inbound Email resolved to a missing thread.');
+    if (!participant) throw new ValidationError('Inbound Email resolved to a missing participant.');
+
     const result = await this.inboundService.ingest({
       channel: 'email',
       provider: 'resend',
+      tenant_id: resolution.tenantId ?? thread.tenant_id ?? null,
+      boundConversation: { thread, participant, resolution: resolution.resolution },
       threadId: resolution.threadId,
       participantId: resolution.participantId,
       providerMessageId: rfcMessageId,
@@ -559,6 +582,22 @@ export class CommunicationWebhookService {
           processed_at: nowIso(),
         });
         throw new ForbiddenError('Webhook verification failed.');
+      }
+      // Only a delivery that previously SUCCEEDED is an inert duplicate. Treating a retry of a
+      // FAILED delivery as a duplicate returns 200 and rewrites 'failed' to 'duplicate' — which is
+      // exactly how a hard CarUp-side failure on a real inbound reply was made to look like provider
+      // silence: the first attempt 400'd, the provider retried, the retry was deduped into a 200,
+      // and the provider then reported the delivery as successful. A failed row must stay failed and
+      // must keep returning a non-2xx so the failure remains visible and the provider keeps retrying.
+      if (existing.processing_status === 'failed') {
+        await this.repository.updateById('webhook_logs', existing.id, {
+          attempt_count: Number(existing.attempt_count || 0) + 1,
+          processed_at: nowIso(),
+        });
+        throw new ValidationError(
+          `Webhook delivery previously failed and has not been remediated: ${existing.error_message || existing.error_code || 'unknown error'}`,
+          { reason: 'duplicate_of_failed_delivery', provider, webhook_log_id: existing.id },
+        );
       }
       await this.repository.updateById('webhook_logs', existing.id, {
         processing_status: 'duplicate',
