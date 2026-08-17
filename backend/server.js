@@ -65,6 +65,7 @@ import adminRouter from './routes/adminRoutes.js';
 import { edgeClientIpMiddleware } from './middleware/edgeClientIp.js';
 import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
+import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
@@ -215,6 +216,9 @@ app.get('/api/health', async (req, res) => {
   res.json({
     status: 'UP',
     timestamp: new Date().toISOString(),
+    // Which source revision this instance was built from. Load-bearing for certification: CarUp
+    // staging serves two runtimes (API and the cron sender) that have silently diverged before.
+    build: resolveBuildProvenance(),
     supabase: {
       status: supabaseHealth,
       outboxBacklog

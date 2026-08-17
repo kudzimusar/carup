@@ -5,20 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { resolveApiBaseUrl } from '@/lib/apiClient'
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy'
 
 const API_BASE = resolveApiBaseUrl(
   import.meta.env.VITE_API_URL,
   typeof window !== 'undefined' ? window.location.hostname : undefined,
 )
-
-export const MIN_PASSWORD_LENGTH = 8
-
-/** Mirrors the server-side policy in backend/utils/passwordAuth.js. */
-export function passwordPolicyError(password: string, confirm: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
-  if (password !== confirm) return 'Passwords do not match.'
-  return null
-}
 
 /**
  * SA1E — complete a password reset.
