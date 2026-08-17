@@ -539,3 +539,84 @@ and is deliberately not cleaned up.
 > from earlier commits. It is now **revoked and inert**, so it is not a live credential. Rewriting
 > published history on a shared PR branch is the owner's call, not mine — say the word if you want it
 > purged.
+
+---
+
+# E9 pre-merge closure (2026-08-17)
+
+## Canonical CI was RED — and I had not looked
+
+The E9 packet was returned as merge-ready on the strength of a full **local** regression. The owner
+independently reconciled live GitHub and found the canonical `CI` workflow FAILING on that exact SHA:
+
+```text
+web/src/pages/auth/ResetPassword.tsx
+react-refresh/only-export-components        NET_NEW_ERRORS=1
+```
+
+The lint regression gate runs first, so it failed **before** typecheck, build, backend and migrations
+ever ran. A green local suite says nothing about that gate. This was not one of the 12 known
+environmental failures, and it should have been caught by me, not by the owner.
+
+**Fixed properly.** `ResetPassword.tsx` exported `MIN_PASSWORD_LENGTH` and `passwordPolicyError`
+alongside its component, which breaks React Fast Refresh — the page would silently stop hot-reloading
+in development. The fix is the one the rule itself prescribes: move the shared values to
+`web/src/lib/passwordPolicy.ts`, matching the existing `web/src/lib/` convention, with a colocated
+test. No rule suppression, no baseline mutation, no weakening of the gate.
+
+## Staging runtime drift is now guarded, not merely documented
+
+See `docs/communications/STAGING_RUNTIME_PARITY_GUARD.md` for the full contract.
+
+Runtimes report their build revision through the existing `/api/health` response
+(`backend/config/buildProvenance.js`), and `scripts/assert-staging-runtime-parity.mjs` compares both
+staging runtimes before Email/Communications work may be treated as exact-head certified.
+
+It **fails closed** on every ambiguous case — drift, staleness against an expected revision, an
+unreachable runtime, a runtime silent about its revision, and an empty runtime list. Unknown
+provenance is never read as agreement, because that blind spot is the whole reason the guard exists.
+
+Verified live at the final head:
+
+```text
+api-staging.carup.dev                          sha=17f64f59
+carup-backend-staging.vercel.app (cron sender) sha=17f64f59
+expected revision                              17f64f59
+STAGING_RUNTIME_REVISION_PARITY=PASS
+```
+
+It is intentionally **not** a blocking CI job. CI runs on a commit, not on a deployment, so wiring
+the live probe into every PR would fail whenever staging happened to be mid-deploy — noise that
+trains people to ignore the signal. The comparison logic is CI-enforced through
+`backend/tests/staging-runtime-parity.test.js` (7 tests, in both the main and Communications
+workflows); the live probe is a certification step with a documented place in the sequence.
+
+Communications CI now also runs the Email 1.0 suites — `email-webhook-and-reply-routing`,
+`email-stakeholder-matrix`, `staging-runtime-parity` — which it did not cover at all before.
+
+## Post-change verification
+
+```text
+CI                              success   NET_NEW_ERRORS=0   NET_NEW_WARNINGS=0
+Communication Command Center CI success
+Referral Engine CI              success
+Navigation Intelligence CI      success
+Diaspora Phases 3-7 Validation  success
+Secret scan                     success
+backend regression              3380 pass / 12 known environmental / 0 beyond baseline
+```
+
+Physical smoke checks re-run on the surfaces this change could touch:
+
+```text
+reset-password page (source mutated)   200
+/api/health (both runtimes)            200 / 200
+unsubscribe GET (invalid token)        400
+resend webhook unsigned                403
+brevo webhook unauthenticated          403
+forgot-password                        200, generic anti-enumeration body intact
+```
+
+Production invariants re-verified and unchanged: `api.carup.dev` DNS-only, DNSSEC 0 DS records,
+Vercel rollback zone retained, production Communications INACTIVE. Production still serves a
+pre-provenance build — which is itself the evidence that nothing was deployed there.
