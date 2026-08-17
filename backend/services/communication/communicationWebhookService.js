@@ -610,7 +610,14 @@ export class CommunicationWebhookService {
       for (const receipt of receipts) {
         receiptResults.push(await this.applyDeliveryReceipt(receipt));
       }
-      if (receiptResults.length > 0 && ['sendgrid', 'twilio', 'expo', 'cloudflare'].includes(String(provider || '').toLowerCase())) {
+      // Receipt-only providers: a lifecycle event carries no inbound message, so processing ends
+      // once the canonical delivery transition is applied. Without 'resend'/'brevo' here their
+      // lifecycle events fall through to parseChannelPayload(), which has no 'email' parser and
+      // throws "Unsupported referral channel." — observed live on genuine Resend email.sent /
+      // email.delivered events, which then recorded no canonical transition at all.
+      // (Resend's email.received is inbound, and extractDeliveryReceipts returns [] for it, so it
+      // still falls through to the inbound handler below.)
+      if (receiptResults.length > 0 && ['sendgrid', 'twilio', 'expo', 'cloudflare', 'resend', 'brevo'].includes(String(provider || '').toLowerCase())) {
         await this.repository.updateById('webhook_logs', log.id, {
           processing_status: 'processed',
           message_count: 0,

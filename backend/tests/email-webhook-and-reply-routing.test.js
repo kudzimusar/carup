@@ -300,3 +300,47 @@ test('no application code path reads BREVO_API_MCP_KEY', () => {
   const brevo = new BrevoMarketingAdapter({ env: { ...BREVO_ENV, BREVO_API_MCP_KEY: 'must-not-be-used' } });
   assert.deepEqual(brevo.requiredEnv, ['BREVO_API_KEY', 'BREVO_FROM_EMAIL']);
 });
+
+// ---------- E3 regression: lifecycle events must not fall through to the inbound parser ----------
+
+test('Resend/Brevo lifecycle events are treated as receipt-only, not inbound messages', async () => {
+  // Regression for a P1 found by REAL provider traffic: genuine email.sent / email.delivered
+  // events reached the endpoint with a valid signature but were routed into
+  // parseChannelPayload(), which has no 'email' parser and threw "Unsupported referral channel."
+  // The canonical delivery transition was therefore never applied.
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../services/communication/communicationWebhookService.js', import.meta.url), 'utf8');
+  const match = source.match(/receiptResults\.length > 0 && \[([^\]]+)\]/);
+  assert.ok(match, 'receipt-only provider allowlist not found');
+  for (const provider of ['resend', 'brevo']) {
+    assert.ok(match[1].includes(`'${provider}'`), `${provider} must be a receipt-only provider`);
+  }
+});
+
+test('an inbound email.received produces NO delivery receipt, so it still reaches the inbound path', async () => {
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+  const svc = new CommunicationWebhookService({ env: {}, repository: null });
+  const receipts = svc.extractDeliveryReceipts('resend', 'email', {
+    type: 'email.received',
+    data: { from: 'x@example.test', to: ['conversation+TOKENTOKENTOKEN1@mail.carup.dev'] },
+  });
+  assert.deepEqual(receipts, [], 'email.received must not be mistaken for a delivery receipt');
+});
+
+test('a lifecycle event extracts the RFC Message-ID for reply correlation', async () => {
+  const { CommunicationWebhookService } = await import('../services/communication/communicationWebhookService.js');
+  const svc = new CommunicationWebhookService({ env: {}, repository: null });
+  const [receipt] = svc.extractDeliveryReceipts('resend', 'email', {
+    type: 'email.delivered',
+    data: {
+      email_id: '667c199e-164d-4bb0-9214-40b4467c6a2d',
+      message_id: '<010601a0@ap-northeast-1.amazonses.com>',
+      to: ['someone@example.test'],
+    },
+  });
+  assert.equal(receipt.status, 'delivered');
+  assert.equal(receipt.provider, 'resend');
+  // The RFC id is preferred, because that is what an inbound reply will reference.
+  assert.equal(receipt.providerMessageId, '<010601a0@ap-northeast-1.amazonses.com>');
+  assert.equal(receipt.providerRequestId, '667c199e-164d-4bb0-9214-40b4467c6a2d');
+});
