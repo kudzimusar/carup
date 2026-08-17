@@ -1,5 +1,5 @@
 import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
-import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 export class CommunicationDeliveryWorker {
@@ -42,11 +42,44 @@ export class CommunicationDeliveryWorker {
     return results;
   }
 
+  /**
+   * Canonical suppression check for a marketing notification, evaluated at SEND time.
+   *
+   * Scoped to marketing (and 'all'): an unsubscribe from marketing must never block security, auth
+   * or transactional Email. Returns the suppression reason, or null when the send may proceed.
+   */
+  async marketingSuppressionFor(notification) {
+    const classification = String(notification?.payload?.classification || '').toLowerCase();
+    if (classification !== 'marketing') return null;
+    const channel = normalizeChannel(notification.channel) || notification.channel;
+    const address = String(
+      notification?.payload?.email || notification?.payload?.address || notification?.payload?.to || '',
+    ).trim().toLowerCase();
+    if (!address) return null;
+    const rows = await this.repository.list('communication_suppressions', { channel, address });
+    const active = (rows || []).find((row) => !row.released_at && ['marketing', 'all'].includes(row.scope));
+    return active ? active.reason : null;
+  }
+
   async deliverNotification(notification, { alreadyClaimed = false } = {}) {
     const channel = notification.channel || 'in_app';
     const adapter = this.adapterRegistry.get(channel);
     if (!adapter) {
       return this.markDeadLetter(notification, { errorCode: 'adapter_missing', errorMessage: `No adapter registered for ${channel}` });
+    }
+
+    // Last line of defence before a marketing message reaches a provider.
+    //
+    // Consent suppression is otherwise enforced only at QUEUE time, so anything that inserts into
+    // notification_queue directly — a backfill, a script, a future code path — would sail past it and
+    // mail somebody who has unsubscribed. That is the one failure mode a consent system must not
+    // have, so the check is repeated here, immediately before dispatch, against canonical state.
+    const suppression = await this.marketingSuppressionFor(notification).catch(() => null);
+    if (suppression) {
+      return this.markDeadLetter(notification, {
+        errorCode: 'recipient_suppressed',
+        errorMessage: `Recipient is suppressed in canonical CarUp consent state (${suppression}); refusing to send marketing.`,
+      });
     }
 
     const attemptNumber = alreadyClaimed ? Number(notification.attempt_count || 1) : Number(notification.attempt_count || 0) + 1;

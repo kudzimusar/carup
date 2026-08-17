@@ -744,3 +744,38 @@ test('a PERMANENTLY unroutable inbound is acknowledged, not retried forever', as
     },
   );
 });
+
+test('the worker refuses to send marketing to a suppressed recipient, at SEND time', async () => {
+  // Consent suppression is otherwise enforced only at QUEUE time, so anything inserting into
+  // notification_queue directly would sail past it and mail somebody who has unsubscribed. This is
+  // the last line of defence before a provider call.
+  const { CommunicationDeliveryWorker } = await import('../services/communication/communicationDeliveryWorker.js');
+
+  const suppressionRows = [{ channel: 'email', address: 'gone@example.test', scope: 'marketing', reason: 'unsubscribe', released_at: null }];
+  const updates = [];
+  const repository = {
+    list: async (table, filters) => (table === 'communication_suppressions'
+      ? suppressionRows.filter((r) => r.channel === filters.channel && r.address === filters.address) : []),
+    updateById: async (t, id, patch) => { updates.push(patch); return { id }; },
+    insert: async () => ({ id: 'x' }),
+    findOne: async () => null,
+  };
+  let providerCalls = 0;
+  const adapterRegistry = { get: () => ({ provider: 'brevo', send: async () => { providerCalls += 1; return { accepted: true }; } }) };
+  const worker = new CommunicationDeliveryWorker({ repository, adapterRegistry });
+
+  const suppressed = { id: 1, channel: 'email', payload: { classification: 'marketing', email: 'gone@example.test' } };
+  await worker.deliverNotification(suppressed);
+  assert.equal(providerCalls, 0, 'a suppressed marketing recipient must never reach the provider');
+  assert.ok(updates.some((p) => p.last_error_code === 'recipient_suppressed'));
+
+  // An unsuppressed marketing recipient still sends.
+  const allowed = { id: 2, channel: 'email', payload: { classification: 'marketing', email: 'ok@example.test' } };
+  await worker.deliverNotification(allowed);
+  assert.equal(providerCalls, 1, 'suppression must not block an unsuppressed recipient');
+
+  // A marketing unsubscribe must NEVER block security or transactional Email to the same address.
+  const security = { id: 3, channel: 'email', payload: { classification: 'security', email: 'gone@example.test' } };
+  await worker.deliverNotification(security);
+  assert.equal(providerCalls, 2, 'security Email to a marketing-suppressed address must still send');
+});
