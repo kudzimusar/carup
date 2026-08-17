@@ -10,9 +10,13 @@
  *    + not self-approved); watch/flagged suppresses ALL PartSentry signals.
  *  - No raw trust-score components, mechanic_id, signatures, OCR, AI fraud metadata, or private
  *    evidence ever appear. admin_explanation is returned ONLY for admin/reviewer audiences.
+ *  - The trust NUMBER is not computed, adjusted or bucketed here. It is copied from the canonical
+ *    projection the listing summary carries (canonicalTrustService.toPublicTrust), so the detail
+ *    page and the list card cannot disagree about a VIN. This service adds no floor and no default:
+ *    an absent canonical evaluation stays null.
  */
 
-import { summarizePartSentry, summarizeEvidence } from './listingSummaryService.js';
+import { canonicalListingScore, summarizePartSentry, summarizeEvidence } from './listingSummaryService.js';
 import { isVehicleQuarantinedStatus } from '../../utils/vehicleStatus.js';
 
 function norm(value) {
@@ -142,7 +146,17 @@ export function buildTrustSummary({ vehicle = {}, listingSummary = {}, evidenceR
     safe_public_claims: public_badge_copy,
     risk_flags_public: risk_reasons,
     verification_status,
-    trust_score: typeof listingSummary.trust_score === 'number' ? listingSummary.trust_score : null,
+    // THE NUMBER IS COPIED FROM THE CANONICAL PROJECTION THE SUMMARY CARRIES — never re-derived,
+    // never read from vehicle.trust_score, never defaulted to 0. `listingSummary.trust` is the
+    // 10-field shape produced by canonicalTrustService.toPublicTrust(), so the detail page states
+    // the same number, the same lifecycle state and the same rules version as the list card for
+    // this VIN. `trust_score: null` means "nothing canonical to publish", NOT "scored zero";
+    // trust_evaluation_state is what tells the two apart, which is why it travels with the number.
+    trust_score: canonicalListingScore(listingSummary),
+    trust_evaluation_state: listingSummary.trust?.evaluation_state ?? null,
+    trust_calculation_version: listingSummary.trust?.calculation_version ?? null,
+    trust_confidence: listingSummary.trust?.confidence ?? null,
+    trust: listingSummary.trust ?? null,
   };
 
   if (audience === 'admin') {

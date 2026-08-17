@@ -9,6 +9,7 @@ import {
   MARKETPLACE_TAGS,
   LISTING_SELECT_COLUMNS,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
 } from './listingSummaryService.js';
@@ -87,6 +88,9 @@ export async function getMarketplaceRecommendations(client, vin, { limit = RECOM
 
   const vins = banded.map((v) => v.vin).filter(Boolean);
   const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, vins);
+  // This surface is public. Without the canonical entry every listing publishes a null score while
+  // the marketplace list publishes a real one for the same VIN — the same-VIN split, one file over.
+  const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, vins);
 
   const listings = banded
     .map((vehicle) =>
@@ -96,9 +100,18 @@ export async function getMarketplaceRecommendations(client, vin, { limit = RECOM
         partSentryRows: partSentryByVin.get(vehicle.vin) || [],
         ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
         imageRows: imagesByVin.get(vehicle.vin) || [],
+        canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
       })
     )
-    .sort((a, b) => b.trust_score - a.trust_score)
+    // An unscored vehicle is not a zero: it ranks after every scored one, in its original order.
+    .sort((a, b) => {
+      const as = Number.isFinite(a.trust_score) ? a.trust_score : null;
+      const bs = Number.isFinite(b.trust_score) ? b.trust_score : null;
+      if (as === null && bs === null) return 0;
+      if (as === null) return 1;
+      if (bs === null) return -1;
+      return bs - as;
+    })
     .slice(0, limit);
 
   return { listings, total: listings.length };

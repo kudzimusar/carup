@@ -1,6 +1,68 @@
 import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../../utils/vehicleStatus.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 
+/**
+ * THE TRUST NUMBER ON A LISTING COMES FROM THE CANONICAL AUTHORITY, NEVER FROM THE ROW.
+ *
+ * `vehicles.trust_score` is a materialized cache with several unversioned writers (Issue #164
+ * principle 2). Reading it here is how a hand-set 84 reached the public marketplace while the
+ * trust-decision route published 50 for the same VIN. Every trust figure below therefore comes from
+ * `getCanonicalTrustBatch()` -> `toPublicTrust()` in
+ * backend/services/trustDecision/canonicalTrustService.js, and a listing with no fresh cache entry
+ * publishes the honest `not_evaluated` / `score: null` — it does NOT fall back to the column.
+ *
+ * The authority is loaded LAZILY on purpose: canonicalTrustService instantiates the service-role
+ * Supabase client at module scope, which throws without SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY.
+ * This module is otherwise pure and credential-free (its consumers include the public-projection
+ * guard suite), so the dependency is taken only on the async read paths that were going to talk to
+ * a database anyway. If that load or that read fails, the listing carries NO projection and NO
+ * score — `trust: null`, `trust_score: null` — which is the one honest answer available when the
+ * authority could not be consulted. There is no branch in which the stored column takes its place.
+ */
+let canonicalTrustModulePromise = null;
+function loadCanonicalTrustAuthority() {
+  if (canonicalTrustModulePromise === null) {
+    canonicalTrustModulePromise = import('../trustDecision/canonicalTrustService.js');
+  }
+  return canonicalTrustModulePromise;
+}
+
+/**
+ * The canonical public trust projection for each VIN, as a Map (vin -> 10-field public shape).
+ *
+ * ONE query for the whole page and ZERO recomputes: `getCanonicalTrustBatch` is cache-only by
+ * construction, and it returns an entry for EVERY requested VIN, so no caller is left with a gap it
+ * might be tempted to fill from `vehicle.trust_score`.
+ */
+export async function fetchCanonicalTrustByVin(supabaseClient, vins = []) {
+  const out = new Map();
+  const wanted = (vins || []).filter(Boolean);
+  if (!wanted.length) return out;
+  try {
+    const { getCanonicalTrustBatch, toPublicTrust } = await loadCanonicalTrustAuthority();
+    const records = await getCanonicalTrustBatch(wanted, { client: supabaseClient });
+    for (const [vin, record] of records) out.set(vin, toPublicTrust(record));
+  } catch (error) {
+    // "We could not consult the authority" is not "these vehicles have no evaluation", and it is
+    // certainly not "use the stored number". The map stays empty, every listing publishes a null
+    // score, and the failure is logged rather than absorbed into a number.
+    console.warn('Marketplace summary could not read the canonical trust authority:', error.message);
+  }
+  return out;
+}
+
+/**
+ * The canonical score a listing may be ranked, filtered or published by: a number ONLY when the
+ * authority published one for this listing. It reads `summary.trust.score` and nothing else —
+ * there is deliberately no `?? summary.trust_score` second chance, because that is precisely the
+ * shape a fallback takes when someone later hands this function a summary carrying a legacy number.
+ * An unversioned value is not a smaller number here; it is an absence.
+ */
+export function canonicalListingScore(summary) {
+  const score = summary?.trust?.score ?? null;
+  return typeof score === 'number' && Number.isFinite(score) ? score : null;
+}
+
 export const CONDITION_CATEGORIES = [
   'brand_new',
   'recently_imported',
@@ -211,12 +273,21 @@ export function deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummar
   return Array.from(tags).filter(tag => MARKETPLACE_TAGS.includes(tag));
 }
 
+/**
+ * @param {object} args
+ * @param {object|null} [args.canonicalTrust] the VIN's entry from `fetchCanonicalTrustByVin()` — the
+ *   10-field public trust projection. `null` means the caller did not consult the authority on this
+ *   path, which publishes `trust: null` + `trust_score: null`: no number, and no pretence that the
+ *   absence of one was a finding about the vehicle. There is deliberately no fallback branch that
+ *   reads `vehicle.trust_score`.
+ */
 export function buildMarketplaceListingSummary({
   vehicle,
   evidenceRows = [],
   partSentryRows = [],
   ownershipCount = 0,
   imageRows = [],
+  canonicalTrust = null,
 }) {
   const conditionCategory = deriveConditionCategory(vehicle);
   const evidenceSummary = summarizeEvidence(evidenceRows);
@@ -241,7 +312,14 @@ export function buildMarketplaceListingSummary({
     status: vehicle.status || 'Available',
     condition_category: conditionCategory,
     marketplace_tags: marketplaceTags,
-    trust_score: numericValue(vehicle.trust_score),
+    // The canonical projection, verbatim, or null when the authority was not consulted. It carries
+    // evaluation_state, calculation_version, confidence and known_limitations, so a card can tell
+    // "evaluated and low" from "never evaluated" — which no score and no band can express.
+    trust: canonicalTrust ?? null,
+    // Kept as the stable key for existing consumers, but it is now the CANONICAL number and it is
+    // null whenever there is nothing canonical to publish. It is never `numericValue(...)` of the
+    // raw column: that read is what published an unfounded 84 to the marketplace.
+    trust_score: canonicalTrust?.score ?? null,
     primary_image_url: primaryImage,
     plate_verified: marketplaceTags.includes('plate_verified'),
     plate_status: vehicle.plate_status || null,
@@ -308,6 +386,22 @@ function parseTagList(value) {
   return out;
 }
 
+function byNewest(a, b) {
+  return Date.parse(b.created_at || '') - Date.parse(a.created_at || '');
+}
+
+/**
+ * RANKING IS A CLAIM. Ordering the public marketplace by an unversioned legacy number puts the
+ * hand-set 84 back on top of the page even when no surface prints it, so `sort=trust` ranks ONLY
+ * listings the canonical authority actually scored. A listing with no canonical score is not
+ * ranked at zero and not ranked by the stored column — it sorts after every scored listing and
+ * keeps the default newest-first order among its peers.
+ *
+ * Today that means `sort=trust` degenerates to newest-first until the cache is populated by
+ * `refreshCanonicalTrust`, because every legacy row is unversioned. `describeTrustRanking()` below
+ * reports exactly that on the response rather than letting the page imply a trust ordering it does
+ * not have.
+ */
 function sortSummaries(summaries, sort) {
   const copy = [...summaries];
   switch (sort) {
@@ -316,11 +410,39 @@ function sortSummaries(summaries, sort) {
     case 'price-high':
       return copy.sort((a, b) => b.price - a.price);
     case 'trust':
-      return copy.sort((a, b) => b.trust_score - a.trust_score);
+      return copy.sort((a, b) => {
+        const left = canonicalListingScore(a);
+        const right = canonicalListingScore(b);
+        if (left === null && right === null) return byNewest(a, b);
+        if (left === null) return 1;
+        if (right === null) return -1;
+        return right - left;
+      });
     case 'newest':
     default:
-      return copy.sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''));
+      return copy.sort(byNewest);
   }
+}
+
+/**
+ * What the ordering actually is, stated on the response. `ranked` counts the listings the requested
+ * sort could order; for `sort=trust`, `unranked` counts the ones with no canonical score, which are
+ * appended in newest-first order. A consumer can therefore tell "ranked by trust" from "trust
+ * ranking unavailable", instead of assuming the first card is the most trustworthy.
+ */
+function describeTrustRanking(summaries, sort) {
+  if (sort !== 'trust') return { requested: sort || 'newest', applied: sort || 'newest' };
+  const ranked = summaries.filter((summary) => canonicalListingScore(summary) !== null).length;
+  const unranked = summaries.length - ranked;
+  return {
+    requested: 'trust',
+    applied: ranked === 0 ? 'newest' : 'trust',
+    ranked_by_canonical_score: ranked,
+    unranked_no_canonical_score: unranked,
+    note: ranked === 0
+      ? 'No listing on this page carries a canonical trust evaluation, so this page is not ordered by trust. The stored trust_score column is unversioned and is never used to rank.'
+      : 'Listings with a canonical trust evaluation are ordered by it; the rest follow in newest-first order and are not ranked by the unversioned stored score.',
+  };
 }
 
 async function maybeFetchRows(supabaseClient, table, select, vins, order) {
@@ -413,7 +535,13 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
  *  (plate_number, normalized_plate_number, chassis_number — see PRIVATE_VEHICLE_FIELDS in
  *  utils/publicVehicleProjection.js) are not selected at all: no derivation here reads them, so the
  *  row that reaches every marketplace consumer cannot carry them. plate_status/plate_verified_at are
- *  status signals, not identifiers, and stay. */
+ *  status signals, not identifiers, and stay.
+ *
+ *  `trust_score` is absent for the same mechanical reason. The listing's trust number now comes
+ *  from the canonical authority (see the header), so no derivation here reads the raw column — and
+ *  because the row never carries it, no later edit can quietly restore the fallback that published
+ *  a hand-set 84. A cached score reaches a listing ONLY through getCanonicalTrustBatch, which
+ *  refuses to publish one that is not stamped with the running calculation_version. */
 export const LISTING_SELECT_COLUMNS = `
       vin,
       owner_id,
@@ -429,7 +557,6 @@ export const LISTING_SELECT_COLUMNS = `
       duty_paid,
       police_verified,
       status,
-      trust_score,
       price,
       currency,
       created_at,
@@ -503,8 +630,12 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
 
   const publicVehicles = filterVisibleVehicles(vehicles);
   const vins = publicVehicles.map(vehicle => vehicle.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } =
-    await fetchListingRelatedRows(supabaseClient, vins);
+  const [related, trustByVin] = await Promise.all([
+    fetchListingRelatedRows(supabaseClient, vins),
+    // ONE cache-only query for the whole page — a 48-card list costs 1 read and 0 recomputes.
+    fetchCanonicalTrustByVin(supabaseClient, vins),
+  ]);
+  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = related;
 
   const summaries = publicVehicles.map(vehicle => buildMarketplaceListingSummary({
     vehicle,
@@ -512,6 +643,7 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     partSentryRows: partSentryByVin.get(vehicle.vin) || [],
     ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
     imageRows: imagesByVin.get(vehicle.vin) || [],
+    canonicalTrust: trustByVin.get(vehicle.vin) || null,
   }));
 
   const filtered = summaries
@@ -525,5 +657,7 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     listings: sorted.slice(0, limit),
     total: filtered.length,
     limit,
+    // The ordering describes itself, so "first card" is never mistaken for "most trusted".
+    ranking: describeTrustRanking(filtered, params.sort),
   };
 }

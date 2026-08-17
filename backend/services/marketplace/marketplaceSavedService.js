@@ -8,6 +8,7 @@ import { supabase } from '../../db/supabase.js';
 import {
   LISTING_SELECT_COLUMNS,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
 } from './listingSummaryService.js';
@@ -68,6 +69,8 @@ export async function listSavedListings(client, actor) {
   const visible = filterVisibleVehicles(vehicles);
   const visibleVins = visible.map((v) => v.vin).filter(Boolean);
   const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, visibleVins);
+  // A saved card must show the same trust position as the list it was saved from.
+  const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, visibleVins);
 
   const listings = visible.map((vehicle) =>
     buildMarketplaceListingSummary({
@@ -76,6 +79,7 @@ export async function listSavedListings(client, actor) {
       partSentryRows: partSentryByVin.get(vehicle.vin) || [],
       ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
       imageRows: imagesByVin.get(vehicle.vin) || [],
+      canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     })
   );
   return { listings, total: listings.length };

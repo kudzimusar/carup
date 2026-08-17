@@ -148,7 +148,9 @@ function renderDealer(dealerCompliance) {
 function publicationDimension(completeness, fraudInput, dealerCompliance) {
   if (!completeness) return notEvaluated('publication');
   const reasons = [];
-  if (!completeness.is_publishable) for (const g of (completeness.blocking_gaps || [])) reasons.push(`blocking:${g}`);
+  // blocking_gaps are {key,label}; this dimension is PUBLIC in toPublicDecision and its reason
+  // codes are rendered, so interpolating the object publishes "blocking:[object Object]".
+  if (!completeness.is_publishable) for (const g of (completeness.blocking_gaps || [])) reasons.push(`blocking:${g?.key ?? g}`);
   if (fraudInput && fraudInput.blocks_publication) reasons.push('fraud_block');
   if (dealerCompliance && dealerCompliance.suspension_state === 'suspended') reasons.push('dealer_suspended');
   const blocked = reasons.length > 0;
@@ -182,7 +184,9 @@ export function assembleDecision(inputs) {
     identity: identityDimension(vehicle, sourceConflictsList),
     evidence_completeness: completeness
       ? dim(completeness.is_publishable ? 'complete' : 'incomplete', `${completeness.completeness_percent}%`,
-          (completeness.blocking_gaps || []).map((g) => `blocking:${g}`),
+          // blocking_gaps are {key,label} objects; interpolating the object yields
+          // "blocking:[object Object]", and these reason codes are rendered to buyers.
+          (completeness.blocking_gaps || []).map((g) => `blocking:${g?.key ?? g}`),
           { rest: { pending_gaps: completeness.pending_gaps || [] } })
       : notEvaluated('completeness'),
     evidence_confidence: completeness
@@ -286,7 +290,12 @@ export function toPublicDecision(decision) {
     vin: decision.vin,
     calculation_version: decision.calculation_version,
     last_updated: decision.last_updated,
-    overall_trust: { status: decision.overall_trust.status, value: decision.overall_trust.value },
+    // NO overall_trust. The canonical `trust` projection (canonicalTrustService.toPublicTrust) is
+    // the single public statement of the position; carrying a second, live-recomputed score here
+    // put both answers in one response body — buyers saw "50 · moderate" beside "Not evaluated"
+    // for the same VIN at the same instant. This buyer-safe view explains a position through its
+    // dimensions and reason codes; it does not restate it. The privileged branch keeps the full
+    // decision, overall_trust included.
     dimensions: publicDims,
     known_limitations: decision.known_limitations,
   };

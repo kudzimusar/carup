@@ -11,7 +11,21 @@ import { authorizeRole, optionalAuth } from './middleware/authMiddleware.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
-import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore, calculateVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
+// trustGraphService is the DEPRECATED 70-baseline engine. Only its non-score signal collection is
+// used from here (see buildVehiclePassport); its score is never published, and
+// `calculateVehicleTrustScore` — the writer that stamps vehicles.trust_score with no calculation
+// version — is deliberately NOT imported, so this file cannot reach it.
+import { getVehicleTimeline, runOdometerAudit, computeVehicleTrustScore } from './services/trustGraph/trustGraphService.js';
+// The canonical trust authority (ADR-001, Issue #164 Phase 3): the ONE place any surface asks what
+// CarUp's trust position on a VIN is. Every trust number this file publishes comes from here.
+import {
+  RECOMPUTE,
+  TRUST_EVALUATION_STATES,
+  getCanonicalTrust,
+  getCanonicalTrustBatch,
+  publicTrustViolations,
+  toPublicTrust,
+} from './services/trustDecision/canonicalTrustService.js';
 import { verifyChain, addEvent } from './services/blockchain/blockchainService.js';
 import { createEscrow, updateEscrowStatus } from './services/safepay/escrowService.js';
 import { addRepairLog, getRepairHistory } from './services/partsentry/partsentryService.js';
@@ -439,11 +453,94 @@ app.get('/api/vehicles/:vin/details', async (req, res) => {
     if (!isPublicVehicleStatus(vehicle.status) || !isPubliclyVisiblePublication(vehicle.publication_status)) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
-    res.json(vehicle);
+    // The row's stored trust_score is an unversioned cache: it is replaced by the canonical
+    // projection here so this endpoint cannot be the one that still hands a shopper the 84.
+    const [projected] = await withCanonicalTrust([vehicle]);
+    res.json(projected);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * Publish a canonical trust record through the ONE public contract, guarded.
+ *
+ * `publicTrustViolations` is the shared checker the canonical service and its guard suite use, so
+ * this route cannot drift from the contract it claims to serve. A shape that fails it is NOT
+ * shipped half-published: the surface reports `unavailable` and says so, because a malformed trust
+ * projection is a fault in us, never a finding about the vehicle.
+ */
+function publishCanonicalTrust(vin, record, context) {
+  const shape = toPublicTrust(record);
+  const violations = publicTrustViolations(shape);
+  if (violations.length === 0) return shape;
+  console.error(`Canonical trust contract violated in ${context} for ${vin}: ${violations.join(', ')}`);
+  return toPublicTrust({
+    vin: vin || '',
+    evaluation_state: TRUST_EVALUATION_STATES.UNAVAILABLE,
+    known_limitations: [
+      'The canonical trust projection failed its own contract check, so no trust score is published for this vehicle.',
+    ],
+  });
+}
+
+/**
+ * The canonical trust projection for a page of vehicles, keyed by VIN. ONE cache-only query, zero
+ * recomputes, and an entry for EVERY requested VIN — so no branch below is left with a gap it might
+ * fill from the row's own `trust_score` column.
+ */
+async function canonicalTrustForVins(vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  const out = new Map();
+  if (!wanted.length) return out;
+  const records = await getCanonicalTrustBatch(wanted, { client: supabase });
+  for (const [vin, record] of records) out.set(vin, publishCanonicalTrust(vin, record, 'vehicle list'));
+  return out;
+}
+
+/**
+ * Replace the stored `trust_score` on every vehicle row leaving this file with the canonical
+ * projection, and attach that projection as `trust`.
+ *
+ * THE RULE THIS ENCODES: a vehicle-ROW read publishes the canonical cache state (cache-only — a
+ * page of rows must never trigger a page of recomputes). EVERY public surface is cache-only,
+ * including the passport: a surface that recomputed on read would publish a number the list cannot
+ * publish for the same VIN at the same instant, and the recomputing surface is the
+ * authoritative-looking one, so that disagreement is the more damaging of the two. The
+ * materialized position IS the public position; refreshCanonicalTrust is what makes it current.
+ * What can no longer happen is a row publishing an unversioned 84 nobody can attribute.
+ */
+async function withCanonicalTrust(vehicles) {
+  const rows = (vehicles || []).filter(Boolean);
+  const trustByVin = await canonicalTrustForVins(rows.map((vehicle) => vehicle.vin));
+  return rows.map((vehicle) => {
+    const trust = trustByVin.get(vehicle.vin) || null;
+    return { ...vehicle, trust_score: trust?.score ?? null, trust };
+  });
+}
+
+/**
+ * Order by canonical trust, highest first, with every unscored vehicle after every scored one.
+ *
+ * A vehicle with no canonical evaluation is NOT a zero and must not be ranked as one — it sorts
+ * last in its original order rather than being pushed to the bottom of a numeric scale it was
+ * never measured on.
+ */
+function rankByCanonicalTrust(vehicles) {
+  return (vehicles || [])
+    .map((vehicle, index) => ({ vehicle, index }))
+    .sort((a, b) => {
+      // Number.isFinite, matching the /api/vehicles filter: a NaN is not a rank position, and
+      // `typeof NaN === 'number'` would sort it first.
+      const aScore = Number.isFinite(a.vehicle?.trust?.score) ? a.vehicle.trust.score : null;
+      const bScore = Number.isFinite(b.vehicle?.trust?.score) ? b.vehicle.trust.score : null;
+      if (aScore === null && bScore === null) return a.index - b.index;
+      if (aScore === null) return 1;
+      if (bScore === null) return -1;
+      return bScore - aScore || a.index - b.index;
+    })
+    .map((entry) => entry.vehicle);
+}
 
 // --- PILLAR 8: ADVANCED TAXONOMY & SEARCH ---
 app.get('/api/vehicles', async (req, res) => {
@@ -466,12 +563,32 @@ app.get('/api/vehicles', async (req, res) => {
     if (drivetrain) query = query.eq('drivetrain', drivetrain);
     if (dutyPaid !== undefined) query = query.eq('duty_paid', dutyPaid === 'true');
     if (policeVerified !== undefined) query = query.eq('police_verified', policeVerified === 'true');
-    if (trustRange) query = query.gte('trust_score', parseFloat(trustRange));
-    
+    // NO `.gte('trust_score', …)` HERE. The stored column is an unversioned cache with several
+    // writers: filtering on it lets a hand-set 84 satisfy "show me vehicles above 80" and lets a
+    // legitimately-unscored vehicle be excluded by a number nobody can attribute. The threshold is
+    // applied below against the CANONICAL score instead, where "no canonical evaluation" correctly
+    // fails the filter rather than passing it on a legacy value.
+
     const { data: vehicles, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    
-    res.json(vehicles);
+
+    // PUBLIC_VEHICLE_SELECT still carries the raw trust_score column (the projection contract owns
+    // that list), so the VALUE is overwritten with the canonical projection before anything leaves
+    // this route. One query for the whole page; a vehicle with no canonical evaluation publishes
+    // null plus the state that says why, never the stored number.
+    const projected = await withCanonicalTrust(vehicles);
+
+    const threshold = trustRange === undefined ? null : parseFloat(trustRange);
+    const filtered = threshold === null || !Number.isFinite(threshold)
+      ? projected
+      // A vehicle with no canonical score cannot satisfy a trust filter. It is not ranked at zero
+      // and not admitted on the strength of an unversioned number — it is simply not an answer to
+      // the question "which vehicles score at least N?". The predicate reads `trust.score`, the
+      // authority's own field, rather than the `trust_score` key beside it, so no later edit to
+      // that key can quietly put the legacy column back into the filter.
+      : projected.filter((vehicle) => Number.isFinite(vehicle.trust?.score) && vehicle.trust.score >= threshold);
+
+    res.json(filtered);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -548,11 +665,42 @@ const passportLookupLimiter = rateLimiter({ max: 10, windowMs: 60 * 1000, isSens
 // vehicle. Kept narrow: widening this widens the unredacted identity surface.
 const PASSPORT_PRIVILEGED_ROLES = new Set(['admin', 'government']);
 
+/**
+ * The canonical trust projection a passport publishes, read here rather than inside
+ * buildVehiclePassport so the passport composes over a value it was handed instead of reaching for
+ * an authority of its own — the same reason the vehicle row, the chain and the timeline are all
+ * passed through governed projections.
+ *
+ * Every public surface reads the MATERIALIZED position, cache-only — the passport, the marketplace
+ * list and detail, and the buyer-facing trust-decision route alike. None of them recomputes on
+ * read, so they cannot disagree: they either all report the same score under the same
+ * calculation_version, or all report that there is none. refreshCanonicalTrust is what makes that
+ * position current.
+ */
+async function canonicalPassportTrust(vin) {
+  // CACHE-ONLY, deliberately. Recomputing here would make the passport publish a number the
+  // marketplace list cannot publish for the same VIN at the same instant — the list is cache-only
+  // because 48 recomputes per page is not viable. Two public answers for one vehicle is the exact
+  // defect this phase exists to close, and the recomputing surface is the authoritative-looking
+  // one, so it is the more damaging of the two. The materialized position is the public position;
+  // refreshCanonicalTrust is what makes it current.
+  return publishCanonicalTrust(
+    vin,
+    await getCanonicalTrust(vin, { client: supabase, recompute: RECOMPUTE.NEVER }),
+    'vehicle passport',
+  );
+}
+
 // Structured helper to build and redact vehicle passport.
 // Caller identity MUST already be resolved by optionalAuth() on the route: this
 // function never reads x-session-token/x-user-id itself, because an unverified
 // header must not be able to buy the owner audience.
-async function buildVehiclePassport(vin, req) {
+//
+// `canonicalTrust` is the ONE trust number this body publishes: the 10-field projection from
+// canonicalTrustService (via canonicalPassportTrust above). Both routes supply it. A caller that
+// supplies nothing gets `trustReport: null` — no projection accompanied this render — which is a
+// statement about the request, never a score of zero for the vehicle.
+async function buildVehiclePassport(vin, req, canonicalTrust = null) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
     .select('*')
@@ -584,7 +732,42 @@ async function buildVehiclePassport(vin, req) {
 
   const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
   const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
-  const trustReport = await computeVehicleTrustScore(vin);
+
+  // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
+  //
+  // This used to be `computeVehicleTrustScore(vin)`, the deprecated 70-baseline trustGraph engine,
+  // whose number was shipped as `trustReport` and rendered live. For one VIN that engine published
+  // 90 while the trust-decision route published 50 and the marketplace card published 84 — three
+  // numbers, one vehicle, no version stamp on any of them. The value is now the canonical
+  // projection supplied by the route (canonicalPassportTrust), carrying calculation_version and
+  // evaluation_state so a reader can tell a current score from a withheld or absent one.
+  const trustReport = canonicalTrust ?? null;
+
+  // The non-score signals the passport has always shown (ZIMRA/CVR/ZRP/odometer/ledger/service
+  // records). They are FACTS COLLECTED, not a score: the deprecated engine's own `trustScore` is
+  // discarded here rather than republished under a new name, and `evidence_trust_impact` — a raw
+  // scoring component — is dropped with it, so the passport body carries exactly one trust number.
+  const legacySignalReport = await computeVehicleTrustScore(vin);
+  const legacyMetrics = legacySignalReport && typeof legacySignalReport === 'object'
+    ? legacySignalReport.metrics
+    : null;
+  const trustSignals = legacyMetrics
+    ? {
+      cvr_synced: legacyMetrics.cvr_synced,
+      zimra_duty: legacyMetrics.zimra_duty,
+      zrp_police_cleared: legacyMetrics.zrp_police_cleared,
+      blockchain_audit_valid: legacyMetrics.blockchain_audit_valid,
+      odometer_consistent: legacyMetrics.odometer_consistent,
+      maintenance_logs_count: legacyMetrics.maintenance_logs_count,
+      stolen_alert_active: legacyMetrics.stolen_alert_active,
+      verified_evidence_count: legacyMetrics.verified_evidence_count,
+      rejected_evidence_count: legacyMetrics.rejected_evidence_count,
+      // Stated so a client cannot mistake these for the trust assessment: they are inputs that were
+      // observed, and none of them is a CarUp verdict on the vehicle.
+      signals_are_not_a_trust_score: true,
+    }
+    : null;
+
   const chainVerification = await verifyChain(vin);
 
   // Fetch plate history
@@ -770,7 +953,14 @@ async function buildVehiclePassport(vin, req) {
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
     evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
+    // The canonical 10-field projection — vin, score (null when there is nothing canonical to
+    // publish), band, evaluation_state, confidence, evidence_basis, calculation_version,
+    // evaluated_at, known_limitations, source. The key is unchanged so existing clients keep
+    // resolving it; the VALUE is no longer the deprecated engine's unversioned number.
     trustReport,
+    // Same signals as before, minus every score. Kept OUT of trustReport because that object's key
+    // set is the public trust contract and may not be extended.
+    trustSignals,
     // chain[] carries each ledger event's raw uncontrolled payload, which in practice holds
     // owner names. Unauthorized callers get the integrity verdict only, never the entries.
     chainVerification: isAuthorized
@@ -809,7 +999,7 @@ async function buildVehiclePassport(vin, req) {
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin));
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -854,7 +1044,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin));
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
@@ -1155,7 +1345,14 @@ app.get('/api/vehicles/:vin/recommendations', async (req, res) => {
   const { vin } = req.params;
   try {
     const result = await getSmartRecommendations(vin);
-    res.json(result);
+    // This route is public and unauthenticated. getSmartRecommendations selects and ORDERs BY the
+    // raw trust_score column, so without this projection it republishes — and ranks by — the
+    // unversioned legacy number every other surface has stopped publishing.
+    const rows = Array.isArray(result) ? result : (result?.recommendations || result?.vehicles || []);
+    const ranked = rankByCanonicalTrust(await withCanonicalTrust(rows));
+    res.json(Array.isArray(result)
+      ? ranked
+      : { ...result, ...(result?.recommendations ? { recommendations: ranked } : { vehicles: ranked }) });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1514,7 +1711,12 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
       import_source: import_status === 'imported' ? 'import' : (candidate.import_source || 'local'),
       duty_paid: false, police_verified: false,
-      status: normalizeVehicleStatus(candidate.status), trust_score: 50, price: candidate.price, currency: currency || 'USD',
+      // A brand-new listing has NOT been evaluated, so it is stamped with no score. The explicit
+      // null matters: public.vehicles.trust_score DEFAULTS TO 80.0, so omitting the column would
+      // hand every new listing a fabricated 80 — worse than the 50 this used to write. Only
+      // canonicalTrustService.refreshCanonicalTrust may put a number in this column, and only
+      // together with the calculation_version that makes it publishable (INV-TRUST-2).
+      status: normalizeVehicleStatus(candidate.status), trust_score: null, price: candidate.price, currency: currency || 'USD',
       owner_id: candidate.owner_id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
@@ -1833,7 +2035,10 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
       .eq('owner_id', req.userContext.id)
 
     if (error) throw error
-    res.json(data || [])
+    // An owner is shown their vehicle's trust position through the same authority as everyone else.
+    // The raw column here is what the owner dashboard rendered as "Trust Index %", which is the
+    // unattributable number in its most persuasive form: shown to the person who will repeat it.
+    res.json(await withCanonicalTrust(data))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)
     res.status(500).json({ error: error.message })
@@ -1851,7 +2056,9 @@ app.get('/api/vehicles/saved', authorizeRole(['owner', 'dealer', 'admin']), asyn
       .eq('user_id', req.userContext.id)
 
     if (error) throw error
-    res.json(data.map(sv => sv.vehicles))
+    // Saved cards render a trust figure like any other listing, so they get the canonical
+    // projection too — the embedded row's stored trust_score is never published.
+    res.json(await withCanonicalTrust((data || []).map(sv => sv.vehicles)))
   } catch (error) {
     console.error('Error fetching saved vehicles:', error)
     res.status(500).json({ error: error.message })

@@ -14,6 +14,7 @@ import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import {
   LISTING_SELECT_COLUMNS,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   shouldShowFixtures,
 } from './listingSummaryService.js';
@@ -179,6 +180,9 @@ export async function listListingsForAdmin(client, filters = {}) {
   const candidates = (vehicles || []).filter((v) => showFixtures || getFixtureExclusion(v) === null);
   const vins = candidates.map((v) => v.vin).filter(Boolean);
   const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, vins);
+  // A moderator must see the same trust position a buyer sees; without this the admin queue shows
+  // blank trust for every listing, which is indistinguishable from "we evaluated it and found none".
+  const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, vins);
 
   const rows = candidates.map((vehicle) => {
     const partSentryRows = partSentryByVin.get(vehicle.vin) || [];
@@ -188,6 +192,7 @@ export async function listListingsForAdmin(client, filters = {}) {
       partSentryRows,
       ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
       imageRows: imagesByVin.get(vehicle.vin) || [],
+      canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     });
     const public_status = deriveListingPublicStatus(vehicle.status);
     const suspicion = deriveSuspicionLevel(partSentryRows);

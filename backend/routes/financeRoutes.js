@@ -43,7 +43,10 @@ router.get('/api/finance/applications', authorizeRole(['admin', 'finance', 'bank
     make: app.vehicles?.make || 'Vehicle',
     model: app.vehicles?.model || '',
     year: app.vehicles?.year || '',
-    trust_score: app.vehicles?.trust_score || 50
+    // Never fabricate a score for a lender. `|| 50` fired whenever the column was absent — and
+    // since listings are now created with a NULL trust_score, that was every new application.
+    // A credit decision-maker must be able to tell "unscored" from "scored 50".
+    trust_score: Number.isFinite(app.vehicles?.trust_score) ? app.vehicles.trust_score : null
   }));
 
   res.json(flattened);

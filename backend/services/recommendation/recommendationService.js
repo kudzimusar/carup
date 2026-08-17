@@ -23,7 +23,12 @@ export async function getSmartRecommendations(vin, limit = 3) {
       .neq('vin', vin)
       .in('status', publicVehicleStatusFilterValues())
       .in('publication_status', publiclyVisiblePublicationStatuses())
-      .order('trust_score', { ascending: false })
+      // Ordering by trust_score here selected WHICH vehicles a public shopper is shown, using the
+      // unversioned legacy column no surface is allowed to publish — and since listings are now
+      // created with a NULL score, Postgres NULLS FIRST made brand-new unscored listings the
+      // PREFERRED candidates. Recency is an honest, non-trust selection basis; the route ranks the
+      // survivors by canonical trust afterwards.
+      .order('created_at', { ascending: false })
       .limit(limit);
 
   if (referenceCar.make) {
@@ -47,7 +52,7 @@ export async function getSmartRecommendations(vin, limit = 3) {
     }
   }
 
-  return [...recommendationsByVin.values()]
-    .sort((a, b) => (b.trust_score || 0) - (a.trust_score || 0))
-    .slice(0, limit);
+  // No trust ordering here either: `|| 0` ranked an unscored vehicle as a zero, and the value it
+  // read is the legacy column. The caller applies canonical trust ranking.
+  return [...recommendationsByVin.values()].slice(0, limit);
 }

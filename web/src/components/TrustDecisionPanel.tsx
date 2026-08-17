@@ -69,17 +69,15 @@ export function TrustDecisionPanel({ vin, initialData }: { vin: string; initialD
   }
   if (!data) return null
 
-  const overall = data.overall_trust
-  const overallTone = overall.status === 'insufficient_evidence' ? 'text-gray-500' : overall.status === 'high' ? 'text-green-700' : overall.status === 'low' ? 'text-red-700' : 'text-amber-700'
-
+  // This panel EXPLAINS the trust position through its dimensions; it does not state it. The single
+  // public statement is the canonical projection rendered by the page. Restating a score here put
+  // two answers on one screen — "50 · moderate" beside "Not evaluated" for the same VIN — because
+  // this figure came from a live recompute while every other surface reads the materialized cache.
   return (
     <Card className="border-0 card-shadow" data-testid="trust-decision-panel">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold flex items-center justify-between">
-          <span>Vehicle trust breakdown</span>
-          <span className={`text-sm ${overallTone}`} data-testid="overall-trust">
-            {overall.status === 'insufficient_evidence' ? 'Insufficient evidence' : `${overall.value} · ${overall.status}`}
-          </span>
+        <CardTitle className="text-base font-semibold">
+          <span>What this is based on</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">

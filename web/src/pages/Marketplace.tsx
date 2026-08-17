@@ -91,8 +91,32 @@ function normalizeText(value?: string | null) {
   return (value || '').toLowerCase()
 }
 
-function getTrustScore(vehicle: Vehicle) {
-  return vehicle.trust_score ?? vehicle.trustScore ?? 0
+/**
+ * The persisted `trust_score` on a listing summary is a CACHE, not an authority (Issue #164
+ * principle 2): it carries no calculation version, no evaluated-at and no evidence basis, so the
+ * card cannot tell a governed score from a stale or unfounded one. It is neither rendered NOR
+ * sorted on here — the governed assessment is published on the vehicle passport, which every card
+ * links to.
+ *
+ * RANKING IS A CLAIM, which is why there is no client-side trust sort at all. `sort=trust` goes to
+ * the listings API, and `listingSummaryService.sortSummaries()` ranks ONLY listings the canonical
+ * authority actually scored; everything unscored keeps newest-first order. Re-sorting that page
+ * here by the stored column would put the hand-set 84 back on top of a page the backend had just
+ * ordered honestly — the same defect, one layer up. The server's order is the order.
+ */
+
+/** What the ordering on the returned page ACTUALLY is, as the listings API reports it. */
+type TrustRanking = { requested?: string; applied?: string; note?: string }
+
+function readTrustRanking(payload: unknown): TrustRanking | null {
+  const ranking = (payload as { ranking?: unknown } | null | undefined)?.ranking
+  if (!ranking || typeof ranking !== 'object' || Array.isArray(ranking)) return null
+  const r = ranking as Record<string, unknown>
+  return {
+    requested: typeof r.requested === 'string' ? r.requested : undefined,
+    applied: typeof r.applied === 'string' ? r.applied : undefined,
+    note: typeof r.note === 'string' ? r.note : undefined,
+  }
 }
 
 function getFuelType(vehicle: Vehicle) {
@@ -243,6 +267,10 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     fuel_type: summary.fuel_type || undefined,
     transmission: summary.transmission || undefined,
     status: summary.status,
+    // Carried ONLY because `trust_score` is still required on the shared `Vehicle` type
+    // (shared/types/index.ts). Nothing in this file renders it and nothing sorts on it. Making it
+    // optional there, so the card model can drop it outright, is the remaining cleanup — it is a
+    // shared-type change and does not belong to this page.
     trust_score: summary.trust_score,
     price: summary.price,
     currency: summary.currency,
@@ -438,6 +466,10 @@ export default function Marketplace() {
   const [liveVehicles, setLiveVehicles] = useState<Vehicle[]>([])
   const [loadingVehicles, setLoadingVehicles] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  // What the returned page is actually ordered by. A shopper who picks "Highest Trust Score" while
+  // no listing carries a canonical evaluation gets newest-first, and must be told so rather than
+  // left to read the first card as the most trustworthy.
+  const [trustRanking, setTrustRanking] = useState<TrustRanking | null>(null)
   const [favorites, setFavoritesState] = useState<string[]>(getFavorites)
 
   // Saved listings are SERVER-backed and account-scoped for authenticated users (existing
@@ -548,6 +580,7 @@ export default function Marketplace() {
     fetchMarketplaceListings(apiFilters)
       .then((data) => {
         if (cancelled) return
+        setTrustRanking(readTrustRanking(data))
         if (data && Array.isArray(data.listings)) {
           setLiveVehicles(withMockFallback(data.listings.map(marketplaceSummaryToVehicle), mockVehicles as unknown as Vehicle[]))
         } else {
@@ -557,6 +590,9 @@ export default function Marketplace() {
       .catch(async (err) => {
         if (cancelled) return
         console.error('Failed to fetch marketplace listing summaries:', err)
+        // The fallback endpoint reports no ranking, so no ordering claim is carried over from the
+        // request that failed.
+        setTrustRanking(null)
         try {
           const data = await fetchVehicles(apiFilters)
           if (cancelled) return
@@ -640,7 +676,8 @@ export default function Marketplace() {
     if (sortBy === 'price-low') return (a.price || 0) - (b.price || 0)
     if (sortBy === 'price-high') return (b.price || 0) - (a.price || 0)
     if (sortBy === 'newest') return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
-    if (sortBy === 'trust') return getTrustScore(b) - getTrustScore(a)
+    // No `sortBy === 'trust'` branch. Trust ordering is the backend's, computed from canonical
+    // scores only; re-ranking it here on the unversioned cached column would undo exactly that.
     return 0
   })
 
@@ -945,6 +982,19 @@ export default function Marketplace() {
           </div>
         )}
 
+        {/* The requested trust ordering was not the ordering applied. Saying so is the point: a
+            silently newest-first page under a "Highest Trust Score" control invites the shopper to
+            read position as trust, which is the ranking claim this programme removed. */}
+        {!loadingVehicles && trustRanking?.requested === 'trust' && trustRanking.applied !== 'trust' && (
+          <div
+            className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-xs text-gray-600"
+            data-testid="marketplace-trust-ranking-notice"
+          >
+            {trustRanking.note
+              || 'No listing on this page carries a canonical trust evaluation, so these results are not ordered by trust.'}
+          </div>
+        )}
+
         {/* Result summary + count */}
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-gray-800" data-testid="marketplace-results-summary">
@@ -980,10 +1030,6 @@ export default function Marketplace() {
               const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
               const vehicleLabels = getVehicleLabels(vehicle)
               const cardLabels = vehicleLabels.slice(0, 4)
-              const trustScore = getTrustScore(vehicle)
-              // Insufficient evidence: trust score below threshold means we show a caution indicator,
-              // not suppress the listing — buyers see conservative signal, not a false positive.
-              const hasInsufficientEvidence = trustScore > 0 && trustScore < 30
               const passportHref = `/marketplace/${encodeURIComponent(vehicle.vin || vehicle.id || '')}`
               const plateStatus = getPlateStatusLabel(vehicle)
               return (
@@ -1012,9 +1058,9 @@ export default function Marketplace() {
                             Police Checked
                           </Badge>
                         )}
-                        {trustScore >= 75 && (
-                          <Badge className="bg-orange-500 text-white text-[10px]">High Trust</Badge>
-                        )}
+                        {/* No "High Trust" badge: it was awarded by a client-side score threshold
+                            against an unversioned cache, which is a trust claim this card has no
+                            authority to make. The governed assessment is on the passport. */}
                         {isReserved && (
                           <Badge className="bg-amber-500 text-white text-[10px]">Reserved</Badge>
                         )}
@@ -1063,17 +1109,12 @@ export default function Marketplace() {
                       </div>
                     </div>
                     <CardContent className="p-4">
+                      {/* No score, no "High Trust" and no "Low Evidence" tier on the card. The public
+                          listing contract carries only the unversioned cached number, which cannot
+                          support any of those claims, and inventing a threshold to replace them
+                          would repeat the fault. Trust is stated once, where it is governed. */}
                       <div className="flex items-start justify-between mb-1">
                         <h3 className="font-semibold text-sm line-clamp-1">{vehicleName}</h3>
-                        {hasInsufficientEvidence ? (
-                          <Badge variant="outline" className="ml-2 shrink-0 border-amber-300 text-amber-700 text-[10px]" data-testid="marketplace-low-evidence-badge">
-                            Low Evidence
-                          </Badge>
-                        ) : trustScore > 0 ? (
-                          <Badge variant="secondary" className="ml-2 shrink-0" data-testid="marketplace-trust-score">
-                            Trust {trustScore}
-                          </Badge>
-                        ) : null}
                       </div>
                       <p className="text-xl font-bold text-orange-600">${(vehicle.price || 0).toLocaleString()}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1095,6 +1136,11 @@ export default function Marketplace() {
                       </div>
                       <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
                         {plateStatus}
+                      </p>
+                      {/* Identical on every card by design: it explains why no card shows a score,
+                          so a missing badge is not read as an adverse signal about this listing. */}
+                      <p className="mt-1 text-xs text-gray-500" data-testid="marketplace-trust-deferred">
+                        Trust assessment shown on the vehicle passport
                       </p>
                       <Separator className="my-3" />
                       <div className="flex items-center justify-between gap-3">

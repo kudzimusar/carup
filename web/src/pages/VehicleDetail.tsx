@@ -40,6 +40,7 @@ import type {
   TemporalFinding,
   DisclosureConflict,
   VehicleHistoryReportData,
+  TrustDecision,
 } from '@/types'
 import { TrustSummaryPanel } from '@/components/marketplace/TrustSummaryPanel'
 import { SourceCoveragePanel } from '@/components/SourceCoveragePanel'
@@ -64,7 +65,9 @@ function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
     fuel_type: d.fuel_type || undefined,
     transmission: d.transmission || undefined,
     status: d.status,
-    trust_score: d.trust_score,
+    // `trust_score` is deliberately NOT carried over. It is the unversioned cache column, the page
+    // renders no trust claim from it, and leaving it on the hydrated Vehicle is how a later edit
+    // reaches for it as a fallback. The canonical projection is the only trust input here.
     images: (d.media || []).filter((m) => m.type === 'image').map((m) => m.url),
     location: d.location,
     sellerName: d.seller_summary?.display_label,
@@ -125,14 +128,42 @@ function timelineIcon(source: string) {
 
 // Removed formatEvidenceLabel since it is no longer used here
 
+/**
+ * The passport's non-score signals. These moved from `trustReport.metrics` to `trustSignals` when
+ * `trustReport` became the canonical projection (server.js: "Kept OUT of trustReport because that
+ * object's key set is the public trust contract"). They are FACTS OBSERVED, never a verdict — the
+ * backend even stamps `signals_are_not_a_trust_score: true` on them — so nothing here is combined
+ * into a score.
+ */
+type TrustSignals = {
+  cvr_synced?: boolean
+  zimra_duty?: boolean
+  zrp_police_cleared?: boolean
+  odometer_consistent?: boolean
+  maintenance_logs_count?: number
+  stolen_alert_active?: boolean
+}
+
+function readTrustSignals(passport: VehiclePassport | null): TrustSignals | null {
+  const raw = (passport as { trustSignals?: unknown } | null | undefined)?.trustSignals
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  return raw as TrustSignals
+}
+
 // ── Derive Verification sources from passport data ──────────────────────────
+/**
+ * WHEN NO SIGNALS WERE REPORTED, NOTHING IS CLAIMED IN EITHER DIRECTION. Every row below used to
+ * collapse "the passport reported nothing" into the negative branch, which published sentences like
+ * "No active stolen vehicle alert" and "CID check passed" off an absent object — a clean bill of
+ * health fabricated from a missing field. Absent signals now render `unknown`.
+ */
 function buildVerificationSources(passport: VehiclePassport | null): PassportVerificationSource[] {
   if (!passport) return []
 
-  const m = passport.trustReport?.metrics
+  const m = readTrustSignals(passport)
   const chain = passport.chainVerification
 
-  return [
+  const sources: PassportVerificationSource[] = [
     {
       label: 'VIN / Ledger Integrity',
       status: chain?.verified ? 'verified' : 'not_verified',
@@ -140,46 +171,63 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
         ? 'Blockchain hash chain verified — no tampering detected'
         : 'Ledger integrity check failed or no events recorded',
     },
+  ]
+
+  if (!m) {
+    // The passport carried no signal report. Say that, once, instead of seven fabricated verdicts.
+    return [
+      ...sources,
+      {
+        label: 'Registry & clearance checks',
+        status: 'unknown',
+        detail: 'This passport reported no registry, clearance or odometer signals, so none is '
+          + 'stated for this vehicle in either direction.',
+      },
+    ]
+  }
+
+  return [
+    ...sources,
     {
       label: 'ZIMRA Customs Cleared',
-      status: m?.zimra_duty ? 'verified' : 'not_verified',
-      detail: m?.zimra_duty
+      status: m.zimra_duty ? 'verified' : 'not_verified',
+      detail: m.zimra_duty
         ? 'Import duty paid and confirmed via ZIMRA registry'
         : 'No ZIMRA customs declaration found',
     },
     {
       label: 'CVR Ownership Registration',
-      status: m?.cvr_synced ? 'verified' : 'not_verified',
-      detail: m?.cvr_synced
+      status: m.cvr_synced ? 'verified' : 'not_verified',
+      detail: m.cvr_synced
         ? 'Vehicle registered in Central Vehicle Registry'
         : 'CVR record not yet linked',
     },
     {
       label: 'ZRP Police Clearance',
-      status: m?.zrp_police_cleared ? 'verified' : 'not_verified',
-      detail: m?.zrp_police_cleared
+      status: m.zrp_police_cleared ? 'verified' : 'not_verified',
+      detail: m.zrp_police_cleared
         ? 'CID check passed — not flagged as stolen'
         : 'CID police clearance not yet recorded',
     },
     {
       label: 'Odometer Consistency',
-      status: m?.odometer_consistent ? 'verified' : 'warning',
-      detail: m?.odometer_consistent
+      status: m.odometer_consistent ? 'verified' : 'warning',
+      detail: m.odometer_consistent
         ? 'No odometer rollback anomalies detected across service logs'
         : 'Potential mileage discrepancy detected — inspect service history',
     },
     {
       label: 'Active Stolen Alert',
-      status: m?.stolen_alert_active ? 'warning' : 'verified',
-      detail: m?.stolen_alert_active
+      status: m.stolen_alert_active ? 'warning' : 'verified',
+      detail: m.stolen_alert_active
         ? '⚠️ Active police alert on this VIN — do not purchase'
         : 'No active stolen vehicle alert',
     },
     {
       label: 'Service Records',
-      status: (m?.maintenance_logs_count ?? 0) >= 1 ? 'verified' : 'not_verified',
-      detail: (m?.maintenance_logs_count ?? 0) >= 1
-        ? `${m?.maintenance_logs_count} signed maintenance log(s) on the blockchain ledger`
+      status: (m.maintenance_logs_count ?? 0) >= 1 ? 'verified' : 'not_verified',
+      detail: (m.maintenance_logs_count ?? 0) >= 1
+        ? `${m.maintenance_logs_count} signed maintenance log(s) on the blockchain ledger`
         : 'No mechanic-signed service records found',
     },
   ]
@@ -197,29 +245,221 @@ function VerificationBadge({ status }: { status: PassportVerificationSource['sta
   return <Badge className={`${cls} text-[10px]`}>{label}</Badge>
 }
 
-// ── Trust breakdown: map TrustMetrics → percentage display scores ─────────
-function buildTrustBreakdown(passport: VehiclePassport | null): { label: string; score: number }[] {
-  if (!passport?.trustReport?.metrics) return []
+// ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
+/**
+ * THE TEN FIELDS. `backend/services/trustDecision/canonicalTrustService.js` → `toPublicTrust()` is
+ * the ONE public trust contract. This page renders those ten fields and derives NOTHING from
+ * anything else:
+ *
+ *   - `vehicle.trust_score` is never read for a trust claim. It is an unversioned cache column with
+ *     several writers, and it is where the hand-set 84 came from.
+ *   - `passport.trustReport` is now the canonical projection itself (server.js
+ *     `canonicalPassportTrust`). It used to be the deprecated 70-baseline trustGraph engine's
+ *     `{trustScore, metrics}`, which is where the 90 came from; the non-score signals moved to
+ *     `passport.trustSignals`, and `readPublicTrust` refuses the old shape outright.
+ *   - `decision.overall_trust.*` is never read for a trust claim either. Reading it was a SECOND
+ *     forked public contract: the authority publishes a real 0 for the `insufficient_evidence`
+ *     band and this page used to suppress it, so the same VIN read differently here than in the
+ *     projection every other surface consumes.
+ *
+ * The decision is still fetched — its `dimensions[].reason_codes` say WHY, which the projection
+ * does not carry — but the number, the band, the lifecycle state, the confidence, the evidence
+ * basis and the limitations are all the projection's, verbatim.
+ *
+ * TWO TRANSPORTS, ONE CONTRACT. The projection reaches this page on the passport (public, always
+ * fetched) and, when that route also publishes it, beside the trust decision. Both are the same
+ * `toPublicTrust()` output from the same service and both are read by the one function below, so
+ * this is one contract carried two ways — not two contracts.
+ *
+ * SCORE `null` IS NOT `0`. A null score means no canonical evaluation exists; it must render as an
+ * explicit state, never as a number, a bar, or a percentage.
+ */
+const EVIDENCE_BASIS_FIELDS = [
+  'governed_facts_total',
+  'governed_facts_substantiated',
+  'governed_facts_adverse',
+  'connected_sources',
+  'unbacked_legacy_claims',
+] as const
 
-  const m = passport.trustReport.metrics
-  const base = passport.trustReport.trustScore ?? 70
+type PublicTrustEvidenceBasis = Record<(typeof EVIDENCE_BASIS_FIELDS)[number], number | null>
 
-  return [
-    { label: 'Documentation',    score: m.cvr_synced && m.zimra_duty ? 95 : m.cvr_synced || m.zimra_duty ? 70 : 40 },
-    { label: 'Service History',  score: Math.min(100, 50 + m.maintenance_logs_count * 10) },
-    { label: 'Ownership Clarity',score: m.cvr_synced ? 92 : 55 },
-    { label: 'Police Clearance', score: m.zrp_police_cleared ? 98 : m.stolen_alert_active ? 0 : 50 },
-    { label: 'Ledger Integrity', score: m.blockchain_audit_valid ? 100 : 20 },
-    { label: 'Odometer',         score: m.odometer_consistent ? Math.round(base) : 30 },
-  ]
+type PublicTrust = {
+  vin: string
+  score: number | null
+  band: string | null
+  evaluation_state: string
+  confidence: string
+  evidence_basis: PublicTrustEvidenceBasis | null
+  calculation_version: string | null
+  evaluated_at: string | null
+  known_limitations: string[]
+  source: string
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * Read a canonical projection. This narrows types; it does not compute. A field the server did not
+ * send stays absent (null / 'unavailable') rather than being reconstructed from anything else on
+ * the response — reconstructing it is what forking the contract means.
+ *
+ * `evaluation_state` is the discriminator, and it is required. That is what makes the deprecated
+ * `{vin, trustScore, metrics}` shape parse as NOTHING rather than as a trust record: against a
+ * server that still serves the old passport body this page reports "unavailable" instead of
+ * quietly publishing the 70-baseline engine's number again.
+ */
+function readPublicTrust(raw: unknown): PublicTrust | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const t = raw as Record<string, unknown>
+  if (typeof t.evaluation_state !== 'string') return null
+  const basis = t.evidence_basis
+  return {
+    vin: typeof t.vin === 'string' ? t.vin : '',
+    score: numberOrNull(t.score),
+    band: typeof t.band === 'string' ? t.band : null,
+    evaluation_state: t.evaluation_state,
+    confidence: typeof t.confidence === 'string' ? t.confidence : 'not_evaluated',
+    evidence_basis: basis && typeof basis === 'object' && !Array.isArray(basis)
+      ? EVIDENCE_BASIS_FIELDS.reduce((out, field) => {
+        out[field] = numberOrNull((basis as Record<string, unknown>)[field])
+        return out
+      }, {} as PublicTrustEvidenceBasis)
+      : null,
+    calculation_version: typeof t.calculation_version === 'string' ? t.calculation_version : null,
+    evaluated_at: typeof t.evaluated_at === 'string' ? t.evaluated_at : null,
+    known_limitations: Array.isArray(t.known_limitations)
+      ? t.known_limitations.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+    source: typeof t.source === 'string' ? t.source : 'none',
+  }
+}
+
+/**
+ * Band labels. An unrecognised band falls through unchanged rather than being mapped onto a
+ * familiar tier, so a vocabulary change upstream stays visible instead of being absorbed. There is
+ * deliberately no 'Excellent' / 'Good' / 'Fair' / 'High Trust' here: those were client-side tiers
+ * awarded by thresholds this page has no authority to set.
+ */
+const TRUST_BAND_LABELS: Record<string, string> = {
+  high: 'High trust',
+  moderate: 'Moderate trust',
+  low: 'Low trust',
+  insufficient_evidence: 'Insufficient evidence',
+}
+const TRUST_BAND_TONE: Record<string, { badge: string; text: string }> = {
+  high: { badge: 'bg-green-600', text: 'text-green-700' },
+  moderate: { badge: 'bg-amber-500', text: 'text-amber-700' },
+  low: { badge: 'bg-red-500', text: 'text-red-700' },
+  insufficient_evidence: { badge: 'bg-gray-500', text: 'text-gray-600' },
+}
+const TRUST_NEUTRAL_TONE = { badge: 'bg-gray-500', text: 'text-gray-600' }
+
+/** Lifecycle labels — the axis that says whether an evaluation exists at all. */
+const TRUST_STATE_LABELS: Record<string, string> = {
+  evaluated: 'Evaluated',
+  stale: 'Assessment out of date',
+  not_evaluated: 'Not evaluated',
+  unavailable: 'Trust assessment unavailable',
+}
+
+/** Why there is, or is not, a number. Every state reads differently from every other. */
+const TRUST_STATE_DETAIL: Record<string, string> = {
+  stale: 'This vehicle was last assessed under superseded rules. The earlier score is withheld '
+    + 'rather than shown as if it were current.',
+  not_evaluated: 'CarUp has not produced a governed trust assessment for this vehicle. That is not '
+    + 'a score of zero and says nothing for or against the vehicle.',
+  unavailable: 'CarUp could not produce a trust assessment for this request. That is a fact about '
+    + 'the request, not a finding about the vehicle.',
+}
+
+const TRUST_CONFIDENCE_LABELS: Record<string, string> = {
+  high: 'High confidence',
+  medium: 'Medium confidence',
+  low: 'Low confidence',
+  not_evaluated: 'Confidence not assessed',
+}
+
+type TrustPresentation = {
+  /** The projection's number, or null. Never defaulted, never floored, never zero-filled. */
+  score: number | null
+  band: string | null
+  state: string
+  /** The one line the surface leads with. */
+  headline: string
+  /** The sentence that keeps each state distinguishable from the others. */
+  detail: string
+  tone: string
+  toneText: string
+}
+
+function presentTrust(
+  trust: PublicTrust | null,
+  opts: { loading: boolean; authenticated: boolean },
+): TrustPresentation {
+  const neutral = {
+    score: null,
+    band: null,
+    tone: TRUST_NEUTRAL_TONE.badge,
+    toneText: TRUST_NEUTRAL_TONE.text,
+  }
+  if (opts.loading) {
+    return { ...neutral, state: 'unavailable', headline: 'Checking…', detail: '' }
+  }
+
+  if (!trust) {
+    // No projection reached this page: the visitor is signed out, or the authority could not be
+    // read. Nothing about this vehicle's trust may be asserted in either direction.
+    return {
+      ...neutral,
+      state: 'unavailable',
+      headline: opts.authenticated ? TRUST_STATE_LABELS.unavailable : 'Sign in to view trust',
+      detail: opts.authenticated
+        ? TRUST_STATE_DETAIL.unavailable
+        : 'CarUp publishes a vehicle’s governed trust assessment to signed-in users.',
+    }
+  }
+
+  // FAIL CLOSED. The contract guarantees a score exists only in the `evaluated` state; this page
+  // still refuses to print one otherwise, so a route that ever published a raw decision here shows
+  // its lifecycle state rather than an ungoverned number.
+  const publishable = trust.evaluation_state === 'evaluated' && trust.score !== null
+  if (!publishable) {
+    const state = trust.evaluation_state
+    return {
+      ...neutral,
+      state,
+      headline: TRUST_STATE_LABELS[state] ?? TRUST_STATE_LABELS.not_evaluated,
+      detail: TRUST_STATE_DETAIL[state] ?? TRUST_STATE_DETAIL.not_evaluated,
+    }
+  }
+
+  const band = trust.band
+  const tone = (band ? TRUST_BAND_TONE[band] : undefined) ?? TRUST_NEUTRAL_TONE
+  return {
+    score: trust.score,
+    band,
+    state: trust.evaluation_state,
+    headline: (band ? TRUST_BAND_LABELS[band] : undefined) ?? (band ?? '').replace(/_/g, ' '),
+    // An `insufficient_evidence` score IS a measurement. Saying so is what keeps it from reading
+    // like the `not_evaluated` state above, and keeps it from reading like a bad-vehicle verdict.
+    detail: band === 'insufficient_evidence'
+      ? 'CarUp evaluated this vehicle and found too little authoritative evidence to support a '
+        + 'higher score. This is a measured result, not a missing one.'
+      : 'Published by CarUp’s trust authority under its current calculation rules.',
+    tone: tone.badge,
+    toneText: tone.text,
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function VehicleDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink } = useCarUpApi()
-  const { isAuthenticated, user } = useAuth()
+  const { reserveVehicle, createSafePayEscrow, submitFinancing, fetchVehicle, fetchVehiclePassport, lookupVehiclePassport, fetchMarketplaceListingDetail, saveMarketplaceListing, unsaveMarketplaceListing, fetchSavedMarketplaceListings, fetchEvidenceTaxonomy, fetchEvidenceSources, fetchTemporalFindings, fetchDisclosureConflicts, fetchVehicleReport, generateReportVersion, createReportShareLink, fetchVehicleTrustDecision } = useCarUpApi()
+  const { isAuthenticated, user, loading: authLoading } = useAuth()
 
   // Buyers/owners can generate a snapshot + share link; backend enforces the role.
   // Keep the owner actions unobtrusive: only authenticated privileged roles see them.
@@ -284,6 +524,39 @@ export default function VehicleDetail() {
     })
     return () => { mounted = false }
   }, [vehicle?.vin, id, fetchTemporalFindings, fetchDisclosureConflicts])
+
+  // The trust DECISION (ADR-001) supplies reason codes — `dimensions[].reason_codes` — and nothing
+  // else. The trust CLAIM comes from the canonical projection resolved below. The route requires a
+  // session, so a signed-out visitor simply gets no reason codes; the passport still carries the
+  // projection, so the trust state itself is public.
+  const [trustDecision, setTrustDecision] = useState<TrustDecision | null>(null)
+  const [routeTrust, setRouteTrust] = useState<PublicTrust | null>(null)
+  const [trustDecisionLoading, setTrustDecisionLoading] = useState(true)
+
+  useEffect(() => {
+    const vin = vehicle?.vin || id
+    if (!vin || authLoading) return
+    let mounted = true
+    if (!isAuthenticated) {
+      // Nothing to ask for, and nothing may be assumed. Resolve the loading state only.
+      Promise.resolve().then(() => {
+        if (!mounted) return
+        setTrustDecision(null)
+        setRouteTrust(null)
+        setTrustDecisionLoading(false)
+      })
+      return () => { mounted = false }
+    }
+    fetchVehicleTrustDecision(vin)
+      .then((r) => {
+        if (!mounted) return
+        setTrustDecision(r.decision ?? null)
+        setRouteTrust(readPublicTrust((r as { trust?: unknown }).trust))
+      })
+      .catch(() => { if (mounted) { setTrustDecision(null); setRouteTrust(null) } })
+      .finally(() => { if (mounted) setTrustDecisionLoading(false) })
+    return () => { mounted = false }
+  }, [vehicle?.vin, id, authLoading, isAuthenticated, fetchVehicleTrustDecision])
 
   // Vehicle History Report (M4): full public-safe buyer report. Audience is derived
   // server-side from role; buyers get verified, public-safe data only. Loaded lazily
@@ -612,9 +885,17 @@ export default function VehicleDetail() {
     : (FALLBACK_IMAGE ? [FALLBACK_IMAGE] : [])
 
   const hasRealImages  = allImages.length > 0
-  const trustScore     = passport?.trustReport?.trustScore ?? vehicle.trust_score ?? 0
-  const trustColor     = trustScore >= 90 ? 'bg-green-500' : trustScore >= 75 ? 'bg-amber-500' : 'bg-red-500'
-  const trustLabel     = trustScore >= 90 ? 'Excellent' : trustScore >= 75 ? 'Good' : 'Fair'
+
+  // The canonical projection, from the passport first — it is public, it is already fetched, and
+  // `server.js` designates `trustReport` as "the ONE trust number this body publishes". The
+  // trust-decision route's copy is the same projection from the same service and is used only when
+  // the passport carried none, so there is one contract here, not a preference between two answers.
+  const publicTrust = readPublicTrust(passport?.trustReport) ?? routeTrust
+  const trust          = presentTrust(publicTrust, {
+    // The passport resolves with `loading`; only the route call has its own gate.
+    loading: loading || (isAuthenticated && !passport && trustDecisionLoading),
+    authenticated: isAuthenticated,
+  })
 
   // Direct contact exists only when the listing carries a real number. There is no fallback
   // number — an unknown contact stays unknown and the buyer is routed to the governed inquiry flow.
@@ -638,7 +919,24 @@ export default function VehicleDetail() {
   const evidenceVault       = passport?.evidenceVault ?? []
   const publicEvidence      = evidenceVault.filter(e => e.verification_status === 'verified' && e.visibility_level === 'public_safe')
   const verificationSources = buildVerificationSources(passport)
-  const trustBreakdown      = buildTrustBreakdown(passport)
+
+  // Reason codes come from the decision's own dimensions. They are shown verbatim; the page does
+  // not translate them into sub-scores, because a code says WHY, not HOW MUCH.
+  const trustReasonCodes = Array.from(new Set(
+    Object.values(trustDecision?.dimensions ?? {}).flatMap((d) => d.reason_codes ?? []),
+  ))
+  // Limitations are the PROJECTION's, not the decision's: the projection's list is the superset
+  // that also carries the fact resolver's disclosures — including "the stored 'zimra_verified' flag
+  // is not supported by any authoritative record and is not published".
+  const trustLimitations = publicTrust?.known_limitations ?? []
+  const evidenceBasis = publicTrust?.evidence_basis ?? null
+  // A basis entry that was never resolved prints as "not recorded", never as 0: a zero here would
+  // claim CarUp counted and found none.
+  const basisValue = (value: number | null) => (value === null ? 'Not recorded' : String(value))
+  // A record count that was never reported stays null. Rendering it as 0 would assert that no
+  // service record exists, which is exactly the absence-as-proof this page must not make.
+  const trustSignals = readTrustSignals(passport)
+  const serviceRecordCount = trustSignals?.maintenance_logs_count ?? null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -815,9 +1113,8 @@ export default function VehicleDetail() {
                 {vehicle.police_verified && (
                   <Badge className="bg-blue-700 text-white" data-testid="police-checked-badge">Police Checked</Badge>
                 )}
-                {(trustScore ?? 0) > 90 && (
-                  <Badge className="bg-orange-500 text-white">Featured</Badge>
-                )}
+                {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
+                    merchandising claim the page has no authority to make. */}
                 {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
               </div>
               <div className="absolute top-4 right-4 flex gap-2">
@@ -887,9 +1184,11 @@ export default function VehicleDetail() {
                       <Calendar className="w-4 h-4" />Listed {vehicle.listingDate ? new Date(vehicle.listingDate).toLocaleDateString() : 'date not recorded'}
                     </div>
                   </div>
-                  <div className={`${trustColor} text-white px-4 py-2 rounded-xl text-center min-w-[70px]`} data-testid="trust-score-badge">
-                    <p className="text-2xl font-bold">{Math.round(trustScore)}</p>
-                    <p className="text-xs">{trustLabel}</p>
+                  <div className={`${trust.tone} text-white px-4 py-2 rounded-xl text-center min-w-[70px] max-w-[150px]`} data-testid="trust-score-badge">
+                    {trust.score !== null && (
+                      <p className="text-2xl font-bold" data-testid="trust-score-value">{trust.score}</p>
+                    )}
+                    <p className="text-xs" data-testid="trust-score-label">{trust.headline}</p>
                   </div>
                 </div>
                 {vehicle.description && <p className="text-gray-700 mb-6 leading-relaxed">{vehicle.description}</p>}
@@ -1157,25 +1456,48 @@ export default function VehicleDetail() {
                       </div>
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Trust Score</p>
-                        <p className={`text-xl font-bold ${trustScore >= 90 ? 'text-green-600' : trustScore >= 75 ? 'text-amber-600' : 'text-red-600'}`}>
-                          {Math.round(trustScore)} / 100
-                        </p>
+                        {trust.score !== null ? (
+                          <p className={`text-xl font-bold ${trust.toneText}`} data-testid="market-trust-score">{trust.score} / 100</p>
+                        ) : (
+                          <p className={`text-sm font-semibold ${trust.toneText}`} data-testid="market-trust-unscored">{trust.headline}</p>
+                        )}
                       </div>
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Service Records</p>
-                        <p className="text-xl font-bold">{passport?.trustReport?.metrics?.maintenance_logs_count ?? 0}</p>
+                        {serviceRecordCount === null ? (
+                          <p className="text-sm text-gray-400 italic" data-testid="service-records-unrecorded">Not recorded</p>
+                        ) : (
+                          <p className="text-xl font-bold">{serviceRecordCount}</p>
+                        )}
                       </div>
                     </div>
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                       <h4 className="font-medium text-sm mb-2">CarUp Data Summary</h4>
-                      <p className="text-sm text-gray-600">
-                        This vehicle has a trust score of {Math.round(trustScore)}/100 based on {passport?.timeline?.length ?? 0} verified blockchain events.
-                        {(passport?.trustReport?.metrics?.maintenance_logs_count ?? 0) > 0
-                          ? ` It has ${passport?.trustReport?.metrics?.maintenance_logs_count} mechanic-signed service record(s) on the ledger.`
-                          : ' No mechanic-signed service records have been submitted yet.'}
-                        {passport?.trustReport?.metrics?.stolen_alert_active
+                      <p className="text-sm text-gray-600" data-testid="carup-data-summary">
+                        {trust.score !== null
+                          ? `CarUp's trust authority published ${trust.score}/100 for this vehicle — ${trust.headline.toLowerCase()}.`
+                          : `${trust.headline}: CarUp has published no trust score for this vehicle.`}
+                        {` ${trust.detail}`}
+                        {/* The calculation version is stated only beside a published score. Naming
+                            the superseded version beside a withheld one would read as provenance
+                            for a number the page is deliberately not showing. */}
+                        {trust.score !== null && publicTrust?.calculation_version
+                          ? ` Calculation version ${publicTrust.calculation_version}.`
+                          : ''}
+                        {serviceRecordCount === null
+                          ? ' No service-record count is recorded for this vehicle.'
+                          : serviceRecordCount > 0
+                            ? ` It has ${serviceRecordCount} mechanic-signed service record(s) on the ledger.`
+                            : ' No mechanic-signed service records have been submitted yet.'}
+                        {/* An adverse alert is stated when it is present. Its absence is NOT stated as
+                            "no active alert" — no record is not the same as a clean check. */}
+                        {trustSignals?.stolen_alert_active
                           ? ' ⚠️ WARNING: This vehicle has an active police alert.'
-                          : ' No active stolen vehicle alert.'}
+                          : ''}
+                      </p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        A recorded event is not by itself a verification, so CarUp does not turn a count of
+                        events into a trust claim. Each signal is shown separately in the trust breakdown.
                       </p>
                     </div>
                   </TabsContent>
@@ -1193,7 +1515,11 @@ export default function VehicleDetail() {
                 <p className="text-3xl font-bold">{formatPrice(vehicle.price ?? 0, vehicle.currency ?? 'USD')}</p>
                 <div className="flex items-center gap-1 mt-1">
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <span className="text-sm text-gray-300">CarUp Trust Score: {Math.round(trustScore)}</span>
+                  <span className="text-sm text-gray-300" data-testid="sidebar-trust">
+                    {trust.score !== null
+                      ? `CarUp Trust Score: ${trust.score}`
+                      : `CarUp Trust: ${trust.headline}`}
+                  </span>
                 </div>
                 {sellerContactNumber && sellerWhatsAppLink ? (
                   <div className="flex gap-2 mt-6">
@@ -1435,27 +1761,78 @@ export default function VehicleDetail() {
               </Card>
             )}
 
-            {/* Trust score breakdown — real data */}
-            {trustBreakdown.length > 0 && (
-              <Card className="border-0 card-shadow" data-testid="trust-breakdown">
+            {/* What the canonical assessment is based on. The former "Trust Score Breakdown"
+                invented per-category percentages on the client; a fabricated precision is worse
+                than no breakdown, so only what the authority actually published is rendered here.
+                This card is where the projection's other two axes surface: `confidence` (how much
+                evidence is behind the number) and `evidence_basis` (what that evidence is). A
+                number alone cannot tell an unevidenced vehicle from a genuinely low-scoring one. */}
+            {publicTrust && (
+              <Card className="border-0 card-shadow" data-testid="trust-basis">
                 <CardContent className="p-6">
-                  <h3 className="font-semibold mb-4">Trust Score Breakdown</h3>
-                  <div className="space-y-3">
-                    {trustBreakdown.map(({ label, score }) => (
-                      <div key={label}>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="text-gray-600">{label}</span>
-                          <span className="font-medium">{score}</span>
-                        </div>
-                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${score >= 90 ? 'bg-green-500' : score >= 70 ? 'bg-amber-500' : 'bg-red-500'}`}
-                            style={{ width: `${score}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                  <h3 className="font-semibold mb-1">What this assessment is based on</h3>
+                  <p className="text-xs text-gray-500 mb-4" data-testid="trust-state-detail">
+                    {trust.detail} CarUp does not estimate a sub-score for a signal it has no record of.
+                  </p>
+
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="border-gray-200 bg-gray-50 text-[10px] text-gray-600" data-testid="trust-evaluation-state">
+                      {TRUST_STATE_LABELS[publicTrust.evaluation_state] ?? publicTrust.evaluation_state}
+                    </Badge>
+                    <Badge variant="outline" className="border-gray-200 bg-gray-50 text-[10px] text-gray-600" data-testid="trust-confidence">
+                      {TRUST_CONFIDENCE_LABELS[publicTrust.confidence] ?? publicTrust.confidence}
+                    </Badge>
+                    {trust.score !== null && publicTrust.evaluated_at && (
+                      <span className="text-[10px] text-gray-500" data-testid="trust-evaluated-at">
+                        Evaluated {new Date(publicTrust.evaluated_at).toLocaleDateString()}
+                      </span>
+                    )}
                   </div>
+
+                  {evidenceBasis && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Evidence behind this assessment</p>
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600" data-testid="trust-evidence-basis">
+                        <dt>Governed facts backed by a record</dt>
+                        <dd className="text-right font-medium">
+                          {basisValue(evidenceBasis.governed_facts_substantiated)}
+                          {evidenceBasis.governed_facts_total === null ? '' : ` of ${evidenceBasis.governed_facts_total}`}
+                        </dd>
+                        <dt>Adverse findings</dt>
+                        <dd className="text-right font-medium">{basisValue(evidenceBasis.governed_facts_adverse)}</dd>
+                        <dt>Connected sources</dt>
+                        <dd className="text-right font-medium">{basisValue(evidenceBasis.connected_sources)}</dd>
+                        <dt>Stored claims with no backing record</dt>
+                        <dd className="text-right font-medium" data-testid="trust-unbacked-claims">
+                          {basisValue(evidenceBasis.unbacked_legacy_claims)}
+                        </dd>
+                      </dl>
+                    </div>
+                  )}
+
+                  {trustReasonCodes.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Reason codes</p>
+                      <div className="flex flex-wrap gap-1.5" data-testid="trust-reason-codes">
+                        {trustReasonCodes.map((code) => (
+                          <Badge key={code} variant="outline" className="border-gray-200 bg-gray-50 font-mono text-[10px] text-gray-600">
+                            {code}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {trustLimitations.length > 0 && (
+                    <>
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Known limitations</p>
+                      <ul className="list-disc list-inside space-y-1 text-xs text-gray-600" data-testid="trust-known-limitations">
+                        {trustLimitations.map((limitation, i) => (
+                          <li key={i}>{limitation}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}

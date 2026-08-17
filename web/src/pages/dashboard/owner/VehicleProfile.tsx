@@ -22,6 +22,82 @@ import type {
 import EvidenceUploadModal from '@/components/EvidenceUploadModal'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
 
+// ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
+/**
+ * This page used to render `passportData.trustReport?.trustScore || 0` as a percentage with a
+ * filled progress bar. Two defects in one expression:
+ *
+ *   1. `trustReport.trustScore` was the DEPRECATED 70-baseline trustGraph engine's number. It is
+ *      the "90" that disagreed with the marketplace's 84 and the trust route's 50 for one VIN.
+ *   2. `|| 0` turned every absence into a measured zero, and the bar then drew that zero at 0%
+ *      as though CarUp had assessed the vehicle and found nothing. Absence is not proof.
+ *
+ * `passport.trustReport` is now the canonical projection itself (server.js `canonicalPassportTrust`
+ * → `toPublicTrust`), so the owner sees the same ten fields, from the same authority, as the public
+ * vehicle detail page. A null score draws NO bar and no percentage.
+ *
+ * `evaluation_state` is the required discriminator below, which is what makes the OLD
+ * `{vin, trustScore, metrics}` body parse as nothing rather than as a trust record — against a
+ * server that has not been updated this page says "unavailable" instead of republishing the 90.
+ */
+type PublicTrust = {
+  score: number | null
+  band: string | null
+  evaluation_state: string
+  confidence: string
+  calculation_version: string | null
+  evaluated_at: string | null
+  known_limitations: string[]
+}
+
+/**
+ * Read the canonical projection. Narrowing only — nothing here computes a score, and no other
+ * field on any response may stand in for one.
+ */
+function readPublicTrust(raw: unknown): PublicTrust | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const t = raw as Record<string, unknown>
+  if (typeof t.evaluation_state !== 'string') return null
+  return {
+    score: typeof t.score === 'number' && Number.isFinite(t.score) ? t.score : null,
+    band: typeof t.band === 'string' ? t.band : null,
+    evaluation_state: t.evaluation_state,
+    confidence: typeof t.confidence === 'string' ? t.confidence : 'not_evaluated',
+    calculation_version: typeof t.calculation_version === 'string' ? t.calculation_version : null,
+    evaluated_at: typeof t.evaluated_at === 'string' ? t.evaluated_at : null,
+    known_limitations: Array.isArray(t.known_limitations)
+      ? t.known_limitations.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+  }
+}
+
+/** Band vocabulary, verbatim. No 'Excellent' / 'Good' / 'Fair' tier is invented here. */
+const TRUST_BAND_LABELS: Record<string, string> = {
+  high: 'High trust',
+  moderate: 'Moderate trust',
+  low: 'Low trust',
+  insufficient_evidence: 'Insufficient evidence',
+}
+const TRUST_STATE_LABELS: Record<string, string> = {
+  evaluated: 'Evaluated',
+  stale: 'Assessment out of date',
+  not_evaluated: 'Not evaluated',
+  unavailable: 'Trust assessment unavailable',
+}
+const TRUST_STATE_DETAIL: Record<string, string> = {
+  stale: 'This vehicle was last assessed under superseded rules, so the earlier score is withheld '
+    + 'rather than shown as if it were current.',
+  not_evaluated: 'CarUp has not produced a governed trust assessment for this vehicle yet. That is '
+    + 'not a score of zero — add evidence and the assessment will follow.',
+  unavailable: 'CarUp could not produce a trust assessment for this request.',
+}
+const TRUST_CONFIDENCE_LABELS: Record<string, string> = {
+  high: 'High confidence',
+  medium: 'Medium confidence',
+  low: 'Low confidence',
+  not_evaluated: 'Confidence not assessed',
+}
+
 export default function VehicleProfile() {
   const { id } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -68,6 +144,7 @@ export default function VehicleProfile() {
     return () => { mounted = false }
   }, [fetchEvidenceTaxonomy, fetchEvidenceSources])
 
+
   if (!passportData) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -89,7 +166,6 @@ export default function VehicleProfile() {
     year: passportData.vehicle?.year || 'Unknown',
     vin: passportData.vehicle?.vin || id || '',
     mileage: passportData.vehicle?.mileage || 0,
-    trustScore: passportData.trustReport?.trustScore || 0,
     color: passportData.vehicle?.color || 'Unknown',
     purchasePrice: passportData.vehicle?.price || 0,
     currentEstimate: (passportData.vehicle?.price || 0) * 0.9,
@@ -129,6 +205,25 @@ export default function VehicleProfile() {
       }))
   }
 
+  // The canonical projection the passport published. `readPublicTrust` returns null for anything
+  // that is not one — including the deprecated `{trustScore, metrics}` body — so there is no path
+  // by which the old engine's number becomes this page's score.
+  const publicTrust = readPublicTrust(passportData.trustReport)
+
+  // A score exists only in the `evaluated` state. Anything else yields null here, and null renders
+  // as words — never as a number, a percentage, or a bar drawn at 0%.
+  const trustScore = publicTrust?.evaluation_state === 'evaluated' ? publicTrust.score : null
+  const trustState = publicTrust?.evaluation_state ?? 'unavailable'
+  const trustHeadline = trustScore !== null
+    ? (TRUST_BAND_LABELS[publicTrust?.band ?? ''] ?? publicTrust?.band ?? TRUST_STATE_LABELS.evaluated)
+    : (TRUST_STATE_LABELS[trustState] ?? TRUST_STATE_LABELS.unavailable)
+  const trustDetail = trustScore !== null
+    ? (publicTrust?.band === 'insufficient_evidence'
+      ? 'CarUp evaluated this vehicle and found too little authoritative evidence to support a '
+        + 'higher score. This is a measured result, not a missing one.'
+      : 'Published by CarUp’s trust authority under its current calculation rules.')
+    : (TRUST_STATE_DETAIL[trustState] ?? TRUST_STATE_DETAIL.unavailable)
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <Button variant="ghost" size="sm" className="gap-1" asChild>
@@ -166,12 +261,37 @@ export default function VehicleProfile() {
                 ))}
               </div>
 
-              <div className="mb-4">
+              <div className="mb-4" data-testid="owner-trust">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium">Trust Score</span>
-                  <span className="font-bold text-lg">{vehicle.trustScore}%</span>
+                  {trustScore !== null ? (
+                    <span className="font-bold text-lg" data-testid="owner-trust-score">{trustScore} / 100</span>
+                  ) : (
+                    <span className="text-sm font-semibold text-gray-600" data-testid="owner-trust-state">
+                      {trustHeadline}
+                    </span>
+                  )}
                 </div>
-                <Progress value={vehicle.trustScore} className="h-3" />
+                {trustScore !== null ? (
+                  <>
+                    <Progress value={trustScore} className="h-3" />
+                    <p className="mt-1 text-xs text-gray-500" data-testid="owner-trust-band">
+                      {trustHeadline} · {TRUST_CONFIDENCE_LABELS[publicTrust?.confidence ?? ''] ?? 'Confidence not assessed'}
+                      {publicTrust?.calculation_version ? ` · calculation version ${publicTrust.calculation_version}` : ''}
+                    </p>
+                  </>
+                ) : (
+                  /* No progress bar at all. A bar is a measurement, and there is none to draw —
+                     a 0%-filled track is exactly the absence-as-proof this page had before. */
+                  <p className="text-xs text-gray-500" data-testid="owner-trust-detail">{trustDetail}</p>
+                )}
+                {(publicTrust?.known_limitations.length ?? 0) > 0 && (
+                  <ul className="mt-2 list-disc list-inside space-y-1 text-xs text-gray-500" data-testid="owner-trust-limitations">
+                    {publicTrust?.known_limitations.map((limitation, i) => (
+                      <li key={i}>{limitation}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-2">

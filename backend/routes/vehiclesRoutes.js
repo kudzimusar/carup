@@ -5,7 +5,7 @@ import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '.
 import { logAuditEvent } from '../services/auditLogger.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { uploadToStorage, generateSecureReadUrl } from '../services/storage/storageService.js';
-import { calculateVehicleTrustScore } from '../services/trustGraph/trustGraphService.js';
+import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
 import {
   buildAiReadyMetadata,
   canUploadEvidence,
@@ -654,8 +654,17 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/verify', authorizeRole(['a
     throw new DatabaseError(updateErr.message);
   }
 
-  // Recalculate trust score
-  await calculateVehicleTrustScore(vin);
+  // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
+  // re-materialized. This was calculateVehicleTrustScore — the deprecated 70-baseline engine and an
+  // unversioned writer of the cache column. refreshCanonicalTrust is the single canonical writer;
+  // it stamps the score with the rules that produced it, so the surfaces can publish it at all.
+  // A refresh failure must not fail the review itself: the evidence decision is the durable fact,
+  // the cache is derived and can be re-materialized.
+  try {
+    await refreshCanonicalTrust(vin);
+  } catch (trustError) {
+    console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
+  }
 
   // Audit Log
   try {
@@ -740,8 +749,17 @@ router.patch('/api/vehicles/:vin/evidence/:evidenceId/reject', authorizeRole(['a
     throw new DatabaseError(updateErr.message);
   }
 
-  // Recalculate trust score
-  await calculateVehicleTrustScore(vin);
+  // Evidence review is what CHANGES the governed facts, so it is where the canonical position is
+  // re-materialized. This was calculateVehicleTrustScore — the deprecated 70-baseline engine and an
+  // unversioned writer of the cache column. refreshCanonicalTrust is the single canonical writer;
+  // it stamps the score with the rules that produced it, so the surfaces can publish it at all.
+  // A refresh failure must not fail the review itself: the evidence decision is the durable fact,
+  // the cache is derived and can be re-materialized.
+  try {
+    await refreshCanonicalTrust(vin);
+  } catch (trustError) {
+    console.error(`[issue-164] canonical trust refresh failed for ${vin}:`, trustError.message);
+  }
 
   // Audit Log
   try {

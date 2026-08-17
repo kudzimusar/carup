@@ -13,6 +13,7 @@
 import {
   LISTING_SELECT_COLUMNS,
   buildMarketplaceListingSummary,
+  fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
   shouldShowFixtures,
@@ -103,8 +104,16 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   }
   const vehicle = candidate;
 
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } =
-    await fetchListingRelatedRows(supabaseClient, [vin]);
+  const [related, trustByVin] = await Promise.all([
+    fetchListingRelatedRows(supabaseClient, [vin]),
+    // THE SAME READ THE LIST USES. `fetchCanonicalTrustByVin` is the cache-only batch path, so the
+    // detail page reports exactly what the card reported for this VIN — same score, same
+    // evaluation_state, same calculation_version. Recomputing here instead would let the detail
+    // publish a number the list had withheld, which is the list-84/detail-90 split again with
+    // better provenance.
+    fetchCanonicalTrustByVin(supabaseClient, [vin]),
+  ]);
+  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = related;
 
   const evidenceRows = evidenceByVin.get(vin) || [];
   const partSentryRows = partSentryByVin.get(vin) || [];
@@ -116,6 +125,7 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     partSentryRows,
     ownershipCount: (ownershipByVin.get(vin) || []).length,
     imageRows,
+    canonicalTrust: trustByVin.get(vin) || null,
   });
 
   const trust_summary = buildTrustSummary({ vehicle, listingSummary, evidenceRows, partSentryRows, audience });
