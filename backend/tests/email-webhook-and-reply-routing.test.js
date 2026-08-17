@@ -564,3 +564,32 @@ test('an authenticated Email lifecycle event with no canonical transition is ign
   assert.ok(finals.every((p) => p.processing_status === 'processed'), 'must not be recorded as failed');
   assert.ok(finals.every((p) => p.error_code === 'ignored_no_canonical_transition'));
 });
+
+test('a marketing send records provenance proving the unsubscribe action was actually transmitted', async () => {
+  // A delivered message once carried no unsubscribe action because an OLDER deployment executed the
+  // send while a newer one served the API. The delivered artefact could then only be inferred from
+  // the code believed to be running, and that inference was wrong. The adapter now reports what it
+  // actually put on the wire, and the worker persists it on the delivery attempt.
+  const brevo = new BrevoMarketingAdapter({
+    env: BREVO_ENV,
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ messageId: '<m@x>' }), headers: new Map() }),
+  });
+  const url = 'https://api-staging.carup.dev/api/communications/unsubscribe?token=prov1';
+  const r = await brevo.send({
+    content: {
+      data: {
+        classification: 'marketing', email: 'b@example.test', campaign_id: 'c', campaign_delivery_id: 'd',
+        unsubscribe_url: url, unsubscribe_mailto: 'unsubscribe+prov1@mail.carup.dev',
+      },
+      subject: 'News', body: 'Copy.',
+    },
+  });
+  assert.equal(r.accepted, true);
+  const m = r.providerMetadata;
+  assert.ok(m, 'a marketing send must report unsubscribe provenance');
+  assert.equal(m.marketing_html_part_sent, true);
+  assert.equal(m.marketing_html_anchor_present, true);
+  assert.equal(m.marketing_text_link_present, true);
+  assert.equal(m.list_unsubscribe_header_sent, true);
+  assert.equal(m.list_unsubscribe_post_header_sent, true);
+});

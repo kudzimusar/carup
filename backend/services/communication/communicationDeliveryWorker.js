@@ -103,6 +103,7 @@ export class CommunicationDeliveryWorker {
       request_metadata: { idempotency_key: notification.dedupe_key },
       response_metadata: {
         provider_status: result.providerStatus || null,
+        ...(result.providerMetadata ? { provider_metadata: result.providerMetadata } : {}),
         ...(result.provider_http_status != null ? { provider_http_status: result.provider_http_status } : {}),
         ...(result.provider_error_code != null ? { provider_error_code: result.provider_error_code } : {}),
         ...(result.provider_error_subcode != null ? { provider_error_subcode: result.provider_error_subcode } : {}),

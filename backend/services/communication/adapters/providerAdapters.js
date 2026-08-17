@@ -480,6 +480,20 @@ export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
       providerRequestId: providerMessageId || stableRequestId('brevo', input),
       providerMessageId,
       providerStatus: 'accepted',
+      // Provenance for the compliance-critical unsubscribe control, recorded on the delivery attempt.
+      // Without this, "did the delivered message actually carry a visible unsubscribe action?" can
+      // only be inferred from the code that was *believed* to be running — and that inference was
+      // physically wrong once, when an older deployment executed the send.
+      providerMetadata: {
+        marketing_unsubscribe_url_present: true,
+        marketing_html_part_sent: typeof body.htmlContent === 'string' && body.htmlContent.length > 0,
+        marketing_html_anchor_present: typeof body.htmlContent === 'string'
+          && body.htmlContent.includes(`href="${unsubscribeUrl}"`),
+        marketing_text_link_present: typeof body.textContent === 'string'
+          && body.textContent.includes(unsubscribeUrl),
+        list_unsubscribe_header_sent: Boolean(body.headers?.['List-Unsubscribe']),
+        list_unsubscribe_post_header_sent: body.headers?.['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click',
+      },
     };
   }
 }
