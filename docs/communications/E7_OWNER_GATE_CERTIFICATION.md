@@ -196,3 +196,137 @@ Vercel DNS rollback zone      retained
 
 Every change in this round is staging-only. The same unwired factory ships to production, so the
 inbound fix must land before any production Communications activation.
+
+---
+
+# Round 2 (2026-08-17, later) — the unsubscribe FAIL explained
+
+The owner opened the delivered message and reported **no visible unsubscribe action**. The report was
+correct, and my previous claim to the contrary was wrong: I rendered the artefact locally with the
+new adapter code and presented it as what was sent. That was an **inference stated as an
+observation**.
+
+## Root cause: two staging runtimes on different builds
+
+```text
+api-staging.carup.dev              -> preview deployment of branch HEAD   (HAD the fix)
+carup-backend-staging.vercel.app   -> older production-target deployment  (did NOT have the fix)
+```
+
+The pg_cron worker posts to `CARUP_WORKER_ENDPOINT_URL`, which is
+`https://carup-backend-staging.vercel.app/api/internal/communications/process`. **So the host that
+actually SENT the message was not the host I had been certifying against.** Webhooks arrive on
+`api-staging.carup.dev` (fixed build), which is why inbound worked while outbound did not.
+
+Proven by direct probe, not inference:
+
+```text
+carup-backend-staging.vercel.app  /api/communications/unsubscribe -> 404  (route absent: old build)
+api-staging.carup.dev             /api/communications/unsubscribe -> 400  (route present: fixed build)
+```
+
+Consequences for the delivered message (notification 334): the old adapter had no fail-closed guard,
+so it did not refuse; it set `htmlContent` only `if (html)` and `html` was null, so **no HTML part was
+ever transmitted**; and it set no `List-Unsubscribe` headers. Brevo did not drop anything — CarUp
+never sent it.
+
+### A self-inflicted detour, recorded
+
+Re-aliasing `carup-backend-staging.vercel.app` to a *preview* deployment restored the code but broke
+the worker: `COMMUNICATION_WORKER_SECRET` is scoped to **Production**, so the preview build had no
+matching secret and the cron returned `401` for roughly five minutes. Fixed properly by creating a
+**production-target** deployment of exact head, which carries Production env vars. Cron returned to
+`200`. The real production backend project (`carup-backend`) was never touched.
+
+## The durable fix: provenance instead of inference
+
+The adapter now records what it actually put on the wire, and the worker persists it on the delivery
+attempt. "Did the delivered message carry a visible unsubscribe action?" is now answerable from data.
+
+## Round 2 evidence
+
+**Negative control — notification 343** (marketing send deliberately queued with NO unsubscribe URL):
+
+```text
+status      dead_letter
+error       unsubscribe_action_missing
+message     "Marketing Email requires a governed CarUp unsubscribe URL; refusing to send without one."
+```
+
+It was **refused and never sent** — which proves the fail-closed guard is live in the *sending*
+runtime. Seven passing sends could not have proven that; this one refusal does.
+
+**Real certification — notification 344**, subject `CarUp E7 unsubscribe certification ROUND 2`,
+provider message `<202608171320.17934073837@smtp-relay.mailin.fr>`:
+
+```json
+{
+  "provider_status": "accepted",
+  "provider_receipt_status": "delivered",
+  "provider_metadata": {
+    "marketing_unsubscribe_url_present": true,
+    "marketing_html_part_sent": true,
+    "marketing_html_anchor_present": true,
+    "marketing_text_link_present": true,
+    "list_unsubscribe_header_sent": true,
+    "list_unsubscribe_post_header_sent": true
+  }
+}
+```
+
+Answering each of the owner's six questions with an observation:
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Which notification produced this email | notification **344**, campaign delivery `9a4f2d18`, provider message `<202608171320.17934073837@smtp-relay.mailin.fr>` |
+| 2 | Did the rendered HTML contain a visible anchor | **Yes** — `marketing_html_anchor_present: true`, recorded by the sender |
+| 3 | Was the href a real governed CarUp URL | **Yes** — the check compares against the exact minted `href="<url>"`, so it cannot pass on empty or template text |
+| 4 | Was HTML actually passed to Brevo | **Yes** — `marketing_html_part_sent: true`. For notification 334 it was **not**, which is the whole defect |
+| 5 | Did Brevo replace or drop the body | **No** — Brevo `accepted` then `delivered`, both signature-verified |
+| 6 | Does the payload correspond to exact-head | **Yes** — `provider_metadata` exists only in exact-head; its presence dates the runtime |
+
+Brevo lifecycle for this send: `request`, `delivered`, `unique_opened` — all `signature_valid=true`,
+all `processed`, with the two non-state events correctly marked
+`ignored_no_canonical_transition` rather than failed.
+
+**Still not marked PASS.** Everything up to Brevo's delivery is proven; whether Gmail renders a
+visible, clickable control to a human is the part only a human can confirm.
+
+---
+
+# Round 2 — inbound conversational reply: PASS
+
+The owner's second reply, after the wiring fix:
+
+```text
+webhook_logs               email.received  signature_valid=TRUE  processing_status=processed
+                           message_count=1  attempt_count=1   (succeeded first try, no retry)
+```
+
+| Invariant | Before | After | Result |
+|---|---|---|---|
+| Inbound email messages | 0 | **1** | exactly one |
+| Messages in cert thread | 2 | **3** | +1 |
+| Participants in thread | 1 | **1** | **+0** |
+| Identities for the address | 1 | **1** | **+0 — no shadow identity** |
+| Threads total | 45 | **45** | +0 |
+| Reply-token `use_count` | 0 | **1** | advanced |
+
+The inbound message is attributed to participant `3940882f-b0fd-497a-8ffd-bb0e4f59e733` — the
+**original** participant bound to the reply token, not a newly minted one. The pre-fix behaviour
+would have created a second identity and a second participant under a null tenant.
+
+## One honest gap in the inbound result
+
+`messages.content_text` for the inbound row is **NULL**. Resend's `email.received` webhook payload
+carries only metadata — `to`, `from`, `subject`, `message_id`, `attachments` — and **no body**:
+
+```json
+{"data":{"to":["conversation+...@mail.carup.dev"],"from":"...","subject":"Re: CarUp conversation - E7 certification",
+          "email_id":"6dbab857-...","message_id":"<CAJPnzOG...@mail.gmail.com>","attachments":[]}}
+```
+
+So routing is fully proven — right thread, right participant, token consumed — but the reply's **text
+was not captured**, because it was never in the event. Retrieving it requires a follow-up fetch to
+Resend's API with the server-side key. Recorded as an open defect rather than glossed: a reply that
+routes correctly but arrives empty is not a finished conversational feature.
