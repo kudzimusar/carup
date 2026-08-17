@@ -13,6 +13,14 @@
  * configuration — deliberately NOT hardcoded business logic. Every value is overridable by
  * environment variable, because provider pricing changes and this file must not become the
  * reason CarUp is wrong about it.
+ *
+ * KNOWN LIMITATION (SA1.5, documented rather than papered over): with Supabase Auth delivering
+ * through Resend SMTP, Supabase sends do NOT pass through this module — they leave Supabase's
+ * infrastructure directly. Exact cross-system pre-send accounting is therefore impossible under
+ * plain SMTP. Until a Supabase Send Email Hook routes Auth Email through CarUp's queue, the
+ * controls are: Supabase Auth's own rate limit, Resend provider lifecycle evidence, and CarUp
+ * operational alerts from this module. Reserve headroom accordingly — do not assume CarUp's
+ * delivery worker is the only consumer of the Resend daily allocation.
  */
 
 /** Today's documented free-tier ceilings. Operational configuration, not eternal architecture. */
@@ -36,13 +44,33 @@ const ENV_KEYS = Object.freeze({
 });
 
 /**
- * Email classes that must keep sending capacity at the critical threshold.
- * Mirrors the directive's provider routing: security/transactional/conversational are
- * protected; marketing is the first thing to pause.
+ * Send priority ladder (directive §0A.4 as extended by SA1.5).
+ *
+ * Lower number = higher priority = protected for longer as quota tightens.
+ *
+ * P0 exists because Supabase Auth SMTP — if/when it is enabled — draws on the SAME Resend free
+ * allocation as CarUp's own transactional Email. CarUp's delivery worker is therefore NOT the
+ * only consumer of that quota, and account-security Email must outrank everything CarUp queues.
  */
-const CRITICAL_CLASSIFICATIONS = new Set(['security', 'transactional', 'conversational']);
+export const EMAIL_PRIORITY = Object.freeze({
+  auth: 0,           // P0 Supabase Auth / account security
+  security: 0,       // P0 CarUp-originated security notification
+  conversational: 1, // P1 direct human conversation
+  transactional: 2,  // P2 business workflow
+  service: 3,        // P3 service notification
+  marketing: 4,      // P4 marketing — Brevo only
+});
+
+/** Highest-priority classes: never deferred by quota pressure. */
+const CRITICAL_CLASSIFICATIONS = new Set(['auth', 'security', 'transactional', 'conversational']);
 const DEFERRABLE_CLASSIFICATIONS = new Set(['service']);
 const MARKETING_CLASSIFICATIONS = new Set(['marketing']);
+
+/** Numeric priority for a classification; unknown classes sort below every known class. */
+export function emailPriority(classification) {
+  const key = String(classification || '').toLowerCase();
+  return Object.prototype.hasOwnProperty.call(EMAIL_PRIORITY, key) ? EMAIL_PRIORITY[key] : 99;
+}
 
 export const QUOTA_STATE = Object.freeze({
   OK: 'ok',

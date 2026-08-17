@@ -101,6 +101,56 @@ Must occur **before** final E7 physical certification. **Do not change nameserve
 
 > Do not remove working `@carup.co.zw` contact addresses before the replacement aliases physically deliver. See `docs/CARUP_DOMAIN_CANONICALIZATION_RECEIPT.md` for the exact alias list required.
 
+## 0B. SA1 — Supabase Auth Email branding + Resend delivery (bounded prerequisite)
+
+Governing architecture as specified by the owner:
+
+```text
+SUPABASE AUTH            authentication authority and token lifecycle
+SUPABASE AUTH TEMPLATES  authentication/security email semantics and branding
+RESEND                   SMTP delivery for Supabase Auth + canonical CarUp transactional
+CARUP                    public branded URL/UX and application security policy
+BREVO                    marketing only
+```
+
+Supabase must **not** become a fourth outbound provider.
+
+Delivery architecture for SA1 is the simplest production-capable one:
+
+```text
+Supabase Auth → Supabase branded Auth template → Resend custom SMTP → recipient
+```
+
+The **Supabase Send Email Hook** (`Supabase Send Email Hook → CarUp Communications → Resend`) is
+recorded as a **future Phase-2 option** for when every Auth Email must enter CarUp's queue, quota
+and audit governance before provider send. It is not part of SA1 unless live evidence proves custom
+SMTP cannot satisfy a required acceptance criterion.
+
+Sender: `CarUp Security <auth@mail.carup.dev>` on the already-verified `mail.carup.dev`. Do not
+create another sending domain.
+
+Auth links must use Supabase **TokenHash** routing to a CarUp-owned canonical origin, never
+`{{ .ConfirmationURL }}` where that would expose the raw `project-ref.supabase.co` host as the
+durable user-facing link. `redirect_to`/`next` must be validated against the canonical CarUp
+allowlist; never permit an open redirect.
+
+Auth/security Email is **P0** in the send-priority ladder (§0A.4 as extended):
+
+```text
+P0 Supabase Auth / account security   P1 conversational   P2 transactional
+P3 service                            P4 marketing (Brevo only)
+```
+
+> **SA1.0 reconciliation outcome (2026-08-17): the premise above does not currently hold.**
+> CarUp does not use Supabase Auth — `auth.users` is empty, there are zero `supabase.auth.*` call
+> sites, and authentication runs on a custom backend (`public.users.password_hash` →
+> `public.user_sessions`, 864 sessions / 75 users). CarUp also has **no password reset or email
+> confirmation flow on any layer**, and no `/auth/*` routes. SA1 is therefore **blocked on an
+> owner decision** between building auth Email on the existing custom auth (Path A) or migrating
+> authentication to Supabase Auth (Path B). Full evidence, the fork-independent work already
+> delivered, and the recommendation are in
+> `docs/communications/EMAIL_1_0_SA1_AUTH_EMAIL_RECEIPT.md`.
+
 ## 1. Baseline and live-truth rule
 
 Last verified baseline before this directive was created:
