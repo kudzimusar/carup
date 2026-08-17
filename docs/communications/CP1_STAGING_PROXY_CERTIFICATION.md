@@ -50,8 +50,19 @@ through and the origin still rejects anything unsigned.
 ## A finding that would have broken production
 
 The first proxied request returned **`403` with `cf-mitigated: challenge`** on *every* path,
-including the provider webhooks — despite the skip rules being in place. Super Bot Fight Mode
-cannot be narrowed by custom-rule skip products on this plan.
+including the provider webhooks — despite the skip rules that were in place at the time.
+
+**Scope of this claim, stated precisely:** this is a record of what the deployed configuration
+physically did, not a statement that Super Bot Fight Mode is inherently un-skippable. Cloudflare
+does support zone-level WAF Skip rules covering the Super Bot Fight Mode phase; the skip
+configuration in place during this test did not exempt the challenged traffic. Note also that
+*Bot Fight Mode* and *Super Bot Fight Mode* are distinct products and must not be conflated —
+their skip/exemption behaviour differs.
+
+The finding that stands is the observed one: as configured and physically tested on
+`api-staging.carup.dev`, legitimate API traffic — including signed provider webhooks — was
+challenged with `cf-mitigated: challenge`. SBFM was therefore rejected for this API host **on
+evidence**, not on a claimed platform limitation.
 
 More importantly it was the **wrong control for this host**. `api-staging.carup.dev` is a pure API
 surface: every legitimate caller — the mobile native app, server-to-server traffic, provider
@@ -59,8 +70,12 @@ webhooks, CI — is "automated" by definition, so an interactive bot challenge b
 instead of protecting it. The browser-facing hosts are not proxied, so SBFM was guarding nothing.
 
 Resolution: `sbfm_definitely_automated → allow`, `browser_check → off`, `security_level → medium`,
-with real protection coming from Managed WAF + rate limiting + application authentication. This
-should be revisited per-host if a browser surface is ever proxied.
+with real protection coming from Managed WAF + OWASP + scoped credential protection + bounded rate
+limiting. These are the accepted controls for this host.
+
+SBFM was **not** re-enabled to prove the documentation point — the certified posture above remains
+authoritative. If a browser surface is proxied later, SBFM should be re-evaluated per-host, at
+which point a targeted WAF Skip rule for the SBFM phase is a legitimate design option to test.
 
 ## Cloudflare Pro security posture deployed
 
