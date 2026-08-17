@@ -109,7 +109,13 @@ send-time gate never consulted it. So even a provider-side unsubscribe reconcile
 - The campaign path mints the handle before queueing, so a minting failure suppresses the send rather
   than shipping unstoppable marketing.
 
-### The artefact actually sent (notification 334, `delivered`)
+### ~~The artefact actually sent (notification 334, `delivered`)~~ — **WRONG, see Round 2**
+
+> **This section is retained but withdrawn.** What follows was rendered *locally* from the new adapter
+> code and presented as what was transmitted. It was not: notification 334 was sent by an **older
+> staging deployment** that transmitted no HTML part and no `List-Unsubscribe` headers at all. The
+> owner's FAIL was correct. See "Round 2" below for the physical evidence and the provenance that
+> replaces this inference.
 
 ```text
 List-Unsubscribe: <https://api-staging.carup.dev/api/communications/unsubscribe?token=...>,
