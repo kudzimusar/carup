@@ -119,7 +119,7 @@ export function authRecoveryRouter({
         const { rawToken } = await tokenService.issue({
           userId: user.id,
           purpose: AUTH_TOKEN_PURPOSES.PASSWORD_RESET,
-          requestedIp: req.ip || null,
+          requestedIp: req.carupClientIp || req.ip || null,
           userAgent: req.headers?.['user-agent'] || null,
           source: 'forgot_password',
         });

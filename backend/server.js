@@ -62,6 +62,7 @@ import claimsRouter from './routes/claimsRoutes.js';
 
 // Centralized Routes Imports (Batch 2)
 import adminRouter from './routes/adminRoutes.js';
+import { edgeClientIpMiddleware } from './middleware/edgeClientIp.js';
 import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
@@ -149,6 +150,8 @@ app.use(securityHeadersMiddleware);
 app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
 
 // Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+// Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
+app.use(edgeClientIpMiddleware());
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));

@@ -57,7 +57,9 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
       return next();
     }
 
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    // Behind a Cloudflare-proxied host, req.ip is the edge address; carupClientIp is the real
+    // client, but only when the request provably transited our zone (see edgeClientIp.js).
+    const ip = req.carupClientIp || req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const key = `${tier}:${ip}`;
 
     Promise.resolve(store.hit(key, windowMs)).then((rateData) => {
