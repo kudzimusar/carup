@@ -98,6 +98,15 @@ import identityVerificationAdminRouter from './routes/identityVerificationAdminR
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { PUBLIC_VEHICLE_SELECT, projectVehicle, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
+import {
+  LOOKUP_KINDS,
+  LOOKUP_DECISIONS,
+  NON_ENUMERABLE_LOOKUP_RESPONSE,
+  classifyLookupIdentifier,
+  resolveLookupAccess,
+  resolveSellerLookupOptIn,
+  lookupColumnsForKind,
+} from './utils/passportLookupPolicy.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -477,27 +486,41 @@ function normalizePlate(plate) {
 }
 
 function validatePassportLookupIdentifier(identifier) {
-  const value = String(identifier || '').trim();
-  if (value.length < 2 || value.length > 64) {
-    return null;
-  }
-  if (!/^[A-Za-z0-9][A-Za-z0-9 _-]*$/.test(value)) {
-    return null;
-  }
-  return value;
+  const classified = classifyLookupIdentifier(identifier);
+  return classified ? classified.value : null;
 }
 
-async function collectPassportLookupMatches(identifier) {
+/**
+ * Resolve an identifier to candidate VINs, searching only the columns its KIND permits.
+ * A VIN lookup searches the vin column alone, so a public caller cannot supply a plate or
+ * chassis number and discover the vehicle behind it.
+ */
+async function collectPassportLookupMatches(identifier, kind = LOOKUP_KINDS.RESTRICTED) {
   const norm = normalizePlate(identifier);
-  const queries = [
-    supabase.from('vehicles').select('vin').eq('vin', identifier),
-    supabase.from('vehicles').select('vin').eq('chassis_number', identifier),
-    supabase.from('vehicles').select('vin').eq('plate_number', identifier),
-    supabase.from('vehicles').select('vin').eq('normalized_plate_number', norm),
-    supabase.from('vehicles').select('vin').eq('temporary_identification_number', identifier),
-    supabase.from('vehicle_plate_history').select('vin').eq('plate_number', identifier),
-    supabase.from('vehicle_plate_history').select('vin').eq('normalized_plate_number', norm)
-  ];
+  const columns = lookupColumnsForKind(kind);
+
+  const queries = [];
+  if (columns.vehicles.includes('vin')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('vin', identifier));
+  }
+  if (columns.vehicles.includes('chassis_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('chassis_number', identifier));
+  }
+  if (columns.vehicles.includes('plate_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('plate_number', identifier));
+  }
+  if (columns.vehicles.includes('normalized_plate_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('normalized_plate_number', norm));
+  }
+  if (columns.vehicles.includes('temporary_identification_number')) {
+    queries.push(supabase.from('vehicles').select('vin').eq('temporary_identification_number', identifier));
+  }
+  if (columns.plateHistory.includes('plate_number')) {
+    queries.push(supabase.from('vehicle_plate_history').select('vin').eq('plate_number', identifier));
+  }
+  if (columns.plateHistory.includes('normalized_plate_number')) {
+    queries.push(supabase.from('vehicle_plate_history').select('vin').eq('normalized_plate_number', norm));
+  }
 
   const results = await Promise.all(queries);
   const firstError = results.find(result => result.error)?.error;
@@ -511,6 +534,15 @@ async function collectPassportLookupMatches(identifier) {
   }
   return matchingVins;
 }
+
+/**
+ * Passport read limits. The passport is the richest public read CarUp serves, so both routes are
+ * bounded independently of the global 100/min: bulk VIN sweeps and repeated identifier probing are
+ * the two ways this surface gets mined. The identifier route is tighter because a caller who is
+ * merely looking up their own car needs a handful of requests, not dozens.
+ */
+const passportLimiter = rateLimiter({ max: 30, windowMs: 60 * 1000, isSensitive: true });
+const passportLookupLimiter = rateLimiter({ max: 10, windowMs: 60 * 1000, isSensitive: true });
 
 // Roles that may read a passport at the owner audience regardless of who owns the
 // vehicle. Kept narrow: widening this widens the unredacted identity surface.
@@ -774,7 +806,7 @@ async function buildVehiclePassport(vin, req) {
 // Canonical VIN passport lookup.
 // optionalAuth() resolves identity when one is genuinely present and never blocks:
 // the passport stays publicly reachable, only its audience changes.
-app.get('/api/vehicles/:vin/passport', optionalAuth(), async (req, res) => {
+app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
     const passport = await buildVehiclePassport(vin, req);
@@ -789,14 +821,29 @@ app.get('/api/vehicles/:vin/passport', optionalAuth(), async (req, res) => {
 
 // Multi-identifier passport lookup route. Same audience rule as /:vin/passport —
 // resolving by plate/temp id must not be a cheaper route to the owner audience.
-app.get('/api/vehicles/passport/lookup/:identifier', optionalAuth(), async (req, res) => {
-  const identifier = validatePassportLookupIdentifier(req.params.identifier);
-  if (!identifier) {
+app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, optionalAuth(), async (req, res) => {
+  const classified = classifyLookupIdentifier(req.params.identifier);
+  if (!classified) {
     return res.status(400).json({ error: 'Invalid lookup identifier' });
   }
 
+  // Plate / temporary-id / chassis lookup is gated BEFORE any query runs. Answering from the
+  // policy alone is what makes the response non-enumerable: an unauthenticated caller gets the
+  // same status, the same body and the same timing whether or not the identifier exists.
+  const access = resolveLookupAccess({
+    kind: classified.kind,
+    actor: req.userContext || null,
+    sellerOptIn: await resolveSellerLookupOptIn(classified),
+  });
+  if (access.decision !== LOOKUP_DECISIONS.ALLOW) {
+    return res
+      .status(NON_ENUMERABLE_LOOKUP_RESPONSE.status)
+      .json(NON_ENUMERABLE_LOOKUP_RESPONSE.body);
+  }
+
+  const identifier = classified.value;
   try {
-    const matchingVins = await collectPassportLookupMatches(identifier);
+    const matchingVins = await collectPassportLookupMatches(identifier, classified.kind);
 
     if (matchingVins.size === 0) {
       return res.status(404).json({ error: 'Vehicle not found' });

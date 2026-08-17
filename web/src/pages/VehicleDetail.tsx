@@ -230,6 +230,9 @@ export default function VehicleDetail() {
   const [detail, setDetail]     = useState<MarketplaceListingDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(true)
   const [loading, setLoading]   = useState(true)
+  // A plate / temporary-identifier lookup is refused for signed-out visitors by design. That is a
+  // statement about the caller, not about the vehicle, so it must not render as "Vehicle Not Found".
+  const [lookupNeedsSignIn, setLookupNeedsSignIn] = useState(false)
 
   const [currentImageIdx, setCurrentImageIdx] = useState(0)
   const [isFav, setIsFav]         = useState(() => getFavorites().includes(id || ''))
@@ -381,6 +384,9 @@ export default function VehicleDetail() {
           return
         }
       } catch (err) {
+        if ((err as { code?: string })?.code === 'LOOKUP_REQUIRES_AUTHENTICATION') {
+          setLookupNeedsSignIn(true)
+        }
         console.warn('lookupVehiclePassport failed, trying fallback details fetch:', err)
       }
 
@@ -557,6 +563,29 @@ export default function VehicleDetail() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      </div>
+    )
+  }
+
+  if (!vehicle && lookupNeedsSignIn) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md px-4" data-testid="lookup-requires-signin">
+          <Lock className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-2">Sign in to look up by plate</h1>
+          <p className="text-gray-500 mb-6">
+            Searching by number plate or temporary identifier needs a CarUp account. Looking up an exact
+            VIN is open to everyone.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Button className="bg-orange-500 hover:bg-orange-600" asChild>
+              <Link to="/login">Sign in</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/marketplace">Back to Marketplace</Link>
+            </Button>
+          </div>
+        </div>
       </div>
     )
   }
