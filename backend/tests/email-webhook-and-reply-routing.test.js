@@ -1,0 +1,302 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import test from 'node:test';
+
+import {
+  RESEND_EVENT_STATUS,
+  RESEND_SUPPRESSION_REASON,
+  ResendInboundResolver,
+  extractRfcReferences,
+  verifyResendSignature,
+} from '../services/communication/resendWebhookService.js';
+import {
+  EmailReplyTokenService,
+  buildReplyToAddress,
+  extractReplyTokens,
+  hashReplyToken,
+  parseReplyToAddress,
+} from '../services/communication/emailReplyTokenService.js';
+import { BrevoMarketingAdapter, EmailTransportRouter } from '../services/communication/adapters/providerAdapters.js';
+
+/**
+ * E3/E4/E5 — source-level proofs for Resend lifecycle + inbound routing and Brevo marketing
+ * isolation. No provider is contacted and no Email is sent.
+ */
+
+// ---------- E3: Svix signature verification ----------
+
+const SECRET = `whsec_${Buffer.from('carup-test-signing-secret-0123456789').toString('base64')}`;
+
+function signResend(rawBody, { id = 'msg_test_1', timestamp = Math.floor(Date.now() / 1000), secret = SECRET } = {}) {
+  const key = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+  const sig = crypto.createHmac('sha256', key).update(`${id}.${timestamp}.${rawBody}`, 'utf8').digest('base64');
+  return { 'svix-id': id, 'svix-timestamp': String(timestamp), 'svix-signature': `v1,${sig}` };
+}
+
+test('a correctly signed Resend webhook verifies', () => {
+  const raw = JSON.stringify({ type: 'email.delivered', data: { email_id: 'e1' } });
+  const result = verifyResendSignature({ rawBody: raw, headers: signResend(raw), secret: SECRET });
+  assert.equal(result.valid, true);
+});
+
+test('a tampered body fails verification', () => {
+  const raw = JSON.stringify({ type: 'email.delivered', data: { email_id: 'e1' } });
+  const headers = signResend(raw);
+  const tampered = JSON.stringify({ type: 'email.bounced', data: { email_id: 'e1' } });
+  assert.equal(verifyResendSignature({ rawBody: tampered, headers, secret: SECRET }).valid, false);
+});
+
+test('a wrong secret fails verification', () => {
+  const raw = JSON.stringify({ type: 'email.delivered' });
+  const other = `whsec_${Buffer.from('a-different-secret-value-999999').toString('base64')}`;
+  assert.equal(verifyResendSignature({ rawBody: raw, headers: signResend(raw), secret: other }).valid, false);
+});
+
+test('a missing secret or missing headers fails closed — never open', () => {
+  const raw = '{}';
+  assert.equal(verifyResendSignature({ rawBody: raw, headers: signResend(raw), secret: '' }).valid, false);
+  assert.equal(verifyResendSignature({ rawBody: raw, headers: {}, secret: SECRET }).valid, false);
+});
+
+test('a replayed request outside the timestamp tolerance is rejected', () => {
+  const raw = JSON.stringify({ type: 'email.delivered' });
+  const stale = Math.floor(Date.now() / 1000) - 3600;
+  const result = verifyResendSignature({ rawBody: raw, headers: signResend(raw, { timestamp: stale }), secret: SECRET });
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'timestamp_outside_tolerance');
+});
+
+test('signature verification tolerates rotation (multiple candidate signatures)', () => {
+  const raw = JSON.stringify({ type: 'email.sent' });
+  const good = signResend(raw);
+  good['svix-signature'] = `v1,AAAAinvalidsignature== ${good['svix-signature']}`;
+  assert.equal(verifyResendSignature({ rawBody: raw, headers: good, secret: SECRET }).valid, true);
+});
+
+test('every required lifecycle event maps to a canonical status', () => {
+  for (const type of ['email.sent', 'email.delivered', 'email.delivery_delayed', 'email.bounced', 'email.complained', 'email.failed', 'email.suppressed']) {
+    assert.ok(RESEND_EVENT_STATUS[type], `${type} must map to a canonical status`);
+  }
+  assert.equal(RESEND_SUPPRESSION_REASON['email.bounced'], 'hard_bounce');
+  assert.equal(RESEND_SUPPRESSION_REASON['email.complained'], 'complaint');
+});
+
+// ---------- E4: reply address + token ----------
+
+test('the reply address is opaque and exposes no raw thread id', () => {
+  const address = buildReplyToAddress('AbCd1234EfGh5678IjKl', { RESEND_INBOUND_DOMAIN: 'mail.carup.dev' });
+  assert.match(address, /^conversation\+[A-Za-z0-9_-]+@mail\.carup\.dev$/);
+  const local = address.split('@')[0];
+  assert.ok(local.length <= 64, 'local part must fit RFC 5321 (64 octets)');
+  assert.doesNotMatch(address, /[0-9a-f]{8}-[0-9a-f]{4}-/i, 'must not embed a UUID');
+});
+
+test('reply tokens are recovered from realistic recipient headers', () => {
+  assert.equal(parseReplyToAddress('CarUp <conversation+ABCDEFGHIJKLMNOP@mail.carup.dev>'), 'ABCDEFGHIJKLMNOP');
+  const many = extractReplyTokens(['a@b.com, conversation+TOKENTOKENTOKEN1@mail.carup.dev']);
+  assert.deepEqual(many, ['TOKENTOKENTOKEN1']);
+  assert.equal(parseReplyToAddress('someone@example.com'), null);
+});
+
+test('only a hash of the reply token is stored', () => {
+  const raw = 'ABCDEFGHIJKLMNOPQRSTUV';
+  const h = hashReplyToken(raw);
+  assert.equal(h.length, 64);
+  assert.notEqual(h, raw);
+});
+
+// A minimal stand-in for the PostgREST surface used by the resolver.
+function fakeDb(tables) {
+  const build = (rows) => {
+    const filters = [];
+    const api = {
+      select: () => api,
+      eq: (c, v) => { filters.push((r) => r[c] === v); return api; },
+      in: (c, vs) => { filters.push((r) => vs.includes(r[c])); return api; },
+      is: (c) => { filters.push((r) => r[c] === null || r[c] === undefined); return api; },
+      gt: (c, v) => { filters.push((r) => new Date(r[c]) > new Date(v)); return api; },
+      maybeSingle: async () => ({ data: rows.filter((r) => filters.every((f) => f(r)))[0] || null, error: null }),
+      single: async () => ({ data: rows.filter((r) => filters.every((f) => f(r)))[0] || null, error: null }),
+      then: (res, rej) => Promise.resolve({ data: rows.filter((r) => filters.every((f) => f(r))), error: null }).then(res, rej),
+      update: () => api,
+    };
+    return api;
+  };
+  return { from: (t) => build(tables[t] || []) };
+}
+
+const FUTURE = new Date(Date.now() + 86_400_000).toISOString();
+
+function scenario(overrides = {}) {
+  const tables = {
+    email_reply_tokens: [{
+      id: 'tok-1', token_hash: hashReplyToken('RAWTOKENRAWTOKEN01'), thread_id: 'thread-1',
+      participant_id: 'part-1', binding_id: 'bind-1', tenant_id: 'platform',
+      expires_at: FUTURE, revoked_at: null, use_count: 0,
+    }],
+    message_participants: [{ id: 'part-1', thread_id: 'thread-1', left_at: null, user_id: 'u1' }],
+    message_threads: [{ id: 'thread-1', tenant_id: 'platform' }],
+    conversation_channel_bindings: [{ id: 'bind-1', can_receive: true, expires_at: null, thread_id: 'thread-1', participant_id: 'part-1', channel_identity_id: 'ident-1', channel: 'email' }],
+    message_delivery_attempts: [{ message_id: 'msg-1', provider: 'resend', provider_message_id: '<out-1@mail.carup.dev>' }],
+    messages: [{ id: 'msg-1', thread_id: 'thread-1', tenant_id: 'platform' }],
+    channel_identities: [{ id: 'ident-1', channel: 'email', normalized_address: 'buyer@example.com', user_id: 'u1' }],
+    ...overrides,
+  };
+  const db = fakeDb(tables);
+  return { db, resolver: new ResendInboundResolver({ supabase: db, replyTokenService: new EmailReplyTokenService({ supabase: db }) }) };
+}
+
+test('token-only resolution succeeds', async () => {
+  const { resolver } = scenario();
+  const r = await resolver.resolve({ to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'], from: 'buyer@example.com' });
+  assert.equal(r.ok, true);
+  assert.equal(r.threadId, 'thread-1');
+  assert.equal(r.participantId, 'part-1');
+  assert.equal(r.resolution, 'authenticated_reply_token');
+});
+
+test('RFC-only resolution reuses the existing bound participant', async () => {
+  const { resolver } = scenario();
+  const r = await resolver.resolve({
+    to: ['support@mail.carup.dev'], from: 'buyer@example.com',
+    headers: { 'In-Reply-To': '<out-1@mail.carup.dev>' },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.threadId, 'thread-1');
+  assert.equal(r.participantId, 'part-1', 'must reuse the bound participant, never mint one');
+  assert.equal(r.resolution, 'rfc_reference');
+});
+
+test('token + RFC agreeing resolves and is labelled as agreement', async () => {
+  const { resolver } = scenario();
+  const r = await resolver.resolve({
+    to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'], from: 'buyer@example.com',
+    headers: { 'In-Reply-To': '<out-1@mail.carup.dev>' },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.resolution, 'token_and_rfc_agree');
+});
+
+test('token + RFC DISAGREEING fails closed', async () => {
+  const { resolver } = scenario({
+    message_delivery_attempts: [{ message_id: 'msg-other', provider: 'resend', provider_message_id: '<out-1@mail.carup.dev>' }],
+    messages: [{ id: 'msg-other', thread_id: 'thread-OTHER', tenant_id: 'platform' }],
+  });
+  const r = await resolver.resolve({
+    to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'], from: 'buyer@example.com',
+    headers: { 'In-Reply-To': '<out-1@mail.carup.dev>' },
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'token_rfc_disagreement');
+});
+
+test('an unknown RFC reference with no token fails closed', async () => {
+  const { resolver } = scenario();
+  const r = await resolver.resolve({ to: ['support@mail.carup.dev'], from: 'buyer@example.com', headers: { 'In-Reply-To': '<nope@elsewhere>' } });
+  assert.equal(r.ok, false);
+});
+
+test('a tampered or expired token fails closed', async () => {
+  const { resolver } = scenario();
+  assert.equal((await resolver.resolve({ to: ['conversation+TAMPEREDTAMPERED01@mail.carup.dev'] })).ok, false);
+
+  const expired = scenario({
+    email_reply_tokens: [{
+      id: 'tok-1', token_hash: hashReplyToken('RAWTOKENRAWTOKEN01'), thread_id: 'thread-1',
+      participant_id: 'part-1', binding_id: null, tenant_id: 'platform',
+      expires_at: new Date(Date.now() - 1000).toISOString(), revoked_at: null,
+    }],
+  });
+  const r = await expired.resolver.resolve({ to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'] });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'expired_token');
+});
+
+test('a wrong-tenant token fails closed', async () => {
+  const { resolver } = scenario({ message_threads: [{ id: 'thread-1', tenant_id: 'a-different-tenant' }] });
+  const r = await resolver.resolve({ to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'] });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'tenant_invariant_failed');
+});
+
+test('an inactive participant or unreceivable binding fails closed', async () => {
+  const left = scenario({ message_participants: [{ id: 'part-1', thread_id: 'thread-1', left_at: new Date().toISOString() }] });
+  assert.equal((await left.resolver.resolve({ to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'] })).reason, 'participant_inactive');
+
+  const blocked = scenario({ conversation_channel_bindings: [{ id: 'bind-1', can_receive: false, thread_id: 'thread-1', participant_id: 'part-1', channel_identity_id: 'ident-1' }] });
+  assert.equal((await blocked.resolver.resolve({ to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev'] })).reason, 'binding_cannot_receive');
+});
+
+test('two reply tokens in one inbound email are ambiguous and fail closed', async () => {
+  const { resolver } = scenario();
+  const r = await resolver.resolve({ to: ['conversation+RAWTOKENRAWTOKEN01@mail.carup.dev, conversation+OTHERTOKENOTHER22@mail.carup.dev'] });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'multiple_reply_tokens');
+});
+
+test('an unknown sender with no token and no RFC never falls back to "most recent conversation"', async () => {
+  const { resolver } = scenario();
+  const r = await resolver.resolve({ to: ['support@mail.carup.dev'], from: 'stranger@example.com' });
+  assert.equal(r.ok, false);
+  assert.ok(['no_rfc_reference', 'no_reply_token'].includes(r.reason));
+});
+
+test('RFC references are extracted newest-first and de-duplicated', () => {
+  const ids = extractRfcReferences({ headers: { 'In-Reply-To': '<a@x>', References: '<a@x> <b@x>' } });
+  assert.deepEqual(ids, ['<a@x>', '<b@x>']);
+});
+
+// ---------- E5: Brevo marketing isolation ----------
+
+const BREVO_ENV = { BREVO_API_KEY: 'k', BREVO_FROM_EMAIL: 'CarUp <news@marketing.carup.dev>' };
+
+test('Brevo refuses any non-marketing classification', async () => {
+  const brevo = new BrevoMarketingAdapter({ env: BREVO_ENV });
+  for (const classification of ['security', 'auth', 'transactional', 'conversational', 'service']) {
+    const r = await brevo.send({ content: { data: { classification, email: 'x@example.test' } } });
+    assert.equal(r.accepted, false);
+    assert.equal(r.errorCode, 'classification_not_permitted');
+  }
+});
+
+test('Brevo refuses a marketing send with no canonical campaign context', async () => {
+  const brevo = new BrevoMarketingAdapter({ env: BREVO_ENV });
+  const r = await brevo.send({ content: { data: { classification: 'marketing', email: 'x@example.test' } } });
+  assert.equal(r.accepted, false);
+  assert.equal(r.errorCode, 'campaign_context_missing');
+});
+
+test('Brevo sends from the verified marketing sender and tags canonical ids', async () => {
+  let captured = null;
+  const brevo = new BrevoMarketingAdapter({
+    env: BREVO_ENV,
+    fetchImpl: async (url, init) => {
+      captured = { url, body: JSON.parse(init.body), headers: init.headers };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ messageId: '<brevo-1@marketing.carup.dev>' }), headers: new Map() };
+    },
+  });
+  const r = await brevo.send({
+    content: { data: { classification: 'marketing', email: 'buyer@example.test', campaign_id: 'camp-1', campaign_delivery_id: 'del-1' }, subject: 'News', body: 'hello' },
+  });
+  assert.equal(r.accepted, true);
+  assert.equal(r.providerMessageId, '<brevo-1@marketing.carup.dev>');
+  assert.match(captured.url, /api\.brevo\.com\/v3\/smtp\/email/);
+  assert.equal(captured.body.sender.email, 'news@marketing.carup.dev');
+  assert.ok(captured.body.tags.includes('campaign:camp-1'));
+  assert.ok(captured.body.tags.includes('delivery:del-1'));
+  // The MCP credential must never be used by application code.
+  assert.ok(!JSON.stringify(captured.headers).includes('MCP'));
+});
+
+test('the router keeps marketing on Brevo and everything else on Resend', () => {
+  const router = new EmailTransportRouter({ env: { ...BREVO_ENV, RESEND_API_KEY: 'k', RESEND_FROM_EMAIL: 'notifications@mail.carup.dev' } });
+  assert.equal(router.selectAdapter({ content: { data: { classification: 'marketing' } } }).adapter.provider, 'brevo');
+  for (const c of ['security', 'auth', 'conversational', 'transactional', 'service']) {
+    assert.equal(router.selectAdapter({ content: { data: { classification: c } } }).adapter.provider, 'resend');
+  }
+});
+
+test('no application code path reads BREVO_API_MCP_KEY', () => {
+  const brevo = new BrevoMarketingAdapter({ env: { ...BREVO_ENV, BREVO_API_MCP_KEY: 'must-not-be-used' } });
+  assert.deepEqual(brevo.requiredEnv, ['BREVO_API_KEY', 'BREVO_FROM_EMAIL']);
+});

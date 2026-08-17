@@ -346,6 +346,89 @@ export class ResendEmailAdapter extends HttpCommunicationAdapter {
 }
 
 /**
+ * Brevo — canonical MARKETING Email transport (directive §0A.3).
+ *
+ * Brevo is a projection of an already-authorized CarUp campaign, never an authority. This adapter
+ * therefore refuses to send anything that is not classified marketing, and it refuses to send
+ * without the canonical campaign/delivery identifiers that make a provider-side send traceable
+ * back to CarUp. Brevo list membership must never become the reason a recipient receives mail.
+ *
+ * Uses BREVO_API_KEY (the normal REST credential). BREVO_API_MCP_KEY is deliberately never read —
+ * it is tooling access, not application configuration.
+ */
+export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
+  constructor(options = {}) {
+    super({ channel: 'email', provider: 'brevo', requiredEnv: ['BREVO_API_KEY', 'BREVO_FROM_EMAIL'], ...options });
+  }
+
+  senderFrom() {
+    const raw = envValue(this.env, 'BREVO_FROM_EMAIL') || '';
+    const name = envValue(this.env, 'BREVO_FROM_NAME') || 'CarUp';
+    const match = raw.match(/<([^>]+)>/);
+    return { name, email: (match ? match[1] : raw).trim() };
+  }
+
+  async send(input = {}) {
+    if (!this.validateConfiguration().available) return this.missingConfigurationResult();
+
+    const data = input?.content?.data || {};
+    const classification = String(data.classification || '').toLowerCase();
+    if (classification !== 'marketing') {
+      // Fail closed rather than quietly becoming a second transactional provider.
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'classification_not_permitted',
+        errorMessage: `Brevo is marketing-only; refused classification '${classification || 'unknown'}'.`,
+      };
+    }
+
+    const campaignId = data.campaign_id || null;
+    const campaignDeliveryId = data.campaign_delivery_id || null;
+    if (!campaignId || !campaignDeliveryId) {
+      // Without canonical ids the provider-side send would be untraceable back to CarUp.
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'campaign_context_missing',
+        errorMessage: 'Brevo send requires canonical campaign_id and campaign_delivery_id.',
+      };
+    }
+
+    const to = recipientField(input, 'email', 'address', 'to');
+    if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'Email recipient address is required.' };
+
+    const headers = jsonHeaders({ 'api-key': envValue(this.env, 'BREVO_API_KEY'), accept: 'application/json' });
+    const body = {
+      sender: this.senderFrom(),
+      to: [{ email: to }],
+      subject: subjectText(input, 'CarUp'),
+      textContent: textBody(input),
+      // Every provider object maps back to canonical CarUp identifiers.
+      tags: [`campaign:${campaignId}`, `delivery:${campaignDeliveryId}`],
+      headers: {
+        'X-CarUp-Campaign-Id': String(campaignId),
+        'X-CarUp-Campaign-Delivery-Id': String(campaignDeliveryId),
+        'X-CarUp-Notification-Id': String(input.notificationId || ''),
+      },
+    };
+    const html = emailHtml(input);
+    if (html) body.htmlContent = html;
+
+    const response = await this.requestJson('https://api.brevo.com/v3/smtp/email', { headers, body });
+    if (!response.ok) return this.providerFailure(response);
+
+    const providerMessageId = response.body?.messageId || response.body?.messageIds?.[0] || null;
+    return {
+      accepted: true,
+      providerRequestId: providerMessageId || stableRequestId('brevo', input),
+      providerMessageId,
+      providerStatus: 'accepted',
+    };
+  }
+}
+
+/**
  * Governed Email transport router (directive §0A / E2).
  *
  * Provider choice derives from CarUp's own governed classification, never from arbitrary caller
@@ -367,7 +450,7 @@ export class EmailTransportRouter {
     this.provider = 'carup_email_router';
     this.env = options.env || process.env;
     this.resend = new ResendEmailAdapter(options);
-    this.brevo = null; // wired in E5; marketing has no transport until Brevo is configured
+    this.brevo = new BrevoMarketingAdapter(options);
     this.legacy = this.buildLegacyAdapter(options);
   }
 

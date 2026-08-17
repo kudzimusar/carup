@@ -3,6 +3,7 @@ import { parseChannelPayload } from '../referral/referralChannelPayloadParsers.j
 import { buildDedupeKey, normalizeChannel, redactPayload, stableHash, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { ForbiddenError, ValidationError } from '../../utils/errors.js';
+import { RESEND_EVENT_STATUS, RESEND_SUPPRESSION_REASON, verifyResendSignature } from './resendWebhookService.js';
 
 const DEFAULT_CLOUDFLARE_SIGNATURE_TOLERANCE_SECONDS = 300;
 const DEFAULT_CLOUDFLARE_MAX_EMAIL_BYTES = 25 * 1024 * 1024;
@@ -94,6 +95,28 @@ export class CommunicationWebhookService {
       }
       const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
       return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    }
+    // Resend signs with Svix over the exact raw bytes. No shared-secret or test-mode fallback:
+    // a P0 auth/security transport must never accept an unverified event.
+    if (normalizedProvider === 'resend') {
+      return verifyResendSignature({
+        rawBody,
+        headers,
+        secret: this.env.RESEND_WEBHOOK_SECRET,
+      }).valid;
+    }
+    // Brevo publishes no request-signing scheme, so authentication is a shared secret CarUp
+    // generates and registers with the webhook URL. Compared timing-safely.
+    if (normalizedProvider === 'brevo') {
+      const expected = this.env.BREVO_WEBHOOK_SECRET;
+      if (!expected) return false;
+      const supplied = headers['x-carup-brevo-secret']
+        || headers['x-brevo-webhook-secret']
+        || String(query?.token || '');
+      if (!supplied) return false;
+      const a = Buffer.from(String(supplied), 'utf8');
+      const b = Buffer.from(String(expected), 'utf8');
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
     if (normalizedProvider === 'twilio') {
       if (this.env.TWILIO_AUTH_TOKEN) {
@@ -198,6 +221,19 @@ export class CommunicationWebhookService {
     if (String(provider || '').toLowerCase() === 'cloudflare' && normalized === 'email') {
       return buildDedupeKey([provider, normalized, body.message_id || body.provider_message_id || body.idempotency_key || stableHash(body).slice(0, 32)]);
     }
+    // Resend/Svix supplies a stable per-delivery event id in the svix-id header, which the route
+    // folds into the body as provider_event_id. Falling back to the email id + type still dedupes
+    // a genuine provider replay of the same transition.
+    if (String(provider || '').toLowerCase() === 'resend') {
+      const resendId = body.provider_event_id
+        || (body.type && (body.data?.email_id || body.data?.id) ? `${body.type}:${body.data.email_id || body.data.id}` : null);
+      return buildDedupeKey([provider, normalized, resendId || stableHash(body).slice(0, 32)]);
+    }
+    if (String(provider || '').toLowerCase() === 'brevo') {
+      const brevoId = body.provider_event_id
+        || (body.event && (body['message-id'] || body.message_id) ? `${body.event}:${body['message-id'] || body.message_id}` : null);
+      return buildDedupeKey([provider, normalized, brevoId || stableHash(body).slice(0, 32)]);
+    }
     if (body.provider_event_id || body.event_id) return buildDedupeKey([provider, normalized, body.provider_event_id || body.event_id]);
     return buildDedupeKey([provider, normalized, stableHash(body).slice(0, 32)]);
   }
@@ -205,6 +241,65 @@ export class CommunicationWebhookService {
   extractDeliveryReceipts(provider, channel, body = {}) {
     const normalizedProvider = String(provider || '').toLowerCase();
     const normalized = normalizeChannel(channel) || channel;
+    if (normalizedProvider === 'resend') {
+      // Inbound mail is not a delivery receipt — it is handled by the inbound path.
+      if (body.type === 'email.received') return [];
+      const status = RESEND_EVENT_STATUS[body.type];
+      if (!status) return [];
+      const data = body.data || {};
+      const headers = data.headers || {};
+      const rfcMessageId = data.message_id
+        || (Array.isArray(headers) ? headers.find((h) => String(h.name).toLowerCase() === 'message-id')?.value : headers['message-id'])
+        || null;
+      return [{
+        provider: 'resend',
+        channel: 'email',
+        // The RFC Message-ID is what the adapter persisted as provider_message_id, so receipts
+        // correlate on the same identifier an inbound reply would reference.
+        providerMessageId: rfcMessageId || data.email_id || data.id || null,
+        providerRequestId: data.email_id || data.id || null,
+        notificationId: data.tags?.notification_id || headers['x-carup-notification-id'] || null,
+        messageId: data.tags?.message_id || headers['x-carup-message-id'] || null,
+        status,
+        rawStatus: body.type,
+        suppressionReason: RESEND_SUPPRESSION_REASON[body.type] || null,
+        recipient: Array.isArray(data.to) ? data.to[0] : data.to || null,
+      }].filter((r) => r.providerMessageId || r.providerRequestId || r.notificationId || r.messageId);
+    }
+    if (normalizedProvider === 'brevo') {
+      const event = String(body.event || '').toLowerCase();
+      const map = {
+        delivered: 'delivered',
+        hard_bounce: 'failed',
+        soft_bounce: 'failed',
+        deferred: 'sent',
+        spam: 'failed',
+        complaint: 'failed',
+        unsubscribed: 'failed',
+        blocked: 'failed',
+        error: 'failed',
+      };
+      const status = map[event];
+      if (!status) return [];
+      const suppression = {
+        hard_bounce: 'hard_bounce',
+        spam: 'complaint',
+        complaint: 'complaint',
+        unsubscribed: 'unsubscribe',
+        blocked: 'provider_suppression',
+      }[event] || null;
+      return [{
+        provider: 'brevo',
+        channel: 'email',
+        providerMessageId: body['message-id'] || body.message_id || null,
+        notificationId: body.tags?.notification_id || body.notification_id || null,
+        messageId: body.tags?.message_id || body.message_id_carup || null,
+        status,
+        rawStatus: event,
+        suppressionReason: suppression,
+        recipient: body.email || null,
+      }].filter((r) => r.providerMessageId || r.notificationId || r.messageId);
+    }
     if (normalizedProvider === 'sendgrid') {
       const events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [];
       return events.map((event) => ({
@@ -324,6 +419,61 @@ export class CommunicationWebhookService {
       metadata: { status: receipt.status, raw_status: receipt.rawStatus ?? null, error_code: receipt.errorCode ?? null },
     });
     return { notificationId, messageId, providerMessageId: receipt.providerMessageId, status: receipt.status };
+  }
+
+  /**
+   * E4 — inbound Resend reply routed into the EXACT existing conversation.
+   *
+   * Signature verification and webhook dedupe have already happened in handleWebhook, so this only
+   * runs for an authenticated, non-duplicate event. Resolution requires an authenticated CarUp
+   * reply token and/or an RFC reference, and when both are present they must agree. Anything
+   * ambiguous fails closed — there is no sender-based fallback.
+   *
+   * The resolved participant is authoritative and is REUSED (Communications 2.0 Gate-E invariant);
+   * this path never mints a participant, so the delta for one inbound reply is
+   * threads +0, participants +0, messages +1.
+   */
+  async handleResendInboundWebhook(body = {}, actor = {}) {
+    if (!this.inboundResolver || !this.inboundService) {
+      throw new ValidationError('Resend inbound routing is not configured.');
+    }
+    const data = body.data || body;
+
+    const resolution = await this.inboundResolver.resolve(data);
+    if (!resolution.ok) {
+      // Fail closed: record why, mutate nothing.
+      throw new ValidationError(`Inbound Email could not be routed: ${resolution.reason}`, {
+        reason: resolution.reason,
+        provider: 'resend',
+      });
+    }
+
+    const headers = data.headers || {};
+    const rfcMessageId = data.message_id
+      || (Array.isArray(headers) ? headers.find((h) => String(h.name).toLowerCase() === 'message-id')?.value : headers['message-id'])
+      || null;
+
+    const result = await this.inboundService.ingest({
+      channel: 'email',
+      provider: 'resend',
+      threadId: resolution.threadId,
+      participantId: resolution.participantId,
+      providerMessageId: rfcMessageId,
+      externalConversationId: rfcMessageId,
+      from: data.from || data.From || null,
+      text: data.text || data.plain || data.body || '',
+      attachments: data.attachments || [],
+      metadata: {
+        resolution: resolution.resolution,
+        reply_token_id: resolution.tokenId || null,
+        subject: data.subject || null,
+      },
+    }, { gateway_trusted: true, surface: 'email', actor });
+
+    if (resolution.tokenId && this.replyTokenService?.recordUse) {
+      await this.replyTokenService.recordUse(resolution.tokenId);
+    }
+    return { ...result, resolution: resolution.resolution };
   }
 
   async handleCloudflareEmailWebhook(body = {}, actor = {}) {
@@ -469,7 +619,9 @@ export class CommunicationWebhookService {
         return { success: true, duplicate: false, webhook_log_id: log.id, count: 0, receipt_count: receiptResults.length, results: [], receipts: receiptResults };
       }
       const results = [];
-      if (String(provider || '').toLowerCase() === 'cloudflare' && normalized === 'email' && (body.event || body.message_id || body.envelope)) {
+      if (String(provider || '').toLowerCase() === 'resend' && normalized === 'email' && body.type === 'email.received') {
+        results.push(await this.handleResendInboundWebhook(body, actor));
+      } else if (String(provider || '').toLowerCase() === 'cloudflare' && normalized === 'email' && (body.event || body.message_id || body.envelope)) {
         results.push(await this.handleCloudflareEmailWebhook(body, actor));
       } else {
         const parsed = parseChannelPayload(normalized, body);
