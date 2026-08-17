@@ -203,3 +203,67 @@ No destination was created and no permanent alias was created. Routing `privacy@
 `legal@` — statutory contact channels — to a placeholder or a guessed address would be materially
 worse than the current state, so nothing was invented. The `routing-certification@carup.dev`
 alias remains in place pending that decision.
+
+---
+
+## E7 Brevo marketing — now certified through the governed path
+
+The earlier addendum recorded that no Brevo evidence existed because the canonical chain had never
+been exercised. It has now been driven end to end, entirely through CarUp's own authority. The
+controlled inbox was **never** added to a Brevo list directly.
+
+### F1 — consent OFF → opt-in → governed campaign → real send
+
+```text
+1. preference row created with marketing_enabled = FALSE      (baseline, in CarUp)
+2. opt-in recorded in CarUp:  marketing_enabled = TRUE, consented_at set
+3. governed marketing template + campaign created and approved
+   campaign 217ac5d8-00cd-48ff-91df-a3972638e9e5  classification=marketing  channel=email
+4. eligibility evaluated FROM CarUp consent -> exactly 1 recipient
+5. notification 332 queued carrying campaign_id + campaign_delivery_id
+6. routed provider = BREVO (not Resend)
+   provider message id <202608170906.76524245053@smtp-relay.mailin.fr>
+   attempt status = sent, no errors
+```
+
+The router sent a marketing-classified message to Brevo and nothing else to Brevo, confirming the
+classification split holds under a real send.
+
+### F2 — replay produces zero additional sends
+
+Replaying the same campaign/recipient was **rejected at the database level**:
+
+```text
+notifications for that dedupe key   1  (unchanged)
+Brevo provider sends                1  (unchanged)
+```
+
+**Defect found and fixed while proving this.** `notification_queue.dedupe_key` had no unique
+constraint — deduplication existed only as a read-then-write inside `queueNotification`, with no
+locking. Two concurrent campaign executions, or a retried worker racing itself, could both pass the
+check and insert, yielding two real provider sends for one canonical intent. That is exactly the
+invariant the directive requires, so it is now guaranteed by the database:
+`database/migrations/20260817180000_notification_dedupe_uniqueness.sql` adds a partial unique index
+(partial because 187 legacy rows legitimately carry a NULL dedupe key; zero duplicate non-null
+values existed, so it applied cleanly).
+
+### F3 — withdrawal suppresses BEFORE any provider call
+
+```text
+1. consent withdrawn through CarUp: marketing_enabled = FALSE, withdrawn_at set
+2. withdrawal reconciled into canonical communication_suppressions (reason=unsubscribe)
+3. a FRESH campaign created and the same eligibility gate run
+   eligible recipients                 0
+   Brevo provider sends (total)        1   (unchanged — no second call was ever made)
+   marketing notifications (total)     1   (unchanged)
+```
+
+Suppression is evaluated during eligibility, so no provider call is attempted at all — Brevo is
+never asked and never gets the chance to decide. CarUp consent remains authoritative over provider
+list state, as required.
+
+### Still owner-observable only
+
+Rendering of the received marketing message and the behaviour of its unsubscribe link can only be
+confirmed from the mailbox. The send itself, its provider identity, its idempotency and the
+suppression behaviour are all certified above from server-side evidence.

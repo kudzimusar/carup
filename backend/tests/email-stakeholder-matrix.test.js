@@ -96,3 +96,21 @@ test('no stakeholder contract grants marketing without a consent rule naming it'
     );
   }
 });
+
+// ---------- E7/F2: one canonical send intent -> at most one provider send ----------
+
+test('notification dedupe uniqueness is enforced by the DATABASE, not just app code', async () => {
+  // Found during E7 Brevo certification: dedupe was a read-then-write in queueNotification with
+  // no locking, so two concurrent campaign executions could both pass the check and insert,
+  // producing two real provider sends for one canonical intent.
+  const { readFileSync } = await import('node:fs');
+  const sql = readFileSync(
+    new URL('../../database/migrations/20260817180000_notification_dedupe_uniqueness.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(sql, /CREATE UNIQUE INDEX[\s\S]*uq_notification_queue_dedupe_key/i);
+  assert.match(sql, /ON public\.notification_queue \(dedupe_key\)/i);
+  // Partial, because legacy rows legitimately carry a NULL dedupe_key.
+  assert.match(sql, /WHERE dedupe_key IS NOT NULL/i);
+  assert.match(sql, /-- \+migrate Down[\s\S]*DROP INDEX/i);
+});
