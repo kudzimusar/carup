@@ -2,11 +2,53 @@
 
 **Branch / PR:** `feat/communications-email-transport` / PR #163
 **Date:** 2026-08-17
-**Status:** **BLOCKED before the zone can even be built** — no Cloudflare credentials exist in this
-environment (no `CLOUDFLARE_API_TOKEN`, no `~/.wrangler` auth, no token in any env file). The
-nameserver cutover was always an owner gate; zone creation turns out to be one too.
+**Status:** **ZONE PREPARED AND PARITY-PROVEN — stopped at the nameserver cutover gate.**
 
-Nothing has been changed in DNS. Vercel remains authoritative and every record below is live.
+Cloudflare credentials were supplied via the gitignored repo-root `.env.local` (presence verified
+only; no value was ever read, printed or committed). Token verified `active`; zone `carup.dev`
+exists on the **Pro** plan, `status: pending`, account id matches.
+
+Vercel is still authoritative — no nameserver change has been made, DNSSEC remains disabled, and
+nothing is proxied.
+
+### What the Cloudflare auto-scan had missed
+
+On zone creation Cloudflare scanned 12 records. Comparing them against the live Vercel zone
+revealed that **10 of the 12 Email records were absent**, including *every* Resend sending-side
+record and *every* Brevo record. Cutting over in that state would have broken DKIM and SPF on
+outbound mail and fully deauthenticated `marketing.carup.dev`. All 10 were cloned from live
+authoritative DNS and now match byte-for-byte.
+
+### The pinned-IP problem, and why the apex was restructured
+
+Cloudflare's scan captured the apex/wildcard/www as **A records** frozen at the IPs Vercel's ALIAS
+happened to resolve to at scan time. One of them (`216.150.1.1` at the apex) was **already stale** —
+the live target resolves to `216.150.1.193`/`216.150.16.193`. Pinned IPs would have silently broken
+the site whenever Vercel rotated them.
+
+Those A records were replaced with CNAMEs pointing at Vercel's own ALIAS targets
+(`5d789d7e61c51256.vercel-dns-017.com` at the apex via Cloudflare CNAME flattening,
+`cname.vercel-dns-016.com` for the wildcard and `www`), so the zone now tracks Vercel automatically.
+Explicit DNS-only CNAMEs were also added for `api`, `staging` and `api-staging` so each canonical
+surface resolves on its own merit rather than depending on wildcard semantics surviving a provider
+change.
+
+### Verified through Cloudflare's own nameservers (pre-cutover)
+
+```text
+carup.dev             -> 216.150.16.129, 216.150.1.129   (flattening works)
+api.carup.dev         -> cname.vercel-dns-016.com
+staging.carup.dev     -> cname.vercel-dns-016.com
+api-staging.carup.dev -> cname.vercel-dns-016.com
+MX mail               -> inbound-smtp.ap-northeast-1.amazonaws.com
+SPF send.mail         -> v=spf1 include:amazonses.com ~all
+brevo1 DKIM           -> b1.marketing-carup-dev.dkim.brevo.com
+brevo-code            -> brevo-code:9bd6a09fa7de6b36357bc59c7e850bf5
+```
+
+Final zone: **22 records, 0 proxied.** Email parity: **FULL (12/12 match)**.
+
+The original inventory and plan follow, unchanged, for reference.
 
 ## Live inventory (authoritative — captured from the Vercel API)
 
