@@ -288,28 +288,51 @@ unverified destination. No catch-all was created. The temporary `routing-certifi
 alias is deliberately retained, because retiring it before permanent routing works would leave the
 domain with no proven inbound path at all.
 
-### Inbound conversational reply — still not received by CarUp
+### Inbound conversational reply — CORRECTED 2026-08-17: the gap was CarUp's, not Resend's
+
+> **This section previously concluded that the gap was "in Resend's inbound configuration". That
+> conclusion was WRONG and is retained here, struck through, rather than quietly deleted.**
+>
+> ~~DNS is correct, so the gap is in Resend's inbound configuration — either receiving is not
+> actually routing to the webhook endpoint, or the endpoint is not subscribed to `email.received`.~~
+
+What was actually true, established at 11:30:16 UTC on 2026-08-17:
 
 ```text
-resend email.received events (legitimate)   0   (the single logged one is our own forged probe at 03:45)
-inbound email messages                      0
-reply token use_count                       0   (never resolved)
-recent resend events                        email.sent, email.delivered only
+webhook_logs 820c9e1e-b9d9-4da7-8902-578d46ff4ea2
+  provider          resend
+  type              email.received
+  signature_valid   TRUE          <- genuinely signed by Resend, verified by CarUp
+  to                conversation+imMTsG49NDv0pOdCbs972g@mail.carup.dev
+  from              eleven.eleven.testing@gmail.com
+  subject           Re: CarUp conversation - E7 certification
+  error_code        VALIDATION_FAILED
+  error_message     "Resend inbound routing is not configured."
 ```
 
-The outbound side is confirmed working — notification 331 delivered with a
-`conversation+<opaque-token>@mail.carup.dev` Reply-To. The reply was reportedly sent, but **no
-`email.received` event has ever reached the webhook**, so nothing entered the inbound path and
-there is nothing to resolve.
+A real human reply reached CarUp, correctly addressed and cryptographically verified. **Resend's
+inbound receiving, MX, webhook subscription, endpoint URL and signing secret were all correct the
+whole time.** CarUp itself refused the event.
 
-DNS is correct (`mail.carup.dev` MX → `inbound-smtp.ap-northeast-1.amazonaws.com`), so the gap is
-in Resend's inbound configuration — either receiving is not actually routing to the webhook
-endpoint, or the endpoint is not subscribed to `email.received`. That configuration is only
-visible from the Resend dashboard.
+**Root cause.** `handleResendInboundWebhook` read `this.inboundResolver` and `this.replyTokenService`,
+but no constructor accepted them and the factory never passed them, so the guard threw on 100% of
+legitimate inbound events. The E4 inbound path was dead by construction in every runtime. Every
+inbound test injected a resolver by hand and so never exercised the real composition.
 
-**Consequence:** the same-thread / same-participant inbound invariants remain proven at source
-level across eleven scenarios, but **not** physically. This is recorded as unproven rather than
-inferred from the outbound success.
+**Why it looked like provider silence.** The first delivery threw and returned HTTP 400. Resend
+retried the identical body, which hit the dedupe branch — that branch returned HTTP 200 and rewrote
+`processing_status` from `failed` to `duplicate`. Resend saw a success, stopped retrying, and the
+CarUp-side failure became invisible. The live row still shows `attempt_count=2` with `processed_at`
+seven seconds after `received_at`.
+
+Both defects are fixed (commit `bf63a0ca`): the collaborators are wired through the factory, the
+resolver's proven thread + participant are passed as an authoritative binding so a reply cannot fork
+a second identity, and a retry of a *failed* delivery now keeps failing loudly instead of being
+relabelled a duplicate.
+
+**Lesson worth keeping:** the absence of evidence was read as evidence of absence. `webhook_logs`
+records every delivery *including* rejected ones, so the correct question was never "did anything
+arrive?" but "what did we do with what arrived?"
 
 ### Brevo lifecycle — real events arriving, all rejected
 
