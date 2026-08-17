@@ -1,5 +1,5 @@
 import { createDefaultAdapterRegistry } from './adapters/providerAdapters.js';
-import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, nowIso } from './communicationUtils.js';
+import { COMMUNICATION_EVENTS, calculateBackoffMs, classifyError, normalizeChannel, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 
 export class CommunicationDeliveryWorker {
@@ -42,11 +42,44 @@ export class CommunicationDeliveryWorker {
     return results;
   }
 
+  /**
+   * Canonical suppression check for a marketing notification, evaluated at SEND time.
+   *
+   * Scoped to marketing (and 'all'): an unsubscribe from marketing must never block security, auth
+   * or transactional Email. Returns the suppression reason, or null when the send may proceed.
+   */
+  async marketingSuppressionFor(notification) {
+    const classification = String(notification?.payload?.classification || '').toLowerCase();
+    if (classification !== 'marketing') return null;
+    const channel = normalizeChannel(notification.channel) || notification.channel;
+    const address = String(
+      notification?.payload?.email || notification?.payload?.address || notification?.payload?.to || '',
+    ).trim().toLowerCase();
+    if (!address) return null;
+    const rows = await this.repository.list('communication_suppressions', { channel, address });
+    const active = (rows || []).find((row) => !row.released_at && ['marketing', 'all'].includes(row.scope));
+    return active ? active.reason : null;
+  }
+
   async deliverNotification(notification, { alreadyClaimed = false } = {}) {
     const channel = notification.channel || 'in_app';
     const adapter = this.adapterRegistry.get(channel);
     if (!adapter) {
       return this.markDeadLetter(notification, { errorCode: 'adapter_missing', errorMessage: `No adapter registered for ${channel}` });
+    }
+
+    // Last line of defence before a marketing message reaches a provider.
+    //
+    // Consent suppression is otherwise enforced only at QUEUE time, so anything that inserts into
+    // notification_queue directly — a backfill, a script, a future code path — would sail past it and
+    // mail somebody who has unsubscribed. That is the one failure mode a consent system must not
+    // have, so the check is repeated here, immediately before dispatch, against canonical state.
+    const suppression = await this.marketingSuppressionFor(notification).catch(() => null);
+    if (suppression) {
+      return this.markDeadLetter(notification, {
+        errorCode: 'recipient_suppressed',
+        errorMessage: `Recipient is suppressed in canonical CarUp consent state (${suppression}); refusing to send marketing.`,
+      });
     }
 
     const attemptNumber = alreadyClaimed ? Number(notification.attempt_count || 1) : Number(notification.attempt_count || 0) + 1;
@@ -92,13 +125,18 @@ export class CommunicationDeliveryWorker {
       notification_id: String(notification.id),
       message_id: notification.message_id || null,
       attempt_number: attemptNumber,
-      provider: adapter.provider || notification.provider || channel,
+      // A routing adapter (e.g. the governed Email transport router) reports the transport it
+      // actually used as `routedProvider`. Record THAT, not the router's own name: provider
+      // lifecycle webhooks arrive stamped with the real provider, and reconciliation looks
+      // attempts up by (provider, provider_message_id).
+      provider: result.routedProvider || adapter.provider || notification.provider || channel,
       channel,
       provider_request_id: result.providerRequestId || null,
       provider_message_id: result.providerMessageId || null,
       request_metadata: { idempotency_key: notification.dedupe_key },
       response_metadata: {
         provider_status: result.providerStatus || null,
+        ...(result.providerMetadata ? { provider_metadata: result.providerMetadata } : {}),
         ...(result.provider_http_status != null ? { provider_http_status: result.provider_http_status } : {}),
         ...(result.provider_error_code != null ? { provider_error_code: result.provider_error_code } : {}),
         ...(result.provider_error_subcode != null ? { provider_error_subcode: result.provider_error_subcode } : {}),
@@ -115,14 +153,15 @@ export class CommunicationDeliveryWorker {
     await this.auditNotification(notification, COMMUNICATION_AUDIT_EVENTS.DELIVERY_ATTEMPT, {
       summary: `Delivery attempt ${attemptNumber} → ${result.accepted ? 'accepted' : 'failed'}`,
       correlation_id: result.providerMessageId || result.providerRequestId || null,
-      metadata: { attempt: attemptNumber, provider: adapter.provider || channel, accepted: Boolean(result.accepted), error_code: result.errorCode || null, provider_message_id: result.providerMessageId || null },
+      metadata: { attempt: attemptNumber, provider: result.routedProvider || adapter.provider || channel, accepted: Boolean(result.accepted), error_code: result.errorCode || null, provider_message_id: result.providerMessageId || null },
     });
 
     if (result.accepted) {
       await this.repository.updateById('notification_queue', notification.id, {
         status: result.providerStatus === 'delivered' ? 'delivered' : 'sent',
         sent_at: nowIso(),
-        delivered_at: result.providerStatus === 'delivered' ? nowIso() : null,
+        // Never null a delivery timestamp that a provider receipt may already have set.
+        ...(result.providerStatus === 'delivered' ? { delivered_at: nowIso() } : {}),
         last_error_code: null,
         last_error_message: null,
         locked_at: null,
@@ -132,7 +171,8 @@ export class CommunicationDeliveryWorker {
         await this.repository.updateById('messages', notification.message_id, {
           status: result.providerStatus === 'delivered' ? 'delivered' : 'sent',
           sent_at: nowIso(),
-          delivered_at: result.providerStatus === 'delivered' ? nowIso() : null,
+          // Never null a delivery timestamp that a provider receipt may already have set.
+          ...(result.providerStatus === 'delivered' ? { delivered_at: nowIso() } : {}),
           provider_message_id: result.providerMessageId || null,
           failed_at: null,
         });

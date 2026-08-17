@@ -296,16 +296,6 @@
     "betaCapable": true
   },
   {
-    "id": "auth.verify-otp",
-    "domain": "admin",
-    "route": "/verify-otp",
-    "defaultLifecycle": "active",
-    "defaultRoles": [],
-    "immutableRoles": [],
-    "requiresAuth": false,
-    "betaCapable": true
-  },
-  {
     "id": "bank.applications",
     "domain": "finance",
     "route": "/bank/applications",

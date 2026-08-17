@@ -16,6 +16,11 @@ const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
   : [];
 
 const productionOrigins = new Set([
+  // Canonical CarUp-owned domains (carup.dev domain canonicalization programme).
+  'https://carup.dev',
+  'https://staging.carup.dev',
+  // Legacy Vercel-branded aliases — kept as working infrastructure fallbacks; not the
+  // canonical product identity. Remove once the carup.dev domains are proven in D8/D9.
   'https://carup.vercel.app',
   'https://carup-backend.vercel.app',
 ]);

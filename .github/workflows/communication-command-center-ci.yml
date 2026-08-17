@@ -43,6 +43,9 @@ jobs:
           backend/tests/communications-2-product-capabilities.test.js
           backend/tests/communications-2-completion.test.js
           backend/tests/communications-2-staging-runner-contract.test.js
+          backend/tests/email-webhook-and-reply-routing.test.js
+          backend/tests/email-stakeholder-matrix.test.js
+          backend/tests/staging-runtime-parity.test.js
 
   communication-postgres:
     runs-on: ubuntu-latest

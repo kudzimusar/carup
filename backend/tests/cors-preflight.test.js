@@ -76,6 +76,50 @@ test('auth login POST includes CORS header for production frontend origin', asyn
   }
 });
 
+test('canonical carup.dev frontend preflight to auth login receives CORS approval', async () => {
+  const server = http.createServer(app).listen(0);
+  try {
+    const res = await request(server, {
+      method: 'OPTIONS',
+      path: '/api/auth/login',
+      headers: {
+        origin: 'https://carup.dev',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+
+    assert.equal(res.statusCode, 204);
+    assert.equal(res.headers['access-control-allow-origin'], 'https://carup.dev');
+    assert.equal(res.headers['access-control-allow-credentials'], 'true');
+    assert.match(res.headers['access-control-allow-methods'], /POST/);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('auth login POST includes CORS header for the canonical carup.dev origin', async () => {
+  const server = http.createServer(app).listen(0);
+  try {
+    const res = await request(server, {
+      method: 'POST',
+      path: '/api/auth/login',
+      headers: {
+        origin: 'https://carup.dev',
+      },
+      body: {
+        email: 'nobody@example.com',
+        password: 'password123',
+      },
+    });
+
+    assert.equal(res.headers['access-control-allow-origin'], 'https://carup.dev');
+    assert.equal(res.headers['access-control-allow-credentials'], 'true');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test('disallowed origin does not receive CORS approval', async () => {
   const server = http.createServer(app).listen(0);
   try {

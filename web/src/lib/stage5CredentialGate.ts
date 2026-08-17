@@ -39,6 +39,7 @@ export function stage5ShouldSkip(env: Record<string, string | undefined>): boole
 }
 
 const STAGING_HOSTS = [
+  /^api-staging\.carup\.dev$/,
   /^carup-backend-staging\.vercel\.app$/,
   /^carup-backend-staging-[a-z0-9-]+\.vercel\.app$/,
   /^carup-backend-staging-[a-z0-9-]+-pay-pass-project\.vercel\.app$/,

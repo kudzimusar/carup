@@ -19,8 +19,12 @@ import { REFERRAL_TABLES, createSupabaseReferralRepository } from './referralEng
 
 const DEFAULT_CURRENCY = 'USD';
 const DEFAULT_PLATFORM_TENANT = 'platform';
-const DEFAULT_PRODUCTION_PUBLIC_APP_URL = 'https://carup.app';
-const DEFAULT_STAGING_PUBLIC_APP_URL = 'https://carup-staging.vercel.app';
+// carup.dev is the canonical CarUp-owned domain (domain canonicalization programme). The prior
+// production default, 'https://carup.app', was never an acquired/resolvable domain — this was a
+// live bug: absent an explicit PUBLIC_APP_URL override, production referral share links resolved
+// to a dead host.
+const DEFAULT_PRODUCTION_PUBLIC_APP_URL = 'https://carup.dev';
+const DEFAULT_STAGING_PUBLIC_APP_URL = 'https://staging.carup.dev';
 const DEFAULT_LOCAL_PUBLIC_APP_URL = 'http://localhost:5173';
 const SIGNUP_EVENT_TYPES = new Set(['user.signup', 'auth.signup', 'member.registered']);
 const RESTRICTED_FINANCIAL_STATES = new Set([
@@ -99,17 +103,23 @@ function publicAppHostname(value) {
   }
 }
 
+// Name predates the carup.dev canonical domains; also trusts staging.carup.dev / api-staging.carup.dev now.
 function isTrustedStagingVercelHost(value) {
   const host = publicAppHostname(value);
-  return host === 'carup-staging.vercel.app'
+  return host === 'staging.carup.dev'
+    || host === 'api-staging.carup.dev'
+    || host === 'carup-staging.vercel.app'
     || host === 'carup-backend-staging.vercel.app'
     || /^carup-staging-[a-z0-9-]+\.vercel\.app$/.test(host)
     || /^carup-backend-staging-[a-z0-9-]+\.vercel\.app$/.test(host);
 }
 
+// Name predates the carup.dev canonical domains; also trusts api.carup.dev / api-staging.carup.dev now.
 function isTrustedBackendVercelHost(value) {
   const host = publicAppHostname(value);
-  return host === 'carup-backend.vercel.app'
+  return host === 'api.carup.dev'
+    || host === 'api-staging.carup.dev'
+    || host === 'carup-backend.vercel.app'
     || host === 'carup-backend-staging.vercel.app'
     || /^carup-backend-[a-z0-9-]+\.vercel\.app$/.test(host)
     || /^carup-backend-staging-[a-z0-9-]+\.vercel\.app$/.test(host);

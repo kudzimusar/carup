@@ -3,6 +3,7 @@ import { parseChannelPayload } from '../referral/referralChannelPayloadParsers.j
 import { buildDedupeKey, normalizeChannel, redactPayload, stableHash, nowIso } from './communicationUtils.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from './communicationAuditLog.js';
 import { ForbiddenError, ValidationError } from '../../utils/errors.js';
+import { RESEND_EVENT_STATUS, RESEND_SUPPRESSION_REASON, verifyResendSignature } from './resendWebhookService.js';
 
 const DEFAULT_CLOUDFLARE_SIGNATURE_TOLERANCE_SECONDS = 300;
 const DEFAULT_CLOUDFLARE_MAX_EMAIL_BYTES = 25 * 1024 * 1024;
@@ -60,9 +61,19 @@ function validateCloudflareAttachments(attachments = [], maxBytes = 5 * 1024 * 1
 }
 
 export class CommunicationWebhookService {
-  constructor({ repository, inboundService, env = process.env } = {}) {
+  constructor({
+    repository, inboundService, inboundResolver = null, replyTokenService = null,
+    inboundContentService = null, env = process.env,
+  } = {}) {
     this.repository = repository;
     this.inboundService = inboundService;
+    this.inboundContentService = inboundContentService;
+    // E4 inbound reply routing. These were previously read by handleResendInboundWebhook but never
+    // assigned by any constructor or factory, so every legitimate signed `email.received` threw
+    // "Resend inbound routing is not configured." before reaching the resolver. Tests passed only
+    // because they injected a resolver directly, so the production path was dead by construction.
+    this.inboundResolver = inboundResolver;
+    this.replyTokenService = replyTokenService;
     this.env = env;
   }
 
@@ -94,6 +105,28 @@ export class CommunicationWebhookService {
       }
       const shared = this.env.CARUP_CHANNEL_WEBHOOK_SECRET;
       return Boolean(shared && headers['x-channel-webhook-secret'] === shared) || Boolean(body?.test === true && this.env.NODE_ENV === 'test');
+    }
+    // Resend signs with Svix over the exact raw bytes. No shared-secret or test-mode fallback:
+    // a P0 auth/security transport must never accept an unverified event.
+    if (normalizedProvider === 'resend') {
+      return verifyResendSignature({
+        rawBody,
+        headers,
+        secret: this.env.RESEND_WEBHOOK_SECRET,
+      }).valid;
+    }
+    // Brevo publishes no request-signing scheme, so authentication is a shared secret CarUp
+    // generates and registers with the webhook URL. Compared timing-safely.
+    if (normalizedProvider === 'brevo') {
+      const expected = this.env.BREVO_WEBHOOK_SECRET;
+      if (!expected) return false;
+      const supplied = headers['x-carup-brevo-secret']
+        || headers['x-brevo-webhook-secret']
+        || String(query?.token || '');
+      if (!supplied) return false;
+      const a = Buffer.from(String(supplied), 'utf8');
+      const b = Buffer.from(String(expected), 'utf8');
+      return a.length === b.length && crypto.timingSafeEqual(a, b);
     }
     if (normalizedProvider === 'twilio') {
       if (this.env.TWILIO_AUTH_TOKEN) {
@@ -198,6 +231,19 @@ export class CommunicationWebhookService {
     if (String(provider || '').toLowerCase() === 'cloudflare' && normalized === 'email') {
       return buildDedupeKey([provider, normalized, body.message_id || body.provider_message_id || body.idempotency_key || stableHash(body).slice(0, 32)]);
     }
+    // Resend/Svix supplies a stable per-delivery event id in the svix-id header, which the route
+    // folds into the body as provider_event_id. Falling back to the email id + type still dedupes
+    // a genuine provider replay of the same transition.
+    if (String(provider || '').toLowerCase() === 'resend') {
+      const resendId = body.provider_event_id
+        || (body.type && (body.data?.email_id || body.data?.id) ? `${body.type}:${body.data.email_id || body.data.id}` : null);
+      return buildDedupeKey([provider, normalized, resendId || stableHash(body).slice(0, 32)]);
+    }
+    if (String(provider || '').toLowerCase() === 'brevo') {
+      const brevoId = body.provider_event_id
+        || (body.event && (body['message-id'] || body.message_id) ? `${body.event}:${body['message-id'] || body.message_id}` : null);
+      return buildDedupeKey([provider, normalized, brevoId || stableHash(body).slice(0, 32)]);
+    }
     if (body.provider_event_id || body.event_id) return buildDedupeKey([provider, normalized, body.provider_event_id || body.event_id]);
     return buildDedupeKey([provider, normalized, stableHash(body).slice(0, 32)]);
   }
@@ -205,6 +251,65 @@ export class CommunicationWebhookService {
   extractDeliveryReceipts(provider, channel, body = {}) {
     const normalizedProvider = String(provider || '').toLowerCase();
     const normalized = normalizeChannel(channel) || channel;
+    if (normalizedProvider === 'resend') {
+      // Inbound mail is not a delivery receipt — it is handled by the inbound path.
+      if (body.type === 'email.received') return [];
+      const status = RESEND_EVENT_STATUS[body.type];
+      if (!status) return [];
+      const data = body.data || {};
+      const headers = data.headers || {};
+      const rfcMessageId = data.message_id
+        || (Array.isArray(headers) ? headers.find((h) => String(h.name).toLowerCase() === 'message-id')?.value : headers['message-id'])
+        || null;
+      return [{
+        provider: 'resend',
+        channel: 'email',
+        // The RFC Message-ID is what the adapter persisted as provider_message_id, so receipts
+        // correlate on the same identifier an inbound reply would reference.
+        providerMessageId: rfcMessageId || data.email_id || data.id || null,
+        providerRequestId: data.email_id || data.id || null,
+        notificationId: data.tags?.notification_id || headers['x-carup-notification-id'] || null,
+        messageId: data.tags?.message_id || headers['x-carup-message-id'] || null,
+        status,
+        rawStatus: body.type,
+        suppressionReason: RESEND_SUPPRESSION_REASON[body.type] || null,
+        recipient: Array.isArray(data.to) ? data.to[0] : data.to || null,
+      }].filter((r) => r.providerMessageId || r.providerRequestId || r.notificationId || r.messageId);
+    }
+    if (normalizedProvider === 'brevo') {
+      const event = String(body.event || '').toLowerCase();
+      const map = {
+        delivered: 'delivered',
+        hard_bounce: 'failed',
+        soft_bounce: 'failed',
+        deferred: 'sent',
+        spam: 'failed',
+        complaint: 'failed',
+        unsubscribed: 'failed',
+        blocked: 'failed',
+        error: 'failed',
+      };
+      const status = map[event];
+      if (!status) return [];
+      const suppression = {
+        hard_bounce: 'hard_bounce',
+        spam: 'complaint',
+        complaint: 'complaint',
+        unsubscribed: 'unsubscribe',
+        blocked: 'provider_suppression',
+      }[event] || null;
+      return [{
+        provider: 'brevo',
+        channel: 'email',
+        providerMessageId: body['message-id'] || body.message_id || null,
+        notificationId: body.tags?.notification_id || body.notification_id || null,
+        messageId: body.tags?.message_id || body.message_id_carup || null,
+        status,
+        rawStatus: event,
+        suppressionReason: suppression,
+        recipient: body.email || null,
+      }].filter((r) => r.providerMessageId || r.notificationId || r.messageId);
+    }
     if (normalizedProvider === 'sendgrid') {
       const events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [];
       return events.map((event) => ({
@@ -326,6 +431,135 @@ export class CommunicationWebhookService {
     return { notificationId, messageId, providerMessageId: receipt.providerMessageId, status: receipt.status };
   }
 
+  /**
+   * E4 — inbound Resend reply routed into the EXACT existing conversation.
+   *
+   * Signature verification and webhook dedupe have already happened in handleWebhook, so this only
+   * runs for an authenticated, non-duplicate event. Resolution requires an authenticated CarUp
+   * reply token and/or an RFC reference, and when both are present they must agree. Anything
+   * ambiguous fails closed — there is no sender-based fallback.
+   *
+   * The resolved participant is authoritative and is REUSED (Communications 2.0 Gate-E invariant);
+   * this path never mints a participant, so the delta for one inbound reply is
+   * threads +0, participants +0, messages +1.
+   */
+  async handleResendInboundWebhook(body = {}, actor = {}) {
+    if (!this.inboundResolver || !this.inboundService) {
+      throw new ValidationError('Resend inbound routing is not configured.');
+    }
+    const data = body.data || body;
+
+    const resolution = await this.inboundResolver.resolve(data);
+    if (!resolution.ok) {
+      // Fail closed — mutate nothing — but distinguish PERMANENT unroutability from a transient
+      // fault, because the two need opposite answers to the provider.
+      //
+      // Observed live: a human replied to a transactional notification at notifications@mail.carup.dev
+      // (no reply token, no RFC reference). That can never be routed, yet it returned 400, so Resend
+      // retried it repeatedly and would have gone on retrying. Persistent non-2xx on permanently
+      // unroutable mail is how a provider decides to disable a webhook endpoint — the same hazard
+      // already fixed for Brevo's unmapped lifecycle events.
+      //
+      // So: permanent -> acknowledge (2xx) and record as unroutable, visible but not retried.
+      //     transient  -> 503, so the provider retries and the message is not lost.
+      const permanentReasons = new Set([
+        'no_reply_token', 'no_rfc_reference', 'unknown_token', 'unknown_rfc_reference',
+        'revoked_token', 'expired_token', 'multiple_reply_tokens', 'ambiguous_rfc_reference',
+        'token_rfc_disagreement', 'participant_missing', 'participant_inactive',
+        'participant_thread_mismatch', 'thread_missing', 'tenant_invariant_failed',
+        'binding_cannot_receive', 'binding_expired', 'unprovable_sender',
+        'no_channel_identity_for_sender', 'no_active_binding_for_sender',
+        'ambiguous_binding_for_sender', 'rfc_message_missing',
+      ]);
+      const permanent = permanentReasons.has(resolution.reason);
+      const error = new ValidationError(`Inbound Email could not be routed: ${resolution.reason}`, {
+        reason: resolution.reason,
+        provider: 'resend',
+        unroutable: permanent,
+      });
+      if (!permanent) error.statusCode = 503;
+      error.acknowledge = permanent;
+      throw error;
+    }
+
+    const headers = data.headers || {};
+    const rfcMessageId = data.message_id
+      || (Array.isArray(headers) ? headers.find((h) => String(h.name).toLowerCase() === 'message-id')?.value : headers['message-id'])
+      || null;
+
+    // Hand the resolver's proven thread + participant to ingest as an authoritative binding.
+    // Passing only threadId/participantId is NOT enough: ingest never reads `participantId`, and a
+    // bare threadId disables its binding branch and falls through to ensureParticipant. With no
+    // tenant on a webhook actor, identity lookup would filter on tenant_id IS NULL, miss the real
+    // identity, and mint a duplicate identity AND participant — violating the +0 participants
+    // invariant this path exists to uphold.
+    const [thread, participant] = await Promise.all([
+      this.repository.findOne('message_threads', { id: resolution.threadId }),
+      resolution.participantId
+        ? this.repository.findOne('message_participants', { id: resolution.participantId })
+        : Promise.resolve(null),
+    ]);
+    if (!thread) throw new ValidationError('Inbound Email resolved to a missing thread.');
+    if (!participant) throw new ValidationError('Inbound Email resolved to a missing participant.');
+
+    // Retrieve the ACTUAL body. Resend's email.received carries metadata only, so the body is fetched
+    // from the Receiving API by the webhook's email_id — never taken from the request, which an
+    // unverified caller could forge. This runs only after signature verification and after the
+    // canonical thread/participant are resolved.
+    //
+    // Fails CLOSED on a transient fault: better that the provider retries than that a reply is
+    // committed with an empty body, which is the exact defect this closes. Ingest is idempotent on
+    // (provider, provider_message_id), so a retry re-attaches to the same canonical message.
+    const emailId = data.email_id || data.id || null;
+    let inboundContent = { text: '', html: null, derivedFromHtml: false, endpoint: null };
+    if (this.inboundContentService) {
+      const fetched = await this.inboundContentService.fetchReceivedEmail(emailId);
+      if (!fetched.ok) {
+        const error = new ValidationError(`Inbound Email body could not be retrieved: ${fetched.reason}`, {
+          reason: fetched.reason, provider: 'resend', retryable: Boolean(fetched.retryable),
+        });
+        // Transient faults must return a 5xx so the provider retries; a durable refusal stays 400.
+        if (fetched.retryable) error.statusCode = 503;
+        throw error;
+      }
+      inboundContent = fetched;
+    }
+
+    const result = await this.inboundService.ingest({
+      channel: 'email',
+      provider: 'resend',
+      tenant_id: resolution.tenantId ?? thread.tenant_id ?? null,
+      boundConversation: { thread, participant, resolution: resolution.resolution },
+      threadId: resolution.threadId,
+      participantId: resolution.participantId,
+      providerMessageId: rfcMessageId,
+      externalConversationId: rfcMessageId,
+      from: data.from || data.From || null,
+      // Provider-retrieved content is authoritative. The request's own body fields are used only as a
+      // last resort, because a webhook payload is attacker-controllable in a way the fetched
+      // received-email object is not.
+      text: inboundContent.text || data.text || data.plain || data.body || '',
+      attachments: data.attachments || [],
+      metadata: {
+        resolution: resolution.resolution,
+        reply_token_id: resolution.tokenId || null,
+        subject: data.subject || null,
+        // HTML is preserved only in content_json, which the canonical schema supports; content_text
+        // stays the single deterministic plain-text representation.
+        email_html: inboundContent.html || null,
+        content_source: this.inboundContentService
+          ? `resend:${inboundContent.endpoint || 'unknown'}`
+          : 'webhook_payload',
+        content_derived_from_html: Boolean(inboundContent.derivedFromHtml),
+      },
+    }, { gateway_trusted: true, surface: 'email', actor });
+
+    if (resolution.tokenId && this.replyTokenService?.recordUse) {
+      await this.replyTokenService.recordUse(resolution.tokenId);
+    }
+    return { ...result, resolution: resolution.resolution };
+  }
+
   async handleCloudflareEmailWebhook(body = {}, actor = {}) {
     const recipient = String(body.recipient || body.to || body.envelope?.to || '').trim().toLowerCase();
     const sender = String(body.sender || body.from || body.envelope?.from || '').trim().toLowerCase();
@@ -410,6 +644,30 @@ export class CommunicationWebhookService {
         });
         throw new ForbiddenError('Webhook verification failed.');
       }
+      // Only a delivery that previously SUCCEEDED is an inert duplicate. Treating a retry of a FAILED
+      // delivery as a duplicate returned 200 and rewrote 'failed' to 'duplicate' — which is exactly
+      // how a hard CarUp-side failure on a real inbound reply was made to look like provider silence:
+      // the first attempt 400'd, the provider retried, the retry was deduped into a 200, and the
+      // provider then reported the delivery as successful.
+      //
+      // A failed delivery is therefore REPROCESSED rather than short-circuited. Refusing outright
+      // would be just as wrong in the other direction: a transient fault (say, the provider content
+      // fetch timing out) could then never recover, because every retry would be rejected on the
+      // strength of the first failure. Reprocessing recovers; if it fails again it stays failed and
+      // still answers non-2xx, so the failure remains visible either way.
+      //
+      // Idempotency is preserved on both sides: this reuses the SAME webhook_logs row, and
+      // inboundService.ingest is idempotent on (provider, provider_message_id).
+      if (existing.processing_status === 'failed') {
+        await this.repository.updateById('webhook_logs', existing.id, {
+          attempt_count: Number(existing.attempt_count || 0) + 1,
+          processing_status: 'received',
+        });
+        return this.processVerifiedWebhook(provider, normalized, body, {
+          log: { ...existing, attempt_count: Number(existing.attempt_count || 0) + 1 },
+          actor,
+        });
+      }
       await this.repository.updateById('webhook_logs', existing.id, {
         processing_status: 'duplicate',
         attempt_count: Number(existing.attempt_count || 0) + 1,
@@ -454,13 +712,31 @@ export class CommunicationWebhookService {
       throw new ForbiddenError('Webhook verification failed.');
     }
 
+    return this.processVerifiedWebhook(provider, normalized, body, { log, actor });
+  }
+
+  /**
+   * Process an already-signature-verified webhook against an existing webhook_logs row.
+   *
+   * Extracted so a RETRY of a previously failed delivery runs the identical path against the SAME
+   * row, rather than being short-circuited (which would make transient faults permanent) or deduped
+   * into a 200 (which would hide real failures).
+   */
+  async processVerifiedWebhook(provider, normalized, body, { log, actor = {} } = {}) {
     try {
       const receipts = this.extractDeliveryReceipts(provider, normalized, body);
       const receiptResults = [];
       for (const receipt of receipts) {
         receiptResults.push(await this.applyDeliveryReceipt(receipt));
       }
-      if (receiptResults.length > 0 && ['sendgrid', 'twilio', 'expo', 'cloudflare'].includes(String(provider || '').toLowerCase())) {
+      // Receipt-only providers: a lifecycle event carries no inbound message, so processing ends
+      // once the canonical delivery transition is applied. Without 'resend'/'brevo' here their
+      // lifecycle events fall through to parseChannelPayload(), which has no 'email' parser and
+      // throws "Unsupported referral channel." — observed live on genuine Resend email.sent /
+      // email.delivered events, which then recorded no canonical transition at all.
+      // (Resend's email.received is inbound, and extractDeliveryReceipts returns [] for it, so it
+      // still falls through to the inbound handler below.)
+      if (receiptResults.length > 0 && ['sendgrid', 'twilio', 'expo', 'cloudflare', 'resend', 'brevo'].includes(String(provider || '').toLowerCase())) {
         await this.repository.updateById('webhook_logs', log.id, {
           processing_status: 'processed',
           message_count: 0,
@@ -468,8 +744,37 @@ export class CommunicationWebhookService {
         });
         return { success: true, duplicate: false, webhook_log_id: log.id, count: 0, receipt_count: receiptResults.length, results: [], receipts: receiptResults };
       }
+      // An AUTHENTICATED Email lifecycle event that carries no canonical delivery transition —
+      // Brevo's `request` and `unique_opened` are the live examples — must be acknowledged and
+      // ignored, not failed. Previously these fell through to parseChannelPayload(), which has no
+      // 'email' parser and throws "Unsupported referral channel.", so genuine provider traffic was
+      // recorded as a failure. That is now actively harmful: a failed row is deliberately retried
+      // with a non-2xx (see the dedupe branch above), so the provider would retry an open-tracking
+      // ping indefinitely and could disable the webhook for persistent errors.
+      //
+      // Recorded as 'processed' because the delivery WAS handled; the marker distinguishes "nothing
+      // to transition" from a real receipt. ('ignored' is not an allowed processing_status, and this
+      // does not warrant widening a CHECK constraint on a shared table.)
+      const emailLifecycleProviders = ['resend', 'brevo'];
+      const isUnmappedEmailLifecycle = normalized === 'email'
+        && emailLifecycleProviders.includes(String(provider || '').toLowerCase())
+        && receiptResults.length === 0
+        && !(String(provider || '').toLowerCase() === 'resend' && body.type === 'email.received');
+      if (isUnmappedEmailLifecycle) {
+        await this.repository.updateById('webhook_logs', log.id, {
+          processing_status: 'processed',
+          message_count: 0,
+          processed_at: nowIso(),
+          error_code: 'ignored_no_canonical_transition',
+          error_message: `Authenticated ${provider} event '${body.event || body.type || 'unknown'}' carries no canonical CarUp delivery transition.`,
+        });
+        return { success: true, duplicate: false, ignored: true, webhook_log_id: log.id, count: 0, receipt_count: 0, results: [] };
+      }
+
       const results = [];
-      if (String(provider || '').toLowerCase() === 'cloudflare' && normalized === 'email' && (body.event || body.message_id || body.envelope)) {
+      if (String(provider || '').toLowerCase() === 'resend' && normalized === 'email' && body.type === 'email.received') {
+        results.push(await this.handleResendInboundWebhook(body, actor));
+      } else if (String(provider || '').toLowerCase() === 'cloudflare' && normalized === 'email' && (body.event || body.message_id || body.envelope)) {
         results.push(await this.handleCloudflareEmailWebhook(body, actor));
       } else {
         const parsed = parseChannelPayload(normalized, body);
@@ -515,6 +820,20 @@ export class CommunicationWebhookService {
         summary: `Inbound webhook failed (${error.code || 'processing_failed'})`,
         correlation_id: actor.correlation_id || null, metadata: { result: 'failed', provider, error_code: error.code || 'processing_failed' },
       });
+      // A PERMANENTLY unroutable inbound is recorded as failed above — it stays fully visible — but is
+      // ACKNOWLEDGED to the provider, because no number of retries can make it routable and endless
+      // non-2xx responses are how a provider decides to disable the endpoint.
+      if (error.acknowledge) {
+        return {
+          success: true,
+          duplicate: false,
+          unroutable: true,
+          reason: error.details?.reason || null,
+          webhook_log_id: log.id,
+          count: 0,
+          results: [],
+        };
+      }
       throw error;
     }
   }

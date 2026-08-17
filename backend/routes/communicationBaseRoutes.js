@@ -5,6 +5,7 @@ import { createCommunicationServices } from '../services/communication/communica
 import { CommunicationConversationService } from '../services/communication/communicationConversationService.js';
 import { validateCommunicationConfiguration, resolveWorkerSecret } from '../services/communication/communicationConfigurationValidator.js';
 import { buildDedupeKey, normalizeChannel } from '../services/communication/communicationUtils.js';
+import { resolveOutboundShareOrigin } from '../config/canonicalWebOrigin.js';
 import { COMMUNICATION_AUDIT_EVENTS, logCommunicationAuditEvent } from '../services/communication/communicationAuditLog.js';
 import {
   finalizeMetaWhatsAppWebhookReceipt,
@@ -250,7 +251,10 @@ export function createCommunicationRouter({ services = createCommunicationServic
     const listingId = req.body?.listing_id || req.body?.listingId;
     const referralCode = req.body?.referral_code || req.body?.code;
     const campaignId = req.body?.campaign_id || req.body?.campaignId;
-    const origin = req.body?.origin || process.env.CARUP_PUBLIC_WEB_URL || 'https://carup.co.zw';
+    // A share link is forwarded to real humans over WhatsApp/Telegram, so its origin must be
+    // CarUp's canonical domain. A caller-supplied origin is honoured only if it is already
+    // canonical; anything else is ignored rather than trusted.
+    const origin = resolveOutboundShareOrigin(req.body?.origin);
     const params = new URLSearchParams({ channel, utm_source: channel, utm_medium: 'share' });
     if (referralCode) params.set('ref', referralCode);
     if (campaignId) params.set('campaign_id', campaignId);

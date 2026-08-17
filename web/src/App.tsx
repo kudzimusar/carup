@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useState, createContext, useContext, useEffect, lazy, Suspense } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { useAuth } from './context/AuthContext'
@@ -67,7 +67,8 @@ import DiasporaConfirmedImport from './pages/diaspora/DiasporaConfirmedImport'
 // Auth Pages
 import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
-import OTPVerification from './pages/auth/OTPVerification'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
 import KYCVerification from './pages/auth/KYCVerification'
 
 // Owner Dashboard
@@ -293,7 +294,15 @@ export default function App() {
         <Route element={<MainLayout hideNav />}>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/verify-otp" element={<OTPVerification />} />
+          {/*
+            SA1G: /verify-otp used to render a client-side placebo that accepted ANY six digits
+            with no server verification. No backend OTP flow exists and nothing linked to it, so
+            the fake security control was removed rather than left in place; the path redirects to
+            the real supported auth journey so existing bookmarks do not 404.
+          */}
+          <Route path="/verify-otp" element={<Navigate to="/login" replace />} />
+          <Route path="/auth/forgot-password" element={<ForgotPassword />} />
+          <Route path="/auth/reset-password" element={<ResetPassword />} />
           <Route path="/kyc" element={<KYCVerification />} />
         </Route>
 

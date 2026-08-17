@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FakeCommunicationAdapter } from './fakeCommunicationAdapter.js';
+import { renderAuthEmail } from '../authEmailTemplates.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -58,6 +59,56 @@ function subjectText(input, fallback = 'CarUp notification') {
 
 function emailHtml(input) {
   return input?.content?.html || input?.content?.data?.html || null;
+}
+
+function escapeHtmlText(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Visible, actionable unsubscribe footer for the plain-text part of a marketing Email. */
+function appendUnsubscribeText(text, unsubscribeUrl) {
+  const body = String(text || '').trim();
+  return `${body}\n\n—\nDon't want CarUp marketing email? Unsubscribe here:\n${unsubscribeUrl}\n\nYou will still receive essential account, security and transaction email.`;
+}
+
+/**
+ * Visible, actionable unsubscribe footer for the HTML part.
+ *
+ * When a template supplies no HTML, one is built from the plain text rather than omitting the HTML
+ * part — a text-only marketing message has nowhere to put a clickable control.
+ */
+function appendUnsubscribeHtml(html, fallbackText, unsubscribeUrl) {
+  const href = escapeHtmlText(unsubscribeUrl);
+  const footer = `<div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.6;color:#475569;">`
+    + `<p style="margin:0 0 8px;">You are receiving this because you opted in to CarUp marketing email.</p>`
+    + `<p style="margin:0;"><a href="${href}" style="color:#C2410C;font-weight:600;text-decoration:underline;">Unsubscribe from CarUp marketing email</a></p>`
+    + `<p style="margin:8px 0 0;color:#64748b;">You will still receive essential account, security and transaction email.</p>`
+    + `</div>`;
+  if (html) return `${html}${footer}`;
+  const paragraphs = String(fallbackText || '').trim().split(/\n{2,}/)
+    .map((p) => `<p style="margin:0 0 14px;">${escapeHtmlText(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#0f172a;">${paragraphs}${footer}</div>`;
+}
+
+/**
+ * Render branded auth/security HTML for a notification that names an auth template.
+ *
+ * Kept lazy and failure-tolerant: a template problem must never block a P0 security Email, which
+ * still carries its full meaning in the plain-text body.
+ */
+function resolveAuthHtml(input) {
+  const key = input?.content?.data?.auth_template_key;
+  if (!key) return null;
+  try {
+    return renderAuthEmail(key, process.env, input?.content?.data || {}).html;
+  } catch (_error) {
+    // A template problem must never block a P0 security Email — the plain-text body still
+    // carries the full meaning, so fall back to text-only rather than failing the send.
+    return null;
+  }
 }
 
 function replyToAddress(input, env) {
@@ -248,6 +299,273 @@ export class SendGridEmailAdapter extends HttpCommunicationAdapter {
       providerStatus: 'accepted',
     };
   }
+}
+
+/**
+ * Resend — canonical transactional/conversational Email transport (directive §0A.2).
+ *
+ * Two behaviours matter beyond a plain send:
+ *
+ *  1. Idempotency. The canonical dedupe identity is mapped to Resend's Idempotency-Key header so
+ *     one canonical send intent causes at most one provider send, even if the worker replays or a
+ *     network response is lost.
+ *  2. Durable reply correlation. Resend returns its own id, and the RFC Message-ID is what an
+ *     inbound reply will carry in In-Reply-To/References. Both are persisted — the RFC id as the
+ *     provider message id — so a reply can be resolved back to the exact canonical message.
+ *
+ * Branded auth/security Email: when the notification carries `data.auth_template_key`, the HTML
+ * body is rendered from authEmailTemplates.js (single source of truth for the design system)
+ * while the canonical plain-text body is still sent as text/plain.
+ */
+export class ResendEmailAdapter extends HttpCommunicationAdapter {
+  constructor(options = {}) {
+    super({ channel: 'email', provider: 'resend', requiredEnv: ['RESEND_API_KEY', 'RESEND_FROM_EMAIL'], ...options });
+  }
+
+  fromAddress(input) {
+    // Auth/security Email is sent from the security sender; everything else from the default.
+    const authKey = input?.content?.data?.auth_template_key;
+    if (authKey) {
+      return envValue(this.env, 'RESEND_AUTH_FROM_EMAIL') || 'CarUp Security <auth@mail.carup.dev>';
+    }
+    const from = envValue(this.env, 'RESEND_FROM_EMAIL');
+    const name = envValue(this.env, 'RESEND_FROM_NAME') || 'CarUp';
+    return from && !from.includes('<') ? `${name} <${from}>` : from;
+  }
+
+  async send(input = {}) {
+    if (!this.validateConfiguration().available) return this.missingConfigurationResult();
+    const to = recipientField(input, 'email', 'address', 'to');
+    if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'Email recipient address is required.' };
+
+    const headers = jsonHeaders({ authorization: `Bearer ${envValue(this.env, 'RESEND_API_KEY')}` });
+    // One canonical send intent -> at most one provider send.
+    const idempotencyKey = input.idempotencyKey || input.messageId || input.notificationId;
+    if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey);
+
+    const body = {
+      from: this.fromAddress(input),
+      to: [to],
+      subject: subjectText(input),
+      text: textBody(input),
+      headers: {
+        'X-CarUp-Notification-Id': String(input.notificationId || ''),
+        'X-CarUp-Message-Id': String(input.messageId || ''),
+      },
+    };
+
+    const html = resolveAuthHtml(input) || emailHtml(input);
+    if (html) body.html = html;
+
+    const replyTo = input?.content?.data?.reply_to || envValue(this.env, 'RESEND_REPLY_TO');
+    if (replyTo) body.reply_to = replyTo;
+
+    const response = await this.requestJson('https://api.resend.com/emails', { headers, body });
+    if (!response.ok) return this.providerFailure(response);
+
+    const providerRequestId = response.body?.id || stableRequestId('resend', input);
+    // Resend exposes the RFC Message-ID on the send response; fall back to its own id so reply
+    // correlation always has something durable to match against.
+    const rfcMessageId = response.body?.message_id || response.headers?.get?.('message-id') || null;
+
+    return {
+      accepted: true,
+      providerRequestId,
+      providerMessageId: rfcMessageId || providerRequestId,
+      providerStatus: 'accepted',
+    };
+  }
+}
+
+/**
+ * Brevo — canonical MARKETING Email transport (directive §0A.3).
+ *
+ * Brevo is a projection of an already-authorized CarUp campaign, never an authority. This adapter
+ * therefore refuses to send anything that is not classified marketing, and it refuses to send
+ * without the canonical campaign/delivery identifiers that make a provider-side send traceable
+ * back to CarUp. Brevo list membership must never become the reason a recipient receives mail.
+ *
+ * Uses BREVO_API_KEY (the normal REST credential). BREVO_API_MCP_KEY is deliberately never read —
+ * it is tooling access, not application configuration.
+ */
+export class BrevoMarketingAdapter extends HttpCommunicationAdapter {
+  constructor(options = {}) {
+    super({ channel: 'email', provider: 'brevo', requiredEnv: ['BREVO_API_KEY', 'BREVO_FROM_EMAIL'], ...options });
+  }
+
+  senderFrom() {
+    const raw = envValue(this.env, 'BREVO_FROM_EMAIL') || '';
+    const name = envValue(this.env, 'BREVO_FROM_NAME') || 'CarUp';
+    const match = raw.match(/<([^>]+)>/);
+    return { name, email: (match ? match[1] : raw).trim() };
+  }
+
+  async send(input = {}) {
+    if (!this.validateConfiguration().available) return this.missingConfigurationResult();
+
+    const data = input?.content?.data || {};
+    const classification = String(data.classification || '').toLowerCase();
+    if (classification !== 'marketing') {
+      // Fail closed rather than quietly becoming a second transactional provider.
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'classification_not_permitted',
+        errorMessage: `Brevo is marketing-only; refused classification '${classification || 'unknown'}'.`,
+      };
+    }
+
+    const campaignId = data.campaign_id || null;
+    const campaignDeliveryId = data.campaign_delivery_id || null;
+    if (!campaignId || !campaignDeliveryId) {
+      // Without canonical ids the provider-side send would be untraceable back to CarUp.
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'campaign_context_missing',
+        errorMessage: 'Brevo send requires canonical campaign_id and campaign_delivery_id.',
+      };
+    }
+
+    const to = recipientField(input, 'email', 'address', 'to');
+    if (!to) return { accepted: false, retryable: false, errorCode: 'recipient_missing', errorMessage: 'Email recipient address is required.' };
+
+    // Marketing Email MUST carry a working unsubscribe control, and this is the one choke point every
+    // marketing send passes through. Found during E7 certification: a real marketing message reached
+    // a human inbox whose body asserted "use the unsubscribe link" while containing no link, no HTML
+    // part and no List-Unsubscribe header — because this endpoint is Brevo's TRANSACTIONAL API, which
+    // injects no footer of its own. Refusing here makes that state unreachable rather than relying on
+    // every future template author to remember.
+    const unsubscribeUrl = data.unsubscribe_url || null;
+    if (!unsubscribeUrl) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'unsubscribe_action_missing',
+        errorMessage: 'Marketing Email requires a governed CarUp unsubscribe URL; refusing to send without one.',
+      };
+    }
+    const unsubscribeMailto = data.unsubscribe_mailto || null;
+
+    const headers = jsonHeaders({ 'api-key': envValue(this.env, 'BREVO_API_KEY'), accept: 'application/json' });
+    const body = {
+      sender: this.senderFrom(),
+      to: [{ email: to }],
+      subject: subjectText(input, 'CarUp'),
+      textContent: appendUnsubscribeText(textBody(input), unsubscribeUrl),
+      // Every provider object maps back to canonical CarUp identifiers.
+      tags: [`campaign:${campaignId}`, `delivery:${campaignDeliveryId}`],
+      headers: {
+        'X-CarUp-Campaign-Id': String(campaignId),
+        'X-CarUp-Campaign-Delivery-Id': String(campaignDeliveryId),
+        'X-CarUp-Notification-Id': String(input.notificationId || ''),
+        // RFC 8058. The https URI is the one-click target; the mailto is the fallback for clients
+        // that only understand the original RFC 2369 form.
+        'List-Unsubscribe': unsubscribeMailto
+          ? `<${unsubscribeUrl}>, <mailto:${unsubscribeMailto}>`
+          : `<${unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      },
+    };
+    // Always send an HTML part for marketing: a text-only body cannot render an actionable control,
+    // which is precisely how the defect above reached a real inbox.
+    body.htmlContent = appendUnsubscribeHtml(emailHtml(input), textBody(input), unsubscribeUrl);
+
+    const response = await this.requestJson('https://api.brevo.com/v3/smtp/email', { headers, body });
+    if (!response.ok) return this.providerFailure(response);
+
+    const providerMessageId = response.body?.messageId || response.body?.messageIds?.[0] || null;
+    return {
+      accepted: true,
+      providerRequestId: providerMessageId || stableRequestId('brevo', input),
+      providerMessageId,
+      providerStatus: 'accepted',
+      // Provenance for the compliance-critical unsubscribe control, recorded on the delivery attempt.
+      // Without this, "did the delivered message actually carry a visible unsubscribe action?" can
+      // only be inferred from the code that was *believed* to be running — and that inference was
+      // physically wrong once, when an older deployment executed the send.
+      providerMetadata: {
+        marketing_unsubscribe_url_present: true,
+        marketing_html_part_sent: typeof body.htmlContent === 'string' && body.htmlContent.length > 0,
+        marketing_html_anchor_present: typeof body.htmlContent === 'string'
+          && body.htmlContent.includes(`href="${unsubscribeUrl}"`),
+        marketing_text_link_present: typeof body.textContent === 'string'
+          && body.textContent.includes(unsubscribeUrl),
+        list_unsubscribe_header_sent: Boolean(body.headers?.['List-Unsubscribe']),
+        list_unsubscribe_post_header_sent: body.headers?.['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click',
+      },
+    };
+  }
+}
+
+/**
+ * Governed Email transport router (directive §0A / E2).
+ *
+ * Provider choice derives from CarUp's own governed classification, never from arbitrary caller
+ * choice:
+ *
+ *   security | auth | transactional | conversational | service  ->  Resend
+ *   marketing                                                   ->  Brevo
+ *
+ * This replaces the previous single `EMAIL_PROVIDER` ternary, which allowed exactly one email
+ * provider per deployment and had no notion of what kind of message was being sent. Legacy
+ * SendGrid/Cloudflare adapters remain constructible for compatibility but are quarantined from
+ * canonical routing: they are only selected when explicitly named by EMAIL_PROVIDER_LEGACY.
+ */
+export const MARKETING_EMAIL_CLASSIFICATIONS = new Set(['marketing']);
+
+export class EmailTransportRouter {
+  constructor(options = {}) {
+    this.channel = 'email';
+    this.provider = 'carup_email_router';
+    this.env = options.env || process.env;
+    this.resend = new ResendEmailAdapter(options);
+    this.brevo = new BrevoMarketingAdapter(options);
+    this.legacy = this.buildLegacyAdapter(options);
+  }
+
+  buildLegacyAdapter(options) {
+    const legacy = String(this.env.EMAIL_PROVIDER_LEGACY || '').toLowerCase();
+    if (legacy === 'sendgrid') return new SendGridEmailAdapter(options);
+    if (legacy === 'cloudflare') return new CloudflareEmailAdapter(options);
+    return null;
+  }
+
+  /** Governed classification -> adapter. Marketing never rides the transactional transport. */
+  selectAdapter(input = {}) {
+    const classification = String(
+      input?.content?.data?.classification || input?.classification || 'transactional',
+    ).toLowerCase();
+    if (MARKETING_EMAIL_CLASSIFICATIONS.has(classification)) {
+      return { adapter: this.brevo, classification, reason: 'marketing_to_brevo' };
+    }
+    if (this.legacy) return { adapter: this.legacy, classification, reason: 'legacy_override' };
+    return { adapter: this.resend, classification, reason: 'canonical_to_resend' };
+  }
+
+  validateConfiguration(env = this.env) {
+    const selected = this.legacy || this.resend;
+    const config = selected.validateConfiguration(env);
+    return { ...config, provider: selected.provider, router: 'carup_email_router' };
+  }
+
+  async send(input = {}) {
+    const { adapter, classification, reason } = this.selectAdapter(input);
+    if (!adapter) {
+      return {
+        accepted: false,
+        retryable: false,
+        errorCode: 'provider_not_configured',
+        errorMessage: `No Email transport is configured for classification '${classification}'.`,
+      };
+    }
+    const result = await adapter.send(input);
+    return { ...result, routedProvider: adapter.provider, routingReason: reason };
+  }
+}
+
+export function createEmailTransportRouter(options = {}) {
+  return new EmailTransportRouter(options);
 }
 
 export class CloudflareEmailAdapter extends HttpCommunicationAdapter {
@@ -553,11 +871,7 @@ export function createDefaultAdapterRegistry({ fakeAdapters = {}, env = process.
 
   put('whatsapp', configured('whatsapp', new MetaWhatsAppAdapter(realOptions)));
   put('telegram', configured('telegram', new TelegramBotAdapter(realOptions)));
-  const emailProvider = String(env.EMAIL_PROVIDER || 'sendgrid').toLowerCase();
-  const emailAdapter = emailProvider === 'cloudflare'
-    ? new CloudflareEmailAdapter(realOptions)
-    : new SendGridEmailAdapter(realOptions);
-  put('email', configured('email', emailAdapter));
+  put('email', configured('email', createEmailTransportRouter(realOptions)));
   put('sms', configured('sms', new TwilioSmsAdapter(realOptions)));
   put('instagram', configured('instagram', new InstagramMessagingAdapter(realOptions)));
   put('facebook', configured('facebook', new FacebookMessengerAdapter(realOptions)));

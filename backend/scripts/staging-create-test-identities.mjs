@@ -5,7 +5,7 @@
  * users, no secrets in the repo.
  *
  * Usage:
- *   STAGING_API_URL=https://carup-backend-staging.vercel.app/api \
+ *   STAGING_API_URL=https://api-staging.carup.dev/api \
  *   STAGING_UAT_PASSWORD='<generated-strong-pw>' \
  *   node backend/scripts/staging-create-test-identities.mjs
  *
@@ -21,7 +21,7 @@
  */
 import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 
-const API = process.env.STAGING_API_URL || 'https://carup-backend-staging.vercel.app/api';
+const API = process.env.STAGING_API_URL || 'https://api-staging.carup.dev/api';
 const PW = process.env.STAGING_UAT_PASSWORD;
 if (!PW || PW.length < 12) { console.error('Set STAGING_UAT_PASSWORD (>=12 chars) in env; it is never written to the repo.'); process.exit(2); }
 
@@ -67,7 +67,7 @@ function storageState(webOrigin, user, token) {
 }
 
 async function main() {
-  const webOrigin = (process.env.STAGING_WEB_URL || 'https://carup-staging.vercel.app').replace(/\/$/, '');
+  const webOrigin = (process.env.STAGING_WEB_URL || 'https://staging.carup.dev').replace(/\/$/, '');
   mkdirSync('.staging-auth', { recursive: true });
   for (const id of IDS) {
     const name = `UAT ${id.role} [${RUN}]`;

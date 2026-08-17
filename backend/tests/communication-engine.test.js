@@ -176,7 +176,11 @@ function productionReadyCommunicationEnv(overrides = {}) {
     CARUP_META_APP_SECRET: 'meta-app-secret',
     CARUP_TELEGRAM_BOT_TOKEN: 'telegram-token',
     CARUP_TELEGRAM_WEBHOOK_SECRET_TOKEN: 'telegram-webhook-secret',
-    EMAIL_PROVIDER: 'sendgrid',
+    // Canonical Email transport is Resend (directive §0A.2). The legacy SendGrid values remain so
+    // the EMAIL_PROVIDER_LEGACY path stays exercised elsewhere in this suite.
+    RESEND_API_KEY: 'resend-key',
+    RESEND_FROM_EMAIL: 'notifications@mail.carup.dev',
+    RESEND_WEBHOOK_SECRET: 'resend-webhook-secret',
     SENDGRID_API_KEY: 'sendgrid-key',
     SENDGRID_FROM_EMAIL: 'noreply@example.test',
     SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY: 'sendgrid-webhook-key',
@@ -379,12 +383,18 @@ test('communication domain listener skips missing Agent 8 schema until engine is
 test('default adapter registry uses deterministic fakes in test and real fail-closed adapters in production', () => {
   const testRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'test' } });
   assert.equal(testRegistry.get('email').validateConfiguration().mode, 'fake');
+  // Canonical Email transport is now the governed router, which routes non-marketing classes to
+  // Resend (directive §0A.2). SendGrid/Cloudflare remain reachable only via EMAIL_PROVIDER_LEGACY.
   const productionRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'production' } });
   const emailHealth = productionRegistry.get('email').validateConfiguration();
-  assert.equal(emailHealth.provider, 'sendgrid');
+  assert.equal(emailHealth.provider, 'resend');
   assert.equal(emailHealth.available, false);
-  assert.deepEqual(emailHealth.missing, ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL']);
-  const cloudflareRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'production', EMAIL_PROVIDER: 'cloudflare', EMAIL_PROVIDER_FALLBACK: 'sendgrid' } });
+  assert.deepEqual(emailHealth.missing, ['RESEND_API_KEY', 'RESEND_FROM_EMAIL']);
+  const legacySendgrid = createDefaultAdapterRegistry({ env: { NODE_ENV: 'production', EMAIL_PROVIDER_LEGACY: 'sendgrid' } });
+  const legacyHealth = legacySendgrid.get('email').validateConfiguration();
+  assert.equal(legacyHealth.provider, 'sendgrid');
+  assert.deepEqual(legacyHealth.missing, ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL']);
+  const cloudflareRegistry = createDefaultAdapterRegistry({ env: { NODE_ENV: 'production', EMAIL_PROVIDER_LEGACY: 'cloudflare', EMAIL_PROVIDER_FALLBACK: 'sendgrid' } });
   const cloudflareHealth = cloudflareRegistry.get('email').validateConfiguration();
   assert.equal(cloudflareHealth.provider, 'cloudflare_email');
   assert.equal(cloudflareHealth.available, false);
