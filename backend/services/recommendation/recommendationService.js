@@ -1,5 +1,6 @@
 import { supabase } from '../../db/supabase.js';
-import { PUBLIC_VEHICLE_COLUMNS, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses } from '../../utils/vehicleStatus.js';
+import { PUBLIC_VEHICLE_SELECT } from '../../utils/publicVehicleProjection.js';
+import { publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses } from '../../utils/vehicleStatus.js';
 
 // Served unauthenticated: candidates use the sanitized public projection and the
 // same visibility rules as the marketplace — a draft or quarantined vehicle must
@@ -18,7 +19,7 @@ export async function getSmartRecommendations(vin, limit = 3) {
   const publicCandidates = () =>
     supabase
       .from('vehicles')
-      .select(PUBLIC_VEHICLE_COLUMNS)
+      .select(PUBLIC_VEHICLE_SELECT)
       .neq('vin', vin)
       .in('status', publicVehicleStatusFilterValues())
       .in('publication_status', publiclyVisiblePublicationStatuses())

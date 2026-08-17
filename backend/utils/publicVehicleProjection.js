@@ -124,6 +124,32 @@ export const PUBLIC_PLATE_HISTORY_FIELDS = Object.freeze([
 ]);
 
 /**
+ * Allow-listed TOP-LEVEL shape for a public timeline event.
+ *
+ * Timeline events are not all hand-built: `evidenceToTimelineItem` derives one from a
+ * `vehicle_evidence` row and carries that row's own columns up to the top level — including
+ * `metadata`, whose `ai_ready.vehicle_identity` block holds the VIN, plate, chassis and engine
+ * numbers, and `verification_notes`, which is reviewer free text. Spreading the event and
+ * allow-listing only `details` therefore left every registry identifier reachable by a second
+ * path, after the evidence vault itself had been closed.
+ *
+ * The rule that keeps this closed: a public event is ASSEMBLED from named fields, never spread.
+ */
+export const PUBLIC_TIMELINE_EVENT_FIELDS = Object.freeze([
+  'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
+  'label', 'desc', 'details', 'publicDescription', 'publicSummary',
+  'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
+]);
+
+/**
+ * Project a timeline event for an anonymous caller. `details` is expected to have been
+ * allow-listed by the caller already; this closes the top level around it.
+ */
+export function toPublicTimelineEvent(event) {
+  return pick(event, PUBLIC_TIMELINE_EVENT_FIELDS);
+}
+
+/**
  * A plate-history row is publicly visible only when it says so explicitly. The column is
  * nullable, and a row that never declared its visibility has not been cleared for publication —
  * absence is not permission.
@@ -180,6 +206,91 @@ export function toOwnerVehicle(vehicle) {
  */
 export function projectVehicle(vehicle, audience = 'public') {
   return audience === 'owner' ? toOwnerVehicle(vehicle) : toPublicVehicle(vehicle);
+}
+
+/**
+ * UNKNOWN AS A FIRST-CLASS VALUE — governing principle 4, "unknown stays unknown".
+ *
+ * The projectors above keep a missing field `null`, which is necessary but not
+ * sufficient: a consumer cannot tell a null that means "never recorded" from a
+ * null that means "recorded, but this audience may not see it". That ambiguity is
+ * what lets a renderer pick a plausible default ("Petrol", "0 km", "no previous
+ * plates logged") and publish it as fact.
+ *
+ * These four states are the whole vocabulary. They generalise the tri-states
+ * Phase 0 already shipped ad hoc (`identifiersRedacted`, `currentSellerRecorded`)
+ * so read paths converge on one convention instead of inventing a flag per field.
+ *
+ *   recorded       — a real value exists and this audience may see it.
+ *   not_recorded   — no value exists. NOT "false", NOT "zero", NOT "none".
+ *   withheld       — a value may or may not exist; this audience is not cleared
+ *                    to learn which. Distinct from not_recorded on purpose:
+ *                    collapsing the two would make absence read as proof (principle 9).
+ *   not_applicable — the field cannot apply to this vehicle (e.g. import duty on
+ *                    a locally assembled unit), so its absence is not a gap.
+ */
+export const FIELD_STATES = Object.freeze({
+  RECORDED: 'recorded',
+  NOT_RECORDED: 'not_recorded',
+  WITHHELD: 'withheld',
+  NOT_APPLICABLE: 'not_applicable',
+});
+
+/** The closed vocabulary, so a consumer can validate a state rather than trust it. */
+export const FIELD_STATE_VALUES = Object.freeze(Object.values(FIELD_STATES));
+
+/** True when `state` is one of the four declared states. */
+export function isFieldState(state) {
+  return FIELD_STATE_VALUES.includes(state);
+}
+
+/**
+ * Whether a raw column value counts as recorded.
+ *
+ * `0` and `false` are RECORDED: a genuine zero mileage or a genuine
+ * `duty_paid: false` is data, and treating either as missing would be its own
+ * fabrication. Blank and whitespace-only strings and NaN are not recorded —
+ * they carry no fact. Deciding that a recorded `false` is really a fabricated
+ * default belongs to the write path that produced it, not here.
+ */
+export function isRecordedValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (typeof value === 'number') return Number.isFinite(value);
+  return true;
+}
+
+/**
+ * Classify a value for an audience.
+ * `notApplicable` outranks `withheld`: there is nothing to withhold about a field
+ * that cannot apply. `withheld` outranks the value itself — it must be returned
+ * even when the value is absent, or a withheld-and-empty field would leak "we
+ * hold nothing on this vehicle".
+ *
+ * @param {*} value raw column value
+ * @param {{withheld?: boolean, notApplicable?: boolean}} [options]
+ * @returns {string} one of FIELD_STATE_VALUES
+ */
+export function fieldState(value, options) {
+  // Destructured from a coalesced object rather than a default parameter: a default only
+  // covers `undefined`, and the natural call shape here is
+  // `fieldState(v, isWithheld ? { withheld: true } : null)`, which would throw on null.
+  const { withheld = false, notApplicable = false } = options ?? {};
+  if (notApplicable) return FIELD_STATES.NOT_APPLICABLE;
+  if (withheld) return FIELD_STATES.WITHHELD;
+  return isRecordedValue(value) ? FIELD_STATES.RECORDED : FIELD_STATES.NOT_RECORDED;
+}
+
+/**
+ * The pair a read path should emit for any governed fact: the value only when it
+ * is `recorded`, and the state always. Anything other than `recorded` yields
+ * `null` — never a substitute, a placeholder or a coerced zero.
+ *
+ * @returns {{value: *, state: string}}
+ */
+export function statedValue(value, options) {
+  const state = fieldState(value, options);
+  return { value: state === FIELD_STATES.RECORDED ? value : null, state };
 }
 
 /**

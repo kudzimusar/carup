@@ -1,3 +1,5 @@
+import { PUBLIC_VEHICLE_SELECT } from './publicVehicleProjection.js';
+
 const PUBLIC_VEHICLE_STATUSES = ['Available', 'Reserved', 'available', 'reserved', 'ACTIVE', 'RESERVED'];
 
 const STATUS_ALIASES = new Map([
@@ -61,15 +63,14 @@ export function isPubliclyVisiblePublication(publicationStatus) {
   return PUBLICLY_VISIBLE_PUBLICATION_STATUSES.includes(publicationStatus);
 }
 
-/** Columns safe to return from legacy public vehicle endpoints. Never include
- *  owner_id, tenant_id, plate_number, engine_number, chassis_number or
- *  temp_plate_id — the marketplace summary builder deliberately redacts them
- *  and raw select('*') on public routes was a confirmed leak. */
-export const PUBLIC_VEHICLE_COLUMNS = [
-  'vin', 'make', 'model', 'generation', 'trim', 'year', 'color', 'mileage',
-  'fuel_type', 'drivetrain', 'transmission', 'import_source', 'duty_paid',
-  'police_verified', 'status', 'trust_score', 'price', 'currency', 'created_at',
-  'registration_country', 'current_seller_type', 'passport_verified',
-  'vehicle_condition_category', 'publication_status',
-].join(', ');
+/**
+ * @deprecated Use PUBLIC_VEHICLE_SELECT from utils/publicVehicleProjection.js.
+ *
+ * Retained only as an alias for the one call site that still spells it this way:
+ * server.js's /api/vehicles/saved embed, whose source text is pinned by
+ * backend/tests/db-compat-legacy-scopes.test.js. It is now the SAME string as
+ * the canonical select rather than a second hand-maintained list, so the two
+ * cannot drift and a column added to `vehicles` still widens neither.
+ */
+export const PUBLIC_VEHICLE_COLUMNS = PUBLIC_VEHICLE_SELECT;
 

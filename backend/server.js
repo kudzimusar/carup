@@ -97,7 +97,7 @@ import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
-import { PUBLIC_VEHICLE_SELECT, projectVehicle, toPublicEvidence, toPublicPlateHistory } from './utils/publicVehicleProjection.js';
+import { PUBLIC_VEHICLE_SELECT, projectVehicle, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
 import { buildVehicleListingCandidate, getListingEligibility } from './services/marketplace/marketplaceListingEligibility.js';
 import { registerCommunicationListeners } from './services/communication/communicationEventListeners.js';
 import { evaluateCompleteness } from './services/evidence/completenessEvaluator.js';
@@ -683,7 +683,11 @@ async function buildVehiclePassport(vin, req) {
       publicDescription = `${subject}: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Suspended';
     } else if (event.event_source === 'evidence') {
-      publicDescription = event.desc || 'Verified evidence linked to this vehicle passport';
+      // event.desc is the reviewer's verification_notes, which is operator free text and can
+      // name an identifier. Authorized callers may read it; the public gets the evidence class.
+      publicDescription = isAuthorized
+        ? (event.desc || 'Verified evidence linked to this vehicle passport')
+        : 'Verified evidence linked to this vehicle passport';
       publicSummary = event.label || 'Verified Evidence';
     }
 
@@ -719,6 +723,11 @@ async function buildVehiclePassport(vin, req) {
         verificationSource: event.details?.verificationSource,
         plateNumber: null,
       };
+      // Close the TOP level too. An evidence-derived event carries its source row's columns up
+      // here — metadata (which holds ai_ready.vehicle_identity: vin, plate, chassis, engine) and
+      // verification_notes among them — so allow-listing only `details` left a second path to
+      // exactly the identifiers the evidence vault had just been closed against.
+      return toPublicTimelineEvent(sanitizedEvent);
     }
 
     return sanitizedEvent;
@@ -753,6 +762,11 @@ async function buildVehiclePassport(vin, req) {
       identifiersRedacted: !isAuthorized
     },
     plateHistory: isAuthorized ? (plateHistory || []) : toPublicPlateHistory(plateHistory),
+    // An empty public list means one of two different things. Without this the client renders
+    // "No previous plates logged in history" over a vehicle whose history was merely withheld —
+    // the collection-level form of the withheld/unrecorded conflation identity already avoids.
+    plateHistoryRedacted: !isAuthorized
+      && (plateHistory || []).length > toPublicPlateHistory(plateHistory).length,
     ownershipSummary
   };
 }

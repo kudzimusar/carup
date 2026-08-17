@@ -1363,7 +1363,15 @@ export default function VehicleDetail() {
                 <CardContent className="p-6">
                   <h3 className="font-semibold mb-4">Plate Registration History</h3>
                   {passport.plateHistory.length === 0 ? (
-                    <p className="text-xs text-gray-400">No previous plates logged in history.</p>
+                    passport.plateHistoryRedacted ? (
+                      <p className="text-xs text-gray-400" data-testid="plate-history-withheld">
+                        Plate registration history is not shown publicly for this vehicle.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-400" data-testid="plate-history-empty">
+                        No previous plates logged in history.
+                      </p>
+                    )
                   ) : (
                     <div className="space-y-3">
                       {passport.plateHistory.map((h, i) => {

@@ -11,6 +11,21 @@
 `registration_authority`, `registration_status`, `plate_status`, `zimra_verified`,
 `inspection_ready`, `safe_pay_ready`, `public_seller_display_enabled`
 
+### Amended in Phase 1 — the same +7 now applies to two further endpoints
+
+Phase 1 converged the remaining `PUBLIC_VEHICLE_COLUMNS` consumers onto the same canonical
+list, so this sign-off explicitly extends to:
+
+- `GET /api/vehicles/:vin/recommendations` (via `recommendationService`) — anonymous;
+- the `vehicles(...)` embed on `GET /api/vehicles/saved` — authenticated, but the embedded rows
+  belong to *other* sellers, so they are public-class data and are judged on the same basis.
+
+Independently verified on staging: all 7 are low-cardinality enums or booleans
+(`registration_authority` = `CVR` for all 16 rows; `plate_status` = `Active` for all 16;
+the three booleans split 13/3, 12/4, 12/4; `public_seller_display_enabled` false for all).
+None is a join key, and none can single out a person, plate, chassis or owner.
+No column was dropped by either convergence — the change is strictly widening.
+
 ## Why this is acceptable
 
 1. **Not a new exposure class.** All 7 are already returned to anonymous callers today by

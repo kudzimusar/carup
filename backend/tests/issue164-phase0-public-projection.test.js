@@ -53,6 +53,7 @@ import {
   findPrivateFieldLeaks,
   toPublicEvidence,
   toPublicPlateHistory,
+  toPublicTimelineEvent,
 } from '../utils/publicVehicleProjection.js';
 
 import {
@@ -289,6 +290,7 @@ function instantiatePassportBuilder({ vehicle, timeline, chain }) {
     'projectVehicle',
     'toPublicEvidence',
     'toPublicPlateHistory',
+    'toPublicTimelineEvent',
     'PASSPORT_PRIVILEGED_ROLES',
   ];
 
@@ -330,17 +332,43 @@ function instantiatePassportBuilder({ vehicle, timeline, chain }) {
 
   // The SHIPPED allow-list projections are injected, not restated, so a weakening of
   // the real contract fails these tests rather than passing against a local copy.
+  // mergeEventsWithEvidence is NOT an identity stub. The real one derives a timeline item from
+  // each evidence row (evidenceService.evidenceToTimelineItem), lifting that row's own columns
+  // to the event's TOP level — `metadata` and `verification_notes` among them. Stubbing it as
+  // identity is what hid a live leak of the registry identifiers through the timeline, so this
+  // reproduces the shape that matters: the derived item, carrying its source row's fields.
+  const mergeEventsWithEvidence = (events, evidenceRows) => [
+    ...events,
+    ...(evidenceRows || []).map((row) => ({
+      id: `evidence:${row.id}`,
+      event_source: 'evidence',
+      event_type: row.event_type || row.evidence_type,
+      evidence_type: row.evidence_type,
+      timestamp: row.captured_at || row.uploaded_at || row.created_at,
+      label: 'Verified Evidence',
+      desc: row.verification_notes || '',
+      details: { uploadedBy: row.uploaded_by },
+      metadata: row.metadata || {},
+      file_url: row.file_url,
+      verification_notes: row.verification_notes,
+      uploaded_by: row.uploaded_by,
+      verified_by: row.verified_by,
+      tenant_id: row.tenant_id,
+    })),
+  ];
+
   const factory = new Function(...dependencies, `return (${source});`);
   return factory(
     supabase,
     async () => timeline,
     (record) => record,
-    (events) => events,
+    mergeEventsWithEvidence,
     async () => ({ score: 82, band: 'high' }),
     async () => chain,
     projectVehicle,
     toPublicEvidence,
     toPublicPlateHistory,
+    toPublicTimelineEvent,
     new Set(['admin', 'government']),
   );
 }
@@ -917,4 +945,89 @@ test('the owner audience still receives the withheld plate rows, so the filter i
 
   assert.equal(ids.length, plateHistory.length, 'the owner sees their own full plate history');
   assert.ok(ids.includes(PRIVATE_PLATE_ROW_ID), 'a private row is withheld from the public, not from its owner');
+});
+
+// ---------------------------------------------------------------------------
+// 7. The evidence -> timeline path is a SECOND route to the evidence rows
+//
+// evidenceToTimelineItem lifts a vehicle_evidence row's own columns to the event's
+// top level. Allow-listing only `details` left `metadata` — which carries
+// ai_ready.vehicle_identity (vin, plate, chassis, engine) — and the reviewer's
+// verification_notes reachable after the vault itself had been closed.
+// ---------------------------------------------------------------------------
+
+test('an anonymous timeline never carries evidence metadata or reviewer notes', async () => {
+  const passport = await buildPassport({});
+  const body = serializeDeep(passport.timeline);
+
+  assert.ok(!body.includes('verification_notes'), 'the reviewer note column must not ride along on a timeline event');
+  assert.ok(!body.includes('"metadata"'), 'metadata is uncontrolled jsonb and holds the registry identifiers');
+  assert.ok(!body.includes(UPLOADER_ID), 'the uploader id must not reach an anonymous timeline');
+  assert.ok(!body.includes(TENANT_ID), 'the tenant id must not reach an anonymous timeline');
+
+  const evidenceEvents = passport.timeline.filter(e => e.event_source === 'evidence');
+  assert.ok(evidenceEvents.length > 0, 'the fixture must produce an evidence-derived event, or this test is vacuous');
+  for (const event of evidenceEvents) {
+    assert.ok(!('metadata' in event), 'metadata must be absent from a public evidence event');
+    assert.ok(!('verification_notes' in event), 'verification_notes must be absent');
+    assert.ok(!('uploaded_by' in event), 'uploaded_by must be absent');
+  }
+});
+
+test('an anonymous evidence event describes the evidence instead of quoting the reviewer', async () => {
+  const passport = await buildPassport({});
+  const [evidenceEvent] = passport.timeline.filter(e => e.event_source === 'evidence');
+
+  assert.equal(
+    evidenceEvent.publicDescription,
+    'Verified evidence linked to this vehicle passport',
+    'the public description must not be sourced from operator free text',
+  );
+  assert.equal(evidenceEvent.desc, evidenceEvent.publicDescription, 'desc is rewritten for the public audience');
+});
+
+test('a withheld plate row generates no timeline event for an anonymous caller', async () => {
+  const build = instantiatePassportBuilder({
+    vehicle: rawVehicleRow(),
+    // Real id shape: <source>:<plateHistoryId>. The seeded fixture used synthetic ids that could
+    // never match a plate row, so the suppression filter was never actually exercised.
+    timeline: [
+      { id: `plate_assigned:${PUBLIC_PLATE_ROW_ID}`, event_source: 'plate_assigned', timestamp: '2026-01-01T00:00:00.000Z', label: 'Plate Assigned', desc: `Number plate assigned: ${PLATE}`, details: { plateNumber: PLATE } },
+      { id: `plate_suspended:${PRIVATE_PLATE_ROW_ID}`, event_source: 'plate_suspended', timestamp: '2026-01-02T00:00:00.000Z', label: 'Plate Suspended', desc: `Number plate ${PLATE} suspended: ${WITHHELD_REASON}`, details: { plateNumber: PLATE, reason: WITHHELD_REASON } },
+    ],
+    chain: { verified: true, count: 0, chain: [] },
+  });
+  const passport = await build(VIN, {});
+  const ids = passport.timeline.map(e => e.id);
+  const body = serializeDeep(passport.timeline);
+
+  assert.ok(ids.includes(`plate_assigned:${PUBLIC_PLATE_ROW_ID}`), 'the public plate row keeps its event');
+  assert.ok(!ids.includes(`plate_suspended:${PRIVATE_PLATE_ROW_ID}`), 'a withheld plate row must not announce itself');
+  assert.ok(!body.includes(WITHHELD_REASON), 'suppressing the number while publishing the reason would leak the record');
+});
+
+test('an owner still sees the events derived from their withheld plate rows', async () => {
+  const build = instantiatePassportBuilder({
+    vehicle: rawVehicleRow(),
+    timeline: [
+      { id: `plate_suspended:${PRIVATE_PLATE_ROW_ID}`, event_source: 'plate_suspended', timestamp: '2026-01-02T00:00:00.000Z', label: 'Plate Suspended', desc: 'suspended', details: { reason: WITHHELD_REASON } },
+    ],
+    chain: { verified: true, count: 0, chain: [] },
+  });
+  const passport = await build(VIN, { userContext: { id: OWNER_ID, role: 'owner' } });
+  const ids = passport.timeline.map(e => e.id);
+
+  assert.ok(
+    ids.includes(`plate_suspended:${PRIVATE_PLATE_ROW_ID}`),
+    'suppression is audience-scoped, not blanket deletion — the owner keeps their own withheld event',
+  );
+});
+
+test('an empty public plate history says whether it was withheld or genuinely empty', async () => {
+  const passport = await buildPassport({});
+  assert.equal(
+    passport.plateHistoryRedacted,
+    true,
+    'rows were withheld, so the client must not render "no plates logged" as a fact',
+  );
 });

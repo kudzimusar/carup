@@ -1951,6 +1951,8 @@ export interface VehiclePassport {
   chainVerification: ChainVerification;
   identity: VehicleIdentity;
   plateHistory: VehiclePlateHistory[];
+  /** Rows were withheld from this audience, so an empty list is not an empty history. */
+  plateHistoryRedacted?: boolean;
   ownershipSummary: OwnershipSummary;
 }
 
