@@ -12,13 +12,19 @@ constraint on X2+**, not a suggestion. Nothing here may be quietly dropped when 
 
 ## A. Hard blockers — implementation cannot be correct without these
 
-### A1. Owner identity gates B1/B2/B3 are unresolved
+### A1. Owner identity gates B1/B2/B3 — RESOLVED 2026-08-18
 
-| Gate | What is missing | Why it blocks |
-|---|---|---|
-| **B1** | `CORPORATE_DESCRIPTOR`, `CONSUMER_TAGLINE` | every footer family and brand component |
-| **B2** | `CEO_DISPLAY_NAME`, `CEO_PUBLIC_TITLE`, headshot/signature approval, `LEADERSHIP_REPLY_TO` | Family L entirely, and reference template **R1 CEO Welcome** |
-| **B3** | `LEGAL_ENTITY_NAME`, `REGISTERED_OR_POSTAL_ADDRESS`, canonical Privacy/Terms/Support URLs, social URLs | the §10.4 marketing footer's legal block |
+**Superseded by `EMAIL_EXPERIENCE_1_0_OWNER_IDENTITY_FREEZE.md`, which is authoritative.** Summary:
+
+| Gate | Status |
+|---|---|
+| **B1** | **FROZEN** — descriptor `Automotive Intelligence & Trust Network`, tagline `Know the car. Trust the journey.` |
+| **B2** | **FROZEN** — `S.K Musarurwa`, **`Co-Founder & Head of Development`** (explicitly **NOT CEO**), reply-to `info@carup.dev`, no headshot, no signature asset. R1 is renamed **Leadership Welcome**. |
+| **B3** | **FROZEN** for `CarUp Technologies` + Tokyo HQ / Harare regional + tagline. **OPEN** for street-level postal address, canonical Privacy/Terms/Support URLs, and social links (which are omitted). |
+
+Read the freeze document before using any identity value. Two constraints carry the highest defect risk:
+the title must never render as CEO, and the customer-facing name is title case (`S.K Musarurwa`), never the
+supplied all-caps form.
 
 ### A2. FORBIDDEN identity sources — never read these
 
