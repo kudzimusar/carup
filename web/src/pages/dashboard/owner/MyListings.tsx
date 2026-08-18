@@ -9,7 +9,7 @@ import { ListingImage } from '@/components/marketplace/ListingImage'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
-import { readOwnerTrustClaim, statedDate, statedPrice } from './OwnerDashboard'
+import { readOwnerTrustClaim, statedDate, statedPrice } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {

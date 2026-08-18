@@ -4,7 +4,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Heart, X, Gauge, Settings2, Fuel, MapPin, Loader2 } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { statedMileage, statedPrice } from './OwnerDashboard'
+import { statedMileage, statedPrice } from './ownerStatedValues'
 import type { MarketplaceListingSummary } from '@/types'
 
 export default function SavedCars() {

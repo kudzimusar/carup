@@ -7,7 +7,7 @@ import { Plus, ArrowRight, Gauge, Calendar, FileText, Shield } from 'lucide-reac
 import { useState, useEffect } from 'react'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice } from './OwnerDashboard'
+import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice } from './ownerStatedValues'
 import type { Vehicle, InsuranceRecord } from '@/types'
 
 export default function MyGarage() {
