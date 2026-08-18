@@ -341,7 +341,7 @@ test('the card location is the recorded location or nothing — never a country 
   const base = { vin: '1HGBH41JXMN109186', make: 'Toyota', model: 'Hilux', year: 2023, price: 42000, status: 'Available' };
 
   // 1. NOTHING RECORDED. The row has no location columns (they do not exist on `public.vehicles`
-  //    until migration 20260817160000 is applied), so the card must say nothing and must say WHY
+  //    until migration 20260818110000 is applied), so the card must say nothing and must say WHY
   //    in a state a consumer can branch on. `'Zimbabwe'` here was the original defect.
   const unrecorded = buildMarketplaceListingSummary({ vehicle: { ...base } });
   assert.equal(unrecorded.location, null,

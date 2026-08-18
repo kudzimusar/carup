@@ -2047,7 +2047,7 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // The migration has not been applied yet. A single-row PostgREST insert is atomic, so the
       // rejected attempt wrote nothing; create the listing without the claim columns and report on
       // the response that the location was not recorded.
-      console.warn(`Listing claim columns unavailable (migration 20260817160000 not applied); location not recorded for ${candidate.vin}.`);
+      console.warn(`Listing claim columns unavailable (migration 20260818110000 not applied); location not recorded for ${candidate.vin}.`);
       listingClaimsRecorded = false;
       ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
     }

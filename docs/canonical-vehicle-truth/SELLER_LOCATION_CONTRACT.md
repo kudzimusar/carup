@@ -318,7 +318,7 @@ Full reasoning is in the migration header; the summary:
 | candidate | verdict |
 |---|---|
 | `public.vehicle_listings` | **does not exist** — `to_regclass` is NULL; its only DDL is a SQLite-era file never applied to PostgreSQL |
-| `public.vehicle_listing_summaries` | exists, 0 rows, and is **being dropped** by `20260817120000` as a dormant second listing model |
+| `public.vehicle_listing_summaries` | exists, 0 rows, and is **being dropped** by `20260818100000` as a dormant second listing model |
 | `listing_images` / `listing_snapshots` | children *of* a listing; a location on either is per-photo or per-snapshot |
 | `users.location` | the **seller's** location. A dealer in one city can list a car standing in another — binding the two is the inferred truth this programme removes |
 | `dealer_branches.address`, `organization_branches.location` | where an *organisation* is; and 15 of 16 vehicles have no tenant at all |

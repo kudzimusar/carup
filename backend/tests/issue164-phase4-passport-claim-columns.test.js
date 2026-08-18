@@ -94,7 +94,7 @@ const VIN = 'JTNBU4EE0J9UAT101';
 
 /**
  * THE LIVE STAGING SHAPE. Every value flagged below is the column DEFAULT — nobody's assertion —
- * and NO `*_source` column is present, because 20260817160000 is authored but unapplied and
+ * and NO `*_source` column is present, because 20260818110000 is authored but unapplied and
  * PostgREST's `select('*')` therefore cannot return one.
  */
 function liveStagingRow(overrides = {}) {

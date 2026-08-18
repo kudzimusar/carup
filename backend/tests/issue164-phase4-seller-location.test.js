@@ -1364,7 +1364,7 @@ describe('POST /api/vehicles/add — what a submitted fact is allowed to become'
 
   for (const error of MISSING_COLUMN_ERRORS) {
     it(`the migration-not-applied path degrades honestly instead of 500-ing (${error.code ?? 'no code'})`, async () => {
-      // 20260817160000 is authored but UNAPPLIED. Without this retry, adding the claim columns to
+      // 20260818110000 is authored but UNAPPLIED. Without this retry, adding the claim columns to
       // the payload would 500 every listing submission on production until it lands.
       vehicleInsertFailure = (row) => ('listing_city' in row || 'current_seller_type_source' in row ? error : null);
       const { status, body } = await submit({ location: 'Bulawayo' });
