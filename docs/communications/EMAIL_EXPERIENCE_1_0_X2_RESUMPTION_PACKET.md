@@ -125,6 +125,10 @@ Check each before the phase that needs it — none blocks starting X2.
 | `STAFF_ALIAS_ROUTING_PENDING` | 3 rules absent; no catch-all, so mail is rejected | publishing those addresses anywhere customer-facing |
 | `WEBSITE_BRAND_IDENTITY_RECONCILIATION` | `REQUIRED` | anti-phishing cross-check (plan §17); sequenced separately |
 | `@carup.co.zw` migration | authorized, not performed | footer/website contact consistency |
+| Recipient-address defect | policy-driven email has no `payload.email`; adapter hard-fails `recipient_missing` | **every** policy-driven template — fix first (spec Part 0.3) |
+| Outbound reply-token minting | `EmailReplyTokenService.issue()` has no production caller | R3 conversation Reply-To (spec Part 0.4) |
+| Resend send-side provenance | `ResendEmailAdapter` returns no `providerMetadata` | Level C certification of R1-R5 (spec Part 1.7) |
+| Communications CI file list | new suites are NOT auto-discovered there | plan §33 "Communications CI covers design-system tests" |
 
 ## 7. Guardrails that do not expire
 

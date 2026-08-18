@@ -70,6 +70,14 @@ The `/email-assets/` namespace requires an explicit non-rewritten route before a
 
 ## B. Contract dependencies on PR #165 — re-verify ALL of these at X0 refresh
 
+> **CORRECTION (2026-08-18, live re-verification):** four of the eleven surfaces below —
+> `publicVehicleProjection.js`, `canonicalTrustService.js`, `vehicleFactResolver.js`,
+> `passportLookupPolicy.js` — **do not exist on `main` at all**. They exist only on PR #165's branch and
+> will *arrive* with it. The rule "read vehicle/trust data through these canonical services" is therefore
+> currently unsatisfiable, and **R3 and R5 cannot be built or certified until PR #165 merges**. On `main`
+> today the projection authority is `backend/utils/vehicleStatus.js:68`. See
+> `EMAIL_EXPERIENCE_1_0_X2_X3_SPECIFICATION.md` Part 0.
+
 PR #165 (`integration/canonical-vehicle-truth-closure`, 69 files) rewrites precisely the surfaces the email
 vehicle/trust components consume. **The X0 refresh must re-read each of these before X2 begins**, because the
 shape of the email vehicle card, trust badge and passport components depends on them.
