@@ -128,42 +128,118 @@ or image from legacy/demo repository content. The A2 forbidden list in
 
 ---
 
-## Residual items still open — flagged, not blocking
+## B3 addendum — canonical public URLs FROZEN (owner clarification, 2026-08-18)
 
-These were not covered by the freeze. None prevents X2 foundation work; each is noted so it is not discovered
-late.
+```text
+PRIVACY_URL  = https://carup.dev/privacy
+TERMS_URL    = https://carup.dev/terms
+SUPPORT_URL  = https://carup.dev/support
+SECURITY_URL = https://carup.dev/security
+```
 
-1. **No street-level postal address.** B3 gives city-level only (Tokyo, Japan / Harare, Zimbabwe). Plan §10.4
-   and §5.3 anticipate a postal address for marketing footers, which bulk-sender and CAN-SPAM-style policy
-   generally expects on promotional mail. Security, transactional and service families are unaffected. A
-   decision is needed before **marketing/editorial** production rollout (Family M, R6 CarUp Weekly) — either a
-   full postal address, or an explicit owner decision to ship city-level only and accept the deliverability
-   position.
-2. **`PRIVACY_URL` / `TERMS_URL` / `SUPPORT_URL` not nominated.** Two divergent legal surfaces still exist —
-   `carup.dev/privacy|/terms` and `api.carup.dev/privacy-policy|/terms` — with *different content and
-   different entity names*. Both now also conflict with `CarUp Technologies`.
-3. **`APPROVED_SOCIAL_URLS` not supplied** → footers **omit** social links, consistent with the existing
-   `state:'planned'` precedent. No fabrication.
-4. **Security footer's "Security" link destination** still unresolved — no `/security` route exists; `/trust`
-   is the nearest live page.
-5. **`@carup.co.zw` → `@carup.dev` copy migration** still unauthorized. Twelve shipped addresses remain on a
-   non-resolving domain; the anti-phishing cross-check concern in dependency register §C7 stands.
-6. **HQ relocation is a wider-product fact.** Tokyo HQ contradicts the Zimbabwe-only positioning across
-   `index.html`, `Landing.tsx`, `About.tsx` and both legal surfaces. Email will now state something the
-   website does not. Reconciling the site is outside this programme, but the divergence is real and worth an
-   owner decision.
-7. **Logo artwork still absent** (dependency register §A3). Unchanged by this freeze; masthead falls back to
-   the text wordmark until an asset exists.
+These are the canonical destinations for every footer family. This also settles the previously open
+"Security footer link destination" question: it is `SECURITY_URL`, **not** `/trust`.
+
+### Two of the four routes do not exist yet — and HTTP 200 will not tell you that
+
+Verified live against `web/src/App.tsx` and `carup.dev`:
+
+```text
+/privacy    DEFINED in App.tsx      carup.dev/privacy    200   real page
+/terms      DEFINED in App.tsx      carup.dev/terms      200   real page
+/support    NOT DEFINED             carup.dev/support    200   <- SPA shell, not a page
+/security   NOT DEFINED             carup.dev/security   200   <- SPA shell, not a page
+```
+
+This is the **same `web/vercel.json` `/(.*)` → `/index.html` rewrite** documented for assets in dependency
+register §A4, now biting footer links. A missing route is indistinguishable from a real one by status code.
+
+**Release requirement:** `/support` and `/security` must be implemented before any template carrying those
+links reaches a customer. Any link-checking test for email footers must assert on **rendered page identity**
+(a known marker in the response body), never on HTTP status.
+
+The `api.carup.dev/privacy-policy|/terms` legal surface is **not** canonical for email. It remains divergent
+in content and entity name and should be reconciled or retired as separate product work.
+
+---
+
+## `@carup.co.zw` migration — AUTHORIZED (owner clarification, 2026-08-18)
+
+```text
+MIGRATE_SHIPPED_CARUP_CO_ZW_CONTACTS = YES
+```
+
+**Deliberate functional mapping when the implementation lane opens. NOT a blind global text replacement.**
+
+Live enumeration on `main` — 18 occurrences across 9 distinct addresses:
+
+| Shipped address | Count | Mapping |
+|---|---:|---|
+| `legal@carup.co.zw` | 6 | → `legal@carup.dev` |
+| `support@carup.co.zw` | 3 | → `support@carup.dev` |
+| `privacy@carup.co.zw` | 2 | → `privacy@carup.dev` |
+| `info@carup.co.zw` | 2 | → `info@carup.dev` |
+| `press@carup.co.zw` | 1 | → `press@carup.dev` |
+| `dpo@carup.co.zw` | 1 | → `dpo@carup.dev` |
+
+Those 15 occurrences map 1:1 onto certified aliases, and the four regulated channels
+(`privacy@`, `dpo@`, `legal@`, `security@`) should be sequenced first.
+
+### Three occurrences CANNOT be functionally mapped — they are personal, not functional
+
+| Shipped address | Where | Why it is out of scope for this mapping |
+|---|---|---|
+| `rudo.mutasa@carup.co.zw` | `PressKit.tsx:818-828` | personal address of an **unverified** individual; no such `@carup.dev` mailbox exists and none of the seven aliases is personal |
+| `chipo.sibanda@carup.co.zw` | `PressKit.tsx:818-828` | same; her listed phone is demo seed data |
+| `tendai@carup.co.zw` | `Careers.tsx:715` | form **placeholder** tied to the forbidden demo identity (§A2) — should be removed or replaced with a non-personal example, not migrated |
+
+A functional mapping has nothing to map these onto. They still require the person-by-person owner decision
+already recorded in the X0 inventory. Migrating them to invented `@carup.dev` personal addresses would
+fabricate mailboxes that do not exist and would bounce.
+
+---
+
+## Residual items still OPEN
+
+Owner-confirmed status labels:
+
+```text
+REGISTERED_LEGAL_ADDRESS               DEFERRED_UNTIL_VERIFIED
+LOGO_ARTWORK                           MISSING
+WEBSITE_BRAND_IDENTITY_RECONCILIATION  REQUIRED
+B4 reference-template visual approval  NOT_STARTED
+B5 production rollout                  NOT_STARTED
+```
+
+Implementation consequences to carry into X2/X3:
+
+1. **`REGISTERED_LEGAL_ADDRESS=DEFERRED_UNTIL_VERIFIED`** — the marketing/editorial footer (§10.4) must be
+   built so the postal-address block is **structurally present but conditionally rendered**, emitting nothing
+   when unset. It must never emit a partial or placeholder address. This is a gating item for Family M / R6
+   production rollout, not for building the footer.
+2. **`LOGO_ARTWORK=MISSING`** — masthead falls back to the text wordmark (`Car` + orange `Up`), which plan
+   §11.6 permits. The `/email-assets/` contract (§A4) must still be established before any template references
+   an image.
+3. **`WEBSITE_BRAND_IDENTITY_RECONCILIATION=REQUIRED`** — the website still carries the superseded entity
+   names, Zimbabwe-only positioning, the fabricated `About.tsx` leadership team, and `@carup.co.zw` contacts.
+   Until reconciled, email states things the website contradicts, which weakens the §17 anti-phishing
+   cross-check. Tracked as required, sequenced separately from email implementation.
+4. **`APPROVED_SOCIAL_URLS`** — none supplied; footers **omit** social links entirely, consistent with the
+   existing `state:'planned'` precedent. No fabrication.
 
 ---
 
 ## Gate status after this freeze
 
 ```text
-B1  Brand identity        FROZEN — descriptor + tagline approved
+B1  Brand identity        FROZEN — descriptor + tagline
 B2  Leadership identity   FROZEN — name, title (NOT CEO), reply-to; no imagery
-B3  Legal/footer identity FROZEN for entity + locations + tagline
-                          OPEN for postal address, canonical legal URLs, social (omit)
-B4  Reference-template visual approval   PENDING — requires X3
-B5  Production rollout                   PENDING — separate owner programme
+B3  Legal/footer identity FROZEN — entity, locations, tagline, and all four canonical public URLs
+                          OPEN  — registered legal address (DEFERRED_UNTIL_VERIFIED); social links omitted
+B4  Reference-template visual approval   NOT_STARTED — requires X3
+B5  Production rollout                   NOT_STARTED — separate owner programme
+
+carup.co.zw contact migration            AUTHORIZED — deliberate functional mapping, not blind replace
+logo artwork                             MISSING
+website brand identity reconciliation    REQUIRED
 ```

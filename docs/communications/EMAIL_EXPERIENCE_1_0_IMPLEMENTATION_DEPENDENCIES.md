@@ -20,7 +20,7 @@ constraint on X2+**, not a suggestion. Nothing here may be quietly dropped when 
 |---|---|
 | **B1** | **FROZEN** — descriptor `Automotive Intelligence & Trust Network`, tagline `Know the car. Trust the journey.` |
 | **B2** | **FROZEN** — `S.K Musarurwa`, **`Co-Founder & Head of Development`** (explicitly **NOT CEO**), reply-to `info@carup.dev`, no headshot, no signature asset. R1 is renamed **Leadership Welcome**. |
-| **B3** | **FROZEN** for `CarUp Technologies` + Tokyo HQ / Harare regional + tagline. **OPEN** for street-level postal address, canonical Privacy/Terms/Support URLs, and social links (which are omitted). |
+| **B3** | **FROZEN** — `CarUp Technologies`, Tokyo HQ / Harare regional, tagline, and all four canonical public URLs (`/privacy`, `/terms`, `/support`, `/security`). **OPEN** — registered legal address is `DEFERRED_UNTIL_VERIFIED`; social links omitted. |
 
 Read the freeze document before using any identity value. Two constraints carry the highest defect risk:
 the title must never render as CEO, and the customer-facing name is title case (`S.K Musarurwa`), never the
@@ -148,16 +148,23 @@ sending domains for display-name variety.
 `communication_suppressions.scope` is a 3-value CHECK. Plan §13's category model is a later-phase schema
 change, and Email 1.0's consent authority must remain authoritative throughout.
 
-### C7. Contact-domain contradiction is unresolved
+### C7. Contact-domain migration — AUTHORIZED; two sub-items remain
 
-Twelve shipped `@carup.co.zw` addresses remain in legal/contact copy on a **non-resolving** domain, while the
-seven `@carup.dev` aliases are certified deliverable. If email footers adopt `@carup.dev` while the website
-keeps `@carup.co.zw`, CarUp advertises two contact domains for the same purpose — an anti-phishing regression
-against plan §17, because the recipient cannot cross-check the email against the site.
+`MIGRATE_SHIPPED_CARUP_CO_ZW_CONTACTS=YES` (owner, 2026-08-18) — **deliberate functional mapping, never a
+blind global replace**. 18 occurrences across 9 addresses; 15 map 1:1 onto certified aliases, and the four
+regulated channels (`privacy@`, `dpo@`, `legal@`, `security@`) sequence first.
 
-Also unresolved: no `/security` or `/support` route exists (only `/help`, `/trust`), so the §10.4 security
-footer's "Security" link has no destination; and `carup.dev/privacy|/terms` and
-`api.carup.dev/privacy-policy|/terms` serve **different content with different entity names**.
+**Three occurrences cannot be functionally mapped** because they are personal, not functional:
+`rudo.mutasa@` and `chipo.sibanda@` (`PressKit.tsx:818-828`, unverified individuals with no `@carup.dev`
+mailbox) and `tendai@` (`Careers.tsx:715`, a form placeholder tied to the forbidden demo identity). Mapping
+them would fabricate mailboxes that bounce. They still need the person-by-person owner decision.
+
+Canonical URLs are now frozen (see the freeze document), which resolves the security-footer destination:
+`https://carup.dev/security`. **But `/support` and `/security` are not implemented**, and the SPA rewrite
+returns HTTP 200 for both — so footer link checks must assert on rendered page identity, never status code,
+and those routes must exist before the templates carrying them reach a customer.
+
+`api.carup.dev/privacy-policy|/terms` is **not** canonical for email and remains divergent — separate work.
 
 ### C8. Social links — follow the existing precedent
 
