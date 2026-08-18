@@ -8,6 +8,12 @@
  * trust/evidence data. The whole payload derives from buildMarketplaceListingSummary and the trust/
  * verification/pricing summaries — the raw vehicle row is never spread into the response, and
  * LISTING_SELECT_COLUMNS does not fetch those identifiers in the first place.
+ *
+ * Issue #164 Phase 4: the seller and location facts this page states now come from the canonical
+ * listing claim contract (`listingSummary.claims`, built in utils/publicVehicleProjection.js). This
+ * file no longer holds a country literal, a fallback country or a category label standing in for a
+ * seller's name; where nothing was recorded the payload says so in a state rather than filling the
+ * gap with something plausible.
  */
 
 import {
@@ -32,13 +38,34 @@ const PUBLIC_SAFETY_WARNINGS = [
   'Report any listing that asks you to transact off-platform.',
 ];
 
+/**
+ * The seller block of the detail payload.
+ *
+ * Two fabrications lived here. `location: listingSummary.location || 'Zimbabwe'` turned an absent
+ * location into a country claim, and `country: 'ZW'` was a literal that no column fed at all — a
+ * detail page asserting a country for a vehicle whose location had never been recorded, and one
+ * that would go on asserting it after the seller recorded a different one. Both are replaced by the
+ * governed claim: the composed label when parts are recorded, otherwise null with the state that
+ * says whether nothing is held or something is withheld.
+ *
+ * The `*_claim` fields carry the stated pairs so a consumer that wants provenance can read it
+ * without the flat fields having to encode two things at once.
+ */
 function buildSellerSummary(listingSummary) {
+  const { seller, location } = listingSummary.claims;
   return {
     display_label: listingSummary.seller_display_label,
+    display_label_state: listingSummary.seller_display_label_state,
     seller_type: listingSummary.seller_type,
-    public_profile_enabled: Boolean(listingSummary.seller_public_profile_enabled),
-    location: listingSummary.location || 'Zimbabwe',
-    country: 'ZW',
+    seller_type_claim: seller.seller_type,
+    public_profile_enabled: listingSummary.seller_public_profile_enabled === true,
+    // Channel KINDS only, never an address — and `not_recorded` here, because this path resolves
+    // no contact channels. Phase 0 removed a fabricated phone number from a surface that had
+    // invented one to fill exactly this hole.
+    contact_channel: seller.contact_channel,
+    location: listingSummary.location,
+    location_state: listingSummary.location_state,
+    location_claim: location,
   };
 }
 
@@ -52,7 +79,12 @@ function buildDescription(summary) {
   const parts = [];
   const headline = [summary.year, summary.make, summary.model].filter(Boolean).join(' ');
   if (headline) parts.push(`${headline} listed on the CarUp marketplace.`);
-  if (summary.mileage) parts.push(`Approx. ${Number(summary.mileage).toLocaleString()} km.`);
+  // `!== null`, not truthiness: a recorded 0 km is a fact about a delivery-mileage vehicle, and
+  // dropping it here would have made a genuine zero indistinguishable from a never-captured odometer
+  // in the one sentence a shopper actually reads.
+  if (summary.mileage !== null && summary.mileage !== undefined) {
+    parts.push(`Approx. ${Number(summary.mileage).toLocaleString()} km.`);
+  }
   if (summary.fuel_type) parts.push(`${summary.fuel_type} engine.`);
   if (summary.transmission) parts.push(`${summary.transmission} transmission.`);
   parts.push('Trust and verification details are backend-governed — see the trust summary.');

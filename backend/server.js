@@ -111,7 +111,7 @@ import navigationAnalyticsRouter from './routes/navigationAnalyticsRoutes.js';
 import identityVerificationAdminRouter from './routes/identityVerificationAdminRoutes.js';
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
-import { PUBLIC_VEHICLE_SELECT, projectVehicle, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
+import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
 import {
   LOOKUP_KINDS,
   LOOKUP_DECISIONS,
@@ -702,7 +702,31 @@ async function canonicalPassportTrust(vin) {
 // canonicalTrustService (via canonicalPassportTrust above). Both routes supply it. A caller that
 // supplies nothing gets `trustReport: null` — no projection accompanied this render — which is a
 // statement about the request, never a score of zero for the vehicle.
-async function buildVehiclePassport(vin, req, canonicalTrust = null) {
+//
+// `listingClaimContract` is `toListingClaims` from utils/publicVehicleProjection.js, HANDED IN for
+// exactly the reason `canonicalTrust` is: the passport composes over authorities it is given rather
+// than reaching for one of its own. It is also what keeps this function's collaborator set closed —
+// two independent harnesses (backend/tests/issue164-phase0-public-projection.test.js and the Phase 4
+// review harness) execute this SOURCE against a fixed dependency list, and a free module-scope name
+// added here is a ReferenceError there rather than a test failure that says what changed. A caller
+// that supplies nothing gets `claims: null` — no claim contract accompanied this render — and the
+// governed columns are withdrawn all the same, because "we could not state it" is never a licence
+// to publish it bare.
+//
+// `attestClaim` is `attestedValue` from the same module, handed in for the same reason and subject
+// to the same closed-collaborator rule. It exists because ONE governed business fact on this row —
+// `currency` — has no leaf in the sealed claim contract, so there is no block to read it out of;
+// the marketplace summary reaches for `attestedValue` directly for exactly the same reason
+// (listingSummaryService.currencyClaim). Passing the SAME function both surfaces use is what stops
+// the passport and the marketplace card answering the currency question differently for one
+// vehicle. A caller that supplies nothing gets the currency withdrawn, not published bare.
+async function buildVehiclePassport(
+  vin,
+  req,
+  canonicalTrust = null,
+  listingClaimContract = null,
+  attestClaim = null,
+) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
     .select('*')
@@ -804,16 +828,117 @@ async function buildVehiclePassport(vin, req, canonicalTrust = null) {
 
   const currentOwnerVisible = isAuthorized || !!vehicle.public_seller_display_enabled;
 
+  // ── THE PASSPORT PUBLISHES CLAIMS, NOT COLUMNS ────────────────────────────────────────────────
+  // The canonical listing claim contract for this row, at this audience. Every leaf is a stated
+  // pair {value, state, source}, and `registration.*` is provenance-gated: a country with no
+  // recognised `registration_country_source` publishes `not_recorded`, whatever sits in the column.
+  //
+  // This is the treatment every other public surface already gives these facts. The passport was the
+  // one that still published the raw row — `vehicle.registration_country: "ZW"` and
+  // `identity.registrationCountry: "ZW"`, on 13 of 16 staging rows where nobody had ever stated a
+  // country. The passport is the surface a shopper trusts MOST, which made it the worst place for it.
+  const claims = typeof listingClaimContract === 'function'
+    ? listingClaimContract(vehicle, {
+      audience: isAuthorized ? 'owner' : 'public',
+      // Resolved above even when this audience may not see it, which is the caller obligation that
+      // lets `display_label` tell `withheld` apart from `not_recorded`. The claim's consent gate is
+      // STRICTER than ownershipSummary's (`=== true` vs a coercion), so it can never publish a name
+      // the summary beside it would have withheld.
+      sellerDisplayName: currentSellerDisplayName,
+    })
+    : null;
+
+  // Built AFTER `claims` on purpose: `currentSellerType` now reads the governed leaf instead of the
+  // column, and the two must be the same value or the body contradicts itself.
   const ownershipSummary = {
     // null + currentSellerRecorded true + currentOwnerVisible false => withheld.
     // null + currentSellerRecorded false                            => not recorded.
     currentSellerDisplayName: currentOwnerVisible ? currentSellerDisplayName : null,
-    currentSellerType: vehicle.current_seller_type ?? null,
+    // WAS `vehicle.current_seller_type ?? null`, and that was the fabrication §5.6 self-flagged:
+    // the column carries DB DEFAULT 'Private Owner' and holds it on 13 of 16 staging rows, so an
+    // ungated read published "this is a private sale" on the authority of the DDL. Withdrawing the
+    // column from the row projection below and leaving this line alone would have moved the same
+    // string four keys down the SAME response body, camelCased — a cosmetic strip, not a closure.
+    // `claims.seller.seller_type` is the governed home of this fact (provenance-gated on
+    // `current_seller_type_source`), so this reads that leaf and cannot disagree with it.
+    //
+    // A null here is unambiguous and needs no companion state key: `toSellerClaim` never WITHHOLDS
+    // a seller type — it has no audience gate — so the only non-recorded state this leaf can reach
+    // is `not_recorded`, which is exactly what VehicleDetail.tsx already renders a null as. The
+    // state is in `claims.seller.seller_type.state` in the same body for a reader that wants it.
+    // No claim contract handed in => null, on the same rule the governed columns are withdrawn on.
+    currentSellerType: claims?.seller?.seller_type?.value ?? null,
     currentSellerRecorded,
     previousOwnerCount,
     previousOwnersPublicLabel: 'Redacted for privacy',
     ownerNamesRedacted: !isAuthorized,
     currentOwnerVisible
+  };
+
+  // Columns the claim contract governs, withdrawn from the row projection so each fact appears
+  // ONCE, stated. Every one of them is manufactured by a column DEFAULT — 'ZW' / 'CVR' / 'Current' /
+  // 'Active' on 16 of 16 staging rows, with ZERO application writers for the last three — so the
+  // bare copies were not a stale reading of something real; they were the schema talking. A second,
+  // unstated copy of a governed fact is also the exact hazard `isStatedValue` refuses inside a pair,
+  // and it does not stop being one because it sits in a neighbouring object.
+  const CLAIM_GOVERNED_COLUMNS = [
+    'registration_country', 'registration_authority', 'registration_status', 'plate_status',
+    // ADDED — `current_seller_type`, the fifth column of this species and the one the contract doc
+    // flagged as §5.6. DEFAULT 'Private Owner', 'Private Owner' on 13 of 16 staging rows, and its
+    // governed twin is `claims.seller.seller_type` — a one-to-one correspondence, exactly like the
+    // four registration columns above. Left in the projection it published a bare "Private Owner"
+    // beside a `claims.seller.seller_type` reporting `not_recorded` for the same vehicle in the
+    // same body: one question, two answers, and the unstated one looks like the confident one.
+    'current_seller_type',
+  ];
+  // `import_source` (D7, same species: the write path stored 'local' for every submission that
+  // omitted it) is withdrawn WITHOUT a claim to replace it, because the sealed contract has no leaf
+  // for it and no `import_source_source` column exists to gate one — a value here cannot be told
+  // apart from a seller's real declaration of 'local'. It is not published as `withheld` either:
+  // nothing recorded means nothing to withhold, and a fabricated withholding is the same defect
+  // wearing the opposite mask. Widening LISTING_CLAIM_BLOCKS is a reviewed change to the contract,
+  // not something a route may do on its way past.
+  const UNCLAIMABLE_COLUMNS = ['import_source'];
+
+  // `currency` — the sixth DEFAULT-authored business fact on this row, and the ONE the sealed claim
+  // contract has no leaf for, which is why it is gated here instead of appearing in the list above.
+  // Measured on staging: DEFAULT 'USD', 'USD' on 16 of 16 rows, one distinct value, zero NULLs —
+  // the same signature that convicted `registration_authority` and `plate_status`. The marketplace
+  // summary and the pricing estimator already publish it only when a `currency_source` names who
+  // asserted it (listingSummaryService.currencyClaim, re-derived in marketplacePricingService); the
+  // passport did not, so the identical fabrication went on being served from the surface a shopper
+  // trusts most, on the one public read no mutation in this phase covered.
+  //
+  // GATED, NOT DELETED, and gated on PROVENANCE rather than on the value: 'USD' is not rejected for
+  // being the default's string — a seller who genuinely trades in USD must be able to say so, and
+  // rejecting the value would be the mirror-image fabrication. It is rejected for having no author.
+  //
+  // `price` is deliberately left ungated beside it. It carries no DB default and `/api/vehicles/add`
+  // 400s a submission without one, so a price in the column IS an application-recorded fact.
+  // Currency was the half the database was answering for.
+  const currencyClaim = typeof attestClaim === 'function'
+    ? attestClaim(vehicle.currency, vehicle.currency_source)
+    : null;
+
+  const withGovernedClaims = ({ vehicle: projected, claims: stated }) => {
+    const published = { ...projected };
+    for (const column of [...CLAIM_GOVERNED_COLUMNS, ...UNCLAIMABLE_COLUMNS]) delete published[column];
+    if (currencyClaim) {
+      // The same three keys `buildMarketplaceListingSummary` publishes, in the same order, carrying
+      // the same states — so a client reading a card and a passport for one VIN reads one shape and
+      // one answer. `currency_state` says WHY a null is null, which the bare column never did.
+      published.currency = currencyClaim.value;
+      published.currency_state = currencyClaim.state;
+      published.currency_source = currencyClaim.source;
+    } else {
+      // No attestor accompanied this render, so nothing here can tell a currency a seller stated
+      // from the one the DDL wrote. Withdrawn on the `import_source` rule rather than published
+      // bare, and NOT published as a fabricated `not_recorded` either: this branch is a statement
+      // about the request, and inventing a state for it would be the same defect wearing the
+      // opposite mask.
+      delete published.currency;
+    }
+    return { vehicle: published, claims: stated };
   };
 
   // Structured Privacy Redaction Layer.
@@ -951,7 +1076,13 @@ async function buildVehiclePassport(vin, req, canonicalTrust = null) {
   });
 
   return {
-    vehicle: projectVehicle(vehicle, isAuthorized ? 'owner' : 'public'),
+    // `vehicle` is the audience projection with the claim-governed columns withdrawn; `claims` is
+    // the contract that states them. The projection decides which columns an audience may SEE; the
+    // claim contract decides which values are attested enough to PUBLISH, and both gates apply.
+    ...withGovernedClaims({
+      vehicle: projectVehicle(vehicle, isAuthorized ? 'owner' : 'public'),
+      claims,
+    }),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
     evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
@@ -973,12 +1104,16 @@ async function buildVehiclePassport(vin, req, canonicalTrust = null) {
       chassisNumber: isAuthorized ? vehicle.chassis_number : null,
       plateNumber: isAuthorized ? vehicle.plate_number : null,
       normalizedPlateNumber: isAuthorized ? vehicle.normalized_plate_number : null,
-      plateStatus: vehicle.plate_status,
       temporaryIdentificationNumber: isAuthorized ? vehicle.temporary_identification_number : null,
       engineNumber: isAuthorized ? vehicle.engine_number : null,
-      registrationStatus: vehicle.registration_status,
-      registrationCountry: vehicle.registration_country,
-      registrationAuthority: vehicle.registration_authority,
+      // `plateStatus`, `registrationStatus`, `registrationCountry` and `registrationAuthority` used
+      // to sit here as bare columns, and they are the four leaves of `claims.registration` — a
+      // one-to-one correspondence, so the block above is their governed home and this is where the
+      // duplicate went. They were also the four columns whose DB DEFAULTs ('Active' / 'Current' /
+      // 'ZW' / 'CVR') fill every row with an assertion no registry, operator or seller ever made,
+      // which is why publishing the value here was a fabrication and not merely a duplication.
+      // A reader that needs registration facts reads `claims.registration`, where each one arrives
+      // with the state and the source that say whether it is a fact at all.
       plateVerifiedAt: isAuthorized ? vehicle.plate_verified_at : null,
       plateVerificationSource: isAuthorized ? vehicle.plate_verification_source : null,
       // A null identifier above means withheld from this audience, not unrecorded —
@@ -1001,7 +1136,7 @@ async function buildVehiclePassport(vin, req, canonicalTrust = null) {
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin));
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -1046,7 +1181,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin));
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
@@ -1687,15 +1822,105 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+/**
+ * ISSUE #164 PHASE 4 — WHAT A SUBMITTED VALUE IS ALLOWED TO BECOME.
+ *
+ * An empty or whitespace-only field is not a fact the seller stated; it is a field they left alone.
+ * Storing `''` puts something in the column that no later read can tell apart from a real value, so
+ * unknown has to stay unknown on the way IN as well — a fabricated blank is inherited by every
+ * surface downstream and no state on the read side can undo it.
+ */
+function submittedText(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === '' ? null : text;
+}
+
+/**
+ * WHO asserted the values on this submission, drawn from CLAIM_SOURCES.
+ *
+ * The read path publishes a location, a registration country or a seller type ONLY when a companion
+ * `*_source` column names its origin, and the database refuses a location column that carries no
+ * source at all. A source describes the origin, not our confidence: a seller filling in their own
+ * listing is `seller_declared` however true it later proves to be. Strength of evidence is the Trust
+ * contract's business (canonicalTrustService) and is deliberately not restated here.
+ */
+function submittedClaimSource(userContext = {}) {
+  const role = String(userContext.role ?? userContext.effectiveRole ?? '').trim().toLowerCase();
+  if (role === 'dealer') return 'dealer_declared';
+  if (role === 'owner') return 'seller_declared';
+  // An admin creating a listing on someone's behalf is the operator, not the seller.
+  return 'operator_recorded';
+}
+
+/**
+ * Provenance for `current_seller_type`, or null.
+ *
+ * `buildVehicleListingCandidate` sets the seller type from the authenticated ROLE — an owner account
+ * listing their own car is a private sale, a dealer account listing one is a dealer sale — and that
+ * is somebody asserting it, so it earns a source. Its remaining branch DERIVES the type from whether
+ * `owner_id` or `tenant_id` happens to be set, which is an inference about the row rather than a
+ * statement by anyone; stamping a source on that would turn the defect into a claim. Unstamped, the
+ * value still lands in the column and is simply never published.
+ */
+function declaredSellerTypeSource(userContext = {}, body = {}) {
+  const role = String(userContext.role ?? userContext.effectiveRole ?? '').trim().toLowerCase();
+  if (role === 'dealer' || role === 'owner') return submittedClaimSource(userContext);
+  return submittedText(body.current_seller_type) === null ? null : 'operator_recorded';
+}
+
+/**
+ * True when a write failed because the listing-claim columns are not on the table yet.
+ *
+ * 20260817160000_issue164_listing_location_provenance.sql is authored but UNAPPLIED, and PostgREST
+ * rejects an insert naming a column it cannot find (PGRST204 from the schema cache, 42703 from
+ * PostgreSQL itself). Without this guard, adding the columns to the payload would 500 every listing
+ * submission until the migration lands. Same shape as the `approved_by` fallback in
+ * listingSummaryService — and the response says the location was not recorded rather than going
+ * quiet about it, because accepting a value and then silently dropping it is the defect being closed.
+ */
+function isMissingListingClaimColumnError(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  if (code === 'PGRST204' || code === '42703') return true;
+  // The name-based fallback is deliberately conjoined with a "missing" phrase. On its own it would
+  // also match a CHECK violation, whose constraint names embed these column names — and treating a
+  // vocabulary violation as "the schema is old" would drop the location and report success, hiding
+  // a bug in this file behind the migration. A constraint violation must surface as one.
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  const saysMissing = text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+  return saysMissing && LISTING_CLAIM_COLUMNS.some((column) => text.includes(column));
+}
+
 // --- VEHICLE LISTING: Create new listing (saves as draft) ---
 app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async (req, res) => {
+  // STILL ACCEPTED AND STILL NOT STORED — named here rather than left as an unused destructure that
+  // reads like an oversight: `condition`, `category` and `description` reach no column from this
+  // handler. `vehicle_condition_category` is owned by the classification contract
+  // (marketplaceClassificationRules and its admin-approved backfill), so letting a seller
+  // self-declare it through this endpoint would route around that approval. Open finding, not
+  // closed by inventing a write here.
   const {
-    vin, make, model, year, color, mileage, fuel_type, transmission, condition, category,
-    price, currency, description, location, province, images,
+    vin, make, model, color, mileage, fuel_type, transmission,
+    price, currency, location, province, images,
     // Phase 4 identity fields
     engine_number, chassis_number, plate_number, temp_plate_id, import_status,
   } = req.body;
   if (!vin || !make || !model || !price) return res.status(400).json({ error: 'VIN, make, model, and price are required' });
+
+  // `mileage` is NOT NULL on public.vehicles with no default, so the column cannot hold "not known"
+  // and `mileage || 0` resolved that by writing 0 km as a fact — a reading a shopper cannot tell
+  // from a genuine delivery-mileage vehicle. Where a column cannot record unknown, the honest
+  // resolution is to refuse the write rather than to invent the value.
+  const submittedMileage = Number(submittedText(mileage));
+  if (submittedText(mileage) === null || !Number.isFinite(submittedMileage) || submittedMileage < 0) {
+    return res.status(400).json({ error: 'mileage is required and must be a non-negative number: vehicles.mileage cannot record an unknown odometer reading' });
+  }
+  // A number with no currency is not a price. `currency || 'USD'` stated a currency the seller never
+  // did, in a market that actively trades in more than one.
+  const submittedCurrency = submittedText(currency);
+  if (submittedCurrency === null) {
+    return res.status(400).json({ error: 'currency is required alongside price' });
+  }
 
   // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
   // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
@@ -1705,34 +1930,116 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     return res.status(400).json({ error: 'Listing is not marketplace-eligible', reasons: eligibility.reasons });
   }
 
+  // THE WRITE-SIDE ROOT CAUSE, CLOSED. `location` and `province` were destructured out of the body
+  // and then referenced nowhere: the seller typed where the car is, the server accepted it, dropped
+  // it, and the marketplace card printed a country literal in the space where it should have been.
+  // The card was not reading a stale column — there was no location column at all, because the write
+  // path had nowhere to put what the seller had just typed.
+  const claimSource = submittedClaimSource(req.userContext);
+  const listingCity = submittedText(location);
+  const listingProvince = submittedText(province);
+  // Never inferred from `registration_country` or from the seller's profile: where a car is
+  // registered is not where it is, and where its seller lives is not where it is. The form does not
+  // collect a country today, so the country stays unrecorded while the city is recorded — which is
+  // exactly the state the read contract exists to be able to express.
+  const listingCountry = submittedText(req.body.listing_country ?? req.body.country);
+  const hasListingLocation = listingCity !== null || listingProvince !== null || listingCountry !== null;
+  // The location was typed into the public listing form for the express purpose of appearing on the
+  // listing, so a submission that says nothing about visibility records it as published. Anything
+  // other than an explicit 'public' withholds — an out-of-vocabulary value is not a consent decision
+  // that can be read, and absence of consent is not consent. Adding a control to the form is what
+  // would make this a seller's choice rather than a default.
+  const submittedVisibility = submittedText(req.body.location_visibility);
+  const listingVisibility = submittedVisibility === null || submittedVisibility === CLAIM_VISIBILITY.PUBLIC
+    ? CLAIM_VISIBILITY.PUBLIC
+    : CLAIM_VISIBILITY.WITHHELD;
+
+  const listingClaimColumns = {
+    // No location fact without provenance — the read path refuses to publish one, and after the
+    // migration the database refuses to store one.
+    ...(hasListingLocation ? {
+      listing_city: listingCity,
+      listing_province: listingProvince,
+      listing_country: listingCountry,
+      listing_location_source: claimSource,
+      listing_location_visibility: listingVisibility,
+      listing_location_recorded_at: new Date().toISOString(),
+    } : {}),
+    // Provenance ONLY for what this submission actually asserted. `buildVehicleListingCandidate` no
+    // longer substitutes 'ZW' for an absent registration country — the candidate carries an explicit
+    // NULL, so there is nothing left to accidentally stamp — and this stays gated on the SUBMITTED
+    // text rather than on the candidate, because a source names who said it and the candidate is not
+    // a speaker. The two halves now agree: no value, no source, nothing published.
+    registration_country_source: submittedText(req.body.registration_country) === null ? null : claimSource,
+    current_seller_type_source: declaredSellerTypeSource(req.userContext, req.body),
+    // The attesting half of the currency pair. `submittedCurrency` is REQUIRED above (400 without
+    // it) and stored verbatim, so a currency on a row this handler wrote was genuinely stated by
+    // this submitter — unconditionally, which is why there is no null branch here as there is for
+    // the registration country. Without this stamp the read paths (listingSummaryService.currencyClaim,
+    // marketplacePricingService, and buildVehiclePassport's gate above) would refuse to publish a
+    // currency the seller really did declare: the migration drops the fabricating DEFAULT, and this
+    // is what stops that leaving every price permanently currency-less. Under-reporting is the
+    // gentler failure mode of the two, but it is still one.
+    currency_source: claimSource,
+  };
+
   try {
     const { data: existing } = await supabase.from('vehicles').select('vin').eq('vin', vin).single();
     if (existing) return res.status(409).json({ error: 'A vehicle with this VIN is already listed' });
 
-    const { error: insertError } = await supabase.from('vehicles').insert({
-      vin: candidate.vin, make: candidate.make, model: candidate.model, generation: '', trim: '',
-      year: candidate.year, color: color || 'White', mileage: mileage || 0,
-      fuel_type: fuel_type || 'Petrol', drivetrain: 'RWD', transmission: transmission || 'Automatic',
-      import_source: import_status === 'imported' ? 'import' : (candidate.import_source || 'local'),
+    const listingRow = {
+      vin: candidate.vin, make: candidate.make, model: candidate.model,
+      // `''` is a recorded blank, not an unrecorded field. Neither generation nor trim is collected
+      // by this endpoint, so both are unknown and are stored as unknown.
+      generation: null, trim: null,
+      year: candidate.year,
+      // NO SUBSTITUTES FOR A SPECIFICATION THE SELLER DID NOT GIVE. 'White', 'Petrol', 'Automatic'
+      // and a hardcoded 'RWD' were written for every client that omitted them, which is how a
+      // specification value ends up `recorded` and still an invention — the one defect the read
+      // contract cannot fix from its side, because these columns carry no provenance to gate on.
+      // It is closed by removing the substitution, not by weakening a state on the way out.
+      color: submittedText(color),
+      mileage: submittedMileage,
+      fuel_type: submittedText(fuel_type),
+      drivetrain: submittedText(req.body.drivetrain),
+      transmission: submittedText(transmission),
+      // `|| 'local'` was the last substitution on this row: a seller who said nothing about import
+      // had 'local' written for them, and the marketplace then read it back as a stated fact. The
+      // column is NULLABLE with no DB default, so an unstated import source is simply NULL — and
+      // unlike the registration country there is no default waiting to fill the gap, so omitting
+      // the key would work too; it is written explicitly to say so on purpose.
+      import_source: import_status === 'imported' ? 'import' : candidate.import_source,
       duty_paid: false, police_verified: false,
       // A brand-new listing has NOT been evaluated, so it is stamped with no score. The explicit
       // null matters: public.vehicles.trust_score DEFAULTS TO 80.0, so omitting the column would
       // hand every new listing a fabricated 80 — worse than the 50 this used to write. Only
       // canonicalTrustService.refreshCanonicalTrust may put a number in this column, and only
       // together with the calculation_version that makes it publishable (INV-TRUST-2).
-      status: normalizeVehicleStatus(candidate.status), trust_score: null, price: candidate.price, currency: currency || 'USD',
+      status: normalizeVehicleStatus(candidate.status), trust_score: null, price: candidate.price,
+      currency: submittedCurrency,
       owner_id: candidate.owner_id,
       tenant_id: candidate.tenant_id,
       current_seller_type: candidate.current_seller_type,
       registration_country: candidate.registration_country,
       // Phase 4: identity fields — stored for completeness gate evaluation
-      engine_number: engine_number || null,
-      chassis_number: chassis_number || null,
-      plate_number: plate_number || null,
-      temp_plate_id: temp_plate_id || null,
+      engine_number: submittedText(engine_number),
+      chassis_number: submittedText(chassis_number),
+      plate_number: submittedText(plate_number),
+      temp_plate_id: submittedText(temp_plate_id),
       // All vehicles start as draft; must upload and verify documents to reach 'publishable'
       publication_status: 'draft',
-    });
+    };
+
+    let listingClaimsRecorded = true;
+    let { error: insertError } = await supabase.from('vehicles').insert({ ...listingRow, ...listingClaimColumns });
+    if (insertError && isMissingListingClaimColumnError(insertError)) {
+      // The migration has not been applied yet. A single-row PostgREST insert is atomic, so the
+      // rejected attempt wrote nothing; create the listing without the claim columns and report on
+      // the response that the location was not recorded.
+      console.warn(`Listing claim columns unavailable (migration 20260817160000 not applied); location not recorded for ${candidate.vin}.`);
+      listingClaimsRecorded = false;
+      ({ error: insertError } = await supabase.from('vehicles').insert(listingRow));
+    }
     if (insertError) throw insertError;
 
     if (req.userContext.id) {
@@ -1755,10 +2062,16 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       }
     }
 
+    const locationRecorded = hasListingLocation && listingClaimsRecorded;
     res.status(201).json({
       success: true,
       vin,
       publication_status: 'draft',
+      // WHAT WAS ACTUALLY RECORDED, STATED. A submitted location that could not be stored reports
+      // `location_recorded: false` here, so the caller learns it at the moment it happened instead
+      // of discovering it later as a blank card — the silent discard is what this phase closes.
+      location_recorded: locationRecorded,
+      location_visibility: locationRecorded ? listingVisibility : null,
       message: 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
     });
   } catch (error) {

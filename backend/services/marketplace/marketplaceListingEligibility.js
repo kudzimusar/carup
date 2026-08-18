@@ -13,7 +13,33 @@
  *   invalid_vin_format, fixture_excluded, placeholder_make, placeholder_model, invalid_year,
  *   invalid_price, non_public_status, missing_owner_for_private_listing, seed_owner_id,
  *   missing_tenant_for_dealer_listing, seed_tenant_id, invalid_import_source,
- *   missing_registration_country, unknown_seller_type
+ *   unknown_seller_type
+ *
+ * Warning codes (non-blocking, same stability promise):
+ *   import_source_absent, registration_country_absent, tenant_on_private_listing
+ *
+ * ── WHAT A COLUMN CAN RECORD DECIDES WHAT AN ABSENT FIELD BECOMES ────────────────────────────
+ * `buildVehicleListingCandidate` below used to substitute a plausible value for three fields the
+ * client had not supplied, and the substitutes reached `public.vehicles` and were then published
+ * as facts. The rule that replaces the substitution is the one the /api/vehicles/add handler
+ * already applies to `mileage`, stated once here and applied per column against the MEASURED
+ * schema (staging ref eoyenigwevnxwwhyhaer, information_schema.columns, PostgreSQL 17.6):
+ *
+ *   registration_country  text,    is_nullable YES, DEFAULT 'ZW'      -> record UNKNOWN as NULL
+ *   import_source         text,    is_nullable YES, DEFAULT (none)    -> record UNKNOWN as NULL
+ *   year                  integer, is_nullable NO,  DEFAULT (none)    -> REFUSE the write
+ *
+ * A nullable column CAN hold "not known", so an absent value is stored as NULL and the read
+ * contract publishes `not_recorded`. A NOT NULL column with no default CANNOT hold "not known",
+ * so the honest resolution is to refuse the listing rather than invent the value — for `year` that
+ * refusal is already spelled `invalid_year` below, and it fires for free once the substitute goes.
+ *
+ * NULL IS WRITTEN EXPLICITLY, NEVER BY OMITTING THE KEY. `registration_country` carries a column
+ * DEFAULT of 'ZW', so an insert that leaves the column out gets 'ZW' from the database — the same
+ * fabrication, moved from the application to the schema, and harder to see. The candidate therefore
+ * always carries the key. (20260817160000_issue164_listing_location_provenance.sql drops that
+ * DEFAULT, but it is authored and UNAPPLIED, so the explicit NULL is what closes this today and
+ * remains correct afterwards.)
  */
 import { isPublicVehicleStatus, normalizeVehicleStatus } from '../../utils/vehicleStatus.js';
 import {
@@ -137,7 +163,16 @@ export function getListingIneligibilityReasons(vehicle = {}, opts = {}) {
   for (const r of sellerIdentityReasons(vehicle)) reasons.push(r);
 
   if (!isAllowedImportSource(vehicle.import_source)) reasons.push('invalid_import_source');
-  if (norm(vehicle.registration_country) === '') reasons.push('missing_registration_country');
+  // `missing_registration_country` USED TO SIT HERE AND COULD NEVER FIRE. The only caller builds its
+  // candidate with `buildVehicleListingCandidate`, which substituted 'ZW' for every submission that
+  // omitted the field — so the gate was always satisfied, and it was satisfied by a fabrication.
+  // With the substitute gone, absence is real, and absence is not ineligibility for this column:
+  // `registration_country` is NULLABLE, so it CAN record "not known" and the read contract publishes
+  // that as `not_recorded`. Refusing the listing instead would trade an invented country for a
+  // refused sale over a fact the schema is perfectly able to leave open. It is reported as a WARNING
+  // so a caller still learns the field was never stated. Contrast `year`: NOT NULL with no default,
+  // no way to record unknown, so `invalid_year` above rejects it — the same rule, opposite outcome,
+  // decided by the column rather than by taste.
   if (!isAllowedSellerType(vehicle.current_seller_type)) reasons.push('unknown_seller_type');
 
   return reasons;
@@ -145,7 +180,16 @@ export function getListingIneligibilityReasons(vehicle = {}, opts = {}) {
 
 function collectWarnings(vehicle = {}) {
   const warnings = [];
-  if (norm(vehicle.import_source) === '') warnings.push('import_source_absent_assumed_local');
+  // Renamed from `import_source_absent_assumed_local`: nothing assumes local any more. The write
+  // path stored 'Local' for every submission that omitted the field, and the warning was the note
+  // that it had done so. The value is now stored as NULL, so the honest warning is that the field
+  // is absent — full stop. A warning that still said "assumed local" would be documentation of a
+  // substitution that no longer happens.
+  if (norm(vehicle.import_source) === '') warnings.push('import_source_absent');
+  // Absent, therefore unrecorded, therefore never published — not ineligible. See the note beside
+  // `unknown_seller_type` in getListingIneligibilityReasons for why this is a warning and not a
+  // reason, and why `year` is the other way round.
+  if (norm(vehicle.registration_country) === '') warnings.push('registration_country_absent');
   if (norm(vehicle.tenant_id) !== '' && (norm(vehicle.current_seller_type) === 'private owner' || norm(vehicle.current_seller_type) === 'private')) {
     warnings.push('tenant_on_private_listing');
   }
@@ -189,8 +233,23 @@ export function assertMarketplaceEligible(vehicle = {}, opts = {}) {
  *    to context); if neither a real owner nor a real tenant is supplied, eligibility rejects it
  *    (no orphan public listings).
  *
- * import_source defaults to 'Local' only when omitted; registration_country defaults to 'ZW' (the
- * existing DB default) only when omitted. status is always 'Available' (creation lists as available).
+ * NOTHING IS SUBSTITUTED FOR A FIELD THE CLIENT DID NOT SEND. This function used to write
+ * `year: 2020`, `import_source: 'Local'` and `registration_country: 'ZW'` into every candidate that
+ * omitted them, and those values were inserted, selected back and published — on the marketplace
+ * card, in the card's one-line sentence, and on the vehicle passport — as though a seller had stated
+ * them. 13 of 16 staging rows carry the 'ZW' this produced. A plausible value is the one kind of
+ * wrong answer a reader cannot detect, which is what makes it worse than an empty field.
+ *
+ * Each omitted field now becomes what its column is able to record (see the measured constraints in
+ * the file header):
+ *   registration_country -> EXPLICIT null (the column DEFAULTs to 'ZW', so the key must be present)
+ *   import_source        -> EXPLICIT null (no column default; explicit for symmetry and legibility)
+ *   year                 -> null, which `invalid_year` then REJECTS, because the column is NOT NULL
+ *                           and cannot hold "not known" — the write is refused instead of invented,
+ *                           exactly as /api/vehicles/add already refuses a submission with no mileage
+ *
+ * status is always 'Available' (creation lists as available) — written by the application on every
+ * insert rather than substituted for something a client tried and failed to say.
  */
 export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {}) {
   const role = norm(userContext.role ?? userContext.effectiveRole);
@@ -220,13 +279,13 @@ export function buildVehicleListingCandidate({ body = {}, userContext = {} } = {
     vin: body.vin ?? null,
     make: body.make ?? null,
     model: body.model ?? null,
-    year: hasText(body.year) ? Number(body.year) : 2020,
+    year: hasText(body.year) ? Number(body.year) : null,
     price: hasText(body.price) ? Number(body.price) : null,
     status: 'Available',
     owner_id,
     tenant_id,
     current_seller_type,
-    import_source: hasText(body.import_source) ? String(body.import_source).trim() : 'Local',
-    registration_country: hasText(body.registration_country) ? String(body.registration_country).trim() : 'ZW',
+    import_source: hasText(body.import_source) ? String(body.import_source).trim() : null,
+    registration_country: hasText(body.registration_country) ? String(body.registration_country).trim() : null,
   };
 }

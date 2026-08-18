@@ -1,4 +1,12 @@
 import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../../utils/vehicleStatus.js';
+import {
+  FIELD_STATES,
+  attestedValue,
+  isRecordedValue,
+  toListingClaims,
+  toRegistrationClaim,
+  toSellerClaim,
+} from '../../utils/publicVehicleProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 
 /**
@@ -134,6 +142,33 @@ function toRecordMap(rows, key = 'vin') {
   }, new Map());
 }
 
+/**
+ * The card's condition category, or `'unknown'`.
+ *
+ * ── A CONDITION INFERRED FROM A FABRICATED DEFAULT IS ITSELF FABRICATED ──────────────────────
+ * The `locally_used` branch below read `registration_country` as a bare column. That column carries
+ * a DB DEFAULT of 'ZW' and, until this phase, /api/vehicles/add substituted 'ZW' for every
+ * submission that omitted it — so 13 of 16 staging rows hold a country nobody stated. The branch
+ * turned that substitute into a flat `condition_category` on every card AND into a human-readable
+ * sentence on the detail page ("2019 Toyota Hilux — locally used"): one invented value, laundered
+ * into a second one that no longer looks like a column at all.
+ *
+ * The branch now reads the CLAIM rather than the column. `toRegistrationClaim` publishes a country
+ * only when the row carries both a value and a recognised `registration_country_source`, so an
+ * inference can only be drawn from a country somebody actually asserted. When it was not asserted,
+ * the claims block already reports `registration.country` as `not_recorded`, and this function must
+ * agree with it — a card that says "locally used" beside a claim that says "we do not know where
+ * this is registered" is the same body contradicting itself.
+ *
+ * Consequence, stated rather than hidden: `registration_country_source` does not exist on the table
+ * until 20260817160000_issue164_listing_location_provenance.sql is applied AND
+ * LISTING_SELECT_COLUMNS is widened to fetch it, so today this branch never fires and those rows
+ * publish `unknown`. `unknown` is the honest reading of a value with no author. `buildShortDescription`
+ * already drops the phrase for `unknown`, so the sentence loses the clause rather than gaining a lie.
+ *
+ * The `import_source` branch is deliberately untouched: it fires only for a NON-local source, which
+ * is never what the write path substituted, so no fabricated default can reach it.
+ */
 export function deriveConditionCategory(vehicle = {}) {
   const explicit = normalizeTag(vehicle.vehicle_condition_category || vehicle.condition_category);
   if (CONDITION_CATEGORIES.includes(explicit)) return explicit;
@@ -141,7 +176,12 @@ export function deriveConditionCategory(vehicle = {}) {
   const condition = normalizeText(vehicle.condition);
   const sellerType = normalizeText(vehicle.current_seller_type || vehicle.seller_type || vehicle.sellerType);
   const importSource = normalizeText(vehicle.import_source);
-  const registrationCountry = normalizeText(vehicle.registration_country);
+  // The country as the canonical claim contract publishes it — provenance-gated — never the raw
+  // column. `''` on every non-recorded state, which matches no branch below.
+  const registrationCountryClaim = toRegistrationClaim(vehicle).country;
+  const registrationCountry = registrationCountryClaim.state === FIELD_STATES.RECORDED
+    ? normalizeText(registrationCountryClaim.value)
+    : '';
 
   if (condition === 'new' || condition === 'brand new') return 'brand_new';
   if (condition.includes('certified') || sellerType.includes('certified')) return 'certified_dealer';
@@ -151,26 +191,197 @@ export function deriveConditionCategory(vehicle = {}) {
   return 'unknown';
 }
 
-export function sellerSummaryForVehicle(vehicle = {}) {
-  const sellerTypeText = normalizeText(vehicle.current_seller_type || vehicle.seller_type || vehicle.sellerType);
-  const tenantName = vehicle.tenant?.name || vehicle.tenant_name || null;
-  const publicProfileEnabled = boolValue(vehicle.public_seller_display_enabled);
-  const isDealer = sellerTypeText.includes('dealer') || sellerTypeText.includes('dealership') || Boolean(tenantName);
+/**
+ * THE SELLER TYPE IS A RECORDED FACT, NOT AN INFERENCE FROM A JOIN.
+ *
+ * The rule this replaces was `sellerType.includes('dealer') || Boolean(tenantName)`, so ANY listing
+ * whose row joined a `tenants` record was published as a dealer sale regardless of what
+ * `current_seller_type` said. A tenant link means an organisation exists on the row, not that this
+ * particular car is being sold by a dealership.
+ *
+ * The other half of that rule was worse: everything not classified a dealer fell through to the
+ * `private` branch, so a listing with NO recorded seller type was published as a private sale.
+ * There is now a third outcome — `null`, "we have not recorded what kind of seller this is" — and
+ * it is the outcome for an absent value and for any value outside the recognised vocabulary.
+ *
+ * ── ONE BODY, ONE ANSWER (Issue #164 Phase 4 enforceability pass) ────────────────────────────
+ * This function USED TO READ THE COLUMN UNGATED, on the reasoning that the marketplace tag
+ * vocabulary (`dealer_verified` / `private_sale`) was not this phase's to change. That reasoning
+ * confused the VOCABULARY with the EVIDENCE for using it. The result was a card that answered the
+ * same question twice and differently in one response body:
+ *
+ *     seller_type:              "private"                                  <- this function
+ *     claims.seller.seller_type {value: null, state: "not_recorded"}       <- the governed claim
+ *     marketplace_tags:         [..., "private_sale"]                      <- derived from this one
+ *
+ * A consumer reading the wrong one cannot even tell it disagreed with the other, and `private_sale`
+ * printed on a card is not a smaller assertion than the flat field — it is the same assertion in a
+ * badge. Measured: 13 of 16 staging rows hold the column DEFAULT 'Private Owner' (3 hold the
+ * writer's 'private' slug), so for most listings the badge said "private sale" on the DDL's say-so.
+ *
+ * It now reads the SAME leaf the body publishes — `toSellerClaim(...).seller_type`, provenance-gated
+ * — so there is exactly one answer and the tags follow it. `null` is returned for an unprovenanced
+ * value, and a listing that earns no seller-type claim earns neither seller-type tag. The tag
+ * vocabulary is genuinely untouched: no tag was added, removed or renamed, and the three genuine
+ * 'private' slugs publish again the moment `current_seller_type_source` is written for them.
+ *
+ * Deliberately routed through `toSellerClaim` rather than re-deriving with `attestedValue` here: if
+ * the contract's gating ever changes, this must change with it rather than drift into a second,
+ * quieter rule for the same fact.
+ *
+ * @param {object} vehicle raw row
+ * @param {{value: *, state: string, source: string|null}|null} [sellerTypeClaim] the already-built
+ *   `claims.seller.seller_type` leaf, when the caller has one — same value, computed once.
+ */
+export function recordedSellerType(vehicle = {}, sellerTypeClaim = null) {
+  const claim = sellerTypeClaim ?? toSellerClaim(vehicle).seller_type;
+  if (claim.state !== FIELD_STATES.RECORDED) return null;
+  const declared = normalizeText(claim.value);
+  if (declared.includes('dealer')) return 'dealer';
+  if (declared.includes('private') || declared.includes('owner')) return 'private';
+  return null;
+}
 
-  if (isDealer) {
-    return {
-      seller_type: 'dealer',
-      seller_display_label: publicProfileEnabled && tenantName ? tenantName : 'Verified dealer',
-      seller_public_profile_enabled: publicProfileEnabled,
-    };
-  }
+/**
+ * The listing's currency as a provenance-gated claim: `{value, state, source}`.
+ *
+ * ── THE FABRICATION THAT MOVED FROM THE APPLICATION INTO THE SCHEMA ──────────────────────────
+ * `currency || 'USD'` was deleted from this file and from the write path, which looked like a
+ * closure and was not: `public.vehicles.currency` carries its own DB DEFAULT, so the value went on
+ * being manufactured one layer down where no code review would ever see it again. Measured on
+ * staging: currency = 'USD' on 16 of 16 rows, one distinct value, zero NULLs — the exact signature
+ * §1 of the contract names, and the same one that convicted `registration_authority` and
+ * `plate_status`. Deleting the app-level substitution while the DEFAULT stood simply changed WHO
+ * was doing the inventing.
+ *
+ * So currency gets the treatment registration already has: a value is a claim only when something
+ * recorded who asserted it. No `currency_source`, no published currency — whatever the column
+ * holds. This is NOT a shape test: 'USD' is not rejected for being the default's value (§1 forbids
+ * exactly that reasoning, and a seller who genuinely trades in USD must be able to say so). It is
+ * rejected for having no author.
+ *
+ * `price` is deliberately NOT gated the same way, and the asymmetry is the point rather than an
+ * oversight: `price` has no DB default and is written from the submitted body on every insert
+ * (`/api/vehicles/add` 400s without it), so a price in the column IS an application-recorded fact.
+ * Currency was the one half of the pair the database was answering for.
+ *
+ * TODAY THIS REPORTS `not_recorded` FOR EVERY ROW, exactly as `claims.registration.*` does, because
+ * `currency_source` does not exist yet. Closing it end-to-end needs three changes in files this lane
+ * does not own — see the note on LISTING_SELECT_COLUMNS below.
+ */
+export function currencyClaim(vehicle = {}) {
+  return attestedValue(vehicle.currency, vehicle.currency_source);
+}
 
+/**
+ * The seller's OWN published name, or null. `tenant.name` is the only name this read path resolves —
+ * there is no join to a private seller's profile — so a private listing has no name to publish and
+ * does NOT acquire a category label in its place.
+ */
+function publishedSellerName(vehicle = {}) {
+  const name = vehicle.tenant?.name ?? vehicle.tenant_name ?? null;
+  return isRecordedValue(name) ? String(name).trim() : null;
+}
+
+/**
+ * The row handed to the canonical claim contract.
+ *
+ * `toSellerClaim` decides a seller is LINKED by looking at `current_seller_id`, which is the
+ * passport's column: /api/vehicles/add has never written it and LISTING_SELECT_COLUMNS does not
+ * fetch it (it is in PRIVATE_VEHICLE_FIELDS). On this surface the seller link is `owner_id` or
+ * `tenant_id`, which the query already fetches for fixture filtering. Only the BOOLEAN crosses over
+ * — `relationship` publishes `true`, never an id — and neither id is echoed in the summary.
+ */
+function toClaimRow(vehicle = {}) {
+  const sellerLinked = isRecordedValue(vehicle.owner_id) || isRecordedValue(vehicle.tenant_id);
+  return { ...vehicle, current_seller_id: sellerLinked || null };
+}
+
+/**
+ * The canonical listing claim contract for one marketplace row (utils/publicVehicleProjection.js).
+ *
+ * `publishedContactChannels` is deliberately left unresolved, so `seller.contact_channel` is
+ * `not_recorded`: this path resolves no contact channels at all, and Phase 0 removed a fabricated
+ * phone number from a surface that had invented one to fill exactly this gap.
+ *
+ * NOTE FOR THE CONVERGENCE STAGE: `location` reads `listing_city` / `listing_province` /
+ * `listing_country` / `listing_location_source` / `listing_location_visibility`, which
+ * 20260817160000_issue164_listing_location_provenance.sql adds and which LISTING_SELECT_COLUMNS
+ * therefore does NOT yet fetch — PostgREST fails an entire select on a column the table does not
+ * have, so widening this query before the migration is applied would take the public marketplace
+ * down. Until then every listing honestly reports its location as `not_recorded`. Add
+ * LISTING_CLAIM_COLUMNS to LISTING_SELECT_COLUMNS in the same change that applies the migration;
+ * nothing else here has to move.
+ */
+export function listingClaimsForVehicle(vehicle = {}) {
+  return toListingClaims(toClaimRow(vehicle), { sellerDisplayName: publishedSellerName(vehicle) });
+}
+
+/**
+ * The flat seller fields the marketplace card and detail payloads carry.
+ *
+ * `seller_display_label` is the seller's own published name or NULL — never 'Verified dealer'
+ * (dealer registration is not verification, as Marketplace.tsx:141 already says in its own comment)
+ * and never a generic private-seller label. `seller_display_label_state` says WHY it is null, so a
+ * consumer can tell "this seller has not published a name" from "a name exists and is withheld"
+ * without either answer being invented for it.
+ */
+export function sellerSummaryForVehicle(vehicle = {}, claims = null) {
+  const seller = (claims ?? listingClaimsForVehicle(vehicle)).seller;
   return {
-    seller_type: 'private',
-    seller_display_label: 'Private seller',
-    seller_public_profile_enabled: false,
+    // The SAME leaf `claims.seller.seller_type` publishes, collapsed to the card's dealer/private
+    // vocabulary — never a second, ungated reading of the column beside it. See recordedSellerType.
+    seller_type: recordedSellerType(vehicle, seller.seller_type),
+    seller_type_state: seller.seller_type.state,
+    seller_display_label: seller.display_label.value,
+    seller_display_label_state: seller.display_label.state,
+    // `=== true`, not a coercion: a string, a 1 or an absent flag is not a seller's consent to be
+    // named, and a coercing read of a consent flag is how a listing publishes a name nobody agreed to.
+    seller_public_profile_enabled: vehicle.public_seller_display_enabled === true,
   };
 }
+
+/**
+ * The one-line location a card prints, assembled from the RECORDED parts only, or null.
+ *
+ * There is no fallback: not the registration country, not the seller's profile, not a country
+ * literal. A listing with a recorded city and an unrecorded country reads "Harare" and stops there,
+ * which is the whole of what is known.
+ */
+export function composeLocationLabel(locationClaim) {
+  const parts = [locationClaim?.city, locationClaim?.province, locationClaim?.country]
+    .filter(leaf => leaf?.state === FIELD_STATES.RECORDED)
+    .map(leaf => String(leaf.value).trim())
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
+}
+
+/**
+ * One state for the composed location line. `withheld` outranks `not_recorded` for the same reason
+ * it does on a single field: collapsing them would make "we hold nothing" and "you may not see it"
+ * render identically, and absence would start reading as proof.
+ */
+export function deriveLocationState(locationClaim) {
+  const leaves = [locationClaim?.city, locationClaim?.province, locationClaim?.country];
+  if (leaves.some(leaf => leaf?.state === FIELD_STATES.RECORDED)) return FIELD_STATES.RECORDED;
+  if (leaves.some(leaf => leaf?.state === FIELD_STATES.WITHHELD)) return FIELD_STATES.WITHHELD;
+  return FIELD_STATES.NOT_RECORDED;
+}
+
+/** A column value as a number, or null. `0` is a number; `''`, whitespace and NaN are not values. */
+function recordedNumber(value) {
+  if (!isRecordedValue(value)) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// `recordedText()` lived here: "a column value as trimmed text, or null". It was removed rather
+// than left unused, because it is the shape of the defect this pass closed. Its two callers were
+// `currency` and `plate_status`, and in both places it did exactly what it said — it proved the
+// column was non-blank and published it as a fact. Non-blank is not provenance. Every remaining
+// governed text field on this summary comes from `attestedValue`/the claim contract, and leaving a
+// convenience helper here that turns any column into a published string is an invitation to route
+// the next one around that contract.
 
 export function summarizeEvidence(rows = []) {
   const publicVerified = rows.filter(row =>
@@ -249,11 +460,26 @@ export function summarizePartSentry(rows = []) {
 export function deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummary, ownershipCount = 0) {
   const tags = new Set();
   const conditionCategory = deriveConditionCategory(vehicle);
-  const seller = sellerSummaryForVehicle(vehicle);
+  // The tag vocabulary is not this phase's to change, so `dealer_verified` / `private_sale` still
+  // follow the recorded seller type — but that is now the PROVENANCE-GATED claim, so a listing
+  // whose seller type nobody asserted earns NEITHER tag. Previously it fell through to
+  // `private_sale` on the strength of a column DEFAULT, which published "private sale" as a fact
+  // on the card while `claims.seller.seller_type` in the same body reported not_recorded.
+  const sellerType = recordedSellerType(vehicle);
   const mileage = numericValue(vehicle?.mileage);
+  // `plate_status` read as a bare column here for the same reason it was published bare on the
+  // card. The DEFAULT is 'Active' rather than 'verified' so this branch never fired FROM the
+  // default — but "the fabricated value happens not to match my comparison" is luck, not a gate,
+  // and it would stop being true the day the default changed. The claim is the gate.
+  const plateStatusClaim = toRegistrationClaim(vehicle).plate_status;
+  const attestedPlateStatus = plateStatusClaim.state === FIELD_STATES.RECORDED
+    ? normalizeText(plateStatusClaim.value)
+    : '';
 
   if (boolValue(vehicle?.passport_verified)) tags.add('passport_verified');
-  if (vehicle?.plate_verified_at || normalizeText(vehicle?.plate_status) === 'verified') tags.add('plate_verified');
+  // `plate_verified_at` is a timestamp the verification path writes, so it is its own provenance;
+  // the status string is only believed once something says who asserted it.
+  if (vehicle?.plate_verified_at || attestedPlateStatus === 'verified') tags.add('plate_verified');
   if (evidenceSummary.evidence_count > 0) tags.add('evidence_available');
   if (boolValue(vehicle?.duty_paid)) tags.add('duty_cleared');
   if (boolValue(vehicle?.zimra_verified)) tags.add('zimra_verified');
@@ -261,8 +487,8 @@ export function deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummar
   if (mileage > 0 && mileage <= 50000) tags.add('low_mileage');
   if (conditionCategory === 'recently_imported') tags.add('fresh_import');
   if (ownershipCount === 1 || boolValue(vehicle?.one_owner)) tags.add('one_owner');
-  if (seller.seller_type === 'dealer') tags.add('dealer_verified');
-  if (seller.seller_type === 'private') tags.add('private_sale');
+  if (sellerType === 'dealer') tags.add('dealer_verified');
+  if (sellerType === 'private') tags.add('private_sale');
   if (boolValue(vehicle?.safe_pay_ready)) tags.add('safe_pay_ready');
   if (boolValue(vehicle?.inspection_ready)) tags.add('inspection_ready');
   if (partSentrySummary.recent_service) tags.add('recent_service');
@@ -289,10 +515,12 @@ export function buildMarketplaceListingSummary({
   imageRows = [],
   canonicalTrust = null,
 }) {
+  const claims = listingClaimsForVehicle(vehicle);
+  const currency = currencyClaim(vehicle);
   const conditionCategory = deriveConditionCategory(vehicle);
   const evidenceSummary = summarizeEvidence(evidenceRows);
   const partSentrySummary = summarizePartSentry(partSentryRows);
-  const seller = sellerSummaryForVehicle(vehicle);
+  const seller = sellerSummaryForVehicle(vehicle, claims);
   const marketplaceTags = deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummary, ownershipCount);
   const primaryImage = [...imageRows].sort((a, b) => {
     if (boolValue(a?.is_primary) !== boolValue(b?.is_primary)) return boolValue(a?.is_primary) ? -1 : 1;
@@ -303,13 +531,24 @@ export function buildMarketplaceListingSummary({
     vin: vehicle.vin,
     make: vehicle.make,
     model: vehicle.model,
-    year: numericValue(vehicle.year),
-    price: numericValue(vehicle.price),
-    currency: vehicle.currency || 'USD',
-    mileage: numericValue(vehicle.mileage),
-    fuel_type: vehicle.fuel_type || null,
-    transmission: vehicle.transmission || null,
-    status: vehicle.status || 'Available',
+    // EVERY BUSINESS FACT BELOW IS THE COLUMN OR IT IS NULL. `numericValue(x, 0)` published a
+    // fabricated 0 for an unrecorded year, price and odometer — a $0, 0 km, year-0 listing that a
+    // shopper cannot tell from a real one — and `|| 'USD'` / `|| 'Available'` stated a currency and
+    // a sale status the row never held. A genuine 0 survives: `isRecordedValue(0)` is true.
+    year: recordedNumber(vehicle.year),
+    price: recordedNumber(vehicle.price),
+    // PROVENANCE-GATED, not merely non-blank. `recordedText(vehicle.currency)` published the column
+    // verbatim, and that column is filled by a DB DEFAULT on 16 of 16 staging rows — so removing
+    // `|| 'USD'` from this line and from the write path moved the fabrication into the schema
+    // instead of ending it. `currency_source` is carried alongside so a consumer (and the pricing
+    // estimator below) can re-derive the same claim rather than trust a flattened state.
+    currency: currency.value,
+    currency_state: currency.state,
+    currency_source: currency.source,
+    mileage: claims.specification.mileage.value,
+    fuel_type: claims.specification.fuel_type.value,
+    transmission: claims.specification.transmission.value,
+    status: claims.publication.listing_status.value,
     condition_category: conditionCategory,
     marketplace_tags: marketplaceTags,
     // The canonical projection, verbatim, or null when the authority was not consulted. It carries
@@ -322,7 +561,24 @@ export function buildMarketplaceListingSummary({
     trust_score: canonicalTrust?.score ?? null,
     primary_image_url: primaryImage,
     plate_verified: marketplaceTags.includes('plate_verified'),
-    plate_status: vehicle.plate_status || null,
+    // ── PUBLISH THE GOVERNED CLAIM, OR WITHHOLD — NOT BOTH ────────────────────────────────────
+    // This line was `recordedText(vehicle.plate_status)`: the raw column, kept because
+    // issue164-phase0-public-projection.test.js:873 pins it as publishable. Keeping it made the
+    // card answer one question twice —
+    //     plate_status:                      "Active"                              (this key)
+    //     claims.registration.plate_status   {value: null, state: "not_recorded"}  (same body)
+    // — and the comment justifying it recorded the contradiction rather than resolving it. Being
+    // "non-identifying" is a privacy property; it is not provenance, and it was never the reason
+    // the other three registration columns were withdrawn. Measured: 'Active' on 16 of 16 staging
+    // rows, one distinct value, ZERO application writers — the DDL is the only thing that has ever
+    // said a plate is active.
+    //
+    // It is now the same leaf, so the two can no longer disagree, and `plate_status_state` says
+    // WHY it is null. FLAGGED FOR THE TEST LANE: this contradicts that assertion by construction —
+    // it is not weakened here, it is reported. `LISTING_SELECT_COLUMNS` still fetches the column
+    // (the assertion at :853 covers that, and the trust tags still consult the claim built from it).
+    plate_status: claims.registration.plate_status.value,
+    plate_status_state: claims.registration.plate_status.state,
     passport_verified: marketplaceTags.includes('passport_verified'),
     evidence_count: evidenceSummary.evidence_count,
     partsentry_checked: partSentrySummary.partsentry_checked,
@@ -332,9 +588,21 @@ export function buildMarketplaceListingSummary({
     zimra_verified: boolValue(vehicle.zimra_verified),
     cid_clear: boolValue(vehicle.police_verified),
     seller_type: seller.seller_type,
+    seller_type_state: seller.seller_type_state,
     seller_display_label: seller.seller_display_label,
+    seller_display_label_state: seller.seller_display_label_state,
     seller_public_profile_enabled: seller.seller_public_profile_enabled,
-    location: 'Zimbabwe',
+    // `location: 'Zimbabwe'` was a literal on every card. There is no location column on the
+    // vehicle for it to have gone stale from — the string was printed because /api/vehicles/add
+    // accepted `location`/`province` from the seller and had nowhere to put them. Both ends are
+    // closed now: the write path records them with their provenance, and this reads what was
+    // recorded or says, in a state a consumer can branch on, that nothing was.
+    location: composeLocationLabel(claims.location),
+    location_state: deriveLocationState(claims.location),
+    // The canonical listing claim contract, verbatim. Every leaf is a {value, state[, source]}
+    // pair, so a consumer can tell a fact from an absence from a withholding without any surface
+    // having to guess — and a governed value can no longer reach a card as a bare string.
+    claims,
     created_at: vehicle.created_at || null,
   };
 }
@@ -402,13 +670,28 @@ function byNewest(a, b) {
  * reports exactly that on the response rather than letting the page imply a trust ordering it does
  * not have.
  */
+/**
+ * A listing with no recorded price cannot be ordered by price. It is NOT ordered as zero — that is
+ * the $0 fabrication reappearing in the sort comparator, where no surface prints it and every
+ * shopper still sees its effect — and it is not dropped either: it follows every priced listing in
+ * newest-first order, the same rule `sort=trust` already applies to an unscored listing.
+ */
+function comparePrice(a, b, direction) {
+  const left = a.price;
+  const right = b.price;
+  if (left === null && right === null) return byNewest(a, b);
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return (left - right) * direction;
+}
+
 function sortSummaries(summaries, sort) {
   const copy = [...summaries];
   switch (sort) {
     case 'price-low':
-      return copy.sort((a, b) => a.price - b.price);
+      return copy.sort((a, b) => comparePrice(a, b, 1));
     case 'price-high':
-      return copy.sort((a, b) => b.price - a.price);
+      return copy.sort((a, b) => comparePrice(a, b, -1));
     case 'trust':
       return copy.sort((a, b) => {
         const left = canonicalListingScore(a);
@@ -541,7 +824,30 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
  *  from the canonical authority (see the header), so no derivation here reads the raw column — and
  *  because the row never carries it, no later edit can quietly restore the fallback that published
  *  a hand-set 84. A cached score reaches a listing ONLY through getCanonicalTrustBatch, which
- *  refuses to publish one that is not stamped with the running calculation_version. */
+ *  refuses to publish one that is not stamped with the running calculation_version.
+ *
+ *  The listing LOCATION and PROVENANCE columns (LISTING_CLAIM_COLUMNS in
+ *  utils/publicVehicleProjection.js) are absent for a mechanical reason, not an oversight: they do
+ *  not exist on public.vehicles until 20260817160000_issue164_listing_location_provenance.sql is
+ *  applied, and PostgREST fails an entire select when it names a column the table does not have.
+ *  Widening this list before the migration lands would 500 every public marketplace read. Add them
+ *  in the change that applies the migration — see listingClaimsForVehicle().
+ *
+ *  `currency_source` is absent for the same mechanical reason AND FOR ONE MORE: it does not exist
+ *  even in the authored migration. `currencyClaim()` above gates on it, so today every listing
+ *  publishes `currency_state: 'not_recorded'` — the honest reading of a column the DDL filled on
+ *  16 of 16 rows. THREE CHANGES OUTSIDE THIS LANE CLOSE IT, and they must land together:
+ *    1. 20260817160000_issue164_listing_location_provenance.sql — add `currency_source text` with
+ *       the same CLAIM_SOURCES CHECK the other `*_source` columns get. The migration already drops
+ *       `currency`'s DEFAULT (it is the sixth entry in `c_defaulted`), so the fabricating half is
+ *       handled and only the attesting half is missing.
+ *    2. utils/publicVehicleProjection.js — add `currency_source` to LISTING_CLAIM_COLUMNS, so the
+ *       convergence stage moves it into the select with the other ten.
+ *    3. backend/server.js `/api/vehicles/add` — write `currency_source: claimSource` beside the
+ *       `currency` it already requires and stores verbatim. Without this, the endpoint 400s a
+ *       submission that omits a currency, stores the one it is given, and then nothing can publish
+ *       it: a genuinely stated currency would be permanently unpublishable, which is the
+ *       under-reporting failure mode, not the fabricating one, but still a failure mode. */
 export const LISTING_SELECT_COLUMNS = `
       vin,
       owner_id,

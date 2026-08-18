@@ -50,6 +50,7 @@ import {
   OWNER_ADDITIONAL_VEHICLE_FIELDS,
   PUBLIC_VEHICLE_SELECT,
   OWNER_VEHICLE_SELECT,
+  FIELD_STATES,
   toPublicVehicle,
   toOwnerVehicle,
   projectVehicle,
@@ -870,7 +871,58 @@ test('a marketplace summary omits plate, normalized plate and chassis even when 
   for (const [label, secret] of secrets) {
     assert.ok(!body.includes(secret), `the ${label} must not appear anywhere in the serialized summary`);
   }
-  assert.equal(summary.plate_status, 'active', 'the non-identifying plate status is still published');
+  // ── REWRITTEN DELIBERATELY, Issue #164 Phase 4 ──────────────────────────────────────────────
+  // WAS: `assert.equal(summary.plate_status, 'active', 'the non-identifying plate status is still
+  // published')`.
+  //
+  // WHY THE OLD ASSERTION ENCODED A FABRICATION. It pinned the RAW COLUMN as publishable, and its
+  // justification — "non-identifying" — answers a different question than the one publication asks.
+  // Being non-identifying is a PRIVACY property: it says this value would not expose who owns the
+  // car. It says nothing about whether anybody ever asserted the value, which is what makes a
+  // published string a fact rather than a decoration. `vehicles.plate_status` carries a column
+  // DEFAULT of 'Active' and has ZERO application writers — measured 'Active' on 16 of 16 staging
+  // rows, one distinct value — so the DDL is the only thing that has ever said a plate is active.
+  // Under the old assertion the card published "Active" beside `claims.registration.plate_status`
+  // reporting `{value: null, state: 'not_recorded'}` IN THE SAME RESPONSE BODY: one question,
+  // answered twice, differently, with no way for a consumer to know which half to believe. Because
+  // this suite pinned the bare-column half, THIS FILE was the thing holding the contradiction open.
+  //
+  // The field is now the same governed leaf the claims block publishes, so the two cannot disagree.
+  // `plate_status_state` says WHY it is null, which is strictly more than 'Active' ever told anyone.
+  assert.equal(
+    summary.plate_status, null,
+    'a plate status authored only by a column DEFAULT is not a statement that anyone checked this plate',
+  );
+  assert.equal(
+    summary.plate_status_state, FIELD_STATES.NOT_RECORDED,
+    'and the card must say WHY it is null, so a shopper can tell "not recorded" from "withheld"',
+  );
+});
+
+// ── ADDED, Issue #164 Phase 4 ─────────────────────────────────────────────────────────────────
+// The POSITIVE TWIN of the rewrite above, and it is not optional. The assertion it replaces was
+// deleted-shaped: `plate_status === null` alone is satisfied by removing the field from the summary
+// entirely, which would cost every genuinely-verified plate its status and would look like a pass.
+// This proves the field was GATED ON PROVENANCE, not dropped — the same value, once something
+// records who asserted it, publishes exactly as before.
+test('plate_status publishes on provenance, so the gate above is a gate and not a deletion', () => {
+  const attested = buildMarketplaceListingSummary({
+    vehicle: rawVehicleRow({ plate_status_source: 'registry_verified' }),
+  });
+
+  assert.equal(attested.plate_status, 'active',
+    'a plate status a registry asserted IS publishable — the gate is provenance, never the value');
+  assert.equal(attested.plate_status_state, FIELD_STATES.RECORDED);
+  assert.equal(attested.claims.registration.plate_status.value, 'active',
+    'and the flat field and the governed claim are the same leaf, so they can never contradict each other');
+  assert.equal(attested.claims.registration.plate_status.source, 'registry_verified');
+
+  // An out-of-vocabulary source is not provenance: it fails closed rather than manufacturing a claim.
+  const forged = buildMarketplaceListingSummary({
+    vehicle: rawVehicleRow({ plate_status_source: 'looks_fine_to_me' }),
+  });
+  assert.equal(forged.plate_status, null);
+  assert.equal(forged.plate_status_state, FIELD_STATES.NOT_RECORDED);
 });
 
 test('anonymous marketplace search matches nothing on a plate or chassis query', async () => {

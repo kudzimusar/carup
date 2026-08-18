@@ -5,9 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Eye, DollarSign, TrendingUp, Loader2, Car, MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
+import { ListingImage } from '@/components/marketplace/ListingImage'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
+import { readOwnerTrustClaim, statedDate, statedPrice } from './OwnerDashboard'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -24,8 +26,13 @@ export function isSoldListingStatus(status?: string | null) {
   return normalizeListingStatus(status) === 'sold'
 }
 
+/**
+ * An absent listing status used to default to 'available', so a row whose lifecycle state had never
+ * been written was advertised to its own seller as live. Absent is its own answer.
+ */
 export function formatListingStatus(status?: string | null) {
-  const value = String(status || 'available')
+  const value = String(status || '').trim()
+  if (!value) return 'Status not recorded'
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
@@ -153,8 +160,10 @@ export default function MyListings() {
       ) : (
         <div className="space-y-4">
           {myListings.map((listing) => {
-            const effectiveStatus = listingStatuses[listing.vin] || listing.status || 'available'
+            const effectiveStatus = listingStatuses[listing.vin] || listing.status || ''
             const normalizedStatus = normalizeListingStatus(effectiveStatus)
+            const trust = readOwnerTrustClaim(listing)
+            const listedOn = statedDate(listing.created_at)
             const isSold = isSoldListingStatus(effectiveStatus)
             const listingConversations = marketplaceConversations.filter((conversation) =>
               String(conversation.marketplace_listing_id || '').toUpperCase() === String(listing.vin || '').toUpperCase())
@@ -164,12 +173,19 @@ export default function MyListings() {
               <Card key={listing.vin} className={`border-0 card-shadow transition-opacity ${isSold ? 'opacity-60' : ''}`}>
                 <CardContent className="p-5" data-testid={`my-listing-card-${listing.vin}`}>
                   <div className="flex gap-4">
-                    <img src={listing.image_url || 'https://images.unsplash.com/photo-1605810230434-7631ac76ec81?w=800&q=80'} alt="" className="w-32 h-24 rounded-lg object-cover flex-shrink-0" />
+                    {/* No stock-photo stand-in: an unrelated car is a claim about this listing. */}
+                    <ListingImage
+                      src={listing.image_url}
+                      alt={`${listing.year} ${listing.make} ${listing.model}`}
+                      className="w-32 h-24 rounded-lg overflow-hidden flex-shrink-0"
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 flex-wrap">
                         <div>
                           <h3 className="font-semibold">{listing.year} {listing.make} {listing.model}</h3>
-                          <p className="text-lg font-bold text-orange-600 mt-0.5">${listing.price?.toLocaleString() || 'N/A'}</p>
+                          <p className="text-lg font-bold text-orange-600 mt-0.5" data-testid={`listing-price-${listing.vin}`}>
+                            {statedPrice(listing.price)}
+                          </p>
                         </div>
                         <div className="flex gap-1.5 flex-wrap justify-end">
                           <Badge className={`text-xs font-medium ${STATUS_BADGE[normalizedStatus] || 'bg-gray-100 text-gray-600'}`}>
@@ -187,10 +203,22 @@ export default function MyListings() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{listing.viewCount || 0} views</span>
-                        <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3" />Trust: {listing.trust_score}</span>
+                        {/* `viewCount || 0` reported "0 views" on a listing nothing counts views
+                            for — a measurement of zero where no measurement is taken. */}
+                        <span className="flex items-center gap-1" data-testid={`listing-views-${listing.vin}`}>
+                          <Eye className="w-3 h-3" />
+                          {typeof listing.viewCount === 'number' ? `${listing.viewCount} views` : 'Views not tracked'}
+                        </span>
+                        <span className="flex items-center gap-1" data-testid={`trust-claim-${listing.vin}`}>
+                          <TrendingUp className="w-3 h-3" />
+                          {trust.score !== null ? (
+                            <span data-testid={`trust-claim-score-${listing.vin}`}>Trust: {trust.score} / 100 · {trust.headline}</span>
+                          ) : (
+                            <span className="italic text-gray-400" data-testid={`trust-claim-state-${listing.vin}`}>Trust: {trust.headline}</span>
+                          )}
+                        </span>
                         <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{listingConversations.length} conversations · {listingUnread} unread</span>
-                        <span>Listed {new Date(listing.created_at || '').toLocaleDateString()}</span>
+                        <span>{listedOn ? `Listed ${listedOn}` : 'Listing date not recorded'}</span>
                       </div>
                       {latest && <p className="mt-2 line-clamp-1 text-xs text-gray-600">Latest: “{latest}”</p>}
                       <div className="flex gap-2 mt-3">

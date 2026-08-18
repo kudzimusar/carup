@@ -15,6 +15,41 @@ const MAKES = ['Toyota', 'BMW', 'Mercedes-Benz', 'Nissan', 'Mazda', 'Volkswagen'
 const YEARS = Array.from({ length: 37 }, (_, i) => String(2026 - i))
 const STEPS = ['Vehicle Details', 'Location & Pricing', 'Images & Features', 'Review & Save Draft']
 
+/**
+ * ISSUE #164 PHASE 4 — THE SELLER STATES THE CURRENCY. THIS FILE NO LONGER STATES IT FOR THEM.
+ *
+ * `currency: 'USD'` was a literal in the submit payload, with no control anywhere in this form and
+ * only a parenthetical in the price label to hint at it. Phase 4 then made `currency` a mandatory
+ * 400 on POST /api/vehicles/add — which this literal satisfied on 100% of real submissions. The
+ * API's requirement became a formality and the business fact stayed invented by the client, which
+ * is the failure governing principle 5 names: the frontend must not originate business truth.
+ *
+ * TWO RESOLUTIONS WERE AVAILABLE AND THIS IS WHY THIS ONE WAS TAKEN.
+ *
+ * Rejected — "declare USD the single supported currency and show it": it would be a false
+ * declaration. This repository states the opposite in its own product surfaces: the global currency
+ * context and switcher offer USD/ZiG/ZAR/BWP (web/src/App.tsx:163, components/layout/Navbar.tsx:207),
+ * TrustSafety.tsx:118 tells buyers escrow settles "in both US Dollars (USD) and Zimbabwe Gold (ZiG)",
+ * and HelpCenter.tsx:57 says the same. The server-side comment that removed `currency || 'USD'`
+ * gives the same reason: "a market that actively trades in more than one". Making a hidden literal
+ * a visible one would only relabel the fabrication.
+ *
+ * Taken — a real, required choice with NO pre-selection, over the currencies CarUp itself publishes
+ * as settlement currencies. The vocabulary is therefore CarUp's own stated fact rather than this
+ * component's invention, and it is deliberately NOT the Navbar's four: those are display-conversion
+ * targets for browsing (backed by a mock rate table), whereas this value is stored on the listing as
+ * the currency its price is quoted in. A seller who lists in ZiG now has a ZiG price recorded as
+ * ZiG, instead of a ZiG number silently labelled USD — which is the materially dangerous reading the
+ * literal produced.
+ *
+ * Like every other required Select in this form, it starts EMPTY: the mandatory 400 upstream is then
+ * satisfied by something the seller actually asserted.
+ */
+const LISTING_CURRENCIES = [
+  { code: 'USD', label: 'USD — US Dollar' },
+  { code: 'ZiG', label: 'ZiG — Zimbabwe Gold' },
+]
+
 function StepIndicator({ step, total }: { step: number; total: number }) {
   return (
     <div className="flex items-center gap-2 mb-8">
@@ -35,7 +70,7 @@ const INITIAL = {
   make: '', model: '', year: '2020', vin: '', engineNumber: '', chassisNumber: '',
   plateNumber: '', tempPlateId: '', importStatus: '', color: '',
   mileage: '', condition: '', category: '', fuelType: '', transmission: '',
-  location: '', province: '', price: '', description: '',
+  location: '', province: '', price: '', currency: '', description: '',
   features: [] as string[], featureInput: '',
   images: [] as string[],
 }
@@ -93,8 +128,11 @@ export default function SellVehicle() {
       if (!form.category) e.category = 'Required'
       if (!form.fuelType) e.fuelType = 'Required'
       if (!form.transmission) e.transmission = 'Required'
+      if (!form.currency) e.currency = 'Required'
       if (!form.price) e.price = 'Required'
-      else if (parseFloat(form.price) < 100) e.price = 'Price must be at least $100'
+      // The floor is a plain number, not "$100": prefixing it asserted a currency the seller had
+      // not chosen yet. It is echoed back in whichever currency they did choose.
+      else if (parseFloat(form.price) < 100) e.price = `Price must be at least 100${form.currency ? ` ${form.currency}` : ''}`
       if (!form.location) e.location = 'Required'
       if (!form.description) e.description = 'Required'
       else if (form.description.length < 50) e.description = `Minimum 50 characters (${form.description.length}/50)`
@@ -143,7 +181,9 @@ export default function SellVehicle() {
         condition: form.condition,
         category: form.category,
         price: parseFloat(form.price),
-        currency: 'USD',
+        // The seller's own choice, never a client-side literal. Step 1 will not advance without it,
+        // so this is a value someone asserted rather than one this component supplied.
+        currency: form.currency,
         description: form.description,
         location: form.location,
         province: form.province,
@@ -338,7 +378,20 @@ export default function SellVehicle() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Price (USD) *</label>
+                  <label className="text-sm font-medium mb-1.5 block">Currency *</label>
+                  <Select value={form.currency} onValueChange={v => set('currency', v)}>
+                    <SelectTrigger className={errors.currency ? 'border-red-400' : ''} data-testid="vehicle-currency-input"><SelectValue placeholder="Select currency" /></SelectTrigger>
+                    <SelectContent>{LISTING_CURRENCIES.map(c => <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  {errors.currency && <p className="text-xs text-red-500 mt-1">{errors.currency}</p>}
+                </div>
+                <div>
+                  {/* The label states the amount only. It read "Price (USD)" while the payload
+                      hardcoded 'USD' — the sole place the seller was told which currency this
+                      figure would be published in, and they had no say in it. */}
+                  <label className="text-sm font-medium mb-1.5 block">
+                    Price *{form.currency && <span className="text-gray-400 font-normal"> ({form.currency})</span>}
+                  </label>
                   <Input type="number" value={form.price} onChange={e => set('price', e.target.value)} placeholder="e.g. 25000" className={errors.price ? 'border-red-400' : ''} />
                   {errors.price && <p className="text-xs text-red-500 mt-1">{errors.price}</p>}
                 </div>
@@ -453,7 +506,10 @@ export default function SellVehicle() {
                   ['Condition', form.condition],
                   ['Fuel / Trans', `${form.fuelType} / ${form.transmission}`],
                   ['Location', form.location],
-                  ['Asking Price', `$${parseFloat(form.price || '0').toLocaleString()} USD`],
+                  // Was `$… USD` regardless of anything the seller had entered. The review screen is
+                  // the last thing they read before asserting "all information provided is accurate",
+                  // so it shows the currency they chose and no other.
+                  ['Asking Price', `${form.currency} ${parseFloat(form.price || '0').toLocaleString()}`.trim()],
                 ].map(([label, value]) => (
                   <div key={label} className="flex justify-between py-2 border-b border-gray-100">
                     <span className="text-gray-500">{label}</span>
