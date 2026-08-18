@@ -11,8 +11,8 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 
-export const WEB_URL = process.env.STAGING_WEB_URL || 'https://carup-staging.vercel.app';
-export const API_URL = process.env.STAGING_API_URL || 'https://carup-backend-staging.vercel.app/api';
+export const WEB_URL = process.env.STAGING_WEB_URL || 'https://staging.carup.dev';
+export const API_URL = process.env.STAGING_API_URL || 'https://api-staging.carup.dev/api';
 export const RUN_ID = process.env.STAGING_RUN_ID || `staging-${Date.now()}`;
 
 /** Staging-only test identities (deterministic, clearly marked). Passwords come from env only. */

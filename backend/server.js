@@ -76,6 +76,10 @@ import claimsRouter from './routes/claimsRoutes.js';
 
 // Centralized Routes Imports (Batch 2)
 import adminRouter from './routes/adminRoutes.js';
+import { edgeClientIpMiddleware } from './middleware/edgeClientIp.js';
+import { authRecoveryRouter } from './routes/authRecoveryRoutes.js';
+import { marketingUnsubscribeRouter } from './routes/marketingUnsubscribeRoutes.js';
+import { resolveBuildProvenance } from './config/buildProvenance.js';
 import vehiclesRouter from './routes/vehiclesRoutes.js';
 import evidenceCatalogRouter from './routes/evidenceCatalogRoutes.js';
 import ingestionRouter from './routes/ingestionRoutes.js';
@@ -172,6 +176,8 @@ app.use(securityHeadersMiddleware);
 app.use(rateLimiter({ max: 100, windowMs: 60 * 1000, isSensitive: false }));
 
 // Sensitive Route Throttling (auth, uploads, safepay creation, verification)
+// Must run BEFORE any rate limiter so limits key on the real client, not a Cloudflare edge IP.
+app.use(edgeClientIpMiddleware());
 app.use('/api/auth/switch-role', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/media/upload', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
 app.use('/api/verification', rateLimiter({ max: 5, windowMs: 60 * 1000, isSensitive: true }));
@@ -234,6 +240,9 @@ app.get('/api/health', async (req, res) => {
   res.json({
     status: 'UP',
     timestamp: new Date().toISOString(),
+    // Which source revision this instance was built from. Load-bearing for certification: CarUp
+    // staging serves two runtimes (API and the cron sender) that have silently diverged before.
+    build: resolveBuildProvenance(),
     supabase: {
       status: supabaseHealth,
       outboxBacklog
@@ -280,6 +289,8 @@ app.use(partsRouter);
 app.use(claimsRouter);
 
 // Mount centralized routes (Batch 2)
+app.use(authRecoveryRouter());
+app.use(marketingUnsubscribeRouter());
 app.use(adminRouter);
 app.use(communicationRouter());
 app.use(adminCommunicationRouter());

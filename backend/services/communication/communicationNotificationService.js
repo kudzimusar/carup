@@ -281,9 +281,33 @@ export class CommunicationNotificationService {
     }
   }
 
+  /**
+   * Canonical suppression state, consulted before anything else.
+   *
+   * `communication_suppressions` was created to hold CarUp's authoritative unsubscribe/complaint
+   * state but had no reader, so an unsubscribe reconciled nowhere and could not actually stop a
+   * send. This is that reader. Scoped to marketing (and 'all'): an unsubscribe from marketing must
+   * never suppress security, auth or transaction Email.
+   */
+  async suppressedByCanonicalState(input, channel) {
+    if (channel === 'in_app') return null;
+    const address = String(input.recipientAddress || input.address || input.email || '').trim().toLowerCase();
+    if (!address) return null;
+    const scopes = input.transactional === false ? ['marketing', 'all'] : ['all'];
+    const rows = await this.repository.list('communication_suppressions', {
+      channel,
+      address,
+    }).catch(() => []);
+    const active = (rows || []).find((row) => !row.released_at && scopes.includes(row.scope));
+    return active ? `suppressed_${active.reason}` : null;
+  }
+
   async existingMessageSuppressionReason(input, channel) {
     const thread = input.thread;
     const transactional = input.transactional !== false;
+
+    const canonicalSuppression = await this.suppressedByCanonicalState(input, channel);
+    if (canonicalSuppression) return canonicalSuppression;
 
     let participant = null;
     if (input.recipientUserId) {

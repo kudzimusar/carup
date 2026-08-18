@@ -40,9 +40,21 @@ const PROVIDER_REQUIREMENTS = Object.freeze([
     webhookPath: '/api/communications/webhooks/telegram/telegram',
   },
   {
+    // Canonical transactional/conversational Email transport (directive §0A.2). Selected unless a
+    // legacy provider is explicitly named via EMAIL_PROVIDER_LEGACY.
+    channel: 'email',
+    provider: 'resend',
+    when: (env) => !['sendgrid', 'cloudflare'].includes(normalizedEnv(env, 'EMAIL_PROVIDER_LEGACY', '')),
+    requiredProviderSecrets: ['RESEND_API_KEY', 'RESEND_FROM_EMAIL'],
+    requiredWebhookSecrets: ['RESEND_WEBHOOK_SECRET'],
+    requiredWebhookUrls: ['COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL'],
+    webhookPath: '/api/communications/webhooks/resend/email',
+  },
+  {
+    // Legacy — quarantined from canonical routing, retained for compatibility only.
     channel: 'email',
     provider: 'sendgrid',
-    when: (env) => normalizedEnv(env, 'EMAIL_PROVIDER', 'sendgrid') !== 'cloudflare',
+    when: (env) => normalizedEnv(env, 'EMAIL_PROVIDER_LEGACY', '') === 'sendgrid',
     requiredProviderSecrets: ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL'],
     requiredWebhookSecrets: ['SENDGRID_EVENT_WEBHOOK_VERIFICATION_KEY'],
     requiredWebhookUrls: ['COMMUNICATION_WEBHOOK_BASE_URL_OR_CARUP_PUBLIC_API_URL'],
@@ -51,7 +63,7 @@ const PROVIDER_REQUIREMENTS = Object.freeze([
   {
     channel: 'email',
     provider: 'cloudflare_email',
-    when: (env) => normalizedEnv(env, 'EMAIL_PROVIDER') === 'cloudflare',
+    when: (env) => normalizedEnv(env, 'EMAIL_PROVIDER_LEGACY', '') === 'cloudflare',
     requiredProviderSecrets: ['CLOUDFLARE_EMAIL_FROM'],
     anyProviderSecretGroups: [
       ['CLOUDFLARE_EMAIL_WORKER_URL', 'CLOUDFLARE_EMAIL_WORKER_SECRET'],

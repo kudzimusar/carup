@@ -64,8 +64,9 @@ function variablesFor(campaign, user, variant) {
 }
 
 export class CommunicationCampaignService {
-  constructor({ repository, threadService, conversationService, preferenceService, notificationService, templateService } = {}) {
+  constructor({ repository, threadService, conversationService, preferenceService, notificationService, templateService, unsubscribeService = null } = {}) {
     this.repository = repository;
+    this.unsubscribeService = unsubscribeService;
     this.threadService = threadService;
     this.conversationService = conversationService;
     this.preferenceService = preferenceService;
@@ -295,6 +296,20 @@ export class CommunicationCampaignService {
         }
         const thread = await this.ensureCampaignConversation(campaign, user);
         const participant = await this.conversationService.participantForUser(thread.id, user.id);
+        // Mint the governed unsubscribe handle BEFORE queueing, so the recipient's own copy of the
+        // message carries a working control. The marketing adapter refuses any send that arrives
+        // without one, so a failure here suppresses the send rather than shipping an unstoppable
+        // marketing Email.
+        let unsubscribe = null;
+        if (campaign.channel === 'email' && this.unsubscribeService && route.payload?.email) {
+          unsubscribe = await this.unsubscribeService.issue({
+            address: route.payload.email,
+            tenantId: campaign.tenant_id || thread.tenant_id || 'platform',
+            userId: route.recipientUserId || user.id || null,
+            identityId: route.recipientIdentityId || null,
+            campaignId: campaign.id,
+          });
+        }
         const queued = await this.notificationService.queueNotification({
           recipientUserId: route.recipientUserId,
           recipientIdentityId: route.recipientIdentityId,
@@ -316,6 +331,7 @@ export class CommunicationCampaignService {
             variant: variant?.key || 'control',
             attribution: campaign.attribution || {},
             promotion_id: campaign.promotion_id || null,
+            ...(unsubscribe ? { unsubscribe_url: unsubscribe.url, unsubscribe_mailto: unsubscribe.mailto } : {}),
           },
         });
         await this.repository.insert('communication_campaign_deliveries', {

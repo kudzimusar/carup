@@ -230,7 +230,12 @@ describe('resolveApiBaseUrl', () => {
   it('falls back to the production backend for non-localhost hosts with no override', () => {
     expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
     expect(resolveApiBaseUrl(null, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'staging.carup.dev')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
     expect(resolveApiBaseUrl(undefined, undefined)).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  })
+
+  it('resolves the production fallback to the canonical carup.dev API host', () => {
+    expect(DEFAULT_PRODUCTION_API_BASE_URL).toBe('https://api.carup.dev/api')
   })
 
   it('trims a configured URL', () => {

@@ -57,7 +57,9 @@ export function rateLimiter({ max, windowMs, isSensitive = false }) {
       return next();
     }
 
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    // Behind a Cloudflare-proxied host, req.ip is the edge address; carupClientIp is the real
+    // client, but only when the request provably transited our zone (see edgeClientIp.js).
+    const ip = req.carupClientIp || req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const key = `${tier}:${ip}`;
 
     Promise.resolve(store.hit(key, windowMs)).then((rateData) => {
@@ -176,6 +178,10 @@ export function csrfMiddleware(req, res, next) {
                     // Omnichannel communication engine webhooks (signature-verified in-service)
                     /^\/api\/communications\/webhooks\/[a-z0-9_-]+\/[a-z0-9_-]+(?:$|[/?#])/.test(url) ||
                     /^\/api\/internal\/communications\/process(?:$|[/?#])/.test(url) ||
+                    // RFC 8058 one-click unsubscribe: the mail client POSTs this directly and
+                    // cannot carry a CarUp CSRF token. Authority is the opaque unsubscribe
+                    // handle in the URI, and the action is idempotent and marketing-scoped.
+                    /^\/api\/communications\/unsubscribe(?:$|[/?#])/.test(url) ||
                     // Serverless outbox drain (worker-secret guarded in-route)
                     /^\/api\/internal\/events\/process(?:$|[/?#])/.test(url) ||
                     // Full Activation signed provider webhooks (HMAC + timestamp + idempotency verified in-service)

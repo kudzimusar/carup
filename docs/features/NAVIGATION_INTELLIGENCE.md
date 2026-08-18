@@ -165,8 +165,12 @@ The frontend uses a shared utility to determine the API base URL. The resolution
 
 | Environment | Frontend | Backend |
 |-------------|----------|---------|
-| **Production** | `https://carup.vercel.app` | `https://carup-backend.vercel.app/api` |
-| **Staging** | `https://carup-staging.vercel.app` | `https://carup-backend-aca7.vercel.app/api` |
+| **Production** | `https://carup.dev` | `https://api.carup.dev/api` |
+| **Staging** | `https://staging.carup.dev` | `https://api-staging.carup.dev/api` |
+
+(The `.vercel.app` hostnames from the table below remain attached and functional as
+infrastructure aliases — see the CarUp domain canonicalization programme, PR #163 — but are no
+longer the canonical identity engineers should target.)
 
 ### Resolved Vercel Routing Issue
 

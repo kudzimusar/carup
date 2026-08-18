@@ -1,15 +1,33 @@
 # Staging environment routing
 
-How the staging frontend and backend are wired on Vercel (team `pay-pass-project`).
+How the staging frontend and backend are wired on Vercel (team `11-11` / Eleven-11-Tech,
+`team_InL2Jmsg4dbG0rFY8nxriTha`).
+
+> The team was previously named `pay-pass-project` — that old slug is still baked into some
+> historical deployment hostnames (e.g. `*-pay-pass-project.vercel.app`) and into older commands
+> in this doc's git history, but `--scope pay-pass-project` no longer resolves. Use `11-11`.
 
 ## Projects
 
-| Role | Vercel project | URL |
-| --- | --- | --- |
-| Staging frontend | `carup-staging` | https://carup-staging.vercel.app |
-| Staging backend | `carup-backend-staging` | https://carup-backend-staging.vercel.app (and the auto-canonical https://carup-backend-aca7.vercel.app) |
-| Production frontend | `carup` | https://carup.vercel.app |
-| Production backend | `carup-backend` | https://carup-backend.vercel.app |
+| Role | Vercel project | Canonical CarUp domain | Vercel-branded alias (still live, infra only) |
+| --- | --- | --- | --- |
+| Staging frontend | `carup-staging` | https://staging.carup.dev | https://carup-staging.vercel.app |
+| Staging backend | `carup-backend-staging` | https://api-staging.carup.dev | https://carup-backend-staging.vercel.app (and the auto-canonical https://carup-backend-aca7.vercel.app) |
+| Production frontend | `carup` | https://carup.dev | https://carup.vercel.app |
+| Production backend | `carup-backend` | https://api.carup.dev | https://carup-backend.vercel.app |
+
+The `carup.dev`/`api.carup.dev`/`staging.carup.dev`/`api-staging.carup.dev` domains are the
+canonical CarUp-owned identity (domain canonicalization programme, PR #163). The `.vercel.app`
+hostnames remain attached and fully functional as infrastructure aliases — they were never
+removed, only demoted from "canonical" in source/config/docs. `carup.dev` itself is registered
+and DNS-hosted directly under this Vercel team (bought through the Vercel registrar); it is
+**not** connected to Cloudflare, and no nameserver change was made or is needed.
+
+Production (`carup` / `carup-backend`) deploys from the `release/production` branch, not `main`
+— it does not auto-track every `main` push the way the staging projects do. Confirm the actual
+live production SHA before assuming it matches `origin/release/production`'s current HEAD; they
+have been observed to drift (the production Vercel deployment record can lag behind the branch
+tip when a deploy isn't explicitly triggered).
 
 The backend (`backend/server.js`) `export default app`s an Express app, which Vercel serves natively
 (no `api/` wrapper or `backend/vercel.json`). Every backend route is mounted under `/api`, so the
@@ -22,35 +40,49 @@ frontend must target `<backend-origin>/api`.
 1. If `VITE_API_URL` is set, use it — normalized to end in `/api` (a bare origin like
    `https://host` is rewritten to `https://host/api`, so a missing suffix can't 404 every request).
 2. Else, on a `localhost` host → same-origin `/api`.
-3. Else (any other host, no override) → the production backend `DEFAULT_PRODUCTION_API_BASE_URL`.
+3. Else (any other host, no override) → the production backend `DEFAULT_PRODUCTION_API_BASE_URL`
+   (`https://api.carup.dev/api` — deliberately char-code-obfuscated in source so a grep for
+   `vercel.app`/`carup.dev` over a staging bundle can't false-positive on this intentional literal).
 
 Because of step 3, **the staging frontend must set `VITE_API_URL`** — otherwise it falls through to the
-production backend.
+production backend. `carup-staging`'s `VITE_API_URL` is currently set to
+`https://api-staging.carup.dev/api`.
 
 ## Required Vercel configuration (staging)
 
-- **`carup-backend-staging` project** — add `carup-backend-staging.vercel.app` as a production domain
-  so it serves the backend and is exempt from deployment protection (the project's canonical
-  `carup-backend-aca7.vercel.app` is the auto-generated equivalent):
+The `vercel domains` / `vercel dns` CLI subcommands are broken for this account/team — they
+report "no access" even though the underlying token has full permission. Use the REST API
+directly instead (`api.vercel.com/v9|v10/...` with `?teamId=team_InL2Jmsg4dbG0rFY8nxriTha`), or
+the Vercel dashboard.
+
+- **`carup-backend-staging` project** — `api-staging.carup.dev` and `carup-backend-staging.vercel.app`
+  are both attached and verified as production-target domains on this project (the project's
+  auto-generated `carup-backend-aca7.vercel.app` remains too):
 
   ```sh
-  vercel domains add carup-backend-staging.vercel.app --scope pay-pass-project   # linked to carup-backend-staging
+  curl -X POST "https://api.vercel.com/v10/projects/carup-backend-staging/domains?teamId=team_InL2Jmsg4dbG0rFY8nxriTha" \
+    -H "Authorization: Bearer $VERCEL_TOKEN" -H "Content-Type: application/json" \
+    -d '{"name":"api-staging.carup.dev"}'
   ```
 
-- **`carup-staging` project** — set `VITE_API_URL` to the staging backend with the `/api` suffix:
+- **`carup-staging` project** — `staging.carup.dev` is attached the same way, and `VITE_API_URL` is
+  set to the canonical staging backend with the `/api` suffix:
 
   ```sh
-  vercel env add VITE_API_URL production --value 'https://carup-backend-staging.vercel.app/api' --no-sensitive -y --scope pay-pass-project
+  vercel env add VITE_API_URL production   # paste https://api-staging.carup.dev/api when prompted
   ```
 
-  Then redeploy the frontend so the value is inlined into a fresh build:
+  `VITE_API_URL` is a **build-time** Vite variable — setting it does not affect an
+  already-built deployment. It takes effect on the *next* build/deploy of the project (redeploy
+  explicitly if you need it to apply immediately):
 
   ```sh
-  vercel redeploy https://carup-staging.vercel.app --scope pay-pass-project
+  vercel redeploy https://carup-staging.vercel.app
   ```
 
-> Note: `VITE_API_URL` must be added with `--no-sensitive` if you want to read it back with
-> `vercel env pull` — Production/Preview vars default to sensitive (pull shows them empty otherwise).
+> Note: `VITE_API_URL` must be added with `--sensitive=false` (or via the dashboard, unmarked
+> "sensitive") if you want to read it back with `vercel env pull` — Production/Preview vars
+> default to sensitive (pull shows them empty otherwise).
 
 ## Public referral-link origin
 
@@ -58,48 +90,71 @@ Referral share kits are generated by the backend, so the backend project must al
 frontend origin for the environment. Do not rely on the hard-coded production fallback for staging or
 Preview acceptance.
 
-Recommended Vercel values:
+Current Vercel values:
 
 | Project/environment | Variable | Value |
 |---|---|---|
-| `carup` Production | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | `https://carup.app` |
-| `carup-backend` Production | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | `https://carup.app` |
-| `carup-staging` Production target | `VITE_PUBLIC_APP_URL` | `https://carup-staging.vercel.app` |
-| `carup-backend-staging` Production target | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | `https://carup-staging.vercel.app` |
-| branch Preview frontend | `VITE_PUBLIC_APP_URL` | the protected Preview origin, or `https://carup-staging.vercel.app` for canonical staging-only UAT |
-| branch Preview backend | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | the matching frontend Preview origin, or `https://carup-staging.vercel.app` |
+| `carup` Production | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | `https://carup.dev` |
+| `carup-backend` Production | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | `https://carup.dev` |
+| `carup-staging` Production target | `VITE_PUBLIC_APP_URL` | `https://staging.carup.dev` |
+| `carup-backend-staging` Production target | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | `https://staging.carup.dev` |
+| branch Preview frontend | `VITE_PUBLIC_APP_URL` | the protected Preview origin, or `https://staging.carup.dev` for canonical staging-only UAT |
+| branch Preview backend | `PUBLIC_APP_URL` or `CARUP_PUBLIC_BASE_URL` | the matching frontend Preview origin, or `https://staging.carup.dev` |
 | local development | optional `PUBLIC_APP_URL` | defaults to `http://localhost:5173` when no trusted env value is set |
 
-The backend resolver also infers `https://carup-staging.vercel.app` when it is running in a Vercel
-staging project such as `carup-backend-staging`, but the explicit env var is preferred for auditability.
+The backend resolver's hardcoded defaults (`DEFAULT_PRODUCTION_PUBLIC_APP_URL` /
+`DEFAULT_STAGING_PUBLIC_APP_URL` in `backend/services/referral/referralEngineService.js`) now
+resolve to `https://carup.dev` / `https://staging.carup.dev` respectively — these were corrected
+from a prior production default of `https://carup.app`, a domain that was never actually
+registered and did not resolve. Any deployment relying on the hardcoded default (no explicit
+`PUBLIC_APP_URL`/`CARUP_PUBLIC_BASE_URL` set) was generating broken referral share links in
+production until this fix. The explicit env var above remains preferred for auditability.
 Caller-supplied share-kit options must not override this trusted public origin.
 
 When no explicit public origin is configured, the backend uses documented Vercel runtime signals only:
 `VERCEL`, `VERCEL_ENV`, `VERCEL_TARGET_ENV`, `VERCEL_PROJECT_PRODUCTION_URL`, `VERCEL_BRANCH_URL`, and
-`VERCEL_URL`. Canonical staging is detected from exact trusted Vercel hostnames such as
-`carup-staging.vercel.app`, `carup-backend-staging.vercel.app`, `carup-staging-*.vercel.app`, and
-`carup-backend-staging-*.vercel.app`. A deployed Vercel process must never fall back to localhost just
-because `NODE_ENV=test`; local fallback is reserved for processes with no Vercel runtime signals.
+`VERCEL_URL` (these are always raw `*.vercel.app` values — Vercel does not populate them with a
+custom domain). Canonical staging is detected both from those Vercel-runtime `.vercel.app`
+hostnames (`carup-staging.vercel.app`, `carup-backend-staging.vercel.app`,
+`carup-staging-*.vercel.app`, `carup-backend-staging-*.vercel.app`) and, when explicitly passed as
+a candidate value, from `staging.carup.dev` / `api-staging.carup.dev`. A deployed Vercel process
+must never fall back to localhost just because `NODE_ENV=test`; local fallback is reserved for
+processes with no Vercel runtime signals.
 
 ## Verification
 
 ```sh
-curl -s -o /dev/null -w '%{http_code}\n' https://carup-backend-staging.vercel.app/api/health   # 200
-curl -s https://carup-staging.vercel.app/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js'         # bundle
-# bundle should reference carup-backend-staging.vercel.app/api (the configured value wins; the lone
-# carup-backend.vercel.app/api in the bundle is only the DEFAULT_PRODUCTION fallback constant).
-# staging-generated referral share links should start with https://carup-staging.vercel.app/r/
-# and must not point at https://carup.app/r/.
+curl -s -o /dev/null -w '%{http_code}\n' https://api-staging.carup.dev/api/health              # 200
+curl -s https://staging.carup.dev/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js'                # bundle
+# bundle should reference api-staging.carup.dev/api (the configured VITE_API_URL wins; the lone
+# api.carup.dev/api in the bundle is only the DEFAULT_PRODUCTION fallback constant).
+# staging-generated referral share links should start with https://staging.carup.dev/r/
+# and must not point at https://carup.dev/r/.
 ```
 
-CORS already allows the staging origin: `backend/config/corsOptions.js` matches
-`carup-staging.vercel.app` via the `carup-...vercel.app` preview pattern, so no backend env change is
-needed.
+CORS already allows the staging and production canonical origins: `backend/config/corsOptions.js`
+now hardcodes `https://carup.dev` and `https://staging.carup.dev` directly in `productionOrigins`
+(alongside the legacy `carup.vercel.app`/`carup-backend.vercel.app` entries, kept as working
+aliases), and the `carup-...vercel.app` preview-pattern regex still matches ephemeral branch
+previews — so no further backend env change is needed for either domain family.
 
 ## Known follow-up
 
 - **Preview env** on `carup-staging` is not set (the CLI requires an interactive git-branch choice for
-  "all preview branches"). Production env covers `carup-staging.vercel.app`. To also route PR-preview
+  "all preview branches"). Production env covers the canonical domains above. To also route PR-preview
   builds of the staging project at the staging backend, set `VITE_API_URL` and `VITE_PUBLIC_APP_URL`
   for Preview via the Vercel dashboard (Project → Settings → Environment Variables → Preview → all
   branches), and set the matching backend Preview `PUBLIC_APP_URL`/`CARUP_PUBLIC_BASE_URL`.
+- **Production frontend `VITE_API_URL`** is not explicitly set (the auto-mode safety classifier
+  blocks direct production env-var mutation via this tool). It doesn't need to be — the
+  hardcoded `DEFAULT_PRODUCTION_API_BASE_URL` fallback in `apiClient.ts` already resolves to
+  `https://api.carup.dev/api` on the next production build — but setting it explicitly, matching
+  staging's practice, would be a small consistency improvement an operator with dashboard access
+  can make directly (Project Settings → Environment Variables → Production).
+- **`backend/scripts/staging-apply-events-cron.mjs`** still writes the Supabase Vault secret
+  `CARUP_EVENTS_ENDPOINT_URL` (consumed every minute by a live `pg_cron`/`pg_net` job) pointed at
+  the stable `carup-backend-staging.vercel.app` alias, not `api-staging.carup.dev`. This was left
+  untouched deliberately — it's live, scheduled infrastructure state, not source code, and the
+  existing stable alias continues to work correctly. Migrating it to the canonical domain is a
+  reasonable follow-up but should be done as a deliberate, verified action (re-run the script,
+  confirm the cron still fires), not as a drive-by source edit.
