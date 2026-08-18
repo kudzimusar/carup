@@ -7,7 +7,7 @@ they are authorised, not in advance.
 
 ## 1. `public.vehicle_listing_summaries` — REMOVED (authorised 2026-08-17)
 
-**Migration:** `database/migrations/20260817120000_issue164_drop_dead_vehicle_listing_summaries.sql`
+**Migration:** `database/migrations/20260818100000_issue164_drop_dead_vehicle_listing_summaries.sql`
 **Preflight:** `backend/scripts/issue164-drop-listing-summaries-preflight.mjs`
 **Guard:** `backend/tests/issue164-dead-listing-summary.test.js` (10 invariants)
 

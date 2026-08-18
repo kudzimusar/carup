@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TABLE = 'vehicle_listing_summaries';
-const MIGRATION = '20260817120000_issue164_drop_dead_vehicle_listing_summaries.sql';
+const MIGRATION = '20260818100000_issue164_drop_dead_vehicle_listing_summaries.sql';
 
 /** Source trees where a live reference would mean the table is still in use. */
 const CODE_ROOTS = ['backend', 'web/src', 'shared', 'mobile'];

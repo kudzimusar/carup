@@ -67,7 +67,7 @@ const REPO_ROOT = path.resolve(HERE, '..', '..');
 const MODULE_PATH = path.join(REPO_ROOT, 'backend', 'utils', 'publicVehicleProjection.js');
 const MIGRATION_PATH = path.join(
   REPO_ROOT, 'database', 'migrations',
-  '20260817160000_issue164_listing_location_provenance.sql',
+  '20260818110000_issue164_listing_location_provenance.sql',
 );
 
 const MODULE_SOURCE = readFileSync(MODULE_PATH, 'utf8');

@@ -69,7 +69,7 @@
  * repository writes any of the three. Every one of those values was placed by a column DEFAULT.
  * A read path cannot tell such a value from an asserted one by looking at it, which is why the
  * test for "is this true?" is provenance and not shape. The companion migration
- * 20260817160000_issue164_listing_location_provenance.sql adds the `*_source` columns and drops
+ * 20260818110000_issue164_listing_location_provenance.sql adds the `*_source` columns and drops
  * the fabricating defaults so no further row accumulates an unasserted claim.
  *
  * THE STATED CONSEQUENCE: no existing row carries provenance and none is backfilled, so on the day
@@ -468,7 +468,7 @@ export function findPrivateFieldLeaks(payload) {
  * WHO ASSERTED A FACT. A `*_source` column outside this vocabulary is treated as NO provenance,
  * so a typo or an invented source string can never manufacture a recorded claim — it fails
  * closed into `not_recorded`. Mirrored by a CHECK constraint on every `*_source` column in
- * 20260817160000_issue164_listing_location_provenance.sql, so the database and this module
+ * 20260818110000_issue164_listing_location_provenance.sql, so the database and this module
  * cannot drift apart.
  *
  * The vocabulary is deliberately about WHO SAID IT, not about how much we believe it. Strength
@@ -500,7 +500,7 @@ export const CLAIM_VISIBILITY = Object.freeze({ PUBLIC: 'public', WITHHELD: 'wit
 
 /**
  * Columns the Phase 4 claim contract depends on that DO NOT YET EXIST on `public.vehicles`.
- * `20260817160000_issue164_listing_location_provenance.sql` creates exactly this set.
+ * `20260818110000_issue164_listing_location_provenance.sql` creates exactly this set.
  *
  * DELIBERATELY NOT IN PUBLIC_VEHICLE_FIELDS, AND THEREFORE NOT IN PUBLIC_VEHICLE_SELECT — nor in
  * listingSummaryService's LISTING_SELECT_COLUMNS. The migration is authored but UNAPPLIED, and

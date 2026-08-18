@@ -4,7 +4,7 @@
 
 Canonical module: `backend/utils/publicVehicleProjection.js` (contract header at the top of the
 file, implementation at the bottom).
-Companion migration: `database/migrations/20260817160000_issue164_listing_location_provenance.sql`
+Companion migration: `database/migrations/20260818110000_issue164_listing_location_provenance.sql`
 (authored, **not applied**).
 Permanent guard: `backend/tests/issue164-phase4-seller-location.test.js`.
 

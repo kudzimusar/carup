@@ -77,7 +77,7 @@
 --     file that was never applied to PostgreSQL. It cannot own a column it has no table for.
 --
 --   · public.vehicle_listing_summaries — EXISTS (34 columns, 0 rows) but is being REMOVED by
---     20260817120000_issue164_drop_dead_vehicle_listing_summaries.sql as a dormant second
+--     20260818100000_issue164_drop_dead_vehicle_listing_summaries.sql as a dormant second
 --     declaration of the public listing contract. Putting the canonical location on a relation
 --     this programme is deleting, precisely because duplicate listing models caused Issue #164,
 --     would be self-defeating.

@@ -1872,7 +1872,7 @@ function declaredSellerTypeSource(userContext = {}, body = {}) {
 /**
  * True when a write failed because the listing-claim columns are not on the table yet.
  *
- * 20260817160000_issue164_listing_location_provenance.sql is authored but UNAPPLIED, and PostgREST
+ * 20260818110000_issue164_listing_location_provenance.sql is authored but UNAPPLIED, and PostgREST
  * rejects an insert naming a column it cannot find (PGRST204 from the schema cache, 42703 from
  * PostgreSQL itself). Without this guard, adding the columns to the payload would 500 every listing
  * submission until the migration lands. Same shape as the `approved_by` fallback in

@@ -37,7 +37,7 @@
  * NULL IS WRITTEN EXPLICITLY, NEVER BY OMITTING THE KEY. `registration_country` carries a column
  * DEFAULT of 'ZW', so an insert that leaves the column out gets 'ZW' from the database — the same
  * fabrication, moved from the application to the schema, and harder to see. The candidate therefore
- * always carries the key. (20260817160000_issue164_listing_location_provenance.sql drops that
+ * always carries the key. (20260818110000_issue164_listing_location_provenance.sql drops that
  * DEFAULT, but it is authored and UNAPPLIED, so the explicit NULL is what closes this today and
  * remains correct afterwards.)
  */

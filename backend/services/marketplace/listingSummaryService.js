@@ -161,7 +161,7 @@ function toRecordMap(rows, key = 'vin') {
  * this is registered" is the same body contradicting itself.
  *
  * Consequence, stated rather than hidden: `registration_country_source` does not exist on the table
- * until 20260817160000_issue164_listing_location_provenance.sql is applied AND
+ * until 20260818110000_issue164_listing_location_provenance.sql is applied AND
  * LISTING_SELECT_COLUMNS is widened to fetch it, so today this branch never fires and those rows
  * publish `unknown`. `unknown` is the honest reading of a value with no author. `buildShortDescription`
  * already drops the phrase for `unknown`, so the sentence loses the clause rather than gaining a lie.
@@ -306,7 +306,7 @@ function toClaimRow(vehicle = {}) {
  *
  * NOTE FOR THE CONVERGENCE STAGE: `location` reads `listing_city` / `listing_province` /
  * `listing_country` / `listing_location_source` / `listing_location_visibility`, which
- * 20260817160000_issue164_listing_location_provenance.sql adds and which LISTING_SELECT_COLUMNS
+ * 20260818110000_issue164_listing_location_provenance.sql adds and which LISTING_SELECT_COLUMNS
  * therefore does NOT yet fetch — PostgREST fails an entire select on a column the table does not
  * have, so widening this query before the migration is applied would take the public marketplace
  * down. Until then every listing honestly reports its location as `not_recorded`. Add
@@ -828,7 +828,7 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
  *
  *  The listing LOCATION and PROVENANCE columns (LISTING_CLAIM_COLUMNS in
  *  utils/publicVehicleProjection.js) are absent for a mechanical reason, not an oversight: they do
- *  not exist on public.vehicles until 20260817160000_issue164_listing_location_provenance.sql is
+ *  not exist on public.vehicles until 20260818110000_issue164_listing_location_provenance.sql is
  *  applied, and PostgREST fails an entire select when it names a column the table does not have.
  *  Widening this list before the migration lands would 500 every public marketplace read. Add them
  *  in the change that applies the migration — see listingClaimsForVehicle().
@@ -837,7 +837,7 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
  *  even in the authored migration. `currencyClaim()` above gates on it, so today every listing
  *  publishes `currency_state: 'not_recorded'` — the honest reading of a column the DDL filled on
  *  16 of 16 rows. THREE CHANGES OUTSIDE THIS LANE CLOSE IT, and they must land together:
- *    1. 20260817160000_issue164_listing_location_provenance.sql — add `currency_source text` with
+ *    1. 20260818110000_issue164_listing_location_provenance.sql — add `currency_source text` with
  *       the same CLAIM_SOURCES CHECK the other `*_source` columns get. The migration already drops
  *       `currency`'s DEFAULT (it is the sixth entry in `c_defaulted`), so the fabricating half is
  *       handled and only the attesting half is missing.
