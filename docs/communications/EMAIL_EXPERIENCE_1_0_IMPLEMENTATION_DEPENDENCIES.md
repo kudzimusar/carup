@@ -190,9 +190,11 @@ Constraints the renderer and persona layer must honour:
 - no additional personal `@carup.dev` addresses may be fabricated;
 - Kingston Musarurwa is recorded but **not** approved for customer-facing presentation yet.
 
-**`STAFF_ALIAS_ROUTING_PENDING`** — none of the three has a Cloudflare routing rule, and the zone has no
-catch-all, so mail to them is rejected today. They must not be published in any customer-facing surface until
-the rules are created and certified by real send.
+**`INBOUND_ROUTING_CERTIFIED=YES`** (owner physical evidence, 2026-08-18) — all three aliases physically
+deliver to `buynsellpvtltd@gmail.com`, and a negative control to an unmatched `@carup.dev` address was
+rejected, re-proving the catch-all is off. They may now be published as **contact** addresses.
+**`OUTBOUND_SENDING_CONFIGURED=NO`** — they still cannot send, and must never be presented as `From`
+identities.
 
 ### C8. Social links — follow the existing precedent
 

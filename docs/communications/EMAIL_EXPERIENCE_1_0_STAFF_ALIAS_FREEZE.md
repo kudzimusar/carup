@@ -2,7 +2,8 @@
 
 **Status:** OWNER-APPROVED AND AUTHORITATIVE. Frozen 2026-08-18.
 **Programme state:** `EMAIL_EXPERIENCE_X0_COMPLETE_WRITE_LANE_BLOCKED` — documentation only. No infrastructure
-was created, no source mutated, no PR opened.
+was created by me, no source mutated, no PR opened.
+**Routing status:** `INBOUND_ROUTING_CERTIFIED=YES` (owner physical evidence, 2026-08-18) · `OUTBOUND_SENDING_CONFIGURED=NO`
 
 These are **human/staff correspondence aliases**. They are *not* automated Email transport identities and do
 not participate in the Email 1.0 sender-persona system except where explicitly stated below.
@@ -62,48 +63,68 @@ The B2 freeze set `LEADERSHIP_REPLY_TO = info@carup.dev`. That remains authorita
 recorded as **eligible** for leadership email but is **not** the current leadership Reply-To, and switching to
 it requires the separate approval named in constraint 4.
 
-Both are certified-deliverable in principle, but note the difference in evidence: `info@` was **physically
-certified** in Email 1.0 E7 (real send, `delivered`, forwarded to the owner-verified destination), whereas the
-three staff aliases have **no routing rules yet** — see below.
+Both are now physically certified for inbound delivery: `info@` in Email 1.0 E7 (real send, `delivered`), and
+the three staff aliases by owner-confirmed physical arrival on 2026-08-18 — see below. Neither fact changes
+`LEADERSHIP_REPLY_TO`, which stays `info@carup.dev` until separately approved.
 
 ---
 
-## `STAFF_ALIAS_ROUTING_PENDING`
+## `INBOUND_ROUTING_CERTIFIED` — owner physical evidence, 2026-08-18
 
-**None of `kudzie@carup.dev`, `king@carup.dev` or `questions@carup.dev` has a Cloudflare Email Routing rule.**
+**Supersedes the previous `STAFF_ALIAS_ROUTING_PENDING` status.**
 
-Evidence and its limits, stated precisely:
+All three staff aliases are certified for **inbound routing**, on owner-performed physical delivery evidence.
 
-- The last **direct** observation of the zone's routing rules was the Email 1.0 E8 cleanup on 2026-08-17. At
-  that point the rule set was exactly **seven** aliases — `security@`, `privacy@`, `legal@`, `dpo@`,
-  `support@`, `info@`, `press@` — plus one **disabled** catch-all. The temporary
-  `routing-certification@carup.dev` rule had been retired. The three staff aliases were not present.
-- I **cannot re-verify live now**: the Cloudflare credential file `.env.local` was deleted during that same E8
-  cleanup at owner instruction, and no Cloudflare token is available in this environment.
-- The three aliases appear **nowhere** in the repository — no source, doc or config references them.
+| Alias | Destination | Result |
+|---|---|---|
+| `kudzie@carup.dev` | `buynsellpvtltd@gmail.com` | **ARRIVED** |
+| `king@carup.dev` | `buynsellpvtltd@gmail.com` | **ARRIVED** |
+| `questions@carup.dev` | `buynsellpvtltd@gmail.com` | **ARRIVED** |
 
-So this is a strong inference from a dated direct observation, not a live read. If anything changed the zone
-after 2026-08-17, that would not be visible to me.
-
-**No routing rules were created.** Creating them is infrastructure mutation, which the freeze forbids. Three
-rules are required before any of these addresses can receive mail:
+### Negative control
 
 ```text
-kudzie@carup.dev     -> buynsellpvtltd@gmail.com
-king@carup.dev       -> buynsellpvtltd@gmail.com
-questions@carup.dev  -> buynsellpvtltd@gmail.com
+no-such-address-81826@carup.dev   ->   Address not found / delivery failed
 ```
 
-Until they exist, mail to these addresses will be rejected — the zone has **no catch-all**, which Email 1.0
-proved positively with a bounced negative control. That is the correct posture, but it does mean these
-addresses are advertised-but-dead until the rules are created.
+Interpretation: no catch-all delivery occurred; an unmatched `@carup.dev` address is rejected; the
+**catch-all posture remains effectively disabled**. This is the load-bearing half of the evidence — three
+arrivals alone would not have proven the absence of a catch-all.
 
-**Do not publish these addresses in any customer-facing surface until routing is created and certified.**
+### Evidence basis, stated precisely
 
-### Prerequisites when the lane opens
+This certification rests on **owner-performed and owner-confirmed physical observation**, not on
+instrumentation of mine. I created no routing rules and sent no test messages: no Cloudflare credential was
+available, and I stopped rather than mutate (`STAFF_ALIAS_ROUTING_BLOCKED_CREDENTIAL_REQUIRED`).
 
-1. Re-establish Cloudflare credentials (they were deliberately removed).
-2. Create the three routing rules.
-3. Certify by real send, as Email 1.0 did — `delivered` proves the receiving MX accepted; port 25 is blocked
-   from the build host, so an SMTP RCPT probe is not available.
-4. Keep the no-catch-all invariant intact, and re-prove it with a negative control.
+What the owner's evidence proves *better* than a configuration read would: real messages traversed the real MX
+and reached the real destination, and an unmatched address was genuinely rejected. Delivery is the stronger
+proof.
+
+What remains **unverified by me**: the live routing-rule inventory and the state of the seven functional
+aliases. Those were last directly observed at the E8 cleanup on 2026-08-17 (seven enabled rules plus a
+disabled catch-all). The negative control gives good independent evidence that the catch-all is still off, but
+it says nothing about the seven functional rules. Recorded as an observation gap rather than assumed intact.
+
+### What this does and does not authorize
+
+```text
+INBOUND_ROUTING_CERTIFIED   = YES
+OUTBOUND_SENDING_CONFIGURED = NO
+```
+
+**These aliases cannot send mail.** Nothing here configures `From: kudzie@carup.dev`,
+`From: king@carup.dev` or `From: questions@carup.dev`, and no such claim may be made. They remain human
+correspondence addresses, not transport identities.
+
+`LEADERSHIP_REPLY_TO` remains **`info@carup.dev`**, unchanged. The seven functional aliases, the catch-all
+posture, Resend, Brevo, SPF/DKIM/DMARC, DNS/MX and production Communications are all unchanged by this task.
+
+### Now publishable — with one caveat
+
+The previous prohibition ("must not appear in any customer-facing surface until routed and certified") is
+**lifted for inbound use**. These addresses now receive mail and may be published as contact addresses.
+
+They still must not be presented as *sending* identities, and `questions@carup.dev` remains **not** the
+canonical customer-support replacement — support stays `support@carup.dev` and `SUPPORT_URL`.
+

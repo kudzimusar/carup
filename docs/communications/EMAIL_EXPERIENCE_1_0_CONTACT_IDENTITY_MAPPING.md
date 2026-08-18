@@ -24,7 +24,7 @@ destination). They are the canonical functional contacts and are **not** replace
 | `info@carup.dev` | general institutional contact | leadership/lifecycle Reply-To; general |
 | `press@carup.dev` | editorial / media | press surfaces; not routine customer email |
 
-## 2. Staff / human aliases — approved, **routing not yet created**
+## 2. Staff / human aliases — approved and inbound-certified
 
 Human correspondence addresses. **Not** automated transport identities.
 
@@ -40,9 +40,11 @@ Current forward destination for all three: `buynsellpvtltd@gmail.com`.
 > the public `@carup.dev` alias. No template, config, test or document may hardcode a forward destination —
 > the public alias is the stable contract, the destination is not.
 
-**`STAFF_ALIAS_ROUTING_PENDING`** — none of the three has a Cloudflare Email Routing rule. The zone has no
-catch-all (proven by a bounced negative control in Email 1.0), so **mail to these addresses is rejected
-today**. They must not appear in any customer-facing surface until routed and certified by real send.
+**`INBOUND_ROUTING_CERTIFIED=YES`** — owner physical evidence, 2026-08-18. All three aliases deliver to
+`buynsellpvtltd@gmail.com`, and a negative control to `no-such-address-81826@carup.dev` was rejected,
+re-proving the catch-all remains off. They may now be published as **contact** addresses.
+
+**`OUTBOUND_SENDING_CONFIGURED=NO`** — these aliases cannot send. Never present them as `From` identities.
 
 ## 3. Legacy `@carup.co.zw` → `@carup.dev` mapping
 
