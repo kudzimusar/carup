@@ -166,6 +166,26 @@ and those routes must exist before the templates carrying them reach a customer.
 
 `api.carup.dev/privacy-policy|/terms` is **not** canonical for email and remains divergent — separate work.
 
+### C9. Human/staff aliases are NOT transport identities
+
+`EMAIL_EXPERIENCE_1_0_STAFF_ALIAS_FREEZE.md` records three owner-approved human aliases —
+`kudzie@carup.dev` (S.K Musarurwa), `king@carup.dev` (Kingston Musarurwa), `questions@carup.dev` (CarUp Team).
+
+Constraints the renderer and persona layer must honour:
+
+- they never become automated `From` addresses;
+- they do **not** replace the seven certified functional aliases, which remain the targets of the authorized
+  `@carup.co.zw` functional mapping;
+- `LEADERSHIP_REPLY_TO` remains `info@carup.dev`; `kudzie@` is *eligible* but requires separate approval;
+- `questions@` is **not** the support replacement — support stays `support@carup.dev` / `SUPPORT_URL`;
+- forward destinations are operational config and must never be hardcoded anywhere;
+- no additional personal `@carup.dev` addresses may be fabricated;
+- Kingston Musarurwa is recorded but **not** approved for customer-facing presentation yet.
+
+**`STAFF_ALIAS_ROUTING_PENDING`** — none of the three has a Cloudflare routing rule, and the zone has no
+catch-all, so mail to them is rejected today. They must not be published in any customer-facing surface until
+the rules are created and certified by real send.
+
 ### C8. Social links — follow the existing precedent
 
 `navigationManifest.ts:561-565` models all four platforms as `state:'planned'` with no URLs, rendered as an
