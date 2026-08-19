@@ -36,7 +36,8 @@ DECLARE
   v_res public.vehicle_reservations%ROWTYPE;
   v_from text;
   v_role text := lower(coalesce(nullif(btrim(p_actor_role),''),'unknown'));
-  v_is_privileged boolean;
+  v_is_human_privileged boolean;
+  v_is_internal_system boolean;
   v_is_participant boolean;
   v_valid boolean := false;
   v_now timestamptz := clock_timestamp();
@@ -57,7 +58,8 @@ BEGIN
   v_from := v_tx.status;
   IF v_from=p_to_status THEN RETURN v_tx; END IF;
 
-  v_is_privileged := v_role IN ('admin','platform_admin','super_admin','reviewer','system');
+  v_is_human_privileged := v_role IN ('admin','platform_admin','super_admin','reviewer');
+  v_is_internal_system := v_role='system';
   v_is_participant := p_actor_id=v_tx.buyer_id OR p_actor_id=v_tx.seller_id;
 
   -- Structural transition graph. Provider states (funds_held/settled/refunded) never appear as
@@ -85,22 +87,24 @@ BEGIN
       RAISE EXCEPTION 'current transaction gates do not permit initiation' USING ERRCODE='23514';
     END IF;
   ELSIF p_to_status='inspection_pending' THEN
-    IF NOT v_is_privileged THEN
-      RAISE EXCEPTION 'inspection transition requires privileged server/reviewer action' USING ERRCODE='42501';
+    IF NOT (v_is_human_privileged OR v_is_internal_system) THEN
+      RAISE EXCEPTION 'inspection transition requires internal-system or reviewer/admin action' USING ERRCODE='42501';
     END IF;
   ELSIF p_to_status='release_approved' THEN
-    IF NOT v_is_privileged THEN
+    -- Provider/webhook and internal automation are deliberately excluded: this is a CarUp human
+    -- governance decision that must exist before provider settlement can be reconciled.
+    IF NOT v_is_human_privileged THEN
       RAISE EXCEPTION 'release approval requires reviewer/admin action' USING ERRCODE='42501';
     END IF;
     IF p_gate_allowed IS DISTINCT FROM true THEN
       RAISE EXCEPTION 'current transaction gates do not permit release approval' USING ERRCODE='23514';
     END IF;
   ELSIF p_to_status='failed' THEN
-    IF NOT v_is_privileged THEN
-      RAISE EXCEPTION 'failure transition requires system/admin action' USING ERRCODE='42501';
+    IF NOT (v_is_human_privileged OR v_is_internal_system) THEN
+      RAISE EXCEPTION 'failure transition requires internal-system or admin action' USING ERRCODE='42501';
     END IF;
   ELSE
-    IF NOT (v_is_participant OR v_is_privileged) THEN
+    IF NOT (v_is_participant OR v_is_human_privileged) THEN
       RAISE EXCEPTION 'actor is not a transaction participant' USING ERRCODE='42501';
     END IF;
   END IF;
