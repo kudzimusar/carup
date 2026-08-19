@@ -105,10 +105,11 @@ test('Phase 6: release and refund are both DB-claimed before provider money oper
   assert.match(refund, /refund_payment_intent_id/);
 });
 
-test('Phase 6: migrations 1260/1270/1280 preserve recovery while serializing payment operations', () => {
+test('Phase 6: migrations 1260/1270/1280/1290 preserve recovery while serializing payment operations', () => {
   const m1260 = source('../database/migrations/20260819126000_issue164_phase6_payment_operation_hardening.sql');
   const m1270 = source('../database/migrations/20260819127000_issue164_phase6_settlement_recovery.sql');
   const m1280 = source('../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql');
+  const m1290 = source('../database/migrations/20260819129000_issue164_phase6_settlement_recovery_fence.sql');
   for (const name of [
     'safetrade_sandbox_payment_intents',
     'safetrade_sandbox_payment_operations',
@@ -132,6 +133,11 @@ test('Phase 6: migrations 1260/1270/1280 preserve recovery while serializing pay
   assert.match(m1280, /settlement operation claim identity is immutable/);
   assert.match(m1280, /settlement recovery provenance is immutable/);
   assert.match(m1280, /refund operation claim is immutable/);
+
+  assert.match(m1290, /issue164_begin_settlement_recovery_atomic/);
+  assert.match(m1290, /settlement recovery in progress; release retry blocked/);
+  assert.match(m1290, /issue164_sandbox_release_recovery_guard/);
+  assert.match(m1290, /settlement_recovery_fence_closed_at/);
 });
 
 test('Phase 6 mutation M21 — process-local sandbox cannot become persisted Marketplace provider authority again', () => {
@@ -241,8 +247,8 @@ test('Phase 6 mutation M27 — terminal operation-claim provenance cannot become
     && /refund operation claim is immutable/.test(sql);
   assert.equal(safe(clean), true);
   const mutant = clean
-    .replace('settlement operation claim identity is immutable', 'settlement operation claim may mutate')
-    .replace('refund operation claim is immutable', 'refund operation claim may mutate');
+    .replaceAll('settlement operation claim identity is immutable', 'settlement operation claim may mutate')
+    .replaceAll('refund operation claim is immutable', 'refund operation claim may mutate');
   assert.notEqual(mutant, clean, 'M27 mutation did not match');
   assert.equal(safe(mutant), false, 'M27 mutant survived: terminal claim provenance mutability was not detected');
 });
@@ -259,4 +265,19 @@ test('Phase 6 mutation M28 — refund can resume only after provider-confirmed r
   );
   assert.notEqual(mutant, clean, 'M28 mutation did not match');
   assert.equal(safe(mutant), false, 'M28 mutant survived: refund reopened without confirmed recovery');
+});
+
+test('Phase 6 mutation M29 — settlement recovery fence must block both release retry and sandbox provider release', () => {
+  const clean = source('../database/migrations/20260819129000_issue164_phase6_settlement_recovery_fence.sql');
+  const safe = (sql) => /issue164_begin_settlement_recovery_atomic/.test(sql)
+    && /settlement recovery in progress; release retry blocked/.test(sql)
+    && /issue164_sandbox_release_recovery_guard/.test(sql)
+    && /settlement recovery in progress; sandbox release blocked/.test(sql)
+    && /settlement_recovery_fence_closed_at/.test(sql);
+  assert.equal(safe(clean), true);
+  const mutant = clean
+    .replaceAll('settlement recovery in progress; release retry blocked', 'release retry allowed during recovery')
+    .replaceAll('settlement recovery in progress; sandbox release blocked', 'sandbox release allowed during recovery');
+  assert.notEqual(mutant, clean, 'M29 mutation did not match');
+  assert.equal(safe(mutant), false, 'M29 mutant survived: recovery/release serialization was not detected');
 });
