@@ -184,15 +184,11 @@ test('Phase 6 mutation M7 — browser duration/customer identity authority is de
   kill('M7b', safeApplicant, financeMutant);
 });
 
-test('Phase 6 mutation M8 — intermediate authenticated transaction grant is detected', () => {
+test('Phase 6 mutation M8 — intermediate browser grant on any transaction/audit table is detected', () => {
   const migration = source('../database/migrations/20260819100000_issue164_phase6_transaction_terms.sql');
-  const noDirectGrant = (sql) => !/GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE|ALL)[^;]*escrow_trust_sessions[^;]*authenticated/is.test(sql);
+  const noDirectGrant = (sql) => !/GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE|ALL)[^;]*(?:escrow_trust_sessions|escrow_trust_events|escrow_trust_webhook_events)[^;]*\b(?:anon|authenticated)\b/is.test(sql);
   assert.equal(noDirectGrant(migration), true);
-  const mutant = migration.replace(
-    'REVOKE ALL ON TABLE public.escrow_trust_sessions FROM anon, authenticated;',
-    'GRANT SELECT ON TABLE public.escrow_trust_sessions TO authenticated;\nREVOKE ALL ON TABLE public.escrow_trust_sessions FROM anon;',
-  );
-  assert.notEqual(mutant, migration, 'M8 mutation did not match');
+  const mutant = `${migration}\nGRANT SELECT ON TABLE public.escrow_trust_events TO authenticated;\n`;
   kill('M8', noDirectGrant, mutant);
 });
 
@@ -246,4 +242,27 @@ test('Phase 6 mutation M11 — lender gate cannot accept browser dealer-suspensi
   );
   assert.notEqual(mutant, block, 'M11 mutation did not match');
   kill('M11', safeGate, mutant);
+});
+
+test('Phase 6 mutation M12 — reserve RPC cannot expire a payment-linked hold by clock alone', () => {
+  const migration = source('../database/migrations/20260819110000_issue164_phase6_atomic_reservations.sql');
+  const preservesLinkedHold = (sql) => /payment_intent_id/.test(sql)
+    && /IF NOT v_existing_payment_linked THEN/.test(sql);
+  assert.equal(preservesLinkedHold(migration), true);
+  const mutant = migration.replace('IF NOT v_existing_payment_linked THEN', 'IF true THEN');
+  assert.notEqual(mutant, migration, 'M12 mutation did not match');
+  kill('M12', preservesLinkedHold, mutant);
+});
+
+test('Phase 6 mutation M13 — provider reconciliation cannot reject capture/release solely on elapsed clock', () => {
+  const migration = source('../database/migrations/20260819125000_issue164_phase6_provider_reconciliation_hardening.sql');
+  const start = migration.indexOf("IF v_next_status IN ('funds_held','settled') THEN");
+  const end = migration.indexOf('END IF;', start) + 'END IF;'.length;
+  const block = migration.slice(start, end);
+  const permitsLateProviderTruth = (text) => /v_res\.id IS NULL/.test(text) && !/expires_at/.test(text);
+  assert.ok(start >= 0 && end > start);
+  assert.equal(permitsLateProviderTruth(block), true);
+  const mutant = block.replace('IF v_res.id IS NULL THEN', 'IF v_res.id IS NULL OR v_res.expires_at<=v_now THEN');
+  assert.notEqual(mutant, block, 'M13 mutation did not match');
+  kill('M13', permitsLateProviderTruth, mutant);
 });
