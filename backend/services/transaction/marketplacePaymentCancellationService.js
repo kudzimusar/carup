@@ -1,12 +1,10 @@
 import { supabase } from '../../db/supabase.js';
 import { ConflictError, ValidationError } from '../../utils/errors.js';
 import { getSession } from '../escrow/escrowTrustService.js';
-import {
-  SAFETRADE_PROVIDER_STATES,
-  selectPaymentProvider,
-} from '../diaspora/safetrade/safeTradePaymentProvider.js';
+import { SAFETRADE_PROVIDER_STATES } from '../diaspora/safetrade/safeTradePaymentProvider.js';
 import { assertPaymentProviderCapability } from '../diaspora/safetrade/safeTradePaymentCapabilities.js';
 import { reconcileMarketplacePayment } from './marketplacePaymentService.js';
+import { selectMarketplacePaymentProvider } from './marketplacePaymentProviderSelector.js';
 
 function requireCancelCapability(provider, session) {
   try {
@@ -41,7 +39,7 @@ export async function cancelMarketplacePayment(sessionId, {
     throw new ConflictError(`Provider-linked transaction cannot be cancelled from ${session.status}.`);
   }
 
-  const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider) {
     throw new ConflictError('Selected provider does not match the transaction payment intent.');
   }
