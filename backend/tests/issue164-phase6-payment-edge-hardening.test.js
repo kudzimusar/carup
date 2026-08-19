@@ -63,7 +63,7 @@ test('Phase 6: shipped router exposes a buyer-owned sandbox capture action only 
   );
   assert.match(block, /isMarketplaceSandboxRuntimeAllowed\(process\.env\)/);
   assert.match(block, /SANDBOX_UAT_ACTION_UNAVAILABLE/);
-  assert.match(block, /captureMarketplaceSandboxDeposit/);
+  assert.match(block, /captureMarketplaceSandboxDeposit\(req\.params\.id, \{ actor \}\)/);
   assert.match(block, /current\.buyer_id !== actor\.id/);
   assert.equal(/req\.body/.test(block), false, 'sandbox action must not accept provider state from browser payload');
 });
@@ -121,9 +121,17 @@ test('Phase 6 mutation M19 — process-local sandbox cannot become persisted Mar
 
 test('Phase 6 mutation M20 — sandbox intent must have a governed HTTP advancement path', () => {
   const clean = source('routes/escrowTrustRoutes.js');
-  const safe = (text) => text.includes("router.post('/api/escrow/:id/sandbox/capture'")
-    && /isMarketplaceSandboxRuntimeAllowed\(process\.env\)/.test(text)
-    && /captureMarketplaceSandboxDeposit/.test(text);
+  const route = (text) => blockBetween(
+    text,
+    "router.post('/api/escrow/:id/sandbox/capture'",
+    "router.post('/api/escrow/:id/payment/reconcile'",
+  );
+  const safe = (text) => {
+    const block = route(text);
+    return /isMarketplaceSandboxRuntimeAllowed\(process\.env\)/.test(block)
+      && /captureMarketplaceSandboxDeposit\(req\.params\.id, \{ actor \}\)/.test(block)
+      && /current\.buyer_id !== actor\.id/.test(block);
+  };
   assert.equal(safe(clean), true);
   const mutant = clean.replace(
     'return res.json(await captureMarketplaceSandboxDeposit(req.params.id, { actor }));',
