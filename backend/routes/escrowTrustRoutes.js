@@ -26,6 +26,7 @@ import {
   refundMarketplacePayment,
 } from '../services/transaction/marketplacePaymentService.js';
 import { cancelMarketplacePayment } from '../services/transaction/marketplacePaymentCancellationService.js';
+import { recoverMarketplaceSettlement } from '../services/transaction/marketplaceSettlementRecoveryService.js';
 import { isMarketplaceSandboxRuntimeAllowed } from '../services/transaction/marketplacePaymentProviderSelector.js';
 
 const router = express.Router();
@@ -199,6 +200,10 @@ router.post('/api/escrow/:id/payment/reconcile', authorizeRole(['buyer', 'owner'
 });
 router.post('/api/escrow/:id/release', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
   try { return res.json(await releaseMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
+  catch (err) { return next(err); }
+});
+router.post('/api/escrow/:id/release/recover', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
+  try { return res.json(await recoverMarketplaceSettlement(req.params.id, { actor: actorFrom(req) })); }
   catch (err) { return next(err); }
 });
 router.post('/api/escrow/:id/refund', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
