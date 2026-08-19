@@ -21,6 +21,10 @@ import {
   FINANCE_WEBHOOK_PROVIDER_ID,
 } from '../services/finance/lenderWorkflow.js';
 import { getTrustDecision } from '../services/trustDecision/trustDecisionService.js';
+import {
+  loadMarketplaceTransactionVehicle,
+  resolveMarketplaceSellerSuspension,
+} from '../services/transaction/marketplaceTransactionAuthority.js';
 
 const router = express.Router();
 
@@ -39,20 +43,35 @@ async function ownsVehicleOrPrivileged(req) {
   return !!data && data.owner_id === userId;
 }
 
-// Derive gate inputs from the unified trust decision (fail-closed if it can't be computed).
-async function gateContextFor(vin, body = {}) {
+// Derive ALL gate inputs from server-owned canonical facts. Missing seller/dealer posture remains
+// unknown and eligibilityContract routes it to manual review; the browser cannot assert that a
+// seller/dealer is clear merely by omitting or forging a request field.
+async function gateContextFor(vin) {
   try {
-    const d = await getTrustDecision(vin);
+    const [d, vehicle] = await Promise.all([
+      getTrustDecision(vin),
+      loadMarketplaceTransactionVehicle(vin),
+    ]);
+    const dealerSuspended = await resolveMarketplaceSellerSuspension(vehicle);
     return {
       identity_status: d.dimensions.identity.status,
-      fraud_block: d.dimensions.fraud_risk.status === 'high',
+      fraud_block: d.dimensions.fraud_risk.status === 'high'
+        ? true
+        : d.dimensions.fraud_risk.status === 'clear' ? false : null,
       publication_status: d.dimensions.publication_eligibility.value,
-      dealer_suspended: body?.dealer_suspended === true,
-      source_coverage_connected: d.dimensions.source_coverage.connected ?? 0,
+      dealer_suspended: dealerSuspended,
+      source_coverage_connected: d.dimensions.source_coverage.connected ?? null,
       min_source_coverage: 0,
     };
   } catch {
-    return { identity_status: 'incomplete' };
+    return {
+      identity_status: 'incomplete',
+      fraud_block: null,
+      publication_status: null,
+      dealer_suspended: null,
+      source_coverage_connected: null,
+      min_source_coverage: 0,
+    };
   }
 }
 
@@ -74,7 +93,7 @@ router.post('/api/vehicles/:vin/finance/lender/eligibility',
   authorizeRole(['owner', 'dealer', 'admin']),
   asyncHandler(async (req, res) => {
     try {
-      const gateContext = await gateContextFor(req.params.vin, req.body);
+      const gateContext = await gateContextFor(req.params.vin);
       const out = await requestLenderEligibility(req.params.vin, {
         applicantConsentRef: req.body?.consent_ref || req.headers['x-consent-ref'],
         gateContext,
