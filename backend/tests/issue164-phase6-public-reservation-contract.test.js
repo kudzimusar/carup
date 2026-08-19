@@ -66,4 +66,10 @@ test('Phase 6 detail requires reservation envelope and transaction readiness dec
 test('Phase 6 base summary keeps reservation overlay optional because pure summary builder does not load it', () => {
   const summary = interfaceBody(sharedIndex, 'MarketplaceListingSummary');
   assert.match(summary, /reservation_summary\?:\s*MarketplaceReservationSummary/);
+  assert.match(summary, /status:\s*string\s*\|\s*null/);
+});
+
+test('Phase 6 mobile summary also permits unknown lifecycle when reservation authority is unresolved', () => {
+  const summary = interfaceBody(mobileMarketplace, 'MobileListingSummary');
+  assert.match(summary, /status:\s*string\s*\|\s*null/);
 });
