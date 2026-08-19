@@ -24,6 +24,7 @@ import {
   releaseMarketplacePayment,
   refundMarketplacePayment,
 } from '../services/transaction/marketplacePaymentService.js';
+import { cancelMarketplacePayment } from '../services/transaction/marketplacePaymentCancellationService.js';
 
 const router = express.Router();
 
@@ -112,8 +113,29 @@ async function performParticipantAction(req, res, next, toStatus, { recheck = fa
 
 router.post('/api/escrow/:id/initiate', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), (req, res, next) =>
   performParticipantAction(req, res, next, 'initiated', { recheck: true }));
-router.post('/api/escrow/:id/cancel', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (req, res, next) =>
-  performParticipantAction(req, res, next, 'cancelled'));
+
+/**
+ * Cancellation has two authorities depending on whether provider state exists:
+ * - pre-payment: CarUp can atomically cancel the transaction/reservation itself;
+ * - provider-linked: CarUp asks the already-bound PaymentProvider to cancel, then reconciles the
+ *   provider-confirmed `cancelled` result. A browser never submits `to_status`, provider, or intent.
+ */
+router.post('/api/escrow/:id/cancel', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
+  try {
+    const { actor, current } = await loadAuthorizedSession(req);
+    if (!current) return res.status(404).json({ error: 'escrow session not found' });
+    if (current.payment_intent_id) {
+      const result = await cancelMarketplacePayment(req.params.id, { actor });
+      const refreshed = await getSession(req.params.id, actor);
+      return res.json({
+        session: refreshed ? toPublicMarketplaceEscrowSession(refreshed) : null,
+        payment: result,
+      });
+    }
+    return performParticipantAction(req, res, next, 'cancelled');
+  } catch (err) { return next(err); }
+});
+
 router.post('/api/escrow/:id/dispute', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (req, res, next) =>
   performParticipantAction(req, res, next, 'disputed'));
 router.post('/api/escrow/:id/inspection/start', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
