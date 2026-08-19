@@ -93,13 +93,19 @@ router.get('/api/escrow/:id', authorizeRole(['buyer', 'owner', 'dealer', 'admin'
   } catch (err) { return next(err); }
 });
 
-async function performParticipantAction(req, res, next, toStatus, { recheck = false } = {}) {
+async function performParticipantAction(req, res, next, toStatus, {
+  recheck = false,
+  requireActorParticipant = true,
+} = {}) {
   try {
     const { actor, current } = await loadAuthorizedSession(req);
     if (!current) return res.status(404).json({ error: 'escrow session not found' });
     let gateContext;
     if (recheck) {
-      const recomputed = await recomputeMarketplaceEscrowGateContext(current, { actor });
+      const recomputed = await recomputeMarketplaceEscrowGateContext(current, {
+        actor,
+        requireActorParticipant,
+      });
       gateContext = recomputed.gateContext;
     }
     const session = await transitionEscrow(req.params.id, toStatus, {
@@ -141,7 +147,10 @@ router.post('/api/escrow/:id/dispute', authorizeRole(['buyer', 'owner', 'dealer'
 router.post('/api/escrow/:id/inspection/start', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
   performParticipantAction(req, res, next, 'inspection_pending'));
 router.post('/api/escrow/:id/release/approve', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
-  performParticipantAction(req, res, next, 'release_approved', { recheck: true }));
+  performParticipantAction(req, res, next, 'release_approved', {
+    recheck: true,
+    requireActorParticipant: false,
+  }));
 
 router.post('/api/escrow/:id/deposit/eligibility', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
   try { return res.json(await evaluateMarketplaceDepositEligibility(req.params.id, { actor: actorFrom(req) })); }
