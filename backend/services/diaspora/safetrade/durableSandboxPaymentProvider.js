@@ -105,6 +105,25 @@ export class DurableSandboxPaymentProvider extends PaymentProvider {
   }
 
   /**
+   * Strong negative settlement confirmation for the synthetic provider.
+   *
+   * This is deliberately stronger than a generic `retrieveStatus` call. Because the sandbox's
+   * provider state is one PostgreSQL row updated atomically, `captured` is definitive evidence that
+   * no release operation has committed for this intent. Other adapters must implement their own
+   * equally strong provider-specific confirmation before CarUp may recover a settlement claim.
+   */
+  async confirmNotReleased({ intentId } = {}) {
+    const state = await this.retrieveStatus({ intentId });
+    const status = String(state?.status || 'unknown').toLowerCase();
+    return {
+      confirmed: status === 'captured',
+      status,
+      confirmationRef: `sandbox-ledger:${intentId}:${status}`,
+      live: false,
+    };
+  }
+
+  /**
    * The synthetic adapter has no external callback transport. A caller must never mistake an
    * unsigned local request for provider truth merely because this adapter is durable.
    */
