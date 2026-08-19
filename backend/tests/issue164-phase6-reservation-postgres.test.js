@@ -39,8 +39,8 @@ async function setup() {
     );
     GRANT ALL ON users,vehicles,marketplace_inquiries,escrow_trust_sessions,domain_events TO service_role;
     INSERT INTO users(id) VALUES ('buyer-a'),('buyer-b'),('seller-a');
-    INSERT INTO vehicles(vin,owner_id,tenant_id,status,publication_status,price,currency,currency_source)
-      VALUES ('VIN-P6-ATOMIC-001','seller-a','tenant-a','Available','published',12500,'USD','seller');
+    INSERT INTO vehicles(vin,owner_id,current_seller_id,tenant_id,status,publication_status,price,currency,currency_source)
+      VALUES ('VIN-P6-ATOMIC-001','historical-owner','seller-a','tenant-a','Available','published',12500,'USD','seller');
     INSERT INTO marketplace_inquiries(id,listing_id,buyer_id,seller_id,inquiry_type,status,risk_status,created_at) VALUES
       ('11111111-1111-4111-8111-111111111111','VIN-P6-ATOMIC-001','buyer-a','seller-a','vehicle_purchase_interest','new','clear',now()),
       ('22222222-2222-4222-8222-222222222222','VIN-P6-ATOMIC-001','buyer-b','seller-a','vehicle_purchase_interest','new','clear',now());
@@ -99,12 +99,20 @@ test('Phase 6 reservation migration proves atomic authority on real PostgreSQL',
     // Direct browser-role writes are denied; service RPC remains the only writer.
     await assert.rejects(async () => {
       await db.exec('SET ROLE authenticated');
-      try { await db.exec(`INSERT INTO vehicle_reservations(vin,transaction_intent_id,inquiry_id,buyer_id,seller_id,expires_at,idempotency_key) VALUES ('VIN-P6-ATOMIC-001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','buyer-a','seller-a',now()+interval '1 day','direct-write')`); }
-      finally { await db.exec('RESET ROLE'); }
+      try {
+        await db.exec(`INSERT INTO vehicle_reservations(vin,transaction_intent_id,inquiry_id,buyer_id,seller_id,expires_at,idempotency_key) VALUES ('VIN-P6-ATOMIC-001','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','buyer-a','seller-a',now()+interval '1 day','direct-write')`);
+      } finally { await db.exec('RESET ROLE'); }
     });
 
-    // Expiry rollover clears the old cache and creates a new canonical hold without tripping the legacy guard.
+    // Expiry rollover is permitted only while the transaction/listing lineage is still identical.
     await db.exec(`UPDATE vehicle_reservations SET reserved_at=now()-interval '8 days',expires_at=now()-interval '1 day' WHERE id='${first.reservation_id}'`);
+    await db.exec(`UPDATE vehicles SET current_seller_id='seller-changed' WHERE vin='VIN-P6-ATOMIC-001'`);
+    await assert.rejects(
+      () => reserve(db, txA, 'buyer-a', 'reserve-stale-seller'),
+      /seller changed|lineage/i,
+    );
+    await db.exec(`UPDATE vehicles SET current_seller_id='seller-a' WHERE vin='VIN-P6-ATOMIC-001'`);
+
     const rolled = await reserve(db, txA, 'buyer-a', 'reserve-after-expiry');
     assert.notEqual(rolled.reservation_id, first.reservation_id);
     const old = await db.query(`SELECT status FROM vehicle_reservations WHERE id=$1`, [first.reservation_id]);
@@ -117,12 +125,15 @@ test('Phase 6 reservation migration proves atomic authority on real PostgreSQL',
 test('Phase 6 reservation concurrent calls converge to one active row', async () => {
   const db = await setup();
   try {
-    const tx='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    const [a,b]=await Promise.all([reserve(db,tx,'buyer-a','parallel-a'),reserve(db,tx,'buyer-a','parallel-b')]);
-    assert.equal(a.reservation_id,b.reservation_id);
-    const active=await db.query(`SELECT count(*)::int AS c FROM vehicle_reservations WHERE vin='VIN-P6-ATOMIC-001' AND status='active'`);
-    assert.equal(active.rows[0].c,1);
-    const events=await db.query(`SELECT count(*)::int AS c FROM domain_events WHERE event_type='VEHICLE_RESERVED'`);
-    assert.equal(events.rows[0].c,1);
+    const tx = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const [a, b] = await Promise.all([
+      reserve(db, tx, 'buyer-a', 'parallel-a'),
+      reserve(db, tx, 'buyer-a', 'parallel-b'),
+    ]);
+    assert.equal(a.reservation_id, b.reservation_id);
+    const active = await db.query(`SELECT count(*)::int AS c FROM vehicle_reservations WHERE vin='VIN-P6-ATOMIC-001' AND status='active'`);
+    assert.equal(active.rows[0].c, 1);
+    const events = await db.query(`SELECT count(*)::int AS c FROM domain_events WHERE event_type='VEHICLE_RESERVED'`);
+    assert.equal(events.rows[0].c, 1);
   } finally { await db.close(); }
 });
