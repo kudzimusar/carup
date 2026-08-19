@@ -10,17 +10,17 @@ const { canActorTransition } = await import('../services/escrow/escrowTrustServi
 const session = { buyer_id: 'buyer-1', seller_id: 'seller-1', status: 'initiated' };
 
 for (const state of ['funds_held', 'settled', 'refunded', 'funded_sandbox', 'released_sandbox', 'refunded_sandbox']) {
-  test(`Phase 6: ${state} is provider/system truth even against privileged human roles`, () => {
+  test(`Phase 6: ${state} is provider truth even against privileged/internal actors`, () => {
     assert.equal(canActorTransition(session, state, { id: 'admin-1', role: 'admin' }), false);
     assert.equal(canActorTransition(session, state, { id: 'reviewer-1', role: 'reviewer' }), false);
     assert.equal(canActorTransition(session, state, { id: 'buyer-1', role: 'buyer' }), false);
+    assert.equal(canActorTransition(session, state, { id: 'system', role: 'system' }), false);
     assert.equal(canActorTransition(session, state, { id: 'provider', role: 'provider' }), true);
     assert.equal(canActorTransition(session, state, { id: 'webhook', role: 'webhook' }), true);
-    assert.equal(canActorTransition(session, state, { id: 'system', role: 'system' }), true);
   });
 }
 
-test('Phase 6: release approval is CarUp governance and cannot be asserted by provider/webhook', () => {
+test('Phase 6: release approval is CarUp governance and cannot be asserted by provider/webhook/system', () => {
   assert.equal(canActorTransition(session, 'release_approved', { id: 'reviewer-1', role: 'reviewer' }), true);
   assert.equal(canActorTransition(session, 'release_approved', { id: 'admin-1', role: 'admin' }), true);
   assert.equal(canActorTransition(session, 'release_approved', { id: 'webhook', role: 'webhook' }), false);
