@@ -41,6 +41,7 @@ DECLARE
   v_inquiry public.marketplace_inquiries%ROWTYPE;
   v_existing public.escrow_trust_sessions%ROWTYPE;
   v_created public.escrow_trust_sessions%ROWTYPE;
+  v_from_status text;
   v_next_status text := CASE WHEN p_gate_allowed IS TRUE THEN 'eligible' ELSE 'failed' END;
   v_now timestamptz := clock_timestamp();
 BEGIN
@@ -57,6 +58,9 @@ BEGIN
   END IF;
   IF p_buyer_id=p_seller_id THEN
     RAISE EXCEPTION 'buyer and seller must be distinct' USING ERRCODE='23514';
+  END IF;
+  IF jsonb_typeof(coalesce(p_gate_reasons,'[]'::jsonb))<>'array' THEN
+    RAISE EXCEPTION 'gate reasons must be a JSON array' USING ERRCODE='22023';
   END IF;
 
   SELECT * INTO v_vehicle
@@ -125,6 +129,9 @@ BEGIN
          v_existing.status IS DISTINCT FROM v_next_status
          OR coalesce(v_existing.gate_reasons,'[]'::jsonb) IS DISTINCT FROM coalesce(p_gate_reasons,'[]'::jsonb)
        ) THEN
+      -- Capture the actual previous state BEFORE the row is mutated. Gate reasons can change while
+      -- status remains the same; deriving a synthetic opposite state would fabricate audit history.
+      v_from_status := v_existing.status;
       UPDATE public.escrow_trust_sessions
          SET status=v_next_status,
              gate_reasons=coalesce(p_gate_reasons,'[]'::jsonb),
@@ -136,7 +143,7 @@ BEGIN
         session_id,from_status,to_status,actor_id,actor_role,reason,payload,created_at
       ) VALUES(
         v_existing.id,
-        CASE WHEN v_next_status='eligible' THEN 'failed' ELSE 'eligible' END,
+        v_from_status,
         v_next_status,
         p_buyer_id,'buyer','eligibility_re_evaluated',
         jsonb_build_object('gate_reasons',coalesce(p_gate_reasons,'[]'::jsonb)),v_now
