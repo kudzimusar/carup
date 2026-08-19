@@ -11,6 +11,7 @@ import {
   transitionEscrow,
   ingestEscrowWebhook,
 } from '../services/escrow/escrowTrustService.js';
+import { reserveVehicle } from '../services/reservation/reservationService.js';
 import {
   recomputeMarketplaceEscrowGateContext,
   requestMarketplaceEscrow,
@@ -38,6 +39,22 @@ async function loadAuthorizedSession(req) {
   const current = await getSession(req.params.id, actor);
   return { actor, current };
 }
+
+/**
+ * Compatibility URL, canonical authority.
+ *
+ * Older web builds send `{ duration: 7 }`; this handler deliberately never reads req.body. The
+ * reservation duration, seller, inquiry, Trust eligibility and transaction economics are all
+ * resolved by reservationService + the atomic PostgreSQL RPC. Because escrowTrustRouter is mounted
+ * before server.js's historical inline handler, this route terminates the request first and the
+ * authority-shaped legacy payload cannot reach a writer.
+ */
+router.post('/api/vehicles/:vin/reserve', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
+  try {
+    const result = await reserveVehicle(req.params.vin, actorFrom(req).id);
+    return res.status(result.idempotentReplay ? 200 : 201).json(result);
+  } catch (err) { return next(err); }
+});
 
 router.post('/api/vehicles/:vin/escrow', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
   try {
