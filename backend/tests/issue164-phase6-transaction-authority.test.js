@@ -84,7 +84,7 @@ test('Phase 6: only the current clear purchase inquiry binds buyer seller listin
   );
 });
 
-test('Phase 6: listing snapshot changes when mutable transaction truth changes', () => {
+test('Phase 6: listing snapshot changes only with seller/listing truth, not transaction-owned cache state', () => {
   const terms = tx.resolveMarketplaceListingTerms(LISTING);
   const a = tx.buildMarketplaceListingSnapshot(LISTING, 'seller-current', terms);
   assert.notEqual(
@@ -104,6 +104,52 @@ test('Phase 6: listing snapshot changes when mutable transaction truth changes',
       terms,
     ),
   );
+
+  // Reservation is an effect of this transaction, not a seller edit to the listing. The cache may
+  // change Available -> Reserved and bump broad updated_at without invalidating the transaction's
+  // own immutable listing snapshot.
+  assert.equal(
+    a,
+    tx.buildMarketplaceListingSnapshot(
+      { ...LISTING, status: 'Reserved', updated_at: '2026-08-19T01:00:00.000Z' },
+      'seller-current',
+      terms,
+    ),
+  );
+});
+
+test('Phase 6: participant actions and reviewer governance use distinct actor authority over the same lineage', () => {
+  const common = {
+    inquiryCurrent: true,
+    buyerId: 'buyer-1',
+    sellerId: 'seller-current',
+  };
+  assert.equal(tx.resolveMarketplaceParticipantAuthorization({
+    ...common,
+    actorId: 'buyer-1',
+  }), true);
+  assert.equal(tx.resolveMarketplaceParticipantAuthorization({
+    ...common,
+    actorId: 'reviewer-1',
+  }), false);
+  assert.equal(tx.resolveMarketplaceParticipantAuthorization({
+    ...common,
+    actorId: 'reviewer-1',
+    requireActorParticipant: false,
+  }), true);
+  assert.equal(tx.resolveMarketplaceParticipantAuthorization({
+    ...common,
+    inquiryCurrent: false,
+    actorId: 'reviewer-1',
+    requireActorParticipant: false,
+  }), false);
+  assert.equal(tx.resolveMarketplaceParticipantAuthorization({
+    inquiryCurrent: true,
+    buyerId: 'buyer-1',
+    sellerId: null,
+    actorId: 'reviewer-1',
+    requireActorParticipant: false,
+  }), false);
 });
 
 test('Phase 6: transaction idempotency is stable across gate re-evaluation but truth-sensitive', () => {
@@ -216,6 +262,17 @@ test('Phase 6: legacy reserve URL terminates in canonical router without reading
   assert.match(block, /reserveVehicle\(req\.params\.vin, actorFrom\(req\)\.id\)/);
   assert.equal(/req\.body/.test(block), false);
   assert.equal(/duration/.test(block.replace(/\/\*[\s\S]*?\*\//g, '')), false);
+});
+
+test('Phase 6: release approval route explicitly uses governance lineage mode', () => {
+  const source = fs.readFileSync(new URL('../routes/escrowTrustRoutes.js', import.meta.url), 'utf8');
+  const a = source.indexOf("router.post('/api/escrow/:id/release/approve'");
+  const b = source.indexOf("router.post('/api/escrow/:id/deposit/eligibility'", a);
+  const block = source.slice(a, b);
+  assert.ok(a >= 0 && b > a);
+  assert.match(block, /release_approved/);
+  assert.match(block, /recheck:\s*true/);
+  assert.match(block, /requireActorParticipant:\s*false/);
 });
 
 test('Phase 6: direct generic status transition is disabled; named actions own state requests', () => {
