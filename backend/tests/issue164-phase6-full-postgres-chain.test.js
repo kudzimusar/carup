@@ -19,6 +19,7 @@ const MIGRATIONS = [
   '../../database/migrations/20260819124000_issue164_phase6_reservation_expiry_reconciliation.sql',
   '../../database/migrations/20260819125000_issue164_phase6_provider_reconciliation_hardening.sql',
   '../../database/migrations/20260819126000_issue164_phase6_payment_operation_hardening.sql',
+  '../../database/migrations/20260819127000_issue164_phase6_payment_race_recovery.sql',
 ];
 
 async function setup() {
@@ -269,7 +270,6 @@ async function claimSettlement(db, transactionId, key = 'payment-key:release') {
 test('Phase 6 full migration chain is order-safe and server-authoritative on PostgreSQL', async () => {
   const db = await setup();
   try {
-    // The FIRST Phase 6 migration must already have removed legacy direct access.
     const grants = await db.query(`
       SELECT grantee,privilege_type
         FROM information_schema.role_table_grants
@@ -298,8 +298,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     assert.equal(created.status, 'eligible');
     const txId = created.id;
 
-    // Same-state re-evaluation with changed reasons records the TRUE prior state, not a fabricated
-    // opposite state.
     await intent(db, { allowed: true, reasons: ['advisory-changed'] });
     const reeval = await db.query(`
       SELECT from_status,to_status,reason
@@ -318,8 +316,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
 
     await deposit(db, txId);
 
-    // The synthetic provider has its OWN durable state in PostgreSQL. Create/replay survives process
-    // boundaries because no JavaScript Map owns the canonical sandbox intent anymore.
     const sandboxIntent = await sandboxAction(db, 'create', {
       transactionId: txId,
       key: 'payment-key',
@@ -356,7 +352,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     assert.equal(linkAudit.rows[0].from_status, 'eligible');
     assert.equal(linkAudit.rows[0].to_status, 'initiated');
 
-    // A reservation clock expiring after provider linkage must NOT expose the car as available.
     await db.exec(`UPDATE vehicle_reservations SET expires_at=now()-interval '1 minute' WHERE id='${held.reservation_id}'`);
     await assert.rejects(() => deposit(db, txId), /linked payment intent; provider reconciliation required/);
     const stillHeld = await db.query(`SELECT status FROM vehicle_reservations WHERE id=$1`, [held.reservation_id]);
@@ -365,7 +360,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     assert.equal(stillReserved.rows[0].status, 'Reserved');
     assert.equal(stillReserved.rows[0].active_reservation_id, held.reservation_id);
 
-    // The durable provider can be advanced by a later request/worker after its create request ended.
     const authorized = await sandboxAction(db, 'authorize', {
       intentId: sandboxIntent.intentId,
       key: 'payment-key:authorize',
@@ -381,8 +375,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     assert.equal(retrieved.status, 'captured');
     assert.equal(Number(retrieved.capturedAmount), 500);
 
-    // Provider truth reconciles even after the reservation availability clock elapsed, provided the
-    // canonical payment-linked reservation remains active.
     const captured = await provider(db, txId, sandboxIntent.intentId, 'captured', 'capture');
     assert.equal(captured.status, 'funds_held');
     const captureAudit = await db.query(`
@@ -407,8 +399,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     assert.equal(claim.settlement_seller_id, 'seller-a');
     assert.equal(claim.settlement_payment_intent_id, sandboxIntent.intentId);
 
-    // Once payout is claimed, a human dispute cannot race provider release and make CarUp refuse to
-    // record money that was already authorized for payout.
     await assert.rejects(
       () => action(db, txId, 'disputed', 'buyer-a', 'buyer'),
       /settlement operation already claimed; provider reconciliation required/,
@@ -420,9 +410,6 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     });
     assert.equal(providerReleased.status, 'released');
 
-    // Simulate a mutable seller record racing AFTER the DB settlement claim and provider call. The
-    // release must still be durably reconciled from the already-attributable claim; payment truth
-    // must not disappear because mutable vehicle state moved after payout authorization.
     await db.exec(`UPDATE vehicles SET current_seller_id='seller-after-claim' WHERE vin='VIN-P6-FULL-00001'`);
     const settled = await provider(db, txId, sandboxIntent.intentId, 'released', 'release');
     assert.equal(settled.status, 'settled');
