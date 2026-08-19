@@ -77,6 +77,28 @@ export type MarketplacePrimaryImageState =
   | 'none'
   | 'not_loaded';
 
+/**
+ * Issue #164 Phase 6 — the public reservation vocabulary.
+ *
+ * `vehicle_reservations` is authoritative; `vehicles.status='Reserved'` is only a cache. The
+ * envelope deliberately carries no reservation id, transaction id, buyer/seller id or provider
+ * information. `reserved:null` means CarUp could not safely decide, not false.
+ */
+export type MarketplaceReservationState =
+  | 'active'
+  | 'expired'
+  | 'none'
+  | 'unavailable'
+  | 'inconsistent';
+
+export interface MarketplaceReservationSummary {
+  state: MarketplaceReservationState;
+  reserved: boolean | null;
+  reserved_at: string | null;
+  expires_at: string | null;
+  reason: string | null;
+}
+
 export interface MarketplaceListingSummary {
   vin: string;
   make: string;
@@ -142,6 +164,12 @@ export interface MarketplaceListingSummary {
   seller_public_profile_enabled: boolean;
   location?: string;
   created_at?: string | null;
+  /**
+   * Present on public Marketplace API list responses after the Phase 6 route overlay. Optional on
+   * this lower-level summary type because the pure listingSummaryService does not read reservation
+   * tables; a consumer that did not receive the envelope must treat it as NOT LOADED, never `none`.
+   */
+  reservation_summary?: MarketplaceReservationSummary;
 }
 
 export interface MarketplaceListingsResponse {
