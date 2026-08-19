@@ -52,11 +52,17 @@ COMMENT ON COLUMN public.escrow_trust_sessions.listing_amount IS 'Server-resolve
 COMMENT ON COLUMN public.escrow_trust_sessions.listing_currency IS 'Server-resolved listing currency; only valid with listing_currency_source.';
 COMMENT ON COLUMN public.escrow_trust_sessions.listing_currency_source IS 'Canonical vehicles.currency_source copied at transaction-intent creation; never defaulted/backfilled.';
 
-REVOKE INSERT, UPDATE, DELETE ON TABLE public.escrow_trust_sessions FROM anon, authenticated;
-GRANT SELECT ON TABLE public.escrow_trust_sessions TO authenticated;
+-- Transaction rows contain counterparties, economics and provider lineage. CarUp does not mint a
+-- Supabase JWT for browser callers; all participant reads are backend/service-role projections.
+-- Therefore no direct anon/authenticated privilege exists, including SELECT. Keeping this true from
+-- the FIRST Phase 6 migration avoids an unsafe cutover window that a later REVOKE would merely close.
+REVOKE ALL ON TABLE public.escrow_trust_sessions FROM anon, authenticated;
+GRANT ALL ON TABLE public.escrow_trust_sessions TO service_role;
 
 DO $phase6_post$
-DECLARE v_defaults text;
+DECLARE
+  v_defaults text;
+  v_direct_grants text;
 BEGIN
   SELECT string_agg(column_name, ', ' ORDER BY column_name) INTO v_defaults
     FROM information_schema.columns
@@ -65,6 +71,16 @@ BEGIN
      AND column_default IS NOT NULL;
   IF v_defaults IS NOT NULL THEN
     RAISE EXCEPTION '[issue-164-p6] transaction lineage/term column(s) unexpectedly carry defaults: %', v_defaults;
+  END IF;
+
+  SELECT string_agg(grantee || ':' || privilege_type, ', ' ORDER BY grantee,privilege_type)
+    INTO v_direct_grants
+    FROM information_schema.role_table_grants
+   WHERE table_schema='public'
+     AND table_name='escrow_trust_sessions'
+     AND grantee IN ('anon','authenticated');
+  IF v_direct_grants IS NOT NULL THEN
+    RAISE EXCEPTION '[issue-164-p6] direct transaction-session grants remain: %',v_direct_grants;
   END IF;
 END
 $phase6_post$;
