@@ -21,10 +21,12 @@ import {
   evaluateMarketplaceDepositEligibility,
   createMarketplacePaymentIntent,
   reconcileMarketplacePayment,
+  captureMarketplaceSandboxDeposit,
   releaseMarketplacePayment,
   refundMarketplacePayment,
 } from '../services/transaction/marketplacePaymentService.js';
 import { cancelMarketplacePayment } from '../services/transaction/marketplacePaymentCancellationService.js';
+import { isMarketplaceSandboxRuntimeAllowed } from '../services/transaction/marketplacePaymentProviderSelector.js';
 
 const router = express.Router();
 
@@ -162,6 +164,35 @@ router.post('/api/escrow/:id/payment-intent', authorizeRole(['buyer', 'owner', '
     return res.status(result.idempotentReplay ? 200 : 201).json(result);
   } catch (err) { return next(err); }
 });
+
+/**
+ * Synthetic UAT-only provider action. It advances the already-bound durable SafeTrade sandbox from
+ * requires_authorization -> authorized -> captured, then reconciles `funds_held` through the same
+ * canonical provider-state RPC used by all adapters.
+ *
+ * It is intentionally absent in production semantics: production returns 404 before touching the
+ * transaction/provider. A seller cannot invoke it merely by being a transaction participant; the
+ * buyer (or platform admin for controlled UAT) owns the synthetic authorization action.
+ */
+router.post('/api/escrow/:id/sandbox/capture', authorizeRole(['buyer', 'owner', 'admin']), async (req, res, next) => {
+  try {
+    if (!isMarketplaceSandboxRuntimeAllowed(process.env)) {
+      return res.status(404).json({
+        error: 'Sandbox UAT payment action is unavailable.',
+        code: 'SANDBOX_UAT_ACTION_UNAVAILABLE',
+      });
+    }
+    const { actor, current } = await loadAuthorizedSession(req);
+    if (!current) return res.status(404).json({ error: 'escrow session not found' });
+    const role = String(actor.role || '').toLowerCase();
+    const privileged = ['admin', 'platform_admin', 'super_admin'].includes(role);
+    if (!privileged && current.buyer_id !== actor.id) {
+      return res.status(403).json({ error: 'Only the transaction buyer may authorize the sandbox deposit.' });
+    }
+    return res.json(await captureMarketplaceSandboxDeposit(req.params.id, { actor }));
+  } catch (err) { return next(err); }
+});
+
 router.post('/api/escrow/:id/payment/reconcile', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
   try { return res.json(await reconcileMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
   catch (err) { return next(err); }
