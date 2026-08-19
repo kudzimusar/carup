@@ -6,6 +6,10 @@ import { listMarketplaceListings } from '../services/marketplace/listingSummaryS
 import { getMarketplaceNavCoverage } from '../services/marketplace/navCoverageService.js';
 import { getMarketplaceListingDetail } from '../services/marketplace/marketplaceListingDetailService.js';
 import {
+  getPublicReservationProjectionBatch,
+  projectListingStatusWithReservation,
+} from '../services/reservation/reservationProjectionService.js';
+import {
   compareListings,
   getMarketplaceRecommendations,
   getMarketplaceCategories,
@@ -41,10 +45,34 @@ function referralContextFromReq(req) {
   };
 }
 
+async function withCanonicalReservationTruth(page) {
+  const listings = Array.isArray(page?.listings) ? page.listings : [];
+  if (!listings.length) return page;
+  const reservations = await getPublicReservationProjectionBatch(
+    listings.map((listing) => listing.vin),
+    { client: supabase },
+  );
+  return {
+    ...page,
+    listings: listings.map((listing) => {
+      const reservationSummary = reservations.get(listing.vin) || {
+        state: 'unavailable', reserved: null, reserved_at: null, expires_at: null,
+        reason: 'reservation_read_unavailable',
+      };
+      return {
+        ...listing,
+        status: projectListingStatusWithReservation(listing.status, reservationSummary),
+        reservation_summary: reservationSummary,
+      };
+    }),
+  };
+}
+
 // ---- Public discovery ------------------------------------------------------
 
 router.get('/api/marketplace/listings', asyncHandler(async (req, res) => {
-  res.json(await listMarketplaceListings(supabase, req.query));
+  const page = await listMarketplaceListings(supabase, req.query);
+  res.json(await withCanonicalReservationTruth(page));
 }));
 
 router.get('/api/marketplace/nav-coverage', asyncHandler(async (req, res) => {
