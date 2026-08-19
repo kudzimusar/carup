@@ -7,10 +7,10 @@ import { ConflictError, NotFoundError, UnauthorizedError, ValidationError } from
 /**
  * Issue #164 Phase 6 — Marketplace transaction authority.
  *
- * The browser may request a transaction for a VIN. It may NOT choose the buyer,
- * seller, listing amount/currency, eligibility facts, or payment state. Those are
- * resolved here from authenticated/server-governed sources and then snapshotted on
- * the existing escrow_trust_sessions authority.
+ * Canonical sequence enforced here:
+ * purchase inquiry -> resolved buyer+seller -> transaction intent -> eligibility.
+ * The browser may request the next step, but it may NOT choose buyer, seller,
+ * listing economics, eligibility facts, or payment state.
  */
 export const MARKETPLACE_TRANSACTION_VEHICLE_SELECT = [
   'vin',
@@ -23,6 +23,9 @@ export const MARKETPLACE_TRANSACTION_VEHICLE_SELECT = [
   'currency_source',
   'updated_at',
 ].join(',');
+
+const TRANSACTION_INQUIRY_SELECT = 'id, listing_id, buyer_id, seller_id, inquiry_type, status, risk_status, created_at';
+const CURRENT_PURCHASE_INQUIRY_STATUSES = new Set(['new', 'assigned', 'contacted', 'qualified']);
 
 function recordedText(value) {
   const text = String(value ?? '').trim();
@@ -37,17 +40,39 @@ export function resolveMarketplaceListingTerms(vehicle = {}) {
   const amount = Number(vehicle.price);
   const currency = recordedText(vehicle.currency)?.toUpperCase() || null;
   const currencySource = recordedText(vehicle.currency_source);
-
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new ValidationError('This listing has no server-authoritative transaction amount.');
   }
   if (!currency || !currencySource) {
-    // Phase 4 deliberately refuses to publish/use a currency whose source is unknown.
-    // Transaction authority must obey the same rule rather than laundering the raw column
-    // into a money instruction.
     throw new ValidationError('This listing has no provenance-backed transaction currency.');
   }
   return { amount, currency, currencySource };
+}
+
+export function isCurrentPurchaseInquiry(inquiry = {}, { vin, buyerId, sellerId } = {}) {
+  return inquiry.inquiry_type === 'vehicle_purchase_interest'
+    && inquiry.listing_id === vin
+    && inquiry.buyer_id === buyerId
+    && inquiry.seller_id === sellerId
+    && inquiry.risk_status === 'clear'
+    && CURRENT_PURCHASE_INQUIRY_STATUSES.has(inquiry.status);
+}
+
+export async function loadCurrentPurchaseInquiry(vin, buyerId, sellerId, client = supabase) {
+  const { data, error } = await client
+    .from('marketplace_inquiries')
+    .select(TRANSACTION_INQUIRY_SELECT)
+    .eq('listing_id', vin)
+    .eq('buyer_id', buyerId)
+    .eq('inquiry_type', 'vehicle_purchase_interest')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || !isCurrentPurchaseInquiry(data, { vin, buyerId, sellerId })) {
+    throw new ConflictError('A current clear purchase inquiry with this seller is required before starting a transaction.');
+  }
+  return data;
 }
 
 export function buildMarketplaceListingSnapshot(vehicle = {}, sellerId, terms) {
@@ -68,8 +93,10 @@ export function buildMarketplaceEscrowGateContext(decision = {}) {
   return {
     identity_status: d.identity?.status || 'not_evaluated',
     publication_status: d.publication_eligibility?.status || d.publication_eligibility?.value || 'not_evaluated',
-    fraud_block: d.fraud_risk?.status === 'high',
-    seller_suspended: d.dealer_compliance?.status === 'suspended',
+    fraud_block: d.fraud_risk?.status === 'high' ? true : d.fraud_risk?.status === 'clear' ? false : null,
+    seller_suspended: d.dealer_compliance?.status === 'suspended'
+      ? true
+      : ['compliant', 'not_evaluated'].includes(d.dealer_compliance?.status) ? false : null,
     participant_authorized: true,
     required_documents_present: d.evidence_completeness?.status === 'complete',
     listing_snapshot_changed: false,
@@ -101,11 +128,6 @@ export async function loadMarketplaceTransactionVehicle(vin, client = supabase) 
   return data;
 }
 
-/**
- * Create the canonical Marketplace transaction intent/escrow eligibility session.
- * Buyer identity comes only from authorizeRole(), seller and terms only from the
- * listing row, and eligibility only from the Trust decision authority.
- */
 export async function requestMarketplaceEscrow(vin, { actor, idempotencyKey = null, client = supabase } = {}) {
   const buyerId = recordedText(actor?.id || actor?.userId);
   if (!buyerId) throw new UnauthorizedError('A verified buyer identity is required.');
@@ -119,6 +141,9 @@ export async function requestMarketplaceEscrow(vin, { actor, idempotencyKey = nu
   if (!sellerId) throw new ValidationError('The listing seller could not be resolved server-side.');
   if (sellerId === buyerId) throw new ConflictError('Buyer and seller must be different participants.');
 
+  // Inquiry lineage is checked before a transaction row exists. A reserve/pay click may not
+  // retroactively manufacture the earlier buyer-intent state.
+  const inquiry = await loadCurrentPurchaseInquiry(vin, buyerId, sellerId, client);
   const terms = resolveMarketplaceListingTerms(vehicle);
   const decision = await getTrustDecision(vin);
   const gateContext = buildMarketplaceEscrowGateContext(decision);
@@ -127,6 +152,7 @@ export async function requestMarketplaceEscrow(vin, { actor, idempotencyKey = nu
   const session = await requestEscrow(vin, {
     buyerId,
     sellerId,
+    inquiryId: inquiry.id,
     gateContext,
     idempotencyKey,
     listingSnapshotHash,
@@ -140,6 +166,8 @@ export default {
   MARKETPLACE_TRANSACTION_VEHICLE_SELECT,
   resolveMarketplaceSellerId,
   resolveMarketplaceListingTerms,
+  isCurrentPurchaseInquiry,
+  loadCurrentPurchaseInquiry,
   buildMarketplaceListingSnapshot,
   buildMarketplaceEscrowGateContext,
   toPublicMarketplaceEscrowSession,
