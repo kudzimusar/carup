@@ -18,6 +18,13 @@ import {
   requestMarketplaceEscrow,
   toPublicMarketplaceEscrowSession,
 } from '../services/transaction/marketplaceTransactionAuthority.js';
+import {
+  evaluateMarketplaceDepositEligibility,
+  createMarketplacePaymentIntent,
+  reconcileMarketplacePayment,
+  releaseMarketplacePayment,
+  refundMarketplacePayment,
+} from '../services/transaction/marketplacePaymentService.js';
 
 const router = express.Router();
 
@@ -89,17 +96,61 @@ async function performParticipantAction(req, res, next, toStatus, { recheck = fa
   }
 }
 
-// Browser action -> server-selected transition. No body field chooses a transaction state.
+// Named transaction actions. The route owns the target status; the body cannot choose it.
 router.post('/api/escrow/:id/initiate', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), (req, res, next) =>
   performParticipantAction(req, res, next, 'initiated', { recheck: true }));
 router.post('/api/escrow/:id/cancel', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (req, res, next) =>
   performParticipantAction(req, res, next, 'cancelled'));
 router.post('/api/escrow/:id/dispute', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (req, res, next) =>
   performParticipantAction(req, res, next, 'disputed'));
+router.post('/api/escrow/:id/inspection/start', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
+  performParticipantAction(req, res, next, 'inspection_pending'));
+router.post('/api/escrow/:id/release/approve', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
+  performParticipantAction(req, res, next, 'release_approved', { recheck: true }));
 
-// Compatibility containment: the old generic endpoint let a browser assert `to_status` directly.
-// Keep the URL reachable so stale clients get an explicit truth-preserving failure rather than
-// falling through to another handler or interpreting a 404 as a transient network problem.
+// Deposit/payment actions. Amount, currency, provider, payer and payee are all server-owned.
+router.post('/api/escrow/:id/deposit/eligibility', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
+  try {
+    const result = await evaluateMarketplaceDepositEligibility(req.params.id, { actor: actorFrom(req) });
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+router.post('/api/escrow/:id/payment-intent', authorizeRole(['buyer', 'owner', 'dealer', 'admin']), async (req, res, next) => {
+  try {
+    const result = await createMarketplacePaymentIntent(req.params.id, { actor: actorFrom(req) });
+    return res.status(result.idempotentReplay ? 200 : 201).json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+router.post('/api/escrow/:id/payment/reconcile', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), async (req, res, next) => {
+  try {
+    const result = await reconcileMarketplacePayment(req.params.id, { actor: actorFrom(req) });
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+router.post('/api/escrow/:id/release', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
+  try {
+    const result = await releaseMarketplacePayment(req.params.id, { actor: actorFrom(req) });
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+router.post('/api/escrow/:id/refund', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
+  try {
+    const result = await refundMarketplacePayment(req.params.id, { actor: actorFrom(req) });
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+// Compatibility containment: generic browser status writes are intentionally inert.
 router.patch('/api/escrow/:id/transition', authorizeRole(['buyer', 'owner', 'dealer', 'admin', 'reviewer']), (_req, res) => {
   res.status(409).json({
     error: 'Direct escrow status transitions are disabled. Request a governed transaction action instead.',
@@ -107,24 +158,14 @@ router.patch('/api/escrow/:id/transition', authorizeRole(['buyer', 'owner', 'dea
   });
 });
 
-router.post('/api/escrow/webhook', express.json({ verify: (req, _res, buf) => { req.rawBody = buf.toString(); } }), async (req, res, next) => {
-  try {
-    const result = await ingestEscrowWebhook({
-      payloadString: req.rawBody || JSON.stringify(req.body || {}),
-      signature: req.headers['x-signature'],
-      timestamp: req.headers['x-timestamp'],
-      idempotencyKey: req.headers['idempotency-key'],
-      body: req.body,
-    });
-    return res.status(result.applied ? 200 : (result.signature_valid ? 202 : 401)).json(result);
-  } catch (err) {
-    return next(err);
-  }
+// Legacy generic webhook is also inert. Phase 6B provider webhooks must use PaymentProvider
+// verification/reconciliation rather than the old `to_status` payload contract.
+router.post('/api/escrow/webhook', express.json({ verify: (req, _res, buf) => { req.rawBody = buf.toString(); } }), async (_req, res) => {
+  const result = await ingestEscrowWebhook();
+  return res.status(410).json(result);
 });
 
-// Phase 6 containment of the pre-canonical SafePay write API. These handlers are mounted before the
-// legacy inline server.js routes and terminate the request, so a stale web/mobile client cannot send
-// seller, amount, currency or a status string into the old `safepay_escrows` authority.
+// Pre-canonical SafePay write API containment. Mounted before legacy inline server.js handlers.
 router.post('/api/safepay/create', authorizeRole(), (_req, res) => {
   res.status(409).json({
     error: 'Direct SafePay creation is disabled. Start from the governed Marketplace transaction flow.',
