@@ -3,11 +3,9 @@ import { supabase } from '../../db/supabase.js';
 import { ConflictError, ForbiddenError, ValidationError } from '../../utils/errors.js';
 import { evaluateEscrowGates, getSession } from '../escrow/escrowTrustService.js';
 import { recomputeMarketplaceEscrowGateContext } from './marketplaceTransactionAuthority.js';
-import {
-  SAFETRADE_PROVIDER_STATES,
-  selectPaymentProvider,
-} from '../diaspora/safetrade/safeTradePaymentProvider.js';
+import { SAFETRADE_PROVIDER_STATES } from '../diaspora/safetrade/safeTradePaymentProvider.js';
 import { assertPaymentProviderCapability } from '../diaspora/safetrade/safeTradePaymentCapabilities.js';
+import { selectMarketplacePaymentProvider } from './marketplacePaymentProviderSelector.js';
 
 /**
  * Issue #164 Phase 6A/6B bridge.
@@ -23,6 +21,10 @@ export const MARKETPLACE_DEPOSIT_POLICY = Object.freeze({
 
 function actorId(actor) {
   return String(actor?.id || actor?.userId || '').trim() || null;
+}
+
+function actorRole(actor) {
+  return String(actor?.effectiveRole || actor?.role || '').trim().toLowerCase() || null;
 }
 
 function paymentIdempotencyKey(sessionId, policyVersion) {
@@ -170,9 +172,10 @@ export async function evaluateMarketplaceDepositEligibility(sessionId, {
 }
 
 /**
- * Create a provider intent only after a fresh deposit-eligibility evaluation. Provider selection is
- * exactly SafeTrade's `selectPaymentProvider()` (sandbox by default, fail-closed for unapproved live
- * providers). The browser cannot choose provider, amount, currency, payer or payee.
+ * Create a provider intent only after a fresh deposit-eligibility evaluation. Provider selection
+ * remains SafeTrade-owned; Marketplace replaces only SafeTrade's process-local synthetic provider
+ * with its durable test/staging adapter. The browser cannot choose provider, amount, currency, payer
+ * or payee.
  */
 export async function createMarketplacePaymentIntent(sessionId, {
   actor,
@@ -201,7 +204,7 @@ export async function createMarketplacePaymentIntent(sessionId, {
     };
   }
 
-  const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   requireCapability(provider, 'collect_payment', eligibility.currency);
   const idempotencyKey = paymentIdempotencyKey(session.id, eligibility.policyVersion);
   const result = await provider.createPaymentIntent({
@@ -280,7 +283,7 @@ export async function reconcileMarketplacePayment(sessionId, {
     throw new ConflictError('Transaction has no linked payment intent.');
   }
 
-  const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider) {
     throw new ConflictError('Selected provider does not match the transaction payment intent.');
   }
@@ -301,8 +304,10 @@ export async function reconcileMarketplacePayment(sessionId, {
 }
 
 /**
- * Test/UAT helper: drive the existing SafeTrade sandbox through authorization and capture, then
- * reconcile the canonical transaction to `funds_held`. Not mounted as a buyer production route.
+ * Test/UAT helper: drive the durable SafeTrade sandbox through authorization and capture, then
+ * reconcile the canonical transaction to `funds_held`. The HTTP route exposing this helper is
+ * separately runtime-gated to test/development/preview/staging and never becomes a production money
+ * action.
  */
 export async function captureMarketplaceSandboxDeposit(sessionId, {
   actor,
@@ -311,7 +316,7 @@ export async function captureMarketplaceSandboxDeposit(sessionId, {
 } = {}) {
   const session = await getSession(sessionId, actor, client);
   if (!session?.payment_intent_id) throw new ConflictError('Create the payment intent first.');
-  const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider || provider.name !== 'sandbox') {
     throw new ConflictError('Sandbox capture is available only for the canonical sandbox provider.');
   }
@@ -347,7 +352,16 @@ export async function captureMarketplaceSandboxDeposit(sessionId, {
   };
 }
 
-/** Reviewer/admin release after the canonical transaction reached release_approved. */
+/**
+ * Reviewer/admin release after the canonical transaction reached release_approved.
+ *
+ * The settlement operation is claimed atomically in PostgreSQL BEFORE provider release. That claim
+ * freezes conflicting human state changes and snapshots the approved seller/payment lineage. If a
+ * provider call is ambiguous, retries use the same idempotency key and the transaction remains
+ * settlement-claimed rather than reopening a dispute path. Provider `released` is then reconciled
+ * against the durable claim, so CarUp cannot lose money truth because mutable seller state changed
+ * after the payout request was sent.
+ */
 export async function releaseMarketplacePayment(sessionId, {
   actor,
   client = supabase,
@@ -358,25 +372,49 @@ export async function releaseMarketplacePayment(sessionId, {
   if (session.status !== 'release_approved') {
     throw new ConflictError('Transaction must be release-approved before provider settlement.');
   }
-  const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  if (!session.payment_idempotency_key || !session.payment_intent_id || !session.payment_provider) {
+    throw new ConflictError('Transaction has no attributable captured payment intent.');
+  }
+
+  const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider) throw new ConflictError('Payment provider mismatch.');
   requireCapability(provider, 'delayed_release', session.deposit_currency || session.listing_currency);
   requireCapability(provider, 'payout_to_seller', session.deposit_currency || session.listing_currency);
   if (typeof provider.release !== 'function') throw new ConflictError('Payment provider does not support release.');
 
+  const id = actorId(actor);
+  const role = actorRole(actor);
+  if (!id || !role) throw new ForbiddenError('Reviewer/admin identity is required for settlement.');
+  const releaseKey = `${session.payment_idempotency_key}:release`;
+  const { data: claimed, error: claimError } = await client.rpc('issue164_begin_settlement_atomic', {
+    p_session_id: session.id,
+    p_actor_id: id,
+    p_actor_role: role,
+    p_operation_key: releaseKey,
+  });
+  if (claimError) throw new ConflictError(`Settlement could not be claimed: ${claimError.message}`);
+  const claimedSession = Array.isArray(claimed) ? claimed[0] : claimed;
+  if (!claimedSession?.settlement_operation_key) {
+    throw new ConflictError('Settlement claim returned no durable operation identity.');
+  }
+
   const released = await provider.release({
-    intentId: session.payment_intent_id,
-    idempotencyKey: `${session.payment_idempotency_key}:release`,
-    approval: { actorId: actorId(actor) },
+    intentId: claimedSession.settlement_payment_intent_id || session.payment_intent_id,
+    idempotencyKey: releaseKey,
+    approval: { actorId: id },
   });
   if (released.status !== SAFETRADE_PROVIDER_STATES.RELEASED) {
     throw new ConflictError('Provider did not confirm settlement release.');
   }
-  await persistProviderState(session, released.status, {
+  await persistProviderState(claimedSession, released.status, {
     client,
     provider: session.payment_provider,
     discriminator: released.releaseRef || 'release',
-    payload: { source: 'governed_release', live: released.live === true },
+    payload: {
+      source: 'governed_release',
+      live: released.live === true,
+      settlementOperationKey: claimedSession.settlement_operation_key,
+    },
   });
   return { transactionIntentId: session.id, paymentState: released.status, live: released.live === true };
 }
@@ -389,10 +427,13 @@ export async function refundMarketplacePayment(sessionId, {
 } = {}) {
   const session = await getSession(sessionId, actor, client);
   if (!session) throw new ValidationError('Transaction intent not found.');
+  if (session.settlement_operation_key) {
+    throw new ConflictError('Settlement is already claimed; reconcile provider release before any refund action.');
+  }
   if (!['funds_held', 'inspection_pending', 'release_approved', 'disputed'].includes(session.status)) {
     throw new ConflictError(`Transaction cannot be refunded from ${session.status}.`);
   }
-  const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider) throw new ConflictError('Payment provider mismatch.');
   requireCapability(provider, 'refund', session.deposit_currency || session.listing_currency);
   const refunded = await provider.refund({
@@ -400,7 +441,7 @@ export async function refundMarketplacePayment(sessionId, {
     idempotencyKey: `${session.payment_idempotency_key}:refund`,
   });
   if (refunded.status !== SAFETRADE_PROVIDER_STATES.REFUNDED) {
-    throw new ConflictError('Provider did not confirm refund.');
+    throw new ConflictError('Payment provider did not confirm refund.');
   }
   await persistProviderState(session, refunded.status, {
     client,
