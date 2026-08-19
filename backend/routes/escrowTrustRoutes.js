@@ -172,10 +172,10 @@ router.post('/api/escrow/:id/payment-intent', authorizeRole(['buyer', 'owner', '
  * canonical provider-state RPC used by all adapters.
  *
  * It is intentionally absent in production semantics: production returns 404 before touching the
- * transaction/provider. A seller cannot invoke it merely by being a transaction participant; the
- * buyer (or platform admin for controlled UAT) owns the synthetic authorization action.
+ * transaction/provider. The action is buyer-owned end to end: platform/admin roles do not gain a
+ * synthetic payment authorization capability merely for UAT convenience.
  */
-router.post('/api/escrow/:id/sandbox/capture', authorizeRole(['buyer', 'owner', 'admin']), async (req, res, next) => {
+router.post('/api/escrow/:id/sandbox/capture', authorizeRole(['buyer', 'owner']), async (req, res, next) => {
   try {
     if (!isMarketplaceSandboxRuntimeAllowed(process.env)) {
       return res.status(404).json({
@@ -185,9 +185,7 @@ router.post('/api/escrow/:id/sandbox/capture', authorizeRole(['buyer', 'owner', 
     }
     const { actor, current } = await loadAuthorizedSession(req);
     if (!current) return res.status(404).json({ error: 'escrow session not found' });
-    const role = String(actor.role || '').toLowerCase();
-    const privileged = ['admin', 'platform_admin', 'super_admin'].includes(role);
-    if (!privileged && current.buyer_id !== actor.id) {
+    if (current.buyer_id !== actor.id) {
       return res.status(403).json({ error: 'Only the transaction buyer may authorize the sandbox deposit.' });
     }
     return res.json(await captureMarketplaceSandboxDeposit(req.params.id, { actor }));
