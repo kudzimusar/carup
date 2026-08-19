@@ -291,7 +291,7 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     police_verified: summary.cid_clear,
     cid_clear: summary.cid_clear,
     sellerType: summary.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
-    sellerName: summary.seller_display_label,
+    sellerName: summary.seller_display_label || undefined,
     current_seller_type: summary.seller_type,
     public_seller_display_enabled: summary.seller_public_profile_enabled,
   }
