@@ -19,7 +19,7 @@ const LISTING = {
   status: 'Available',
   price: 12500,
   currency: 'USD',
-  currency_source: 'seller',
+  currency_source: 'seller_declared',
   updated_at: '2026-08-19T00:00:00.000Z',
 };
 const INQUIRY = {
@@ -45,7 +45,7 @@ test('Phase 6: transaction amount/currency require recorded server terms plus pr
   assert.deepEqual(tx.resolveMarketplaceListingTerms(LISTING), {
     amount: 12500,
     currency: 'USD',
-    currencySource: 'seller',
+    currencySource: 'seller_declared',
   });
   assert.throws(
     () => tx.resolveMarketplaceListingTerms({ ...LISTING, price: 0 }),
