@@ -106,7 +106,7 @@ test('Phase 6: migration 1260 keeps synthetic provider ledgers private and seria
   assert.match(migration, /payment release lacks attributable settlement operation claim/);
 });
 
-test('Phase 6 mutation M19 — process-local sandbox cannot become persisted Marketplace provider authority again', () => {
+test('Phase 6 mutation M21 — process-local sandbox cannot become persisted Marketplace provider authority again', () => {
   const clean = source('services/transaction/marketplacePaymentProviderSelector.js');
   const safe = (text) => /return new DurableSandboxPaymentProvider\(\{ client \}\)/.test(text)
     && /isMarketplaceSandboxRuntimeAllowed/.test(text);
@@ -115,11 +115,11 @@ test('Phase 6 mutation M19 — process-local sandbox cannot become persisted Mar
     'return new DurableSandboxPaymentProvider({ client });',
     'return selected;',
   );
-  assert.notEqual(mutant, clean, 'M19 mutation did not match');
-  assert.equal(safe(mutant), false, 'M19 mutant survived: process-local sandbox selection was not detected');
+  assert.notEqual(mutant, clean, 'M21 mutation did not match');
+  assert.equal(safe(mutant), false, 'M21 mutant survived: process-local sandbox selection was not detected');
 });
 
-test('Phase 6 mutation M20 — sandbox intent must have a governed HTTP advancement path', () => {
+test('Phase 6 mutation M22 — sandbox intent must have a governed HTTP advancement path', () => {
   const clean = source('routes/escrowTrustRoutes.js');
   const route = (text) => blockBetween(
     text,
@@ -137,11 +137,11 @@ test('Phase 6 mutation M20 — sandbox intent must have a governed HTTP advancem
     'return res.json(await captureMarketplaceSandboxDeposit(req.params.id, { actor }));',
     'return res.json({ paymentState: current.payment_state });',
   );
-  assert.notEqual(mutant, clean, 'M20 mutation did not match');
-  assert.equal(safe(mutant), false, 'M20 mutant survived: non-advancing sandbox route was not detected');
+  assert.notEqual(mutant, clean, 'M22 mutation did not match');
+  assert.equal(safe(mutant), false, 'M22 mutant survived: non-advancing sandbox route was not detected');
 });
 
-test('Phase 6 mutation M21 — provider release cannot move ahead of durable settlement serialization', () => {
+test('Phase 6 mutation M23 — provider release cannot move ahead of durable settlement serialization', () => {
   const clean = source('services/transaction/marketplacePaymentService.js');
   const releaseBlock = (text) => blockBetween(
     text,
@@ -159,6 +159,6 @@ test('Phase 6 mutation M21 — provider release cannot move ahead of durable set
     "const { data: claimed, error: claimError } = await client.rpc('issue164_begin_settlement_atomic', {",
     "const { data: claimed, error: claimError } = { data: session, error: null };\n  void {",
   );
-  assert.notEqual(mutant, clean, 'M21 mutation did not match');
-  assert.equal(safe(mutant), false, 'M21 mutant survived: provider release was no longer serialized by DB claim');
+  assert.notEqual(mutant, clean, 'M23 mutation did not match');
+  assert.equal(safe(mutant), false, 'M23 mutant survived: provider release was no longer serialized by DB claim');
 });
