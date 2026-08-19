@@ -7,6 +7,7 @@ import {
   SAFETRADE_PROVIDER_STATES,
   selectPaymentProvider,
 } from '../diaspora/safetrade/safeTradePaymentProvider.js';
+import { assertPaymentProviderCapability } from '../diaspora/safetrade/safeTradePaymentCapabilities.js';
 
 /**
  * Issue #164 Phase 6A/6B bridge.
@@ -47,6 +48,31 @@ function providerMode(provider, result = {}) {
   if (result.live === true) return 'live';
   if (String(provider?.name || result.provider || '').toLowerCase() === 'sandbox') return 'sandbox';
   return 'test';
+}
+
+/**
+ * No external provider inherits a geographic/payment-method assumption from the sandbox. The only
+ * currently callable adapter is the synthetic sandbox; future adapters must supply their proven
+ * country/currency/method/legal context as part of their integration rather than falling through.
+ */
+function currentProviderCapabilityContext(provider, currency) {
+  const key = String(provider?.name || '').toLowerCase();
+  if (key === 'sandbox') {
+    return { testMode: true, currency, method: 'sandbox' };
+  }
+  return { testMode: false, currency, country: null, method: null };
+}
+
+function requireCapability(provider, capability, currency) {
+  try {
+    return assertPaymentProviderCapability(
+      provider?.name,
+      capability,
+      currentProviderCapabilityContext(provider, currency),
+    );
+  } catch (error) {
+    throw new ConflictError(error.message);
+  }
 }
 
 async function loadActiveReservation(session, client = supabase) {
@@ -176,6 +202,7 @@ export async function createMarketplacePaymentIntent(sessionId, {
   }
 
   const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
+  requireCapability(provider, 'collect_payment', eligibility.currency);
   const idempotencyKey = paymentIdempotencyKey(session.id, eligibility.policyVersion);
   const result = await provider.createPaymentIntent({
     milestoneId: session.id,
@@ -257,6 +284,7 @@ export async function reconcileMarketplacePayment(sessionId, {
   if (provider.name !== session.payment_provider) {
     throw new ConflictError('Selected provider does not match the transaction payment intent.');
   }
+  requireCapability(provider, 'retrieve_status', session.deposit_currency || session.listing_currency);
   const result = await provider.retrieveStatus({ intentId: session.payment_intent_id });
   await persistProviderState(session, result.status || 'unknown', {
     client,
@@ -288,6 +316,7 @@ export async function captureMarketplaceSandboxDeposit(sessionId, {
     throw new ConflictError('Sandbox capture is available only for the canonical sandbox provider.');
   }
 
+  requireCapability(provider, 'authorize_hold', session.deposit_currency || session.listing_currency);
   const authorize = await provider.authorizeHold({
     intentId: session.payment_intent_id,
     idempotencyKey: `${session.payment_idempotency_key}:authorize`,
@@ -295,6 +324,8 @@ export async function captureMarketplaceSandboxDeposit(sessionId, {
   if (authorize.status !== SAFETRADE_PROVIDER_STATES.AUTHORIZED) {
     throw new ConflictError('Sandbox provider did not authorize the deposit hold.');
   }
+
+  requireCapability(provider, 'capture', session.deposit_currency || session.listing_currency);
   const captured = await provider.captureRelease({
     intentId: session.payment_intent_id,
     amount: session.deposit_amount,
@@ -329,6 +360,8 @@ export async function releaseMarketplacePayment(sessionId, {
   }
   const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
   if (provider.name !== session.payment_provider) throw new ConflictError('Payment provider mismatch.');
+  requireCapability(provider, 'delayed_release', session.deposit_currency || session.listing_currency);
+  requireCapability(provider, 'payout_to_seller', session.deposit_currency || session.listing_currency);
   if (typeof provider.release !== 'function') throw new ConflictError('Payment provider does not support release.');
 
   const released = await provider.release({
@@ -361,6 +394,7 @@ export async function refundMarketplacePayment(sessionId, {
   }
   const provider = selectPaymentProvider(paymentProvider ? { paymentProvider } : {});
   if (provider.name !== session.payment_provider) throw new ConflictError('Payment provider mismatch.');
+  requireCapability(provider, 'refund', session.deposit_currency || session.listing_currency);
   const refunded = await provider.refund({
     intentId: session.payment_intent_id,
     idempotencyKey: `${session.payment_idempotency_key}:refund`,
