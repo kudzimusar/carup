@@ -78,3 +78,24 @@ test('Phase 6 mutation M17 — route reordering cannot silently resurrect legacy
   const mutantMount = mutant.indexOf('app.use(escrowTrustRouter);');
   assert.equal(mutantMount, -1, 'M17 mutant survived: canonical mount still present');
 });
+
+test('Phase 6 mutation M18 — retired generic gateway webhook cannot regain a parallel payment ledger', () => {
+  const paymentRouter = source('services/payment/paymentRouter.js');
+  const block = routeBlock(paymentRouter, "router.post('/webhook/:gateway'", 'export default router;');
+  const safeLegacyGateway = (text) => /status\(410\)/.test(text)
+    && /LEGACY_GATEWAY_WEBHOOK_DISABLED/.test(text)
+    && !/safepay_escrows|payment_transactions|emitDomainEvent|PAYMENT_RECEIVED|createHmac|WEBHOOK_SECRET/.test(text);
+
+  assert.equal(safeLegacyGateway(block), true, 'clean legacy gateway route must be fail-closed');
+
+  const mutant = block.replace(
+    "return res.status(410).json({",
+    "const payment_transactions = 'parallel-ledger-restored';\n  return res.status(200).json({",
+  );
+  assert.notEqual(mutant, block, 'M18 mutation did not match');
+  assert.equal(
+    safeLegacyGateway(mutant),
+    false,
+    'M18 mutant survived: parallel payment-ledger authority was not detected',
+  );
+});
