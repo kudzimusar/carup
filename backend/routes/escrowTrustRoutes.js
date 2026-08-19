@@ -193,8 +193,30 @@ router.post('/api/safepay/create', authorizeRole(), async (req, res, next) => {
     return res.status(payment.idempotentReplay ? 200 : 201).json(payment);
   } catch (err) { return next(err); }
 });
+
+// Historical clients used `/api/safepay/list`. Preserve only the URL and array response shape: the
+// source of truth is the same participant-scoped `escrow_trust_sessions` projection as `/api/escrow`.
+// No legacy safepay_escrows row, participant email/phone, provider secret, or private id is exposed.
+router.get('/api/safepay/list', authorizeRole(), async (req, res, next) => {
+  try {
+    const sessions = await listSessionsForActor(actorFrom(req));
+    return res.json(sessions.map(toPublicMarketplaceEscrowSession));
+  } catch (err) { return next(err); }
+});
+
 router.post('/api/safepay/:id/update', authorizeRole(), (_req, res) => {
   res.status(409).json({ error: 'Direct SafePay status updates are disabled. Request a governed transaction action instead.', code: 'LEGACY_SAFEPAY_STATE_WRITE_DISABLED' });
+});
+
+// The historical SafePay webhook carried its own HMAC/fallback-secret authority and wrote legacy
+// status. Provider verification/reconciliation now lives exclusively in marketplacePaymentService.
+// Keep this stale URL fail-closed so old integrations cannot silently hit the inline server handler.
+router.post('/api/safepay/webhook', (_req, res) => {
+  res.status(410).json({
+    applied: false,
+    reason: 'legacy_safepay_webhook_retired_use_payment_provider',
+    code: 'LEGACY_SAFEPAY_WEBHOOK_DISABLED',
+  });
 });
 
 export default router;
