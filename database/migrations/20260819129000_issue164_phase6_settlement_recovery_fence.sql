@@ -11,9 +11,10 @@
 --   1. recovery acquires a durable canonical transaction fence BEFORE provider confirmation;
 --   2. settlement claim/re-claim fails closed while that fence is active;
 --   3. the currently callable durable sandbox provider serializes `released` against the same
---      canonical row and refuses release while recovery is fenced;
+--      canonical row and requires the exact settlement operation to remain pending and unfenced;
 --   4. provider `released` truth may still reconcile and closes the fence as `completed`;
---   5. provider-confirmed `captured/not-released` closes the fence as `recovered`.
+--   5. provider-confirmed `captured/not-released` closes the fence as `recovered`, after which a
+--      stale release request is no longer provider-authorized.
 --
 -- No live provider is activated here. Any future live adapter remains independently gated and must
 -- prove equivalent release/recovery serialization before entering the live provider allowlist.
@@ -67,7 +68,6 @@ BEGIN
 END
 $constraints$;
 
--- Start recovery by fencing the exact pending payout operation before any provider read.
 CREATE OR REPLACE FUNCTION public.issue164_begin_settlement_recovery_atomic(
   p_session_id uuid,
   p_actor_id text,
@@ -121,7 +121,7 @@ BEGIN
         USING ERRCODE='23505';
     END IF;
     IF v_tx.settlement_recovery_fence_closed_at IS NULL THEN
-      RETURN v_tx; -- idempotent recovery retry; the same fence remains authoritative
+      RETURN v_tx;
     END IF;
     RAISE EXCEPTION 'settlement recovery fence is already closed' USING ERRCODE='23514';
   END IF;
@@ -155,9 +155,6 @@ REVOKE ALL ON FUNCTION public.issue164_begin_settlement_recovery_atomic(uuid,tex
 GRANT EXECUTE ON FUNCTION public.issue164_begin_settlement_recovery_atomic(uuid,text,text,text)
   TO service_role;
 
--- Replace settlement claim/re-claim so a release retry cannot even obtain a callable claim after
--- recovery has fenced the operation. An earlier request that already returned the claim is caught
--- independently by the sandbox provider trigger below.
 CREATE OR REPLACE FUNCTION public.issue164_begin_settlement_atomic(
   p_session_id uuid,
   p_actor_id text,
@@ -278,8 +275,6 @@ REVOKE ALL ON FUNCTION public.issue164_begin_settlement_atomic(uuid,text,text,te
 GRANT EXECUTE ON FUNCTION public.issue164_begin_settlement_atomic(uuid,text,text,text)
   TO service_role;
 
--- Recovery now requires the already-durable active fence and closes it in the same row update that
--- records the provider-confirmed NOT-RELEASED result.
 CREATE OR REPLACE FUNCTION public.issue164_recover_settlement_atomic(
   p_session_id uuid,
   p_actor_id text,
@@ -365,9 +360,6 @@ REVOKE ALL ON FUNCTION public.issue164_recover_settlement_atomic(uuid,text,text,
 GRANT EXECUTE ON FUNCTION public.issue164_recover_settlement_atomic(uuid,text,text,text,text,text)
   TO service_role;
 
--- The durable sandbox is the only callable Marketplace provider in Phase 6. Its provider-state
--- release is serialized against the canonical recovery fence itself, closing the request that may
--- have obtained its settlement claim immediately before the fence was created.
 CREATE OR REPLACE FUNCTION public.issue164_sandbox_release_recovery_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -383,6 +375,15 @@ BEGIN
      FOR SHARE;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'sandbox release has no canonical transaction' USING ERRCODE='23514';
+    END IF;
+    IF v_tx.status<>'release_approved'
+       OR coalesce(v_tx.settlement_operation_state,
+         CASE WHEN v_tx.settlement_operation_key IS NULL THEN NULL ELSE 'pending' END)<>'pending'
+       OR v_tx.settlement_payment_intent_id IS DISTINCT FROM NEW.intent_id
+       OR v_tx.payment_intent_id IS DISTINCT FROM NEW.intent_id
+       OR v_tx.refund_operation_key IS NOT NULL THEN
+      RAISE EXCEPTION 'sandbox release lacks a pending attributable settlement operation'
+        USING ERRCODE='23514';
     END IF;
     IF v_tx.settlement_recovery_fenced_at IS NOT NULL
        AND v_tx.settlement_recovery_fence_closed_at IS NULL THEN
@@ -400,8 +401,6 @@ CREATE TRIGGER issue164_sandbox_release_recovery_guard_trg
 BEFORE UPDATE ON public.safetrade_sandbox_payment_intents
 FOR EACH ROW EXECUTE FUNCTION public.issue164_sandbox_release_recovery_guard();
 
--- Fence provenance is immutable. Provider-released reconciliation is allowed to settle the
--- transaction, and that terminal transition atomically closes any still-active recovery fence.
 CREATE OR REPLACE FUNCTION public.issue164_settlement_recovery_fence_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -461,7 +460,8 @@ BEGIN
   IF v_begin_definition !~* 'settlement_recovery_fenced_at'
      OR v_claim_definition !~* 'settlement recovery in progress; release retry blocked'
      OR v_recover_definition !~* 'settlement_recovery_fence_closed_at'
-     OR v_sandbox_guard_definition !~* 'sandbox release blocked' THEN
+     OR v_sandbox_guard_definition !~* 'sandbox release blocked'
+     OR v_sandbox_guard_definition !~* 'pending attributable settlement operation' THEN
     RAISE EXCEPTION '[issue-164-p6] settlement recovery fence postcondition failed';
   END IF;
 
