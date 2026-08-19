@@ -12,7 +12,7 @@ class MinimalMarketplaceClient {
   constructor() {
     this.tables = {
       marketplace_inquiries: [],
-      vehicles: [{ vin: 'VIN-C2-OUTBOX', owner_id: 'seller-outbox', tenant_id: 'tenant-outbox', status: 'active' }],
+      vehicles: [{ vin: 'VIN-C2-OUTBOX', owner_id: 'seller-outbox', current_seller_id: 'seller-outbox', tenant_id: 'tenant-outbox', status: 'active' }],
       users: [],
     };
   }
