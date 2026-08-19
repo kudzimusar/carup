@@ -100,7 +100,8 @@ export interface MobileListingSummary {
   currency: string;
   mileage: number;
   trust_score: number;
-  status: string;
+  /** Null means reservation-backed lifecycle truth could not be safely resolved. */
+  status: string | null;
   condition_category?: string;
   marketplace_tags?: string[];
   primary_image_url?: string | null;
