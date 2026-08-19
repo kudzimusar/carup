@@ -3,6 +3,13 @@
 Analysis only. No source file was modified. Baseline: `01ad3fad` (Phase 0 + Phase 1) on
 `integration/canonical-vehicle-truth-closure`.
 
+> **Reading the line anchors in this document.** Every `file:NNNN` here resolves against the baseline
+> commit named above and **not** against a current tree — later phases have moved most of them. Use
+> `git show 01ad3fad:<file>`, which is what `MEDIA_EVIDENCE_CONTRACT.md` §8 rule 2 prescribes and what
+> naming a baseline is for. Stated explicitly because a reader who resolves one of these against the
+> working tree will land on unrelated code and may conclude the claim is false when it is not — that
+> already happened once during the Phase 5 close-out, to a claim that was true as written.
+
 Canonical contract under consumption, never forked:
 `backend/utils/publicVehicleProjection.js` — `FIELD_STATES` / `fieldState` / `statedValue`
 (`publicVehicleProjection.js:232-294`).
@@ -113,7 +120,7 @@ every `true` in the database came from a seed script or a hand edit.
 
 | # | site | what it writes |
 |---|---|---|
-| W1 | `backend/server.js:1469` | `duty_paid: false` on **every** created vehicle — asserts a negative that was never evaluated |
+| W1 | `POST /api/vehicles/add` (`backend/server.js`) | `duty_paid: false` on **every** created vehicle — asserts a negative that was never evaluated |
 | W2 | `database/migrations/supabase_schema.sql:347` | demo seed, `duty_paid: true` |
 | W3 | `database/seeds/marketplace_v1_staging_qa_seed.sql:43,47,50,53` | staging QA fixtures, `true` |
 | W4 | `scripts/migrate-to-supabase.js:125-127` | migration fixtures, `true` |
@@ -168,7 +175,7 @@ earn the badge through code. Every other `true` on staging is fixture-set.
 
 | # | site | what it writes |
 |---|---|---|
-| W1 | `backend/server.js:1469` | `police_verified: false` on every created vehicle |
+| W1 | `POST /api/vehicles/add` (`backend/server.js`) | `police_verified: false` on every created vehicle |
 | W2 | `backend/services/security/securityService.js:22` | `false` + `status:'Flagged'` when a theft is reported |
 | W3 | `backend/services/security/securityService.js:53` | **`true`** + `status:'Available'` when a theft alert is cleared — the only code path that writes `true` |
 | W4 | `database/seeds/marketplace_v1_staging_qa_seed.sql:43,47,50,53`; `supabase_schema.sql:347`; `scripts/migrate-to-supabase.js:125-127`; `backend/db/database.js:299` | fixtures |
@@ -642,7 +649,7 @@ Specific hazards, in priority order:
    set more. These are safe to change *on staging*, and they are exactly the rows whose disappearance
    from the marketplace proves the migration worked. The seed file must be updated in the same change
    or the next apply reintroduces them.
-4. **`duty_paid = false` / `police_verified = false` written by `server.js:1469`.** Indistinguishable
+4. **`duty_paid = false` / `police_verified = false` written by `POST /api/vehicles/add`.** Indistinguishable
    from the column default and from a real negative finding. They cannot be interpreted and must not
    be interpreted — they become `unknown` by derivation, and the insert should stop writing them
    (`PUBLIC_API_INVENTORY.md` §8 S3 already schedules this).
@@ -667,10 +674,33 @@ the stored boolean, per VIN, per fact. The expected result is a 100% divergence 
 else is a resolver bug or an undiscovered writer. Record the diff as the migration's evidence.
 *Risk: none — read-only.*
 
-**M3 — Stop asserting negatives at creation.** Remove `duty_paid: false, police_verified: false` and
-`trust_score: 50` from `server.js:1469-1470`, so new rows carry the column default instead of an
-explicit claim. Sequenced with `PUBLIC_API_INVENTORY.md` §8 S3.
-*Risk: low.* Check `buildVehicleListingCandidate` / `getListingEligibility` (`server.js:1454-1455`)
+**M3 — Stop asserting negatives at creation.** Sequenced with `PUBLIC_API_INVENTORY.md` §8 S3.
+
+> **Partly done, and the original prescription was wrong. Corrected 2026-08-19.**
+>
+> **`trust_score` — CLOSED.** The handler no longer writes `trust_score: 50`; it writes an explicit
+> `trust_score: null` (Phase 3, INV-TRUST-2). The explicit null is load-bearing rather than redundant:
+> `public.vehicles.trust_score` is `REAL DEFAULT 80.0` (`supabase_schema.sql:60`), so *omitting* the
+> column would hand every new listing a fabricated 80 — worse than the 50 it replaced. Only
+> `refreshCanonicalTrust()` may **STAMP** a score, i.e. write a number *together with* the
+> `calculation_version` that makes it publishable. That is narrower than "may write the column":
+> three other writers put numbers there today — `trustGraphService.js`, `trustEnforcementEngine.js`
+> and `documentIntelligenceService.js` — which is why `PUBLIC_API_INVENTORY.md` §9 schedules
+> reconciling them onto one. The invariant is about the stamp, not about the number.
+>
+> **`duty_paid` / `police_verified` — STILL OPEN, and this item's original advice would not have
+> closed them.** M3 said to remove the writes "so new rows carry no explicit claim". That outcome is
+> false of this schema: both columns are `BOOLEAN DEFAULT FALSE` (`supabase_schema.sql:57-58`), so
+> deleting the write-site leaves the identical unevaluated `false` on the row — it only changes who
+> is doing the inventing. This document already says so in §5.1, hazard 4: *"indistinguishable
+> from the column default"*. Closing them requires the **tri-state migration scheduled in
+> `PUBLIC_API_INVENTORY.md` §9** (`BOOLEAN DEFAULT FALSE` → nullable/enum), not a write-site deletion.
+>
+> Recorded at this length because the error is the programme's own thesis turned on itself: the
+> column-DEFAULT check was run for `trust_score` in one sentence and not run for the two columns in
+> the next.
+
+*Risk: low.* Check `buildVehicleListingCandidate` / `getListingEligibility`
 first — the eligibility gate runs before the insert and must not depend on the removed fields.
 
 **M4 — Flip the public read to the resolver, staging only.** Point `deriveMarketplaceTags`
@@ -765,10 +795,37 @@ dropped, not populated.
 ## 7. Verification note
 
 Analysis only; no source file was modified, so the three gates are unchanged from the `01ad3fad`
-baseline: `npx tsc -b --force --pretty false` exit 0 · `npx vitest run` 812 passed / 91 files ·
+baseline: `npx tsc --noEmit --project web/tsconfig.app.json` exit 0 · `cd web && npx vitest run` ·
 `node --test backend/tests/issue164-phase0-public-projection.test.js
 backend/tests/issue164-phase1-read-contract.test.js backend/tests/db-compat-legacy-scopes.test.js`
 57 passed.
+
+> **Correction (Phase 5 close-out).** This note previously recorded the type gate as
+> `npx tsc -b --force --pretty false` exit 0. **That command has never worked in this repository
+> and could not have returned exit 0.** There is no root `tsconfig.json` — `git log --all --
+> tsconfig.json` is empty, and the file is absent from the `c662d1a4` tree — so `tsc -b` exits **1**
+> with `error TS5083: Cannot read file '<repo>/tsconfig.json'`. The recorded "exit 0" was an
+> artifact of reading the exit status of a pipeline (`… | head`) rather than of `tsc`. The working
+> type gate is the `--project web/tsconfig.app.json` form above, re-measured at the current tree as
+> **exit 0**. The same false claim appeared in `PUBLIC_API_INVENTORY.md` §10 and is corrected there.
+>
+> The vitest count is left unnumbered rather than restated: it must be run with cwd `web/`, because
+> `src/lib/service-worker.test.ts` resolves `process.cwd() + "public/sw.js"`, and the 812/91 figure
+> was taken at the `01ad3fad` baseline, not at this tree. Re-measured at the Phase 5 close-out for
+> the record: **95 files / 977 tests, 0 fail**, and the type gate above **exit 0**.
+
+> **Row-count re-measurement (Phase 5 close-out, read-only on `eoyenigwevnxwwhyhaer`).** Every
+> `0 rows` claim in §§3–5 still reproduces exactly — `vehicle_listing_summaries`,
+> `trust_fact_requests`, `source_records`, `evidence_sets` and `evidence_provenance_events` are all
+> still empty, so the orphan/dead-table verdicts built on them stand unchanged.
+>
+> **One number is now stale by construction and is reclassified rather than refreshed:**
+> `trust_audit_events` is recorded as `3514 rows` and measures **3515** today. It is an append-only
+> hash-chained audit table, so any exact count in a document is a timestamp, not a fact — it was
+> already wrong the moment it was written. Read it as **"non-trivially populated, and growing"**,
+> which is the only property the surrounding argument (*"live and correct — the model to reuse"*)
+> actually rests on. The `0 rows` counts are different in kind: for those, zero-versus-nonzero is
+> the whole claim, which is why they are worth re-measuring and this one is not.
 
 Staging reads used to establish §0 and the row counts in §3 were read-only
 (`information_schema.columns`, `pg_stat_user_tables`, `to_regclass`, and one `SELECT` over

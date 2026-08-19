@@ -35,6 +35,8 @@ import type {
   TimelineEvent,
   PassportVerificationSource,
   MarketplaceListingDetail,
+  MarketplaceMedia,
+  VehicleEvidence,
   EvidenceTaxonomyResponse,
   EvidenceSource,
   TemporalFinding,
@@ -68,7 +70,12 @@ function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
     // `trust_score` is deliberately NOT carried over. It is the unversioned cache column, the page
     // renders no trust claim from it, and leaving it on the hydrated Vehicle is how a later edit
     // reaches for it as a fallback. The canonical projection is the only trust input here.
-    images: (d.media || []).filter((m) => m.type === 'image').map((m) => m.url),
+    //
+    // `images` is not carried over either, and for the same reason. It used to be flattened here to
+    // `string[]`, which threw away `is_primary`, the ordering and the ability to tell "the listing
+    // gallery was never read" from "the listing has no photos". The gallery now reads the canonical
+    // listing-media block off `detail.media` directly; a `Vehicle.images` array left on this object
+    // is only a second, lossier copy for a later edit to reach for.
     location: d.location,
     sellerName: d.seller_summary?.display_label,
     sellerType: d.seller_summary?.seller_type === 'dealer' ? 'Dealership'
@@ -96,6 +103,568 @@ type IdentifierState = 'present' | 'withheld' | 'unrecorded'
 function identifierState(value: string | null | undefined, redacted: boolean): IdentifierState {
   if (value) return 'present'
   return redacted ? 'withheld' : 'unrecorded'
+}
+
+// ── The canonical media contract, client side (Issue #164 Phase 5) ───────────
+/**
+ * TWO CONCEPTS THAT LOOK ALIKE AND ARE NOT ALIKE. `backend/utils/vehicleMediaProjection.js` is the
+ * canonical statement of this contract; the declarations below are its client mirror, because
+ * `web/` resolves only `@/*` and `@shared/*` and cannot import from `backend/`. The mirror is kept
+ * honest by `VehicleDetail.media.test.tsx`, which reads the backend module's source and asserts
+ * that the two empty statements here are that module's exported sentences character-for-character,
+ * and that every field this page publishes on an evidence item is in Phase 0's allow-list.
+ *
+ *   LISTING MEDIA    — the seller's marketing photos. UNVERIFIED, and unverifiable: `listing_images`
+ *                      is (id, vin, image_url, is_primary, display_order, created_at). There is no
+ *                      uploader, no capture time, no reviewer and no status in the row, so any trust
+ *                      word attached to a listing photo is authored by this renderer and asserted on
+ *                      the seller's behalf.
+ *   VERIFIED EVIDENCE — governed artifacts with provenance and a review decision.
+ *
+ * ── THE DEFECT THIS CLOSES ─────────────────────────────────────────────────────────────────
+ * Marketplace served a card image for a VIN while this page said "No verified images uploaded yet"
+ * for the same VIN. `lookupVehiclePassport` runs first and RETURNS EARLY on success, and the gallery
+ * was hydrated from `passportData.vehicle.images` — but the passport projects `vehicles` through
+ * `PUBLIC_VEHICLE_FIELDS` and `vehicles` has no image column. `listing_images` is a separate table
+ * that the passport path never reads. So `d.images` was `undefined`, the gallery went empty, and the
+ * placeholder fired for a car whose photos were sitting on the Marketplace card.
+ *
+ * THE SENTENCE WAS THE SECOND DEFECT AND THE WORSE ONE. It answered a question about EVIDENCE with a
+ * control that renders LISTING MEDIA, stating a governance finding ("nothing here is verified") over
+ * a seller's advertising photos, which are never verified by anything. Fixing only the plumbing
+ * would have left it in place, and it would then have been false in the other direction: three
+ * seller photos rendering under a control that had just called them unverified.
+ *
+ * ── RULE 1: A BLOCK THAT WAS NEVER READ MAY NOT SAY "NONE" ─────────────────────────────────
+ * That is why `not_loaded` exists, and it is the defect turned into a state.
+ *
+ *   `not_loaded` — this page did not consult the source. Nothing is claimed in either direction.
+ *   `none`       — the source WAS consulted and holds nothing publishable. That is a finding, and
+ *                  it gets a sentence.
+ *   `published`  — at least one item.
+ *
+ * On this page the ONLY reader of `listing_images` is the governed marketplace detail, whose `media`
+ * array is built from exactly the rows the Marketplace card is built from. So a vehicle that has no
+ * public marketplace listing yields `not_loaded`, never `none`: this page genuinely does not know
+ * whether that seller uploaded photos, and it now says so instead of publishing a confident negative
+ * about a table it never queried.
+ *
+ * ── RULE 2: THE TWO EMPTY STATES ARE DIFFERENT SENTENCES, AND NEITHER IMPLIES THE OTHER ────
+ * A vehicle with photos and no evidence, and a vehicle with evidence and no photos, are both
+ * ordinary. On staging they are not hypothetical and they do not overlap: three VINs carry a listing
+ * image and zero evidence, one VIN carries one verified evidence row and zero listing images, and
+ * twelve carry neither. Not one of the sixteen has both. The single sentence that shipped was wrong
+ * for every one of those four situations.
+ *
+ * ── RULE 5: URL HONESTY ────────────────────────────────────────────────────────────────────
+ * A media URL is an unvalidated string somebody recorded — the write path stores `image_url: url`
+ * verbatim with no scheme, host, length or existence check. `url_form` describes the STRING and
+ * nothing else. A value this contract will not publish (`data:`, `blob:`, `javascript:`, a bare
+ * `photo.jpg` that would resolve against `/marketplace/<VIN>`, a blank, a non-string) is COUNTED,
+ * never silently dropped: passing "we could not render it" off as "the seller added none" is the
+ * same lie as Rule 1, one layer down.
+ */
+type MediaBlockState = 'published' | 'none' | 'not_loaded'
+
+type MediaUrlForm = 'absolute_https' | 'absolute_http' | 'protocol_relative' | 'site_relative'
+
+/**
+ * The two sentences, character-for-character as `vehicleMediaProjection.js` exports them. They are
+ * imported-by-assertion rather than by module, so the wording cannot drift apart silently — "No
+ * verified images uploaded yet" was authored in this very file, which is precisely how a marketing
+ * gallery came to publish a governance finding.
+ */
+// UPDATED TO FOLLOW THE CONTRACT, NOT REWORDED HERE. `vehicleMediaProjection.js` changed this
+// sentence from "No photos have been added to this listing." under its Rule 1b: an unpublished
+// listing's gallery is now gated, and the gated block is BYTE-IDENTICAL to a published-and-empty
+// one, so the sentence had to become true of three cases at once — nothing published because the
+// listing is not published, because the seller added none, and because every recorded row was
+// unpublishable. The old wording asserted the seller's behaviour and was false in two of them.
+// The mirror-by-assertion below is what caught the drift the moment it happened.
+const LISTING_MEDIA_EMPTY_STATEMENT = 'No photos are published for this listing.'
+const VERIFIED_EVIDENCE_EMPTY_STATEMENT = 'No verified evidence has been published for this vehicle.'
+
+/** The uniform envelope. Both blocks carry it; their ITEM shapes are what differ. */
+type MediaBlock<TItem> = {
+  state: MediaBlockState
+  items: TItem[]
+  unpublishable_count: number
+  empty_statement: string | null
+}
+
+/**
+ * A listing-media item. Shares NOT ONE KEY NAME with an evidence item — see Rule 7 below.
+ *
+ * RULE 6b: `media_id` IS THE IDENTITY; `position` IS ONLY A SLOT. `position` is this projection's
+ * dense ordinal, so it changes whenever a sibling row moves and it is `0` on the first photo of
+ * every vehicle. `url` is no better as an identity: it survives being rewritten by a CDN or a resize
+ * and it can collide, since 3 of 3 rows in staging are site-relative `/uat/owner/*.svg` paths with
+ * no uniqueness constraint behind them. Only `media_id` — `listing_images.id`, a stored uuid — names
+ * the same photograph across two reads and two surfaces.
+ *
+ * It is `media_id` rather than `id` because an evidence item already carries `id`; one key name on
+ * both shapes would collapse the Rule 7 disjointness proof.
+ *
+ * `null` MEANS THIS TRANSPORT DID NOT CARRY ONE, and is never a fabricated value. It is READ, never
+ * assumed: every transport is asked for `media_id` and `toMediaIdentity` decides whether what came
+ * back is an identity. Deriving one from the array index or from the URL would manufacture exactly
+ * the unstable value this field exists to replace, so when nothing was carried the honest answer is
+ * to say so.
+ *
+ * CORRECTED AT THIS SHA. This comment used to record a finding — "the marketplace transport maps
+ * only `{url, type, is_primary}` and drops `id`" — and `toListingMediaBlock` hardcoded `null` on
+ * the strength of it. That is no longer true: `marketplaceListingDetailService` now publishes the
+ * canonical `listing_media` envelope AND a `media` compatibility view carrying `media_id`,
+ * `url_form` and `position`. Hardcoding `null` against a wire that now carries the identity would
+ * discard a fact we have, which is the same class of defect as inventing one we do not.
+ */
+type ListingMediaItem = {
+  media_id: string | null
+  url: string
+  url_form: MediaUrlForm
+  position: number
+  is_primary: boolean
+}
+
+/**
+ * The canonical UUID grammar, and nothing else — anchored, so no value carrying a `/`, a `.`, a
+ * space, a bucket name or a file extension can pass. Mirrors MEDIA_IDENTITY_PATTERN in
+ * backend/utils/vehicleMediaProjection.js.
+ *
+ * Re-validated here rather than trusted, on this file's standing rule that nothing crosses the wire
+ * unchecked: a regressed server must not be able to push a storage path onto the page by putting it
+ * in the `media_id` slot of a canonical-looking envelope.
+ */
+const MEDIA_IDENTITY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The wire value as a stable opaque identity, or `null` when it is not one. Case-normalised. */
+function toMediaIdentity(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!MEDIA_IDENTITY_PATTERN.test(trimmed)) return null
+  return trimmed.toLowerCase()
+}
+
+/**
+ * Classify a media URL string. `null` means unpublishable. Order matters: `//` must be tested before
+ * the single-slash case, or a foreign host would be published as if it resolved against our origin.
+ */
+function classifyMediaUrl(url: unknown): MediaUrlForm | null {
+  if (typeof url !== 'string') return null
+  const trimmed = url.trim()
+  if (trimmed === '') return null
+  if (trimmed.startsWith('//')) return 'protocol_relative'
+  if (trimmed.startsWith('/')) return 'site_relative'
+  const lower = trimmed.toLowerCase()
+  if (lower.startsWith('https://')) return 'absolute_https'
+  if (lower.startsWith('http://')) return 'absolute_http'
+  return null
+}
+
+function sealBlock<TItem>(
+  state: MediaBlockState,
+  items: TItem[],
+  unpublishableCount: number,
+  emptyStatement: string,
+): MediaBlock<TItem> {
+  return {
+    state,
+    items,
+    unpublishable_count: unpublishableCount,
+    // A sentence belongs to `none` alone. `published` has items to speak for it, and `not_loaded`
+    // has nothing to say — rendering a statement there is the defect this contract closes.
+    empty_statement: state === 'none' ? emptyStatement : null,
+  }
+}
+
+function notLoadedBlock<TItem>(): MediaBlock<TItem> {
+  return { state: 'not_loaded', items: [], unpublishable_count: 0, empty_statement: null }
+}
+
+/**
+ * The `media` array AS BYTES, which is a different statement from the one the contract makes.
+ *
+ * FINDING CLOSED, AND THE CLOSURE IS RECORDED BECAUSE THE FINDING WAS. This slot used to read
+ * `MarketplaceMedia & { media_id?: unknown }`, with a note that `shared/types/marketplace.ts` still
+ * declared `{ url, type, is_primary? }` while the service published `media_id`, `url_form` and
+ * `position` — the declared type being a strict SUBSET of the wire. That gap is now closed AT THE
+ * CONTRACT: `MarketplaceMedia` extends `MarketplaceListingMediaItem`, and `MarketplaceListingDetail`
+ * declares `listing_media`. The page no longer widens a cross-surface type from inside a .tsx file,
+ * which is the mistake that put a governance sentence in a component in the first place.
+ *
+ * THE PAGE STILL DOES NOT TRUST IT, and the two facts are not in tension. A declaration binds the
+ * CONTRACT; it does not bind the BYTES a particular deploy sends. A server predating the widened
+ * view carries no `media_id` at all, and a regressed one could put a storage path there. So every
+ * key is re-widened to `unknown` and a validator decides: `classifyMediaUrl` for the url,
+ * `toMediaIdentity` for the identity, `=== true` for the flag.
+ *
+ * DERIVED from the shared type rather than restated, via `keyof`. If the contract gains a key this
+ * view gains it too, so the page cannot quietly go on reading a shape the contract has moved past —
+ * which is exactly how the previous local widening survived a whole phase after it stopped being
+ * true.
+ */
+type WireMarketplaceMedia = { [K in keyof MarketplaceMedia]?: unknown }
+
+/**
+ * THE LISTING-MEDIA BLOCK — the gallery.
+ *
+ * `undefined`/`null` in means THIS PAGE DID NOT LOOK and yields `not_loaded`. An array in — `[]`
+ * included — means it looked.
+ *
+ * RULE 6: PRIMACY IS THE SELLER'S CHOICE OR IT DOES NOT EXIST. `is_primary` is published `true` only
+ * where a row claims it; no primary is elected when nobody claimed one, because ordering and primacy
+ * are different facts and inventing the seller's choice is a fabrication in the same family as the
+ * seller labels Phase 4 removed. Nothing in the schema prevents several rows claiming primacy (there
+ * is no partial unique index on `(vin) WHERE is_primary`), so the first in sort order keeps the claim
+ * and the rest are demoted — a consumer never has to arbitrate between two "main photos".
+ */
+function toListingMediaBlock(rows: WireMarketplaceMedia[] | null | undefined): MediaBlock<ListingMediaItem> {
+  if (!Array.isArray(rows)) return notLoadedBlock()
+
+  let unpublishable = 0
+  const candidates: Array<{ mediaId: string | null; url: string; form: MediaUrlForm; claimsPrimary: boolean; index: number }> = []
+  const identitiesTaken = new Set<string>()
+  rows.forEach((row, index) => {
+    // Video and document entries are not gallery photos. They are not "unpublishable" either — the
+    // block simply is not about them, so counting them would overstate a fault.
+    if (row?.type !== 'image') return
+    const form = classifyMediaUrl(row?.url)
+    // Rule 6b, and the same re-validation the canonical transport gets: the identity is READ from
+    // the entry and checked against the grammar, never taken on trust and never hardcoded. An
+    // entry that carries none — a server predating the widened compat view — yields `null` here
+    // BECAUSE `toMediaIdentity` refused what it was given, which is a fact about the payload
+    // rather than a decision this function made on the payload's behalf.
+    const mediaId = toMediaIdentity(row?.media_id)
+    // Rule 6b's uniqueness half, resolved in INPUT ORDER exactly as the backend block does — before
+    // the sort below, so the surviving entry is the same one whichever way the payload happened to
+    // be ordered, and a duplicate can never take the primacy claim from the entry that outranked it
+    // on arrival. Counted, never silently dropped. `null` is exempt for the reason recorded at the
+    // bottom of this function: an unnamed photograph is still a photograph.
+    if (form === null || (mediaId !== null && identitiesTaken.has(mediaId))) {
+      unpublishable += 1
+      return
+    }
+    if (mediaId !== null) identitiesTaken.add(mediaId)
+    candidates.push({
+      mediaId,
+      url: String(row.url).trim(),
+      form,
+      claimsPrimary: row.is_primary === true,
+      index,
+    })
+  })
+
+  // The server already ordered these (primary first, then display_order). Sorting again on the one
+  // fact that survives into `MarketplaceMedia` keeps primacy at position 0 without inventing an
+  // order the payload does not carry; `index` breaks ties, so the server's order is preserved.
+  candidates.sort((a, b) => {
+    if (a.claimsPrimary !== b.claimsPrimary) return a.claimsPrimary ? -1 : 1
+    return a.index - b.index
+  })
+
+  let primaryTaken = false
+  const items = candidates.map((candidate, position) => {
+    const isPrimary = candidate.claimsPrimary && !primaryTaken
+    if (isPrimary) primaryTaken = true
+    // Carried from the entry, NEVER derived from `position` or from the URL: an index-derived value
+    // is `0` on the first photo of every vehicle and moves whenever a sibling row moves, which is
+    // the precise instability Rule 6b exists to eliminate. `null` reaches here only when
+    // `toMediaIdentity` refused the wire value — no identity was carried, or what was carried was
+    // not one — and an absent `data-media-id` is the page saying exactly that.
+    //
+    // DELIBERATE DIVERGENCE FROM THE BACKEND BLOCK, recorded so the mirror pin is not over-read:
+    // `toListingMediaBlock` in `backend/utils/vehicleMediaProjection.js` counts an identity-less row
+    // as unpublishable and emits NO item, because it reads `listing_images` where `id` is a stored
+    // uuid and its absence means the row is malformed. This function reads a WIRE payload, where a
+    // server predating the widened compat view legitimately carries no identity at all. Dropping
+    // those photos would blank the gallery of every such vehicle — the original defect, re-entered
+    // through the identity door. A photograph we cannot name is still a photograph the seller
+    // added; only the ability to NAME it is missing, and the page says which.
+    return { media_id: candidate.mediaId, url: candidate.url, url_form: candidate.form, position, is_primary: isPrimary }
+  })
+
+  return sealBlock(items.length ? 'published' : 'none', items, unpublishable, LISTING_MEDIA_EMPTY_STATEMENT)
+}
+
+/**
+ * RULE 4: EVIDENCE KEEPS PHASE 0's ALLOW-LIST, NARROWED — NEVER WIDENED.
+ *
+ * Every name here is in `PUBLIC_EVIDENCE_FIELDS` (`backend/utils/publicVehicleProjection.js`), and
+ * the media test asserts that containment against the backend source, so this page can only ever
+ * publish a subset of what Phase 0 already cleared. `uploaded_by`, `verified_by`, `uploader_role`,
+ * `tenant_id`, `source_id`, `file_path`, `storage_bucket`, `verification_notes` and `metadata` are
+ * therefore unreachable from this projection FOR EVERY AUDIENCE — an item is built field by field,
+ * so a server that regressed and sent an uploader id could not push it into the DOM through here.
+ *
+ * The web `VehicleEvidence` type still declares `uploaded_by: string` as required, which is exactly
+ * why the projection exists: the type says the identity is there, and the contract says it never
+ * leaves the server.
+ */
+const VEHICLE_DETAIL_EVIDENCE_FIELDS = [
+  'id', 'vin', 'evidence_type', 'evidence_class', 'evidence_subtype',
+  'event_type', 'event_date', 'captured_at', 'uploaded_at', 'verified_at',
+  'verification_status', 'visibility_level',
+  'file_url', 'mime_type', 'source_name', 'checksum', 'image_hash',
+  'linked_registry_event_id', 'timeline_event_id',
+] as const
+
+/**
+ * Apply the allow-list. ONE function, used by both transports, so "which fields may be published"
+ * is answered in exactly one place. Nothing is spread: the item is built field by field, which is
+ * what makes an internal identity structurally unreachable rather than merely unrendered today.
+ */
+function pickPublicEvidenceFields(row: unknown): Record<string, string | null> {
+  const source = (row ?? {}) as Record<string, unknown>
+  const projected = {} as Record<string, string | null>
+  for (const field of VEHICLE_DETAIL_EVIDENCE_FIELDS) {
+    const value = source[field]
+    // Absent stays absent-as-null; no default is invented, and a non-scalar (an object a server
+    // nested under an allow-listed name) is refused rather than stringified into the page.
+    projected[field] = typeof value === 'string' || typeof value === 'number' ? String(value) : null
+  }
+  return projected
+}
+
+/**
+ * An evidence item: the allow-listed fields plus the url-form classification of `file_url`. Named
+ * `file_url_form`, not `url_form`, so the two item shapes stay KEY-DISJOINT.
+ *
+ * RULE 7: THE BLOCKS ARE DISJOINT BY CONSTRUCTION, NOT BY DISCIPLINE. A listing item's keys are
+ * {media_id, url, url_form, position, is_primary} and an evidence item's are the names above; they
+ * share not one — which is why the listing identity is `media_id` and not `id`, since `id` is
+ * already the first field of the evidence allow-list. That is what makes "these can never be conflated" an assertion a test can run rather than a
+ * convention a reviewer has to enforce by eye. The same URL may legitimately appear in both blocks
+ * and that is not conflation — provenance rides the ITEM, not the string, and de-duplicating across
+ * the blocks would make one of two independent claims disappear.
+ */
+type VerifiedEvidenceItem =
+  { [K in (typeof VEHICLE_DETAIL_EVIDENCE_FIELDS)[number]]: string | null }
+  & { file_url_form: MediaUrlForm }
+
+/**
+ * The public gate, re-applied on the client: `visibility_level === 'public_safe' AND
+ * verification_status === 'verified'`. `buildVehiclePassport` already filters in SQL; re-applying it
+ * means a route that ever forgot the filter cannot leak restricted evidence through this surface. A
+ * row missing either column FAILS — absence is not permission, and it is also what stops a
+ * `listing_images` row (which has neither column) from being rendered as evidence.
+ */
+function isEvidenceRowClearedForPublic(row: VehicleEvidence | null | undefined): boolean {
+  if (!row || typeof row !== 'object') return false
+  return row.visibility_level === 'public_safe' && row.verification_status === 'verified'
+}
+
+/**
+ * THE VERIFIED-EVIDENCE BLOCK — governed artifacts, each with provenance and a review decision.
+ *
+ * A row this audience may not see is NOT counted anywhere: publishing "2 withheld" over a restricted
+ * evidence set would tell an anonymous visitor that restricted evidence exists, which is the very
+ * question the gate refuses. A row that is cleared and then unrenderable IS counted — that is our
+ * defect, not the vehicle's, and the block must not pass it off as "no verified evidence".
+ */
+function toVerifiedEvidenceBlock(
+  rows: VehicleEvidence[] | null | undefined,
+): MediaBlock<VerifiedEvidenceItem> {
+  if (!Array.isArray(rows)) return notLoadedBlock()
+
+  let unpublishable = 0
+  const items: VerifiedEvidenceItem[] = []
+  for (const row of rows) {
+    if (!isEvidenceRowClearedForPublic(row)) continue
+    const form = classifyMediaUrl(row.file_url)
+    if (form === null) {
+      unpublishable += 1
+      continue
+    }
+    items.push({ ...pickPublicEvidenceFields(row), file_url_form: form } as VerifiedEvidenceItem)
+  }
+
+  return sealBlock(items.length ? 'published' : 'none', items, unpublishable, VERIFIED_EVIDENCE_EMPTY_STATEMENT)
+}
+
+// ── The contract's OTHER transport: the passport's own media blocks ──────────
+/**
+ * TWO TRANSPORTS, ONE CONTRACT — the same arrangement this page already runs for trust.
+ *
+ * `buildVehiclePassport` now composes `toVehicleMedia(...)` and spreads `listing_media` and
+ * `verified_evidence` onto the passport body. That is the CANONICAL transport: it reads
+ * `listing_images` directly, so it can answer for a vehicle that has no public marketplace listing
+ * at all — the case where the derived block below can only ever say `not_loaded`. The marketplace
+ * detail remains the second transport and the fallback, and both carry the same declared shape.
+ *
+ * A body that does not carry the key is NOT an empty gallery. `state` is the discriminator and it is
+ * REQUIRED, exactly as `evaluation_state` is for the trust projection: a response missing it parses
+ * as NOTHING rather than as a media block, so a server that has not been updated makes this page
+ * fall back rather than publish a negative nobody asserted.
+ *
+ * NOTHING IS TRUSTED ACROSS THE WIRE. URLs are re-classified and evidence items are re-picked
+ * through the same allow-list the derived path uses, so a server that regressed cannot push an
+ * uploader id or a `javascript:` URL onto the page by putting it in a canonical-looking envelope.
+ */
+type RawMediaBlock = {
+  state: MediaBlockState
+  items: Array<Record<string, unknown>>
+  unpublishable_count: number
+}
+
+function readMediaBlockEnvelope(raw: unknown): RawMediaBlock | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const block = raw as Record<string, unknown>
+  const state = block.state
+  if (state !== 'published' && state !== 'none' && state !== 'not_loaded') return null
+  if (!Array.isArray(block.items)) return null
+  const count = block.unpublishable_count
+  return {
+    state,
+    items: block.items.filter(
+      (entry): entry is Record<string, unknown> => !!entry && typeof entry === 'object' && !Array.isArray(entry),
+    ),
+    unpublishable_count: typeof count === 'number' && Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0,
+  }
+}
+
+/**
+ * Re-derive the state from what SURVIVED our own checks. If the server published items and none of
+ * them is renderable here, that is `none` WITH a count — never `published` with an empty list, and
+ * never a silent drop.
+ */
+function stateFor(itemCount: number, envelopeState: MediaBlockState): MediaBlockState {
+  if (itemCount > 0) return 'published'
+  return envelopeState === 'not_loaded' ? 'not_loaded' : 'none'
+}
+
+function readListingMediaBlock(raw: unknown): MediaBlock<ListingMediaItem> | null {
+  const envelope = readMediaBlockEnvelope(raw)
+  if (!envelope) return null
+
+  let unpublishable = envelope.unpublishable_count
+  const items: ListingMediaItem[] = []
+  const identitiesTaken = new Set<string>()
+  let primaryTaken = false
+  for (const entry of envelope.items) {
+    const form = classifyMediaUrl(entry.url)
+    // Re-validated, not trusted (Rule 6b). A server that regressed cannot put `qa/evidence-73.jpg`
+    // or a bucket name in this slot and have the page treat it as an identity: anything outside the
+    // UUID grammar becomes `null`, which reads as "this transport carried no identity" rather than
+    // as a locator the page would then be free to render or log.
+    const mediaId = toMediaIdentity(entry.media_id)
+    // RULE 6b, UNIQUENESS — the half this reader used to skip. Grammar and primacy were both
+    // re-arbitrated off the wire and uniqueness was not, so a payload carrying ONE media_id on TWO
+    // urls rendered two thumbnails under one name (measured: two `data-media-id` attributes with
+    // the same value, and React's "Encountered two children with the same key" on the very key the
+    // comment below says exists so the node follows the picture rather than the slot). Not
+    // reachable from today's server, where `id` is the row's primary key — but this file's posture
+    // is that nothing is trusted across the wire, and a re-check that stops one field short of the
+    // guarantee it is protecting is not a re-check.
+    //
+    // Matched to `toListingMediaBlock` in `backend/utils/vehicleMediaProjection.js`, which resolves
+    // duplicates in INPUT order (first occurrence keeps the identity) and COUNTS the loser in
+    // `unpublishable_count` rather than dropping it silently — because "we could not publish it" is
+    // not "the seller added none". Same rule here, and the entry is discarded BEFORE the primacy
+    // arbitration below, so a demoted duplicate can never consume the seller's one primacy claim.
+    //
+    // `null` identities are exempt, and that is the SAME deliberate divergence recorded on
+    // `toListingMediaBlock` below rather than a second one: a server predating the widened contract
+    // carries no identity on ANY entry, and treating "unnamed" as "already taken" would blank every
+    // such gallery from the second photo on — the original defect, re-entered through the identity
+    // door. Only a name that was actually carried can be claimed twice.
+    if (form === null || (mediaId !== null && identitiesTaken.has(mediaId))) {
+      unpublishable += 1
+      continue
+    }
+    if (mediaId !== null) identitiesTaken.add(mediaId)
+    const isPrimary = entry.is_primary === true && !primaryTaken
+    if (isPrimary) primaryTaken = true
+    items.push({
+      media_id: mediaId,
+      url: String(entry.url).trim(),
+      url_form: form,
+      position: items.length,
+      is_primary: isPrimary,
+    })
+  }
+  // The SENTENCE is ours, not the server's. `empty_statement` arrives on the wire, but rendering a
+  // server-supplied string into a governance-sensitive empty state is exactly how "No verified
+  // images uploaded yet" would come back through a new door. The two constants are asserted equal
+  // to the contract's exported ones, so this cannot drift into a disagreement.
+  return sealBlock(stateFor(items.length, envelope.state), items, unpublishable, LISTING_MEDIA_EMPTY_STATEMENT)
+}
+
+function readVerifiedEvidenceBlock(raw: unknown): MediaBlock<VerifiedEvidenceItem> | null {
+  const envelope = readMediaBlockEnvelope(raw)
+  if (!envelope) return null
+
+  let unpublishable = envelope.unpublishable_count
+  const items: VerifiedEvidenceItem[] = []
+  for (const entry of envelope.items) {
+    const form = classifyMediaUrl(entry.file_url)
+    if (form === null) {
+      unpublishable += 1
+      continue
+    }
+    items.push({ ...pickPublicEvidenceFields(entry), file_url_form: form } as VerifiedEvidenceItem)
+  }
+  return sealBlock(stateFor(items.length, envelope.state), items, unpublishable, VERIFIED_EVIDENCE_EMPTY_STATEMENT)
+}
+
+/**
+ * The passport keys the media contract is spread onto.
+ *
+ * STILL DECLARED LOCALLY, and NOT for the reason its neighbour used to be. `VehiclePassport` is the
+ * passport body's type, not the marketplace contract, so widening it is a different lane's contract
+ * and not something this phase's shared-type work reaches. `unknown` rather than the declared block
+ * type is also the right shape here for the same reason it is on `WireMarketplaceMedia`:
+ * `readMediaBlockEnvelope` must be handed something it is obliged to validate.
+ */
+type PassportMediaTransport = { listing_media?: unknown; verified_evidence?: unknown }
+
+/**
+ * Choose between two TRANSPORTS: THE ONE THAT ACTUALLY LOOKED WINS, and when neither looked the
+ * answer is `not_loaded`. A `not_loaded` block is not a tie-breaker candidate — preferring it over a
+ * transport that did read the source would reinstate the defect with extra steps.
+ *
+ * NOTE THE SCOPE, because it is the distinction a mutation on this lane forced into the open. This
+ * chooses between transports — two SEPARATE READS of the source, by two different routes, either of
+ * which may not have happened. It does NOT choose between two VIEWS of one read: within a single
+ * payload the canonical envelope is the authority and its weaker views are not second opinions. See
+ * `marketplaceBlock` below.
+ */
+function resolveMediaBlock<TItem>(
+  canonical: MediaBlock<TItem> | null,
+  derived: MediaBlock<TItem>,
+): MediaBlock<TItem> {
+  if (canonical && canonical.state !== 'not_loaded') return canonical
+  if (derived.state !== 'not_loaded') return derived
+  return notLoadedBlock<TItem>()
+}
+
+/**
+ * RULE 8: `dealer_listing` EVIDENCE IS EVIDENCE ABOUT AN ADVERTISEMENT.
+ *
+ * `vehicle_evidence.evidence_type` permits `dealer_listing_photo`, and `evidence_class_taxonomy`
+ * carries the class `dealer_listing`. Such a row stays in the EVIDENCE block — it is a governed
+ * artifact with provenance and a review decision — but its `verified` status attests THAT THIS WAS
+ * THE ADVERTISED PHOTO and attests nothing about the vehicle. It is never copied into the gallery
+ * either: the gallery is the seller's CURRENT presentation, and a captured historical advertisement
+ * is not that. So it must not be described with the language used for an inspection photo.
+ */
+function isAdvertisementEvidence(item: VerifiedEvidenceItem): boolean {
+  return item.evidence_class === 'dealer_listing'
+    || (item.evidence_type ?? '').startsWith('dealer_listing')
+}
+
+/** `snake_case_type` → `Snake case type`, so an unmapped taxonomy value stays readable and visible. */
+function humaniseEvidenceType(item: VerifiedEvidenceItem): string {
+  const raw = item.evidence_subtype || item.evidence_type
+  if (!raw) return 'Evidence type not recorded'
+  const spaced = raw.replace(/_/g, ' ').trim()
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+/** A date the buyer can read, or an explicit statement that it was never recorded. */
+function evidenceDate(value: string | null): string {
+  if (!value) return 'not recorded'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? 'not recorded' : parsed.toLocaleDateString()
 }
 
 // ── localStorage helpers ─────────────────────────────────────────────────────
@@ -642,7 +1211,13 @@ export default function VehicleDetail() {
           setVehicle({
             ...d,
             id: d.vin,
-            images: (d.images && d.images.length > 0) ? d.images : [],
+            // NO `images` HERE. This line used to read `d.images` off the passport vehicle, and that
+            // key does not exist: `buildVehiclePassport` projects `vehicles` through
+            // `PUBLIC_VEHICLE_FIELDS`, which names no image column, and the `vehicles` table has no
+            // image column to name. Photos live in `listing_images`, which this path never reads.
+            // Because this branch RETURNS EARLY on success, the empty array it produced was the
+            // page's final answer — which is how a car with photos on its Marketplace card ended up
+            // announcing that it had none. The gallery now reads the listing-media block instead.
             features: d.features ?? [],
             sellerName:   d.tenant?.name  ?? passportData.ownershipSummary?.currentSellerDisplayName ?? undefined,
             sellerPhone:  d.tenant?.phone,
@@ -677,7 +1252,8 @@ export default function VehicleDetail() {
           setVehicle({
             ...d,
             id: d.vin,
-            images: (d.images && d.images.length > 0) ? d.images : [],
+            // Same as the lookup branch above: the canonical vehicle endpoint is a `vehicles`
+            // projection and carries no gallery either. The listing-media block is the one source.
             features: d.features ?? [],
             sellerName:   d.tenant?.name,
             sellerPhone:  d.tenant?.phone,
@@ -879,12 +1455,64 @@ export default function VehicleDetail() {
   }
 
   // ── Derived values ────────────────────────────────────────────────────────
-  const FALLBACK_IMAGE = null // No fake Unsplash image
-  const allImages: string[] = (vehicle.images && vehicle.images.length > 0)
-    ? vehicle.images
-    : (FALLBACK_IMAGE ? [FALLBACK_IMAGE] : [])
-
-  const hasRealImages  = allImages.length > 0
+  /**
+   * THE LISTING-MEDIA BLOCK — TWO TRANSPORTS, ONE CONTRACT; AND WITHIN EACH, ONE AUTHORITY.
+   *
+   * The TRANSPORTS are two independent reads of `listing_images`, either of which may not have
+   * happened:
+   *   1. `passport.listing_media` — canonical, and the only one that can answer for a vehicle with
+   *      no public marketplace listing at all.
+   *   2. the marketplace detail — which now CARRIES THE IDENTITY, and is therefore what makes
+   *      marketplace→detail continuity checkable on the client rather than only on the server.
+   *
+   * The marketplace payload publishes that one read TWICE: `listing_media` (the envelope) and
+   * `media` (a compatibility array derived from it). Those are not two transports and the page must
+   * not treat them as two opinions — the envelope is the AUTHORITY and the array is a strictly
+   * weaker view of it, so `??` picks the envelope whenever the payload carries a parseable one and
+   * falls to the array only for a payload that carries none.
+   *
+   * WHY THAT DISTINCTION IS LOAD-BEARING, found by mutating this very expression. The service's own
+   * header records it: "`not_loaded` cannot be expressed in an array, so it arrives here as `[]` —
+   * indistinguishable from 'no photos'". Under a flat fallback the page read the envelope's
+   * `not_loaded`, correctly skipped it as "this did not look", and then answered from the same
+   * payload's `[]` — publishing "No photos have been added to this listing." about a table the
+   * request had never successfully read. Rule 1's defect, restored through the compatibility key.
+   * `unpublishable_count` is lost the same way: `none` with 2 unpublishable rows becomes a bare
+   * `none`, and our inability to render a stored address is passed off as the seller's omission.
+   *
+   * The three input states of the marketplace read, and why each maps where it does (Rule 1):
+   *   · still loading           → `not_loaded`. We have not looked yet.
+   *   · detail resolved         → we looked. The envelope decides; failing that, `media` (or `[]`).
+   *   · detail settled to null  → the listing read did not resolve — a passport-only vehicle, or a
+   *                               refused/failed fetch. WE NEVER CONSULTED `listing_images`, so this
+   *                               page may not report a negative about it. `not_loaded`.
+   *
+   * That last case is the original defect: it is precisely the state in which the page used to
+   * announce "No verified images uploaded yet".
+   */
+  const passportMedia = passport as (VehiclePassport & PassportMediaTransport) | null
+  // `detailLoading` gates the whole marketplace transport, both of its keys together. A stale
+  // `detail` from a previous VIN is not this VIN's answer, and gating one key but not the other is
+  // how two views of one read start disagreeing.
+  // No local widening any more: `MarketplaceListingDetail` DECLARES `listing_media`, so the key this
+  // page reads is the key the contract publishes. Both are still handed to validators — a declared
+  // type is a promise about the contract, not about the bytes a given deploy sends.
+  const detailMedia = detailLoading ? null : detail
+  const marketplaceBlock =
+    readListingMediaBlock(detailMedia?.listing_media)
+    ?? toListingMediaBlock(detailMedia ? (detailMedia.media ?? []) : undefined)
+  const listingMedia = resolveMediaBlock(
+    readListingMediaBlock(passportMedia?.listing_media),
+    marketplaceBlock,
+  )
+  const galleryItems = listingMedia.items
+  const hasListingPhotos = listingMedia.state === 'published'
+  // The index survives a payload changing under it; a stale index must never index past the array
+  // and blank the gallery.
+  const activeImageIdx = galleryItems.length > 0
+    ? Math.min(currentImageIdx, galleryItems.length - 1)
+    : 0
+  const activeImage = galleryItems[activeImageIdx]
 
   // The canonical projection, from the passport first — it is public, it is already fetched, and
   // `server.js` designates `trustReport` as "the ONE trust number this body publishes". The
@@ -917,8 +1545,23 @@ export default function VehicleDetail() {
 
   const timeline            = passport?.timeline ?? []
   const evidenceVault       = passport?.evidenceVault ?? []
-  const publicEvidence      = evidenceVault.filter(e => e.verification_status === 'verified' && e.visibility_level === 'public_safe')
+  // One gate, one predicate. `publicEvidence` keeps returning RAW rows because the life-stage
+  // timeline and the history thumbnails are typed on `VehicleEvidence`; the block below is what the
+  // buyer-facing evidence surface renders, and it is allow-list projected.
+  const publicEvidence      = evidenceVault.filter(isEvidenceRowClearedForPublic)
   const verificationSources = buildVerificationSources(passport)
+
+  /**
+   * THE VERIFIED-EVIDENCE BLOCK. `passport?.evidenceVault` is passed through UNDEFAULTED on purpose:
+   * `?? []` — which the `evidenceVault` line above still needs for its array-typed consumers — is
+   * the same defect as the gallery's, one table over. No passport, or a passport body that carried
+   * no `evidenceVault` key, means this page did not read the evidence record, and `not_loaded` says
+   * so instead of asserting that this vehicle has no verified evidence.
+   */
+  const verifiedEvidence = resolveMediaBlock(
+    readVerifiedEvidenceBlock(passportMedia?.verified_evidence),
+    toVerifiedEvidenceBlock(passport?.evidenceVault),
+  )
 
   // Reason codes come from the decision's own dimensions. They are shown verbatim; the page does
   // not translate them into sub-scores, because a code says WHY, not HOW MUCH.
@@ -1069,75 +1712,267 @@ export default function VehicleDetail() {
               })()
             )}
 
-            {/* Image gallery */}
-            <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
-              {hasRealImages ? (
-                <>
-                  <img
-                    src={allImages[currentImageIdx]}
-                    alt={`${vehicle.make} ${vehicle.model}`}
-                    className="w-full aspect-[16/9] object-cover"
-                    data-testid="vehicle-image"
-                  />
-                  {allImages.length > 1 && (
-                    <>
-                      <button
-                        onClick={() => setCurrentImageIdx(i => (i - 1 + allImages.length) % allImages.length)}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+            {/* ── LISTING MEDIA — the seller's presentation of the car ─────────────────
+                Marketing photos. Nothing in this block asserts governance, because nothing in
+                `listing_images` could support such an assertion. Note what is NOT here any more:
+                the "Police Checked" badge used to be stamped across the top-left of this photo,
+                which put a registry verification claim physically on top of a seller's snapshot.
+                It is a fact about the VEHICLE, not about the picture, and it now sits with the
+                other vehicle-status badges in the identity row below. */}
+            <section className="space-y-3" data-testid="listing-media-block">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-gray-400" aria-hidden="true" />
+                <h2 className="text-sm font-semibold text-gray-900">Listing photos</h2>
+              </div>
+              <p className="text-xs text-gray-500" data-testid="listing-media-caption">
+                Photos supplied by the seller to advertise this vehicle. CarUp does not review them and
+                makes no claim about what they show.
+              </p>
+
+              <div className="relative rounded-xl overflow-hidden bg-white card-shadow" data-testid="image-gallery">
+                {hasListingPhotos && activeImage ? (
+                  <>
+                    {/* Rule 6b: `data-media-id` is the identity of the photograph on screen, so a
+                        test — and a support conversation about "the third photo on this listing" —
+                        can name THIS picture rather than whichever one is currently in slot 2. The
+                        attribute is absent entirely when the transport carried no identity; it is
+                        never a fabricated value. */}
+                    <img
+                      src={activeImage.url}
+                      alt={`${vehicle.make} ${vehicle.model}`}
+                      className="w-full aspect-[16/9] object-cover"
+                      data-testid="vehicle-image"
+                      data-url-form={activeImage.url_form}
+                      data-media-id={activeImage.media_id ?? undefined}
+                    />
+                    {/* Rule 6: shown only where a row claims it. No primary is elected when the
+                        seller named none — that choice is theirs to make or leave unmade. */}
+                    {activeImage.is_primary && (
+                      <span
+                        className="absolute bottom-3 left-3 rounded-full bg-black/50 px-2 py-1 text-xs text-white"
+                        data-testid="listing-media-primary"
                       >
-                        <ChevronLeft className="w-5 h-5" />
-                      </button>
-                      <button
-                        onClick={() => setCurrentImageIdx(i => (i + 1) % allImages.length)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
-                      >
-                        <ChevronRight className="w-5 h-5" />
-                      </button>
-                      <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-                        {currentImageIdx + 1} / {allImages.length}
+                        Seller’s main photo
+                      </span>
+                    )}
+                    {galleryItems.length > 1 && (
+                      <>
+                        <button
+                          onClick={() => setCurrentImageIdx((activeImageIdx - 1 + galleryItems.length) % galleryItems.length)}
+                          aria-label="Previous photo"
+                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+                        >
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => setCurrentImageIdx((activeImageIdx + 1) % galleryItems.length)}
+                          aria-label="Next photo"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-black/60"
+                        >
+                          <ChevronRight className="w-5 h-5" />
+                        </button>
+                        <div className="absolute bottom-3 right-3 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+                          {activeImageIdx + 1} / {galleryItems.length}
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center gap-2 px-6 text-center text-gray-400"
+                    data-testid="no-images-placeholder"
+                    data-media-state={listingMedia.state}
+                  >
+                    <Car className="w-14 h-14 opacity-30" aria-hidden="true" />
+                    {listingMedia.state === 'none' ? (
+                      <div data-testid="listing-media-empty">
+                        {/* The block's own sentence, not one authored here. A gallery that invents
+                            its own empty-state wording is how the previous one came to publish a
+                            governance finding over a seller's advertising photos. */}
+                        <p className="text-sm font-medium text-gray-600">{listingMedia.empty_statement}</p>
+                        {/* THE SUPPORTING LINE HAD TO CHANGE WITH THE SENTENCE ABOVE IT, and this is
+                            the more important half. It used to read "The seller has not added any
+                            photos." — which is the EXACT claim the contract withdrew in Rule 1b, and
+                            leaving it here would have restored the falsehood one line below the
+                            correction: a gated block (an unpublished listing that DOES hold
+                            photographs) would have rendered the contract's honest "none published"
+                            and then had this page assert, on its own authority, that the seller
+                            added nothing. It also breaks the byte-identity the gate depends on the
+                            other way round — a surface that describes the three indistinguishable
+                            cases differently re-opens the enumeration the gate closed.
+                            This line now says only what the block says: nothing is published here,
+                            and no reading about the seller follows from that. */}
+                        <p className="mt-1 text-xs text-gray-400">
+                          That is a statement about what this page publishes, and about nothing else.
+                          Nothing follows from it about what the seller did.
+                        </p>
                       </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <div
-                  className="w-full aspect-[16/9] bg-gray-100 flex flex-col items-center justify-center text-gray-400 gap-3"
-                  data-testid="no-images-placeholder"
-                >
-                  <Car className="w-16 h-16 opacity-30" />
-                  <p className="text-sm font-medium">No verified images uploaded yet</p>
-                  <p className="text-xs text-gray-400">The seller has not uploaded any images for this vehicle</p>
+                    ) : (
+                      <div data-testid="listing-media-not-loaded">
+                        {/* RULE 1. This page reads the listing gallery through the governed
+                            marketplace detail; when that does not resolve, `listing_images` was
+                            never consulted and no negative about it may be published. */}
+                        <p className="text-sm font-medium text-gray-600">
+                          CarUp did not read this listing’s photo gallery on this page.
+                        </p>
+                        <p className="mt-1 text-xs text-gray-400">
+                          That is a fact about this request, not a finding about the listing. Nothing is
+                          stated either way about whether the seller added photos.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="absolute top-4 left-4 flex gap-2">
+                  {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
+                      merchandising claim the page has no authority to make. "Reserved" stays — it is
+                      a listing state, not a claim about the photograph under it. */}
+                  {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
+                </div>
+                <div className="absolute top-4 right-4 flex gap-2">
+                  <button onClick={toggleFavorite} aria-label="Save this vehicle" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                    <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
+                  </button>
+                  <button onClick={handleShare} aria-label="Share this listing" className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
+                    <Share2 className="w-5 h-5 text-gray-600" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Rule 5: counted, never silently dropped. A short gallery that hides what it could
+                  not render is passing our defect off as the seller's omission.
+
+                  THE SENTENCE NAMES NO SINGLE CAUSE, AND THAT IS A CORRECTION. It used to end "the
+                  stored address is not a form CarUp will publish" — a definite finding about ONE
+                  field, published over a number that has never only counted that field. The
+                  backend's `unpublishable_count` already merged url failures with identity failures
+                  (`form === null || mediaId === null || identitiesTaken.has(mediaId)` — one
+                  increment, three causes), and the count arrives here already merged, so the page
+                  cannot know which applied and may not say. Rule 6b's uniqueness check on this page
+                  adds a fourth contributor to the same number. One count, one honest sentence: the
+                  record could not be published, and the reason is not something this surface
+                  determined. */}
+              {listingMedia.unpublishable_count > 0 && (
+                <p className="text-xs text-amber-700" data-testid="listing-media-unpublishable">
+                  {listingMedia.unpublishable_count} recorded photo(s) could not be shown here, because
+                  what CarUp holds for them — the stored address, or the name that tells one photograph
+                  from another — is not in a form it will publish. That is a fault in the record, not a
+                  statement about the vehicle.
+                </p>
+              )}
+
+              {/* Thumbnails */}
+              {galleryItems.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {/* Rule 6b, and the reason the identity is not decorative: React reconciles on
+                      this key. Keyed on `position` the previous thumbnail's DOM node — and its
+                      decoded bitmap — is reused for a DIFFERENT photograph whenever the payload
+                      re-orders, which is how a gallery briefly shows the wrong car. `media_id` names
+                      the photograph, so the node follows the picture rather than the slot. The
+                      composite falls back only for the marketplace transport, which carries no
+                      identity to key on. */}
+                  {galleryItems.map((item) => (
+                    <button key={item.media_id ?? `${item.position}-${item.url}`} onClick={() => setCurrentImageIdx(item.position)}
+                      data-testid="listing-media-thumb"
+                      data-media-id={item.media_id ?? undefined}
+                      aria-label={`Show photo ${item.position + 1}`}
+                      className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${item.position === activeImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
+                      <img src={item.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
                 </div>
               )}
-              <div className="absolute top-4 left-4 flex gap-2">
-                {vehicle.police_verified && (
-                  <Badge className="bg-blue-700 text-white" data-testid="police-checked-badge">Police Checked</Badge>
-                )}
-                {/* No "Featured" badge: it was awarded by a client-side score threshold, which is a
-                    merchandising claim the page has no authority to make. */}
-                {isReservedOnServer && <Badge className="bg-amber-500 text-white">Reserved</Badge>}
-              </div>
-              <div className="absolute top-4 right-4 flex gap-2">
-                <button onClick={toggleFavorite} className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
-                  <Heart className={`w-5 h-5 ${isFav ? 'fill-red-500 text-red-500' : 'text-gray-600'}`} />
-                </button>
-                <button onClick={handleShare} className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center hover:bg-white">
-                  <Share2 className="w-5 h-5 text-gray-600" />
-                </button>
-              </div>
-            </div>
+            </section>
 
-            {/* Thumbnails */}
-            {allImages.length > 1 && (
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {allImages.map((img, i) => (
-                  <button key={i} onClick={() => setCurrentImageIdx(i)}
-                    className={`flex-shrink-0 w-20 h-14 rounded-lg overflow-hidden border-2 transition-colors ${i === currentImageIdx ? 'border-orange-500' : 'border-transparent'}`}>
-                    <img src={img} alt="" className="w-full h-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* ── VERIFIED EVIDENCE — governed artifacts, deliberately not a gallery ────
+                The convergence: both blocks are composed on this page, adjacent, and neither can be
+                read as the other. The listing block above is a full-width 16:9 carousel of the
+                seller's own pictures; this one is a list of records, each with a review decision and
+                its own provenance. A buyer scanning the page meets the difference before they meet
+                any individual file. */}
+            <Card className="card-shadow border border-gray-100 border-l-4 border-l-emerald-600" data-testid="verified-evidence-block">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileCheck className="w-4 h-4 text-emerald-600" aria-hidden="true" />
+                  <h2 className="text-sm font-semibold text-gray-900">Verified evidence</h2>
+                </div>
+                <p className="text-xs text-gray-500 mb-4" data-testid="verified-evidence-caption">
+                  Governed artifacts CarUp has reviewed — registration, inspection, clearance, customs,
+                  insurance and service records. These are not the listing photos above: each item here
+                  carries its own provenance and a review decision.
+                </p>
+
+                {verifiedEvidence.state === 'published' ? (
+                  <ul className="space-y-3" data-testid="verified-evidence-list">
+                    {verifiedEvidence.items.map((item, i) => {
+                      const isImageArtifact = (item.mime_type ?? '').startsWith('image/')
+                      const advertisement = isAdvertisementEvidence(item)
+                      return (
+                        <li
+                          key={item.id ?? `evidence-${i}`}
+                          className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-3"
+                          data-testid="verified-evidence-item"
+                        >
+                          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded border border-gray-200 bg-gray-50">
+                            {isImageArtifact && item.file_url ? (
+                              <img src={item.file_url} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <FileText className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-gray-900">{humaniseEvidenceType(item)}</p>
+                              <Badge className="bg-emerald-600 text-white text-[10px]" data-testid="verified-evidence-status">
+                                Reviewed &amp; verified
+                              </Badge>
+                            </div>
+                            {/* Provenance, and only the kind that belongs to the public projection.
+                                Who uploaded it and who reviewed it are internal identities that
+                                Phase 0 allow-listed out of every public body; a date that was never
+                                recorded says so rather than being back-filled from another column. */}
+                            <p className="mt-1 text-xs text-gray-500" data-testid="verified-evidence-provenance">
+                              Captured {evidenceDate(item.captured_at)} · reviewed {evidenceDate(item.verified_at)}
+                              {' · source '}{item.source_name || 'not recorded'}
+                            </p>
+                            {advertisement && (
+                              <p className="mt-1 text-xs text-amber-700" data-testid="verified-evidence-advertisement-note">
+                                This is a record of how the vehicle was advertised. The review attests the
+                                advertisement, not the vehicle.
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ) : verifiedEvidence.state === 'none' ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 p-4 text-center" data-testid="verified-evidence-empty">
+                    <p className="text-sm font-medium text-gray-600">{verifiedEvidence.empty_statement}</p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      Whether this listing carries photos is a different question, and it is answered
+                      separately above.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-200 p-4 text-center" data-testid="verified-evidence-not-loaded">
+                    <p className="text-sm font-medium text-gray-600">
+                      CarUp did not read this vehicle’s evidence record on this page.
+                    </p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      Nothing is stated either way about whether governed evidence exists for it.
+                    </p>
+                  </div>
+                )}
+
+                {verifiedEvidence.unpublishable_count > 0 && (
+                  <p className="mt-3 text-xs text-amber-700" data-testid="verified-evidence-unpublishable">
+                    {verifiedEvidence.unpublishable_count} reviewed item(s) could not be displayed because
+                    the stored file address is unusable. The record exists; CarUp could not render it here.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Info card */}
             <Card className="border-0 card-shadow">
@@ -1170,11 +2005,18 @@ export default function VehicleDetail() {
                       )}
                       {passport?.identity?.registrationStatus && (
                         <Badge className={`${
-                          passport.identity.registrationStatus === 'Current' || passport.identity.registrationStatus === 'Active' ? 'bg-green-500 text-white' : 
+                          passport.identity.registrationStatus === 'Current' || passport.identity.registrationStatus === 'Active' ? 'bg-green-500 text-white' :
                           passport.identity.registrationStatus === 'Pending' ? 'bg-amber-500 text-white' : 'bg-red-500 text-white'
                         } text-[10px] font-semibold`} data-testid="registration-status-badge">
                           {passport.identity.registrationStatus}
                         </Badge>
+                      )}
+                      {/* Moved off the photo. This is a registry claim about the VEHICLE; overlaid
+                          on the gallery it read as a claim about the seller's picture, which is
+                          exactly the conflation Phase 5 exists to remove. It belongs beside the
+                          other vehicle-status badges. */}
+                      {vehicle.police_verified && (
+                        <Badge className="bg-blue-700 text-white text-[10px] font-semibold" data-testid="police-checked-badge">Police Checked</Badge>
                       )}
                     </div>
 

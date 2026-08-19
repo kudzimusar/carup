@@ -181,7 +181,9 @@ every audience, so `withheld` can never become a way of implying a location exis
 Removing a claim is in scope. Inventing a replacement is not.
 
 - **No generic seller label.** `'Verified dealer'` is not emitted — dealer registration is not
-  verification, and `Marketplace.tsx:141` already says so in its own comment. Neither is a generic
+  verification, and `Marketplace.tsx` already says so in its own comment (*"'Verified dealer'
+  removed: dealer registration does not equal full verification"*, in `getSellerLabel`).
+  [^mp-anchor] Neither is a generic
   private-seller label: a listing whose seller has published no name **has no name to show**, and
   a category label filling the gap is the same fabrication in a smaller font. `display_label` is
   the seller's own published name or it is a non-recorded state.
@@ -358,3 +360,16 @@ doing the inventing.** That is the check to run against the remaining defaults i
 state, gated by `publication_status DEFAULT 'draft'` which is correctly fail-closed),
 `vehicle_condition_category`'s default (the one default here that tells the truth), and the boolean
 verification flags (Phase 2's `FACT_MODEL.md`).
+
+---
+
+[^mp-anchor]: **Anchor corrected at the Phase 5 close-out.** This bullet cited
+`Marketplace.tsx:141`. That ordinal resolves against no tree this repository has: the comment sits
+at `:147` on `origin/main` and at `:167` at both base `3adb95e4` and the current working tree
+(`:141` is a blank line between two unrelated helpers, `getRepairHistoryCount` and
+`hasPartSentrySignal`). Every committed revision of the file that carries the comment places it at
+`:143`, `:147` or `:167` — never `:141` — so it resolves against no commit in this repository and was most likely
+mistyped rather than rotted. De-anchored to the quoted comment text and the enclosing function, per
+`MEDIA_EVIDENCE_CONTRACT.md` §8 — **the claim itself was re-verified and is true**; only its
+citation was wrong. This was the sole `file:NNNN` anchor in this document, and every other claim in
+it was re-checked against the schema and the code this round without further correction.

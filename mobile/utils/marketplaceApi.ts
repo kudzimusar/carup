@@ -19,6 +19,52 @@ export class MarketplaceApiError extends Error {
   }
 }
 
+/**
+ * ── THE CANONICAL VEHICLE MEDIA CONTRACT ON MOBILE (Issue #164 Phase 5) ───────────────────────
+ *
+ * These mirror `shared/types/marketplace.ts`. They are RESTATED rather than imported because this
+ * file's whole point is to be the one place mobile talks to the marketplace API, and its existing
+ * types are already local restatements (`MobileListingSummary`, `MobileTrustSummary`) — importing
+ * only these two would leave the file half-shared and half-local, which is worse than either.
+ *
+ * NOTHING ON THIS SCREEN READS THEM YET, and that is stated rather than implied: `app/vehicle/
+ * [vin].tsx` renders the trust summary, the audits and the price and displays NO image at all, and
+ * `app/(tabs)/marketplace.tsx` renders no image either. Declaring the true shape is still the right
+ * move — a mobile gallery built against `{url, type, is_primary?}` would have to invent a key for
+ * the photograph, which is precisely the fork Rule 6b exists to prevent.
+ */
+export type MobileMediaUrlForm = 'absolute_https' | 'absolute_http' | 'protocol_relative' | 'site_relative';
+
+export type MobileMediaBlockState = 'published' | 'none' | 'not_loaded';
+
+export interface MobileListingMediaItem {
+  /** Rule 6b: `listing_images.id`, lowercased. Names the PHOTOGRAPH; `position` names only a slot. */
+  media_id: string;
+  /** Rule 5: an unvalidated string somebody recorded. `url_form` is the only guarantee about it. */
+  url: string;
+  url_form: MobileMediaUrlForm;
+  /** The projection's dense 0-based ordinal AFTER sorting, not the raw `display_order`. */
+  position: number;
+  /** Rule 6: `true` only where a row claims it. No primary is elected when the seller named none. */
+  is_primary: boolean;
+}
+
+export interface MobileListingMediaBlock {
+  /** Rule 1: `not_loaded` means this read path did not look, and claims NOTHING in either direction. */
+  state: MobileMediaBlockState;
+  items: MobileListingMediaItem[];
+  unpublishable_count: number;
+  /** Belongs to `none` alone. Null under `published` and under `not_loaded`. */
+  empty_statement: string | null;
+}
+
+/**
+ * WHERE THE CARD'S COVER IMAGE CAME FROM. `seller_primary` is the only state under which a surface
+ * may describe it as the seller's main photo; `first_published` means nobody chose it; and `none`
+ * and `not_loaded` are DIFFERENT FACTS — consulted-and-empty against never-consulted.
+ */
+export type MobilePrimaryImageState = 'seller_primary' | 'first_published' | 'none' | 'not_loaded';
+
 export interface MobileListingSummary {
   vin: string;
   make: string;
@@ -32,6 +78,8 @@ export interface MobileListingSummary {
   condition_category?: string;
   marketplace_tags?: string[];
   primary_image_url?: string | null;
+  primary_image_state: MobilePrimaryImageState;
+  primary_image_unpublishable_count: number;
   seller_type?: string;
   seller_display_label?: string;
 }
@@ -54,7 +102,19 @@ export interface MobileTrustSummary {
 
 export interface MobileListingDetail extends MobileListingSummary {
   description?: string | null;
-  media?: { url: string; type: string; is_primary?: boolean }[];
+  /**
+   * THE AUTHORITY on this payload's gallery. Read this, not `media`: an array cannot express
+   * `not_loaded` — it arrives as `[]`, indistinguishable from "no photos" — and cannot carry
+   * `unpublishable_count`. Answering from `media` about a payload that has an envelope is how a
+   * surface comes to report a negative about a table it never successfully read.
+   */
+  listing_media?: MobileListingMediaBlock;
+  /**
+   * The compatibility view, derived entry-for-entry from `listing_media.items` plus the legacy
+   * `type` key. It was declared here as `{url, type, is_primary?}` — a strict SUBSET of what the
+   * service publishes, which has carried `media_id`, `url_form` and `position` since Phase 5.
+   */
+  media?: (MobileListingMediaItem & { type: string })[];
   trust_summary: MobileTrustSummary;
   verification_summary?: Record<string, unknown>;
   pricing_summary?: Record<string, unknown>;

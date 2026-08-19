@@ -65,6 +65,18 @@ export type MarketplaceTag =
  * PRIVATE_VEHICLE_FIELDS in backend/utils/publicVehicleProjection.js. Declaring them here
  * would let a consumer compile against a field the API will never send.
  */
+/**
+ * The provenance of `MarketplaceListingSummary.primary_image_url`. Declared beside the summary
+ * rather than in `./marketplace.ts` so the URL and the label that qualifies it stay in ONE file —
+ * splitting them is how a field ends up published, declared nowhere and read by nobody. Re-exported
+ * from `./marketplace.ts` so the marketplace façade carries the whole contract.
+ */
+export type MarketplacePrimaryImageState =
+  | 'seller_primary'
+  | 'first_published'
+  | 'none'
+  | 'not_loaded';
+
 export interface MarketplaceListingSummary {
   vin: string;
   make: string;
@@ -79,7 +91,42 @@ export interface MarketplaceListingSummary {
   condition_category: VehicleConditionCategory;
   marketplace_tags: MarketplaceTag[];
   trust_score: number;
+  /**
+   * THE CARD'S COVER IMAGE. Read `primary_image_state` before describing it — the KEY NAME asserts
+   * something the data often cannot support, and only the state says whether it does.
+   */
   primary_image_url?: string | null;
+  /**
+   * WHERE THE COVER IMAGE CAME FROM (Issue #164 Phase 5, `listingSummaryService.electPrimaryImage`).
+   *
+   * REQUIRED, and that is the point of declaring it. `primary_image_url` was published alone for the
+   * whole of v1: with two rows neither of which claimed `is_primary`, the lower-`display_order` one
+   * was still published under a key called "primary" — a seller's choice nobody made. Deleting the
+   * key would have blanked every card that has photos and no primacy claim, so the fact was not
+   * withdrawn, it was LABELLED, in the `*_state` idiom Phase 4 established for `location` and
+   * `currency`. A label a consumer can omit from its own type is a label that changes nothing, which
+   * is why this is not optional: anything claiming to be a listing summary carries it.
+   *
+   *   `seller_primary`  — a row claims `is_primary`. THIS IS THE SELLER'S OWN CHOICE, and the only
+   *                       state under which a surface may describe the photo as their main one.
+   *   `first_published` — nobody claimed primacy. This is merely the first publishable photo in
+   *                       display order, and describing it as the seller's choice would fabricate
+   *                       one.
+   *   `none`            — the source WAS consulted and holds nothing publishable.
+   *   `not_loaded`      — the source was NOT consulted (Rule 1). `primary_image_url` is null here
+   *                       for the same reason it is null under `none`, and the two are DIFFERENT
+   *                       FACTS: a surface that has not read the gallery may not report it empty.
+   *
+   * NOT A SECOND DEFINITION OF PRIMACY. The election happens once, in the backend projection. This
+   * reports what that election did; a consumer that re-derives it from anything else has forked the
+   * contract.
+   */
+  primary_image_state: MarketplacePrimaryImageState;
+  /**
+   * Rows the source held and the contract will not publish. Keeps `none` honest: without it, "three
+   * photos we could not render" and "the seller added none" both read as `none` with a null URL.
+   */
+  primary_image_unpublishable_count: number;
   plate_verified: boolean;
   plate_status?: string | null;
   passport_verified: boolean;

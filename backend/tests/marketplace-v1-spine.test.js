@@ -177,10 +177,29 @@ test('pricing summary adds import components for import listings', () => {
 // Listing detail privacy + 404
 // ---------------------------------------------------------------------------
 
+/**
+ * ISSUE #164 PHASE 5 — FIXTURE CORRECTED, ASSERTION NOT WEAKENED.
+ *
+ * The `listing_images` fixture below was `{ vin, image_url, is_primary, display_order }` with NO
+ * `id`. `listing_images.id` is `uuid NOT NULL DEFAULT gen_random_uuid()` — the primary key — so the
+ * table cannot produce such a row and this fixture was never faithful to it. That did not matter
+ * while the marketplace projection dropped the id; once the canonical contract made identity a
+ * publication requirement (Rule 6b), an id-less row became unpublishable and this test failed on
+ * `detail.media.length === 1`.
+ *
+ * Reproduced before correcting: `media.length` was 0.
+ *
+ * The fix is the FIXTURE, not the assertion. Deleting or relaxing `media.length === 1` would have
+ * converted a test about "the detail publishes the seller's photo" into a test about an empty
+ * gallery — which is the defect this phase closed. The original assertions are all intact below;
+ * three were ADDED, pinning the identity and the canonical envelope that now travel with it.
+ */
+const LISTING_IMAGE_ID = '3f1c9b2e-5a44-4c7e-8b19-2d6f0a7e4c31';
+
 test('listing detail returns sanitized payload (no owner_id/tenant_id) with trust summary', async () => {
   const store = {
     vehicles: [publicVehicle()],
-    listing_images: [{ vin: REAL_VIN, image_url: 'https://img/1.jpg', is_primary: true, display_order: 0 }],
+    listing_images: [{ id: LISTING_IMAGE_ID, vin: REAL_VIN, image_url: 'https://img/1.jpg', is_primary: true, display_order: 0 }],
     vehicle_evidence: [{ vin: REAL_VIN, verification_status: 'verified', visibility_level: 'public_safe' }],
   };
   const detail = await getMarketplaceListingDetail(buildMockSupabase(store), REAL_VIN);
@@ -191,6 +210,11 @@ test('listing detail returns sanitized payload (no owner_id/tenant_id) with trus
   assert.ok(detail.trust_summary && Array.isArray(detail.trust_summary.trust_badges));
   assert.ok(detail.verification_summary && detail.pricing_summary);
   assert.ok(detail.media.length === 1 && detail.media[0].url === 'https://img/1.jpg');
+  // ADDED: the photograph is addressable, and it is the ROW's id — not a slot ordinal.
+  assert.equal(detail.media[0].media_id, LISTING_IMAGE_ID);
+  // ADDED: the canonical envelope is the authority on this payload, and it agrees with the view.
+  assert.equal(detail.listing_media.state, 'published');
+  assert.equal(detail.listing_media.items[0].media_id, LISTING_IMAGE_ID);
   assert.ok(detail.safety_warnings.some((w) => /Do not pay outside CarUp/.test(w)));
   assert.equal(detail.trust_summary.admin_explanation, undefined);
 });

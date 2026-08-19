@@ -359,3 +359,113 @@ pre-fix statement forms admit an `anon`-only database and then fail with
 4. **Production posture is unverified.** All measurements above are staging
    (`eoyenigwevnxwwhyhaer`). The same 23 tables should be measured on production with query
    (1) before this migration is promoted — the grants may differ.
+
+---
+
+# Addendum — the listing-media tables (Issue #164 Phase 5)
+
+Measured on staging (`eoyenigwevnxwwhyhaer`, PostgreSQL 17.6) during the Phase 5 marketplace
+convergence. These two tables are **not** part of the 23 above; they are audited here because
+the media contract reads one of them and a standing note about them was wrong.
+
+## The correction
+
+The Phase 5 record stated that `listing_images` is "deny-all to `anon` and `authenticated`"
+and that a browser-direct read therefore "returns empty **with no error**". The first half is
+right. **The second half is false**, and the difference is the whole point: a silent empty set
+is the defect this phase closed, and a loud error is not.
+
+| probe | result |
+|---|---|
+| `relrowsecurity` on `listing_images` | `true` |
+| policies on `listing_images` | **0** |
+| grants to `anon` / `authenticated` | **none — zero rows in `role_table_grants`** |
+| `has_table_privilege('anon', 'public.listing_images', 'SELECT')` | `false` |
+| `has_table_privilege('authenticated', …)` | `false` |
+| `SET LOCAL ROLE anon; SELECT count(*) FROM listing_images` | **`ERROR 42501: permission denied`** |
+| `SET LOCAL ROLE authenticated; …` | **`ERROR 42501: permission denied`** |
+| same probe on `vehicle_documents` | identical (0 grants, 0 policies, RLS on, 0 rows) |
+| contrast: `SET LOCAL ROLE anon; SELECT count(*) FROM vehicle_evidence` | **1 row** — it has `SELECT` to `anon` and 4 policies |
+
+There is **no grant**, so RLS is never reached. The request fails at the privilege check, and
+PostgREST returns that as an HTTP error carrying `42501`. A read that fails loudly is one the
+media contract can represent honestly as `not_loaded`; it is not the silent negative the
+contract exists to prevent.
+
+## Why no migration is authored
+
+This state is **not an accident and not a gap**. It is the applied end state of
+`database/migrations/20260619201406_production_access_containment.sql`, which runs
+`ENABLE ROW LEVEL SECURITY` + `REVOKE ALL … FROM anon, authenticated` + `GRANT ALL … TO service_role`
+over eleven tables, `listing_images` and `vehicle_documents` among them. It is the same
+disposition this document records for the Phase 0 cohort: **revoke + enable, no policies.**
+
+Authoring a migration to "fix" an already-correct, already-applied control would put a no-op in
+the single guarded Phase 6 cutover and dilute it. **Nothing to change, so nothing is authored.**
+
+## The residual risk, which is one step further out
+
+RLS-enabled-with-zero-policies is the **second** lock, and it is currently unreachable because
+the first one holds. Add `GRANT SELECT ON public.listing_images TO anon` **without** a policy and
+the loud `42501` becomes a **silent empty set** — this exact defect through a new door.
+
+PostgreSQL prints the instructions for doing it, inside the error itself:
+
+```
+ERROR:  42501: permission denied for table listing_images
+HINT:   Grant the required privileges to the current role with:
+        GRANT SELECT ON public.listing_images TO anon;
+```
+
+A future engineer debugging a failed browser read is told, by the database, to take exactly the
+step that re-opens this. **A migration cannot prevent a future migration.** What can is a guard
+that runs in CI, so the control is a test rather than a note:
+
+`backend/tests/issue164-phase5-marketplace-convergence.test.js`, suite 8:
+
+| guard | what it refuses |
+|---|---|
+| *no migration grants listing media to a browser role* | any `GRANT … anon\|authenticated` naming `listing_images` / `vehicle_documents` in `database/migrations/**.sql`, `--` comments stripped |
+| *no client-side code QUERIES the listing-media tables* | `.from('listing_images')` / `.from('vehicle_documents')` in `web/src`, `mobile`, `shared` |
+
+Both were proven non-vacuous: a temporary migration containing the hinted `GRANT` turned the
+first red, and the second's pattern demonstrably matches the three real `.from('listing_images')`
+call sites in `backend/`. The temporary file was deleted and `git status` confirmed clean.
+
+The second guard matches the **query form**, not the table name, deliberately. Three client files
+legitimately *name* these tables in documentation (`ListingImage.tsx`, `VehicleDetail.tsx`,
+`types/index.ts`); a guard that could not tell a comment from a query would force that
+documentation to be deleted in order to stay green.
+
+**If a browser-direct read of listing media is ever genuinely wanted**, the grant and a matching
+`SELECT` policy must land in the *same* migration, with an entry here — and note the blocking
+prerequisite recorded above: CarUp mints no Supabase JWT, so every browser request arrives as
+`anon` and an `auth.uid()`-scoped policy would match nobody.
+
+## Cross-document resolution (Phase 5 close-out)
+
+`MEDIA_EVIDENCE_CONTRACT.md` §6.1 previously **recommended** the `anon` SELECT policy this section
+identifies as the residual risk, listing it as the leading Phase 6 cutover candidate on the premise
+that "listing media is public by definition". Two Phase 5 documents disagreeing about one measured
+fact is the defect this programme exists to remove, so the disagreement was resolved rather than
+softened: **this document is the correct one**, and §6.1 has been rewritten to agree with it and now
+records the grant as **REJECTED, not a candidate**.
+
+All six probes in the table above were **independently re-measured read-only** during that close-out
+(`eoyenigwevnxwwhyhaer`, 2026-08-19) and every one reproduced, including the verbatim
+`ERROR 42501` + `HINT: … GRANT SELECT ON public.listing_images TO anon;` for both `anon` and
+`authenticated`, the identical result on `vehicle_documents`, and the contrasting 1-row filtered
+read on `vehicle_evidence`.
+
+Two supporting facts were added by that re-measurement and are recorded here so §6.1's reasoning is
+checkable from this side:
+
+- **The premise was false, not merely unsupported.** Listing media is public *through a governed read
+  path* that applies the Rule 1b publication gate. A blanket `anon` SELECT is a **wider** disclosure
+  than the contract itself grants — it would expose an unpublished listing's photographs to any
+  browser holding the publishable key, which is precisely what Rule 1b closes, reached one layer
+  below the code that closes it.
+- **`listing_images` carries no CHECK on `image_url` and no partial unique index on
+  `(vin) WHERE is_primary`** — only `listing_images_pkey`, `listing_images_vin_fkey`, and the
+  non-unique `idx_listing_images_vin` and `idx_listing_images_vin_primary`. Those are the genuine
+  Phase 6 candidates; the grant is not one of them.

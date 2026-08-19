@@ -178,7 +178,35 @@ test.describe('Passport Connection Sprint — Buyer Vehicle Detail Flow', () => 
   })
 
 
-  test('7 — Image area shows real image or the "No verified images" placeholder', async ({ page }) => {
+  /**
+   * ── CORRECTED IN ISSUE #164 PHASE 5 — this test used to encode the defect ──────────────────
+   *
+   * It previously asserted `toContainText(/no verified images/i)`. That sentence — "No verified
+   * images uploaded yet" — WAS the defect Phase 5 removed, for two independent reasons:
+   *
+   *   1. It was published by a page that had never read `listing_images`. A read that never
+   *      happened may not report a negative about what it would have found (Rule 1).
+   *   2. It answered a question about EVIDENCE using a control that renders LISTING MEDIA.
+   *      `listing_images` is (id, vin, image_url, is_primary, display_order, created_at) — no
+   *      reviewer, no status, no provenance. There is nothing in the row a verification claim
+   *      could be built from, so "verified" there is authored by the renderer (Rule 3).
+   *
+   * Asserting the sentence made this spec a ratchet holding the defect in place: a correct
+   * implementation would have failed it. It is corrected to assert the TRUE behaviour, and it is
+   * STRICTLY STRONGER than what it replaced — the structural half survives unchanged, and three
+   * new guarantees are added (the state vocabulary, the exact contract sentence, and the absence
+   * of governance language over a marketing gallery).
+   *
+   * Source of truth for the sentence: `LISTING_MEDIA_EMPTY_STATEMENT` in
+   * `backend/utils/vehicleMediaProjection.js`. It is restated here as a literal because this
+   * directory is outside every module graph the repo type-checks or bundles;
+   * `backend/tests/issue164-phase5-marketplace-convergence.test.js` reads THIS FILE as text and
+   * fails if the literal below stops matching the exported constant, so the duplication cannot
+   * drift silently.
+   */
+  const LISTING_MEDIA_EMPTY_STATEMENT = 'No photos are published for this listing.'
+
+  test('7 — Gallery renders a photo, or the correct empty state, or says it did not look', async ({ page }) => {
     await openFirstVehicleDetail(page)
 
     const gallery = page.locator('[data-testid="image-gallery"]')
@@ -187,12 +215,54 @@ test.describe('Passport Connection Sprint — Buyer Vehicle Detail Flow', () => 
     const hasReal        = await page.locator('[data-testid="vehicle-image"]').count()
     const hasPlaceholder = await page.locator('[data-testid="no-images-placeholder"]').count()
 
+    // UNCHANGED — the structural half of the original assertion.
     // Exactly one of the two must be shown — never both, never neither
     expect(hasReal + hasPlaceholder).toBe(1)
 
-    if (hasPlaceholder > 0) {
-      await expect(page.locator('[data-testid="no-images-placeholder"]'))
-        .toContainText(/no verified images/i)
+    // The defect sentence must not appear ANYWHERE on the page, in either branch. This is the
+    // regression guard proper: it is what the old assertion inverted.
+    await expect(page.locator('body')).not.toContainText(/no verified images/i)
+
+    if (hasReal > 0) {
+      // A rendered photo carries the url form the contract classified it as. `media_id` is present
+      // only on the transport that carries an identity, so its ABSENCE is not a failure — but when
+      // it is present it must be a bare UUID and never a storage path or bucket name.
+      const image = page.locator('[data-testid="vehicle-image"]')
+      await expect(image).toHaveAttribute('data-url-form', /^(absolute_https|absolute_http|protocol_relative|site_relative)$/)
+      const mediaId = await image.getAttribute('data-media-id')
+      if (mediaId !== null) {
+        expect(mediaId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+      }
+      return
+    }
+
+    // ── The placeholder branch. THREE STATES, and the two empty ones say different things. ──
+    const placeholder = page.locator('[data-testid="no-images-placeholder"]')
+    const state = await placeholder.getAttribute('data-media-state')
+
+    // `published` here would mean the block claimed photos and the gallery rendered none.
+    expect(['none', 'not_loaded']).toContain(state)
+
+    if (state === 'none') {
+      // The source WAS consulted and holds nothing publishable. That is a finding, and it gets the
+      // contract's own sentence — about PHOTOS ON A LISTING, not about verification.
+      await expect(placeholder.locator('[data-testid="listing-media-empty"]')).toBeVisible()
+      await expect(placeholder).toContainText(LISTING_MEDIA_EMPTY_STATEMENT)
+      await expect(placeholder.locator('[data-testid="listing-media-not-loaded"]')).toHaveCount(0)
+    } else {
+      // The source was NOT consulted. Nothing may be claimed in either direction, so the empty
+      // sentence must be ABSENT — publishing it here is precisely the shipped defect.
+      await expect(placeholder.locator('[data-testid="listing-media-not-loaded"]')).toBeVisible()
+      await expect(placeholder).not.toContainText(LISTING_MEDIA_EMPTY_STATEMENT)
+      await expect(placeholder.locator('[data-testid="listing-media-empty"]')).toHaveCount(0)
+    }
+
+    // Rule 3, as an executable assertion rather than a convention: nothing in a marketing-gallery
+    // empty state may speak the language of governance. This is the family the old sentence
+    // belonged to, so pinning one string would have left the door open to its siblings.
+    const placeholderText = (await placeholder.innerText()).toLowerCase()
+    for (const word of ['verif', 'evidence', 'trust', 'certif', 'authentic', 'proof', 'inspect', 'approved', 'official', 'guarantee', 'validated', 'genuine', 'vetted']) {
+      expect(placeholderText, `listing-media placeholder must not assert governance ("${word}")`).not.toContain(word)
     }
   })
 

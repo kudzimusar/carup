@@ -8,6 +8,25 @@ import {
   toSellerClaim,
 } from '../../utils/publicVehicleProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
+/**
+ * THE ONE DEFINITION OF "A PUBLISHABLE LISTING PHOTO" — Issue #164 Phase 5 convergence.
+ *
+ * This module used to hold a second one. `primary_image_url` was elected by
+ * `[...imageRows].sort(...)[0]?.image_url || null`, which asks only whether the column is
+ * TRUTHY. Measured before the change, feeding four rows whose `image_url` values were
+ * `data:image/png;base64,AAAA`, `javascript:alert(1)`, `photo.jpg` and one real https URL
+ * published `data:image/png;base64,AAAA` as the card's cover image — a string the canonical
+ * contract classifies as unpublishable, on a key that `VehicleSearch.tsx:284`,
+ * `SavedCars.tsx:85` and `MarketplaceCompare.tsx:89` put straight into an `<img src>` with no
+ * re-classification of any kind (`ListingImage` branches on `src` being truthy — that is the
+ * whole test it applies).
+ *
+ * So the marketplace held the PERMISSIVE definition of publishable and the canonical contract
+ * held the strict one, on the same three rows of the same table. Two definitions is the defect
+ * Issue #164 exists to eliminate, and it is not closed by making them agree today — it is closed
+ * by there being only one function that decides.
+ */
+import { MEDIA_BLOCK_STATES, toListingMediaBlock } from '../../utils/vehicleMediaProjection.js';
 
 /**
  * THE TRUST NUMBER ON A LISTING COMES FROM THE CANONICAL AUTHORITY, NEVER FROM THE ROW.
@@ -500,19 +519,64 @@ export function deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummar
 }
 
 /**
+ * The card's cover image, and the state that says WHERE IT CAME FROM.
+ *
+ * Sourced from `toListingMediaBlock` — the one definition — so a value the canonical contract will
+ * not publish can no longer reach a card. The ELECTION is unchanged: the canonical block already
+ * sorts primary-claimants first, then by `display_order`, then by input order, so `items[0]` is the
+ * same row `[...imageRows].sort(...)[0]` used to pick. Only the publishability gate is new.
+ *
+ * `primary_image_state` exists because the KEY NAME asserts something the data often cannot
+ * support. Verified on the shipped code before this change: with two rows neither of which claims
+ * `is_primary`, `primary_image_url` was still the lower-`display_order` one — a "primary" nobody
+ * chose. Rule 6 says primacy is the seller's choice or it does not exist. Deleting the key would
+ * blank every card that has photos but no primary claim, so the fact is not withdrawn — it is
+ * LABELLED, in the `*_state` idiom Phase 4 established for `location` and `currency`:
+ *
+ *   `seller_primary`  — a row claims `is_primary`. This is the seller's own choice.
+ *   `first_published` — nobody claimed primacy; this is merely the first publishable photo in
+ *                       display order. A consumer must not describe it as the seller's main photo.
+ *   `none`            — the source was consulted and holds nothing publishable.
+ *   `not_loaded`      — the source was NOT consulted (Rule 1). `primary_image_url` is null here for
+ *                       the same reason it is null under `none`, and the two are different facts.
+ *
+ * `primary_image_unpublishable_count` keeps `none` honest: without it, "three photos we could not
+ * render" and "the seller added none" would both read as `none` with a null URL — which is Rule 5's
+ * silent drop, one layer up from where it was found.
+ */
+function electPrimaryImage(imageRows) {
+  const block = toListingMediaBlock(imageRows);
+  const first = block.items[0] ?? null;
+  const state = block.state === MEDIA_BLOCK_STATES.NOT_LOADED ? 'not_loaded'
+    : first === null ? 'none'
+      : first.is_primary ? 'seller_primary'
+        : 'first_published';
+  return {
+    primary_image_url: first?.url ?? null,
+    primary_image_state: state,
+    primary_image_unpublishable_count: block.unpublishable_count,
+  };
+}
+
+/**
  * @param {object} args
  * @param {object|null} [args.canonicalTrust] the VIN's entry from `fetchCanonicalTrustByVin()` — the
  *   10-field public trust projection. `null` means the caller did not consult the authority on this
  *   path, which publishes `trust: null` + `trust_score: null`: no number, and no pretence that the
  *   absence of one was a finding about the vehicle. There is deliberately no fallback branch that
  *   reads `vehicle.trust_score`.
+ * @param {Array<object>|null} [args.imageRows] raw `listing_images` rows. THE DEFAULT IS `null`, NOT
+ *   `[]`, and the difference is Rule 1: a caller that passes no rows did not consult
+ *   `listing_images`, and a path that never looked may not publish a negative about what it would
+ *   have found. `[]` means the caller looked and the vehicle has none. Both produce
+ *   `primary_image_url: null`; only `primary_image_state` tells them apart.
  */
 export function buildMarketplaceListingSummary({
   vehicle,
   evidenceRows = [],
   partSentryRows = [],
   ownershipCount = 0,
-  imageRows = [],
+  imageRows = null,
   canonicalTrust = null,
 }) {
   const claims = listingClaimsForVehicle(vehicle);
@@ -522,10 +586,7 @@ export function buildMarketplaceListingSummary({
   const partSentrySummary = summarizePartSentry(partSentryRows);
   const seller = sellerSummaryForVehicle(vehicle, claims);
   const marketplaceTags = deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummary, ownershipCount);
-  const primaryImage = [...imageRows].sort((a, b) => {
-    if (boolValue(a?.is_primary) !== boolValue(b?.is_primary)) return boolValue(a?.is_primary) ? -1 : 1;
-    return numericValue(a?.display_order) - numericValue(b?.display_order);
-  })[0]?.image_url || null;
+  const primaryImage = electPrimaryImage(imageRows);
 
   return {
     vin: vehicle.vin,
@@ -559,7 +620,9 @@ export function buildMarketplaceListingSummary({
     // null whenever there is nothing canonical to publish. It is never `numericValue(...)` of the
     // raw column: that read is what published an unfounded 84 to the marketplace.
     trust_score: canonicalTrust?.score ?? null,
-    primary_image_url: primaryImage,
+    // Same key, same election, ONE definition of publishable — plus the two facts that keep it
+    // honest. See `electPrimaryImage`.
+    ...primaryImage,
     plate_verified: marketplaceTags.includes('plate_verified'),
     // ── PUBLISH THE GOVERNED CLAIM, OR WITHHOLD — NOT BOTH ────────────────────────────────────
     // This line was `recordedText(vehicle.plate_status)`: the raw column, kept because
@@ -880,23 +943,71 @@ export const LISTING_SELECT_COLUMNS = `
     `;
 
 /**
+ * The `listing_images` read, kept SEPARATE from `maybeFetchRows` because the two differ on the one
+ * question Rule 1 turns on: DID WE LOOK.
+ *
+ * `maybeFetchRows` catches, warns and returns `[]`. For most callers that is a fine degradation; for
+ * listing media it is the original defect. `[]` is a FINDING — "the seller added no photos" — and a
+ * read that threw has found nothing of the sort. Returning `[]` there makes a failed query
+ * indistinguishable from an empty table, which is exactly what "No verified images uploaded yet"
+ * did one layer up.
+ *
+ * `ok: false` therefore propagates as `null` rows, which `toListingMediaBlock` renders as
+ * `not_loaded` with `empty_statement: null` — nothing claimed in either direction.
+ *
+ * The select carries `id` because the projection publishes it as `media_id` (Rule 6b). Selecting
+ * fewer columns than the projection publishes is a silent way to turn every row unpublishable, so
+ * the convergence test asserts this string names `id`.
+ */
+async function readListingImages(supabaseClient, vins) {
+  if (!vins.length) return { ok: true, rows: [] };
+  try {
+    const { data, error } = await supabaseClient
+      .from('listing_images')
+      .select('id, vin, image_url, is_primary, display_order')
+      .in('vin', vins)
+      .order('display_order', { ascending: true });
+    if (error) throw error;
+    return { ok: true, rows: data || [] };
+  } catch (error) {
+    console.warn('Marketplace summary could not read listing_images:', error.message);
+    return { ok: false, rows: null };
+  }
+}
+
+/**
  * Fetch the evidence/partsentry/ownership/image rows for a set of VINs and return them grouped by VIN.
  * Shared by the list and detail paths so the trust pipeline reads identical inputs.
+ *
+ * `listingImagesRead` is the Rule 1 discriminator: `true` means `listing_images` was consulted (and
+ * `imagesByVin` is a finding), `false` means the query did not resolve and NO negative about listing
+ * media may be published from this result.
  */
 export async function fetchListingRelatedRows(supabaseClient, vins = []) {
-  const [evidenceRows, partSentryRows, ownershipRows, imageRows] = await Promise.all([
+  const [evidenceRows, partSentryRows, ownershipRows, imageRead] = await Promise.all([
     maybeFetchRows(supabaseClient, 'vehicle_evidence', 'vin, verification_status, visibility_level', vins),
     // approved_by/mechanic_id are fetched ONLY for the in-memory self-approval guard; never echoed publicly.
     fetchPartSentryRows(supabaseClient, vins),
     maybeFetchRows(supabaseClient, 'vehicle_ownership_history', 'vin', vins),
-    maybeFetchRows(supabaseClient, 'listing_images', 'vin, image_url, is_primary, display_order', vins, { column: 'display_order', ascending: true }),
+    readListingImages(supabaseClient, vins),
   ]);
   return {
     evidenceByVin: toRecordMap(evidenceRows),
     partSentryByVin: toRecordMap(partSentryRows),
     ownershipByVin: toRecordMap(ownershipRows),
-    imagesByVin: toRecordMap(imageRows),
+    imagesByVin: toRecordMap(imageRead.rows || []),
+    listingImagesRead: imageRead.ok,
   };
+}
+
+/**
+ * The listing-image rows for ONE vin, in the shape `toListingMediaBlock` takes: an array when the
+ * read happened, `null` when it did not. Every marketplace caller goes through this so that "did we
+ * look" is answered in one place rather than re-derived per call site.
+ */
+export function listingImageRowsForVin(related, vin) {
+  if (!related || related.listingImagesRead === false) return null;
+  return related.imagesByVin?.get(vin) || [];
 }
 
 export async function listMarketplaceListings(supabaseClient, params = {}) {
@@ -941,14 +1052,16 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     // ONE cache-only query for the whole page — a 48-card list costs 1 read and 0 recomputes.
     fetchCanonicalTrustByVin(supabaseClient, vins),
   ]);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = related;
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
 
   const summaries = publicVehicles.map(vehicle => buildMarketplaceListingSummary({
     vehicle,
     evidenceRows: evidenceByVin.get(vehicle.vin) || [],
     partSentryRows: partSentryByVin.get(vehicle.vin) || [],
     ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-    imageRows: imagesByVin.get(vehicle.vin) || [],
+    // `null` when the listing_images read did not resolve, so every card on the page says
+    // `not_loaded` rather than each one announcing that its seller uploaded nothing.
+    imageRows: listingImageRowsForVin(related, vehicle.vin),
     canonicalTrust: trustByVin.get(vehicle.vin) || null,
   }));
 

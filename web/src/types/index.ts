@@ -90,7 +90,15 @@ export type {
   MarketplaceTrustSummary,
   MarketplaceVerificationSummary,
   MarketplacePricingSummary,
+  // The canonical media contract (Issue #164 Phase 5). `MarketplaceMedia` is no longer
+  // `{url, type, is_primary?}`: it extends the listing-media item, so it carries `media_id`,
+  // `url_form` and `position` exactly as the service publishes them.
+  MarketplaceMediaUrlForm,
+  MarketplaceMediaBlockState,
+  MarketplaceListingMediaItem,
+  MarketplaceListingMediaBlock,
   MarketplaceMedia,
+  MarketplacePrimaryImageState,
   MarketplaceSellerSummary,
   MarketplaceListingDetail,
   MarketplaceTransactionIntent,

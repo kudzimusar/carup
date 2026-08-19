@@ -14,6 +14,38 @@
  * file no longer holds a country literal, a fallback country or a category label standing in for a
  * seller's name; where nothing was recorded the payload says so in a state rather than filling the
  * gap with something plausible.
+ *
+ * ── Issue #164 Phase 5: THE SECOND MEDIA CONTRACT, AND ITS REMOVAL ─────────────────────────────
+ * This file held the OTHER definition of "a publishable media URL", and it was the permissive one.
+ * The shipped projection was:
+ *
+ *     const media = [...imageRows].sort(...).filter((row) => row?.image_url)
+ *       .map((row) => ({ url: row.image_url, type: 'image', is_primary: Boolean(row.is_primary) }));
+ *
+ * Three defects, all reproduced against this code before it was changed:
+ *
+ *   1. `.filter(row => row?.image_url)` asks only whether the column is TRUTHY. Fed four rows whose
+ *      urls were `data:image/png;base64,AAAA`, `javascript:alert(1)`, `photo.jpg` and one real https
+ *      URL, this published ALL FOUR verbatim. The canonical contract publishes exactly one of them
+ *      and records `unpublishable_count: 3`.
+ *   2. `is_primary: Boolean(row.is_primary)` publishes EVERY claimant. Fed two rows that both claim
+ *      primacy — which no index prevents — it published two "main photos" and left the consumer to
+ *      arbitrate. Rule 6 demotes all but the first in sort order.
+ *   3. The row's `id` was dropped, so this transport could not name a photograph. Continuity between
+ *      the marketplace and the passport could only be argued by comparing URL STRINGS, and 3 of 3
+ *      staging rows are site-relative `/uat/owner/*.svg` paths with no uniqueness constraint behind
+ *      them — string equality there proves two surfaces printed the same characters, not that they
+ *      showed the same picture.
+ *
+ * WHY THE `media` KEY IS KEPT RATHER THAN REPLACED. `listing_media` (the canonical envelope) is now
+ * the authority on this payload, but `media` survives as a strictly-derived COMPATIBILITY VIEW,
+ * because renaming it breaks live readers: `web/src/pages/VehicleDetail.tsx:1376` feeds `detail.media`
+ * to its own listing-media projection AND requires `type === 'image'` on each entry, and
+ * `mobile/utils/marketplaceApi.ts:57` declares the array shape. `media` is not a second computation
+ * that could drift — every entry is `listing_media.items[i]` plus the one legacy key, and
+ * `issue164-phase5-marketplace-convergence.test.js` pins that derivation to exact equality. A VIEW
+ * cannot disagree with its source; a second projection can, and that is the distinction between this
+ * and the `plate_status` duplication Phase 4 removed.
  */
 
 import {
@@ -22,8 +54,10 @@ import {
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
+  listingImageRowsForVin,
   shouldShowFixtures,
 } from './listingSummaryService.js';
+import { toListingMediaBlock } from '../../utils/vehicleMediaProjection.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { buildTrustSummary, buildVerificationSummary } from './marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
@@ -145,11 +179,13 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     // better provenance.
     fetchCanonicalTrustByVin(supabaseClient, [vin]),
   ]);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = related;
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
 
   const evidenceRows = evidenceByVin.get(vin) || [];
   const partSentryRows = partSentryByVin.get(vin) || [];
-  const imageRows = imagesByVin.get(vin) || [];
+  // ARRAY when `listing_images` was consulted, `null` when the read did not resolve. Passing `[]`
+  // for a failed read is how a query error becomes the sentence "the seller added no photos".
+  const imageRows = listingImageRowsForVin(related, vin);
 
   const listingSummary = buildMarketplaceListingSummary({
     vehicle,
@@ -164,13 +200,29 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   const verification_summary = buildVerificationSummary({ vehicle, listingSummary, evidenceRows, partSentryRows });
   const pricing_summary = buildPricingSummary({ listingSummary, listingType: 'vehicle' });
 
-  const media = [...imageRows]
-    .sort((a, b) => {
-      if (Boolean(a?.is_primary) !== Boolean(b?.is_primary)) return a?.is_primary ? -1 : 1;
-      return (Number(a?.display_order) || 0) - (Number(b?.display_order) || 0);
-    })
-    .filter((row) => row?.image_url)
-    .map((row) => ({ url: row.image_url, type: 'image', is_primary: Boolean(row.is_primary) }));
+  // THE ONE PROJECTION. Sorting, primacy arbitration, url classification, identity gating and the
+  // unpublishable count are all decided in `toListingMediaBlock` — this file decides none of them.
+  const listing_media = toListingMediaBlock(imageRows);
+
+  /**
+   * The compatibility view. `type: 'image'` is a statement about the ROW'S SOURCE — it came from
+   * `listing_images` rather than from some future video or document entry — and must never be read
+   * as a claim that the asset at `url` is an image. Nothing validates the asset; `url_form` is the
+   * only thing this contract asserts about the string, and it now travels here too.
+   *
+   * `not_loaded` cannot be expressed in an array, so it arrives here as `[]` — indistinguishable
+   * from "no photos" to a consumer reading only this key. `listing_media.state` is the ONLY place
+   * on this payload where "we did not look" can be stated, which is why the envelope is published
+   * and why it, not this array, is the authority.
+   */
+  const media = listing_media.items.map((item) => ({
+    media_id: item.media_id,
+    url: item.url,
+    url_form: item.url_form,
+    position: item.position,
+    is_primary: item.is_primary,
+    type: 'image',
+  }));
 
   return {
     ...listingSummary,
@@ -180,6 +232,9 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     risk_status: trust_summary.risk_status,
     short_description: buildShortDescription(listingSummary),
     description: buildDescription(listingSummary),
+    // THE AUTHORITY on this payload: state / items / unpublishable_count / empty_statement.
+    listing_media,
+    // Derived from it, never computed beside it. See the header note on why the key survives.
     media,
     seller_summary: buildSellerSummary(listingSummary),
     trust_summary,

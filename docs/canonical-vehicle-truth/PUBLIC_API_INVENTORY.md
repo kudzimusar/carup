@@ -344,7 +344,8 @@ fix the writer first, then the readers have real nulls to represent.
 `marketplacePartsService.js:26,29,33,41,43,44`. Emit `null` plus the `*_state` sibling from §7.
 *Risk:* medium — `shared/types/marketplace.ts` and every `web/src` consumer of
 `MarketplaceListingSummary` must accept `null`. Land the type change and the frontend null-handling in the
-same commit; `web/src/pages/Marketplace.tsx:151` already documents the posture.
+same commit; `Marketplace.tsx`'s `marketplaceSummaryToVehicle` mapper already documents the posture,
+where `primary_image_url` becomes the card's `images` array.
 
 **S5 — Apply the marketplace visibility gate to the remaining public reads.**
 `buildVehiclePassport` (`server.js:523`), `collectPassportLookupMatches` (`server.js:490` — filter matches
@@ -405,5 +406,296 @@ means every remaining caller is already reading the converged shape.
 ## 10. Verification note
 
 This document is analysis only; no source file was modified, so the three gates are unchanged from the
-`c662d1a4` baseline: `npx tsc -b --force` exit 0 · `npx vitest run` 812 passed / 91 files ·
-`node --test backend/tests/issue164-phase0-public-projection.test.js` 32 passed.
+`c662d1a4` baseline: `npx tsc --noEmit --project web/tsconfig.app.json` exit 0 ·
+`cd web && npx vitest run` · `node --test backend/tests/issue164-phase0-public-projection.test.js`
+32 passed.
+
+> **Correction (Phase 5 close-out).** This note previously recorded `npx tsc -b --force` exit 0.
+> That command exits **1** with `error TS5083: Cannot read file '<repo>/tsconfig.json'`, and always
+> would have: this repository has never had a root `tsconfig.json`. See `FACT_MODEL.md` §7 for the
+> full correction. The vitest invocation additionally requires cwd `web/`.
+
+---
+
+## 10b. Scoped debt — most of the `file:NNNN` anchors in §§1–10 are stale against current trees, and are deliberately NOT fixed here
+
+**Status: RECORDED AS DEBT, with a measurement and a rule. Owner: whichever lane next edits §§1–10
+substantively.**
+
+**Scope: every `file:NNNN` anchor in §§1–10** — 216 of them within §§1–10 proper (a 217th sits in the
+document header at line 7): **67** into `backend/server.js` and **149** into 35 other files, of which
+`listingSummaryService.js` (17) and `vehiclesRoutes.js` (17) are the largest. An earlier draft of
+this section declared only the `server.js` anchors. That narrower scope was wrong on its own terms —
+the 149 are the majority — and a same-class defect was found and fixed on 2026-08-19 in a *different*
+document, `SELLER_LOCATION_CONTRACT.md`, which had no anchor scope declared at all.
+
+**The measurement.** The eight route-registration anchors in §§1–10 resolve EXACTLY at `c662d1a4` —
+the Phase 0 baseline this document declares in its own line 3 — and miss at every later tree:
+
+| route | §§1–10 says | `c662d1a4` (declared baseline) | `origin/main` | base `3adb95e4` | working tree |
+|---|---:|---:|---:|---:|---:|
+| `/api/vehicles/:vin/details` | 421 | **421 ✓** | 431 | 455 | 465 |
+| `/api/vehicles` | 440 | **440 ✓** | 450 | 558 | 568 |
+| `/api/vehicles/:vin/passport` | 763 | **763 ✓** | 726 | 1147 | 1299 |
+| `/api/vehicles/passport/lookup/:identifier` | 778 | **778 ✓** | 740 | 1162 | 1314 |
+| `/api/vehicles/add` | 1429 | **1429 ✓** | 1391 | 1906 | 2058 |
+| `/api/vehicles/inventory` | 1534 | **1534 ✓** | 1496 | 2125 | 2367 |
+| `/api/vehicles/me` | 1767 | **1767 ✓** | 1729 | 2358 | 2600 |
+| `/api/vehicles/saved` | 1783 | **1783 ✓** | 1745 | 2377 | 2619 |
+
+**So the debt is of a different kind than an earlier draft of this section claimed.** Under
+`MEDIA_EVIDENCE_CONTRACT.md` §8 rule 2 — *anchor to a named commit and say so* — §§1–10 are broadly
+compliant already: this document names `c662d1a4` in its header, and `git show c662d1a4:<file>`
+makes the anchors checkable. **That is the resolution method for §§1–10; do not refresh the ordinals
+to the working tree**, which would expire again within hours (see §11.2, whose two anchors were
+written correct and were invalidated by a sibling lane *inside a single phase*).
+
+**Compliant is not the same as exact, and this section will not claim more than it measured.** Only
+the eight route registrations in the table above were verified anchor-by-anchor at `c662d1a4`. A
+sample of the rest found several off by one to five — `server.js:427` for `PUBLIC_VEHICLE_SELECT`
+(actually 426), `:527` for `select('*')` (526), and `:723` for `projectVehicle` (728, which line 43
+of this document cites correctly). Treat a §§1–10 ordinal as *"the neighbourhood of this symbol at
+`c662d1a4`"*, and resolve by the symbol name once you are there. An earlier draft of this paragraph
+generalised the eight verified routes into a claim about all 67 `server.js` anchors; that claim was
+false, and a false universal in the section that exists to account for citation rot is the same
+defect it documents.
+
+**NOT inherited debt.** An earlier draft of this section said the `server.js`
+anchors were "pre-existing rot" that "predate this branch", on the strength of their missing at
+`origin/main`. That inference was wrong, and the git history refutes it: this document was *added* by
+`01ad3fad`, and its declared baseline `c662d1a4` is likewise a branch commit — `git merge-base
+--is-ancestor f9c6f80d c662d1a4` confirms the fork point is an ancestor of the baseline, so the
+baseline is downstream of main, not on it. (Do **not** try to show this with
+`git merge-base --is-ancestor <sha> origin/main` in this worktree: the clone is shallow and grafted
+at `940c2235`, so that command answers NO for every commit but the graft point — including
+`f9c6f80d` itself, which *is* on main. It proves nothing here.) At the fork point `f9c6f80d` the eight
+route registrations sit at 420/439/715/729/1380/1485/1718/1734, matching none of the recorded
+421/440/763/778/1429/1534/1767/1783. **The anchors resolve against no tree that predates this
+branch**, so nothing was inherited. They miss on `origin/main` by only 10–38 lines (main moved
+`server.js` +11 via PR #163); they miss in the working tree by 44–836, and this branch is the
+dominant cause — Phase 0 alone moved `server.js` +49.
+
+**A taxonomy that used to live here has been deleted rather than corrected a sixth time.** Earlier
+drafts sorted the 149 non-`server.js` anchors into "inherited rot" versus "invalidated by this
+branch", naming which files belonged to which and which phase moved them. Five successive
+independent verifications each found a false statement in it: files attributed to the wrong phase,
+a file placed in the wrong class, and properties asserted across a population where only a handful
+of anchors had actually been resolved. The classification was decoration — no reader of this
+document needs to know *which* phase moved a citation, only that the citation must be resolved at a
+named commit — and every restatement of it minted a new falsehood from the same small set of
+measurements.
+
+So the debt is now recorded without it. **What is claimed: the anchors in §§1–10 should be resolved
+against `c662d1a4`, the commit named in this document's header, and they are not being refreshed to
+the working tree.** Which commit moved any particular one is not claimed, because it was not
+measured. That is §8's rule applied to this section itself.
+
+**Why record rather than fix, given both are defensible.** Three reasons, in order of weight:
+
+1. **Fixing them would re-commit the same defect, measurably.** §11.2's two `server.js` anchors were
+   written by the previous documentation lane and resolved **exactly**; they were invalidated days
+   later by a sibling lane's comment block, inside this same phase. `backend/server.js` and
+   `web/**` are under concurrent edit by two lanes **right now**. Correcting the 67 ordinals into those
+   files would produce ~60 anchors that are stale again before the PR merges — precision restored
+   for a few hours, and then a *larger* set of confidently-wrong citations than exists today. The
+   brief's requirement that a fix be "correct, not approximately correct" is not satisfiable by line
+   numbers in a moving file; it is satisfiable by symbols.
+2. **Nothing in §§1–10 turns on the ordinals.** Their content is the route/auth/projection/duplication
+   analysis and the `retain / adapt / consolidate / deprecate` verdicts. Those key on route paths and
+   function names, which are all still correct — spot-checked this round. The ordinals are
+   navigation aids, and stale navigation aids are the only thing lost.
+3. **Scope.** These sections describe a Phase-1 surface that Phases 1–4 have already partly changed.
+   Re-anchoring them meaningfully is a re-audit of §§1–10 against the current tree, not a
+   find-and-replace, and folding a re-audit into a phase already at 12-of-13 certification would be
+   the wrong trade.
+
+**The rule that stops this recurring** (`MEDIA_EVIDENCE_CONTRACT.md` §8): cite the **symbol**; if a
+line anchor is genuinely required, **name the commit it resolves against**. §11.2 above has been
+brought onto that rule; §§1–10 are left as-is and flagged here rather than silently trusted.
+
+**What a reader should do meanwhile:** resolve the anchor against the commit this document declares —
+`git show c662d1a4:backend/server.js`, where the eight route registrations land exactly and the rest
+land on or beside their symbol. That is
+stronger than grepping the route path, because it also recovers *the code as it stood* when the
+claim was made, which is what several of these sections are actually about. Only when reading against
+a current tree should you fall back to grepping the route path, and then do not quote the ordinal
+onward. For the 149 non-`server.js` anchors, check first whether the file is one this branch rewrote.
+
+---
+
+## 11. Phase 5 addendum — the listing-media public contract
+
+Sections 1–10 predate Phase 5 and inventory no media contract, because at Phase 1 there was none:
+the passport did not read `listing_images` at all and the marketplace detail flattened it to
+`{url, type, is_primary}`. Phase 5 introduced one, and it is now a public surface that belongs in
+this inventory.
+
+**One definition, consumed everywhere.** `backend/utils/vehicleMediaProjection.js` is the single
+server-side authority. `toListingMediaBlock(imageRows)` decides sorting, primacy arbitration, URL
+classification, identity gating and the unpublishable count. No route or service re-implements any of
+it — `electPrimaryImage` in `listingSummaryService.js` *calls* it rather than forking it. The one
+mirror is on the client, deliberately: `web/src/pages/VehicleDetail.tsx` re-derives identity, URL
+form, primacy and the unpublishable count off the wire instead of trusting them, because a browser
+cannot import `backend/`. That mirror is recorded in `MEDIA_EVIDENCE_CONTRACT.md` Rule 6b, pinned
+test-side against the backend source, and load-bearing rather than accidental — mutation W2 ("client
+trusts the wire") kills three named tests.
+
+### 11.1 The envelope
+
+| block | shape |
+|---|---|
+| `listing_media` | `{ state, items: [{media_id, url, url_form, position, is_primary}], unpublishable_count, empty_statement }` |
+| `verified_evidence` | `{ state, items: [{…PUBLIC_EVIDENCE_FIELDS, file_url_form}], unpublishable_count, empty_statement }` |
+
+`state` is one of `published` · `none` · `not_loaded`. The three are different facts and the
+distinction is the point: **a read that never happened, or that failed, may not say "no photos".**
+`not_loaded` cannot be expressed in a bare array, which is why the envelope — not the item list — is
+the authority on every surface that publishes one.
+
+`media_id` is the lowercased canonical UUID of `listing_images.id`, gated by an **anchored** UUID
+grammar (`toMediaIdentity`), so a storage path, a bucket name, a filename, or a UUID carrying an
+extension can never be published as an identity. A server projection that is handed a value failing
+the grammar counts the row as unpublishable and emits no item; `media_id: null` is reachable only on
+the **client**, where a payload from an older server legitimately carries no identity at all and
+`null` is the truthful answer. The two item shapes share **not one key name**, which is what makes
+"a listing photo and a verified artifact can never be conflated" a property a test executes rather
+than a rule a reviewer enforces by eye.
+
+**The anonymous audience is gated (Rule 1b), and the gate is non-enumerable.** Listing media reaches
+an anonymous caller only for a **published** listing; owner, admin and government are unaffected.
+The gated response is produced by the same projector over an empty input, so it is byte-identical to
+that of a published listing holding no photos — a draft-with-photos and a published-with-none cannot
+be told apart from outside, and no count or `withheld` state is published over the hidden rows. When
+the publication state cannot be read at all the block is `not_loaded`, not `none`. Decision and
+reasoning: `ADR-002-public-column-widening.md`, "the anonymous Passport and a DRAFT listing's
+photographs"; executable form: Rule 1b in `MEDIA_EVIDENCE_CONTRACT.md`; guard:
+`backend/tests/issue164-phase5-listing-publication-gate.test.js` (35 tests, 8 suites).
+
+**This applies to the passport routes only.** The four marketplace consumers of
+`fetchListingRelatedRows` need no block-level gate: discovery, saved and listing-detail's public
+audience all run `filterVisibleVehicles` before any row is projected, and moderation plus
+listing-detail's admin audience see unpublished listings deliberately, behind `assertModerator`.
+
+### 11.2 Endpoints carrying it
+
+| path | method | auth | media fields published | class |
+|---|---|---|---|---|
+| `/api/marketplace/listings/:id` (`marketplaceRoutes.js:76`) | GET | `optionalAuth()` | `listing_media` envelope **and** a `media[]` compatibility view whose items are `{media_id, url, url_form, position, is_primary, type}` | retain |
+| `/api/vehicles/:vin/passport` (`server.js`, `buildVehiclePassport`) | GET | `optionalAuth()` | `listing_media` + `verified_evidence` envelopes, listing media gated by Rule 1b | retain |
+| `/api/vehicles/passport/lookup/:identifier` (`server.js`, same builder) | GET | `optionalAuth()` | same as passport | retain |
+| `/api/marketplace/listings` (`marketplaceRoutes.js:46`) | GET | none | `primary_image_url`, `primary_image_state`, `primary_image_unpublishable_count` — the list-card projection of the same block (`listingSummaryService.js`, `electPrimaryImage`) | retain |
+| `/api/marketplace/compare` (`marketplaceRoutes.js:71`) | POST | none | inherits the detail projection | retain |
+
+> **Two anchors in this table were de-anchored rather than refreshed, and the reason is the finding.**
+> It carried `server.js:1244` and `server.js:1259` for the two passport routes. Both resolved
+> **exactly** when the previous documentation lane wrote them; both are now `1299` and `1314`,
+> because a sibling lane added ~55 lines of comment to `buildVehiclePassport` **during this same
+> phase**. Nobody made a mistake — that is simply what a line ordinal into a concurrently-edited file
+> does. Named symbols are used instead, per `MEDIA_EVIDENCE_CONTRACT.md` §8. The three
+> `marketplaceRoutes.js` anchors and the `listingSummaryService.js` one were re-verified this round;
+> the routes file is stable, and `electPrimaryImage` is now named directly.
+
+`type: 'image'` on the compatibility view is a statement about the row's **source**
+(`listing_images`), never a claim about the asset at `url`. `url_form` is the only assertion this
+contract makes about the string itself.
+
+On the list surface `primary_image_state` carries the same honesty burden: `seller_primary` (a row
+claims `is_primary`), `first_published` (nobody claimed; this is merely the first publishable photo
+in display order), `none`, `not_loaded`. See §12 — on staging today, `seller_primary` is **not**
+trustworthy for the legacy rows.
+
+---
+
+## 12. Phase 5 addendum — write-path data debt on `listing_images`
+
+**Status: OPEN. Code fixed; data not repaired. No migration authored — this is a data repair, not a
+schema change.**
+
+The listing-creation route wrote `is_primary: idx === 0`, fabricating the seller's main-photo choice
+out of **array order** and persisting it in a column no reader can distinguish from a real choice.
+Every listing that route created **with at least one photo** therefore published
+`primary_image_state: 'seller_primary'` — the label that means "the seller chose this one" —
+untruthfully. (The write sits inside an `images.length > 0` guard, so a listing created with no
+photos published `none`, which was true.)
+
+The write path is corrected in this branch: `backend/server.js` now writes
+`is_primary: entry.claimsPrimary`, so absence is recorded as absence and the read path reports
+`first_published` where nothing was claimed. The displayed photo is unchanged, because the
+projection sorts primary-claimants first and then by `display_order`; only the label stops lying.
+
+**The rows already written were not repaired.** Measured read-only on staging
+(`eoyenigwevnxwwhyhaer`) during this close-out:
+
+| vin | rows | `is_primary` claimants | `display_order` | `created_at` |
+|---|---:|---:|---:|---|
+| `JF1GPAL60J9UAT303` | 1 | 1 | 0 | `2026-08-16 22:52:25.977933+00` |
+| `JTNBU4EE0J9UAT101` | 1 | 1 | 0 | `2026-08-16 22:52:25.977933+00` |
+| `WBA8E9C50JNUAT202` | 1 | 1 | 0 | `2026-08-16 22:52:25.977933+00` |
+
+All **3** rows carry `is_primary = true` at `display_order = 0` — precisely the `idx === 0`
+signature — so all three vehicles publish `primary_image_state: 'seller_primary'` on a claim no
+seller made.
+
+Two caveats recorded so this is not overstated:
+
+1. Each VIN holds exactly **one** image, so a fabricated `idx === 0` and a genuine sole-photo choice
+   are **indistinguishable in the data**. The value is untrustworthy by provenance, not by
+   contradiction.
+2. All three share one microsecond-identical `created_at`, so they were inserted by a **single batch
+   seed**, not by three separate seller submissions through the route. The debt is therefore
+   seed-data debt of the same shape as the route's, and repairing it is a UAT-fixture decision.
+
+Repair is deliberately **not** in Phase 5: the honest states already exist and are published, so the
+contract is correct even while the rows are not. Also still open, and unchanged by Phase 5: there is
+**no** partial unique index `ON listing_images (vin) WHERE is_primary`, so Rule 6's demotion path is
+handled rather than unreachable (verified — `listing_images` carries only `listing_images_pkey`, the
+`vin` FK to `vehicles(vin)`, and two **non-unique** btree indexes).
+
+---
+
+## 13. Phase 5 addendum — the environment the backend gate requires
+
+Recorded because a Phase 5 certification pass reported **11 failing backend tests** that were not
+failures at all, and the same omission would mislead the next reader.
+
+```
+NODE_ENV=test \
+SUPABASE_URL=http://localhost:54321 \
+SUPABASE_SERVICE_ROLE_KEY=test-service-role-key \
+SUPABASE_ANON_KEY=test-anon-key \
+JWT_SECRET=test-jwt-secret \
+ALLOW_OCR_MOCK=true \
+  node --test backend/tests/*.test.js
+```
+
+This is exactly the `env:` block of the `validate` job in `.github/workflows/ci.yml`. Two distinct
+mechanisms make it mandatory, and **neither is a test weakness**:
+
+1. `backend/db/supabase.js:11` **throws on import** when `SUPABASE_URL` or
+   `SUPABASE_SERVICE_ROLE_KEY` is absent. That kills whole test files at module load — 22 files, which
+   also suppresses their subtests and *lowers* the reported test total.
+2. `GeminiClient.js:12,114` and `services/identity/documentClassifier.js:121,195` gate mock OCR on
+   `process.env.NODE_ENV === 'test' && process.env.ALLOW_OCR_MOCK === 'true'`. This is a deliberate
+   security guard — mock OCR must never be reachable in production — and `ocr-mock-guard.test.js`
+   asserts it. **Both** variables are required; either alone leaves the mock refused, the OCR call
+   returns nothing, and the assertions fail on `undefined`.
+
+Measured at `3adb95e4` on the same tree, same command, differing only in environment:
+
+| environment | tests | pass | fail | skipped |
+|---|---:|---:|---:|---:|
+| no env | 3523 | 3478 | **33** (11 real + 22 module-load) | 12 |
+| CI env above | 3860 | 3848 | **0** | 12 |
+
+> **The `3860` is a moving baseline, not an invariant.** Re-measured under the CI env at the Phase 5
+> close-out working tree: **3896 tests, 3884 pass, 0 fail, 12 skipped, exit 0.** The total rose
+> because the Phase 5 lanes added suites (`issue164-phase5-listing-publication-gate.test.js` alone
+> contributes 35). Compare *environment against environment on one tree* — which is the only
+> comparison this table is making — never a count from one tree against a count from another.
+>
+> For part of the close-out this figure read `3883 pass, 1 fail`: the empty-statement anti-drift pin
+> in `issue164-phase5-marketplace-convergence.test.js` was red because `web/e2e/vehicle-detail.spec.ts`
+> still asserted the retired sentence `'No photos have been added to this listing.'` against a
+> contract that had moved to `'No photos are published for this listing.'` (Rule 1b / Rule 2). That
+> literal has been corrected and the pin is green.
+

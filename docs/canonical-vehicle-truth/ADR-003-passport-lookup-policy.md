@@ -75,3 +75,31 @@ about a vehicle that exists — the same withheld-vs-unrecorded conflation Phase
 `backend/tests/issue164-lookup-policy.test.js` — 23 invariants. Verified to bite: making the
 restricted kind public fails 6 tests; dropping the kind argument (restoring the cross-identifier
 oracle) fails 1; removing the rate limiter fails 1.
+
+---
+
+## Scope boundary — this ADR governs the LOOKUP, not the BODY (added Phase 5)
+
+Point 4 above already says it ("Authentication decides whether the lookup *resolves*; the existing
+governed role rules still decide what the passport *body* contains"), and Phase 5 made the
+distinction load-bearing rather than theoretical, so the boundary is drawn explicitly:
+
+| question | decided by |
+|---|---|
+| May this caller resolve this identifier to a VIN at all? | **This ADR.** Exact VIN public; plate / temporary identifier / chassis authenticated; refusals non-enumerable and pre-query. |
+| Given that it resolved, what does the anonymous body contain? | **`ADR-002-public-column-widening.md`.** Phase 0's +7 columns, Phase 5's `listing_media[].media_id`, and Phase 5's publication gate on listing media. |
+
+**The Phase 5 addition worth flagging here**, because it is the same *non-enumerability* property
+this ADR is built on, applied one layer in: the anonymous passport now serves listing media only for
+a **published** listing, and the gated response is byte-identical to that of a published listing with
+no photos. A gate that answered "no photos have been added" about a draft that *has* photographs
+would have reintroduced an existence oracle inside a body reached through a route hardened against
+exactly that — and would have done it by publishing a falsehood, which is worse than the leak. See
+ADR-002, "the anonymous Passport and a DRAFT listing's photographs", and Rule 1b in
+`MEDIA_EVIDENCE_CONTRACT.md`.
+
+Note the two use different mechanisms for the same property, and both are deliberate: this ADR
+achieves it by **answering before any query runs** (so body *and* timing are constant), while the
+media gate achieves it by **running the identical queries either way** and discarding the rows
+in-process (so timing is constant because the work is). Constant-time-by-not-working and
+constant-time-by-always-working are both valid; mixing them up is not.

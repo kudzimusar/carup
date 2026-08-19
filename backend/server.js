@@ -116,6 +116,16 @@ import identityVerificationAdminRouter from './routes/identityVerificationAdminR
 import partsentryReviewRouter from './routes/partsentryReviewRoutes.js';
 import { normalizeVehicleStatus, publicVehicleStatusFilterValues, publiclyVisiblePublicationStatuses, isPublicVehicleStatus, isPubliclyVisiblePublication, PUBLIC_VEHICLE_COLUMNS } from './utils/vehicleStatus.js';
 import { attestedValue, CLAIM_VISIBILITY, LISTING_CLAIM_COLUMNS, PUBLIC_VEHICLE_SELECT, projectVehicle, toListingClaims, toPublicEvidence, toPublicPlateHistory, toPublicTimelineEvent } from './utils/publicVehicleProjection.js';
+// The canonical vehicle media contract (Issue #164 §10). Imported at MODULE scope and handed to
+// buildVehiclePassport as a PARAMETER — never referenced as a free name inside that function, for
+// the reason the function's own header gives: two harnesses execute its source against a fixed
+// 11-name dependency list, and a twelfth free name is a ReferenceError there rather than a failure
+// that says what changed.
+// `isPublishableMediaUrl` is imported alongside the projector so the WRITE path gates on the SAME
+// definition of publishable that the read path projects. A second copy of that rule living in the
+// handler is how the two drift, and a URL the reader refuses forever is one the writer should never
+// have accepted. See the listing-media block of POST /api/vehicles/add.
+import { toVehicleMedia, isPublishableMediaUrl } from './utils/vehicleMediaProjection.js';
 import {
   LOOKUP_KINDS,
   LOOKUP_DECISIONS,
@@ -731,12 +741,36 @@ async function canonicalPassportTrust(vin) {
 // (listingSummaryService.currencyClaim). Passing the SAME function both surfaces use is what stops
 // the passport and the marketplace card answering the currency question differently for one
 // vehicle. A caller that supplies nothing gets the currency withdrawn, not published bare.
+//
+// `mediaContract` is `toVehicleMedia` from utils/vehicleMediaProjection.js, handed in on the same
+// closed-collaborator rule as the two above. It is what closes THE ORIGINAL DEFECT of this issue:
+// the passport is Vehicle Detail's primary read and it never consulted `listing_images`, so a VIN
+// whose Marketplace card showed a photo arrived at Detail with an empty gallery, under a control
+// that then announced "No verified images uploaded yet" — a governance finding published over a
+// table the passport had never heard of, about seller marketing photos that are never verified by
+// anything. The read below fixes the plumbing; the contract fixes the sentence, by refusing to let
+// a block that was not consulted say "none".
+//
+// A caller that supplies nothing publishes NEITHER media key — no media contract accompanied this
+// render — on the rule `claims: null` and `trustReport: null` already follow. That is a statement
+// about the REQUEST. It is deliberately not an empty pair of blocks: fabricating `{state:'none'}`
+// for a projection that was never applied would re-commit the defect this parameter exists to
+// close, one level up.
+//
+// THE CONTRACT ALSO HOLDS THE PUBLICATION GATE (its Rule 1b), and that is why the gate is expressed
+// as two extra INPUTS to `mediaContract` below rather than as a branch in this function. Giving the
+// passport its own `listing_images` read made an UNPUBLISHED listing's photographs reachable by any
+// anonymous caller holding the VIN, on a surface where the marketplace answers 404 — nothing decided
+// that, it fell out of the wiring. The remedy has to live where the definition of "published" is
+// already imported, because deciding it here would mean inlining a second copy of that definition
+// into the one function whose whole subject is that there is only one.
 async function buildVehiclePassport(
   vin,
   req,
   canonicalTrust = null,
   listingClaimContract = null,
   attestClaim = null,
+  mediaContract = null,
 ) {
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')
@@ -769,6 +803,106 @@ async function buildVehiclePassport(
 
   const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
   const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
+
+  // ── THE TWO MEDIA MODELS, COMPOSED AND KEPT APART ─────────────────────────────────────────────
+  // LISTING MEDIA is the seller's presentation: unverified marketing photos whose job is to show
+  // the car. VERIFIED EVIDENCE is governed proof carrying provenance and a review decision. Vehicle
+  // Detail needs BOTH, and merging them is how a marketplace photo becomes "verified" by the mere
+  // act of being displayed. `toVehicleMedia` returns them as two sibling blocks with identical
+  // envelopes and item shapes that share NOT ONE KEY NAME, which is what makes the separation a
+  // property a test can execute rather than a convention a reviewer has to police.
+  //
+  // The contract's two keys are SPREAD onto the passport body rather than nested under a `media`
+  // key, for a reason that is live rather than stylistic: `marketplaceListingDetailService` already
+  // publishes a `media` key holding RAW `listing_images` ROWS, and Vehicle Detail holds both
+  // payloads at once. One name over two shapes on one page is how `toListingMediaBlock(<object>)`
+  // gets called on a projected block, returns `not_loaded` without throwing, and blanks a gallery
+  // silently — this defect exactly, through a new door. `listing_media`/`verified_evidence` name
+  // themselves and collide with nothing. Publishing one and forgetting the other is prevented by
+  // the spread being a single expression over the contract's own frozen return, whose key set
+  // issue164-phase5-media-contract.test.js asserts.
+  let listingImageRows;   // stays `undefined` unless this read actually ran and returned rows
+  if (typeof mediaContract === 'function') {
+    // Keyed by `vin`, the only key `listing_images` has (it is FK'd to vehicles(vin) ON DELETE
+    // CASCADE — referential integrity was never the problem; NOBODY JOINING IT was).
+    //
+    // The column list is narrow and deliberate: exactly the four the contract consumes.
+    //
+    // `id` IS selected and IS published, as `media_id` — the item's stable opaque identity (Rule
+    // 6b). It is the row's uuid primary key, so the same photograph answers to the same identity on
+    // every surface and across every read, which URL equality cannot promise: a URL survives being
+    // rewritten by a CDN or a resize and two site-relative paths can collide, and 3 of 3 rows here
+    // are exactly such paths. Selecting it is not a widening — `vehicle_evidence.id` has been
+    // public since Phase 0 — and it discloses nothing, because this table has no locator column to
+    // derive: it is (id, vin, image_url, is_primary, display_order, created_at) and `image_url` is
+    // already published beside it.
+    //
+    // `created_at` must NOT be selected — it is the row's INSERT time, and a date beside a photo
+    // reads as when the photo was taken. `vehicle_evidence` has `captured_at` for that, behind a
+    // review; `listing_images` has no such column and no reviewer, no uploader, no checksum and no
+    // status, which is precisely why nothing in this block may make a trust claim.
+    const { data: listingImages, error: listingImagesError } = await supabase
+      .from('listing_images')
+      .select('id, image_url, is_primary, display_order')
+      .eq('vin', vin)
+      .order('display_order', { ascending: true });
+
+    // A failed gallery read must NOT 500 the passport (unlike evidence above, whose absence would
+    // silently understate governance), and it must not be laundered into `[]` either. Leaving the
+    // value undefined yields `state: 'not_loaded'` with a NULL statement, so the surface renders
+    // nothing rather than an empty-gallery sentence about a table we could not reach. Saying "none"
+    // on the strength of a read that never succeeded is the original defect.
+    if (!listingImagesError) listingImageRows = listingImages || [];
+  }
+
+  // ── WHY THE GALLERY IS STILL READ FOR A LISTING WE MAY NOT PUBLISH ────────────────────────────
+  // The publication gate (Rule 1b) is applied by the CONTRACT, not here, and this read deliberately
+  // runs regardless of it. Three reasons, in order of weight:
+  //
+  //   1. ONE DEFINITION. Skipping the read would mean asking "is this listing published?" at this
+  //      call site, and the only way to ask it from inside this function is to inline the predicate
+  //      — `vehicle.publication_status === 'published'` — because the passport's collaborator set is
+  //      CLOSED (see the header): the canonical `publiclyVisiblePublicationStatuses()` is not among
+  //      the injected names and adding a free one is a ReferenceError in three certified harnesses.
+  //      An inlined literal is a SECOND definition of published, on the surface whose whole subject
+  //      is that there is one. The contract already imports the canonical set; it decides.
+  //   2. THE ROWS NEVER LEAVE THE PROCESS. `toGatedListingMediaBlock` discards them entirely for an
+  //      ungated caller — not counted, not summarised — so reading them leaks nothing. What must not
+  //      escape is the PROJECTION, and that is precisely what the contract refuses to build.
+  //   3. IDENTICAL WORK EITHER WAY. A draft listing and a published one issue the same queries in
+  //      the same order, so response time carries no signal about publication state or about
+  //      whether a hidden listing holds photographs. A conditional read would have introduced that
+  //      signal to save a query on 2 of 16 staging rows.
+  //
+  // ── THE TWO AUDIENCES BELOW ARE TWO DIFFERENT FACTS ───────────────────────────────────────────
+  // `audience: 'public'` is the EVIDENCE audience, and it is 'public' on every render, which is not
+  // an oversight. The evidence rows in hand were fetched above under `public_safe AND verified` for
+  // every caller, so asking the contract for the 'owner' audience would claim a widening this query
+  // never performed. The owner's unredacted vault is `evidenceVault` below, which is separately
+  // audience-gated and is not this block's business. Re-applying the same gate the SQL applied is
+  // defence in depth: the projection must never depend on a caller having remembered the filter.
+  //
+  // `listingAudience` is the LISTING audience and is a SEPARATE parameter for a reason that is the
+  // whole subject of this phase: evidence is truth about a VEHICLE and listing media is content on a
+  // LISTING. A vehicle's verified registration document does not become unverified because nobody is
+  // advertising the car, so the publication gate governs the gallery and NOTHING else. It resolves
+  // to 'owner' for exactly the callers `isAuthorized` already names — the vehicle's owner and
+  // PASSPORT_PRIVILEGED_ROLES (admin, government), each from a session `optionalAuth()` verified —
+  // so those paths keep the access they had and nothing about them changes.
+  //
+  // `vehicle.publication_status` is passed RAW, straight off the row this function already read.
+  // No second query, therefore no second failure mode: if the vehicle read fails, this function has
+  // already returned null and there is no passport at all. If the column is somehow absent from the
+  // row, the contract resolves UNDETERMINED and answers `not_loaded` — closed, and silent.
+  const vehicleMedia = typeof mediaContract === 'function'
+    ? mediaContract({
+      listingImageRows,
+      evidenceRows: evidenceVault,
+      audience: 'public',
+      listingPublicationStatus: vehicle.publication_status,
+      listingAudience: isAuthorized ? 'owner' : 'public',
+    })
+    : null;
 
   // THE PASSPORT'S TRUST NUMBER, FROM THE CANONICAL AUTHORITY AND NOWHERE ELSE.
   //
@@ -1096,6 +1230,24 @@ async function buildVehiclePassport(
     }),
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
+    // `listing_media` and `verified_evidence` — two blocks, never one array. The gallery lives in
+    // the first and makes no verification claim; governed artifacts live in the second and keep
+    // Phase 0's allow-list unforked (`toPublicEvidence` is imported by the contract, not restated),
+    // so no uploader id, reviewer id, tenant, storage path, reviewer note or raw metadata reaches
+    // either block for any audience. Each block states its OWN empty case, so "no photos are
+    // published here" and "nothing here is verified" can never again be the same sentence. BOTH
+    // KEYS ABSENT means no media contract accompanied this render — see the header; it is not an
+    // empty gallery.
+    //
+    // The GALLERY is additionally gated on the LISTING's publication state for an unauthorized
+    // caller (contract Rule 1b): an unpublished listing publishes the block a published-and-empty
+    // one publishes, byte for byte, so the response answers neither "are there photos here?" nor
+    // "is this listing live?". The EVIDENCE block is NOT gated that way and must never be — a
+    // verified document is a fact about the VEHICLE and does not stop being true because nobody is
+    // advertising the car. Two facts, two gates.
+    ...(vehicleMedia ?? {}),
+    // Unchanged, and deliberately NOT replaced by `verified_evidence`: this is the vault an OWNER
+    // reads unredacted, a different question from what the public media block composes.
     evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
     // The canonical 10-field projection — vin, score (null when there is nothing canonical to
     // publish), band, evaluation_state, confidence, evidence_basis, calculation_version,
@@ -1147,7 +1299,7 @@ async function buildVehiclePassport(
 app.get('/api/vehicles/:vin/passport', passportLimiter, optionalAuth(), async (req, res) => {
   const { vin } = req.params;
   try {
-    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue);
+    const passport = await buildVehiclePassport(vin, req, await canonicalPassportTrust(vin), toListingClaims, attestedValue, toVehicleMedia);
     if (!passport) {
       return res.status(404).json({ error: 'VIN not found' });
     }
@@ -1192,7 +1344,7 @@ app.get('/api/vehicles/passport/lookup/:identifier', passportLookupLimiter, opti
     }
 
     const resolvedVin = Array.from(matchingVins)[0];
-    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue);
+    const passport = await buildVehiclePassport(resolvedVin, req, await canonicalPassportTrust(resolvedVin), toListingClaims, attestedValue, toVehicleMedia);
     if (!passport) {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
@@ -1933,6 +2085,36 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
     return res.status(400).json({ error: 'currency is required alongside price' });
   }
 
+  // ── LISTING MEDIA, READ OFF THE REQUEST BEFORE ANYTHING IS WRITTEN ──────────────────────────
+  // Two accepted forms, and the difference between them is the whole of Rule 6:
+  //
+  //   'https://…'                        a URL and NOTHING ELSE. It expresses NO primacy.
+  //   { url: 'https://…', is_primary: true }   a seller who actually chose their main photo.
+  //
+  // A bare string is what every real client sends today — `SellVehicle.tsx` builds
+  // `uploadedImageUrls: string[]` from the upload endpoint and the form carries no "main photo"
+  // control at all — so on today's traffic NOTHING claims primacy, which is the correct reading of
+  // a form that never asked. Only `is_primary === true` is a claim; a missing, false or truthy-ish
+  // key is an absence, so primacy can never be acquired by accident.
+  const submittedMedia = (Array.isArray(images) ? images : []).map((entry) => {
+    const isObject = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
+    return {
+      url: isObject ? entry.url : entry,
+      claimsPrimary: isObject ? entry.is_primary === true : false,
+    };
+  });
+  // TWO PRIMARIES IS NOT A CHOICE, IT IS A CONTRADICTION, and it is refused BEFORE the vehicle row
+  // is inserted so the caller gets a clean 400 rather than a half-made listing. Electing one of
+  // them here would be the same fabrication as `idx === 0`, just with more steps: the projection
+  // demotes extra claimants on the way OUT because it must cope with rows it did not write, which
+  // is not a licence for this handler to author the ambiguity in the first place. Same resolution
+  // the odometer and the currency get above — refuse the write rather than invent the value.
+  if (submittedMedia.filter((entry) => entry.claimsPrimary).length > 1) {
+    return res.status(400).json({
+      error: 'Only one image may be marked is_primary: a listing has at most one seller-chosen main photo',
+    });
+  }
+
   // Real-listing eligibility: build the exact candidate row from auth context + body, then validate so
   // fixture/demo/incomplete data cannot enter the public Marketplace (see marketplaceListingEligibility).
   const candidate = buildVehicleListingCandidate({ body: req.body, userContext: req.userContext });
@@ -2059,17 +2241,53 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       });
     }
 
-    // Persist listing images directly in the listing_images table
-    if (Array.isArray(images) && images.length > 0) {
-      const imageRecords = images.map((url, idx) => ({
-        vin,
-        image_url: url,
-        is_primary: idx === 0,
-        display_order: idx
-      }));
+    // ── PERSIST LISTING MEDIA, WITHOUT AUTHORING ANYTHING THE SELLER DID NOT SAY ──────────────
+    //
+    // THE UNPUBLISHABLE URL IS REFUSED AT THE DOOR, ONCE. `image_url: url` stored the request body
+    // verbatim — no scheme check, no length check, nothing — which is the source of every value the
+    // read contract then has to refuse forever. Measured against the shipped handler before this
+    // change: a submission of five images stored `javascript:alert(document.cookie)`,
+    // `data:image/png;base64,…`, a whitespace-only string and a path-relative `photo.jpg` into the
+    // column, four rows the projection can never publish; and the `idx === 0` line below stored the
+    // `javascript:` one AS THE SELLER'S MAIN PHOTO. `isPublishableMediaUrl` is imported from the
+    // projection rather than restated, so there is ONE definition of publishable in the codebase and
+    // the writer cannot drift away from the reader.
+    //
+    // REFUSED AND COUNTED, NOT REJECTED WHOLESALE. A bad photo URL does not void a real listing —
+    // the publishable images are stored and the rest are reported on the response, which is Rule 5's
+    // `unpublishable_count` idiom applied one layer up. Silently discarding them is what this phase
+    // exists to close; 400-ing the whole listing would discard the vehicle too.
+    const publishableMedia = submittedMedia.filter((entry) => isPublishableMediaUrl(entry.url));
+    const imagesUnpublishableCount = submittedMedia.length - publishableMedia.length;
+    const imageRecords = publishableMedia.map((entry, idx) => ({
+      vin,
+      image_url: String(entry.url).trim(),
+      // RULE 6, AT THE LAYER THAT WAS BREAKING IT. `is_primary: idx === 0` fabricated the seller's
+      // main-photo choice out of ARRAY ORDER and persisted it in a column no reader can distinguish
+      // from a real choice — so `primary_image_state: 'seller_primary'`, which Phase 5 publishes
+      // precisely to say "the seller chose this one", was untruthful for every listing this route
+      // ever created. Absence is now recorded as absence: with nothing claimed, no row claims, and
+      // the read path reports `first_published` — the honest label for "this is merely the first
+      // photo in display order". The DISPLAYED photo is unchanged, because the projection sorts
+      // primary-claimants first and then by `display_order`, and image 0 still carries
+      // `display_order: 0`; only the LABEL on it stops lying.
+      is_primary: entry.claimsPrimary,
+      // Dense over the PUBLISHABLE set, so a refused URL leaves no gap in the running order.
+      display_order: idx,
+    }));
+
+    // WHAT WAS ACTUALLY STORED, TRACKED. `location_recorded` eleven lines below is the pattern this
+    // follows; it is not a new idiom invented here.
+    let imagesRecorded = false;
+    let imagesRecordedCount = 0;
+    if (imageRecords.length > 0) {
       const { error: imageError } = await supabase.from('listing_images').insert(imageRecords);
       if (imageError) {
+        // Still logged for operators — but the log is no longer the ONLY place the failure exists.
         console.error('⚠️ Failed to save listing images:', imageError.message);
+      } else {
+        imagesRecorded = true;
+        imagesRecordedCount = imageRecords.length;
       }
     }
 
@@ -2083,6 +2301,30 @@ app.post('/api/vehicles/add', authorizeRole(['dealer', 'owner', 'admin']), async
       // of discovering it later as a blank card — the silent discard is what this phase closes.
       location_recorded: locationRecorded,
       location_visibility: locationRecorded ? listingVisibility : null,
+      // AND THE SAME FOR THE PHOTOS. A failed `listing_images` insert was console.error'd and the
+      // route returned `success: true` anyway — measured on the shipped handler: zero rows stored,
+      // 201, and not one key in the body mentioning photographs. The seller was told their listing
+      // was saved and reasonably understood that to include the pictures they had just uploaded.
+      //
+      // Four separate facts, none derivable from another, which is why there are four keys and not
+      // one summary:
+      //   `images_recorded`             did ANY image reach the table. False when none were
+      //                                 submitted and false when the insert failed — both are
+      //                                 truthfully "we recorded no photos", exactly as
+      //                                 `location_recorded` treats the same pair.
+      //   `images_recorded_count`       how many rows were written, so "I sent 5, you stored 1" is
+      //                                 legible to the caller at the moment it happens.
+      //   `images_unpublishable_count`  how many submitted values this contract will not publish.
+      //                                 Without it a refused URL is a silent discard, which is the
+      //                                 defect one layer down.
+      //   `images_primary_recorded`     whether a seller-EXPRESSED primacy actually reached a stored
+      //                                 row. A seller who chose a main photo whose URL was then
+      //                                 refused must not be left believing the choice took effect,
+      //                                 and no other key here can tell them.
+      images_recorded: imagesRecorded,
+      images_recorded_count: imagesRecordedCount,
+      images_unpublishable_count: imagesUnpublishableCount,
+      images_primary_recorded: imagesRecorded && imageRecords.some((record) => record.is_primary === true),
       message: 'Vehicle saved as draft. Upload ownership documents to advance toward publication.',
     });
   } catch (error) {
