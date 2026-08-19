@@ -22,12 +22,10 @@ export const MARKETPLACE_TRANSACTION_VEHICLE_SELECT = [
   'current_seller_type',
   'current_seller_type_source',
   'tenant_id',
-  'status',
   'publication_status',
   'price',
   'currency',
   'currency_source',
-  'updated_at',
 ].join(',');
 
 const TRANSACTION_INQUIRY_SELECT = 'id, listing_id, buyer_id, seller_id, inquiry_type, status, risk_status, created_at, updated_at';
@@ -102,19 +100,25 @@ export async function loadPurchaseInquiryById(inquiryId, client = supabase) {
   return data || null;
 }
 
+/**
+ * Immutable transaction snapshot of seller/listing truth only.
+ *
+ * Reservation/payment state is deliberately absent. `vehicles.status` is a transaction-owned cache
+ * that changes to Reserved as a consequence of this very transaction, and broad `updated_at` may
+ * move with that cache. Hashing either would make a successful reservation invalidate its own
+ * deposit/payment gate. Publication, seller relationship and listing economics remain load-bearing.
+ */
 export function buildMarketplaceListingSnapshot(vehicle = {}, sellerId, terms) {
   return crypto.createHash('sha256').update(JSON.stringify({
-    contract: 'marketplace-listing-transaction-snapshot-v1',
+    contract: 'marketplace-listing-transaction-snapshot-v2',
     vin: vehicle.vin || null,
     seller_id: sellerId || null,
     seller_type: vehicle.current_seller_type || null,
     seller_type_source: vehicle.current_seller_type_source || null,
     publication_status: vehicle.publication_status || null,
-    listing_status: vehicle.status || null,
     amount: terms?.amount ?? null,
     currency: terms?.currency ?? null,
     currency_source: terms?.currencySource ?? null,
-    listing_updated_at: vehicle.updated_at || null,
   })).digest('hex');
 }
 
@@ -149,6 +153,27 @@ export async function resolveMarketplaceSellerSuspension(vehicle = {}, client = 
   if (data.suspension_state === 'suspended') return true;
   if (data.suspension_state === 'none') return false;
   return null;
+}
+
+/**
+ * Participant-lineage authority has two modes:
+ * - participant actions require the authenticated actor to be the recorded buyer or seller;
+ * - governance actions (reviewer/admin approval) require the recorded buyer/seller lineage and
+ *   current inquiry to remain valid, but must not pretend the reviewer is a buyer or seller.
+ */
+export function resolveMarketplaceParticipantAuthorization({
+  inquiryCurrent = false,
+  actorId = null,
+  buyerId = null,
+  sellerId = null,
+  requireActorParticipant = true,
+} = {}) {
+  const buyer = recordedText(buyerId);
+  const seller = recordedText(sellerId);
+  if (!inquiryCurrent || !buyer || !seller || buyer === seller) return false;
+  if (!requireActorParticipant) return true;
+  const actor = recordedText(actorId);
+  return Boolean(actor && (actor === buyer || actor === seller));
 }
 
 /**
@@ -222,9 +247,15 @@ export async function loadMarketplaceTransactionVehicle(vin, client = supabase) 
 /**
  * Recompute every mutable eligibility input for an existing session. This is the ONLY gate recheck
  * path used by transition/payment/reservation code: current vehicle, current seller, exact inquiry,
- * authenticated participant, canonical Trust and current snapshot are all read again.
+ * participant lineage, canonical Trust and current snapshot are all read again. Participant actions
+ * additionally require the actor to be buyer/seller; governance actions can disable only that actor
+ * membership check while retaining the buyer/seller/inquiry lineage check.
  */
-export async function recomputeMarketplaceEscrowGateContext(session = {}, { actor, client = supabase } = {}) {
+export async function recomputeMarketplaceEscrowGateContext(session = {}, {
+  actor,
+  client = supabase,
+  requireActorParticipant = true,
+} = {}) {
   const actorId = recordedText(actor?.id || actor?.userId);
   const buyerId = recordedText(session.buyer_id);
   const sellerId = recordedText(session.seller_id);
@@ -247,8 +278,13 @@ export async function recomputeMarketplaceEscrowGateContext(session = {}, { acto
     && isCurrentPurchaseInquiry(inquiry, { vin: session.vin, buyerId, sellerId })
     && currentSellerId === sellerId,
   );
-  const actorIsParticipant = Boolean(actorId && (actorId === buyerId || actorId === sellerId));
-  const participantAuthorized = inquiryCurrent && actorIsParticipant;
+  const participantAuthorized = resolveMarketplaceParticipantAuthorization({
+    inquiryCurrent,
+    actorId,
+    buyerId,
+    sellerId,
+    requireActorParticipant,
+  });
 
   const [decision, sellerSuspended] = await Promise.all([
     getTrustDecision(session.vin),
@@ -344,6 +380,7 @@ export default {
   buildMarketplaceListingSnapshot,
   hasMarketplaceListingSnapshotChanged,
   resolveMarketplaceSellerSuspension,
+  resolveMarketplaceParticipantAuthorization,
   buildMarketplaceEscrowGateContext,
   buildCanonicalTransactionKey,
   toPublicMarketplaceEscrowSession,
