@@ -21,13 +21,15 @@ export const VALID_TRANSITIONS = Object.freeze({
   refunded: [],
   cancelled: [],
   failed: [],
+  // Historical read compatibility only. New Phase 6 code writes provider-neutral states above.
   funded_sandbox: ['inspection_pending', 'disputed', 'refunded'],
   released_sandbox: [],
   refunded_sandbox: [],
 });
 
 const PRIVILEGED_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'reviewer']);
-const SYSTEM_ROLES = new Set(['system', 'provider', 'webhook']);
+const PROVIDER_ROLES = new Set(['provider', 'webhook']);
+const INTERNAL_SYSTEM_ROLES = new Set(['system']);
 const PROVIDER_CONFIRMED_STATES = new Set([
   'funds_held', 'settled', 'refunded',
   'funded_sandbox', 'released_sandbox', 'refunded_sandbox',
@@ -44,8 +46,12 @@ function actorRole(actor) {
 function isPrivileged(actor) {
   return PRIVILEGED_ROLES.has(actorRole(actor));
 }
-function isSystem(actor) {
-  return SYSTEM_ROLES.has(actorRole(actor));
+function isProviderAuthority(actor) {
+  const role = actorRole(actor);
+  return PROVIDER_ROLES.has(role) || INTERNAL_SYSTEM_ROLES.has(role);
+}
+function isInternalSystem(actor) {
+  return INTERNAL_SYSTEM_ROLES.has(actorRole(actor));
 }
 function isParticipant(session, actor) {
   const id = actorId(actor);
@@ -72,11 +78,22 @@ export function evaluateEscrowGates(ctx = {}) {
   return { allowed: reasons.length === 0, reasons };
 }
 
+/**
+ * Authority partition:
+ * - provider/webhook/internal system: provider-confirmed money states only;
+ * - buyer: initiate its own eligible transaction;
+ * - reviewer/admin: human governance, including release approval;
+ * - internal CarUp system: non-provider orchestration such as inspection/failure;
+ * - participants: cancel/dispute only where the state machine permits it.
+ *
+ * In particular a payment webhook may NOT assert `release_approved`; provider release is accepted
+ * only after CarUp's separate governance state already exists.
+ */
 export function canActorTransition(session, toStatus, actor) {
-  if (PROVIDER_CONFIRMED_STATES.has(toStatus)) return isSystem(actor);
+  if (PROVIDER_CONFIRMED_STATES.has(toStatus)) return isProviderAuthority(actor);
   if (toStatus === 'initiated') return actorId(actor) === session?.buyer_id;
-  if (toStatus === 'release_approved') return isPrivileged(actor) || isSystem(actor);
-  if (['failed', 'inspection_pending'].includes(toStatus)) return isSystem(actor) || isPrivileged(actor);
+  if (toStatus === 'release_approved') return isPrivileged(actor);
+  if (['failed', 'inspection_pending'].includes(toStatus)) return isInternalSystem(actor) || isPrivileged(actor);
   if (isPrivileged(actor)) return true;
   if (['cancelled', 'disputed'].includes(toStatus)) return isParticipant(session, actor);
   return false;
@@ -223,6 +240,7 @@ export async function listSessionsForActor(actor, client = supabase) {
   return rows.filter((row) => row.buyer_id === id || row.seller_id === id);
 }
 
+/** The old bespoke webhook is retired. Provider verification/reconciliation owns money truth. */
 export async function ingestEscrowWebhook() {
   return {
     applied: false,
