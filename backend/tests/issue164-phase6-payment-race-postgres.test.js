@@ -12,6 +12,7 @@ function up(path) {
 const MIGRATIONS = [
   '../../database/migrations/20260819127000_issue164_phase6_settlement_recovery.sql',
   '../../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql',
+  '../../database/migrations/20260819129000_issue164_phase6_settlement_recovery_fence.sql',
 ];
 
 async function setup() {
@@ -97,7 +98,6 @@ async function setup() {
       public.escrow_trust_events,public.safetrade_sandbox_payment_intents,
       public.safetrade_sandbox_payment_operations TO service_role;
 
-    -- 1260 prerequisite shape. Migration 1280 replaces this stub with the real hardened function.
     CREATE OR REPLACE FUNCTION public.issue164_sandbox_payment_action_atomic(
       p_action text,p_intent_id text,p_transaction_intent_id uuid,p_idempotency_key text,
       p_amount numeric,p_currency text,p_payer_id text,p_payee_id text,p_tenant_id text
@@ -147,7 +147,17 @@ async function claimSettlement(db, id, key = 'release-key', actor = 'reviewer-a'
   return rows[0];
 }
 
+async function beginSettlementRecovery(db, id, key = 'release-key', actor = 'reviewer-a') {
+  const { rows } = await db.query(`
+    SELECT (public.issue164_begin_settlement_recovery_atomic(
+      $1::uuid,$2::text,'reviewer',$3::text
+    )).*
+  `, [id, actor, key]);
+  return rows[0];
+}
+
 async function recoverSettlement(db, id, key = 'release-key', actor = 'reviewer-a') {
+  await beginSettlementRecovery(db, id, key, actor);
   const { rows } = await db.query(`
     SELECT (public.issue164_recover_settlement_atomic(
       $1::uuid,$2::text,'reviewer',$3::text,'captured','provider-confirmation-1'
@@ -229,7 +239,7 @@ test('Phase 6 migration 1280 — sandbox replay is durable, action/intent-bound 
   }
 });
 
-test('Phase 6 migrations 1270/1280 — refund and active settlement claims are mutually exclusive before provider calls', async () => {
+test('Phase 6 migrations 1270/1280/1290 — refund and active settlement claims are mutually exclusive before provider calls', async () => {
   const db = await setup();
   try {
     const refundFirst = '20000000-0000-4000-8000-000000000001';
@@ -255,7 +265,57 @@ test('Phase 6 migrations 1270/1280 — refund and active settlement claims are m
   }
 });
 
-test('Phase 6 migrations 1270/1280 — provider-confirmed recovered settlement reopens refund but not payout/refund double-claim', async () => {
+test('Phase 6 migration 1290 — recovery fences claim retry and provider release before NOT-RELEASED recovery commits', async () => {
+  const db = await setup();
+  try {
+    const id = '20500000-0000-4000-8000-000000000001';
+    await seedSession(db, id);
+    const claimed = await claimSettlement(db, id);
+    assert.equal(claimed.settlement_operation_state, 'pending');
+
+    await db.query(`
+      INSERT INTO public.safetrade_sandbox_payment_intents(
+        intent_id,transaction_intent_id,create_idempotency_key,amount,currency,payer_id,payee_id,
+        status,captured_amount
+      ) VALUES($1,$2::uuid,'create-fence',500,'USD','buyer-a','seller-a','captured',500)
+    `, [claimed.payment_intent_id, id]);
+
+    const fenced = await beginSettlementRecovery(db, id);
+    assert.ok(fenced.settlement_recovery_fenced_at);
+    assert.equal(fenced.settlement_recovery_fence_closed_at, null);
+    assert.equal(fenced.settlement_recovery_fence_operation_key, 'release-key');
+
+    await assert.rejects(
+      claimSettlement(db, id),
+      /settlement recovery in progress; release retry blocked/,
+    );
+    await assert.rejects(
+      db.query(`
+        UPDATE public.safetrade_sandbox_payment_intents
+           SET status='released',release_ref='stale-release'
+         WHERE transaction_intent_id=$1::uuid
+      `, [id]),
+      /settlement recovery in progress; sandbox release blocked/,
+    );
+
+    const recovered = await recoverSettlement(db, id);
+    assert.equal(recovered.settlement_operation_state, 'recovered');
+    assert.ok(recovered.settlement_recovery_fence_closed_at);
+
+    await assert.rejects(
+      db.query(`
+        UPDATE public.safetrade_sandbox_payment_intents
+           SET status='released',release_ref='delayed-stale-release'
+         WHERE transaction_intent_id=$1::uuid
+      `, [id]),
+      /sandbox release lacks a pending attributable settlement operation/,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('Phase 6 migrations 1270/1280/1290 — provider-confirmed recovered settlement reopens refund but not payout/refund double-claim', async () => {
   const db = await setup();
   try {
     const refundAfterRecovery = '21000000-0000-4000-8000-000000000001';
@@ -297,7 +357,7 @@ test('Phase 6 migrations 1270/1280 — provider-confirmed recovered settlement r
   }
 });
 
-test('Phase 6 migrations 1270/1280 — settlement/refund claim provenance remains immutable after terminal reconciliation', async () => {
+test('Phase 6 migrations 1270/1280/1290 — settlement/refund claim provenance remains immutable after terminal reconciliation', async () => {
   const db = await setup();
   try {
     const settled = '30000000-0000-4000-8000-000000000001';
