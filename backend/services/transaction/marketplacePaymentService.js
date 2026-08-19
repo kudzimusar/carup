@@ -9,10 +9,7 @@ import { selectMarketplacePaymentProvider } from './marketplacePaymentProviderSe
 
 /**
  * Issue #164 Phase 6A/6B bridge.
- *
- * Marketplace owns the transaction and its server-derived deposit policy. SafeTrade owns the
- * provider abstraction. This module translates between them; it does not invent a second provider
- * contract and it never writes money truth from a browser payload.
+ * Marketplace owns transaction/deposit truth; SafeTrade owns the provider abstraction.
  */
 export const MARKETPLACE_DEPOSIT_POLICY = Object.freeze({
   version: 'marketplace-deposit-1.0.0',
@@ -52,16 +49,9 @@ function providerMode(provider, result = {}) {
   return 'test';
 }
 
-/**
- * No external provider inherits a geographic/payment-method assumption from the sandbox. The only
- * currently callable adapter is the synthetic sandbox; future adapters must supply their proven
- * country/currency/method/legal context as part of their integration rather than falling through.
- */
 function currentProviderCapabilityContext(provider, currency) {
   const key = String(provider?.name || '').toLowerCase();
-  if (key === 'sandbox') {
-    return { testMode: true, currency, method: 'sandbox' };
-  }
+  if (key === 'sandbox') return { testMode: true, currency, method: 'sandbox' };
   return { testMode: false, currency, country: null, method: null };
 }
 
@@ -124,11 +114,6 @@ export function evaluateMarketplaceDepositPolicy({ session = {}, reservation = n
   };
 }
 
-/**
- * Recompute all transaction gates, then persist deposit eligibility through the atomic DB function.
- * The fixed USD 500 value is not a frontend literal any more: it is a versioned server policy and
- * unsupported currencies fail closed rather than being silently converted.
- */
 export async function evaluateMarketplaceDepositEligibility(sessionId, {
   actor,
   client = supabase,
@@ -171,12 +156,6 @@ export async function evaluateMarketplaceDepositEligibility(sessionId, {
   };
 }
 
-/**
- * Create a provider intent only after a fresh deposit-eligibility evaluation. Provider selection
- * remains SafeTrade-owned; Marketplace replaces only SafeTrade's process-local synthetic provider
- * with its durable test/staging adapter. The browser cannot choose provider, amount, currency, payer
- * or payee.
- */
 export async function createMarketplacePaymentIntent(sessionId, {
   actor,
   client = supabase,
@@ -271,7 +250,6 @@ async function persistProviderState(session, normalizedStatus, {
   return data;
 }
 
-/** Poll/reconcile provider state. Useful for providers whose webhook is delayed or optional. */
 export async function reconcileMarketplacePayment(sessionId, {
   actor,
   client = supabase,
@@ -304,11 +282,35 @@ export async function reconcileMarketplacePayment(sessionId, {
 }
 
 /**
- * Test/UAT helper: drive the durable SafeTrade sandbox through authorization and capture, then
- * reconcile the canonical transaction to `funds_held`. The HTTP route exposing this helper is
- * separately runtime-gated to test/development/preview/staging and never becomes a production money
- * action.
+ * Fresh capture authority for the synthetic provider. Once a provider intent exists, the reservation
+ * clock alone is not authority to invalidate the hold, but seller/publication/snapshot/inquiry truth
+ * must still be valid immediately before any provider authorization/capture operation.
  */
+async function assertFreshSandboxCaptureAuthority(session, actor, client) {
+  const id = actorId(actor);
+  if (!id || session.buyer_id !== id) {
+    throw new ForbiddenError('Only the transaction buyer may advance the sandbox deposit.');
+  }
+  if (session.status !== 'initiated') {
+    throw new ConflictError(`Sandbox capture requires initiated transaction state, not ${session.status}.`);
+  }
+
+  const recomputed = await recomputeMarketplaceEscrowGateContext(session, { actor, client });
+  const gate = evaluateEscrowGates(recomputed.gateContext);
+  if (!gate.allowed) {
+    throw new ConflictError(`Transaction gates no longer allow deposit capture: ${gate.reasons.join(',') || 'unknown reason'}`);
+  }
+
+  const reservation = await loadActiveReservation(session, client);
+  if (!reservation
+      || reservation.transaction_intent_id !== session.id
+      || reservation.buyer_id !== session.buyer_id
+      || reservation.seller_id !== session.seller_id
+      || reservation.inquiry_id !== session.inquiry_id) {
+    throw new ConflictError('Active canonical reservation lineage is required before deposit capture.');
+  }
+}
+
 export async function captureMarketplaceSandboxDeposit(sessionId, {
   actor,
   client = supabase,
@@ -316,6 +318,9 @@ export async function captureMarketplaceSandboxDeposit(sessionId, {
 } = {}) {
   const session = await getSession(sessionId, actor, client);
   if (!session?.payment_intent_id) throw new ConflictError('Create the payment intent first.');
+
+  await assertFreshSandboxCaptureAuthority(session, actor, client);
+
   const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider || provider.name !== 'sandbox') {
     throw new ConflictError('Sandbox capture is available only for the canonical sandbox provider.');
@@ -345,23 +350,9 @@ export async function captureMarketplaceSandboxDeposit(sessionId, {
     discriminator: captured.captureRef || 'capture',
     payload: { source: 'sandbox_test_capture', live: false },
   });
-  return {
-    transactionIntentId: session.id,
-    paymentState: captured.status,
-    live: false,
-  };
+  return { transactionIntentId: session.id, paymentState: captured.status, live: false };
 }
 
-/**
- * Reviewer/admin release after the canonical transaction reached release_approved.
- *
- * The settlement operation is claimed atomically in PostgreSQL BEFORE provider release. That claim
- * freezes conflicting human state changes and snapshots the approved seller/payment lineage. If a
- * provider call is ambiguous, retries use the same idempotency key and the transaction remains
- * settlement-claimed rather than reopening a dispute path. Provider `released` is then reconciled
- * against the durable claim, so CarUp cannot lose money truth because mutable seller state changed
- * after the payout request was sent.
- */
 export async function releaseMarketplacePayment(sessionId, {
   actor,
   client = supabase,
@@ -419,7 +410,11 @@ export async function releaseMarketplacePayment(sessionId, {
   return { transactionIntentId: session.id, paymentState: released.status, live: released.live === true };
 }
 
-/** Provider-backed refund. The canonical DB function releases the reservation/listing cache. */
+/**
+ * Provider-backed refund. Refund is claimed atomically in PostgreSQL BEFORE the provider call. The
+ * row lock makes refund and settlement claims mutually exclusive, so concurrent release/refund
+ * requests cannot both move provider money and then fight over canonical reconciliation.
+ */
 export async function refundMarketplacePayment(sessionId, {
   actor,
   client = supabase,
@@ -427,27 +422,49 @@ export async function refundMarketplacePayment(sessionId, {
 } = {}) {
   const session = await getSession(sessionId, actor, client);
   if (!session) throw new ValidationError('Transaction intent not found.');
-  if (session.settlement_operation_key) {
-    throw new ConflictError('Settlement is already claimed; reconcile provider release before any refund action.');
-  }
   if (!['funds_held', 'inspection_pending', 'release_approved', 'disputed'].includes(session.status)) {
     throw new ConflictError(`Transaction cannot be refunded from ${session.status}.`);
   }
+  if (!session.payment_idempotency_key || !session.payment_intent_id || !session.payment_provider) {
+    throw new ConflictError('Transaction has no attributable captured payment intent.');
+  }
+
   const provider = selectMarketplacePaymentProvider({ paymentProvider, client });
   if (provider.name !== session.payment_provider) throw new ConflictError('Payment provider mismatch.');
   requireCapability(provider, 'refund', session.deposit_currency || session.listing_currency);
+
+  const id = actorId(actor);
+  const role = actorRole(actor);
+  if (!id || !role) throw new ForbiddenError('Reviewer/admin identity is required for refund.');
+  const refundKey = `${session.payment_idempotency_key}:refund`;
+  const { data: claimed, error: claimError } = await client.rpc('issue164_begin_refund_atomic', {
+    p_session_id: session.id,
+    p_actor_id: id,
+    p_actor_role: role,
+    p_operation_key: refundKey,
+  });
+  if (claimError) throw new ConflictError(`Refund could not be claimed: ${claimError.message}`);
+  const claimedSession = Array.isArray(claimed) ? claimed[0] : claimed;
+  if (!claimedSession?.refund_operation_key) {
+    throw new ConflictError('Refund claim returned no durable operation identity.');
+  }
+
   const refunded = await provider.refund({
-    intentId: session.payment_intent_id,
-    idempotencyKey: `${session.payment_idempotency_key}:refund`,
+    intentId: claimedSession.refund_payment_intent_id || session.payment_intent_id,
+    idempotencyKey: refundKey,
   });
   if (refunded.status !== SAFETRADE_PROVIDER_STATES.REFUNDED) {
     throw new ConflictError('Payment provider did not confirm refund.');
   }
-  await persistProviderState(session, refunded.status, {
+  await persistProviderState(claimedSession, refunded.status, {
     client,
     provider: session.payment_provider,
     discriminator: refunded.refundRef || 'refund',
-    payload: { source: 'governed_refund', live: refunded.live === true },
+    payload: {
+      source: 'governed_refund',
+      live: refunded.live === true,
+      refundOperationKey: claimedSession.refund_operation_key,
+    },
   });
   return { transactionIntentId: session.id, paymentState: refunded.status, live: refunded.live === true };
 }
