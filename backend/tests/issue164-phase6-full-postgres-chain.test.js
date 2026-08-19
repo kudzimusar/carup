@@ -19,7 +19,8 @@ const MIGRATIONS = [
   '../../database/migrations/20260819124000_issue164_phase6_reservation_expiry_reconciliation.sql',
   '../../database/migrations/20260819125000_issue164_phase6_provider_reconciliation_hardening.sql',
   '../../database/migrations/20260819126000_issue164_phase6_payment_operation_hardening.sql',
-  '../../database/migrations/20260819127000_issue164_phase6_payment_race_recovery.sql',
+  '../../database/migrations/20260819127000_issue164_phase6_settlement_recovery.sql',
+  '../../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql',
 ];
 
 async function setup() {
@@ -396,12 +397,13 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     const claim = await claimSettlement(db, txId);
     assert.equal(claim.status, 'release_approved');
     assert.equal(claim.settlement_operation_key, 'payment-key:release');
+    assert.equal(claim.settlement_operation_state, 'pending');
     assert.equal(claim.settlement_seller_id, 'seller-a');
     assert.equal(claim.settlement_payment_intent_id, sandboxIntent.intentId);
 
     await assert.rejects(
       () => action(db, txId, 'disputed', 'buyer-a', 'buyer'),
-      /settlement operation already claimed; provider reconciliation required/,
+      /settlement operation already claimed; provider reconciliation or confirmed recovery required/,
     );
 
     const providerReleased = await sandboxAction(db, 'release', {
@@ -413,6 +415,7 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     await db.exec(`UPDATE vehicles SET current_seller_id='seller-after-claim' WHERE vin='VIN-P6-FULL-00001'`);
     const settled = await provider(db, txId, sandboxIntent.intentId, 'released', 'release');
     assert.equal(settled.status, 'settled');
+    assert.equal(settled.settlement_operation_state, 'completed');
 
     const releasedRetrieved = await sandboxAction(db, 'retrieve', { intentId: sandboxIntent.intentId });
     assert.equal(releasedRetrieved.status, 'released');
