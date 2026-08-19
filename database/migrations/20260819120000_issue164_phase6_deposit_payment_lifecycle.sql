@@ -173,6 +173,9 @@ BEGIN
   IF nullif(btrim(p_actor_id),'') IS NULL THEN
     RAISE EXCEPTION 'authenticated actor required' USING ERRCODE='22023';
   END IF;
+  IF jsonb_typeof(coalesce(p_reasons,'[]'::jsonb))<>'array' THEN
+    RAISE EXCEPTION 'deposit reasons must be a JSON array' USING ERRCODE='22023';
+  END IF;
 
   SELECT * INTO v_tx
     FROM public.escrow_trust_sessions
@@ -195,11 +198,19 @@ BEGIN
    FOR UPDATE;
 
   IF FOUND AND v_res.expires_at<=v_now THEN
+    -- The clock alone may release only a pre-payment hold. Once a provider intent exists, CarUp
+    -- must cancel/reconcile the provider first; exposing the vehicle as Available here could permit
+    -- a second buyer while an authorization is still live.
+    IF v_tx.payment_intent_id IS NOT NULL THEN
+      RAISE EXCEPTION 'expired reservation has a linked payment intent; provider reconciliation required'
+        USING ERRCODE='23514';
+    END IF;
     UPDATE public.vehicle_reservations
        SET status='expired',updated_at=v_now
      WHERE id=v_res.id;
     UPDATE public.vehicles
-       SET status='Available',reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
+       SET status=CASE WHEN lower(coalesce(status,''))='reserved' THEN 'Available' ELSE status END,
+           reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
      WHERE vin=v_tx.vin AND active_reservation_id=v_res.id;
     v_res:=NULL;
   END IF;
@@ -274,6 +285,7 @@ AS $link$
 DECLARE
   v_tx public.escrow_trust_sessions%ROWTYPE;
   v_res public.vehicle_reservations%ROWTYPE;
+  v_from_status text;
   v_now timestamptz := clock_timestamp();
 BEGIN
   IF p_provider_mode NOT IN ('sandbox','test','live')
@@ -291,6 +303,9 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'transaction intent not found' USING ERRCODE='P0002'; END IF;
   IF v_tx.buyer_id IS DISTINCT FROM p_actor_id THEN
     RAISE EXCEPTION 'payment actor is not transaction buyer' USING ERRCODE='42501';
+  END IF;
+  IF v_tx.status NOT IN ('eligible','initiated') THEN
+    RAISE EXCEPTION 'payment intent cannot be linked from transaction status %',v_tx.status USING ERRCODE='23514';
   END IF;
   IF v_tx.deposit_eligibility<>'eligible'
      OR v_tx.deposit_amount IS NULL
@@ -320,6 +335,7 @@ BEGIN
       USING ERRCODE='23514';
   END IF;
 
+  v_from_status := v_tx.status;
   UPDATE public.escrow_trust_sessions
      SET status='initiated',
          payment_provider=btrim(p_provider),
@@ -334,7 +350,7 @@ BEGIN
   INSERT INTO public.escrow_trust_events(
     session_id,from_status,to_status,actor_id,actor_role,reason,payload,created_at
   ) VALUES(
-    v_tx.id,'eligible','initiated',p_actor_id,'buyer','payment_intent_linked',
+    v_tx.id,v_from_status,'initiated',p_actor_id,'buyer','payment_intent_linked',
     jsonb_build_object(
       'provider',p_provider,
       'provider_mode',p_provider_mode,
@@ -377,6 +393,7 @@ DECLARE
   v_res public.vehicle_reservations%ROWTYPE;
   v_vehicle public.vehicles%ROWTYPE;
   v_now timestamptz := clock_timestamp();
+  v_from_status text;
   v_next_status text;
 BEGIN
   IF p_normalized_status NOT IN (
@@ -384,6 +401,9 @@ BEGIN
     'partially_refunded','cancelled','failed','unknown'
   ) THEN
     RAISE EXCEPTION 'unsupported normalized payment status' USING ERRCODE='22023';
+  END IF;
+  IF nullif(btrim(p_provider),'') IS NULL OR nullif(btrim(p_intent_id),'') IS NULL THEN
+    RAISE EXCEPTION 'provider and payment intent are required' USING ERRCODE='22023';
   END IF;
 
   SELECT * INTO v_tx
@@ -409,24 +429,28 @@ BEGIN
     RETURN v_tx;
   END IF;
 
+  v_from_status := v_tx.status;
   v_next_status := CASE p_normalized_status
     WHEN 'captured' THEN 'funds_held'
     WHEN 'released' THEN 'settled'
     WHEN 'refunded' THEN 'refunded'
     WHEN 'cancelled' THEN 'cancelled'
     WHEN 'failed' THEN 'failed'
-    ELSE v_tx.status
+    ELSE v_from_status
   END;
 
   -- Structural transition guard independent of application code.
-  IF v_next_status='funds_held' AND v_tx.status<>'initiated' THEN
+  IF v_next_status='funds_held' AND v_from_status<>'initiated' THEN
     RAISE EXCEPTION 'captured payment requires initiated transaction' USING ERRCODE='23514';
-  ELSIF v_next_status='settled' AND v_tx.status<>'release_approved' THEN
+  ELSIF v_next_status='settled' AND v_from_status<>'release_approved' THEN
     RAISE EXCEPTION 'payment release requires release_approved transaction' USING ERRCODE='23514';
-  ELSIF v_next_status='refunded' AND v_tx.status NOT IN ('funds_held','inspection_pending','release_approved','disputed') THEN
-    RAISE EXCEPTION 'refund is not valid from transaction status %',v_tx.status USING ERRCODE='23514';
-  ELSIF v_next_status='cancelled' AND v_tx.status NOT IN ('eligible','initiated') THEN
-    RAISE EXCEPTION 'provider cancellation is not valid from transaction status %',v_tx.status USING ERRCODE='23514';
+  ELSIF v_next_status='refunded'
+        AND v_from_status NOT IN ('funds_held','inspection_pending','release_approved','disputed') THEN
+    RAISE EXCEPTION 'refund is not valid from transaction status %',v_from_status USING ERRCODE='23514';
+  ELSIF v_next_status IN ('cancelled','failed')
+        AND v_from_status NOT IN ('eligible','initiated') THEN
+    RAISE EXCEPTION 'provider % is not valid from transaction status %',p_normalized_status,v_from_status
+      USING ERRCODE='23514';
   END IF;
 
   SELECT * INTO v_res
@@ -458,7 +482,7 @@ BEGIN
     provider,provider_event_id,normalized_status,reconciled_at,created_at
   ) VALUES(
     v_tx.id,'payment_reconciliation',true,false,p_idempotency_key,coalesce(p_payload,'{}'::jsonb),
-    p_provider,p_provider_event_id,p_normalized_status,v_now,v_now
+    btrim(p_provider),p_provider_event_id,p_normalized_status,v_now,v_now
   );
 
   UPDATE public.escrow_trust_sessions
@@ -476,12 +500,13 @@ BEGIN
     UPDATE public.vehicles
        SET status='Sold',reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
      WHERE vin=v_tx.vin AND active_reservation_id=v_res.id;
-  ELSIF v_next_status IN ('refunded','cancelled') AND v_res.id IS NOT NULL THEN
+  ELSIF v_next_status IN ('refunded','cancelled','failed') AND v_res.id IS NOT NULL THEN
     UPDATE public.vehicle_reservations
        SET status='cancelled',updated_at=v_now
      WHERE id=v_res.id;
     UPDATE public.vehicles
-       SET status='Available',reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
+       SET status=CASE WHEN lower(coalesce(status,''))='reserved' THEN 'Available' ELSE status END,
+           reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
      WHERE vin=v_tx.vin AND active_reservation_id=v_res.id;
   END IF;
 
@@ -489,17 +514,18 @@ BEGIN
     session_id,from_status,to_status,actor_id,actor_role,reason,payload,created_at
   ) VALUES(
     v_tx.id,
-    CASE WHEN v_next_status=v_tx.status THEN v_tx.status ELSE NULL END,
+    v_from_status,
     v_next_status,
     NULL,'provider','payment_reconciled',
     jsonb_build_object(
-      'provider',p_provider,
+      'provider',btrim(p_provider),
       'normalized_status',p_normalized_status,
       'provider_event_id',p_provider_event_id
     ),v_now
   );
 
-  IF v_next_status<>v_tx.status OR p_normalized_status IN ('captured','released','refunded','cancelled','failed') THEN
+  IF v_next_status IS DISTINCT FROM v_from_status
+     OR p_normalized_status IN ('captured','released','refunded','cancelled','failed') THEN
     INSERT INTO public.domain_events(event_type,payload,status,attempts,tenant_id)
     VALUES(
       CASE p_normalized_status
@@ -514,7 +540,7 @@ BEGIN
         'transactionIntentId',v_tx.id,
         'vin',v_tx.vin,
         'paymentState',p_normalized_status,
-        'provider',p_provider
+        'provider',btrim(p_provider)
       ),
       'pending',0,v_tx.tenant_id
     );
