@@ -2,6 +2,7 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
+import { submitFinancingApplication } from '../services/finance/financeService.js';
 import { getCanonicalTrustBatch, toPublicTrust } from '../services/trustDecision/canonicalTrustService.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError, ConflictError } from '../utils/errors.js';
 
@@ -25,6 +26,26 @@ function decisionSource(ctx = {}) {
   const id = String(ctx.id || ctx.userId || '').trim();
   return isPlatformAdmin(ctx) ? `platform:${id}` : `lender:${id}`;
 }
+
+/**
+ * Compatibility URL, canonical applicant authority.
+ *
+ * Historical web builds send `customerId`. This route is mounted before server.js's old inline
+ * handler and never reads that field. Applicant identity comes only from the authenticated session.
+ * `requestedAmount` remains an applicant assertion (bounded to the current listing by financeService),
+ * while approval/APR/monthly-payment remain lender decisions and are never fabricated here.
+ */
+router.post('/api/finance/pre-approve', authorizeRole(), asyncHandler(async (req, res) => {
+  const vin = String(req.body?.vin || '').trim();
+  const bankId = String(req.body?.bankId || '').trim();
+  const requestedAmount = req.body?.requestedAmount;
+  const applicantId = req.userContext?.id || req.userContext?.userId;
+  const tenantId = req.userContext?.tenantId ?? null;
+  const result = await submitFinancingApplication(vin, applicantId, bankId, requestedAmount, tenantId);
+  // The route name is retained for compatibility; the result is intentionally Pending, not a
+  // synthetic "pre-approval". Only a governed lender/admin decision route can approve it.
+  return res.status(201).json(result);
+}));
 
 router.get('/api/finance/applications', authorizeRole(['admin', 'finance', 'bank']), asyncHandler(async (req, res) => {
   let query = supabase
