@@ -27,6 +27,7 @@ const EXPECTED_CAPABILITIES = [
 
 test('Phase 6C: canonical payment capability vocabulary is complete and stable', () => {
   assert.deepEqual([...caps.PAYMENT_CAPABILITIES], EXPECTED_CAPABILITIES);
+  assert.deepEqual([...caps.PAYMENT_ADAPTER_CALLABLE_MODES], ['sandbox', 'pilot_live', 'live']);
 });
 
 test('Phase 6C: SafeTrade sandbox exposes only test-proven capabilities and never claims regulated escrow', () => {
@@ -122,6 +123,76 @@ test('Phase 6C: missing provider/dimensions fail closed rather than defaulting',
     }),
     /currency_unsupported/,
   );
+});
+
+test('Phase 6C: payment router composes capability evidence with the existing provider control plane', () => {
+  assert.deepEqual(
+    caps.evaluatePaymentControlPlane('contipay', null),
+    { allowed: false, reason: 'provider_control_plane_missing' },
+  );
+  assert.deepEqual(
+    caps.evaluatePaymentControlPlane('contipay', {
+      provider_key: 'contipay',
+      capability_type: 'escrow',
+      kill_switch_enabled: true,
+      activation_mode: 'sandbox',
+      health_state: 'healthy',
+    }),
+    { allowed: false, reason: 'provider_kill_switch' },
+  );
+  assert.deepEqual(
+    caps.evaluatePaymentControlPlane('contipay', {
+      provider_key: 'contipay',
+      capability_type: 'escrow',
+      kill_switch_enabled: false,
+      activation_mode: 'manual',
+      health_state: 'healthy',
+    }),
+    { allowed: false, reason: 'provider_mode_not_automated_callable' },
+  );
+  assert.deepEqual(
+    caps.evaluatePaymentControlPlane('contipay', {
+      provider_key: 'contipay',
+      capability_type: 'escrow',
+      kill_switch_enabled: false,
+      activation_mode: 'sandbox',
+      health_state: 'down',
+    }),
+    { allowed: false, reason: 'provider_health_not_healthy' },
+  );
+});
+
+test('Phase 6C: routing returns sandbox only in explicit test context and zero external routes today', () => {
+  const sandboxRoute = caps.resolvePaymentProviderRoutes({
+    country: 'ZW',
+    currency: 'USD',
+    method: 'sandbox',
+    capability: 'collect_payment',
+    testMode: true,
+  });
+  assert.deepEqual(sandboxRoute.routes, [
+    { provider_key: 'sandbox', evidence_state: 'sandbox_proven', test_only: true },
+  ]);
+  assert.equal(sandboxRoute.routes.some((route) => route.provider_key === 'paynow'), false);
+  assert.equal(sandboxRoute.routes.some((route) => route.provider_key === 'contipay'), false);
+
+  const liveLookingControlPlane = [
+    {
+      provider_key: 'paynow', capability_type: 'escrow', kill_switch_enabled: false,
+      activation_mode: 'pilot_live', health_state: 'healthy',
+    },
+    {
+      provider_key: 'contipay', capability_type: 'escrow', kill_switch_enabled: false,
+      activation_mode: 'pilot_live', health_state: 'healthy',
+    },
+  ];
+  const external = caps.resolvePaymentProviderRoutes({
+    country: 'ZW', currency: 'USD', method: 'card', capability: 'collect_payment',
+    testMode: false, controlPlane: liveLookingControlPlane,
+  });
+  assert.deepEqual(external.routes, []);
+  assert.ok(external.rejected.some((entry) => entry.provider_key === 'paynow' && entry.reason === 'capability_unknown'));
+  assert.ok(external.rejected.some((entry) => entry.provider_key === 'contipay' && entry.reason === 'capability_unknown'));
 });
 
 test('Phase 6C: no live SafeTrade provider is approved by source', () => {
