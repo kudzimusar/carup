@@ -18,6 +18,10 @@ const RECOVERY_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'revie
  * Recover a pending settlement claim only after the bound provider gives strong negative evidence
  * that release did NOT happen.
  *
+ * Before asking the provider, CarUp records a durable recovery fence on the canonical transaction.
+ * Release retries must honor that fence, so the provider observation cannot be invalidated by a
+ * concurrent retry in the gap between confirmation and the recovery write.
+ *
  * No browser/provider status is accepted. The adapter itself must implement `confirmNotReleased()`;
  * absence of that stronger provider semantic fails closed. Generic `retrieveStatus()` is not enough
  * for an external adapter because a stale/eventually-consistent read could incorrectly reopen a
@@ -62,22 +66,38 @@ export async function recoverMarketplaceSettlement(sessionId, {
     throw new ConflictError('Payment provider cannot authoritatively confirm that settlement was not released.');
   }
 
+  // Fence release retries BEFORE observing provider state. Migration 1290 makes this operation
+  // durable and makes settlement re-claim fail closed while the fence is active.
+  const { data: fencedData, error: fenceError } = await client.rpc('issue164_begin_settlement_recovery_atomic', {
+    p_session_id: session.id,
+    p_actor_id: id,
+    p_actor_role: role,
+    p_operation_key: session.settlement_operation_key,
+  });
+  if (fenceError) throw new ConflictError(`Settlement recovery could not be fenced: ${fenceError.message}`);
+  const fencedSession = Array.isArray(fencedData) ? fencedData[0] : fencedData;
+  if (!fencedSession?.settlement_recovery_fenced_at
+      || fencedSession.settlement_recovery_fence_operation_key !== session.settlement_operation_key
+      || fencedSession.settlement_recovery_fence_closed_at) {
+    throw new ConflictError('Settlement recovery returned no active durable recovery fence.');
+  }
+
   const confirmation = await provider.confirmNotReleased({
-    intentId: session.payment_intent_id,
-    operationKey: session.settlement_operation_key,
+    intentId: fencedSession.payment_intent_id,
+    operationKey: fencedSession.settlement_operation_key,
   });
   const providerStatus = String(confirmation?.status || 'unknown').toLowerCase();
 
   // If the provider says release DID happen, do not recover/abort anything. Reconcile the real money
   // truth immediately through the canonical provider-state path instead.
   if (providerStatus === 'released') {
-    const reconciled = await reconcileMarketplacePayment(session.id, {
+    const reconciled = await reconcileMarketplacePayment(fencedSession.id, {
       actor,
       client,
       paymentProvider: provider,
     });
     return {
-      transactionIntentId: session.id,
+      transactionIntentId: fencedSession.id,
       settlementOperationState: 'completed',
       recovered: false,
       reconciledPaymentState: reconciled.paymentState,
@@ -91,10 +111,10 @@ export async function recoverMarketplaceSettlement(sessionId, {
   }
 
   const { data, error } = await client.rpc('issue164_recover_settlement_atomic', {
-    p_session_id: session.id,
+    p_session_id: fencedSession.id,
     p_actor_id: id,
     p_actor_role: role,
-    p_operation_key: session.settlement_operation_key,
+    p_operation_key: fencedSession.settlement_operation_key,
     p_provider_status: providerStatus,
     p_confirmation_reference: String(confirmation.confirmationRef),
   });
@@ -105,7 +125,7 @@ export async function recoverMarketplaceSettlement(sessionId, {
   }
 
   return {
-    transactionIntentId: session.id,
+    transactionIntentId: fencedSession.id,
     settlementOperationState: 'recovered',
     providerStatus,
     confirmationReference: String(confirmation.confirmationRef),
