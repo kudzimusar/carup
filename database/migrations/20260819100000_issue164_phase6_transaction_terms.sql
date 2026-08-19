@@ -52,12 +52,26 @@ COMMENT ON COLUMN public.escrow_trust_sessions.listing_amount IS 'Server-resolve
 COMMENT ON COLUMN public.escrow_trust_sessions.listing_currency IS 'Server-resolved listing currency; only valid with listing_currency_source.';
 COMMENT ON COLUMN public.escrow_trust_sessions.listing_currency_source IS 'Canonical vehicles.currency_source copied at transaction-intent creation; never defaulted/backfilled.';
 
--- Transaction rows contain counterparties, economics and provider lineage. CarUp does not mint a
--- Supabase JWT for browser callers; all participant reads are backend/service-role projections.
--- Therefore no direct anon/authenticated privilege exists, including SELECT. Keeping this true from
--- the FIRST Phase 6 migration avoids an unsafe cutover window that a later REVOKE would merely close.
+-- Transaction rows and their audit/provider-event rows contain counterparties, economics and provider
+-- lineage. CarUp does not mint a Supabase JWT for browser callers; participant reads are backend
+-- service-role projections. Close every historical direct browser grant at the FIRST Phase 6
+-- migration, not several migrations later. The event tables are conditional here because reduced
+-- migration harnesses may omit them; staging's historical schema contains both.
 REVOKE ALL ON TABLE public.escrow_trust_sessions FROM anon, authenticated;
 GRANT ALL ON TABLE public.escrow_trust_sessions TO service_role;
+
+DO $phase6_transaction_grants$
+BEGIN
+  IF to_regclass('public.escrow_trust_events') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON TABLE public.escrow_trust_events FROM anon, authenticated';
+    EXECUTE 'GRANT ALL ON TABLE public.escrow_trust_events TO service_role';
+  END IF;
+  IF to_regclass('public.escrow_trust_webhook_events') IS NOT NULL THEN
+    EXECUTE 'REVOKE ALL ON TABLE public.escrow_trust_webhook_events FROM anon, authenticated';
+    EXECUTE 'GRANT ALL ON TABLE public.escrow_trust_webhook_events TO service_role';
+  END IF;
+END
+$phase6_transaction_grants$;
 
 DO $phase6_post$
 DECLARE
@@ -73,14 +87,14 @@ BEGIN
     RAISE EXCEPTION '[issue-164-p6] transaction lineage/term column(s) unexpectedly carry defaults: %', v_defaults;
   END IF;
 
-  SELECT string_agg(grantee || ':' || privilege_type, ', ' ORDER BY grantee,privilege_type)
+  SELECT string_agg(table_name || ':' || grantee || ':' || privilege_type, ', ' ORDER BY table_name,grantee,privilege_type)
     INTO v_direct_grants
     FROM information_schema.role_table_grants
    WHERE table_schema='public'
-     AND table_name='escrow_trust_sessions'
+     AND table_name IN ('escrow_trust_sessions','escrow_trust_events','escrow_trust_webhook_events')
      AND grantee IN ('anon','authenticated');
   IF v_direct_grants IS NOT NULL THEN
-    RAISE EXCEPTION '[issue-164-p6] direct transaction-session grants remain: %',v_direct_grants;
+    RAISE EXCEPTION '[issue-164-p6] direct transaction-table grants remain: %',v_direct_grants;
   END IF;
 END
 $phase6_post$;
