@@ -82,6 +82,7 @@ DECLARE
   v_now timestamptz := clock_timestamp();
   v_expires timestamptz := v_now + interval '7 days';
   v_expired_canonical boolean := false;
+  v_existing_payment_linked boolean := false;
 BEGIN
   IF p_transaction_intent_id IS NULL
      OR nullif(btrim(p_actor_id),'') IS NULL
@@ -187,15 +188,35 @@ BEGIN
    FOR UPDATE;
 
   IF FOUND AND v_existing.expires_at<=v_now THEN
-    UPDATE public.vehicle_reservations
-       SET status='expired',updated_at=v_now
-     WHERE id=v_existing.id;
-    UPDATE public.vehicles
-       SET status='Available',reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
-     WHERE vehicles.vin=v_tx.vin;
-    v_existing:=NULL;
-    v_expired_canonical:=true;
-    v_vehicle.status:='Available';
+    -- Migration 1100 is installed before the payment columns exist, so this function cannot bind a
+    -- static `%ROWTYPE.payment_intent_id` field. At runtime after migration 1200, detect the column
+    -- and inspect the EXISTING reservation's own transaction dynamically. Once an attributable
+    -- provider intent exists, the seven-day availability clock is no longer authority to release
+    -- the vehicle: provider cancellation/refund/settlement must reconcile that hold explicitly.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema='public'
+         AND table_name='escrow_trust_sessions'
+         AND column_name='payment_intent_id'
+    ) THEN
+      EXECUTE
+        'SELECT payment_intent_id IS NOT NULL FROM public.escrow_trust_sessions WHERE id=$1'
+        INTO v_existing_payment_linked
+        USING v_existing.transaction_intent_id;
+      v_existing_payment_linked := coalesce(v_existing_payment_linked,false);
+    END IF;
+
+    IF NOT v_existing_payment_linked THEN
+      UPDATE public.vehicle_reservations
+         SET status='expired',updated_at=v_now
+       WHERE id=v_existing.id;
+      UPDATE public.vehicles
+         SET status='Available',reserved_at=NULL,reserved_until=NULL,active_reservation_id=NULL
+       WHERE vehicles.vin=v_tx.vin AND active_reservation_id=v_existing.id;
+      v_existing:=NULL;
+      v_expired_canonical:=true;
+      v_vehicle.status:='Available';
+    END IF;
   END IF;
 
   IF v_existing.id IS NOT NULL THEN
