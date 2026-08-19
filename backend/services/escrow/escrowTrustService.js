@@ -1,14 +1,14 @@
 /**
- * Trust-gated Escrow lifecycle — Workstream F.
+ * Trust-gated Escrow lifecycle — Workstream F / Issue #164 Phase 6 authority.
  *
- * Governs the MVP escrow state machine and links to the existing payment escrow for
- * (sandbox) fund movement. Every transition is validated against an allowed-transition map
- * and fails closed against the trust gates. History is append-only. Sandbox funds are
- * always labelled sandbox.
+ * The session is the canonical Marketplace escrow/transaction intent. Clients may request
+ * transitions, but they do not choose counterparties, listing terms, eligibility facts, or
+ * provider-confirmed money states. Every transition is append-only audited; money states are
+ * provider/system-only and sandbox-labelled until a separately approved live provider exists.
  */
 import { supabase } from '../../db/supabase.js';
-import crypto from 'crypto';
 import { verifyWebhook } from '../eligibility/webhookSecurity.js';
+import { ConflictError, ForbiddenError, ValidationError } from '../../utils/errors.js';
 
 export const VALID_TRANSITIONS = {
   not_requested: ['pending_eligibility'],
@@ -25,113 +25,208 @@ export const VALID_TRANSITIONS = {
   failed: [],
 };
 
+const PRIVILEGED_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'reviewer']);
+const SYSTEM_ROLES = new Set(['system', 'provider', 'webhook']);
+const PROVIDER_CONFIRMED_STATES = new Set(['funded_sandbox', 'released_sandbox', 'refunded_sandbox']);
+const GATE_RECHECK_STATES = new Set(['initiated', 'funded_sandbox', 'release_approved', 'released_sandbox']);
+
+function actorId(actor) { return String(actor?.id || actor?.userId || '').trim() || null; }
+function actorRole(actor) { return String(actor?.role || actor?.effectiveRole || '').trim().toLowerCase() || null; }
+function isPrivileged(actor) { return PRIVILEGED_ROLES.has(actorRole(actor)); }
+function isSystem(actor) { return SYSTEM_ROLES.has(actorRole(actor)); }
+function isParticipant(session, actor) {
+  const id = actorId(actor);
+  return Boolean(id && (id === session?.buyer_id || id === session?.seller_id));
+}
+
 /**
- * Pure gate evaluation. Returns { allowed, reasons }. Fail-closed: escrow may proceed only
- * when identity is resolved, the vehicle is governed-published, no critical fraud is open,
- * the seller/dealer is not suspended, the participant is authorized, required documents are
- * present, and the listing snapshot has not changed.
+ * Fail closed. Missing gate evidence is not treated as a PASS.
  */
 export function evaluateEscrowGates(ctx = {}) {
   const reasons = [];
-  if (ctx.identity_status && ctx.identity_status !== 'complete') reasons.push('identity_unresolved');
-  if (ctx.publication_status && !['publishable', 'published'].includes(ctx.publication_status)) reasons.push('not_governed_published');
-  if (ctx.fraud_block) reasons.push('critical_fraud_open');
-  if (ctx.seller_suspended) reasons.push('seller_suspended');
-  if (ctx.participant_authorized === false) reasons.push('unauthorized_participant');
-  if (ctx.required_documents_present === false) reasons.push('required_documents_missing');
-  if (ctx.listing_snapshot_changed) reasons.push('listing_snapshot_changed');
+  if (ctx.identity_status !== 'complete') reasons.push('identity_unresolved');
+  if (!['publishable', 'published'].includes(ctx.publication_status)) reasons.push('not_governed_published');
+  if (ctx.fraud_block !== false) reasons.push(ctx.fraud_block === true ? 'critical_fraud_open' : 'fraud_status_unknown');
+  if (ctx.seller_suspended !== false) reasons.push(ctx.seller_suspended === true ? 'seller_suspended' : 'seller_status_unknown');
+  if (ctx.participant_authorized !== true) reasons.push('unauthorized_participant');
+  if (ctx.required_documents_present !== true) reasons.push('required_documents_missing');
+  if (ctx.listing_snapshot_changed !== false) reasons.push(ctx.listing_snapshot_changed === true ? 'listing_snapshot_changed' : 'listing_snapshot_status_unknown');
   return { allowed: reasons.length === 0, reasons };
 }
 
-async function loadVehicle(vin) {
-  const { data } = await supabase.from('vehicles').select('vin, tenant_id, owner_id').eq('vin', vin).maybeSingle();
+export function canActorTransition(session, toStatus, actor) {
+  if (isPrivileged(actor)) return true;
+  if (PROVIDER_CONFIRMED_STATES.has(toStatus)) return isSystem(actor);
+  if (['failed', 'inspection_pending'].includes(toStatus)) return isSystem(actor);
+  if (toStatus === 'release_approved') return false;
+  if (['initiated', 'cancelled', 'disputed'].includes(toStatus)) return isParticipant(session, actor);
+  return isSystem(actor);
+}
+
+function assertReadable(session, actor) {
+  if (!actor) return; // internal service calls may omit an audience
+  if (isPrivileged(actor) || isParticipant(session, actor)) return;
+  throw new ForbiddenError('This transaction is not visible to the current participant.');
+}
+
+async function loadVehicle(vin, client = supabase) {
+  const { data } = await client.from('vehicles').select('vin, tenant_id, owner_id').eq('vin', vin).maybeSingle();
   return data || null;
 }
 
-async function appendEvent(sessionId, fromStatus, toStatus, actor, reason, payload) {
-  await supabase.from('escrow_trust_events').insert({
-    session_id: sessionId, from_status: fromStatus, to_status: toStatus,
-    actor_id: actor?.id || null, actor_role: actor?.role || null, reason: reason || null, payload: payload || null,
+async function appendEvent(sessionId, fromStatus, toStatus, actor, reason, payload, client = supabase) {
+  await client.from('escrow_trust_events').insert({
+    session_id: sessionId,
+    from_status: fromStatus,
+    to_status: toStatus,
+    actor_id: actorId(actor),
+    actor_role: actorRole(actor),
+    reason: reason || null,
+    payload: payload || null,
   });
 }
 
 /** Create/advance an escrow session through eligibility. Idempotent on idempotency_key. */
-export async function requestEscrow(vin, { buyerId, sellerId, gateContext = {}, idempotencyKey = null, listingSnapshotHash = null }, actor) {
-  if (idempotencyKey) {
-    const { data: existing } = await supabase.from('escrow_trust_sessions').select('*').eq('idempotency_key', idempotencyKey).maybeSingle();
-    if (existing) return existing;
+export async function requestEscrow(
+  vin,
+  { buyerId, sellerId, gateContext = {}, idempotencyKey = null, listingSnapshotHash = null, listingTerms = null },
+  actor,
+  { client = supabase } = {},
+) {
+  const buyer = String(buyerId || '').trim();
+  const seller = String(sellerId || '').trim();
+  if (!buyer || !seller) throw new ValidationError('Resolved buyer and seller are required.');
+  if (buyer === seller) throw new ConflictError('Buyer and seller must be different participants.');
+  if (!isPrivileged(actor) && actorId(actor) !== buyer) {
+    throw new ForbiddenError('A buyer may create a transaction only for their own authenticated identity.');
   }
-  const vehicle = await loadVehicle(vin);
+
+  if (idempotencyKey) {
+    const { data: existing } = await client
+      .from('escrow_trust_sessions').select('*').eq('idempotency_key', idempotencyKey).maybeSingle();
+    if (existing) {
+      if (existing.vin !== vin || existing.buyer_id !== buyer || existing.seller_id !== seller) {
+        throw new ConflictError('Idempotency key is already bound to a different transaction intent.');
+      }
+      return existing;
+    }
+  }
+
+  const vehicle = await loadVehicle(vin, client);
   if (!vehicle) throw new Error(`Vehicle not found: ${vin}`);
 
   const gate = evaluateEscrowGates(gateContext);
   const status = gate.allowed ? 'eligible' : 'failed';
-
-  const { data, error } = await supabase.from('escrow_trust_sessions').insert({
-    vin, tenant_id: vehicle.tenant_id || null, buyer_id: buyerId || null, seller_id: sellerId || null,
-    status, listing_snapshot_hash: listingSnapshotHash, gate_reasons: gate.reasons,
+  const insert = {
+    vin,
+    tenant_id: vehicle.tenant_id || null,
+    buyer_id: buyer,
+    seller_id: seller,
+    status,
+    listing_snapshot_hash: listingSnapshotHash,
+    gate_reasons: gate.reasons,
     idempotency_key: idempotencyKey,
-  }).select().single();
-  if (error) throw new Error(`failed to create escrow session: ${error.message}`);
-  await appendEvent(data.id, 'pending_eligibility', status, actor, gate.reasons.join(','), { gate_reasons: gate.reasons });
-  return data;
-}
-
-/** Transition a session. Validates the allowed-transition map + (for forward moves) gates. */
-export async function transitionEscrow(sessionId, toStatus, { actor, reason, gateContext } = {}) {
-  const { data: session } = await supabase.from('escrow_trust_sessions').select('*').eq('id', sessionId).maybeSingle();
-  if (!session) throw new Error(`escrow session not found: ${sessionId}`);
-  const from = session.status;
-  if (from === toStatus) return session; // idempotent
-  const allowed = VALID_TRANSITIONS[from] || [];
-  if (!allowed.includes(toStatus)) throw new Error(`invalid escrow transition: ${from} -> ${toStatus}`);
-
-  // Re-check gates for fund-committing forward transitions.
-  if (['initiated', 'funded_sandbox', 'release_approved', 'released_sandbox'].includes(toStatus) && gateContext) {
-    const gate = evaluateEscrowGates(gateContext);
-    if (!gate.allowed) throw new Error(`escrow gate failed: ${gate.reasons.join(',')}`);
+  };
+  if (listingTerms) {
+    insert.listing_amount = Number(listingTerms.amount);
+    insert.listing_currency = listingTerms.currency;
+    insert.listing_currency_source = listingTerms.currencySource;
   }
 
-  const { data, error } = await supabase.from('escrow_trust_sessions')
-    .update({ status: toStatus, updated_at: new Date().toISOString() }).eq('id', sessionId).select().single();
-  if (error) throw new Error(error.message);
-  await appendEvent(sessionId, from, toStatus, actor, reason, null);
+  const { data, error } = await client.from('escrow_trust_sessions').insert(insert).select().single();
+  if (error) throw new Error(`failed to create escrow session: ${error.message}`);
+  await appendEvent(data.id, 'pending_eligibility', status, actor, gate.reasons.join(','), {
+    gate_reasons: gate.reasons,
+    listing_snapshot_hash: listingSnapshotHash || null,
+  }, client);
   return data;
 }
 
-export async function getSession(sessionId) {
-  const { data } = await supabase.from('escrow_trust_sessions').select('*').eq('id', sessionId).maybeSingle();
+/**
+ * Transition a session. State legality and actor authority are separate gates.
+ * Provider-confirmed states cannot be asserted by a buyer/seller/browser role.
+ */
+export async function transitionEscrow(sessionId, toStatus, { actor, reason, gateContext, client = supabase } = {}) {
+  const { data: session } = await client.from('escrow_trust_sessions').select('*').eq('id', sessionId).maybeSingle();
+  if (!session) throw new Error(`escrow session not found: ${sessionId}`);
+  const from = session.status;
+  if (from === toStatus) return session;
+
+  const allowed = VALID_TRANSITIONS[from] || [];
+  if (!allowed.includes(toStatus)) throw new ConflictError(`invalid escrow transition: ${from} -> ${toStatus}`);
+  if (!canActorTransition(session, toStatus, actor)) {
+    throw new ForbiddenError(`Role '${actorRole(actor) || 'unknown'}' cannot assert escrow state '${toStatus}'.`);
+  }
+
+  if (GATE_RECHECK_STATES.has(toStatus)) {
+    const gate = evaluateEscrowGates(gateContext || {});
+    if (!gate.allowed) throw new ConflictError(`escrow gate failed: ${gate.reasons.join(',')}`);
+  }
+
+  const { data, error } = await client.from('escrow_trust_sessions')
+    .update({ status: toStatus, updated_at: new Date().toISOString() }).eq('id', sessionId).select().single();
+  if (error) throw new Error(error.message);
+  await appendEvent(sessionId, from, toStatus, actor, reason, null, client);
+  return data;
+}
+
+export async function getSession(sessionId, actor = null, client = supabase) {
+  const { data } = await client.from('escrow_trust_sessions').select('*').eq('id', sessionId).maybeSingle();
   if (!data) return null;
-  const { data: events } = await supabase.from('escrow_trust_events').select('*').eq('session_id', sessionId).order('created_at', { ascending: true });
+  assertReadable(data, actor);
+  const { data: events } = await client.from('escrow_trust_events').select('*').eq('session_id', sessionId).order('created_at', { ascending: true });
   return { ...data, events: events || [] };
 }
 
-export async function listSessionsForVin(vin) {
-  const { data } = await supabase.from('escrow_trust_sessions').select('*').eq('vin', vin).order('created_at', { ascending: false });
-  return data || [];
+export async function listSessionsForVin(vin, actor = null, client = supabase) {
+  const { data } = await client.from('escrow_trust_sessions').select('*').eq('vin', vin).order('created_at', { ascending: false });
+  const rows = data || [];
+  if (!actor || isPrivileged(actor)) return rows;
+  return rows.filter((row) => isParticipant(row, actor));
 }
 
 /** Sandbox payment webhook: signed + replay-protected + idempotent. */
-export async function ingestEscrowWebhook({ payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now()) {
+export async function ingestEscrowWebhook({ payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now(), client = supabase) {
   const verdict = verifyWebhook('escrow_trust_sandbox', payloadString, signature, timestamp, now);
   let duplicate = false;
   if (idempotencyKey) {
-    const { data: seen } = await supabase.from('escrow_trust_webhook_events').select('id').eq('idempotency_key', idempotencyKey).maybeSingle();
+    const { data: seen } = await client.from('escrow_trust_webhook_events').select('id').eq('idempotency_key', idempotencyKey).maybeSingle();
     if (seen) duplicate = true;
   }
-  await supabase.from('escrow_trust_webhook_events').insert({
-    session_id: body?.session_id || null, event_type: body?.event_type || 'payment',
-    signature_valid: verdict.valid, replay_detected: verdict.replay, idempotency_key: idempotencyKey || null, payload: body || null,
+  await client.from('escrow_trust_webhook_events').insert({
+    session_id: body?.session_id || null,
+    event_type: body?.event_type || 'payment',
+    signature_valid: verdict.valid,
+    replay_detected: verdict.replay,
+    idempotency_key: idempotencyKey || null,
+    payload: body || null,
   }).select().single().then(() => {}, () => {});
   if (!verdict.valid) return { applied: false, reason: verdict.reason, signature_valid: false };
   if (duplicate) return { applied: false, reason: 'duplicate', signature_valid: true };
   if (!body?.session_id || !body?.to_status) return { applied: false, reason: 'missing_fields', signature_valid: true };
+  if (!PROVIDER_CONFIRMED_STATES.has(body.to_status)) {
+    return { applied: false, reason: 'unsupported_provider_transition', signature_valid: true };
+  }
   try {
-    await transitionEscrow(body.session_id, body.to_status, { actor: { id: 'webhook', role: 'system' }, reason: 'sandbox_webhook', gateContext: body.gate_context });
+    await transitionEscrow(body.session_id, body.to_status, {
+      actor: { id: 'webhook', role: 'webhook' },
+      reason: 'sandbox_webhook',
+      gateContext: body.gate_context,
+      client,
+    });
     return { applied: true, reason: 'ok', signature_valid: true };
   } catch (e) {
     return { applied: false, reason: e.message, signature_valid: true };
   }
 }
 
-export default { VALID_TRANSITIONS, evaluateEscrowGates, requestEscrow, transitionEscrow, getSession, listSessionsForVin, ingestEscrowWebhook };
+export default {
+  VALID_TRANSITIONS,
+  evaluateEscrowGates,
+  canActorTransition,
+  requestEscrow,
+  transitionEscrow,
+  getSession,
+  listSessionsForVin,
+  ingestEscrowWebhook,
+};
