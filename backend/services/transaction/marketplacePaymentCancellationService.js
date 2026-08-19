@@ -5,7 +5,21 @@ import {
   SAFETRADE_PROVIDER_STATES,
   selectPaymentProvider,
 } from '../diaspora/safetrade/safeTradePaymentProvider.js';
+import { assertPaymentProviderCapability } from '../diaspora/safetrade/safeTradePaymentCapabilities.js';
 import { reconcileMarketplacePayment } from './marketplacePaymentService.js';
+
+function requireCancelCapability(provider, session) {
+  try {
+    assertPaymentProviderCapability(provider?.name, 'cancel', {
+      testMode: provider?.name === 'sandbox',
+      currency: session.deposit_currency || session.listing_currency,
+      method: provider?.name === 'sandbox' ? 'sandbox' : null,
+      country: null,
+    });
+  } catch (error) {
+    throw new ConflictError(error.message);
+  }
+}
 
 /**
  * Issue #164 Phase 6 — cancel a provider-linked transaction through the SAME PaymentProvider that
@@ -31,6 +45,7 @@ export async function cancelMarketplacePayment(sessionId, {
   if (provider.name !== session.payment_provider) {
     throw new ConflictError('Selected provider does not match the transaction payment intent.');
   }
+  requireCancelCapability(provider, session);
   if (typeof provider.cancel !== 'function') {
     throw new ConflictError('Payment provider does not support cancellation.');
   }
