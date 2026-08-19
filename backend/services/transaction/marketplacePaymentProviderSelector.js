@@ -5,10 +5,13 @@ export function isMarketplaceSandboxRuntimeAllowed(env = process.env) {
   const nodeEnv = String(env.NODE_ENV || '').toLowerCase();
   const vercelEnv = String(env.VERCEL_ENV || '').toLowerCase();
   const carupEnv = String(env.CARUP_ENV || env.APP_ENV || '').toLowerCase();
-  return nodeEnv === 'test'
-    || nodeEnv === 'development'
-    || vercelEnv === 'preview'
-    || carupEnv === 'staging';
+
+  // Deployment-specific signals outrank NODE_ENV. Vercel previews commonly execute with
+  // NODE_ENV=production, while an actual production deployment must never be reopened by a stale
+  // CARUP_ENV=staging value.
+  if (vercelEnv) return vercelEnv === 'preview' || vercelEnv === 'development';
+  if (carupEnv) return carupEnv === 'staging' || carupEnv === 'development' || carupEnv === 'test';
+  return nodeEnv === 'test' || nodeEnv === 'development';
 }
 
 /**
