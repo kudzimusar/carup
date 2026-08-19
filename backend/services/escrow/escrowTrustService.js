@@ -1,10 +1,9 @@
 /**
  * Issue #164 Phase 6 — canonical Marketplace transaction lifecycle.
  *
- * This service is an application guard around PostgreSQL authority. Transaction intent creation /
- * eligibility re-evaluation and every human/server action are atomic RPCs. Provider-confirmed money
- * state is NOT writable through this service; it is reconciled by marketplacePaymentService through
- * the existing SafeTrade PaymentProvider abstraction and a separate provider-only DB function.
+ * Application guard around PostgreSQL authority. Transaction intent creation / eligibility
+ * re-evaluation and every human/server action are atomic RPCs. Provider-confirmed money state is
+ * reconciled only by marketplacePaymentService through the SafeTrade PaymentProvider abstraction.
  */
 import { supabase } from '../../db/supabase.js';
 import { ConflictError, ForbiddenError, ValidationError } from '../../utils/errors.js';
@@ -22,7 +21,6 @@ export const VALID_TRANSITIONS = Object.freeze({
   refunded: [],
   cancelled: [],
   failed: [],
-  // Historical compatibility only. New Phase 6 writes use provider-neutral names.
   funded_sandbox: ['inspection_pending', 'disputed', 'refunded'],
   released_sandbox: [],
   refunded_sandbox: [],
@@ -35,6 +33,7 @@ const PROVIDER_CONFIRMED_STATES = new Set([
   'funded_sandbox', 'released_sandbox', 'refunded_sandbox',
 ]);
 const GATE_RECHECK_STATES = new Set(['initiated', 'release_approved']);
+const SAFE_OR_VALUE = /^[A-Za-z0-9_:@-]+$/;
 
 function actorId(actor) {
   return String(actor?.id || actor?.userId || '').trim() || null;
@@ -53,7 +52,6 @@ function isParticipant(session, actor) {
   return Boolean(id && (id === session?.buyer_id || id === session?.seller_id));
 }
 
-/** Missing gate evidence is never a PASS. */
 export function evaluateEscrowGates(ctx = {}) {
   const reasons = [];
   if (ctx.identity_status !== 'complete') reasons.push('identity_unresolved');
@@ -90,10 +88,6 @@ function assertReadable(session, actor) {
   throw new ForbiddenError('This transaction is not visible to the current participant.');
 }
 
-/**
- * Atomically create or re-evaluate a pre-payment transaction intent. PostgreSQL independently checks
- * the current seller, inquiry, publication and listing economics under lock before accepting it.
- */
 export async function requestEscrow(
   vin,
   {
@@ -141,10 +135,6 @@ export async function requestEscrow(
   return Array.isArray(data) ? data[0] : data;
 }
 
-/**
- * Atomically perform a server-selected human/system action. `toStatus` is never taken directly from
- * an HTTP payload: routes map named actions to fixed targets before calling this function.
- */
 export async function transitionEscrow(sessionId, toStatus, {
   actor,
   reason,
@@ -218,11 +208,21 @@ export async function listSessionsForVin(vin, actor = null, client = supabase) {
   return rows.filter((row) => isParticipant(row, actor));
 }
 
-/**
- * Legacy webhook containment. The old endpoint accepted a generic `to_status` and used a separate
- * HMAC implementation to mint sandbox money states. Phase 6B requires every provider webhook to go
- * through PaymentProvider.verifyWebhook + reconcileEvent, so this path is intentionally inert.
- */
+/** Participant-scoped dashboard list; private IDs remain server-side and projections strip them. */
+export async function listSessionsForActor(actor, client = supabase) {
+  const id = actorId(actor);
+  if (!id) throw new ForbiddenError('Authentication required.');
+  let query = client.from('escrow_trust_sessions').select('*');
+  if (!isPrivileged(actor) && SAFE_OR_VALUE.test(id)) {
+    query = query.or(`buyer_id.eq.${id},seller_id.eq.${id}`);
+  }
+  const { data, error } = await query.order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  const rows = data || [];
+  if (isPrivileged(actor)) return rows;
+  return rows.filter((row) => row.buyer_id === id || row.seller_id === id);
+}
+
 export async function ingestEscrowWebhook() {
   return {
     applied: false,
@@ -239,5 +239,6 @@ export default {
   transitionEscrow,
   getSession,
   listSessionsForVin,
+  listSessionsForActor,
   ingestEscrowWebhook,
 };
