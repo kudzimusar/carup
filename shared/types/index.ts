@@ -109,7 +109,12 @@ export interface MarketplaceListingSummary {
   mileage: number;
   fuel_type?: string | null;
   transmission?: string | null;
-  status: string;
+  /**
+   * Normally the governed listing lifecycle string. `null` is deliberate when the raw row says
+   * Reserved but canonical reservation truth is unavailable/inconsistent: a stale cache is not a
+   * smaller fact and may not be published merely because consumers prefer a string.
+   */
+  status: string | null;
   condition_category: VehicleConditionCategory;
   marketplace_tags: MarketplaceTag[];
   trust_score: number;
