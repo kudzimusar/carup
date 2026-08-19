@@ -195,3 +195,55 @@ test('Phase 6 mutation M8 — intermediate authenticated transaction grant is de
   assert.notEqual(mutant, migration, 'M8 mutation did not match');
   kill('M8', noDirectGrant, mutant);
 });
+
+test('Phase 6 mutation M9 — legacy SafePay service cannot regain transaction/title writes', () => {
+  const legacy = source('services/safepay/escrowService.js');
+  const safeLegacy = (text) => {
+    const executable = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    return /LEGACY_SAFEPAY_TRANSACTION_AUTHORITY_DISABLED/.test(text)
+      && !/\.from\(['"]safepay_escrows['"]\)/.test(executable)
+      && !/vehicle_ownership_history/.test(executable)
+      && !/owner_id\s*:/.test(executable);
+  };
+  assert.equal(safeLegacy(legacy), true);
+  const mutant = legacy.replace(
+    "export async function createEscrow() {\n  throw legacyAuthorityError('Legacy SafePay escrow creation');\n}",
+    "export async function createEscrow() {\n  return { status: 'Pending', legacy_writer_restored: true };\n}",
+  );
+  assert.notEqual(mutant, legacy, 'M9 mutation did not match');
+  const stillThrows = /createEscrow\(\)\s*\{\s*throw legacyAuthorityError/.test(mutant);
+  kill('M9', (value) => value === true, stillThrows);
+});
+
+test('Phase 6 mutation M10 — internal system cannot become provider money authority', async () => {
+  const mutant = await importMutant(
+    'services/escrow/escrowTrustService.js',
+    (s) => s.replace(
+      'return PROVIDER_ROLES.has(actorRole(actor));',
+      'return PROVIDER_ROLES.has(actorRole(actor)) || INTERNAL_SYSTEM_ROLES.has(actorRole(actor));',
+    ),
+    'm10-system-provider-authority',
+  );
+  const allowed = mutant.canActorTransition(
+    { buyer_id: 'buyer', seller_id: 'seller', status: 'initiated' },
+    'funds_held',
+    { id: 'system-worker', role: 'system' },
+  );
+  kill('M10', (value) => value === false, allowed);
+});
+
+test('Phase 6 mutation M11 — lender gate cannot accept browser dealer-suspension truth', () => {
+  const routes = source('routes/lenderRoutes.js');
+  const start = routes.indexOf('async function gateContextFor');
+  const end = routes.indexOf('// Record applicant consent', start);
+  const block = routes.slice(start, end);
+  const safeGate = (text) => /resolveMarketplaceSellerSuspension/.test(text)
+    && !/(?:req\.)?body\?\.dealer_suspended/.test(text);
+  assert.equal(safeGate(block), true);
+  const mutant = block.replace(
+    'dealer_suspended: dealerSuspended,',
+    'dealer_suspended: body?.dealer_suspended === true,',
+  );
+  assert.notEqual(mutant, block, 'M11 mutation did not match');
+  kill('M11', safeGate, mutant);
+});
