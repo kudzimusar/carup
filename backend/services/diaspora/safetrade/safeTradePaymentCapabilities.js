@@ -38,6 +38,10 @@ export const CAPABILITY_EVIDENCE = Object.freeze({
   CANDIDATE_UNVERIFIED: 'candidate_unverified',
 });
 
+/** Automated PaymentProvider modes. `manual`/`partner_file` may be callable elsewhere in CarUp's
+ * provider control plane, but they are not an automated money adapter and therefore never route here. */
+export const PAYMENT_ADAPTER_CALLABLE_MODES = Object.freeze(['sandbox', 'pilot_live', 'live']);
+
 function unknownCapabilities() {
   return Object.freeze(Object.fromEntries(PAYMENT_CAPABILITIES.map((key) => [key, null])));
 }
@@ -291,12 +295,90 @@ export function paymentProviderCandidatesForCountry(country) {
     }));
 }
 
+/**
+ * Pure adapter-control-plane check. External automated payment calls must be represented by the
+ * existing provider registry as an `escrow` provider, kill-switch OFF, healthy, and in an automated
+ * mode. This function consumes a snapshot rather than querying the DB so routing stays deterministic
+ * and testable; the provider platform remains the owner of the row itself.
+ */
+export function evaluatePaymentControlPlane(providerKey, snapshot, { testMode = false } = {}) {
+  const key = normalized(providerKey);
+  if (key === 'sandbox') {
+    return Object.freeze({ allowed: testMode === true, reason: testMode === true ? null : 'sandbox_test_only' });
+  }
+  if (!snapshot || typeof snapshot !== 'object') {
+    return Object.freeze({ allowed: false, reason: 'provider_control_plane_missing' });
+  }
+  if (normalized(snapshot.provider_key) !== key) {
+    return Object.freeze({ allowed: false, reason: 'provider_control_plane_mismatch' });
+  }
+  if (snapshot.capability_type !== 'escrow') {
+    return Object.freeze({ allowed: false, reason: 'provider_not_registered_for_escrow' });
+  }
+  if (snapshot.kill_switch_enabled !== false) {
+    return Object.freeze({ allowed: false, reason: 'provider_kill_switch' });
+  }
+  if (!PAYMENT_ADAPTER_CALLABLE_MODES.includes(normalized(snapshot.activation_mode))) {
+    return Object.freeze({ allowed: false, reason: 'provider_mode_not_automated_callable' });
+  }
+  if (normalized(snapshot.health_state) !== 'healthy') {
+    return Object.freeze({ allowed: false, reason: 'provider_health_not_healthy' });
+  }
+  return Object.freeze({ allowed: true, reason: null });
+}
+
+/**
+ * Country/currency/method/capability route resolver. It never chooses from candidate metadata.
+ * `controlPlane` is an array of public-safe provider-registry snapshots (no secrets). The result
+ * contains every proven callable key; callers may apply commercial preference only AFTER this safety
+ * filter. With the current registry, external results are intentionally empty.
+ */
+export function resolvePaymentProviderRoutes({
+  country,
+  currency,
+  method,
+  capability,
+  testMode = false,
+  controlPlane = [],
+} = {}) {
+  const routes = [];
+  const rejected = [];
+  for (const provider of Object.values(PAYMENT_PROVIDER_CAPABILITY_REGISTRY)) {
+    const context = provider.test_only
+      ? { testMode, currency, method }
+      : { testMode: false, country, currency, method };
+    const capabilityDecision = evaluatePaymentProviderCapability(provider.provider_key, capability, context);
+    if (!capabilityDecision.allowed) {
+      rejected.push(Object.freeze({ provider_key: provider.provider_key, reason: capabilityDecision.reason }));
+      continue;
+    }
+    const snapshot = (controlPlane || []).find((row) => normalized(row?.provider_key) === provider.provider_key) || null;
+    const controlDecision = evaluatePaymentControlPlane(provider.provider_key, snapshot, { testMode });
+    if (!controlDecision.allowed) {
+      rejected.push(Object.freeze({ provider_key: provider.provider_key, reason: controlDecision.reason }));
+      continue;
+    }
+    routes.push(Object.freeze({
+      provider_key: provider.provider_key,
+      evidence_state: provider.evidence_state,
+      test_only: provider.test_only,
+    }));
+  }
+  return Object.freeze({
+    routes: Object.freeze(routes),
+    rejected: Object.freeze(rejected),
+  });
+}
+
 export default {
   PAYMENT_CAPABILITIES,
   CAPABILITY_EVIDENCE,
+  PAYMENT_ADAPTER_CALLABLE_MODES,
   PAYMENT_PROVIDER_CAPABILITY_REGISTRY,
   getPaymentProviderCapabilities,
   evaluatePaymentProviderCapability,
   assertPaymentProviderCapability,
   paymentProviderCandidatesForCountry,
+  evaluatePaymentControlPlane,
+  resolvePaymentProviderRoutes,
 };
