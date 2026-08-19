@@ -49,6 +49,16 @@ function reservationEnvelope(state, reserved, reservedAt, expiresAt, reason) {
   });
 }
 
+function unavailableEnvelope(reason = 'reservation_read_unavailable') {
+  return reservationEnvelope(
+    RESERVATION_PROJECTION_STATES.UNAVAILABLE,
+    null,
+    null,
+    null,
+    reason,
+  );
+}
+
 /**
  * Pure projection for one VIN.
  *
@@ -60,9 +70,9 @@ function reservationEnvelope(state, reserved, reservedAt, expiresAt, reason) {
  * - duplicate live rows / malformed expiry => INCONSISTENT;
  * - read failure => UNAVAILABLE, never NONE.
  *
- * `_transaction` is an internal enrichment attached by `getPublicReservationProjection`; it is
- * consumed only to decide whether an elapsed clock can safely release the public reservation view.
- * Nothing from it is copied into the public envelope.
+ * `_transaction` is an internal enrichment attached by the read functions; it is consumed only to
+ * decide whether an elapsed clock can safely release the public reservation view. Nothing from it is
+ * copied into the public envelope.
  */
 export function projectReservationRows(rows, { now = new Date() } = {}) {
   const list = Array.isArray(rows) ? rows : [];
@@ -203,15 +213,7 @@ export async function getPublicReservationProjection(vin, {
   now = new Date(),
 } = {}) {
   const key = String(vin || '').trim();
-  if (!key) {
-    return reservationEnvelope(
-      RESERVATION_PROJECTION_STATES.UNAVAILABLE,
-      null,
-      null,
-      null,
-      'invalid_vin',
-    );
-  }
+  if (!key) return unavailableEnvelope('invalid_vin');
 
   try {
     const { data, error } = await client
@@ -223,19 +225,55 @@ export async function getPublicReservationProjection(vin, {
     const enriched = await enrichElapsedActiveReservations(client, data || [], now);
     return projectReservationRows(enriched, { now });
   } catch {
-    return reservationEnvelope(
-      RESERVATION_PROJECTION_STATES.UNAVAILABLE,
-      null,
-      null,
-      null,
-      'reservation_read_unavailable',
-    );
+    return unavailableEnvelope();
   }
 }
 
 /**
- * The listing-status view used by public detail surfaces. Only the reservation overlay is resolved
- * here; all other lifecycle states remain whatever the canonical listing row records.
+ * Batch public projection for Marketplace list/search surfaces. Exactly one reservation query plus,
+ * only when elapsed active rows exist, one transaction-enrichment query for the whole page. Every
+ * requested VIN gets an entry; read failure marks the whole batch UNAVAILABLE instead of silently
+ * turning an infrastructure failure into "none reserved".
+ */
+export async function getPublicReservationProjectionBatch(vins, {
+  client = supabase,
+  now = new Date(),
+} = {}) {
+  const wanted = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(vins) ? vins : []) {
+    const key = String(raw || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    wanted.push(key);
+  }
+  const out = new Map();
+  if (!wanted.length) return out;
+
+  try {
+    const { data, error } = await client
+      .from('vehicle_reservations')
+      .select(RESERVATION_SELECT)
+      .in('vin', wanted)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const enriched = await enrichElapsedActiveReservations(client, data || [], now);
+    const byVin = new Map(wanted.map((vin) => [vin, []]));
+    for (const row of enriched) {
+      const key = String(row?.vin || '').trim();
+      if (byVin.has(key)) byVin.get(key).push(row);
+    }
+    for (const vin of wanted) out.set(vin, projectReservationRows(byVin.get(vin), { now }));
+    return out;
+  } catch {
+    for (const vin of wanted) out.set(vin, unavailableEnvelope());
+    return out;
+  }
+}
+
+/**
+ * The listing-status view used by public marketplace surfaces. Only the reservation overlay is
+ * resolved here; all other lifecycle states remain whatever the canonical listing row records.
  *
  * A stale `Reserved` cache is never published as a live hold:
  * - ACTIVE => Reserved
@@ -262,5 +300,6 @@ export default {
   RESERVATION_PROJECTION_STATES,
   projectReservationRows,
   getPublicReservationProjection,
+  getPublicReservationProjectionBatch,
   projectListingStatusWithReservation,
 };
