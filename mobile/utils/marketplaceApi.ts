@@ -5,8 +5,8 @@
  * consumes the SAME canonical backend contract as web: GET /api/marketplace/listings,
  * GET /api/marketplace/listings/:id, POST /api/marketplace/inquiries, GET /api/marketplace/categories.
  *
- * Mobile must NOT invent trust statuses or duplicate business logic — it renders backend-supplied
- * trust_summary/verification_summary and posts inquiries through the governed endpoint.
+ * Mobile must NOT invent trust, reservation or transaction statuses or duplicate business logic —
+ * it renders backend-supplied projections and posts actions through governed endpoints.
  */
 import { getVerificationApiBaseUrl, fetchCsrfToken } from './verificationApi';
 
@@ -65,6 +65,32 @@ export interface MobileListingMediaBlock {
  */
 export type MobilePrimaryImageState = 'seller_primary' | 'first_published' | 'none' | 'not_loaded';
 
+/**
+ * Issue #164 Phase 6 — restatement of the shared public reservation envelope. These are the ONLY
+ * five states mobile may render. No reservation/transaction/counterparty/provider identifiers are
+ * part of this shape, and `reserved:null` means unknown/fail-closed rather than available.
+ */
+export type MobileReservationState = 'active' | 'expired' | 'none' | 'unavailable' | 'inconsistent';
+
+export interface MobileReservationSummary {
+  state: MobileReservationState;
+  reserved: boolean | null;
+  reserved_at: string | null;
+  expires_at: string | null;
+  reason: string | null;
+}
+
+export interface MobileTransactionIntent {
+  transaction_intent_id: string | null;
+  payment_readiness_status: 'not_ready' | 'inquiry_only' | 'deposit_allowed' | 'escrow_ready';
+  escrow_required: boolean;
+  deposit_allowed: boolean;
+  operator_review_required: boolean;
+  fraud_hold_status: 'none' | 'hold' | 'cleared';
+  reservation_state: MobileReservationState;
+  reservation_expires_at: string | null;
+}
+
 export interface MobileListingSummary {
   vin: string;
   make: string;
@@ -82,6 +108,8 @@ export interface MobileListingSummary {
   primary_image_unpublishable_count: number;
   seller_type?: string;
   seller_display_label?: string;
+  /** Present on public Marketplace list API responses; optional on local builder-like test values. */
+  reservation_summary?: MobileReservationSummary;
 }
 
 export interface MobileListingsResponse {
@@ -118,6 +146,9 @@ export interface MobileListingDetail extends MobileListingSummary {
   trust_summary: MobileTrustSummary;
   verification_summary?: Record<string, unknown>;
   pricing_summary?: Record<string, unknown>;
+  /** Required on the detail wire: mobile must never infer reservation from the cached status. */
+  reservation_summary: MobileReservationSummary;
+  transaction_intent?: MobileTransactionIntent;
   safety_warnings?: string[];
 }
 
