@@ -118,8 +118,13 @@ BEGIN
    LIMIT 1
    FOR UPDATE;
 
+  -- The reservation had to be active + unexpired when the provider intent was linked. After that
+  -- point the seven-day clock is an availability timer, not authority to erase an attributable
+  -- provider hold. If capture/release arrives after that clock (or the clock crosses between the
+  -- provider call and this RPC), reconcile provider truth against the still-active reservation.
+  -- Missing/cancelled/expired reservation state still fails closed.
   IF v_next_status IN ('funds_held','settled') THEN
-    IF v_res.id IS NULL OR v_res.expires_at<=v_now THEN
+    IF v_res.id IS NULL THEN
       RAISE EXCEPTION 'active canonical reservation required for money state %',v_next_status
         USING ERRCODE='23514';
     END IF;
