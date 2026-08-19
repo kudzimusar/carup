@@ -5,8 +5,8 @@
 -- Historical finance rows may already contain auto-generated APR/payment decisions with no
 -- provenance, so this migration does NOT pretend to backfill a lender source after the fact.
 -- It makes APR/payment nullable for honest Pending requests and installs a forward trigger:
--- every NEW terminal lender decision must carry an attributable server-recorded source/time,
--- and Approved/Disbursed decisions must carry actual positive terms.
+-- every resulting terminal row on an INSERT/UPDATE must carry an attributable server-recorded
+-- decision source/time, and Approved/Disbursed rows must carry actual positive terms.
 -- =============================================================================
 DO $pre$
 BEGIN
@@ -63,8 +63,6 @@ SET search_path=public,pg_temp
 AS $guard$
 DECLARE
   v_terminal boolean := NEW.status IN ('Approved','Rejected','Disbursed');
-  v_new_decision boolean := TG_OP='INSERT'
-    OR (TG_OP='UPDATE' AND OLD.status IS DISTINCT FROM NEW.status AND v_terminal);
 BEGIN
   -- A requested amount is a user assertion, but its denomination comes from the governed listing.
   -- New Phase 6 writes must therefore persist the currency and its source together.
@@ -75,7 +73,10 @@ BEGIN
     RAISE EXCEPTION 'new finance request requires listing currency provenance' USING ERRCODE='23514';
   END IF;
 
-  IF v_new_decision AND v_terminal THEN
+  -- Terminal decision truth is an invariant of the resulting row, not merely of the transition that
+  -- first entered the terminal status. A same-status UPDATE must never be able to erase provenance
+  -- or approved terms while leaving the row looking Approved/Rejected/Disbursed.
+  IF v_terminal THEN
     IF nullif(btrim(NEW.decision_source),'') IS NULL OR NEW.decision_recorded_at IS NULL THEN
       RAISE EXCEPTION 'terminal finance decision requires attributable decision source and time'
         USING ERRCODE='23514';
