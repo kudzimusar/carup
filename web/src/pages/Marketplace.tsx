@@ -266,7 +266,7 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     mileage: summary.mileage,
     fuel_type: summary.fuel_type || undefined,
     transmission: summary.transmission || undefined,
-    status: summary.status,
+    status: summary.status || undefined,
     // Carried ONLY because `trust_score` is still required on the shared `Vehicle` type
     // (shared/types/index.ts). Nothing in this file renders it and nothing sorts on it. Making it
     // optional there, so the card model can drop it outright, is the remaining cleanup — it is a
