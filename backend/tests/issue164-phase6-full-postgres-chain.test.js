@@ -18,6 +18,7 @@ const MIGRATIONS = [
   '../../database/migrations/20260819123000_issue164_phase6_finance_truth.sql',
   '../../database/migrations/20260819124000_issue164_phase6_reservation_expiry_reconciliation.sql',
   '../../database/migrations/20260819125000_issue164_phase6_provider_reconciliation_hardening.sql',
+  '../../database/migrations/20260819126000_issue164_phase6_payment_operation_hardening.sql',
 ];
 
 async function setup() {
@@ -240,6 +241,13 @@ async function action(db, transactionId, toStatus, actorId, actorRole, gateAllow
   return rows[0];
 }
 
+async function claimSettlement(db, transactionId, key = 'payment-key:release') {
+  const { rows } = await db.query(`
+    SELECT * FROM public.issue164_begin_settlement_atomic($1::uuid,$2::text,$3::text,$4::text)
+  `, [transactionId, 'reviewer-1', 'reviewer', key]);
+  return rows[0];
+}
+
 test('Phase 6 full migration chain is order-safe and server-authoritative on PostgreSQL', async () => {
   const db = await setup();
   try {
@@ -258,6 +266,15 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
       try { await db.exec('SELECT * FROM escrow_trust_sessions'); }
       finally { await db.exec('RESET ROLE'); }
     });
+
+    const sandboxGrants = await db.query(`
+      SELECT grantee,privilege_type
+        FROM information_schema.role_table_grants
+       WHERE table_schema='public'
+         AND table_name IN ('safetrade_sandbox_payment_intents','safetrade_sandbox_payment_operations')
+         AND grantee IN ('anon','authenticated')
+    `);
+    assert.deepEqual(sandboxGrants.rows, []);
 
     const created = await intent(db);
     assert.equal(created.status, 'eligible');
@@ -323,6 +340,20 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
       /release approval requires reviewer\/admin action/,
     );
     await action(db, txId, 'release_approved', 'reviewer-1', 'reviewer', true);
+
+    const claim = await claimSettlement(db, txId);
+    assert.equal(claim.status, 'release_approved');
+    assert.equal(claim.settlement_operation_key, 'payment-key:release');
+    assert.equal(claim.settlement_seller_id, 'seller-a');
+    assert.equal(claim.settlement_payment_intent_id, 'sbx_pi_full_1');
+
+    // Once payout is claimed, a human dispute cannot race provider release and make CarUp refuse to
+    // record money that was already authorized for payout.
+    await assert.rejects(
+      () => action(db, txId, 'disputed', 'buyer-a', 'buyer'),
+      /settlement operation already claimed; provider reconciliation required/,
+    );
+
     const settled = await provider(db, txId, 'released', 'release');
     assert.equal(settled.status, 'settled');
 
