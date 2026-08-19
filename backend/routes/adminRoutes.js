@@ -21,10 +21,13 @@ router.get('/api/users/management', authorizeRole(['admin']), asyncHandler(async
 }));
 
 // GET /api/admin/stats - System wide stats
-router.get('/api/admin/stats', authorizeRole(['admin']), asyncHandler(async (req, res) => {
+router.get('/api/admin/stats', authorizeRole(['admin']), asyncHandler(async (_req, res) => {
   const { count: userCount, error: userErr } = await supabase.from('users').select('*', { count: 'exact', head: true });
   const { count: vehicleCount, error: vehicleErr } = await supabase.from('vehicles').select('*', { count: 'exact', head: true });
-  const { count: escrowCount, error: escrowErr } = await supabase.from('safepay_escrows').select('*', { count: 'exact', head: true });
+  // Issue #164 Phase 6: `totalEscrows` is a compatibility response key, but its source of truth is
+  // the canonical transaction/session table. Counting the retired safepay_escrows table would make
+  // the admin console report a second transaction universe after the Marketplace cutover.
+  const { count: escrowCount, error: escrowErr } = await supabase.from('escrow_trust_sessions').select('*', { count: 'exact', head: true });
   const { count: claimsCount, error: claimsErr } = await supabase.from('insurance_claims').select('*', { count: 'exact', head: true });
 
   if (userErr || vehicleErr || escrowErr || claimsErr) {
@@ -55,7 +58,7 @@ router.post('/api/users/:id/suspend', authorizeRole(['admin']), asyncHandler(asy
 }));
 
 // GET /api/admin/health - Server health history
-router.get('/api/admin/health', authorizeRole(['admin']), asyncHandler(async (req, res) => {
+router.get('/api/admin/health', authorizeRole(['admin']), asyncHandler(async (_req, res) => {
   const { data: health, error } = await supabase
     .from('server_health')
     .select('*')
@@ -65,7 +68,7 @@ router.get('/api/admin/health', authorizeRole(['admin']), asyncHandler(async (re
 }));
 
 // GET /api/admin/users - Admin users list
-router.get('/api/admin/users', authorizeRole(['admin']), asyncHandler(async (req, res) => {
+router.get('/api/admin/users', authorizeRole(['admin']), asyncHandler(async (_req, res) => {
   const { data: users, error } = await supabase
     .from('users')
     .select('*')
