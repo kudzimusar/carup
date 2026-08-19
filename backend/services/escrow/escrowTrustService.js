@@ -28,7 +28,7 @@ export const VALID_TRANSITIONS = {
 const PRIVILEGED_ROLES = new Set(['admin', 'platform_admin', 'super_admin', 'reviewer']);
 const SYSTEM_ROLES = new Set(['system', 'provider', 'webhook']);
 const PROVIDER_CONFIRMED_STATES = new Set(['funded_sandbox', 'released_sandbox', 'refunded_sandbox']);
-const GATE_RECHECK_STATES = new Set(['initiated', 'funded_sandbox', 'release_approved', 'released_sandbox']);
+const GATE_RECHECK_STATES = new Set(['initiated', 'release_approved']);
 
 function actorId(actor) { return String(actor?.id || actor?.userId || '').trim() || null; }
 function actorRole(actor) { return String(actor?.role || actor?.effectiveRole || '').trim().toLowerCase() || null; }
@@ -39,9 +39,7 @@ function isParticipant(session, actor) {
   return Boolean(id && (id === session?.buyer_id || id === session?.seller_id));
 }
 
-/**
- * Fail closed. Missing gate evidence is not treated as a PASS.
- */
+/** Fail closed. Missing gate evidence is not treated as a PASS. */
 export function evaluateEscrowGates(ctx = {}) {
   const reasons = [];
   if (ctx.identity_status !== 'complete') reasons.push('identity_unresolved');
@@ -55,16 +53,18 @@ export function evaluateEscrowGates(ctx = {}) {
 }
 
 export function canActorTransition(session, toStatus, actor) {
-  if (isPrivileged(actor)) return true;
+  // Money-state claims are provider/system truth even for admins/reviewers. A privileged human may
+  // approve a release, but cannot assert that provider funds were actually held/released/refunded.
   if (PROVIDER_CONFIRMED_STATES.has(toStatus)) return isSystem(actor);
-  if (['failed', 'inspection_pending'].includes(toStatus)) return isSystem(actor);
-  if (toStatus === 'release_approved') return false;
+  if (toStatus === 'release_approved') return isPrivileged(actor);
+  if (['failed', 'inspection_pending'].includes(toStatus)) return isSystem(actor) || isPrivileged(actor);
+  if (isPrivileged(actor)) return true;
   if (['initiated', 'cancelled', 'disputed'].includes(toStatus)) return isParticipant(session, actor);
   return isSystem(actor);
 }
 
 function assertReadable(session, actor) {
-  if (!actor) return; // internal service calls may omit an audience
+  if (!actor) return;
   if (isPrivileged(actor) || isParticipant(session, actor)) return;
   throw new ForbiddenError('This transaction is not visible to the current participant.');
 }
@@ -86,7 +86,6 @@ async function appendEvent(sessionId, fromStatus, toStatus, actor, reason, paylo
   });
 }
 
-/** Create/advance an escrow session through eligibility. Idempotent on idempotency_key. */
 export async function requestEscrow(
   vin,
   { buyerId, sellerId, gateContext = {}, idempotencyKey = null, listingSnapshotHash = null, listingTerms = null },
@@ -142,10 +141,6 @@ export async function requestEscrow(
   return data;
 }
 
-/**
- * Transition a session. State legality and actor authority are separate gates.
- * Provider-confirmed states cannot be asserted by a buyer/seller/browser role.
- */
 export async function transitionEscrow(sessionId, toStatus, { actor, reason, gateContext, client = supabase } = {}) {
   const { data: session } = await client.from('escrow_trust_sessions').select('*').eq('id', sessionId).maybeSingle();
   if (!session) throw new Error(`escrow session not found: ${sessionId}`);
@@ -185,7 +180,11 @@ export async function listSessionsForVin(vin, actor = null, client = supabase) {
   return rows.filter((row) => isParticipant(row, actor));
 }
 
-/** Sandbox payment webhook: signed + replay-protected + idempotent. */
+/**
+ * Sandbox provider reconciliation. The provider proves ONLY its own money-state event; it cannot
+ * supply CarUp's identity/publication/document eligibility verdict. Those gates were evaluated by
+ * CarUp before initiation/release approval.
+ */
 export async function ingestEscrowWebhook({ payloadString, signature, timestamp, idempotencyKey, body }, now = Date.now(), client = supabase) {
   const verdict = verifyWebhook('escrow_trust_sandbox', payloadString, signature, timestamp, now);
   let duplicate = false;
@@ -211,7 +210,6 @@ export async function ingestEscrowWebhook({ payloadString, signature, timestamp,
     await transitionEscrow(body.session_id, body.to_status, {
       actor: { id: 'webhook', role: 'webhook' },
       reason: 'sandbox_webhook',
-      gateContext: body.gate_context,
       client,
     });
     return { applied: true, reason: 'ok', signature_valid: true };
