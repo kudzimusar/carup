@@ -47,8 +47,7 @@ function isPrivileged(actor) {
   return PRIVILEGED_ROLES.has(actorRole(actor));
 }
 function isProviderAuthority(actor) {
-  const role = actorRole(actor);
-  return PROVIDER_ROLES.has(role) || INTERNAL_SYSTEM_ROLES.has(role);
+  return PROVIDER_ROLES.has(actorRole(actor));
 }
 function isInternalSystem(actor) {
   return INTERNAL_SYSTEM_ROLES.has(actorRole(actor));
@@ -80,11 +79,15 @@ export function evaluateEscrowGates(ctx = {}) {
 
 /**
  * Authority partition:
- * - provider/webhook/internal system: provider-confirmed money states only;
+ * - provider/webhook: provider-confirmed money states only;
  * - buyer: initiate its own eligible transaction;
  * - reviewer/admin: human governance, including release approval;
  * - internal CarUp system: non-provider orchestration such as inspection/failure;
  * - participants: cancel/dispute only where the state machine permits it.
+ *
+ * Internal `system` is deliberately NOT provider authority. A CarUp worker cannot manufacture
+ * funds-held/settled/refunded merely because it is trusted infrastructure; those states require a
+ * verified provider result reconciled through marketplacePaymentService.
  *
  * In particular a payment webhook may NOT assert `release_approved`; provider release is accepted
  * only after CarUp's separate governance state already exists.
