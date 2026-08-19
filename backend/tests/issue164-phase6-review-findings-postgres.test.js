@@ -246,8 +246,8 @@ test('Phase 6 review P1: provider capture and release reconcile after the availa
     assert.equal(captureAudit.rows[0].from_status, 'initiated');
     assert.equal(captureAudit.rows[0].to_status, 'funds_held');
 
-    -- This test is about late provider reconciliation, not human-governance transition mechanics;
-    -- place the already-reviewed transaction at the separate release-approved state.
+    // This test is about late provider reconciliation, not human-governance transition mechanics;
+    // place the already-reviewed transaction at the separate release-approved state.
     await db.exec(`UPDATE escrow_trust_sessions SET status='release_approved' WHERE id='${txA}'`);
 
     const released = await providerState(db, txA, 'released', 'release');
