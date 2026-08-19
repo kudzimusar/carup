@@ -27,7 +27,7 @@ test('Phase 6: sandbox capture authority is buyer-owned consistently at router a
     'sandbox capture route must not grant an admin UAT exception');
   assert.match(route, /current\.buyer_id !== actor\.id/);
   assert.match(helper, /session\.buyer_id !== id/);
-  assert.match(helper, /Only the transaction buyer may advance the sandbox payment/);
+  assert.match(helper, /Only the transaction buyer may advance the sandbox deposit/);
 });
 
 test('Phase 6 mutation M30 — admin UAT convenience cannot regain sandbox payment authority', () => {
