@@ -105,9 +105,10 @@ test('Phase 6: release and refund are both DB-claimed before provider money oper
   assert.match(refund, /refund_payment_intent_id/);
 });
 
-test('Phase 6: migrations 1260/1270 keep provider ledgers private and serialize payment operations', () => {
+test('Phase 6: migrations 1260/1270/1280 preserve recovery while serializing payment operations', () => {
   const m1260 = source('../database/migrations/20260819126000_issue164_phase6_payment_operation_hardening.sql');
-  const m1270 = source('../database/migrations/20260819127000_issue164_phase6_payment_race_recovery.sql');
+  const m1270 = source('../database/migrations/20260819127000_issue164_phase6_settlement_recovery.sql');
+  const m1280 = source('../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql');
   for (const name of [
     'safetrade_sandbox_payment_intents',
     'safetrade_sandbox_payment_operations',
@@ -119,13 +120,18 @@ test('Phase 6: migrations 1260/1270 keep provider ledgers private and serialize 
   assert.match(m1260, /REVOKE ALL ON TABLE public\.safetrade_sandbox_payment_intents FROM anon,authenticated/);
   assert.match(m1260, /payment release lacks attributable settlement operation claim/);
 
-  assert.match(m1270, /LOCK TABLE public\.safetrade_sandbox_payment_operations IN SHARE ROW EXCLUSIVE MODE/);
-  assert.match(m1270, /different action/);
-  assert.match(m1270, /different intent/);
-  assert.match(m1270, /issue164_begin_refund_atomic/);
-  assert.match(m1270, /settlement and refund operation claims are mutually exclusive/);
-  assert.match(m1270, /settlement operation claim is immutable/);
-  assert.match(m1270, /refund operation claim is immutable/);
+  assert.match(m1270, /issue164_recover_settlement_atomic/);
+  assert.match(m1270, /settlement_operation_state/);
+  assert.match(m1270, /provider-confirmed captured\/not-released state/);
+
+  assert.match(m1280, /LOCK TABLE public\.safetrade_sandbox_payment_operations IN SHARE ROW EXCLUSIVE MODE/);
+  assert.match(m1280, /different action/);
+  assert.match(m1280, /different intent/);
+  assert.match(m1280, /issue164_begin_refund_atomic/);
+  assert.match(m1280, /active settlement and refund operation claims are mutually exclusive/);
+  assert.match(m1280, /settlement operation claim identity is immutable/);
+  assert.match(m1280, /settlement recovery provenance is immutable/);
+  assert.match(m1280, /refund operation claim is immutable/);
 });
 
 test('Phase 6 mutation M21 — process-local sandbox cannot become persisted Marketplace provider authority again', () => {
@@ -213,7 +219,7 @@ test('Phase 6 mutation M25 — provider refund cannot move ahead of durable refu
 });
 
 test('Phase 6 mutation M26 — sandbox idempotency cannot regress to key-only, pre-lock replay', () => {
-  const clean = source('../database/migrations/20260819127000_issue164_phase6_payment_race_recovery.sql');
+  const clean = source('../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql');
   const safe = (sql) => /LOCK TABLE public\.safetrade_sandbox_payment_operations IN SHARE ROW EXCLUSIVE MODE/.test(sql)
     && /v_existing_action IS DISTINCT FROM p_action/.test(sql)
     && /v_existing_intent_id IS DISTINCT FROM p_intent_id/.test(sql);
@@ -227,15 +233,30 @@ test('Phase 6 mutation M26 — sandbox idempotency cannot regress to key-only, p
 });
 
 test('Phase 6 mutation M27 — terminal operation-claim provenance cannot become mutable', () => {
-  const clean = source('../database/migrations/20260819127000_issue164_phase6_payment_race_recovery.sql');
+  const clean = source('../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql');
   const safe = (sql) => /IF OLD\.settlement_operation_key IS NOT NULL THEN/.test(sql)
-    && /settlement operation claim is immutable/.test(sql)
+    && /settlement operation claim identity is immutable/.test(sql)
+    && /settlement recovery provenance is immutable/.test(sql)
     && /IF OLD\.refund_operation_key IS NOT NULL THEN/.test(sql)
     && /refund operation claim is immutable/.test(sql);
   assert.equal(safe(clean), true);
   const mutant = clean
-    .replace('IF OLD.settlement_operation_key IS NOT NULL THEN', "IF OLD.status='release_approved' AND OLD.settlement_operation_key IS NOT NULL THEN")
-    .replace('IF OLD.refund_operation_key IS NOT NULL THEN', "IF OLD.status<>'refunded' AND OLD.refund_operation_key IS NOT NULL THEN");
+    .replace('settlement operation claim identity is immutable', 'settlement operation claim may mutate')
+    .replace('refund operation claim is immutable', 'refund operation claim may mutate');
   assert.notEqual(mutant, clean, 'M27 mutation did not match');
   assert.equal(safe(mutant), false, 'M27 mutant survived: terminal claim provenance mutability was not detected');
+});
+
+test('Phase 6 mutation M28 — refund can resume only after provider-confirmed recovered settlement state', () => {
+  const clean = source('../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql');
+  const safe = (sql) => /v_tx\.settlement_operation_key IS NOT NULL AND v_settlement_state<>'recovered'/.test(sql)
+    && /confirmed recovered first/.test(sql)
+    && /v_new_state IS DISTINCT FROM 'recovered'/.test(sql);
+  assert.equal(safe(clean), true);
+  const mutant = clean.replace(
+    "v_tx.settlement_operation_key IS NOT NULL AND v_settlement_state<>'recovered'",
+    'false',
+  );
+  assert.notEqual(mutant, clean, 'M28 mutation did not match');
+  assert.equal(safe(mutant), false, 'M28 mutant survived: refund reopened without confirmed recovery');
 });
