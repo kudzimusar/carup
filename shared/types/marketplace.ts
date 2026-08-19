@@ -6,7 +6,13 @@
  * supplies and never invents badges. See docs/MARKETPLACE_V1_IMPLEMENTATION_MAP.md.
  */
 
-import type { MarketplaceListingSummary, MarketplacePrimaryImageState, MarketplaceTag } from './index';
+import type {
+  MarketplaceListingSummary,
+  MarketplacePrimaryImageState,
+  MarketplaceReservationState,
+  MarketplaceReservationSummary,
+  MarketplaceTag,
+} from './index';
 
 export type MarketplaceListingType =
   | 'vehicle'
@@ -256,12 +262,24 @@ export interface MarketplaceListingDetail extends MarketplaceListingSummary {
   trust_summary: MarketplaceTrustSummary;
   verification_summary: MarketplaceVerificationSummary;
   pricing_summary: MarketplacePricingSummary;
+  /**
+   * Phase 6 public reservation authority. Required on detail responses: the page may not infer a live
+   * hold from `status`, because that field is a materialized cache and can lag clock/provider state.
+   */
+  reservation_summary: MarketplaceReservationSummary;
   safety_warnings: string[];
-  /** Future SafePay transaction-intent readiness (contract only in v1). */
+  /**
+   * Phase 6 public-safe readiness projection. It never contains participant/provider ids and never
+   * asserts buyer-specific deposit eligibility on the anonymous detail response.
+   */
   transaction_intent?: MarketplaceTransactionIntent;
 }
 
-/** SafePay-ready contract (NOT implemented in v1 — fields are forward-compatible only). */
+/**
+ * Phase 6 public transaction-readiness contract. This is not a payment instruction and carries no
+ * provider/payment intent/counterparty identity. Buyer-specific canonical sessions are available only
+ * through authenticated transaction routes.
+ */
 export interface MarketplaceTransactionIntent {
   transaction_intent_id: string | null;
   payment_readiness_status: 'not_ready' | 'inquiry_only' | 'deposit_allowed' | 'escrow_ready';
@@ -269,6 +287,8 @@ export interface MarketplaceTransactionIntent {
   deposit_allowed: boolean;
   operator_review_required: boolean;
   fraud_hold_status: 'none' | 'hold' | 'cleared';
+  reservation_state: MarketplaceReservationState;
+  reservation_expires_at: string | null;
 }
 
 export type MarketplaceInquiryType =
@@ -354,4 +374,10 @@ export interface MarketplaceReferralEvent {
 }
 
 /** Re-export for convenience so consumers can import everything from one module. */
-export type { MarketplaceListingSummary, MarketplacePrimaryImageState, MarketplaceTag };
+export type {
+  MarketplaceListingSummary,
+  MarketplacePrimaryImageState,
+  MarketplaceReservationState,
+  MarketplaceReservationSummary,
+  MarketplaceTag,
+};
