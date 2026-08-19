@@ -99,3 +99,20 @@ test('Phase 6 mutation M18 — retired generic gateway webhook cannot regain a p
     'M18 mutant survived: parallel payment-ledger authority was not detected',
   );
 });
+
+test('Phase 6 mutation M19 — admin transaction count cannot drift back to the retired escrow table', () => {
+  const adminRoutes = source('routes/adminRoutes.js');
+  const block = routeBlock(adminRoutes, "router.get('/api/admin/stats'", "router.post('/api/users/:id/suspend'");
+  const canonicalCount = (text) => /from\('escrow_trust_sessions'\)/.test(text)
+    && !/from\('safepay_escrows'\)/.test(text);
+
+  assert.equal(canonicalCount(block), true, 'admin transaction count must use canonical sessions');
+
+  const mutant = block.replace("from('escrow_trust_sessions')", "from('safepay_escrows')");
+  assert.notEqual(mutant, block, 'M19 mutation did not match');
+  assert.equal(
+    canonicalCount(mutant),
+    false,
+    'M19 mutant survived: admin stats can count the retired transaction universe',
+  );
+});
