@@ -9,7 +9,10 @@ function up(path) {
   return (down >= 0 ? raw.slice(0, down) : raw).replace('-- +migrate Up', '');
 }
 
-const MIGRATION = '../../database/migrations/20260819127000_issue164_phase6_payment_race_recovery.sql';
+const MIGRATIONS = [
+  '../../database/migrations/20260819127000_issue164_phase6_settlement_recovery.sql',
+  '../../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql',
+];
 
 async function setup() {
   const db = await PGlite.create();
@@ -19,8 +22,15 @@ async function setup() {
     CREATE ROLE service_role NOLOGIN BYPASSRLS;
     GRANT USAGE ON SCHEMA public TO anon,authenticated,service_role;
 
+    CREATE TABLE public.vehicles (
+      vin text PRIMARY KEY,
+      current_seller_id text
+    );
+
     CREATE TABLE public.escrow_trust_sessions (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      vin text NOT NULL,
+      seller_id text NOT NULL,
       status text NOT NULL,
       payment_state text,
       payment_intent_id text,
@@ -31,6 +41,13 @@ async function setup() {
       settlement_operation_actor_id text,
       settlement_seller_id text,
       settlement_payment_intent_id text
+    );
+
+    CREATE TABLE public.vehicle_reservations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      transaction_intent_id uuid NOT NULL REFERENCES public.escrow_trust_sessions(id),
+      status text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
     );
 
     CREATE TABLE public.escrow_trust_events (
@@ -76,36 +93,19 @@ async function setup() {
 
     ALTER TABLE public.safetrade_sandbox_payment_intents ENABLE ROW LEVEL SECURITY;
     ALTER TABLE public.safetrade_sandbox_payment_operations ENABLE ROW LEVEL SECURITY;
-    GRANT ALL ON public.escrow_trust_sessions,public.escrow_trust_events,
-      public.safetrade_sandbox_payment_intents,public.safetrade_sandbox_payment_operations TO service_role;
+    GRANT ALL ON public.vehicles,public.escrow_trust_sessions,public.vehicle_reservations,
+      public.escrow_trust_events,public.safetrade_sandbox_payment_intents,
+      public.safetrade_sandbox_payment_operations TO service_role;
 
+    -- 1260 prerequisite shape. Migration 1280 replaces this stub with the real hardened function.
     CREATE OR REPLACE FUNCTION public.issue164_sandbox_payment_action_atomic(
       p_action text,p_intent_id text,p_transaction_intent_id uuid,p_idempotency_key text,
       p_amount numeric,p_currency text,p_payer_id text,p_payee_id text,p_tenant_id text
     ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
     BEGIN RETURN '{}'::jsonb; END $$;
-
-    CREATE OR REPLACE FUNCTION public.issue164_begin_settlement_atomic(
-      p_session_id uuid,p_actor_id text,p_actor_role text,p_operation_key text
-    ) RETURNS public.escrow_trust_sessions
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
-    DECLARE v public.escrow_trust_sessions%ROWTYPE;
-    BEGIN
-      SELECT * INTO v FROM public.escrow_trust_sessions WHERE id=p_session_id FOR UPDATE;
-      IF NOT FOUND THEN RAISE EXCEPTION 'transaction intent not found'; END IF;
-      UPDATE public.escrow_trust_sessions
-         SET settlement_operation_key=p_operation_key,
-             settlement_operation_started_at=clock_timestamp(),
-             settlement_operation_actor_id=p_actor_id,
-             settlement_seller_id='seller-a',
-             settlement_payment_intent_id=v.payment_intent_id,
-             updated_at=clock_timestamp()
-       WHERE id=v.id RETURNING * INTO v;
-      RETURN v;
-    END $$;
   `);
 
-  await db.exec(up(MIGRATION));
+  for (const migration of MIGRATIONS) await db.exec(up(migration));
   return db;
 }
 
@@ -128,14 +128,42 @@ async function sandbox(db, action, {
 }
 
 async function seedSession(db, id, status = 'release_approved') {
+  const vin = `VIN-${id.slice(0, 8)}`;
+  await db.query(`INSERT INTO public.vehicles(vin,current_seller_id) VALUES($1,'seller-a')`, [vin]);
   await db.query(`
     INSERT INTO public.escrow_trust_sessions(
-      id,status,payment_state,payment_intent_id,payment_provider
-    ) VALUES($1::uuid,$2::text,'captured',$3::text,'sandbox')
-  `, [id, status, `sbx-${id.slice(0, 8)}`]);
+      id,vin,seller_id,status,payment_state,payment_intent_id,payment_provider
+    ) VALUES($1::uuid,$2,'seller-a',$3::text,'captured',$4::text,'sandbox')
+  `, [id, vin, status, `sbx-${id.slice(0, 8)}`]);
+  await db.query(`
+    INSERT INTO public.vehicle_reservations(transaction_intent_id,status) VALUES($1::uuid,'active')
+  `, [id]);
 }
 
-test('Phase 6 migration 1270 — sandbox replay is durable, action/intent-bound and serialized before lookup', async () => {
+async function claimSettlement(db, id, key = 'release-key', actor = 'reviewer-a') {
+  const { rows } = await db.query(`
+    SELECT (public.issue164_begin_settlement_atomic($1::uuid,$2::text,'reviewer',$3::text)).*
+  `, [id, actor, key]);
+  return rows[0];
+}
+
+async function recoverSettlement(db, id, key = 'release-key', actor = 'reviewer-a') {
+  const { rows } = await db.query(`
+    SELECT (public.issue164_recover_settlement_atomic(
+      $1::uuid,$2::text,'reviewer',$3::text,'captured','provider-confirmation-1'
+    )).*
+  `, [id, actor, key]);
+  return rows[0];
+}
+
+async function claimRefund(db, id, key = 'refund-key', actor = 'reviewer-a') {
+  const { rows } = await db.query(`
+    SELECT (public.issue164_begin_refund_atomic($1::uuid,$2::text,'reviewer',$3::text)).*
+  `, [id, actor, key]);
+  return rows[0];
+}
+
+test('Phase 6 migration 1280 — sandbox replay is durable, action/intent-bound and serialized before lookup', async () => {
   const db = await setup();
   try {
     const tx1 = '10000000-0000-4000-8000-000000000001';
@@ -201,7 +229,7 @@ test('Phase 6 migration 1270 — sandbox replay is durable, action/intent-bound 
   }
 });
 
-test('Phase 6 migration 1270 — refund and settlement claims are mutually exclusive before provider calls', async () => {
+test('Phase 6 migrations 1270/1280 — refund and active settlement claims are mutually exclusive before provider calls', async () => {
   const db = await setup();
   try {
     const refundFirst = '20000000-0000-4000-8000-000000000001';
@@ -209,21 +237,17 @@ test('Phase 6 migration 1270 — refund and settlement claims are mutually exclu
     await seedSession(db, refundFirst);
     await seedSession(db, releaseFirst);
 
-    const refund = await db.query(`
-      SELECT (public.issue164_begin_refund_atomic($1::uuid,'reviewer-a','reviewer','refund-key')).*
-    `, [refundFirst]);
-    assert.equal(refund.rows[0].refund_operation_key, 'refund-key');
-
+    const refund = await claimRefund(db, refundFirst);
+    assert.equal(refund.refund_operation_key, 'refund-key');
     await assert.rejects(
-      db.query(`SELECT (public.issue164_begin_settlement_atomic($1::uuid,'reviewer-a','reviewer','release-key')).*`, [refundFirst]),
-      /settlement and refund operation claims are mutually exclusive/,
+      claimSettlement(db, refundFirst),
+      /active settlement and refund operation claims are mutually exclusive/,
     );
 
-    await db.query(`
-      SELECT (public.issue164_begin_settlement_atomic($1::uuid,'reviewer-a','reviewer','release-key')).*
-    `, [releaseFirst]);
+    const settlement = await claimSettlement(db, releaseFirst);
+    assert.equal(settlement.settlement_operation_state, 'pending');
     await assert.rejects(
-      db.query(`SELECT (public.issue164_begin_refund_atomic($1::uuid,'reviewer-a','reviewer','refund-key')).*`, [releaseFirst]),
+      claimRefund(db, releaseFirst),
       /settlement already claimed/,
     );
   } finally {
@@ -231,7 +255,49 @@ test('Phase 6 migration 1270 — refund and settlement claims are mutually exclu
   }
 });
 
-test('Phase 6 migration 1270 — settlement/refund claim provenance remains immutable after terminal reconciliation', async () => {
+test('Phase 6 migrations 1270/1280 — provider-confirmed recovered settlement reopens refund but not payout/refund double-claim', async () => {
+  const db = await setup();
+  try {
+    const refundAfterRecovery = '21000000-0000-4000-8000-000000000001';
+    const reclaimAfterRecovery = '21000000-0000-4000-8000-000000000002';
+    await seedSession(db, refundAfterRecovery);
+    await seedSession(db, reclaimAfterRecovery);
+
+    await claimSettlement(db, refundAfterRecovery);
+    const recovered = await recoverSettlement(db, refundAfterRecovery);
+    assert.equal(recovered.settlement_operation_state, 'recovered');
+    assert.equal(recovered.settlement_recovery_provider_status, 'captured');
+    assert.equal(recovered.settlement_recovery_reference, 'provider-confirmation-1');
+
+    const refund = await claimRefund(db, refundAfterRecovery);
+    assert.equal(refund.refund_operation_key, 'refund-key');
+    assert.equal(refund.settlement_operation_state, 'recovered');
+    await assert.rejects(
+      claimSettlement(db, refundAfterRecovery),
+      /active settlement and refund operation claims are mutually exclusive|refund already claimed/,
+    );
+    await assert.rejects(
+      db.query(`
+        UPDATE public.escrow_trust_sessions
+           SET settlement_recovery_reference='rewritten'
+         WHERE id=$1::uuid
+      `, [refundAfterRecovery]),
+      /settlement recovery provenance is immutable/,
+    );
+
+    await claimSettlement(db, reclaimAfterRecovery);
+    await recoverSettlement(db, reclaimAfterRecovery);
+    const reclaimed = await claimSettlement(db, reclaimAfterRecovery, 'release-key', 'reviewer-b');
+    assert.equal(reclaimed.settlement_operation_state, 'pending');
+    assert.equal(reclaimed.settlement_operation_key, 'release-key');
+    assert.equal(reclaimed.settlement_operation_actor_id, 'reviewer-b');
+    assert.equal(reclaimed.settlement_recovery_reference, 'provider-confirmation-1');
+  } finally {
+    await db.close();
+  }
+});
+
+test('Phase 6 migrations 1270/1280 — settlement/refund claim provenance remains immutable after terminal reconciliation', async () => {
   const db = await setup();
   try {
     const settled = '30000000-0000-4000-8000-000000000001';
@@ -239,14 +305,16 @@ test('Phase 6 migration 1270 — settlement/refund claim provenance remains immu
     await seedSession(db, settled);
     await seedSession(db, refunded, 'funds_held');
 
-    await db.query(`SELECT (public.issue164_begin_settlement_atomic($1::uuid,'reviewer-a','reviewer','release-key')).*`, [settled]);
+    await claimSettlement(db, settled);
     await db.query(`UPDATE public.escrow_trust_sessions SET status='settled' WHERE id=$1::uuid`, [settled]);
+    const settledRow = await db.query(`SELECT settlement_operation_state FROM public.escrow_trust_sessions WHERE id=$1::uuid`, [settled]);
+    assert.equal(settledRow.rows[0].settlement_operation_state, 'completed');
     await assert.rejects(
       db.query(`UPDATE public.escrow_trust_sessions SET settlement_operation_actor_id='attacker' WHERE id=$1::uuid`, [settled]),
-      /settlement operation claim is immutable/,
+      /completed settlement operation provenance is immutable/,
     );
 
-    await db.query(`SELECT (public.issue164_begin_refund_atomic($1::uuid,'reviewer-a','reviewer','refund-key')).*`, [refunded]);
+    await claimRefund(db, refunded);
     await db.query(`UPDATE public.escrow_trust_sessions SET status='refunded' WHERE id=$1::uuid`, [refunded]);
     await assert.rejects(
       db.query(`UPDATE public.escrow_trust_sessions SET refund_operation_actor_id='attacker' WHERE id=$1::uuid`, [refunded]),
