@@ -46,6 +46,12 @@
  * `issue164-phase5-marketplace-convergence.test.js` pins that derivation to exact equality. A VIEW
  * cannot disagree with its source; a second projection can, and that is the distinction between this
  * and the `plate_status` duplication Phase 4 removed.
+ *
+ * ── Issue #164 Phase 6: RESERVATION IS NOT `vehicles.status` ──────────────────────────────────
+ * `vehicle_reservations` is the authority and the vehicle row carries only a materialized cache.
+ * Detail reads therefore project reservation state against `expires_at` at read time. An expired
+ * canonical row cannot keep publishing "Reserved" merely because the cache-reconciliation job has
+ * not run yet, and a failed reservation read is `unavailable` rather than fabricated "none".
  */
 
 import {
@@ -62,6 +68,10 @@ import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { buildTrustSummary, buildVerificationSummary } from './marketplaceTrustSummaryService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
 import { deriveListingPublicStatus } from './marketplaceModerationService.js';
+import {
+  getPublicReservationProjection,
+  projectListingStatusWithReservation,
+} from '../reservation/reservationProjectionService.js';
 import { NotFoundError } from '../../utils/errors.js';
 
 const PUBLIC_SAFETY_WARNINGS = [
@@ -125,15 +135,21 @@ function buildDescription(summary) {
   return parts.join(' ');
 }
 
-function buildTransactionIntent(trustSummary) {
+function buildTransactionIntent(trustSummary, reservationSummary) {
   const blocked = trustSummary.risk_status === 'blocked';
+  const reservationUnavailable = ['unavailable', 'inconsistent'].includes(reservationSummary?.state);
   return {
     transaction_intent_id: null,
-    payment_readiness_status: blocked ? 'not_ready' : 'inquiry_only',
+    payment_readiness_status: blocked || reservationUnavailable ? 'not_ready' : 'inquiry_only',
     escrow_required: true,
+    // Public detail has no authenticated-buyer transaction intent in hand, so it can never assert
+    // deposit eligibility. Buyer-specific eligibility is returned only by the authenticated Phase 6
+    // transaction routes after inquiry, seller, snapshot, Trust and reservation rechecks.
     deposit_allowed: false,
-    operator_review_required: trustSummary.risk_status !== 'clear',
+    operator_review_required: trustSummary.risk_status !== 'clear' || reservationUnavailable,
     fraud_hold_status: blocked ? 'hold' : 'none',
+    reservation_state: reservationSummary?.state || 'unavailable',
+    reservation_expires_at: reservationSummary?.expires_at || null,
   };
 }
 
@@ -170,7 +186,7 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
   }
   const vehicle = candidate;
 
-  const [related, trustByVin] = await Promise.all([
+  const [related, trustByVin, reservationSummary] = await Promise.all([
     fetchListingRelatedRows(supabaseClient, [vin]),
     // THE SAME READ THE LIST USES. `fetchCanonicalTrustByVin` is the cache-only batch path, so the
     // detail page reports exactly what the card reported for this VIN — same score, same
@@ -178,6 +194,9 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     // publish a number the list had withheld, which is the list-84/detail-90 split again with
     // better provenance.
     fetchCanonicalTrustByVin(supabaseClient, [vin]),
+    // READ ONLY. `vehicle_reservations` decides whether a hold is live; the vehicle row's Reserved
+    // marker is only a cache and may legitimately lag expiry reconciliation.
+    getPublicReservationProjection(vin, { client: supabaseClient }),
   ]);
   const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
 
@@ -195,6 +214,7 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     imageRows,
     canonicalTrust: trustByVin.get(vin) || null,
   });
+  const projectedListingStatus = projectListingStatusWithReservation(listingSummary.status, reservationSummary);
 
   const trust_summary = buildTrustSummary({ vehicle, listingSummary, evidenceRows, partSentryRows, audience });
   const verification_summary = buildVerificationSummary({ vehicle, listingSummary, evidenceRows, partSentryRows });
@@ -226,6 +246,10 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
 
   return {
     ...listingSummary,
+    // Phase 6 override: if the raw cache still says Reserved after canonical expiry, publish the
+    // authoritative projection. If reservation truth is unavailable/inconsistent, a cached Reserved
+    // marker becomes null rather than a false live hold.
+    status: projectedListingStatus,
     listing_type: 'vehicle',
     // Public audience only ever sees public listings; admins see the true governed status.
     public_status: audience === 'admin' ? deriveListingPublicStatus(vehicle.status) : 'public',
@@ -240,7 +264,9 @@ export async function getMarketplaceListingDetail(supabaseClient, vin, { audienc
     trust_summary,
     verification_summary,
     pricing_summary,
+    // Public-safe and identity-free. No buyer/seller/intent/reservation ids leave this block.
+    reservation_summary: reservationSummary,
     safety_warnings: PUBLIC_SAFETY_WARNINGS,
-    transaction_intent: buildTransactionIntent(trust_summary),
+    transaction_intent: buildTransactionIntent(trust_summary, reservationSummary),
   };
 }
