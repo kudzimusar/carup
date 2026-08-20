@@ -35,7 +35,7 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
   throw error;
 }
 
-export function authorizeRole(allowedRoles = []) {
+export function authorizeRole(allowedRoles = [], { allowUserIdFallback = true } = {}) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const tenantIdHeader = req.headers['x-tenant-id'];
@@ -44,6 +44,7 @@ export function authorizeRole(allowedRoles = []) {
 
     try {
       let activeUserId = null;
+      let authenticationMethod = null;
 
       // 1. Validate Session Token
       if (sessionToken) {
@@ -57,13 +58,18 @@ export function authorizeRole(allowedRoles = []) {
           return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
         }
         activeUserId = session.user_id;
+        authenticationMethod = 'session';
       }
 
       if (!activeUserId && fallbackUserId) {
+        if (!allowUserIdFallback) {
+          return res.status(401).json({ error: 'Unauthorized. This action requires an authenticated session.' });
+        }
         if (!isUserIdFallbackAllowed()) {
           return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
         }
         activeUserId = fallbackUserId;
+        authenticationMethod = 'x-user-id-fallback';
       }
 
       if (!activeUserId) {
@@ -123,6 +129,7 @@ export function authorizeRole(allowedRoles = []) {
         tenantId: tenantIdHeader || null,
         requestedRole,
         isVerified: Boolean(user.is_verified),
+        authenticationMethod,
       };
 
       next();
@@ -131,6 +138,15 @@ export function authorizeRole(allowedRoles = []) {
       res.status(statusCode).json({ error: error.message });
     }
   };
+}
+
+/**
+ * Consequential governance actions must always be backed by a validated CarUp session. This wrapper
+ * deliberately ignores the local/test x-user-id fallback even when that fallback remains available
+ * to ordinary development/test routes.
+ */
+export function authorizeSessionRole(allowedRoles = []) {
+  return authorizeRole(allowedRoles, { allowUserIdFallback: false });
 }
 
 /**
