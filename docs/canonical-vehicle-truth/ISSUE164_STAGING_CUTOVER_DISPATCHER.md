@@ -13,10 +13,10 @@ separation of control plane from product code.
 
 The workflow checks out immutable candidate:
 
-`476bd4cf5e0a50ab1d744943c1dd67c693b00b63`
+`df6ca89cdf785e22718e3fb93f60276f05d683ed`
 
 That candidate is a descendant of the Phase 6 certified source anchor
-`e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`. Its only post-Phase-6 executable change is the guarded
+`e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`. Its net post-Phase-6 executable change is only the guarded
 `backend/scripts/issue164-staging-truth-cutover.mjs`; all 16 migration files are verified byte-identical
 to the Phase 6 source anchor before any connection is opened.
 
