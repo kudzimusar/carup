@@ -36,7 +36,7 @@ const REAL_VIN = '1HGBH41JXMN109186';
 const DEALER_VIN = '1FMCU0GD9JUA12345';
 
 function publicVehicle(overrides = {}) {
-  return {
+  const row = {
     vin: REAL_VIN, make: 'Toyota', model: 'Corolla', year: 2018, mileage: 42000,
     price: 9500, currency: 'USD', status: 'Available', trust_score: 78,
     owner_id: '550e8400-e29b-41d4-a716-446655440000', tenant_id: null,
@@ -44,6 +44,13 @@ function publicVehicle(overrides = {}) {
     duty_paid: true, police_verified: true, passport_verified: false, created_at: NOW,
     ...overrides,
   };
+  // Selling authority is server-governed via current_seller_id and is deliberately
+  // NOT the same fact as owner_id (legal title) — settlement may close a listing but
+  // must never rewrite ownership. A fixture that does not deliberately diverge the two
+  // holds the ordinary case: the listing owner is also the governed current seller.
+  // Tests that need divergence (or an ungoverned listing) pass current_seller_id explicitly.
+  if (!('current_seller_id' in overrides)) row.current_seller_id = row.owner_id;
+  return row;
 }
 
 // ---------------------------------------------------------------------------

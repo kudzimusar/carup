@@ -6,8 +6,14 @@ import { createCommunicationServices } from './communicationServiceFactory.js';
 export const COMMUNICATION_EVENT_TYPES = [
   'marketplace.inquiry.created',
   'marketplace.listing.moderated',
-  'ESCROW_CREATED',
-  'ESCROW_UPDATED',
+  // ESCROW_CREATED / ESCROW_UPDATED are intentionally ABSENT. Issue #164 Phase 6 retired the legacy
+  // SafePay transaction authority (services/safepay/escrowService.js is now a throwing shim), which
+  // was the only emitter of those two event types. Subscribing to them again would be dead code, and
+  // re-adding an emitter would resurrect the pre-Phase-6 writer that treated a payment transition as
+  // legal ownership proof. Canonical escrow/settlement truth lives in services/transaction/* and
+  // services/escrow/escrowTrustService.js; when that authority grows a governed customer-facing
+  // notification it must be subscribed here under its own canonical event name.
+  // NOTIFICATION_POLICIES still carries ESCROW_* so historical queued rows keep resolving a policy.
   'finance.application.status_changed',
   'finance.application.approved',
   'finance.application.declined',

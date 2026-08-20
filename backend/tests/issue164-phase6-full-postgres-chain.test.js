@@ -353,7 +353,11 @@ test('Phase 6 full migration chain is order-safe and server-authoritative on Pos
     assert.equal(linkAudit.rows[0].from_status, 'eligible');
     assert.equal(linkAudit.rows[0].to_status, 'initiated');
 
-    await db.exec(`UPDATE vehicle_reservations SET expires_at=now()-interval '1 minute' WHERE id='${held.reservation_id}'`);
+    // Age the WHOLE reservation window, not just expires_at: vehicle_reservations_expiry_chk
+    // requires expires_at > reserved_at, so moving only expires_at into the past produces an
+    // internally inconsistent row the database correctly refuses. This is a genuinely elapsed
+    // reservation — reserved two hours ago, expired a minute ago.
+    await db.exec(`UPDATE vehicle_reservations SET reserved_at=now()-interval '2 hours',expires_at=now()-interval '1 minute' WHERE id='${held.reservation_id}'`);
     await assert.rejects(() => deposit(db, txId), /linked payment intent; provider reconciliation required/);
     const stillHeld = await db.query(`SELECT status FROM vehicle_reservations WHERE id=$1`, [held.reservation_id]);
     assert.equal(stillHeld.rows[0].status, 'active');

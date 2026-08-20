@@ -115,9 +115,39 @@ function seedVehicle(vin, over = {}) {
   return vin;
 }
 const ADMIN = { id: 'admin-1', role: 'admin' };
-const INSURER_OK = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable' };
-const LENDER_OK = { identity_status: 'complete', fraud_block: false, publication_status: 'publishable', source_coverage_connected: 1, min_source_coverage: 0 };
-const ESCROW_GATE = { identity_status: 'complete', publication_status: 'published', fraud_block: false };
+// Phase 6 fails eligibility CLOSED on unknown gates (bd23975b): an absent dealer/source-coverage
+// fact is no longer read as "clear" — it routes to manual_review. A gate context that is meant to
+// represent "every gate is known and clear" must therefore state every gate explicitly. These
+// constants are the all-clear contexts; individual steps below spread-and-override one fact at a
+// time to exercise a specific gate.
+const INSURER_OK = {
+  identity_status: 'complete',
+  fraud_block: false,
+  dealer_suspended: false,
+  publication_status: 'publishable',
+  source_coverage_connected: 1,
+  min_source_coverage: 0,
+};
+const LENDER_OK = {
+  identity_status: 'complete',
+  fraud_block: false,
+  dealer_suspended: false,
+  publication_status: 'publishable',
+  source_coverage_connected: 1,
+  min_source_coverage: 0,
+};
+// evaluateEscrowGates() likewise fails closed on every unknown: seller suspension, participant
+// authorization, required documents and listing-snapshot drift must each be affirmatively known
+// before a provider escrow may be initiated. Silence is not consent.
+const ESCROW_GATE = {
+  identity_status: 'complete',
+  publication_status: 'published',
+  fraud_block: false,
+  seller_suspended: false,
+  participant_authorized: true,
+  required_documents_present: true,
+  listing_snapshot_changed: false,
+};
 
 function step(n, msg) { console.log(`  [journey ${String(n).padStart(2, '0')}/15] ${msg}`); }
 

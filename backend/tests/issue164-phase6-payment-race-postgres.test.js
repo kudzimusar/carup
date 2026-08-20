@@ -128,30 +128,43 @@ async function sandbox(db, action, {
 }
 
 async function seedSession(db, id, status = 'release_approved') {
-  const vin = `VIN-${id.slice(0, 8)}`;
+  // The fixture ids differ only in their FINAL characters, so a prefix slice
+  // collides across every pair. Derive per-session identifiers from the whole
+  // id so each seeded session is a genuinely distinct vehicle and intent.
+  const suffix = id.replace(/-/g, '');
+  const vin = `VIN-${suffix}`;
   await db.query(`INSERT INTO public.vehicles(vin,current_seller_id) VALUES($1,'seller-a')`, [vin]);
   await db.query(`
     INSERT INTO public.escrow_trust_sessions(
       id,vin,seller_id,status,payment_state,payment_intent_id,payment_provider
     ) VALUES($1::uuid,$2,'seller-a',$3::text,'captured',$4::text,'sandbox')
-  `, [id, vin, status, `sbx-${id.slice(0, 8)}`]);
+  `, [id, vin, status, `sbx-${suffix}`]);
   await db.query(`
     INSERT INTO public.vehicle_reservations(transaction_intent_id,status) VALUES($1::uuid,'active')
   `, [id]);
 }
 
+// These RPCs are SECURITY DEFINER plpgsql functions returning a composite row.
+// They MUST be invoked as `SELECT * FROM fn(...)`, never as `SELECT (fn(...)).*`:
+// PostgreSQL expands the latter into one evaluation of the function PER OUTPUT
+// COLUMN. For a volatile function with side effects that means the 2nd..Nth
+// evaluations observe the state the 1st already committed, so a deliberately
+// one-shot transition (settlement recovery) fail-closes on its own replay and
+// rolls the whole statement back. Production invokes each of these exactly once
+// through PostgREST `client.rpc(...)`, which `SELECT * FROM fn(...)` reproduces.
+
 async function claimSettlement(db, id, key = 'release-key', actor = 'reviewer-a') {
   const { rows } = await db.query(`
-    SELECT (public.issue164_begin_settlement_atomic($1::uuid,$2::text,'reviewer',$3::text)).*
+    SELECT * FROM public.issue164_begin_settlement_atomic($1::uuid,$2::text,'reviewer',$3::text)
   `, [id, actor, key]);
   return rows[0];
 }
 
 async function beginSettlementRecovery(db, id, key = 'release-key', actor = 'reviewer-a') {
   const { rows } = await db.query(`
-    SELECT (public.issue164_begin_settlement_recovery_atomic(
+    SELECT * FROM public.issue164_begin_settlement_recovery_atomic(
       $1::uuid,$2::text,'reviewer',$3::text
-    )).*
+    )
   `, [id, actor, key]);
   return rows[0];
 }
@@ -159,16 +172,16 @@ async function beginSettlementRecovery(db, id, key = 'release-key', actor = 'rev
 async function recoverSettlement(db, id, key = 'release-key', actor = 'reviewer-a') {
   await beginSettlementRecovery(db, id, key, actor);
   const { rows } = await db.query(`
-    SELECT (public.issue164_recover_settlement_atomic(
+    SELECT * FROM public.issue164_recover_settlement_atomic(
       $1::uuid,$2::text,'reviewer',$3::text,'captured','provider-confirmation-1'
-    )).*
+    )
   `, [id, actor, key]);
   return rows[0];
 }
 
 async function claimRefund(db, id, key = 'refund-key', actor = 'reviewer-a') {
   const { rows } = await db.query(`
-    SELECT (public.issue164_begin_refund_atomic($1::uuid,$2::text,'reviewer',$3::text)).*
+    SELECT * FROM public.issue164_begin_refund_atomic($1::uuid,$2::text,'reviewer',$3::text)
   `, [id, actor, key]);
   return rows[0];
 }

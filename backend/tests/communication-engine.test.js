@@ -374,9 +374,16 @@ test('communication domain listener skips missing Agent 8 schema until engine is
   };
   delete process.env.COMMUNICATION_ENGINE_ENABLED;
   registerCommunicationListeners(fakeWorker, services);
-  await subscriptions.get('ESCROW_CREATED')({ escrowId: 'escrow-missing-schema' }, null, 'tenant-1');
+  // registerCommunicationListeners subscribes the SAME handler closure for every entry in
+  // COMMUNICATION_EVENT_TYPES, so any live subscribed type exercises this schema-skip behaviour
+  // identically. This used to name ESCROW_CREATED; Issue #164 Phase 6 retired the legacy SafePay
+  // emitter for that type and removed the now-dead subscription, so it names a live type instead.
+  // The behaviour under test is the listener wrapper's, not escrow's.
+  const subscribedType = 'marketplace.inquiry.created';
+  assert.ok(subscriptions.has(subscribedType), `${subscribedType} must be a registered subscription`);
+  await subscriptions.get(subscribedType)({ escrowId: 'escrow-missing-schema' }, null, 'tenant-1');
   process.env.COMMUNICATION_ENGINE_ENABLED = 'true';
-  await assert.rejects(() => subscriptions.get('ESCROW_CREATED')({ escrowId: 'escrow-strict-schema' }, null, 'tenant-1'), /message_threads lookup failed/);
+  await assert.rejects(() => subscriptions.get(subscribedType)({ escrowId: 'escrow-strict-schema' }, null, 'tenant-1'), /message_threads lookup failed/);
   delete process.env.COMMUNICATION_ENGINE_ENABLED;
 });
 

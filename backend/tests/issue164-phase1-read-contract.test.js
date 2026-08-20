@@ -183,14 +183,16 @@ const EMBEDDED_VEHICLE_READS = [
     why: 'government/admin registry queue needs a human label for the row under review',
   },
   {
-    key: 'routes/financeRoutes.js (GET /api/finance/applications) vehicles(make, model, year, price, trust_score)',
+    key: 'routes/financeRoutes.js (GET /api/finance/applications) vehicles(vin, make, model, year, price)',
     table: 'finance_applications',
-    why: 'lender pipeline needs the collateral summary; authorizeRole([admin, finance, bank])',
-    readsRawTrustCache: true,
-    trustCacheWhy: 'an internal credit-review queue, not a public surface. The route already refuses '
-      + 'to fabricate (`Number.isFinite(...) ? ... : null`), so a lender sees "unscored" rather than a '
-      + 'default — but the number it does show is the raw cache, unattributed to a calculation '
-      + 'version. Re-pointing it at canonicalTrustService is INV-TRUST-2 follow-up work.',
+    why: 'lender pipeline needs the collateral summary; authorizeRole([admin, finance, bank]). vin is '
+      + 'the canonical vehicle identity the application is secured against, so the lender queue names '
+      + 'the car by its one true key rather than by a make/model string match. The INV-TRUST-2 '
+      + 'follow-up this entry used to carry is DONE: commit 340c5be7 (govern lender decisions and '
+      + 'canonical trust reads) dropped trust_score from this embed, so the queue no longer publishes '
+      + 'the raw, calculation-version-unattributed trust cache. No readsRawTrustCache flag remains — '
+      + 'the test above correctly treats such a flag on an embed that does not name trust_score as a '
+      + 'stale blanket waiver.',
   },
   {
     key: 'routes/vehiclesRoutes.js (GET /api/evidence/review) vehicles(make, model, year, trust_score)',
@@ -234,10 +236,13 @@ const AUTHORIZATION_CHECK_VEHICLE_READS = [
       + 'from the counts. The response is aggregate tallies.',
   },
   {
-    key: 'services/marketplace/marketplaceInquiryService.js ((module scope)) owner_id, tenant_id',
+    key: 'services/marketplace/marketplaceInquiryService.js ((module scope)) current_seller_id, tenant_id',
     why: 'resolveListingSeller(): they become the inquiry row\'s seller_id/seller_tenant_id routing '
       + 'keys. toSellerInquiry() omits them; only toAdminInquiry(), behind assertReviewer(), echoes '
-      + 'seller_id.',
+      + 'seller_id. Phase 6 moved this read from owner_id to current_seller_id deliberately: selling '
+      + 'authority is server-governed and is NOT legal title, so an inquiry must route to whoever the '
+      + 'server currently recognises as the seller. A listing with no governed current seller fails '
+      + 'closed rather than falling back to the owner.',
   },
   {
     key: 'services/marketplace/marketplaceModerationService.js ((module scope)) owner_id, tenant_id',

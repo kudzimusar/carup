@@ -123,7 +123,7 @@ BEGIN
      AND seller_id=v_tx.seller_id
      AND inquiry_type='vehicle_purchase_interest'
      AND risk_status='clear'
-     AND status IN('new','assigned','contacted','qualified')
+     AND marketplace_inquiries.status IN('new','assigned','contacted','qualified')
    FOR SHARE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'transaction inquiry lineage is no longer current/valid' USING ERRCODE='23514';

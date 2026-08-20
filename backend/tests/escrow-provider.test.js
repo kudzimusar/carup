@@ -94,7 +94,20 @@ function addSession(over = {}) {
 function approveKyc(providerId, subjects = [['buyer', 'buyer-1'], ['seller', 'seller-1']]) {
   for (const [type, id] of subjects) db.escrow_kyc_kyb_states.push({ id: `kyc-${type}-${id}`, subject_type: type, subject_id: id, provider_id: providerId, status: 'approved' });
 }
-const CLEAN_GATE = { identity_status: 'complete', publication_status: 'published', fraud_block: false };
+// Phase 6 (Issue #164) hardened evaluateEscrowGates to FAIL CLOSED on unmeasured evidence: an
+// absent seller-suspension / participant-authorization / document / listing-snapshot fact is
+// `*_unknown`, not a pass. A clean fixture must therefore state every gate as a MEASURED clear
+// result. The previous three-field fixture silently relied on "unknown == clear" and would now
+// (correctly) block every escrow with trust_gate:seller_status_unknown,...
+const CLEAN_GATE = {
+  identity_status: 'complete',
+  publication_status: 'published',
+  fraud_block: false,
+  seller_suspended: false,
+  participant_authorized: true,
+  required_documents_present: true,
+  listing_snapshot_changed: false,
+};
 
 async function setupInitiated(over = {}) {
   install();
@@ -165,11 +178,13 @@ test('initiate: failing trust gate is fail-closed (identity unresolved)', async 
   approveKyc(p.id);
   const r = await svc.initiateProviderEscrow(s.id, {
     providerKey: 'escrow_acme', amountCents: 500000, currency: 'USD',
-    gateContext: { identity_status: 'incomplete', publication_status: 'published' },
+    gateContext: { ...CLEAN_GATE, identity_status: 'incomplete' },
   });
   assert.equal(r.ok, false);
   assert.match(r.blocked_reason, /^trust_gate:/);
   assert.match(r.blocked_reason, /identity_unresolved/);
+  // Every other gate is measured clear, so identity is provably the sole blocking reason.
+  assert.equal(r.blocked_reason, 'trust_gate:identity_unresolved');
 });
 
 // ── 6. valid + invalid lifecycle transitions ───────────────────────────────────

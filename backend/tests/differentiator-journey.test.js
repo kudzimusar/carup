@@ -76,9 +76,68 @@ function run(st) {
   return ok(out);
 }
 
+// Issue #164 Phase 6 moved transaction-intent creation into the canonical atomic RPC
+// `issue164_upsert_transaction_intent_atomic` (migration 20260819122000). The server — never the
+// caller — decides the resulting status, so this fake mirrors the migration: required server-resolved
+// inputs or nothing; status derived ONLY from the gate result; one audit event per intent; and an
+// idempotency key bound to the transaction truth it was first issued for.
+function upsertTransactionIntentAtomic(a = {}) {
+  if (!a.p_vin || !a.p_buyer_id || !a.p_seller_id || !a.p_inquiry_id
+      || !a.p_listing_snapshot_hash || !a.p_idempotency_key) {
+    return { data: null, error: { message: 'server-resolved transaction truth is required' } };
+  }
+  // The migration derives status from the gate alone: gate_allowed IS TRUE -> 'eligible', else 'failed'.
+  const status = a.p_gate_allowed === true ? 'eligible' : 'failed';
+  const existing = db.escrow_trust_sessions.find((r) => r.idempotency_key === a.p_idempotency_key);
+  if (existing) {
+    if (existing.vin !== a.p_vin || existing.buyer_id !== a.p_buyer_id
+        || existing.seller_id !== a.p_seller_id || existing.inquiry_id !== a.p_inquiry_id
+        || existing.listing_snapshot_hash !== a.p_listing_snapshot_hash) {
+      return { data: null, error: { message: 'idempotency key is bound to different transaction truth' } };
+    }
+    return { data: existing, error: null };
+  }
+  const session = {
+    id: `escrow-trust-sessions-${db.escrow_trust_sessions.length + 1}`,
+    vin: a.p_vin, inquiry_id: a.p_inquiry_id, buyer_id: a.p_buyer_id, seller_id: a.p_seller_id,
+    status, listing_snapshot_hash: a.p_listing_snapshot_hash, gate_reasons: a.p_gate_reasons || [],
+    listing_amount: a.p_listing_amount, listing_currency: a.p_listing_currency,
+    listing_currency_source: a.p_listing_currency_source, idempotency_key: a.p_idempotency_key,
+    created_at: '2026-06-26T00:00:00Z', updated_at: '2026-06-26T00:00:00Z',
+  };
+  db.escrow_trust_sessions.push(session);
+  db.escrow_trust_events.push({
+    id: `escrow-trust-events-${db.escrow_trust_events.length + 1}`,
+    session_id: session.id, from_status: 'pending_eligibility', to_status: status,
+    actor_id: a.p_buyer_id, actor_role: 'buyer', reason: 'initial_eligibility_evaluated',
+    payload: { inquiry_id: a.p_inquiry_id, gate_reasons: a.p_gate_reasons || [] },
+    created_at: '2026-06-26T00:00:00Z',
+  });
+  return { data: session, error: null };
+}
+
 test('CarUp differentiator journey (30 steps) through real services', async () => {
   reset(); supabase.from = (t) => builder(t); sv.initSourceVerification(); elig.initEligibility();
-  const OK_CTX = { identity_status: 'complete', publication_status: 'publishable', fraud_block: false, participant_authorized: true, required_documents_present: true, source_coverage_connected: 1, min_source_coverage: 0 };
+  supabase.rpc = async (fn, args) => (fn === 'issue164_upsert_transaction_intent_atomic'
+    ? upsertTransactionIntentAtomic(args)
+    : { data: null, error: { message: `unexpected rpc: ${fn}` } });
+  // Phase 6 fails every eligibility/escrow gate CLOSED on unknowns (bd23975b), so an "all clear"
+  // context must state each fact rather than omitting it. dealer_suspended/seller_suspended and
+  // listing_snapshot_changed were previously absent, which silently routed step 22 to manual_review
+  // and made step 23 pass for the wrong reason (unknown dealer status rather than the missing
+  // finance consent it means to prove). Stating them restores each step's intended subject.
+  const OK_CTX = {
+    identity_status: 'complete',
+    publication_status: 'publishable',
+    fraud_block: false,
+    dealer_suspended: false,
+    seller_suspended: false,
+    participant_authorized: true,
+    required_documents_present: true,
+    listing_snapshot_changed: false,
+    source_coverage_connected: 1,
+    min_source_coverage: 0,
+  };
 
   // 1-3. Dealer onboarding -> admin approves identity + compliance.
   const profile = await dealer.createOrUpdateProfile('dealer-u', { legal_name: 'Croco Motors', registration_number: 'BR-1', tax_id: 'TAX-1' });
@@ -143,8 +202,25 @@ test('CarUp differentiator journey (30 steps) through real services', async () =
   const fin = await elig.requestEligibility('finance', 'JOURNEYVEH000001', { gateContext: OK_CTX });
   assert.equal(fin.status, 'manual_review', 'step23: finance manual review');
   // 24. Escrow -> eligible.
-  const es = await escrow.requestEscrow('JOURNEYVEH000001', { buyerId: 'buyer-u', sellerId: 'dealer-u', gateContext: OK_CTX }, { id: 'buyer-u', role: 'buyer' });
+  //
+  // Phase 6: a transaction intent is no longer creatable from VIN + two caller-supplied ids. It
+  // requires a RESOLVED inquiry and server-resolved listing terms, an immutable listing snapshot
+  // hash and a canonical idempotency key — a browser may request the action but may never state the
+  // economics. The buyer identity is still checked against the authenticated actor by the service.
+  db.marketplace_inquiries = db.marketplace_inquiries || [];
+  db.marketplace_inquiries.push({ id: 'inq-journey-1', listing_id: 'JOURNEYVEH000001', buyer_id: 'buyer-u', seller_id: 'dealer-u', status: 'qualified', risk_status: 'clear' });
+  const es = await escrow.requestEscrow('JOURNEYVEH000001', {
+    buyerId: 'buyer-u',
+    sellerId: 'dealer-u',
+    inquiryId: 'inq-journey-1',
+    gateContext: OK_CTX,
+    idempotencyKey: 'journey-escrow-idem-1',
+    listingSnapshotHash: 'journey-listing-snapshot-hash',
+    listingTerms: { amount: 12500, currency: 'USD', currencySource: 'listing' },
+  }, { id: 'buyer-u', role: 'buyer' });
   assert.equal(es.status, 'eligible', 'step24: escrow eligible');
+  // The status is the SERVER's, derived from the gate — not anything the caller passed in.
+  assert.equal(db.escrow_trust_events.some((e) => e.session_id === es.id && e.reason === 'initial_eligibility_evaluated'), true, 'step24: canonical intent is audited');
 
   // 25-26. Buyer passport + partner redacted summary.
   //
