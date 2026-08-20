@@ -35,3 +35,7 @@ Security properties:
 
 Once merged, the dispatcher is used only to complete the already-authorized staging cutover. Phase 7
 remains blocked until that cutover has an evidence-backed PASS receipt.
+
+The dispatcher may remain inert on `main` afterward as an auditable, owner-only verify/recovery tool.
+Any future candidate change requires another reviewed mainline change because the SHA is hard-pinned;
+the workflow cannot be repurposed to execute arbitrary branch code.
