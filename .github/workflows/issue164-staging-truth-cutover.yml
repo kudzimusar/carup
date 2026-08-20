@@ -1,0 +1,89 @@
+name: Issue 164 Controlled Staging Truth Cutover
+
+# Staging-only release-operator gate after Phase 6 and before Phase 7.
+# No arbitrary ref, SQL, or migration input. The reviewed candidate is immutable and the runner itself
+# positively requires staging ref eoyenigwevnxwwhyhaer and refuses production.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = execute full chain then rollback; apply = preflight then atomically apply and verify; verify = post-cutover verification only'
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - apply
+          - verify
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue164-staging-truth-cutover
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: c6c7644ea0b95339a40ff998d82833fa70c1b88a
+  PG_DRIVER_VERSION: 8.21.0
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar'
+
+    steps:
+      - name: Check out immutable reviewed cutover candidate
+        uses: actions/checkout@v4
+        with:
+          ref: c6c7644ea0b95339a40ff998d82833fa70c1b88a
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert immutable candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual; expected $CANDIDATE_SHA"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pinned PostgreSQL driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require governed staging operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; refusing cutover.'
+            exit 1
+          fi
+
+      - name: Run Issue 164 staging operation
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ "${{ inputs.mode }}" = "apply" ]; then
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=preflight
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=apply
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=verify
+          else
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode="${{ inputs.mode }}"
+          fi
+
+      - name: Preserve non-secret cutover receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue164-staging-truth-cutover-receipt
+          path: issue164-staging-truth-cutover-receipt.json
+          if-no-files-found: ignore
+          retention-days: 30
