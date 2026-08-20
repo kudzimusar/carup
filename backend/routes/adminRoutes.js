@@ -10,10 +10,19 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 // GET /api/users/management - Super admin user management
+// The admin user console is allow-listed, never `select('*')`. `users` carries `password_hash`
+// (added by 20260613010000_users_password_hash), and a `*` projection served every credential hash
+// to the browser for an authenticated admin — a real credential-disclosure defect, not a role gap.
+// This column set is exactly the base-schema user shape the frontend `User` type consumes; any
+// future credential/secret column added to `users` stays excluded by construction because it is not
+// named here.
+const ADMIN_USER_COLUMNS =
+  'id, name, email, avatar, role, phone, location, is_verified, subscription, join_date, created_at';
+
 router.get('/api/users/management', authorizeRole(['admin']), asyncHandler(async (req, res) => {
   const { data, error } = await supabase
     .from('users')
-    .select('*')
+    .select(ADMIN_USER_COLUMNS)
     .order('created_at', { ascending: false });
 
   if (error) throw new DatabaseError(error.message);
@@ -50,7 +59,7 @@ router.post('/api/users/:id/suspend', authorizeRole(['admin']), asyncHandler(asy
     .from('users')
     .update({ role: 'suspended' }) // Simple suspension for now
     .eq('id', req.params.id)
-    .select()
+    .select(ADMIN_USER_COLUMNS)
     .single();
 
   if (error) throw new DatabaseError(error.message);
@@ -71,7 +80,7 @@ router.get('/api/admin/health', authorizeRole(['admin']), asyncHandler(async (_r
 router.get('/api/admin/users', authorizeRole(['admin']), asyncHandler(async (_req, res) => {
   const { data: users, error } = await supabase
     .from('users')
-    .select('*')
+    .select(ADMIN_USER_COLUMNS)
     .order('join_date', { ascending: false });
   if (error) throw new DatabaseError(error.message);
   res.json(users);
@@ -84,7 +93,7 @@ router.patch('/api/admin/users/:id/suspend', authorizeRole(['admin']), asyncHand
     .from('users')
     .update({ status: 'Suspended' })
     .eq('id', id)
-    .select()
+    .select(ADMIN_USER_COLUMNS)
     .single();
   if (error) throw new DatabaseError(error.message);
   res.json(user);
