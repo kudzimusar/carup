@@ -1,0 +1,311 @@
+name: Phase 6 Final Admin UAT Observed
+
+on:
+  push:
+    branches:
+      - ops/phase6-final-admin-uat-4dc24d48
+    paths:
+      - .github/workflows/phase6-final-admin-uat-observed.yml
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: phase6-final-admin-observed
+  cancel-in-progress: false
+
+jobs:
+  final-admin-uat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_SHA: 4dc24d48583961e53a707929bb921d0f9a8e4381
+      EXPECTED_STAGING_PROJECT_REF: eoyenigwevnxwwhyhaer
+      CANONICAL_API: https://api-staging.carup.dev
+      SANDBOX_API: https://carup-backend-staging-36nlp8c4u-11-11.vercel.app
+      DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+    steps:
+      - name: Checkout certified candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 4dc24d48583961e53a707929bb921d0f9a8e4381
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Require approved staging database
+        run: |
+          test -n "$DIASPORA_STAGING_DATABASE_URL" || { echo "::error::staging DB secret missing"; exit 1; }
+          case "$DIASPORA_STAGING_DATABASE_URL" in
+            *"$EXPECTED_STAGING_PROJECT_REF"*) ;;
+            *) echo "::error::database is not authorized staging ref"; exit 1 ;;
+          esac
+
+      - name: Install dependencies and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Execute real-auth admin settlement proof
+        id: uat
+        continue-on-error: true
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          import fs from 'node:fs';
+          import pg from 'pg';
+          import { chromium } from 'playwright';
+
+          const E = {
+            sha: process.env.EXPECTED_SHA,
+            ref: process.env.EXPECTED_STAGING_PROJECT_REF,
+            canonical: process.env.CANONICAL_API,
+            sandbox: process.env.SANDBOX_API,
+            db: process.env.DIASPORA_STAGING_DATABASE_URL || '',
+          };
+          const REVIEWER_EMAIL = 'uat.reviewer@carup-staging.test';
+          const evidenceFile = 'test-results/phase6-final-admin-observed.json';
+          const commentFile = 'test-results/phase6-final-admin-comment.md';
+          const assert = (v, m) => { if (!v) throw new Error(m); };
+          const cleanDb = E.db.replace(/([?&])sslmode=[^&]*&?/i, '$1').replace(/[?&]$/, '');
+          assert(E.db.includes(E.ref), 'Refusing write: DB URL is not authorized staging.');
+
+          const evidence = { candidate: E.sha, staging_project_ref: E.ref, started_at: new Date().toISOString(), checks: {} };
+          const db = new pg.Client({ connectionString: cleanDb, ssl: { rejectUnauthorized: false } });
+          let browser;
+          let reviewer;
+          const sessions = [];
+
+          const hasCredentialField = (value) => {
+            const forbidden = /^(password|password_hash|passwd|credential|credentials|secret|secret_hash)$/i;
+            const walk = (v) => {
+              if (Array.isArray(v)) return v.some(walk);
+              if (!v || typeof v !== 'object') return false;
+              return Object.entries(v).some(([k, child]) => forbidden.test(k) || walk(child));
+            };
+            return walk(value);
+          };
+
+          async function scryptHash(password) {
+            const salt = crypto.randomBytes(16).toString('hex');
+            const key = await new Promise((resolve, reject) =>
+              crypto.scrypt(password, salt, 64, (err, out) => err ? reject(err) : resolve(out)));
+            return `scrypt:${salt}:${key.toString('hex')}`;
+          }
+
+          async function health(base, env) {
+            const r = await fetch(`${base}/api/health`);
+            assert(r.ok, `${base}/api/health => ${r.status}`);
+            const j = await r.json();
+            assert(j?.build?.commit_sha === E.sha, `${base} SHA mismatch`);
+            assert(j?.build?.provenance_available === true, `${base} provenance unavailable`);
+            assert(j?.build?.environment === env, `${base} env ${j?.build?.environment} != ${env}`);
+            assert(j?.ocrProviders?.gemini === false, `${base} unexpectedly has Gemini enabled`);
+            return j.build;
+          }
+
+          async function browserFetch(page, base, path, opts = {}) {
+            return page.evaluate(async ({ base, path, opts }) => {
+              const headers = { Accept: 'application/json', ...(opts.headers || {}) };
+              if (opts.token) headers['x-session-token'] = opts.token;
+              if (opts.csrf) headers['x-csrf-token'] = opts.csrf;
+              if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+              const r = await fetch(`${base}${path}`, {
+                method: opts.method || 'GET',
+                headers,
+                credentials: 'include',
+                body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+              });
+              const text = await r.text();
+              let json = null;
+              try { json = text ? JSON.parse(text) : null; } catch {}
+              return { status: r.status, text, json };
+            }, { base, path, opts });
+          }
+
+          async function csrf(page, base, token = null) {
+            const r = await browserFetch(page, base, '/api/security/csrf-token', { token });
+            assert(r.status === 200 && r.json?.csrfToken, `CSRF failed ${base}: ${r.status}`);
+            return r.json.csrfToken;
+          }
+
+          async function login(page, base, email, password) {
+            const c = await csrf(page, base);
+            const r = await browserFetch(page, base, '/api/auth/login', {
+              method: 'POST',
+              csrf: c,
+              body: { email, password },
+            });
+            assert(r.status === 200, `login ${base} => ${r.status} ${r.text.slice(0,220)}`);
+            assert(r.json?.token && r.json?.user?.role === 'admin', `login ${base} did not yield authoritative admin`);
+            sessions.push(r.json.token);
+            return r.json.token;
+          }
+
+          async function adminPost(page, base, token, path, body = {}) {
+            const c = await csrf(page, base, token);
+            return browserFetch(page, base, path, { method: 'POST', token, csrf: c, body });
+          }
+
+          function writeEvidence(result, error = null) {
+            evidence.result = result;
+            evidence.completed_at = new Date().toISOString();
+            if (error) evidence.error = error;
+            fs.writeFileSync(evidenceFile, JSON.stringify(evidence, null, 2));
+            const c = evidence.checks;
+            const t = evidence.target || {};
+            const lines = [
+              `## Issue #164 — Phase 6 final admin UAT: **${result}**`,
+              '',
+              `Candidate: \`${E.sha}\``,
+              `Authorized staging ref: \`${E.ref}\``,
+              '',
+              `- canonical provenance: ${c.canonical_provenance ? 'PASS' : 'not proven'}`,
+              `- preview provenance/sandbox isolation: ${c.preview_provenance ? 'PASS' : 'not proven'}`,
+              `- header-only x-user-id: ${c.x_user_id === 401 ? '**401 PASS**' : 'not proven'}`,
+              `- legitimate admin password login: ${c.real_admin_login ? 'PASS' : 'not proven'}`,
+              `- admin user APIs expose credential fields: ${c.password_hash_absent ? '**NO — PASS**' : 'not proven'}`,
+              `- browser credentialed settlement: ${c.settled === true ? '**settled — PASS**' : 'not proven'}`,
+              `- owner_id unchanged across settlement: ${c.owner_id_invariant === true ? '**PASS**' : 'not proven'}`,
+              t.id ? `- certification transaction: \`${t.id}\` / VIN \`${t.vin}\`` : '',
+              error ? `- error: \`${String(error).replace(/`/g, "'").slice(0,500)}\`` : '',
+              '',
+              'The UAT reviewer credential was temporary, generated inside the runner, and restored in cleanup. No production DB/provider/Gemini action was used.',
+            ].filter(Boolean);
+            fs.writeFileSync(commentFile, lines.join('\n') + '\n');
+          }
+
+          try {
+            await db.connect();
+            evidence.checks.canonical_provenance = Boolean(await health(E.canonical, 'production'));
+            evidence.checks.preview_provenance = Boolean(await health(E.sandbox, 'preview'));
+
+            const qReviewer = await db.query('select id,password_hash,role from public.users where email=$1 limit 1', [REVIEWER_EMAIL]);
+            assert(qReviewer.rowCount === 1, `Missing ${REVIEWER_EMAIL}`);
+            reviewer = qReviewer.rows[0];
+
+            const password = crypto.randomBytes(30).toString('base64url');
+            const hash = await scryptHash(password);
+            const rotate = await db.query(
+              'update public.users set password_hash=$1, role=$2 where id=$3 returning id,role',
+              [hash, 'admin', reviewer.id]);
+            assert(rotate.rowCount === 1 && rotate.rows[0].role === 'admin', 'Reviewer rotation failed');
+
+            const targetQ = await db.query(`
+              select id,vin,status,payment_state,payment_provider,payment_provider_mode,payment_intent_id,updated_at
+              from public.escrow_trust_sessions
+              where status='funds_held' and vin like 'PASS6%' and payment_provider_mode in ('sandbox','test')
+              order by updated_at desc limit 1
+            `);
+            assert(targetQ.rowCount === 1, 'No PASS6 funds_held sandbox transaction available.');
+            const target = targetQ.rows[0];
+            const ownerQ = await db.query('select owner_id from public.vehicles where vin=$1', [target.vin]);
+            assert(ownerQ.rowCount === 1, `Missing vehicle ${target.vin}`);
+            const ownerBefore = ownerQ.rows[0].owner_id;
+            evidence.target = {
+              id: target.id, vin: target.vin,
+              status_before: target.status, payment_state_before: target.payment_state,
+              provider: target.payment_provider, provider_mode: target.payment_provider_mode,
+              owner_id_before: ownerBefore,
+            };
+
+            browser = await chromium.launch({ headless: true });
+            const ctx = await browser.newContext();
+
+            const canonicalPage = await ctx.newPage();
+            await canonicalPage.goto(`${E.canonical}/api/health`, { waitUntil: 'domcontentloaded' });
+            const bypass = await browserFetch(canonicalPage, E.canonical, '/api/users/management', {
+              headers: { 'x-user-id': reviewer.id },
+            });
+            assert(bypass.status === 401, `header-only x-user-id => ${bypass.status}, expected 401`);
+            evidence.checks.x_user_id = 401;
+
+            const canonicalToken = await login(canonicalPage, E.canonical, REVIEWER_EMAIL, password);
+            const me = await browserFetch(canonicalPage, E.canonical, '/api/auth/me', { token: canonicalToken });
+            assert(me.status === 200, `/api/auth/me => ${me.status}`);
+            const role = me.json?.user?.role ?? me.json?.role;
+            assert(role === 'admin', `authoritative /api/auth/me role=${role}`);
+            evidence.checks.real_admin_login = true;
+
+            for (const p of ['/api/users/management','/api/admin/users']) {
+              const r = await browserFetch(canonicalPage, E.canonical, p, { token: canonicalToken });
+              assert(r.status === 200, `${p} => ${r.status}`);
+              assert(!hasCredentialField(r.json), `${p} exposes credential material`);
+            }
+            evidence.checks.password_hash_absent = true;
+
+            const previewPage = await ctx.newPage();
+            await previewPage.goto(`${E.sandbox}/api/health`, { waitUntil: 'domcontentloaded' });
+            const adminToken = await login(previewPage, E.sandbox, REVIEWER_EMAIL, password);
+
+            let r = await adminPost(previewPage, E.sandbox, adminToken, `/api/escrow/${target.id}/inspection/start`, { reason:'phase6-final-admin-observed' });
+            assert(r.status === 200 && r.json?.session?.status === 'inspection_pending',
+              `inspection/start => ${r.status} ${r.text.slice(0,240)}`);
+            r = await adminPost(previewPage, E.sandbox, adminToken, `/api/escrow/${target.id}/release/approve`, { reason:'phase6-final-admin-observed' });
+            assert(r.status === 200 && r.json?.session?.status === 'release_approved',
+              `release/approve => ${r.status} ${r.text.slice(0,240)}`);
+            r = await adminPost(previewPage, E.sandbox, adminToken, `/api/escrow/${target.id}/release`, {});
+            assert(r.status === 200, `release => ${r.status} ${r.text.slice(0,320)}`);
+
+            let final;
+            for (let i=0;i<20;i++) {
+              const q = await db.query('select status,payment_state from public.escrow_trust_sessions where id=$1', [target.id]);
+              final = q.rows[0];
+              if (final?.status === 'settled') break;
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            assert(final?.status === 'settled', `final status=${final?.status}`);
+            assert(final?.payment_state === 'released', `final payment_state=${final?.payment_state}`);
+
+            const ownerAfterQ = await db.query('select owner_id from public.vehicles where vin=$1', [target.vin]);
+            assert(ownerAfterQ.rowCount === 1, `Vehicle ${target.vin} missing after settlement`);
+            const ownerAfter = ownerAfterQ.rows[0].owner_id;
+            assert(ownerAfter === ownerBefore, `owner_id changed ${ownerBefore} -> ${ownerAfter}`);
+
+            const browserRead = await browserFetch(previewPage, E.sandbox, `/api/escrow/${target.id}`, { token: adminToken });
+            assert(browserRead.status === 200 && browserRead.json?.session?.status === 'settled',
+              `credentialed browser final read => ${browserRead.status}/${browserRead.json?.session?.status}`);
+
+            evidence.target.status_after = final.status;
+            evidence.target.payment_state_after = final.payment_state;
+            evidence.target.owner_id_after = ownerAfter;
+            evidence.checks.settled = true;
+            evidence.checks.owner_id_invariant = true;
+            writeEvidence('PASS');
+            console.log('PHASE6_FINAL_ADMIN_OBSERVED=PASS');
+          } catch (err) {
+            writeEvidence('FAIL', err?.message || String(err));
+            console.error(err);
+            process.exitCode = 1;
+          } finally {
+            if (browser) await browser.close().catch(()=>{});
+            if (sessions.length) await db.query('delete from public.user_sessions where token=any($1::text[])',[sessions]).catch(()=>{});
+            if (reviewer) await db.query('update public.users set password_hash=$1,role=$2 where id=$3',[reviewer.password_hash,reviewer.role,reviewer.id]).catch(()=>{});
+            await db.end().catch(()=>{});
+          }
+          NODE
+
+      - name: Post evidence to Issue 164
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 164 --repo kudzimusar/carup --body-file test-results/phase6-final-admin-comment.md
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase6-final-admin-observed-${{ github.run_id }}
+          path: |
+            test-results/phase6-final-admin-observed.json
+            test-results/phase6-final-admin-comment.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce UAT result
+        if: steps.uat.outcome != 'success'
+        run: exit 1
