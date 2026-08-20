@@ -1,10 +1,14 @@
 name: Issue 164 Controlled Staging Truth Cutover
 
-# Control-plane registration only. This workflow is intentionally on the default branch so
-# workflow_dispatch can be owner-invoked. It checks out one immutable reviewed candidate that contains
-# the cutover runner and all migration bytes. There is no arbitrary ref, SQL, migration, or branch input.
+# Control-plane registration only. Manual workflow_dispatch remains owner-only on main. Because the
+# connected automation cannot invoke workflow_dispatch, the initial already-authorized cutover may
+# also run exactly when dispatcher PR #169 is merged with the pinned merge title below. All database
+# code still comes from one immutable reviewed candidate; there is no arbitrary ref/SQL input.
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       mode:
@@ -27,13 +31,16 @@ concurrency:
 env:
   CANDIDATE_SHA: c6c7644ea0b95339a40ff998d82833fa70c1b88a
   PG_DRIVER_VERSION: 8.21.0
+  INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
 jobs:
   cutover:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
-    if: github.ref == 'refs/heads/main' && github.actor == 'kudzimusar'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'kudzimusar') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.event.head_commit.message == 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)')
 
     steps:
       - name: Check out immutable reviewed cutover candidate
@@ -72,12 +79,17 @@ jobs:
         env:
           DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
         run: |
-          if [ "${{ inputs.mode }}" = "apply" ]; then
+          mode="${{ inputs.mode }}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            mode="apply"
+          fi
+
+          if [ "$mode" = "apply" ]; then
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode=preflight
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode=apply
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode=verify
           else
-            node backend/scripts/issue164-staging-truth-cutover.mjs --mode="${{ inputs.mode }}"
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode="$mode"
           fi
 
       - name: Preserve non-secret cutover receipt
