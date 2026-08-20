@@ -3,7 +3,7 @@
  * Clients request actions; they never submit canonical transaction/payment states.
  */
 import express from 'express';
-import { authorizeRole } from '../middleware/authMiddleware.js';
+import { authorizeRole, authorizeSessionRole } from '../middleware/authMiddleware.js';
 import {
   getSession,
   listSessionsForVin,
@@ -149,7 +149,7 @@ router.post('/api/escrow/:id/dispute', authorizeRole(['buyer', 'owner', 'dealer'
   performParticipantAction(req, res, next, 'disputed'));
 router.post('/api/escrow/:id/inspection/start', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
   performParticipantAction(req, res, next, 'inspection_pending'));
-router.post('/api/escrow/:id/release/approve', authorizeRole(['admin', 'reviewer']), (req, res, next) =>
+router.post('/api/escrow/:id/release/approve', authorizeSessionRole(['admin', 'reviewer']), (req, res, next) =>
   performParticipantAction(req, res, next, 'release_approved', {
     recheck: true,
     requireActorParticipant: false,
@@ -196,15 +196,15 @@ router.post('/api/escrow/:id/payment/reconcile', authorizeRole(['buyer', 'owner'
   try { return res.json(await reconcileMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
   catch (err) { return next(err); }
 });
-router.post('/api/escrow/:id/release', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
+router.post('/api/escrow/:id/release', authorizeSessionRole(['admin', 'reviewer']), async (req, res, next) => {
   try { return res.json(await releaseMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
   catch (err) { return next(err); }
 });
-router.post('/api/escrow/:id/release/recover', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
+router.post('/api/escrow/:id/release/recover', authorizeSessionRole(['admin', 'reviewer']), async (req, res, next) => {
   try { return res.json(await recoverMarketplaceSettlement(req.params.id, { actor: actorFrom(req) })); }
   catch (err) { return next(err); }
 });
-router.post('/api/escrow/:id/refund', authorizeRole(['admin', 'reviewer']), async (req, res, next) => {
+router.post('/api/escrow/:id/refund', authorizeSessionRole(['admin', 'reviewer']), async (req, res, next) => {
   try { return res.json(await refundMarketplacePayment(req.params.id, { actor: actorFrom(req) })); }
   catch (err) { return next(err); }
 });
