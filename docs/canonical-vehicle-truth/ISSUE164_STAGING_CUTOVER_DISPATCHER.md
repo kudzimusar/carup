@@ -13,12 +13,12 @@ separation of control plane from product code.
 
 The workflow checks out immutable candidate:
 
-`c6c7644ea0b95339a40ff998d82833fa70c1b88a`
+`476bd4cf5e0a50ab1d744943c1dd67c693b00b63`
 
 That candidate is a descendant of the Phase 6 certified source anchor
-`e2d2f8a873ebb2714dc44587b17f9832d1ef69ed` and adds only
-`backend/scripts/issue164-staging-truth-cutover.mjs`. The runner itself verifies that all 16 migration
-files are byte-identical to the Phase 6 source anchor before touching staging.
+`e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`. Its only post-Phase-6 executable change is the guarded
+`backend/scripts/issue164-staging-truth-cutover.mjs`; all 16 migration files are verified byte-identical
+to the Phase 6 source anchor before any connection is opened.
 
 Security properties:
 
@@ -26,11 +26,18 @@ Security properties:
 - GitHub `staging` environment;
 - no arbitrary ref, SQL, branch or migration input;
 - immutable candidate checkout;
-- positive staging ref `eoyenigwevnxwwhyhaer` required inside the runner;
-- known production ref refused;
-- preflight executes all 16 migrations and ledger writes in a transaction then rolls back;
+- database identity must positively expose staging ref `eoyenigwevnxwwhyhaer` in host/user identity;
+- all other database identities are refused;
+- TLS certificate verification is mandatory, using the configured or bundled Supabase CA (system roots only as a verified fallback);
+- dependency installation occurs without database credentials in scope;
+- canonical migration parser validates every Up section;
+- Supabase ledger identity uses the numeric timestamp convention with the full filename recorded as `name`;
+- preflight executes all 16 migrations and ledger writes in one transaction and then rolls back;
 - apply executes all 16 migrations plus ledger rows atomically and verifies before commit;
-- 0/16 or exact 16/16 ledger states only; partial state fails closed;
+- only 0/16 or exact 16/16 ledger states are accepted; partial/mismatched state fails closed;
+- postconditions require RLS on the transaction tables, zero anon/auth table or column grants, zero anon/auth executable `issue164_*` RPCs, and service-role RPC authority;
+- vehicle/evidence/ownership/finance/escrow row counts are preserved where present;
+- `vehicles.trust_score` and legal `vehicles.owner_id` checksums must not change;
 - no production, live provider or Gemini activation.
 
 ## Initial cutover execution
