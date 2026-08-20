@@ -12,6 +12,7 @@ const GENERATED_TEST = path.join(HERE, '.issue164-phase6-full-chain-1290.generat
 
 const MIGRATION_1280 = "  '../../database/migrations/20260819128000_issue164_phase6_payment_race_recovery.sql',";
 const MIGRATION_1290 = "  '../../database/migrations/20260819129000_issue164_phase6_settlement_recovery_fence.sql',";
+const EXECUTION_SENTINEL = 'Phase 6 full migration chain is order-safe and server-authoritative on PostgreSQL';
 
 /**
  * Closure-audit guard.
@@ -59,15 +60,23 @@ test('Phase 6 closure audit — accumulated PostgreSQL chain executes through mi
   let cursor = -1;
   for (const migration of orderedMigrations) {
     const next = certifiedSource.indexOf(migration);
-    assert.ok(next > cursor, `${migration} must appear once and in Phase 6 dependency order`);
+    assert.ok(next > cursor, `${migration} must appear in Phase 6 dependency order`);
     cursor = next;
   }
 
   try {
     writeFileSync(GENERATED_TEST, certifiedSource, 'utf8');
+
+    // `node --test` marks child test workers with NODE_TEST_CONTEXT. Propagating that marker into a
+    // nested runner makes Node treat the invocation as recursive and it can exit 0 without loading
+    // the generated test. Remove it so this is a real second test process, then require an execution
+    // sentinel in TAP output so a future silent-skip behavior cannot certify the chain vacuously.
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT;
+
     const result = spawnSync(process.execPath, ['--test', GENERATED_TEST], {
       cwd: REPO_ROOT,
-      env: process.env,
+      env: childEnv,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
     });
@@ -76,6 +85,11 @@ test('Phase 6 closure audit — accumulated PostgreSQL chain executes through mi
       result.status,
       0,
       `full Phase 6 PostgreSQL chain through 1290 failed\nSTDOUT:\n${result.stdout || ''}\nSTDERR:\n${result.stderr || ''}`,
+    );
+    assert.match(
+      result.stdout || '',
+      new RegExp(EXECUTION_SENTINEL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `nested Phase 6 chain runner exited without executing the generated PostgreSQL test\nSTDOUT:\n${result.stdout || ''}\nSTDERR:\n${result.stderr || ''}`,
     );
   } finally {
     try { unlinkSync(GENERATED_TEST); } catch { /* best-effort cleanup */ }
