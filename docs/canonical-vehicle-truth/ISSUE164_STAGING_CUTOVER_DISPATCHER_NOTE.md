@@ -1,0 +1,1 @@
+The Issue #164 staging cutover dispatcher is intentionally immutable and owner-only. It may remain inert on `main` after cutover as an auditable verify/recovery control. Any future candidate change requires another reviewed mainline change because the candidate SHA is hard-pinned; the workflow cannot execute arbitrary branch code.
