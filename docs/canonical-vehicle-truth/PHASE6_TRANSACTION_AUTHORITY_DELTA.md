@@ -1,10 +1,16 @@
-# Phase 6 transaction authority — certification candidate
+# Phase 6 transaction authority — canonical closure contract
 
-Status: **ACTIVE / CANDIDATE — NOT CERTIFIED**
+Status: **CONTRACT COMPLETE — exact-head certification is tracked in Issue #164 / PR #165**
 
-Parent certified Phase 5 SHA: `119aaa9bfcbb38942e5fc9acdc9bbda09a443ce3`.
+Parent certified Phase 5 anchor: `119aaa9bfcbb38942e5fc9acdc9bbda09a443ce3`.
 
-Phase 6 is the server-authority closure for:
+This document is the canonical Phase 6 transaction-authority contract. It deliberately does not
+embed a mutable branch SHA or self-certify a changing head. The authoritative PASS/FAIL state must be
+an exact-head receipt in Issue #164 / PR #165 after blocking CI, the accumulated PostgreSQL chain,
+targeted mutation proof, fresh independent review and the governed behavioral UAT evidence required
+by the programme.
+
+Phase 6 closes the server-authority chain:
 
 ```text
 inquiry
@@ -18,46 +24,30 @@ inquiry
   -> settlement | refund | cancellation
 ```
 
-This document records the current candidate contract. It does **not** claim Phase 6 PASS. Final
-certification must pin one exact head after blocking CI, ordered PostgreSQL proof, targeted mutation
-proof, fresh independent review and merged-tree reconciliation.
+No production action, real-money activation or live provider enablement is authorized by Phase 6.
 
-## 1. Canonical transaction authority
+## 1. Canonical buyer, seller, inquiry and listing authority
 
-### Buyer / seller / inquiry
-
-- buyer identity comes only from authenticated `userContext`;
-- seller authority is `vehicles.current_seller_id` only — `owner_id` is never a seller fallback;
-- a transaction requires a current, clear `vehicle_purchase_interest` inquiry binding the same
-  VIN + buyer + current seller;
-- buyer and seller must be distinct;
-- stale/changed seller or inquiry lineage fails closed.
-
-### Listing economics and immutable transaction snapshot
-
-- transaction amount comes from the listing row;
-- currency is usable only with recognised `currency_source` provenance;
-- the browser cannot choose amount, currency, seller, listing snapshot or transaction idempotency;
-- the immutable listing snapshot contains seller/listing truth, not transaction-owned cache state;
-- `vehicles.status` and broad `updated_at` are deliberately excluded from the immutable snapshot, so
-  the reservation side effect (`Available -> Reserved`) cannot invalidate the transaction that caused it;
-- seller, publication or listing-economic changes still change the snapshot.
-
-### Eligibility
-
-- Trust/identity/publication/fraud/evidence inputs come from canonical server reads;
-- seller posture, participant authority and snapshot continuity are server-resolved transaction
-  facts, not request booleans;
-- missing/unknown gate evidence fails closed;
-- gates are recomputed before initiation and release approval;
-- participant actions require the recorded buyer/seller actor; governance rechecks preserve the
-  buyer/seller/current-inquiry lineage without pretending a reviewer is a transaction participant.
+- Buyer identity comes from authenticated CarUp `userContext`; browser `customerId` / buyer IDs are
+  never transaction authority.
+- Marketplace seller authority is `vehicles.current_seller_id`. `owner_id` is legal/historical
+  ownership and is never a seller fallback.
+- A transaction requires a current clear `vehicle_purchase_interest` inquiry binding the same VIN,
+  buyer and current seller. Buyer and seller must be distinct.
+- Listing amount, currency and currency provenance are resolved from the current governed listing.
+  Browser values cannot override them.
+- The immutable listing snapshot contains seller/listing truth only. Transaction-owned cache fields
+  such as `vehicles.status` and broad `updated_at` are excluded so a successful reservation cannot
+  invalidate its own transaction snapshot.
+- Current publication, seller, inquiry lineage, Trust/evidence gates and snapshot continuity are
+  recomputed server-side before consequential transaction actions. Missing/unknown authority fails
+  closed.
 
 ## 2. State and reservation authority
 
-Clients request named actions; they do not submit canonical transaction states.
+Clients request named actions; they never submit canonical transaction/payment state.
 
-Provider-neutral canonical states are:
+Provider-neutral transaction states include:
 
 ```text
 not_requested
@@ -74,135 +64,107 @@ cancelled
 failed
 ```
 
-Historical `funded_sandbox` / `released_sandbox` / `refunded_sandbox` values remain readable for
-forward compatibility; new Phase 6 writes use provider-neutral states.
-
 Authority is partitioned:
 
-- **buyer** — may initiate its own eligible transaction;
-- **participants** — may request cancellation/dispute where the graph permits;
-- **reviewer/admin** — owns release approval;
-- **CarUp internal system/reviewer** — owns inspection/failure orchestration;
-- **PaymentProvider/provider reconciliation** — owns provider-confirmed money states such as
-  captured/held, released/settled, refunded and provider cancellation.
+- **buyer / participants** — initiation and participant actions permitted by the state graph;
+- **reviewer/admin** — release approval and consequential financial governance;
+- **CarUp internal orchestration** — non-money workflow actions where explicitly governed;
+- **PaymentProvider reconciliation** — provider-confirmed captured, released, refunded and provider
+  cancellation truth.
 
-A provider cannot assert CarUp's `release_approved` governance state. A human/admin cannot assert
-`funds_held`, `settled` or `refunded` without provider confirmation. Internal `system` is not payment
-provider authority.
+A provider cannot manufacture CarUp `release_approved`. A human/admin cannot manufacture
+`funds_held`, `settled` or `refunded` without provider confirmation. Internal `system` is not provider
+money authority.
 
-The generic direct-transition route and legacy direct SafePay status writer fail closed. Legacy
-payment-gateway / duplicate SafePay paths are being retired or terminated behind the canonical
-router rather than preserved as a second transaction universe.
+`vehicle_reservations` is reservation authority; `vehicles.status`, `reserved_at`, `reserved_until`
+and `active_reservation_id` are projections/cache. Reservation creation is PostgreSQL-atomic.
 
-### Reservation persistence and expiry
+A wall-clock-expired reservation may become available automatically only before a provider intent is
+linked. After provider linkage, clock expiry alone cannot erase the hold or admit a second buyer;
+provider truth must reconcile first.
 
-`vehicle_reservations` is reservation authority. `vehicles.status`, `reserved_at`, `reserved_until`
-and `active_reservation_id` are materialized cache fields.
+Direct generic escrow transitions, historical SafePay state writers and historical generic payment
+webhooks fail closed behind the canonical transaction router.
 
-Reservation creation is PostgreSQL-atomic and checks the transaction, buyer, seller, current inquiry,
-publication and snapshotted economics before creating or replaying one active hold.
+## 3. Deposit and provider boundary
 
-A clock-expired reservation may become publicly available automatically **only before a provider
-intent exists**. After provider linkage, wall-clock expiry is not proof that authorization vanished.
-The hold remains active for provider reconciliation; public projection reports an explicit
-inconsistent/unavailable posture instead of fabricated availability.
+Deposit eligibility is server-derived from a fresh gate/reservation check. The current synthetic test
+policy is versioned as `marketplace-deposit-1.0.0` and uses USD 500; unsupported currency fails
+closed rather than being silently converted/defaulted.
 
-Marketplace list and listing detail consume the same public reservation projection. Private
-reservation/transaction/participant/provider identifiers are not part of that projection.
+The browser cannot choose provider, provider mode, provider intent ID, payer, payee, deposit amount,
+currency or canonical payment state.
 
-## 3. Deposit and PaymentProvider boundary
-
-Deposit eligibility is server-derived after a fresh transaction-gate and active-reservation check.
-The current policy is versioned as `marketplace-deposit-1.0.0`; the current synthetic test policy is
-USD 500. Unsupported currency fails closed rather than being silently converted/defaulted.
-
-The browser cannot choose:
-
-- provider or provider mode;
-- provider intent id;
-- payer/payee;
-- deposit amount/currency;
-- payment state.
-
-Marketplace reuses the existing SafeTrade `PaymentProvider` abstraction. It does not create a
-provider-specific transaction architecture.
+Marketplace reuses the existing SafeTrade `PaymentProvider` abstraction and capability/control plane.
+Provider discovery metadata never upgrades a provider into verified support.
 
 ### Durable synthetic sandbox
 
-SafeTrade's historical `SandboxPaymentProvider` is process-local and remains appropriate for
-isolated unit tests. A process-local Map is **not** used as persisted Marketplace payment authority.
+Marketplace synthetic test/staging transactions use the PostgreSQL-backed
+`DurableSandboxPaymentProvider`; persisted payment intent authority is not held in a process-local
+Map. The sandbox remains synthetic/test-only and reports `live:false`.
 
-Marketplace selects `DurableSandboxPaymentProvider` for synthetic test/staging transactions. That
-adapter implements the existing `PaymentProvider` contract through the service-role-only PostgreSQL
-sandbox ledger created by migration `1260`:
+`POST /api/escrow/:id/sandbox/capture` is:
 
-- `safetrade_sandbox_payment_intents` — durable synthetic provider intent/state;
-- `safetrade_sandbox_payment_operations` — durable provider-operation idempotency/results;
-- `issue164_sandbox_payment_action_atomic(...)` — serialized create/authorize/capture/release/
-  refund/partial-refund/cancel/retrieve provider operation.
+- available only in governed non-production runtimes;
+- **buyer-owned end to end** — there is no admin capture exception;
+- unable to accept browser-authored provider state;
+- required to recheck current transaction/listing/inquiry/gate authority before provider
+  authorization/capture.
 
-The durable sandbox is still synthetic and returns `live:false`. It does not claim regulated escrow
-or real-money movement. `anon`/`authenticated` have no direct table/function authority.
+Explicit production deployment signals fail closed even if weaker environment flags are stale.
 
-Sandbox selection is fail-closed outside test/development/preview/staging. Deployment-specific
-signals outrank weaker flags: an explicit Vercel production deployment cannot be reopened by a stale
-`CARUP_ENV=staging` or development setting.
+## 4. Consequential governance authentication
 
-A governed UAT action exists at:
+The ordinary local/test `x-user-id` fallback remains available only to development/test routes that
+are not consequential money governance.
 
-```text
-POST /api/escrow/:id/sandbox/capture
-```
+The following routes require a validated CarUp session through `authorizeSessionRole()` and never
+accept the generic `x-user-id` fallback:
 
-It is runtime-gated to non-production environments, accepts no browser-authored provider state, and
-may be used by the transaction buyer (or platform admin for controlled UAT) to drive the already-bound
-synthetic provider through authorization/capture. Provider state is then reconciled through the same
-canonical payment-state RPC as other adapters. Production returns the action unavailable before any
-provider/transaction mutation.
+- `POST /api/escrow/:id/release/approve`
+- `POST /api/escrow/:id/release`
+- `POST /api/escrow/:id/release/recover`
+- `POST /api/escrow/:id/refund`
 
-Provider-linked cancellation also resolves the same durable Marketplace provider selector; it does
-not fall back to the process-local sandbox on a new serverless worker.
+The Phase 6 session-governance mutation guard must fail if the wrapper re-enables fallback or any of
+those routes regresses to generic role authorization.
 
-## 4. Settlement serialization before provider payout
+## 5. Settlement, refund and recovery serialization
 
-Release approval and provider payout are two authorities. The critical ordering is now:
+Provider money calls are preceded by durable PostgreSQL operation claims.
+
+Settlement ordering is:
 
 ```text
 reviewer release approval
-  -> PostgreSQL settlement operation claim
+  -> durable settlement claim
   -> provider.release(idempotency key)
   -> provider-confirmed released
   -> canonical reconciliation to settled
 ```
 
-`issue164_begin_settlement_atomic(...)` locks the transaction/reservation/vehicle before provider
-release and requires:
+Refund similarly claims the refund operation before calling the provider. Settlement and refund
+claims are mutually exclusive while active.
 
-- reviewer/admin authority;
-- `release_approved` transaction state;
-- attributable captured provider funds;
-- active canonical reservation;
-- current seller still matching the approved transaction at claim time.
+Settlement recovery is not a blind claim-clear operation. It requires reviewer/admin authority and a
+provider capable of authoritative `confirmNotReleased()` semantics:
 
-The claim records the operation id, actor, approved seller and provider intent. While the claim is
-pending, conflicting human status rewrites are blocked; refund is also rejected by the service until
-provider release is reconciled. Provider retries use the same idempotency key.
+1. CarUp establishes a durable settlement-recovery fence **before** querying provider status.
+2. Release/retry is blocked while that fence is active.
+3. Provider `released` truth wins and is reconciled to canonical settlement.
+4. Recovery is permitted only from definitive attributable `captured` / NOT-RELEASED evidence with a
+   provider confirmation reference.
+5. Recovery provenance and closed-fence evidence are immutable.
+6. A recovered operation may enter a newly governed refund or same-key re-claim only through the
+   serialized database rules.
 
-A confirmed provider release is reconciled from this durable approved lineage rather than rechecking
-mutable vehicle-seller state **after** provider money has moved. This prevents the failure mode where
-a dispute/seller edit races the provider call, the provider releases, and CarUp then refuses to record
-that attributable money truth.
+Settlement may close listing/reservation projections but **must not rewrite `vehicles.owner_id` or
+create legal ownership history**. Payment is not title proof.
 
-Settlement may mark the listing Sold and complete its reservation cache, but it does **not** rewrite
-legal `owner_id` or create ownership history. Payment confirmation is not title/registry proof.
+## 6. Provider capability contract
 
-## 5. Payment capability registry — Phase 6B/6C
-
-The existing `providerPlatform/providerRegistry.js` remains the control plane for credential refs,
-activation mode, health and kill switch. The payment capability registry answers only what payment
-behaviour has actually been proven.
-
-Canonical capability vocabulary:
+Canonical capability vocabulary includes:
 
 ```text
 collect_payment
@@ -221,57 +183,49 @@ webhook_replay_resistant
 polling_fallback
 ```
 
-Critical semantics:
+The SafeTrade sandbox is `test_only` and does not claim regulated escrow or real-money movement.
+ContiPay, Paynow, PayPal, Stripe, Pesapal, Peach Payments, Stitch, Selcom, PayChangu and other
+candidates remain unverified until official provider/merchant/legal evidence proves the relevant
+capabilities. Candidate jurisdiction metadata is not capability evidence.
 
-- candidate jurisdiction is discovery metadata, never support evidence;
-- `supported_countries/currencies/methods = null` means unknown;
-- capability `null` means unknown;
-- collection does not imply regulated escrow, delayed release, split payment or payout;
-- automated external routing also requires an existing control-plane row with escrow capability,
-  kill switch off, automated activation mode and healthy state.
+`SAFETRADE_APPROVED_LIVE_PROVIDERS` remains empty for this Phase 6 programme. Missing external
+credentials/provider access is an external evidence gate, never something to invent.
 
-The SafeTrade sandbox is `test_only` and explicitly does **not** claim regulated escrow or split
-payment. ContiPay, Paynow, PayPal, Stripe, Pesapal, Peach Payments, Stitch, Selcom and PayChangu
-remain `candidate_unverified`; candidate metadata alone cannot make them callable.
+## 7. Finance truth
 
-`SAFETRADE_APPROVED_LIVE_PROVIDERS` remains empty. No real-money rail is activated by Phase 6.
-External sandbox/provider proof remains separately gated by owner credentials/provider access.
+The compatibility `/api/finance/pre-approve` URL is retained, but it creates a governed application,
+not a fabricated approval:
 
-## 6. Finance truth
-
-The compatibility `/api/finance/pre-approve` URL is retained, but:
-
-- `customerId` is ignored; applicant comes from authenticated context;
+- applicant identity comes from authenticated context; browser `customerId` is ignored;
 - selected lender must resolve to a real bank-role user;
-- requested amount is an applicant request bounded by current listing price;
-- requested currency/source are server-resolved from the listing;
-- submission status is `Pending`;
-- no invented income, debt, fallback Trust score, APR or monthly payment auto-approves a request;
-- every resulting Approved/Rejected/Disbursed row requires attributable decision source/time;
-- Approved/Disbursed rows require explicit APR and positive monthly-payment terms even on same-status
-  updates;
-- lender list reads canonical Trust lifecycle/version rather than using raw unversioned
-  `vehicles.trust_score` as decision truth.
+- requested amount is bounded by current listing truth;
+- listing currency/provenance are server resolved;
+- initial application status is `Pending`;
+- no invented income, debt, fallback Trust score, APR or monthly payment may auto-approve;
+- every resulting Approved/Rejected/Disbursed row retains attributable decision source/time;
+- Approved/Disbursed rows retain explicit APR and positive monthly-payment terms on every resulting
+  terminal-row write.
 
-## 7. Grants / browser isolation
+## 8. Browser/database isolation
 
-From the first Phase 6 migration onward, direct `anon`/`authenticated` transaction-table access is
-revoked. The accumulated candidate also keeps the durable synthetic provider ledger service-only.
+From the first Phase 6 migration onward, direct `anon` / `authenticated` access is revoked from the
+transaction/event tables governed by the programme. Durable sandbox ledgers and financial RPCs remain
+service-role only.
 
-The blocking proofs cover browser-role absence on:
+Blocking proofs cover at least:
 
-- `escrow_trust_sessions`;
-- `escrow_trust_events`;
-- `escrow_trust_webhook_events`;
-- `vehicle_reservations`;
-- `safetrade_sandbox_payment_intents`;
-- `safetrade_sandbox_payment_operations`.
+- `escrow_trust_sessions`
+- `escrow_trust_events`
+- `escrow_trust_webhook_events`
+- `vehicle_reservations`
+- `safetrade_sandbox_payment_intents`
+- `safetrade_sandbox_payment_operations`
 
-Backend participant-scoped/public-safe projections are the read path.
+Participant-scoped/public-safe backend projections are the read path.
 
-## 8. Phase 6 migration chain — authored, unapplied
+## 9. Canonical Phase 6 migration chain — authored, unapplied
 
-In dependency order:
+Dependency order:
 
 1. `20260819100000_issue164_phase6_transaction_terms.sql`
 2. `20260819110000_issue164_phase6_atomic_reservations.sql`
@@ -282,62 +236,41 @@ In dependency order:
 7. `20260819124000_issue164_phase6_reservation_expiry_reconciliation.sql`
 8. `20260819125000_issue164_phase6_provider_reconciliation_hardening.sql`
 9. `20260819126000_issue164_phase6_payment_operation_hardening.sql`
+10. `20260819127000_issue164_phase6_settlement_recovery.sql`
+11. `20260819128000_issue164_phase6_payment_race_recovery.sql`
+12. `20260819129000_issue164_phase6_settlement_recovery_fence.sql`
 
-**None has been applied to staging or production.**
+**None of these Issue #164 migrations is made a production action by this contract.** The controlled
+staging truth cutover is a separate programme gate after source/schema certification and before Phase
+7 Golden Reference Vehicles.
 
-The chain is intentionally forward-only. Migration `1260` adds only the synthetic provider ledger,
-settlement-operation claim/guard and the corresponding provider-reconciliation hardening. It does not
-activate a real provider or authorize production money movement.
+The final chain must be exercised in dependency order on PostgreSQL semantics. Migration 1290 must be
+proven both in its focused settlement/recovery race harness and as the final member of the accumulated
+`1000 -> 1290` Phase 6 chain.
 
-## 9. PostgreSQL / regression candidate evidence
+## 10. Certification protocol
 
-The blocking backend test glob is `node --test backend/tests/*.test.js`; new Phase 6 `*.test.js`
-files are therefore discovered without a fixed-file allow-list.
+A Phase 6 PASS is valid only when the same exact candidate head has:
 
-The candidate tests include:
+1. blocking GitHub CI green;
+2. the accumulated `1000 -> 1290` PostgreSQL chain green;
+3. focused settlement/refund/recovery and provider idempotency/race proofs green;
+4. targeted mutation guards green on the clean candidate and red on their deliberate regressions;
+5. fresh independent review with no blocking P0/P1;
+6. exact-head behavioral UAT/evidence required by the programme, including legitimate-session money
+   governance and legal-ownership non-mutation;
+7. reconciliation against current `main` / merge result;
+8. honest recording of any external-provider credential/access gate.
 
-- seller/inquiry/economic authority and no-browser-state guards;
-- provider-vs-governance state partition;
-- atomic reservation race/idempotency proof;
-- full ordered nine-migration Phase 6 chain on PGlite/PostgreSQL semantics;
-- true audit from-state on eligibility/payment reconciliation;
-- payment-linked expiry fail-closed and late-provider reconciliation proof;
-- durable sandbox create/replay/authorize/capture/retrieve/release proof through migration `1260`;
-- settlement claim before provider release, dispute-race rejection and post-claim mutable-seller
-  reconciliation proof;
-- legal ownership non-mutation on settlement;
-- finance request-vs-decision provenance proof;
-- payment capability/live-provider freeze;
-- provider-linked cancellation using the shared durable selector;
-- non-production sandbox route/runtime guards;
-- Marketplace list/detail reservation convergence and event-side-effect containment.
+The committed document is the contract; the exact-head certification receipt belongs in Issue #164 /
+PR #165 so it cannot become a misleading self-reference after a later branch commit.
 
-Targeted mutation guards are maintained only for discovered load-bearing failure classes. The ledger
-must use unique labels; a mutation counts only when its anchor changes and the named invariant turns
-red/non-safe relative to the clean candidate.
+## 11. Staging/production boundary
 
-The generic repository migration checker still has its historical fixed-list limitation; Phase 6
-does not rely on that harness for this chain because the dedicated blocking full-chain test executes
-all nine migrations in dependency order.
+Before Phase 7, the programme still performs one controlled staging truth cutover: positively verify
+the staging Supabase ref, record before-state receipts, preflight/apply the accumulated Issue #164
+migrations in dependency order, deploy the compatible exact programme head, refresh Trust only
+through the canonical writer, rerun grants/RLS/postconditions and record post-cutover receipts.
 
-## 10. Remaining gates before Phase 6 PASS
-
-Phase 6 remains **NOT CERTIFIED** until all of the following are true on one exact final head:
-
-1. blocking GitHub CI completes green; queued/running is not a pass;
-2. the ordered nine-migration PostgreSQL proof is green on that exact head;
-3. fresh independent review/certification is clean; the implementer does not self-certify;
-4. targeted mutation guards for the current failure classes are green on the clean tree and kill
-   their deliberate regressions;
-5. the exact candidate is reconciled against current `main` / merged-tree result;
-6. any external-provider sandbox proof requiring owner credentials is recorded honestly as either
-   proven evidence or an explicit external credential/provider-access gate.
-
-Only after those source gates close does the programme perform the **single controlled staging truth
-cutover**: positive staging-ref verification, before-state receipts, ordered accumulated migrations,
-compatible exact-head deployment, canonical Trust refresh through its single writer, grant/RLS checks
-and post-cutover receipts.
-
-Phase 7 Golden Reference Vehicles remain blocked until that cutover completes.
-
-No production action, real-money activation, staging DB write or merge is authorized by this document.
+Production remains unchanged unless separately authorized. No live payout, live-provider activation,
+Gemini activation or production write is authorized by Phase 6 closure.
