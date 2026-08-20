@@ -1,0 +1,1 @@
+Control-plane registration only; no product or migration SQL changes.
