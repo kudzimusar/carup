@@ -23,6 +23,8 @@ to the Phase 6 source anchor before any connection is opened.
 Security properties:
 
 - manual dispatch is owner-only from `main`;
+- both original `github.actor` and actual `github.triggering_actor` must be `kudzimusar`;
+- the one-time merge-triggered cutover additionally requires `github.run_attempt == 1`, so a rerun cannot repeat the initial apply path;
 - GitHub `staging` environment;
 - no arbitrary ref, SQL, branch or migration input;
 - immutable candidate checkout;
@@ -46,13 +48,16 @@ The connected programme automation cannot invoke GitHub's `workflow_dispatch` en
 turning that tooling limitation into a weaker database path, the dispatcher has a second, one-time entry:
 a `push` to `main` runs the initial `apply` sequence only when **all** of these are true:
 
-- the actor is `kudzimusar`;
+- `github.actor` is `kudzimusar`;
+- `github.triggering_actor` is also `kudzimusar`;
 - the target ref is `refs/heads/main`;
+- `github.run_attempt == 1`;
 - the exact merge commit title is `ci(staging): register Issue #164 truth-cutover dispatcher (#169)`.
 
 The merge is therefore the owner-authorized release action. It still executes only the immutable candidate
 above, and `apply` itself runs live-schema preflight/rollback before the atomic commit and then a verify-only
-pass afterward. Later ordinary pushes to `main` do not satisfy the pinned merge-title guard.
+pass afterward. A collaborator rerun cannot satisfy the triggering-actor guard, and a later rerun of the
+original push cannot satisfy the run-attempt guard.
 
 Once the initial cutover is complete, the dispatcher remains inert on `main` as an auditable owner-only
 verify/recovery tool. Any future candidate change requires another reviewed mainline change because the SHA
