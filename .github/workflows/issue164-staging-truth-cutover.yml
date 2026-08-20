@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: c6c7644ea0b95339a40ff998d82833fa70c1b88a
+  CANDIDATE_SHA: 476bd4cf5e0a50ab1d744943c1dd67c693b00b63
   PG_DRIVER_VERSION: 8.21.0
   INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
@@ -46,7 +46,7 @@ jobs:
       - name: Check out immutable reviewed cutover candidate
         uses: actions/checkout@v4
         with:
-          ref: c6c7644ea0b95339a40ff998d82833fa70c1b88a
+          ref: 476bd4cf5e0a50ab1d744943c1dd67c693b00b63
           fetch-depth: 0
           persist-credentials: false
 
@@ -78,6 +78,7 @@ jobs:
       - name: Run Issue 164 staging operation
         env:
           DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
         run: |
           mode="${{ inputs.mode }}"
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
