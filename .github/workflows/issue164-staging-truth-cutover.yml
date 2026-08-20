@@ -39,8 +39,16 @@ jobs:
     timeout-minutes: 20
     environment: staging
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'kudzimusar') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'kudzimusar' && github.event.head_commit.message == 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)')
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       github.actor == 'kudzimusar' &&
+       github.triggering_actor == 'kudzimusar') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/main' &&
+       github.actor == 'kudzimusar' &&
+       github.triggering_actor == 'kudzimusar' &&
+       github.run_attempt == 1 &&
+       github.event.head_commit.message == 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)')
 
     steps:
       - name: Check out immutable reviewed cutover candidate
