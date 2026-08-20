@@ -22,7 +22,7 @@ files are byte-identical to the Phase 6 source anchor before touching staging.
 
 Security properties:
 
-- owner-only dispatch from `main`;
+- manual dispatch is owner-only from `main`;
 - GitHub `staging` environment;
 - no arbitrary ref, SQL, branch or migration input;
 - immutable candidate checkout;
@@ -33,9 +33,22 @@ Security properties:
 - 0/16 or exact 16/16 ledger states only; partial state fails closed;
 - no production, live provider or Gemini activation.
 
-Once merged, the dispatcher is used only to complete the already-authorized staging cutover. Phase 7
-remains blocked until that cutover has an evidence-backed PASS receipt.
+## Initial cutover execution
 
-The dispatcher may remain inert on `main` afterward as an auditable, owner-only verify/recovery tool.
-Any future candidate change requires another reviewed mainline change because the SHA is hard-pinned;
-the workflow cannot be repurposed to execute arbitrary branch code.
+The connected programme automation cannot invoke GitHub's `workflow_dispatch` endpoint directly. To avoid
+turning that tooling limitation into a weaker database path, the dispatcher has a second, one-time entry:
+a `push` to `main` runs the initial `apply` sequence only when **all** of these are true:
+
+- the actor is `kudzimusar`;
+- the target ref is `refs/heads/main`;
+- the exact merge commit title is `ci(staging): register Issue #164 truth-cutover dispatcher (#169)`.
+
+The merge is therefore the owner-authorized release action. It still executes only the immutable candidate
+above, and `apply` itself runs live-schema preflight/rollback before the atomic commit and then a verify-only
+pass afterward. Later ordinary pushes to `main` do not satisfy the pinned merge-title guard.
+
+Once the initial cutover is complete, the dispatcher remains inert on `main` as an auditable owner-only
+verify/recovery tool. Any future candidate change requires another reviewed mainline change because the SHA
+is hard-pinned; the workflow cannot be repurposed to execute arbitrary branch code.
+
+Phase 7 remains blocked until the cutover has an evidence-backed PASS receipt.
