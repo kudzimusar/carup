@@ -367,6 +367,7 @@ async function verifyCutover(client, migrations, { requireLedger = true } = {}) 
      ORDER BY p.proname, args
   `);
   if (clientCallableIssue164.length) {
+    console.error('Callable issue164 functions:', clientCallableIssue164);
     errors.push(`${clientCallableIssue164.length} Issue #164 RPC(s) remain executable by anon/authenticated`);
   }
 
