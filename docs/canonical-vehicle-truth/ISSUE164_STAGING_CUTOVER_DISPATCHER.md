@@ -13,7 +13,7 @@ separation of control plane from product code.
 
 The workflow checks out immutable candidate:
 
-`f49c2fffe1d7acff7c75bdb596a440a5d4e330e1`
+`acaf2e8313cb8778f77341e39a3f9afaaacba5a5`
 
 That candidate is a descendant of the Phase 6 certified source anchor
 `e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`. Its net post-Phase-6 executable change is only the guarded
