@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: acaf2e8327ae17776720c34d9a49ee63e5f12bd8
+  CANDIDATE_SHA: 3f260142385b0d611867c2cead5faec4aa5bcce6
   PG_DRIVER_VERSION: 8.21.0
   INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
@@ -55,7 +55,7 @@ jobs:
       - name: Check out immutable reviewed cutover candidate
         uses: actions/checkout@v4
         with:
-          ref: integration/canonical-vehicle-truth-closure
+          ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
           persist-credentials: false
 

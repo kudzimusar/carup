@@ -185,6 +185,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         continue-on-error: true   # advisory until a baseline is curated; promote to blocking after triage
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_SUMMARY: 'true'
       - name: CR-1 credential scan (blocking)
         run: node scripts/cr1-secret-scan.mjs
