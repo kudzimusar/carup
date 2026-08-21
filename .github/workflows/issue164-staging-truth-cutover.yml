@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'preflight = execute full chain then rollback; apply = preflight then atomically apply and verify; verify = post-cutover verification only'
+        description: 'preflight = execute full chain then rollback; apply = preflight then atomically apply and verify; verify = post-cutover verification only; trust-refresh = execute canonical trust refresh and post-cutover verification'
         required: true
         type: choice
         default: preflight
@@ -20,6 +20,7 @@ on:
           - preflight
           - apply
           - verify
+          - trust-refresh
 
 permissions:
   contents: read
@@ -28,8 +29,10 @@ concurrency:
   group: issue164-staging-truth-cutover
   cancel-in-progress: false
 
+# CANDIDATE_SHA pins the exact audited immutable candidate SHA on integration/canonical-vehicle-truth-closure
+# that contains the cutover migrations, trust refresh writer, and post-cutover verifiers.
 env:
-  CANDIDATE_SHA: acaf2e8327ae17776720c34d9a49ee63e5f12bd8
+  CANDIDATE_SHA: 4cee0f1172090a8dd1c07fb3de872c79a5bcd125
   PG_DRIVER_VERSION: 8.21.0
   INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
@@ -54,7 +57,7 @@ jobs:
       - name: Check out immutable reviewed cutover candidate
         uses: actions/checkout@v4
         with:
-          ref: integration/canonical-vehicle-truth-closure
+          ref: ${{ env.CANDIDATE_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -87,15 +90,21 @@ jobs:
         env:
           DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
           DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           mode="${{ inputs.mode }}"
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
             mode="apply"
           fi
 
-          if [ "$mode" = "apply" ]; then
+          if [ "$mode" = "trust-refresh" ]; then
+            node backend/scripts/issue164-refresh-canonical-trust.mjs
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=verify
+          elif [ "$mode" = "apply" ]; then
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode=preflight
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode=apply
+            node backend/scripts/issue164-refresh-canonical-trust.mjs
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode=verify
           else
             node backend/scripts/issue164-staging-truth-cutover.mjs --mode="$mode"
