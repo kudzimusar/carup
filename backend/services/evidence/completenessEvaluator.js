@@ -66,11 +66,12 @@ export async function evaluateCompleteness(vin, opts = {}) {
   if (vErr || !vehicle) throw new Error(`Vehicle not found: ${vin}`);
 
   // Fetch all evidence rows for this VIN in one query to avoid N+1
-  const { data: evidenceRows } = await client
+  const { data: evidenceRows, error: eErr } = await client
     .from('vehicle_evidence')
     .select('id, evidence_type, verification_status')
     .eq('vin', vin)
     .in('evidence_type', [...BLOCKING_DOC_TYPES, ...ADVISORY_DOC_TYPES]);
+  if (eErr) throw new Error(`Evidence query error: ${eErr.message}`);
 
   const requirements = [];
 

@@ -24,8 +24,31 @@
  *
  * Exit codes: 0 completed · 1 completed with failures · 2 BLOCKED (target not identified)
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
+
+export function tlsConfig(env = process.env) {
+  const supplied = env.DIASPORA_STAGING_CA_CERT;
+  if (supplied?.includes('BEGIN CERTIFICATE')) {
+    return { rejectUnauthorized: true, ca: supplied };
+  }
+
+  try {
+    const bundled = readFileSync(
+      fileURLToPath(new URL('../../database/certs/supabase-prod-ca-2021.crt', import.meta.url)),
+      'utf8',
+    );
+    if (bundled.includes('BEGIN CERTIFICATE')) {
+      return { rejectUnauthorized: true, ca: bundled };
+    }
+  } catch {
+    // Fall through to system roots. TLS verification remains enabled.
+  }
+
+  return { rejectUnauthorized: true };
+}
 
 const STAGING_REF = 'eoyenigwevnxwwhyhaer';
 const FORBIDDEN_PROD_REF = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
@@ -167,9 +190,7 @@ export async function getClient(env = process.env) {
   try { parsed = new URL(dbUrl); } catch { blocked('invalid DIASPORA_STAGING_DATABASE_URL'); }
   for (const k of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey']) parsed.searchParams.delete(k);
 
-  const sslOpts = env.DIASPORA_STAGING_CA_CERT
-    ? { ca: env.DIASPORA_STAGING_CA_CERT, rejectUnauthorized: true }
-    : { rejectUnauthorized: false };
+  const sslOpts = tlsConfig(env);
 
   const pgClient = new pg.Client({ connectionString: parsed.toString(), ssl: sslOpts });
   await pgClient.connect();

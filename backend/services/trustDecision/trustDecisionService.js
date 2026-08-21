@@ -309,22 +309,24 @@ export async function getTrustDecision(vin, opts = {}) {
   const client = opts.client ?? (await getDefaultClient());
   let vehicle = opts.vehicle || null;
   if (!vehicle) {
-    try {
-      const { data } = await client
-        .from('vehicles')
-        .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, tenant_id')
-        .eq('vin', vin)
-        .maybeSingle();
-      vehicle = data || {};
-    } catch { vehicle = {}; }
+    const { data, error } = await client
+      .from('vehicles')
+      .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, tenant_id')
+      .eq('vin', vin)
+      .maybeSingle();
+    if (error) throw new Error(`Vehicle read error: ${error.message}`);
+    vehicle = data || {};
   }
-  let completeness = null;
-  try { completeness = await evaluateCompleteness(vin, { client }); } catch { /* dimension stays not_evaluated */ }
-  let coverage = [];
-  try { coverage = await getCoverage(vin, { client }); } catch { /* coverage stays empty */ }
+  const completeness = opts.completeness !== undefined
+    ? opts.completeness
+    : await evaluateCompleteness(vin, { client });
 
-  // Each external dimension is fetched defensively — a failure leaves it not_evaluated,
-  // never fabricates a clear/eligible state.
+  const coverage = opts.coverage !== undefined
+    ? opts.coverage
+    : await getCoverage(vin, { client });
+
+  // Each external dimension is fetched defensively — DB errors throw to fail closed,
+  // while legitimate absence (0 rows) returns null cleanly.
   const fraudInput = opts.fraudInput !== undefined ? opts.fraudInput : await fetchFraudSummary(vin, client);
   const insurance = opts.insurance !== undefined ? opts.insurance : await fetchEligibility('insurance', vin, client);
   const finance = opts.finance !== undefined ? opts.finance : await fetchEligibility('finance', vin, client);
@@ -345,31 +347,28 @@ export async function getTrustDecision(vin, opts = {}) {
 }
 
 async function fetchFraudSummary(vin, client) {
-  try {
-    const { data } = await client.from('fraud_cases')
-      .select('status, highest_severity, blocks_publication').eq('vin', vin).eq('status', 'open');
-    if (!data || data.length === 0) return null;
-    const order = { low: 1, medium: 2, high: 3, critical: 4 };
-    const highest = data.reduce((acc, c) => (order[c.highest_severity] > order[acc] ? c.highest_severity : acc), 'low');
-    return { open_cases: data.length, highest_severity: highest, blocks_publication: data.some((c) => c.blocks_publication) };
-  } catch { return null; }
+  const { data, error } = await client.from('fraud_cases')
+    .select('status, highest_severity, blocks_publication').eq('vin', vin).eq('status', 'open');
+  if (error) throw new Error(`Fraud summary read error: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  const order = { low: 1, medium: 2, high: 3, critical: 4 };
+  const highest = data.reduce((acc, c) => (order[c.highest_severity] > order[acc] ? c.highest_severity : acc), 'low');
+  return { open_cases: data.length, highest_severity: highest, blocks_publication: data.some((c) => c.blocks_publication) };
 }
 
 async function fetchEligibility(capability, vin, client) {
-  try {
-    const { data } = await client.from('eligibility_requests')
-      .select('status, conditions, mode, validity_until, created_at').eq('vin', vin).eq('capability', capability)
-      .order('created_at', { ascending: false });
-    return (data && data[0]) || null;
-  } catch { return null; }
+  const { data, error } = await client.from('eligibility_requests')
+    .select('status, conditions, mode, validity_until, created_at').eq('vin', vin).eq('capability', capability)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`Eligibility read error on ${capability}: ${error.message}`);
+  return (data && data[0]) || null;
 }
 
 async function fetchEscrow(vin, client) {
-  try {
-    const { data } = await client.from('escrow_trust_sessions')
-      .select('status, created_at').eq('vin', vin).order('created_at', { ascending: false });
-    return (data && data[0]) || null;
-  } catch { return null; }
+  const { data, error } = await client.from('escrow_trust_sessions')
+    .select('*').eq('vin', vin).order('created_at', { ascending: false });
+  if (error) throw new Error(`Escrow read error: ${error.message}`);
+  return (data && data[0]) || null;
 }
 
 export default { CALCULATION_VERSION, assembleDecision, toPublicDecision, getTrustDecision };

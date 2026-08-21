@@ -31,12 +31,13 @@ function resetDb() {
   };
 }
 function builder(table) {
-  const st = { table, op: 'select', filters: {}, single: false, maybe: false, order: null, payload: null };
+  const st = { table, op: 'select', filters: {}, inFilter: null, single: false, maybe: false, order: null, payload: null };
   const chain = {
     select() { return chain; },
     insert(p) { st.op = 'insert'; st.payload = p; return chain; },
     update(p) { st.op = 'update'; st.payload = p; return chain; },
     eq(k, v) { st.filters[k] = v; return chain; },
+    in(k, v) { st.inFilter = { key: k, vals: Array.isArray(v) ? v : [v] }; return chain; },
     order(c, o) { st.order = { col: c, asc: o?.ascending ?? false }; return chain; },
     single() { st.single = true; return chain; },
     maybeSingle() { st.maybe = true; return chain; },
@@ -59,6 +60,7 @@ function run(st) {
     return ok(st.single ? u : (u ? [u] : []));
   }
   let out = rows.filter((r) => Object.entries(st.filters).every(([k, v]) => r[k] === v));
+  if (st.inFilter) out = out.filter((r) => st.inFilter.vals.includes(r[st.inFilter.key]));
   if (st.table === 'source_verification_coverage_public') {
     out = db.source_verification_results
       .filter((r) => Object.entries(st.filters).every(([k, v]) => r[k] === v))

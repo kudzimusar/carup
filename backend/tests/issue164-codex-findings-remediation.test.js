@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
-import { assembleDecision } from '../services/trustDecision/trustDecisionService.js';
+import { assembleDecision, getTrustDecision } from '../services/trustDecision/trustDecisionService.js';
 import {
   assertCanonicalStaging,
   createPgSupabaseAdapter,
   runTrustRefresh,
+  tlsConfig,
 } from '../scripts/issue164-refresh-canonical-trust.mjs';
 import {
   verifySchemaAndSecurity,
@@ -381,6 +382,7 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
         currency_source text DEFAULT 'seller',
         make text DEFAULT 'Honda', model text DEFAULT 'Accord', year integer DEFAULT 2023,
         chassis_number text DEFAULT 'CH123', engine_number text DEFAULT 'ENG123', plate_number text DEFAULT 'ABC123',
+        temp_plate_id text DEFAULT NULL, tenant_id uuid DEFAULT NULL, publication_status text DEFAULT 'draft',
         trust_score numeric(5,2) DEFAULT NULL,
         trust_calculation_version text DEFAULT NULL,
         trust_evaluated_at timestamptz DEFAULT NULL,
@@ -390,6 +392,8 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
         trust_evidence_basis jsonb DEFAULT NULL
       );
 
+      CREATE TABLE vehicle_evidence (id text PRIMARY KEY, vin text, evidence_type text, verification_status text);
+      CREATE TABLE eligibility_requests (id text PRIMARY KEY, vin text, capability text, status text, conditions jsonb, mode text, validity_until timestamptz, created_at timestamptz);
       CREATE TABLE fraud_cases (id text PRIMARY KEY, vin text, status text, highest_severity text, blocks_publication boolean);
       CREATE TABLE insurance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
       CREATE TABLE finance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
@@ -607,5 +611,111 @@ test('JSONB serialization regression — adapter handles trust_known_limitations
     assert.equal(inResult.data.length, 3, '.in() must return all matching rows');
   } finally {
     await db.close();
+  }
+});
+
+test('P1-READ — getTrustDecision fails closed on dependency read errors; no write/cache occurs when dependency fails', async () => {
+  const testVin = '1HGCR2F83HA000099';
+
+  function createMockQueryBuilder(result = { data: [], error: null }) {
+    const builder = {
+      select: () => builder,
+      eq: () => builder,
+      in: () => builder,
+      order: () => builder,
+      limit: () => builder,
+      maybeSingle: () => Promise.resolve({ data: Array.isArray(result.data) ? result.data[0] : (result.data || null), error: result.error }),
+      single: () => Promise.resolve({ data: Array.isArray(result.data) ? result.data[0] : result.data, error: result.error }),
+      then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
+    };
+    return builder;
+  }
+
+  const vehData = { vin: testVin, make: 'Honda', model: 'Accord', year: 2023 };
+
+  // 1. Client where 'vehicles' query succeeds but 'fraud_cases' fails with DB error
+  const failingFraudClient = {
+    from: (table) => {
+      if (table === 'vehicles') return createMockQueryBuilder({ data: vehData, error: null });
+      if (table === 'fraud_cases') {
+        return createMockQueryBuilder({ data: null, error: { message: 'DB connection error on fraud_cases' } });
+      }
+      return createMockQueryBuilder({ data: [], error: null });
+    },
+  };
+
+  // getTrustDecision MUST reject on DB read failure
+  await assert.rejects(
+    () => getTrustDecision(testVin, { client: failingFraudClient }),
+    /Fraud summary read error/,
+    'getTrustDecision must fail closed and throw when fraud summary query fails',
+  );
+
+  // 2. Client where completeness query fails
+  const failingCompletenessClient = {
+    from: (table) => {
+      if (table === 'vehicles') return createMockQueryBuilder({ data: vehData, error: null });
+      if (table === 'vehicle_evidence') {
+        return createMockQueryBuilder({ data: null, error: { message: 'DB query failure on vehicle_evidence' } });
+      }
+      return createMockQueryBuilder({ data: [], error: null });
+    },
+  };
+
+  await assert.rejects(
+    () => getTrustDecision(testVin, { client: failingCompletenessClient }),
+    /Vehicle not found|DB query failure on vehicle_evidence/,
+    'getTrustDecision must fail closed and throw when evaluateCompleteness dependency fails',
+  );
+
+  // 3. Client where source coverage query fails
+  const failingCoverageClient = {
+    from: (table) => {
+      if (table === 'vehicles') return createMockQueryBuilder({ data: vehData, error: null });
+      if (table === 'source_verification_coverage_public') {
+        return createMockQueryBuilder({ data: null, error: { message: 'DB query failure on coverage' } });
+      }
+      return createMockQueryBuilder({ data: [], error: null });
+    },
+  };
+
+  await assert.rejects(
+    () => getTrustDecision(testVin, { client: failingCoverageClient }),
+    /DB query failure on coverage/,
+    'getTrustDecision must fail closed and throw when getCoverage dependency fails',
+  );
+
+  // 4. Legitimate empty/no-evidence inputs produce canonical decision cleanly without throwing
+  const emptyEvidenceClient = {
+    from: (table) => {
+      if (table === 'vehicles') return createMockQueryBuilder({ data: vehData, error: null });
+      return createMockQueryBuilder({ data: [], error: null });
+    },
+  };
+
+  const cleanDecision = await getTrustDecision(testVin, { client: emptyEvidenceClient });
+  assert.equal(cleanDecision.vin, testVin);
+  assert.equal(cleanDecision.calculation_version, 'trust-decision-1.0.0');
+  assert.ok(['low', 'insufficient_evidence'].includes(cleanDecision.overall_trust.status));
+});
+
+test('P1-TLS — PostgreSQL connection configuration enforces rejectUnauthorized: true across all environments', () => {
+  // 1. Supplied CA
+  const suppliedTls = tlsConfig({ DIASPORA_STAGING_CA_CERT: '-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----' });
+  assert.equal(suppliedTls.rejectUnauthorized, true, 'Supplied CA must enforce rejectUnauthorized: true');
+  assert.equal(suppliedTls.ca, '-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----');
+
+  // 2. Empty env (uses bundled CA or system roots)
+  const defaultTls = tlsConfig({});
+  assert.equal(defaultTls.rejectUnauthorized, true, 'Default TLS must enforce rejectUnauthorized: true');
+
+  // 3. Invalid/blank CA cert string
+  const blankTls = tlsConfig({ DIASPORA_STAGING_CA_CERT: '' });
+  assert.equal(blankTls.rejectUnauthorized, true, 'Blank CA cert must enforce rejectUnauthorized: true');
+
+  // 4. Verify no branch returns rejectUnauthorized: false
+  for (const envVal of [undefined, '', 'invalid-cert-string', '-----BEGIN CERTIFICATE-----\nfoo\n-----END CERTIFICATE-----']) {
+    const config = tlsConfig({ DIASPORA_STAGING_CA_CERT: envVal });
+    assert.equal(config.rejectUnauthorized, true, `rejectUnauthorized must be true for env value: ${envVal}`);
   }
 });
