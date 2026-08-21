@@ -104,5 +104,7 @@ COMMENT ON COLUMN public.finance_applications.requested_currency_source IS
 COMMENT ON COLUMN public.finance_applications.decision_source IS
   'Server-attributed lender/platform source for a terminal finance decision. Historical null means unknown, not implicitly approved by CarUp.';
 
+REVOKE ALL ON FUNCTION public.issue164_finance_decision_guard() FROM PUBLIC, anon, authenticated;
+
 -- +migrate Down
 -- Forward-only. Historical/decision provenance is not discarded by rollback.

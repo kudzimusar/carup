@@ -440,6 +440,9 @@ CREATE TRIGGER issue164_settlement_recovery_fence_guard_trg
 BEFORE UPDATE ON public.escrow_trust_sessions
 FOR EACH ROW EXECUTE FUNCTION public.issue164_settlement_recovery_fence_guard();
 
+REVOKE ALL ON FUNCTION public.issue164_sandbox_release_recovery_guard() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.issue164_settlement_recovery_fence_guard() FROM PUBLIC, anon, authenticated;
+
 DO $post$
 DECLARE
   v_begin_definition text;

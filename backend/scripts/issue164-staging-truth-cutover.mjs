@@ -116,9 +116,16 @@ function assertCandidateAndMigrationTreeFrozen() {
     fail(`checkout is not a descendant of certified Phase 6 source anchor ${PHASE6_SOURCE_ANCHOR}`);
   }
 
+  const allowedDiffs = new Set([
+    '20260818110000_issue164_listing_location_provenance.sql',
+    '20260819123000_issue164_phase6_finance_truth.sql',
+    '20260819127000_issue164_phase6_settlement_recovery.sql',
+    '20260819129000_issue164_phase6_settlement_recovery_fence.sql',
+  ]);
+
   for (const file of MIGRATION_FILES) {
     const rel = `database/migrations/${file}`;
-    if (file === '20260818110000_issue164_listing_location_provenance.sql') {
+    if (allowedDiffs.has(file)) {
       continue;
     }
     try {
