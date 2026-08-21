@@ -62,7 +62,8 @@ function deriveMismatchFlags(provider, identityFields, vehicle) {
 }
 
 async function loadVehicle(vin) {
-  const { data, error } = await supabase
+  const client = await getDefaultClient();
+  const { data, error } = await client
     .from('vehicles')
     .select('vin, make, model, year, plate_number, chassis_number, engine_number, tenant_id')
     .eq('vin', vin)
@@ -137,7 +138,8 @@ export async function verifySource(vin, provider, opts = {}) {
     tenant_id: vehicle.tenant_id || null,
   };
 
-  const { data, error } = await supabase.from(TABLE).insert(row).select().single();
+  const client = await getDefaultClient();
+  const { data, error } = await client.from(TABLE).insert(row).select().single();
   if (error) throw new Error(`failed to persist verification result: ${error.message}`);
   return stripRaw(data);
 }
@@ -187,7 +189,8 @@ export async function recordManualVerification(vin, provider, payload, actor) {
     requested_by: actor.id,
     tenant_id: vehicle.tenant_id || null,
   };
-  const { data, error } = await supabase.from(TABLE).insert(row).select().single();
+  const client = await getDefaultClient();
+  const { data, error } = await client.from(TABLE).insert(row).select().single();
   if (error) throw new Error(`failed to persist manual verification: ${error.message}`);
   return stripRaw(data);
 }
@@ -208,7 +211,8 @@ export async function getCoverage(vin, opts = {}) {
  * included only when `includeRaw` is explicitly true (admin/government).
  */
 export async function getResults(vin, { includeRaw = false } = {}) {
-  const { data, error } = await supabase
+  const client = await getDefaultClient();
+  const { data, error } = await client
     .from(TABLE)
     .select('*')
     .eq('vin', vin)

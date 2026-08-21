@@ -162,13 +162,13 @@ export async function getClient(env = process.env) {
 }
 
 export async function runTrustRefresh(client, opts = {}) {
-  const { singleVin = null, dryRun = false, batchSize = 200, limit = Infinity } = opts;
+  const { singleVin = null, dryRun = false, batchSize = 200, limit = Infinity, ...trustOpts } = opts;
   const summary = { target: STAGING_REF, dryRun, considered: 0, written: 0, skipped: 0, failed: 0, skips: {} };
 
   if (singleVin) {
     summary.considered = 1;
     try {
-      const result = await refreshCanonicalTrust(singleVin, { client, dryRun });
+      const result = await refreshCanonicalTrust(singleVin, { ...trustOpts, client, dryRun });
       if (result.written || (dryRun && result.patch)) {
         summary.written += 1;
       } else {
@@ -210,7 +210,7 @@ export async function runTrustRefresh(client, opts = {}) {
       if (summary.considered >= limit) break;
       summary.considered += 1;
       try {
-        const result = await refreshCanonicalTrust(vin, { client, dryRun });
+        const result = await refreshCanonicalTrust(vin, { ...trustOpts, client, dryRun });
         if (result.written || (dryRun && result.patch)) {
           summary.written += 1;
         } else {
