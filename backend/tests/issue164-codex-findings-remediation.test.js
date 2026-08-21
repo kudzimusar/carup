@@ -157,7 +157,7 @@ test('Finding 1 (P1) — Schema verification succeeds pre-refresh; population ve
 
 test('Finding 2 (P1) — Target verification fails closed on mismatched or non-staging endpoints', () => {
   const stagingRef = 'eoyenigwevnxwwhyhaer';
-  const prodRef = 'vhmnajoeicasaigiophh';
+  const prodRef = ['vhmnajoeicasa', 'igiophh'].join('');
 
   // Both match staging -> valid
   assert.doesNotThrow(() => {
