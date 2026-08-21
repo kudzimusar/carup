@@ -364,3 +364,102 @@ test('Findings 6+7 (P1) — Trust cache write_failed:* returns exit failure; non
   assert.ok(skipSummary.skips['not_canonical:not_evaluated'] === 1,
     'legitimate skip reason not_canonical:not_evaluated must be recorded in summary.skips');
 });
+
+test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecision without Supabase env or default client import', async () => {
+  const db = await PGlite.create();
+  const testVin = '1HGCR2F83HA000001';
+  try {
+    await db.exec(`
+      CREATE TABLE vehicles (
+        vin text PRIMARY KEY,
+        created_at timestamptz DEFAULT now(),
+        seller_id uuid, current_seller_id uuid,
+        import_source text DEFAULT 'manual',
+        duty_paid boolean DEFAULT true, police_verified boolean DEFAULT true,
+        zimra_verified boolean DEFAULT true, passport_verified boolean DEFAULT true,
+        safe_pay_ready boolean DEFAULT true, inspection_ready boolean DEFAULT true,
+        currency_source text DEFAULT 'seller',
+        make text DEFAULT 'Honda', model text DEFAULT 'Accord', year integer DEFAULT 2023,
+        chassis_number text DEFAULT 'CH123', engine_number text DEFAULT 'ENG123', plate_number text DEFAULT 'ABC123',
+        trust_score numeric(5,2) DEFAULT NULL,
+        trust_calculation_version text DEFAULT NULL,
+        trust_evaluated_at timestamptz DEFAULT NULL,
+        trust_band text DEFAULT NULL,
+        trust_confidence text DEFAULT NULL,
+        trust_known_limitations text[] DEFAULT NULL,
+        trust_evidence_basis jsonb DEFAULT NULL
+      );
+
+      CREATE TABLE fraud_cases (id text PRIMARY KEY, vin text, status text, highest_severity text, blocks_publication boolean);
+      CREATE TABLE insurance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
+      CREATE TABLE finance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
+      CREATE TABLE escrow_trust_sessions (id text PRIMARY KEY, vin text, session_status text, created_at timestamptz);
+      CREATE TABLE source_verification_results (id text PRIMARY KEY, vin text, provider text, status text, mode text, created_at timestamptz);
+      CREATE VIEW source_verification_coverage_public AS SELECT vin, provider, status, mode FROM source_verification_results;
+
+      INSERT INTO vehicles (vin) VALUES ('${testVin}');
+    `);
+
+    const adapter = createPgSupabaseAdapter(db);
+    // NO injected decide function — must use default getTrustDecision with forwarded adapter client
+    const summary = await runTrustRefresh(adapter, { singleVin: testVin, read: noopRead });
+
+    assert.equal(summary.considered, 1, 'Single VIN must be considered');
+    assert.equal(summary.written, 1, 'Single VIN must be written');
+    assert.equal(summary.failed, 0, 'Refresh must not fail when client is forwarded');
+
+    const res = await db.query('SELECT vin, trust_score, trust_calculation_version FROM vehicles WHERE vin = $1', [testVin]);
+    assert.equal(res.rows.length, 1);
+    assert.ok(res.rows[0].trust_score !== null, 'Trust score must be materialized in PGlite DB');
+    assert.equal(res.rows[0].trust_calculation_version, 'trust-decision-1.0.0', 'Calculation version must be trust-decision-1.0.0');
+  } finally {
+    await db.close();
+  }
+});
+
+test('P1-B — Post-refresh population trust verification rejects stale/legacy calculation versions (fail-closed)', async () => {
+  const db = await PGlite.create();
+  try {
+    await db.exec(`
+      CREATE TABLE vehicles (
+        vin text PRIMARY KEY,
+        trust_score numeric(5,2) DEFAULT NULL,
+        trust_calculation_version text DEFAULT NULL
+      );
+    `);
+
+    // Case 1: Current version ('trust-decision-1.0.0') passes
+    await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN1', 75.0, 'trust-decision-1.0.0');`);
+    await assert.doesNotReject(
+      () => verifyPopulationTrust(db),
+      'Current calculation version trust-decision-1.0.0 must pass verification',
+    );
+
+    // Case 2: Stale version ('2026.06.21.v1') fails
+    await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN2', 75.0, '2026.06.21.v1');`);
+    await assert.rejects(
+      () => verifyPopulationTrust(db),
+      /1 post-refresh population trust contract violation/,
+      'Stale calculation version 2026.06.21.v1 must fail verification',
+    );
+    await db.exec(`DELETE FROM vehicles WHERE vin = 'VIN2';`);
+
+    // Case 3: Unversioned non-null score fails
+    await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN3', 80.0, NULL);`);
+    await assert.rejects(
+      () => verifyPopulationTrust(db),
+      /1 post-refresh population trust contract violation/,
+      'Unversioned non-null score must fail verification',
+    );
+    await db.exec(`DELETE FROM vehicles WHERE vin = 'VIN3';`);
+
+    // Case 4: Legitimate not-evaluated row (score NULL, version NULL) passes
+    await db.exec(`INSERT INTO vehicles (vin, trust_score, trust_calculation_version) VALUES ('VIN4', NULL, NULL);`);
+    await assert.doesNotReject(
+      () => verifyPopulationTrust(db),
+      'Legitimate not-evaluated row (score NULL, version NULL) must pass verification',
+    );
+  } finally {
+    await db.close();
+  }
+});

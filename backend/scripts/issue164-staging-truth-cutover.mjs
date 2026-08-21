@@ -403,7 +403,7 @@ export async function verifyPopulationTrust(client) {
   const { rows: vehicleTrustCheck } = await client.query(`
     SELECT count(*)::int AS total,
            count(*) FILTER (WHERE trust_score IS NOT NULL AND trust_calculation_version IS NULL)::int AS unversioned_legacy_scores,
-           count(*) FILTER (WHERE trust_calculation_version IS NOT NULL AND trust_calculation_version NOT IN ($1, '2026.06.21.v1'))::int AS invalid_version_scores
+           count(*) FILTER (WHERE trust_calculation_version IS NOT NULL AND trust_calculation_version <> $1)::int AS invalid_version_scores
       FROM public.vehicles
   `, [CALCULATION_VERSION]);
   if (vehicleTrustCheck[0].unversioned_legacy_scores > 0) {

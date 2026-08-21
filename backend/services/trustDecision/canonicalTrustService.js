@@ -754,7 +754,7 @@ async function readVehicleTrustRows(client, vins) {
 // The read path
 // ---------------------------------------------------------------------------
 
-async function computeCanonicalTrust(vin, { decide, read, vehicle, now, cache }) {
+async function computeCanonicalTrust(vin, { decide, read, vehicle, now, cache, client }) {
   let facts = null;
   if (typeof read === 'function') {
     // Provenance is best-effort DISCLOSURE, not a gate: losing it must not withhold a score the
@@ -772,7 +772,10 @@ async function computeCanonicalTrust(vin, { decide, read, vehicle, now, cache })
     // The vehicle row read above carries the cache stamp and the fact context, NOT the identity
     // columns identityDimension scores. Passing it as `opts.vehicle` would make every vehicle look
     // like it was missing its chassis, engine and plate, so the decision fetches its own row.
-    decision = await decide(vin, now ? { now } : {});
+    decision = await decide(vin, {
+      ...(now ? { now } : {}),
+      ...(client ? { client } : {}),
+    });
   } catch {
     return unavailableRecord(vin, 'decision_unavailable', cache);
   }
@@ -832,7 +835,7 @@ export async function getCanonicalTrust(vin, opts = {}) {
     if (cached.evaluation_state === TRUST_EVALUATION_STATES.EVALUATED) return cached;
   }
 
-  return computeCanonicalTrust(key, { decide, read: factRead, vehicle: row, now, cache });
+  return computeCanonicalTrust(key, { decide, read: factRead, vehicle: row, now, cache, client });
 }
 
 /**
