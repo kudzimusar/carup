@@ -81,7 +81,7 @@ test('Finding 1 (P1) — Schema verification succeeds pre-refresh; population ve
         trust_evaluated_at timestamptz DEFAULT NULL,
         trust_band text DEFAULT NULL,
         trust_confidence text DEFAULT NULL,
-        trust_known_limitations text[] DEFAULT NULL,
+        trust_known_limitations jsonb DEFAULT NULL,
         trust_evidence_basis jsonb DEFAULT NULL
       );
 
@@ -237,7 +237,7 @@ test('Finding 4 (P2) & Real PostgreSQL .gt() Adapter — >500 vehicle pagination
         trust_evaluated_at timestamptz DEFAULT NULL,
         trust_band text DEFAULT NULL,
         trust_confidence text DEFAULT NULL,
-        trust_known_limitations text[] DEFAULT NULL,
+        trust_known_limitations jsonb DEFAULT NULL,
         trust_evidence_basis jsonb DEFAULT NULL
       );
     `);
@@ -386,7 +386,7 @@ test('P1-A — PostgreSQL-only refresh forwards client to default getTrustDecisi
         trust_evaluated_at timestamptz DEFAULT NULL,
         trust_band text DEFAULT NULL,
         trust_confidence text DEFAULT NULL,
-        trust_known_limitations text[] DEFAULT NULL,
+        trust_known_limitations jsonb DEFAULT NULL,
         trust_evidence_basis jsonb DEFAULT NULL
       );
 
@@ -459,6 +459,152 @@ test('P1-B — Post-refresh population trust verification rejects stale/legacy c
       () => verifyPopulationTrust(db),
       'Legitimate not-evaluated row (score NULL, version NULL) must pass verification',
     );
+  } finally {
+    await db.close();
+  }
+});
+
+/**
+ * Wraps a PGlite instance to simulate node-postgres parameter serialization.
+ *
+ * node-postgres (pg) serializes JS arrays as PostgreSQL array literals via
+ * prepareValue→arrayString: ["a","b"] → '{"a","b"}'. This is correct for
+ * PostgreSQL array columns (text[], uuid[]) but produces invalid JSON for
+ * JSONB columns, causing: "invalid input syntax for type json".
+ *
+ * JS objects are JSON.stringified by node-postgres, which is correct for JSONB.
+ *
+ * This wrapper applies the same transform so PGlite reproduces the real
+ * staging failure without requiring a remote PostgreSQL connection.
+ */
+function wrapWithNodePgArraySerialization(pgliteClient) {
+  function arrayToPostgresLiteral(arr) {
+    return '{' + arr.map((v) => {
+      if (v === null || v === undefined) return 'NULL';
+      if (Array.isArray(v)) return arrayToPostgresLiteral(v);
+      return '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    }).join(',') + '}';
+  }
+
+  return {
+    query(sql, params) {
+      if (params) {
+        const serialized = params.map((p) => {
+          if (Array.isArray(p)) return arrayToPostgresLiteral(p);
+          if (p !== null && p !== undefined && typeof p === 'object'
+              && !(p instanceof Date)) {
+            return JSON.stringify(p);
+          }
+          return p;
+        });
+        return pgliteClient.query(sql, serialized);
+      }
+      return pgliteClient.query(sql, params);
+    },
+    exec: pgliteClient.exec?.bind(pgliteClient),
+  };
+}
+
+test('JSONB serialization regression — adapter handles trust_known_limitations and trust_evidence_basis through node-postgres wire format', async () => {
+  const db = await PGlite.create();
+  const testVin = '1HGCR2F83HA099001';
+  try {
+    await db.exec(`
+      CREATE TABLE vehicles (
+        vin text PRIMARY KEY,
+        created_at timestamptz DEFAULT now(),
+        seller_id uuid, current_seller_id uuid,
+        import_source text DEFAULT 'manual',
+        duty_paid boolean DEFAULT true, police_verified boolean DEFAULT true,
+        zimra_verified boolean DEFAULT true, passport_verified boolean DEFAULT true,
+        safe_pay_ready boolean DEFAULT true, inspection_ready boolean DEFAULT true,
+        currency_source text DEFAULT 'seller',
+        make text DEFAULT 'Honda', model text DEFAULT 'Accord', year integer DEFAULT 2023,
+        chassis_number text DEFAULT 'CH123', engine_number text DEFAULT 'ENG123', plate_number text DEFAULT 'ABC123',
+        trust_score numeric(5,2) DEFAULT NULL,
+        trust_calculation_version text DEFAULT NULL,
+        trust_evaluated_at timestamptz DEFAULT NULL,
+        trust_band text DEFAULT NULL,
+        trust_confidence text DEFAULT NULL,
+        trust_known_limitations jsonb DEFAULT NULL,
+        trust_evidence_basis jsonb DEFAULT NULL
+      );
+
+      CREATE TABLE fraud_cases (id text PRIMARY KEY, vin text, status text, highest_severity text, blocks_publication boolean);
+      CREATE TABLE insurance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
+      CREATE TABLE finance_provider_decisions (id text PRIMARY KEY, vin text, decision text, verified_at timestamptz);
+      CREATE TABLE escrow_trust_sessions (id text PRIMARY KEY, vin text, session_status text, created_at timestamptz);
+      CREATE TABLE source_verification_results (id text PRIMARY KEY, vin text, provider text, status text, mode text, created_at timestamptz);
+      CREATE VIEW source_verification_coverage_public AS SELECT vin, provider, status, mode FROM source_verification_results;
+
+      INSERT INTO vehicles (vin) VALUES ('${testVin}');
+    `);
+
+    // 1. Wrap PGlite to simulate node-postgres array serialization.
+    //    Pre-fix adapter passes raw JS arrays → wrapper converts to PG array literals →
+    //    jsonb column rejects them. Post-fix adapter JSON.stringifies first → wrapper
+    //    sees strings → passes through → jsonb accepts valid JSON.
+    const pgSimClient = wrapWithNodePgArraySerialization(db);
+    const adapter = createPgSupabaseAdapter(pgSimClient);
+
+    const summary = await runTrustRefresh(adapter, {
+      singleVin: testVin,
+      decide: cheapDecide,
+      read: noopRead,
+    });
+
+    assert.equal(summary.considered, 1, 'VIN must be considered');
+    assert.equal(summary.written, 1, 'Trust refresh must write successfully through node-postgres serialization');
+    assert.equal(summary.failed, 0, 'No write failures — JSONB columns must accept adapter output');
+
+    // 2. Round-trip verification: read back and confirm valid JSON structures.
+    const res = await db.query(
+      'SELECT trust_known_limitations, trust_evidence_basis, trust_score, trust_calculation_version FROM vehicles WHERE vin = $1',
+      [testVin],
+    );
+    const row = res.rows[0];
+
+    assert.ok(row.trust_score !== null, 'trust_score must be materialized');
+    assert.equal(row.trust_calculation_version, 'trust-decision-1.0.0');
+
+    // trust_known_limitations: non-empty JSON array (cheapDecide with coverage:[] produces limitations)
+    const limitations = typeof row.trust_known_limitations === 'string'
+      ? JSON.parse(row.trust_known_limitations)
+      : row.trust_known_limitations;
+    assert.ok(Array.isArray(limitations), 'trust_known_limitations must be a JSON array');
+    assert.ok(limitations.length > 0, 'trust_known_limitations must be non-empty for cheapDecide with no coverage');
+
+    // trust_evidence_basis: non-null JSON object
+    const basis = typeof row.trust_evidence_basis === 'string'
+      ? JSON.parse(row.trust_evidence_basis)
+      : row.trust_evidence_basis;
+    assert.ok(basis !== null && typeof basis === 'object' && !Array.isArray(basis),
+      'trust_evidence_basis must be a JSON object');
+
+    // 3. Empty limitations array: must write valid JSON []
+    await db.exec(`INSERT INTO vehicles (vin) VALUES ('EMPTY_LIMS_VIN')`);
+    const emptyLimsResult = await adapter.from('vehicles')
+      .update({ trust_known_limitations: [], trust_evidence_basis: null })
+      .eq('vin', 'EMPTY_LIMS_VIN');
+    assert.equal(emptyLimsResult.error, null, 'Empty array write must succeed');
+
+    const emptyRes = await db.query(
+      'SELECT trust_known_limitations, trust_evidence_basis FROM vehicles WHERE vin = $1',
+      ['EMPTY_LIMS_VIN'],
+    );
+    const emptyLims = typeof emptyRes.rows[0].trust_known_limitations === 'string'
+      ? JSON.parse(emptyRes.rows[0].trust_known_limitations)
+      : emptyRes.rows[0].trust_known_limitations;
+    assert.deepStrictEqual(emptyLims, [], 'Empty array must round-trip as JSON []');
+    assert.equal(emptyRes.rows[0].trust_evidence_basis, null, 'Null JSONB must remain null');
+
+    // 4. .in() / array filtering semantics must remain unchanged.
+    //    The JSONB fix must NOT break .in() which uses = ANY($N) with real PostgreSQL arrays.
+    await db.exec(`INSERT INTO vehicles (vin) VALUES ('IN_TEST_A'), ('IN_TEST_B')`);
+    const inResult = await adapter.from('vehicles').select('vin')
+      .in('vin', [testVin, 'IN_TEST_A', 'IN_TEST_B']);
+    assert.equal(inResult.error, null, '.in() array filter must not error');
+    assert.equal(inResult.data.length, 3, '.in() must return all matching rows');
   } finally {
     await db.close();
   }

@@ -57,6 +57,14 @@ export function assertCanonicalStaging(env = process.env) {
   }
 }
 
+// Trust-cache columns whose authoritative migration type is JSONB. node-postgres serializes
+// JS arrays as PostgreSQL array literals ({val1,val2}) via prepareValue→arrayString, which
+// are rejected by jsonb columns ("invalid input syntax for type json"). Values for these
+// columns are JSON.stringified before query submission and their placeholders cast to ::jsonb.
+// This is scoped to trust-cache JSONB fields to avoid breaking .in() array parameters or
+// legitimate PostgreSQL text[]/uuid[] columns elsewhere in the adapter.
+const JSONB_COLUMNS = new Set(['trust_known_limitations', 'trust_evidence_basis']);
+
 export function createPgSupabaseAdapter(pgClient) {
   return {
     from(table) {
@@ -85,8 +93,15 @@ export function createPgSupabaseAdapter(pgClient) {
           try {
             if (state.patch) {
               const keys = Object.keys(state.patch);
-              const setSql = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
-              const params = keys.map((k) => state.patch[k]);
+              const setSql = keys.map((k, i) => {
+                if (JSONB_COLUMNS.has(k)) return `"${k}" = $${i + 1}::jsonb`;
+                return `"${k}" = $${i + 1}`;
+              }).join(', ');
+              const params = keys.map((k) => {
+                const val = state.patch[k];
+                if (val != null && JSONB_COLUMNS.has(k)) return JSON.stringify(val);
+                return val;
+              });
               let whereSql = '';
               let idx = keys.length + 1;
               for (const f of state.whereFilters) {
