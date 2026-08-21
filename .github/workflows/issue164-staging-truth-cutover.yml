@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: acaf2e8313cb8778f77341e39a3f9afaaacba5a5
+  CANDIDATE_SHA: acaf2e8327ae17776720c34d9a49ee63e5f12bd8
   PG_DRIVER_VERSION: 8.21.0
   INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
