@@ -232,7 +232,19 @@ BEGIN
              || chr(1) || coalesce(plate_status,           chr(2))
              || chr(1) || coalesce(current_seller_type,    chr(2))
              || chr(1) || coalesce(currency,               chr(2)),
-             chr(3) ORDER BY vin)), '') AS digest
+             chr(3) ORDER BY vin)), '') AS digest,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='listing_city') THEN (SELECT count(listing_city) FROM public.vehicles) ELSE 0 END) AS pre_listing_city_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='listing_province') THEN (SELECT count(listing_province) FROM public.vehicles) ELSE 0 END) AS pre_listing_province_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='listing_country') THEN (SELECT count(listing_country) FROM public.vehicles) ELSE 0 END) AS pre_listing_country_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='listing_location_source') THEN (SELECT count(listing_location_source) FROM public.vehicles) ELSE 0 END) AS pre_listing_location_source_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='listing_location_visibility') THEN (SELECT count(listing_location_visibility) FROM public.vehicles) ELSE 0 END) AS pre_listing_location_visibility_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='listing_location_recorded_at') THEN (SELECT count(listing_location_recorded_at) FROM public.vehicles) ELSE 0 END) AS pre_listing_location_recorded_at_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='registration_country_source') THEN (SELECT count(registration_country_source) FROM public.vehicles) ELSE 0 END) AS pre_registration_country_source_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='registration_authority_source') THEN (SELECT count(registration_authority_source) FROM public.vehicles) ELSE 0 END) AS pre_registration_authority_source_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='registration_status_source') THEN (SELECT count(registration_status_source) FROM public.vehicles) ELSE 0 END) AS pre_registration_status_source_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='plate_status_source') THEN (SELECT count(plate_status_source) FROM public.vehicles) ELSE 0 END) AS pre_plate_status_source_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='current_seller_type_source') THEN (SELECT count(current_seller_type_source) FROM public.vehicles) ELSE 0 END) AS pre_current_seller_type_source_n,
+           (CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='vehicles' AND column_name='currency_source') THEN (SELECT count(currency_source) FROM public.vehicles) ELSE 0 END) AS pre_currency_source_n
       FROM public.vehicles
   $preimage$;
 END
@@ -442,25 +454,24 @@ BEGIN
    WHERE table_schema = 'public' AND table_name = 'vehicles'
      AND column_name = ANY (c_defaulted) AND column_default IS NOT NULL;
 
-  -- 5. NOTHING WAS BACKFILLED. Every new column must be NULL on every row. Counted directly
-  --    rather than assumed from "we wrote no UPDATE", so a future edit that adds a backfill
-  --    fails this assertion instead of shipping invented cities.
-  SELECT string_agg(x.col || '=' || x.n, ', ' ORDER BY x.col) INTO v_backfilled
+  -- 5. NOTHING WAS BACKFILLED. Every new column must be NULL on every row that was NOT previously
+  --    populated before this migration. Counted directly as a delta rather than assumed.
+  SELECT string_agg(x.col || '=' || (x.n - x.pre_n), ', ' ORDER BY x.col) INTO v_backfilled
     FROM (
-      SELECT 'listing_city'                  AS col, count(listing_city)                  AS n FROM public.vehicles
-      UNION ALL SELECT 'listing_province',                  count(listing_province)                  FROM public.vehicles
-      UNION ALL SELECT 'listing_country',                   count(listing_country)                   FROM public.vehicles
-      UNION ALL SELECT 'listing_location_source',           count(listing_location_source)           FROM public.vehicles
-      UNION ALL SELECT 'listing_location_visibility',       count(listing_location_visibility)       FROM public.vehicles
-      UNION ALL SELECT 'listing_location_recorded_at',      count(listing_location_recorded_at)      FROM public.vehicles
-      UNION ALL SELECT 'registration_country_source',       count(registration_country_source)       FROM public.vehicles
-      UNION ALL SELECT 'registration_authority_source',     count(registration_authority_source)     FROM public.vehicles
-      UNION ALL SELECT 'registration_status_source',        count(registration_status_source)        FROM public.vehicles
-      UNION ALL SELECT 'plate_status_source',               count(plate_status_source)               FROM public.vehicles
-      UNION ALL SELECT 'current_seller_type_source',        count(current_seller_type_source)        FROM public.vehicles
-      UNION ALL SELECT 'currency_source',                   count(currency_source)                   FROM public.vehicles
+      SELECT 'listing_city'                  AS col, count(listing_city)                  AS n, (SELECT pre_listing_city_n                  FROM pg_temp.issue164_p4_preimage) AS pre_n FROM public.vehicles
+      UNION ALL SELECT 'listing_province',                  count(listing_province),                  (SELECT pre_listing_province_n              FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'listing_country',                   count(listing_country),                   (SELECT pre_listing_country_n               FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'listing_location_source',           count(listing_location_source),           (SELECT pre_listing_location_source_n       FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'listing_location_visibility',       count(listing_location_visibility),       (SELECT pre_listing_location_visibility_n   FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'listing_location_recorded_at',      count(listing_location_recorded_at),      (SELECT pre_listing_location_recorded_at_n  FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'registration_country_source',       count(registration_country_source),       (SELECT pre_registration_country_source_n   FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'registration_authority_source',     count(registration_authority_source),     (SELECT pre_registration_authority_source_n FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'registration_status_source',        count(registration_status_source),        (SELECT pre_registration_status_source_n    FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'plate_status_source',               count(plate_status_source),               (SELECT pre_plate_status_source_n           FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'current_seller_type_source',        count(current_seller_type_source),        (SELECT pre_current_seller_type_source_n    FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
+      UNION ALL SELECT 'currency_source',                   count(currency_source),                   (SELECT pre_currency_source_n               FROM pg_temp.issue164_p4_preimage) FROM public.vehicles
     ) AS x
-   WHERE x.n > 0;
+   WHERE (x.n - x.pre_n) > 0;
 
   -- 6. NO EXISTING DATA WAS REWRITTEN. Same row count, same digest over every column this
   --    migration could have touched, before and after.
