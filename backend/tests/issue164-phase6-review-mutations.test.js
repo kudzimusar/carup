@@ -91,6 +91,11 @@ async function terminalInvariantHolds(migrationSql) {
   const db = await PGlite.create();
   try {
     await db.exec(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+      END $$;
       CREATE TABLE finance_applications (
         id text PRIMARY KEY,
         vin text NOT NULL,

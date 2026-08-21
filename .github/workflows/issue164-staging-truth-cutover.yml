@@ -1,0 +1,118 @@
+name: Issue 164 Controlled Staging Truth Cutover
+
+# Control-plane registration only. Manual workflow_dispatch remains owner-only on main. Because the
+# connected automation cannot invoke workflow_dispatch, the initial already-authorized cutover may
+# also run exactly when dispatcher PR #169 is merged with the pinned merge title below. All database
+# code still comes from one immutable reviewed candidate; there is no arbitrary ref/SQL input.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'preflight = execute full chain then rollback; apply = preflight then atomically apply and verify; verify = post-cutover verification only; trust-refresh = execute canonical trust refresh and post-cutover verification'
+        required: true
+        type: choice
+        default: preflight
+        options:
+          - preflight
+          - apply
+          - verify
+          - trust-refresh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue164-staging-truth-cutover
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: acaf2e8327ae17776720c34d9a49ee63e5f12bd8
+  PG_DRIVER_VERSION: 8.21.0
+  INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
+
+jobs:
+  cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main' &&
+       github.actor == 'kudzimusar' &&
+       github.triggering_actor == 'kudzimusar') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/main' &&
+       github.actor == 'kudzimusar' &&
+       github.triggering_actor == 'kudzimusar' &&
+       github.run_attempt == 1 &&
+       github.event.head_commit.message == 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)')
+
+    steps:
+      - name: Check out immutable reviewed cutover candidate
+        uses: actions/checkout@v4
+        with:
+          ref: integration/canonical-vehicle-truth-closure
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assert immutable candidate
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $actual; expected $CANDIDATE_SHA"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Third-party installation occurs without any database credential in scope.
+      - name: Install pinned PostgreSQL driver only
+        run: npm install --no-save --no-audit --no-fund --ignore-scripts "pg@${PG_DRIVER_VERSION}"
+
+      - name: Require governed staging operator secret
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+        run: |
+          if [ -z "$DIASPORA_STAGING_DATABASE_URL" ]; then
+            echo '::error::DIASPORA_STAGING_DATABASE_URL is not configured; refusing cutover.'
+            exit 1
+          fi
+
+      - name: Run Issue 164 staging operation
+        env:
+          DIASPORA_STAGING_DATABASE_URL: ${{ secrets.DIASPORA_STAGING_DATABASE_URL }}
+          DIASPORA_STAGING_CA_CERT: ${{ secrets.DIASPORA_STAGING_CA_CERT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          mode="${{ inputs.mode }}"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            mode="apply"
+          fi
+
+          if [ "$mode" = "trust-refresh" ]; then
+            node backend/scripts/issue164-refresh-canonical-trust.mjs
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=verify
+          elif [ "$mode" = "apply" ]; then
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=preflight
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=apply
+            node backend/scripts/issue164-refresh-canonical-trust.mjs
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode=verify
+          else
+            node backend/scripts/issue164-staging-truth-cutover.mjs --mode="$mode"
+          fi
+
+      - name: Preserve non-secret cutover receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue164-staging-truth-cutover-receipt
+          path: issue164-staging-truth-cutover-receipt.json
+          if-no-files-found: ignore
+          retention-days: 30

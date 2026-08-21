@@ -318,6 +318,19 @@ async function verifyCutover(client, migrations, { requireLedger = true } = {}) 
     }
   }
 
+  const { rows: vehicleTrustCheck } = await client.query(`
+    SELECT count(*)::int AS total,
+           count(*) FILTER (WHERE trust_score IS NOT NULL AND trust_calculation_version IS NULL)::int AS unversioned_legacy_scores,
+           count(*) FILTER (WHERE trust_calculation_version IS NOT NULL AND trust_calculation_version != '2026.06.21.v1')::int AS invalid_version_scores
+      FROM public.vehicles
+  `);
+  if (vehicleTrustCheck[0].unversioned_legacy_scores > 0) {
+    errors.push(`${vehicleTrustCheck[0].unversioned_legacy_scores} vehicle(s) carry unversioned legacy scores without calculation version`);
+  }
+  if (vehicleTrustCheck[0].invalid_version_scores > 0) {
+    errors.push(`${vehicleTrustCheck[0].invalid_version_scores} vehicle(s) carry invalid calculation version stamps`);
+  }
+
   if (await tableExists(client, 'vehicle_listing_summaries')) {
     errors.push('dead vehicle_listing_summaries still exists');
   }
