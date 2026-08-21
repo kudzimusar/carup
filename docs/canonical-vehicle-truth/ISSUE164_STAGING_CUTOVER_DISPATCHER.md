@@ -13,12 +13,16 @@ separation of control plane from product code.
 
 The workflow checks out immutable candidate:
 
-`acaf2e8327ae17776720c34d9a49ee63e5f12bd8`
+`67d2b2bfe963e6da860297197b44f94a16ef5d4b`
 
-That candidate is a descendant of the Phase 6 certified source anchor
-`e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`. Its net post-Phase-6 executable change is only the guarded
-`backend/scripts/issue164-staging-truth-cutover.mjs`; all 16 migration files are verified byte-identical
-to the Phase 6 source anchor before any connection is opened.
+Provenance and Ancestry:
+
+- Historical source anchor: `acaf2e8327ae17776720c34d9a49ee63e5f12bd8` (descendant of Phase 6 certified anchor `e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`).
+- Cutover candidate & workflow pinned SHA: `67d2b2bfe963e6da860297197b44f94a16ef5d4b`.
+- Workflow dispatcher head vs PR programme head: The dispatcher workflow on `main` pins `CANDIDATE_SHA: 67d2b2bfe963e6da860297197b44f94a16ef5d4b` while product development and ongoing certification fixes proceed on branch `integration/canonical-vehicle-truth-closure`.
+
+Migration tree integrity:
+`assertCandidateAndMigrationTreeFrozen()` verifies that 12 pre-existing migrations are byte-identical to the Phase 6 source anchor before any connection is opened. Four Issue #164 migrations (`20260818110000_issue164_listing_location_provenance.sql`, `20260819123000_issue164_phase6_finance_truth.sql`, `20260819127000_issue164_phase6_settlement_recovery.sql`, `20260819129000_issue164_phase6_settlement_recovery_fence.sql`) were introduced as part of the Issue #164 canonical truth model and are explicitly exempted from comparison against the historical pre-Issue #164 anchor.
 
 Security properties:
 

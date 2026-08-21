@@ -13,7 +13,10 @@
  * The aggregation core `assembleDecision(inputs)` is pure (no I/O) so it is fully unit
  * testable; `getTrustDecision(vin)` fetches the dimension inputs and calls it.
  */
-import { supabase } from '../../db/supabase.js';
+async function getDefaultClient() {
+  const { supabase } = await import('../../db/supabase.js');
+  return supabase;
+}
 import { evaluateCompleteness } from '../evidence/completenessEvaluator.js';
 import { getCoverage } from '../sourceVerification/sourceVerificationService.js';
 
@@ -303,10 +306,11 @@ export function toPublicDecision(decision) {
 
 /** Fetch dimension inputs for a VIN and assemble the decision. */
 export async function getTrustDecision(vin, opts = {}) {
+  const client = opts.client ?? (await getDefaultClient());
   let vehicle = opts.vehicle || null;
   if (!vehicle) {
     try {
-      const { data } = await supabase
+      const { data } = await client
         .from('vehicles')
         .select('vin, make, model, year, chassis_number, engine_number, plate_number, temp_plate_id, tenant_id')
         .eq('vin', vin)
@@ -315,16 +319,16 @@ export async function getTrustDecision(vin, opts = {}) {
     } catch { vehicle = {}; }
   }
   let completeness = null;
-  try { completeness = await evaluateCompleteness(vin); } catch { /* dimension stays not_evaluated */ }
+  try { completeness = await evaluateCompleteness(vin, { client }); } catch { /* dimension stays not_evaluated */ }
   let coverage = [];
-  try { coverage = await getCoverage(vin); } catch { /* coverage stays empty */ }
+  try { coverage = await getCoverage(vin, { client }); } catch { /* coverage stays empty */ }
 
   // Each external dimension is fetched defensively — a failure leaves it not_evaluated,
   // never fabricates a clear/eligible state.
-  const fraudInput = opts.fraudInput !== undefined ? opts.fraudInput : await fetchFraudSummary(vin);
-  const insurance = opts.insurance !== undefined ? opts.insurance : await fetchEligibility('insurance', vin);
-  const finance = opts.finance !== undefined ? opts.finance : await fetchEligibility('finance', vin);
-  const escrow = opts.escrow !== undefined ? opts.escrow : await fetchEscrow(vin);
+  const fraudInput = opts.fraudInput !== undefined ? opts.fraudInput : await fetchFraudSummary(vin, client);
+  const insurance = opts.insurance !== undefined ? opts.insurance : await fetchEligibility('insurance', vin, client);
+  const finance = opts.finance !== undefined ? opts.finance : await fetchEligibility('finance', vin, client);
+  const escrow = opts.escrow !== undefined ? opts.escrow : await fetchEscrow(vin, client);
 
   return assembleDecision({
     vin,
@@ -340,9 +344,9 @@ export async function getTrustDecision(vin, opts = {}) {
   });
 }
 
-async function fetchFraudSummary(vin) {
+async function fetchFraudSummary(vin, client) {
   try {
-    const { data } = await supabase.from('fraud_cases')
+    const { data } = await client.from('fraud_cases')
       .select('status, highest_severity, blocks_publication').eq('vin', vin).eq('status', 'open');
     if (!data || data.length === 0) return null;
     const order = { low: 1, medium: 2, high: 3, critical: 4 };
@@ -351,18 +355,18 @@ async function fetchFraudSummary(vin) {
   } catch { return null; }
 }
 
-async function fetchEligibility(capability, vin) {
+async function fetchEligibility(capability, vin, client) {
   try {
-    const { data } = await supabase.from('eligibility_requests')
+    const { data } = await client.from('eligibility_requests')
       .select('status, conditions, mode, validity_until, created_at').eq('vin', vin).eq('capability', capability)
       .order('created_at', { ascending: false });
     return (data && data[0]) || null;
   } catch { return null; }
 }
 
-async function fetchEscrow(vin) {
+async function fetchEscrow(vin, client) {
   try {
-    const { data } = await supabase.from('escrow_trust_sessions')
+    const { data } = await client.from('escrow_trust_sessions')
       .select('status, created_at').eq('vin', vin).order('created_at', { ascending: false });
     return (data && data[0]) || null;
   } catch { return null; }

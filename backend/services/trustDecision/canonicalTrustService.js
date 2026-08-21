@@ -112,7 +112,10 @@
  * makes the refusal real. A new writer of this column must do the same, or it is publishing under
  * refreshCanonicalTrust's authority. Retiring them is INV-TRUST-2's remaining work.
  */
-import { supabase } from '../../db/supabase.js';
+async function getDefaultClient() {
+  const { supabase } = await import('../../db/supabase.js');
+  return supabase;
+}
 import {
   CALCULATION_VERSION,
   getTrustDecision,
@@ -793,8 +796,8 @@ async function computeCanonicalTrust(vin, { decide, read, vehicle, now, cache })
  * @returns {Promise<object>} frozen canonical record; project with `toPublicTrust` before rendering
  */
 export async function getCanonicalTrust(vin, opts = {}) {
+  const client = opts.client ?? (await getDefaultClient());
   const {
-    client = supabase,
     decide = getTrustDecision,
     read,
     recompute = RECOMPUTE.IF_STALE,
@@ -848,7 +851,8 @@ export async function getCanonicalTrust(vin, opts = {}) {
  * @returns {Promise<Map<string, object>>} vin -> frozen canonical record
  */
 export async function getCanonicalTrustBatch(vins, opts = {}) {
-  const { client = supabase, chunkSize = BATCH_CHUNK_SIZE } = opts;
+  const client = opts.client ?? (await getDefaultClient());
+  const { chunkSize = BATCH_CHUNK_SIZE } = opts;
 
   const unique = [];
   const seen = new Set();
@@ -926,7 +930,8 @@ export function buildCachePatch(record) {
  * @returns {Promise<{record: object, patch: object|null, written: boolean, reason: string|null}>}
  */
 export async function refreshCanonicalTrust(vin, opts = {}) {
-  const { client = supabase, dryRun = false, ...rest } = opts;
+  const client = opts.client ?? (await getDefaultClient());
+  const { dryRun = false, ...rest } = opts;
 
   const record = await getCanonicalTrust(vin, { ...rest, client, recompute: RECOMPUTE.ALWAYS });
   const patch = buildCachePatch(record);

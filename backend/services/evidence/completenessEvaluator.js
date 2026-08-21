@@ -19,7 +19,10 @@
  * AI confidence is NEVER consulted here: this evaluator is purely deterministic
  * and based on human-verified state.
  */
-import { supabase } from '../../db/supabase.js';
+async function getDefaultClient() {
+  const { supabase } = await import('../../db/supabase.js');
+  return supabase;
+}
 
 // Every value below MUST be legal under the DB CHECK constraint
 // vehicle_evidence_evidence_type_check — an illegal value can never match a row,
@@ -52,8 +55,9 @@ function docStatus(docs, type) {
  *   publication_status: string,
  * }>}
  */
-export async function evaluateCompleteness(vin) {
-  const { data: vehicle, error: vErr } = await supabase
+export async function evaluateCompleteness(vin, opts = {}) {
+  const client = opts.client ?? (await getDefaultClient());
+  const { data: vehicle, error: vErr } = await client
     .from('vehicles')
     .select('vin, chassis_number, engine_number, plate_number, temp_plate_id, trust_score, publication_status')
     .eq('vin', vin)
@@ -62,7 +66,7 @@ export async function evaluateCompleteness(vin) {
   if (vErr || !vehicle) throw new Error(`Vehicle not found: ${vin}`);
 
   // Fetch all evidence rows for this VIN in one query to avoid N+1
-  const { data: evidenceRows } = await supabase
+  const { data: evidenceRows } = await client
     .from('vehicle_evidence')
     .select('id, evidence_type, verification_status')
     .eq('vin', vin)

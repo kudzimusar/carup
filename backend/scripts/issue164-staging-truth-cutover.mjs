@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { parseMigrationSource } from '../db/migrationParser.js';
+import { CALCULATION_VERSION } from '../services/trustDecision/canonicalTrustService.js';
 
 const STAGING_REF = 'eoyenigwevnxwwhyhaer';
 const PHASE6_SOURCE_ANCHOR = 'e2d2f8a873ebb2714dc44587b17f9832d1ef69ed';
@@ -275,7 +276,7 @@ async function insertLedgerRow(client, migration) {
   );
 }
 
-async function verifyCutover(client, migrations, { requireLedger = true } = {}) {
+export async function verifySchemaAndSecurity(client, migrations, { requireLedger = true } = {}) {
   const errors = [];
 
   if (requireLedger) {
@@ -316,19 +317,6 @@ async function verifyCutover(client, migrations, { requireLedger = true } = {}) 
     if (row.is_nullable !== 'YES' || row.column_default !== null) {
       errors.push(`${row.column_name} must remain nullable with no default`);
     }
-  }
-
-  const { rows: vehicleTrustCheck } = await client.query(`
-    SELECT count(*)::int AS total,
-           count(*) FILTER (WHERE trust_score IS NOT NULL AND trust_calculation_version IS NULL)::int AS unversioned_legacy_scores,
-           count(*) FILTER (WHERE trust_calculation_version IS NOT NULL AND trust_calculation_version != '2026.06.21.v1')::int AS invalid_version_scores
-      FROM public.vehicles
-  `);
-  if (vehicleTrustCheck[0].unversioned_legacy_scores > 0) {
-    errors.push(`${vehicleTrustCheck[0].unversioned_legacy_scores} vehicle(s) carry unversioned legacy scores without calculation version`);
-  }
-  if (vehicleTrustCheck[0].invalid_version_scores > 0) {
-    errors.push(`${vehicleTrustCheck[0].invalid_version_scores} vehicle(s) carry invalid calculation version stamps`);
   }
 
   if (await tableExists(client, 'vehicle_listing_summaries')) {
@@ -406,8 +394,34 @@ async function verifyCutover(client, migrations, { requireLedger = true } = {}) 
 
   if (errors.length) {
     for (const error of errors) console.error(`CONTRACT VIOLATION: ${error}`);
-    throw new Error(`${errors.length} post-cutover contract violation(s)`);
+    throw new Error(`${errors.length} schema/security contract violation(s)`);
   }
+}
+
+export async function verifyPopulationTrust(client) {
+  const errors = [];
+  const { rows: vehicleTrustCheck } = await client.query(`
+    SELECT count(*)::int AS total,
+           count(*) FILTER (WHERE trust_score IS NOT NULL AND trust_calculation_version IS NULL)::int AS unversioned_legacy_scores,
+           count(*) FILTER (WHERE trust_calculation_version IS NOT NULL AND trust_calculation_version NOT IN ($1, '2026.06.21.v1'))::int AS invalid_version_scores
+      FROM public.vehicles
+  `, [CALCULATION_VERSION]);
+  if (vehicleTrustCheck[0].unversioned_legacy_scores > 0) {
+    errors.push(`${vehicleTrustCheck[0].unversioned_legacy_scores} vehicle(s) carry unversioned legacy scores without calculation version`);
+  }
+  if (vehicleTrustCheck[0].invalid_version_scores > 0) {
+    errors.push(`${vehicleTrustCheck[0].invalid_version_scores} vehicle(s) carry invalid calculation version stamps`);
+  }
+
+  if (errors.length) {
+    for (const error of errors) console.error(`TRUST CONTRACT VIOLATION: ${error}`);
+    throw new Error(`${errors.length} post-refresh population trust contract violation(s)`);
+  }
+}
+
+export async function verifyCutover(client, migrations, opts = {}) {
+  await verifySchemaAndSecurity(client, migrations, opts);
+  await verifyPopulationTrust(client);
 }
 
 async function executeChain(client, migrations, { rollback }) {
@@ -422,7 +436,7 @@ async function executeChain(client, migrations, { rollback }) {
       await insertLedgerRow(client, migration);
     }
 
-    await verifyCutover(client, migrations, { requireLedger: true });
+    await verifySchemaAndSecurity(client, migrations, { requireLedger: true });
     await client.query(rollback ? 'ROLLBACK' : 'COMMIT');
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {});
@@ -564,4 +578,6 @@ async function main() {
   }
 }
 
-main().catch((error) => fail(error?.message ?? String(error)));
+if (process.argv[1] && process.argv[1].endsWith('issue164-staging-truth-cutover.mjs')) {
+  main().catch((error) => fail(error?.message ?? String(error)));
+}

@@ -14,7 +14,10 @@
  *   - AI/automation never sets these results; they come from adapters or authorized
  *     manual verification.
  */
-import { supabase } from '../../db/supabase.js';
+async function getDefaultClient() {
+  const { supabase } = await import('../../db/supabase.js');
+  return supabase;
+}
 import {
   registerAdapter,
   getAdapter,
@@ -190,8 +193,9 @@ export async function recordManualVerification(vin, provider, payload, actor) {
 }
 
 /** Buyer/partner-safe coverage: latest status per provider, no identity PII, no raw. */
-export async function getCoverage(vin) {
-  const { data, error } = await supabase
+export async function getCoverage(vin, opts = {}) {
+  const client = opts.client ?? (await getDefaultClient());
+  const { data, error } = await client
     .from('source_verification_coverage_public')
     .select('*')
     .eq('vin', vin);
