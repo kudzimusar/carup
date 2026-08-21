@@ -86,6 +86,8 @@ const ALLOWED_MENTIONS = {
   // Read-only preflight that reports whether the drop would be permitted. It is authorised to
   // inspect the relation precisely so a refusal is discovered before a deploy, not during one.
   'backend/scripts/issue164-drop-listing-summaries-preflight.mjs': /READ-ONLY/,
+  // Controlled staging truth cutover runner that verifies postconditions including absence of dead relation.
+  'backend/scripts/issue164-staging-truth-cutover.mjs': /dead vehicle_listing_summaries still exists/,
 };
 
 test('every file that names the dead table is an allowed, non-application mention', () => {
