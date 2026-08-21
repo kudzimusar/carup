@@ -11,15 +11,15 @@ owner-governed `staging` GitHub Actions environment.
 The precedent is PR #140 (`ci(staging): publication-gate migration dispatcher`), which used the same
 separation of control plane from product code.
 
-The workflow checks out immutable candidate:
+The workflow pins remediated source candidate:
 
-`67d2b2bfe963e6da860297197b44f94a16ef5d4b`
+`4cee0f1172090a8dd1c07fb3de872c79a5bcd125`
 
 Provenance and Ancestry:
 
-- Historical source anchor: `acaf2e8327ae17776720c34d9a49ee63e5f12bd8` (descendant of Phase 6 certified anchor `e2d2f8a873ebb2714dc44587b17f9832d1ef69ed`).
-- Cutover candidate & workflow pinned SHA: `67d2b2bfe963e6da860297197b44f94a16ef5d4b`.
-- Workflow dispatcher head vs PR programme head: The dispatcher workflow on `main` pins `CANDIDATE_SHA: 67d2b2bfe963e6da860297197b44f94a16ef5d4b` while product development and ongoing certification fixes proceed on branch `integration/canonical-vehicle-truth-closure`.
+- Historical source anchor: `acaf2e8327ae17776720c34d9a49ee63e5f12bd8` (executed historical cutover against staging project `eoyenigwevnxwwhyhaer`).
+- Cutover candidate & workflow pinned SHA: `4cee0f1172090a8dd1c07fb3de872c79a5bcd125` (pins all Phase 6 Findings 1–7 remediations, PostgreSQL client forwarding, fail-closed version verification, and lazy-client fixes).
+- **Workflow dispatcher head vs PR programme head**: The dispatcher workflow on `main` pins `CANDIDATE_SHA: 4cee0f1172090a8dd1c07fb3de872c79a5bcd125` while product development and ongoing certification fixes proceed on branch `integration/canonical-vehicle-truth-closure`.
 
 Migration tree integrity:
 `assertCandidateAndMigrationTreeFrozen()` verifies that 12 pre-existing migrations are byte-identical to the Phase 6 source anchor before any connection is opened. Four Issue #164 migrations (`20260818110000_issue164_listing_location_provenance.sql`, `20260819123000_issue164_phase6_finance_truth.sql`, `20260819127000_issue164_phase6_settlement_recovery.sql`, `20260819129000_issue164_phase6_settlement_recovery_fence.sql`) were introduced as part of the Issue #164 canonical truth model and are explicitly exempted from comparison against the historical pre-Issue #164 anchor.
