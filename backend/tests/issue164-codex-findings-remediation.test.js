@@ -316,3 +316,55 @@ test('Finding 5 (P2) — Dispatcher documentation candidate SHA and migration tr
     'Documentation must explicitly identify the cutover candidate & workflow pinned SHA',
   );
 });
+
+test('Finding 6 (P1) — Trust cache write_failed:* returns exit failure instead of ordinary skip', async () => {
+  const db = await PGlite.create();
+  try {
+    await db.exec(`
+      CREATE TABLE vehicles (
+        vin text PRIMARY KEY,
+        currency_source text DEFAULT 'seller',
+        trust_score numeric(5,2) DEFAULT NULL,
+        trust_calculation_version text DEFAULT NULL
+      );
+      INSERT INTO vehicles (vin) VALUES ('1HGCR2F83HA000001');
+    `);
+
+    // Create a client adapter whose update query fails (e.g. table has no matching columns or throws DB error)
+    const failingClient = {
+      from: (table) => {
+        if (table === 'vehicles') {
+          return {
+            select: () => ({
+              order: () => ({
+                limit: () => Promise.resolve({ data: [{ vin: '1HGCR2F83HA000001' }], error: null }),
+              }),
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: { vin: '1HGCR2F83HA000001' }, error: null }),
+                single: () => Promise.resolve({ data: { vin: '1HGCR2F83HA000001' }, error: null }),
+              }),
+            }),
+            update: () => ({
+              eq: () => Promise.resolve({ data: null, error: { message: 'simulated DB write error' } }),
+            }),
+          };
+        }
+        return {
+          select: () => ({
+            eq: () => ({
+              in: () => Promise.resolve({ data: [], error: null }),
+              order: () => Promise.resolve({ data: [], error: null }),
+            }),
+          }),
+        };
+      },
+    };
+
+    const summary = await runTrustRefresh(failingClient, { singleVin: '1HGCR2F83HA000001' });
+    assert.equal(summary.failed, 1, 'write_failed:* must increment summary.failed');
+    assert.equal(summary.skipped, 0, 'write_failed:* must NOT increment summary.skipped');
+    assert.ok(summary.skips['write_failed:simulated DB write error'] === 1, 'write_failed reason must be recorded in summary.skips');
+  } finally {
+    await db.close();
+  }
+});

@@ -169,11 +169,16 @@ export async function runTrustRefresh(client, opts = {}) {
     summary.considered = 1;
     try {
       const result = await refreshCanonicalTrust(singleVin, { client, dryRun });
-      if (result.written || (dryRun && result.patch)) summary.written += 1;
-      else {
-        summary.skipped += 1;
+      if (result.written || (dryRun && result.patch)) {
+        summary.written += 1;
+      } else {
         const reason = result.reason || 'unknown';
         summary.skips[reason] = (summary.skips[reason] || 0) + 1;
+        if (reason.startsWith('write_failed:')) {
+          summary.failed += 1;
+        } else {
+          summary.skipped += 1;
+        }
       }
     } catch (err) {
       summary.failed += 1;
@@ -206,11 +211,16 @@ export async function runTrustRefresh(client, opts = {}) {
       summary.considered += 1;
       try {
         const result = await refreshCanonicalTrust(vin, { client, dryRun });
-        if (result.written || (dryRun && result.patch)) summary.written += 1;
-        else {
-          summary.skipped += 1;
+        if (result.written || (dryRun && result.patch)) {
+          summary.written += 1;
+        } else {
           const reason = result.reason || 'unknown';
           summary.skips[reason] = (summary.skips[reason] || 0) + 1;
+          if (reason.startsWith('write_failed:')) {
+            summary.failed += 1;
+          } else {
+            summary.skipped += 1;
+          }
         }
       } catch (err) {
         summary.failed += 1;
