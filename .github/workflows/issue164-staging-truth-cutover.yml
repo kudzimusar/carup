@@ -54,7 +54,7 @@ jobs:
       - name: Check out immutable reviewed cutover candidate
         uses: actions/checkout@v4
         with:
-          ref: e25dc7f1fdc50c1f6f1c42be26ec49b109eebfb1
+          ref: integration/canonical-vehicle-truth-closure
           fetch-depth: 0
           persist-credentials: false
 
