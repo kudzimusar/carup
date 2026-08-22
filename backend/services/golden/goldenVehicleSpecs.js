@@ -103,7 +103,8 @@ export const GOLDEN_A = Object.freeze({
   insurance: { provider_name: 'CARUP SYNTHETIC INSURER [phase7]', policy_number: 'PH7-GLDA-INS-0001', coverage_type: 'comprehensive' },
   listingImageCount: 5,                  // exterior/interior/dashboard/engine/disclosed — listing MEDIA only
   finance: { requestedAmount: 15000 },   // buyer requests financing from the synthetic bank
-  partSentry: { part_name: 'Front brake pads', part_oem: 'PH7-OEM-BRK-001', action_type: 'Replaced', mileage: 76000 },
+  // Mileage must be >= the vehicle's current odometer (78450); addRepairLog rejects a lower reading.
+  partSentry: { part_name: 'Front brake pads', part_oem: 'PH7-OEM-BRK-001', action_type: 'Replaced', mileage: 78450 },
   transaction: true,                     // exercise eligible → reserve → sandbox deposit (funds_held)
 });
 

@@ -28,8 +28,15 @@ function makeMock() {
   const writes = [];      // every insert/update payload, for invariant assertions
   let seq = 0;
   const tbl = (t) => (db[t] = db[t] || []);
-  const match = (row, filters) => filters.every(([op, col, val]) =>
-    op === 'eq' ? row[col] === val : op === 'in' ? val.includes(row[col]) : true);
+  // Support jsonb path filters like `payload->>vin` so outbox cleanup can be exercised.
+  const getVal = (row, col) => {
+    const m = /^(\w+)->>(\w+)$/.exec(col);
+    return m ? row[m[1]]?.[m[2]] : row[col];
+  };
+  const match = (row, filters) => filters.every(([op, col, val]) => {
+    const v = getVal(row, col);
+    return op === 'eq' ? v === val : op === 'in' ? val.includes(v) : true;
+  });
 
   function builder(table) {
     const st = { table, op: 'select', filters: [], payload: null, cols: '*', head: false, wantCount: false };
@@ -291,4 +298,40 @@ test('verify() passes against a freshly bootstrapped store', async () => {
   const r = await fixture.verify(deps);
   const failed = r.checks.filter((c) => !c.ok).map((c) => c.name);
   assert.equal(r.ok, true, `verify should pass; failed: ${failed.join(', ')}`);
+});
+
+test('guard: a URL that only CONTAINS the staging ref in path/query is refused (exact host required)', () => {
+  const attack = evaluateStagingGuard({ SUPABASE_URL: 'https://example.com/?ref=eoyenigwevnxwwhyhaer', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' });
+  assert.equal(attack.ok, false, 'a non-staging host with the ref in the query must be refused');
+  const subdomainAttack = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co.evil.com', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' });
+  assert.equal(subdomainAttack.ok, false, 'a look-alike host must be refused');
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, true);
+});
+
+test('Golden A trust must be evaluated: a not_evaluated refresh makes bootstrap a required failure', async () => {
+  const { client } = makeMock();
+  const { deps } = await makeDeps(client, {
+    // Simulate refreshCanonicalTrust that could not produce a canonical decision.
+    getCanonicalTrust: async (vin) => ({ vin, evaluation_state: 'not_evaluated', calculation_version: null, score: null, band: 'insufficient_evidence' }),
+    toPublicTrust: (rec) => ({ vin: rec.vin, evaluation_state: rec.evaluation_state, calculation_version: rec.calculation_version, score: rec.score, band: rec.band }),
+  });
+  const r = await fixture.bootstrap(deps);
+  assert.equal(r.ok, false, 'bootstrap must fail when Golden A trust is not evaluated');
+  assert.ok(r.requiredFailed.some((n) => n === 'A:trust_read'), `A:trust_read must be a required failure; got ${r.requiredFailed.join(', ')}`);
+});
+
+test('cleanup removes the fixture outbox events (domain_events) it created', async () => {
+  const { client, db } = makeMock();
+  const { deps } = await makeDeps(client);
+  await fixture.bootstrap(deps);
+  // Seed synthetic outbox events for the fixture graph (as the real services would) + one unrelated.
+  db.domain_events = [
+    { id: 'de1', event_type: 'finance.application.status_changed', payload: { vin: specs.GOLDEN_A.vin } },
+    { id: 'de2', event_type: 'marketplace.inquiry.created', payload: { recipientUserId: specs.GOLDEN_A.buyerId } },
+    { id: 'de-real', event_type: 'other', payload: { vin: 'REALVIN0000000002' } },
+  ];
+  await fixture.cleanup(deps);
+  assert.equal(db.domain_events.find((e) => e.id === 'de1'), undefined, 'fixture vin-scoped event must be removed');
+  assert.equal(db.domain_events.find((e) => e.id === 'de2'), undefined, 'fixture recipient-scoped event must be removed');
+  assert.ok(db.domain_events.find((e) => e.id === 'de-real'), 'unrelated event must survive');
 });

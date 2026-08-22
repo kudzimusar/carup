@@ -23,6 +23,7 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const STAGING_REF = 'eoyenigwevnxwwhyhaer';
+const STAGING_HOST = `${STAGING_REF}.supabase.co`;
 // Forbidden production ref, assembled at runtime so the CR-1 secret scanner stays untouched. The
 // fragments are inert; the comparison below is the guard.
 const FORBIDDEN_PROD_REF = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
@@ -41,7 +42,13 @@ export function evaluateStagingGuard(env = {}) {
   const key = env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url) return { ok: false, reason: 'SUPABASE_URL is not set' };
   if (url.includes(FORBIDDEN_PROD_REF)) return { ok: false, reason: 'SUPABASE_URL references the forbidden production ref — refusing' };
-  if (!url.includes(STAGING_REF)) return { ok: false, reason: `SUPABASE_URL must positively reference the approved staging ref ${STAGING_REF}` };
+  // Parse the URL and require the EXACT approved Supabase hostname. Substring containment would let
+  // `https://example.com/?ref=eoyenigwevnxwwhyhaer` or an attacker-controlled host pass and receive the
+  // service-role credential; the hostname must be exactly the staging project's Supabase host.
+  let parsed;
+  try { parsed = new URL(url); } catch { return { ok: false, reason: 'SUPABASE_URL is not a valid URL' }; }
+  if (parsed.protocol !== 'https:') return { ok: false, reason: 'SUPABASE_URL must be https' };
+  if (parsed.hostname !== STAGING_HOST) return { ok: false, reason: `SUPABASE_URL host must be exactly ${STAGING_HOST}` };
   // A publishable/anon key cannot bypass RLS to run the governed pipeline; require a real service-role key.
   if (!key || key.split('.').length !== 3) return { ok: false, reason: 'SUPABASE_SERVICE_ROLE_KEY is missing or is not a service-role JWT' };
   // Belt-and-suspenders: refuse if a production-shaped DB URL is anywhere in scope.
@@ -49,9 +56,7 @@ export function evaluateStagingGuard(env = {}) {
     const val = env[v];
     if (val && val.includes(FORBIDDEN_PROD_REF)) return { ok: false, reason: `${v} references the forbidden production ref — refusing` };
   }
-  let host = null;
-  try { host = new URL(url).host; } catch { return { ok: false, reason: 'SUPABASE_URL is not a valid URL' }; }
-  return { ok: true, host };
+  return { ok: true, host: parsed.host };
 }
 
 function assertCanonicalStaging() {
@@ -69,7 +74,7 @@ async function getClient() {
 }
 
 // ── unrelated-data preservation snapshot ─────────────────────────────────────
-const SNAPSHOT_TABLES = ['users', 'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_ownership_history', 'marketplace_inquiries', 'insurance_records', 'partsentry_logs', 'escrow_trust_sessions', 'finance_applications'];
+const SNAPSHOT_TABLES = ['users', 'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_ownership_history', 'marketplace_inquiries', 'insurance_records', 'partsentry_logs', 'escrow_trust_sessions', 'finance_applications', 'domain_events'];
 
 async function tableCount(client, table) {
   const { count, error } = await client.from(table).select('*', { count: 'exact', head: true });
@@ -86,7 +91,7 @@ async function snapshot(client) {
 // Non-fixture ("unrelated") counts = total − fixture-owned. Fixture-owned rows are exactly those
 // keyed to the deterministic VIN / user-id set, so unrelated = total minus those.
 async function fixtureCounts(client, fixtureVins, fixtureUserIds) {
-  const byVin = ['vehicles:vin', 'vehicle_evidence:vin', 'listing_images:vin', 'vehicle_ownership_history:vin', 'marketplace_inquiries:listing_id', 'insurance_records:vin', 'partsentry_logs:vin', 'escrow_trust_sessions:vin', 'finance_applications:vin'];
+  const byVin = ['vehicles:vin', 'vehicle_evidence:vin', 'listing_images:vin', 'vehicle_ownership_history:vin', 'marketplace_inquiries:listing_id', 'insurance_records:vin', 'partsentry_logs:vin', 'escrow_trust_sessions:vin', 'finance_applications:vin', 'domain_events:payload->>vin'];
   const out = {};
   for (const entry of byVin) {
     const [table, col] = entry.split(':');
@@ -168,6 +173,7 @@ async function main() {
   // 4) bootstrap again → 5) verify → 6) no-duplicate
   const boot2 = await fx.bootstrap({ client });
   record('bootstrap_2', { ok: boot2.ok, failedSteps: boot2.steps.filter((s) => !s.ok).map((s) => s.name) });
+  if (!boot2.ok) fail(`sequence: second bootstrap failed (${(boot2.requiredFailed || []).join(', ')})`);
   const ver2 = await fx.verify({ client });
   record('verify_2', { ok: ver2.ok, failed: ver2.checks.filter((c) => !c.ok).map((c) => c.name) });
   if (!ver2.ok) fail('sequence: second verify failed');
@@ -205,6 +211,7 @@ async function main() {
   // 11) bootstrap again → 12) verify
   const boot3 = await fx.bootstrap({ client });
   record('bootstrap_3', { ok: boot3.ok, failedSteps: boot3.steps.filter((s) => !s.ok).map((s) => s.name) });
+  if (!boot3.ok) fail(`sequence: final bootstrap failed (${(boot3.requiredFailed || []).join(', ')})`);
   const ver3 = await fx.verify({ client });
   record('verify_3', { ok: ver3.ok, failed: ver3.checks.filter((c) => !c.ok).map((c) => c.name) });
   if (!ver3.ok) fail('sequence: final verify failed');
