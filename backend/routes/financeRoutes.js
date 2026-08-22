@@ -28,6 +28,24 @@ function decisionSource(ctx = {}) {
 }
 
 /**
+ * True only when a persisted Approved row carries byte-for-byte the same decision as the normalized
+ * request: same APR, same monthly payment, same deciding authority. Persisted terms are compared as
+ * finite numbers (the column is numeric, but a legacy string is coerced defensively); a missing
+ * persisted decision_source can never equal a real one, so an unattributable prior Approved fails
+ * closed to a conflict rather than a false replay.
+ */
+function approvedDecisionMatches(persisted, requested) {
+  if (!requested) return false;
+  const persistedApr = toFiniteFinanceNumber(persisted?.apr);
+  const persistedMonthly = toFiniteFinanceNumber(persisted?.monthly_payment);
+  return persistedApr !== null
+    && persistedApr === requested.apr
+    && persistedMonthly !== null
+    && persistedMonthly === requested.monthly_payment
+    && String(persisted?.decision_source || '') === requested.decision_source;
+}
+
+/**
  * Compatibility URL, canonical applicant authority.
  *
  * Historical web builds send `customerId`. This route is mounted before server.js's old inline
@@ -88,18 +106,34 @@ router.get('/api/finance/applications', authorizeRole(['admin', 'finance', 'bank
   res.json(flattened);
 }));
 
+/**
+ * Coerce a finance term to a finite number, accepting ONLY a primitive number or a nonblank numeric
+ * string. Returns null for everything else. This is the scalar guard: `Number()` silently coerces
+ * `false`→0, `true`→1, `[]`→0 and `[5]`→5, so validating on `Number(val)` alone lets a boolean or a
+ * one-element array masquerade as a lender's APR or monthly payment. Rejecting by type first stops a
+ * non-scalar from ever becoming a persisted money term.
+ */
+function toFiniteFinanceNumber(val) {
+  if (typeof val === 'number') {
+    return Number.isFinite(val) ? val : null;
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (trimmed === '') return null;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? num : null;
+  }
+  return null;
+}
+
 function isValidAprInput(val) {
-  if (val === null || val === undefined) return false;
-  if (typeof val === 'string' && val.trim() === '') return false;
-  const num = Number(val);
-  return Number.isFinite(num) && num >= 0;
+  const num = toFiniteFinanceNumber(val);
+  return num !== null && num >= 0;
 }
 
 function isValidMonthlyPaymentInput(val) {
-  if (val === null || val === undefined) return false;
-  if (typeof val === 'string' && val.trim() === '') return false;
-  const num = Number(val);
-  return Number.isFinite(num) && num > 0;
+  const num = toFiniteFinanceNumber(val);
+  return num !== null && num > 0;
 }
 
 router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'finance', 'bank']), asyncHandler(async (req, res) => {
@@ -111,7 +145,7 @@ router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'fin
 
   const { data: application, error: readError } = await supabase
     .from('finance_applications')
-    .select('id, user_id, bank_id, vin, status, apr, monthly_payment')
+    .select('id, user_id, bank_id, vin, status, apr, monthly_payment, decision_source')
     .eq('id', id)
     .maybeSingle();
   if (readError) throw new DatabaseError(readError.message);
@@ -120,8 +154,32 @@ router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'fin
     throw new ForbiddenError('Only platform admins or the assigned lender can update this application.');
   }
 
+  // The normalized Approved decision is computed up front so both the same-status idempotency branch
+  // and the zero-row concurrent-loser branch can compare identity+terms, not merely status. An
+  // Approved request is an idempotent replay ONLY when the persisted APR, monthly payment and
+  // deciding authority all equal this. Same status with different terms or a different lender/admin
+  // is a genuine Conflict, never a silent success.
+  let requestedApproved = null;
+  if (status === 'Approved') {
+    if (!isValidAprInput(apr) || !isValidMonthlyPaymentInput(monthlyPayment)) {
+      throw new ValidationError('Approval requires explicit lender APR and positive monthly payment terms.');
+    }
+    requestedApproved = {
+      apr: toFiniteFinanceNumber(apr),
+      monthly_payment: toFiniteFinanceNumber(monthlyPayment),
+      decision_source: decisionSource(req.userContext),
+    };
+  }
+
   const allowed = FINANCE_TRANSITIONS[application.status] || new Set();
-  if (status === application.status) return res.json({ success: true, status, idempotentReplay: true });
+  if (status === application.status) {
+    if (status === 'Approved' && !approvedDecisionMatches(application, requestedApproved)) {
+      throw new ConflictError(
+        'Finance application is already Approved with different terms or by a different authority.',
+      );
+    }
+    return res.json({ success: true, status, idempotentReplay: true });
+  }
   if (!allowed.has(status)) {
     throw new ConflictError(`Invalid finance transition: ${application.status} -> ${status}.`);
   }
@@ -129,12 +187,9 @@ router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'fin
   const now = new Date().toISOString();
   const patch = { status };
   if (status === 'Approved') {
-    if (!isValidAprInput(apr) || !isValidMonthlyPaymentInput(monthlyPayment)) {
-      throw new ValidationError('Approval requires explicit lender APR and positive monthly payment terms.');
-    }
-    patch.apr = Number(apr);
-    patch.monthly_payment = Number(monthlyPayment);
-    patch.decision_source = decisionSource(req.userContext);
+    patch.apr = requestedApproved.apr;
+    patch.monthly_payment = requestedApproved.monthly_payment;
+    patch.decision_source = requestedApproved.decision_source;
     patch.decision_recorded_at = now;
     patch.decision_reason = typeof reason === 'string' ? reason.slice(0, 1000) : null;
   } else if (status === 'Rejected') {
@@ -164,10 +219,18 @@ router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'fin
   if (!updatedRows || updatedRows.length === 0) {
     const { data: latest } = await supabase
       .from('finance_applications')
-      .select('status')
+      .select('status, apr, monthly_payment, decision_source')
       .eq('id', id)
       .maybeSingle();
     if (latest && latest.status === status) {
+      // A concurrent winner already reached this status. It is a valid replay only if the winner's
+      // persisted decision is identical to ours; a concurrent Approve with different terms or a
+      // different lender/admin makes THIS request the loser of a real conflict, not a replay.
+      if (status === 'Approved' && !approvedDecisionMatches(latest, requestedApproved)) {
+        throw new ConflictError(
+          'Finance application was Approved concurrently with different terms or by a different authority.',
+        );
+      }
       return res.json({ success: true, status, idempotentReplay: true });
     }
     throw new ConflictError(`Finance application status changed concurrently from ${application.status}.`);
