@@ -13,14 +13,15 @@ separation of control plane from product code.
 
 The workflow pins remediated source candidate:
 
-`db201019a4cba94f1ed43d11af723a77e05bd419`
+`52d85aa8ce64603e71ba06a0dc566e9763e13235`
 
 Provenance and Ancestry:
 
 - Historical source anchor: `acaf2e8327ae17776720c34d9a49ee63e5f12bd8` (executed historical cutover against staging project `eoyenigwevnxwwhyhaer`).
 - Historical candidate SHA: `4cee0f1172090a8dd1c07fb3de872c79a5bcd125` (source-certified candidate that failed staging runtime due to PG JSONB parameter serialization).
-- Cutover candidate & workflow pinned SHA: `db201019a4cba94f1ed43d11af723a77e05bd419` (pins all Phase 6 Findings 1–7 remediations, PostgreSQL client forwarding, fail-closed version verification, lazy-client fixes, and JSONB parameter serialization remediation).
-- Workflow dispatcher head vs PR programme head: The dispatcher workflow on `main` pins `CANDIDATE_SHA: db201019a4cba94f1ed43d11af723a77e05bd419` while product development and ongoing certification fixes proceed on branch `integration/canonical-vehicle-truth-closure`.
+- Historical staging runtime candidate: `db201019a4cba94f1ed43d11af723a77e05bd419` (later staging runtime candidate that pinned all Phase 6 Findings 1–7 remediations, PostgreSQL client forwarding, fail-closed version verification, lazy-client fixes, and JSONB parameter serialization remediation; it successfully refreshed 36/36 and passed post-refresh verification in workflow run `32531178780`, but was subsequently superseded by later source-level findings and remediations). This is a historical staging runtime candidate, **not** the current pin; its staging run executed the `db201019a4…` source only and never executed `52d85aa8ce…`.
+- Cutover candidate & workflow pinned SHA: `52d85aa8ce64603e71ba06a0dc566e9763e13235` (current final source-certified candidate authorized for the final Trust refresh certification — the head of `integration/canonical-vehicle-truth-closure` that independently passed exact-head GitHub CI and a fresh no-carry-forward Codex review, and a strict descendant of the historical `db201019a4…` runtime candidate that adds only the later Phase 6 finance remediations plus the normal `main` merge, leaving the trust-refresh writer and post-cutover verifiers reviewed at this exact head).
+- Workflow dispatcher head vs PR programme head: Once PR #173 merges, the dispatcher workflow on `main` will pin `CANDIDATE_SHA: 52d85aa8ce64603e71ba06a0dc566e9763e13235`, and PR #165's exact programme head on branch `integration/canonical-vehicle-truth-closure` is also `52d85aa8ce64603e71ba06a0dc566e9763e13235`. Until PR #173 merges, `main` still pins the historical `db201019a4…` runtime candidate.
 
 Migration tree integrity:
 `assertCandidateAndMigrationTreeFrozen()` verifies that 12 pre-existing migrations are byte-identical to the Phase 6 source anchor before any connection is opened. Four Issue #164 migrations (`20260818110000_issue164_listing_location_provenance.sql`, `20260819123000_issue164_phase6_finance_truth.sql`, `20260819127000_issue164_phase6_settlement_recovery.sql`, `20260819129000_issue164_phase6_settlement_recovery_fence.sql`) were introduced as part of the Issue #164 canonical truth model and are explicitly exempted from comparison against the historical pre-Issue #164 anchor.
