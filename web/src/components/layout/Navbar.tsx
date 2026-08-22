@@ -124,30 +124,43 @@ export default function Navbar() {
 
   // Real, per-user notifications — never the old static mock list (which showed 5 fabricated items,
   // one a fake "blockchain verification", to every visitor). Unauthenticated visitors have none.
-  const [fetchedNotifications, setFetchedNotifications] = useState<Array<{ id: string; read?: boolean; title?: string; message?: string }>>([])
   // A failed read is UNKNOWN, not zero. `/notifications/me` authorizes only owner/dealer/admin, so a
   // bank/insurance/mechanic/government session is rejected outright — and a transient failure looks the
   // same. Converting either to [] made the navbar state "No notifications yet", which is a claim the
   // browser cannot support. The three states are kept distinct.
-  const [notificationsState, setNotificationsState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  //
+  // The result is STAMPED with the identity it was fetched for. Switching role without unmounting
+  // (the portal switcher does exactly that) would otherwise keep showing the previous role's
+  // notifications — rows the new role is not authorized to see — until the denied request rejected,
+  // or forever if it hung. Binding the payload to its identity makes the reset *derived*: the moment
+  // the active identity changes, the stale rows stop matching and the panel reverts to loading, with
+  // no state write inside the effect.
+  const identityKey = user ? `${user.id ?? user.email ?? 'user'}:${user.role ?? ''}` : null
+  const [fetchedNotifications, setFetchedNotifications] = useState<{
+    key: string | null
+    rows: Array<{ id: string; read?: boolean; title?: string; message?: string }>
+    state: 'ready' | 'unavailable'
+  }>({ key: null, rows: [], state: 'ready' })
   useEffect(() => {
-    if (!user) return
+    if (!identityKey) return
     let cancelled = false
     fetchNotifications()
       .then(rows => {
         if (cancelled) return
-        setFetchedNotifications(Array.isArray(rows) ? rows : [])
-        setNotificationsState('ready')
+        setFetchedNotifications({ key: identityKey, rows: Array.isArray(rows) ? rows : [], state: 'ready' })
       })
       .catch(() => {
         if (cancelled) return
-        setFetchedNotifications([])
-        setNotificationsState('unavailable')
+        setFetchedNotifications({ key: identityKey, rows: [], state: 'unavailable' })
       })
     return () => { cancelled = true }
-  }, [user, fetchNotifications])
-  // Derived, not synchronised: signing out shows no notifications without a state write in the effect.
-  const liveNotifications = user ? fetchedNotifications : []
+  }, [identityKey, fetchNotifications])
+
+  // Only a payload fetched for the CURRENT identity may be displayed.
+  const notificationsMatchIdentity = !!identityKey && fetchedNotifications.key === identityKey
+  const notificationsState: 'loading' | 'ready' | 'unavailable' =
+    notificationsMatchIdentity ? fetchedNotifications.state : 'loading'
+  const liveNotifications = notificationsMatchIdentity ? fetchedNotifications.rows : []
   // Only a successful read may drive a count; an unknown inbox shows no badge rather than a false 0.
   const unreadCount = user && notificationsState === 'ready' ? liveNotifications.filter(n => !n.read).length : 0
 
