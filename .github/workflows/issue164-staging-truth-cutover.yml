@@ -32,7 +32,7 @@ concurrency:
 # CANDIDATE_SHA pins the exact audited immutable candidate SHA on integration/canonical-vehicle-truth-closure
 # that contains the cutover migrations, trust refresh writer, and post-cutover verifiers.
 env:
-  CANDIDATE_SHA: db201019a4cba94f1ed43d11af723a77e05bd419
+  CANDIDATE_SHA: 52d85aa8ce64603e71ba06a0dc566e9763e13235
   PG_DRIVER_VERSION: 8.21.0
   INITIAL_CUTOVER_MERGE_TITLE: 'ci(staging): register Issue #164 truth-cutover dispatcher (#169)'
 
