@@ -39,10 +39,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: staging
-    # Owner-only. Both the original actor and the actual triggering actor must be the owner, so a
-    # collaborator rerun cannot drive a staging write.
+    # Owner-only, main-only. The staging write is permitted only from the reviewed workflow definition
+    # on the default branch (github.ref == refs/heads/main), and only when BOTH the original actor and
+    # the actual triggering actor are the owner — so a stale/unreviewed ref, or a collaborator rerun,
+    # can never drive a staging write.
     if: >-
       github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
       github.actor == 'kudzimusar' &&
       github.triggering_actor == 'kudzimusar'
     steps:
