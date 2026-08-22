@@ -74,7 +74,7 @@ async function getClient() {
 }
 
 // ── unrelated-data preservation snapshot ─────────────────────────────────────
-const SNAPSHOT_TABLES = ['users', 'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_ownership_history', 'marketplace_inquiries', 'insurance_records', 'partsentry_logs', 'escrow_trust_sessions', 'finance_applications', 'domain_events'];
+const SNAPSHOT_TABLES = ['users', 'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_ownership_history', 'marketplace_inquiries', 'insurance_records', 'partsentry_logs', 'escrow_trust_sessions', 'finance_applications', 'source_verification_results', 'domain_events'];
 
 async function tableCount(client, table) {
   const { count, error } = await client.from(table).select('*', { count: 'exact', head: true });
@@ -91,7 +91,7 @@ async function snapshot(client) {
 // Non-fixture ("unrelated") counts = total − fixture-owned. Fixture-owned rows are exactly those
 // keyed to the deterministic VIN / user-id set, so unrelated = total minus those.
 async function fixtureCounts(client, fixtureVins, fixtureUserIds) {
-  const byVin = ['vehicles:vin', 'vehicle_evidence:vin', 'listing_images:vin', 'vehicle_ownership_history:vin', 'marketplace_inquiries:listing_id', 'insurance_records:vin', 'partsentry_logs:vin', 'escrow_trust_sessions:vin', 'finance_applications:vin', 'domain_events:payload->>vin'];
+  const byVin = ['vehicles:vin', 'vehicle_evidence:vin', 'listing_images:vin', 'vehicle_ownership_history:vin', 'marketplace_inquiries:listing_id', 'insurance_records:vin', 'partsentry_logs:vin', 'escrow_trust_sessions:vin', 'finance_applications:vin', 'source_verification_results:vin'];
   const out = {};
   for (const entry of byVin) {
     const [table, col] = entry.split(':');
@@ -100,7 +100,21 @@ async function fixtureCounts(client, fixtureVins, fixtureUserIds) {
   }
   const { count: uc, error: ue } = await client.from('users').select('*', { count: 'exact', head: true }).in('id', fixtureUserIds);
   out.users = ue ? null : (uc ?? 0);
+  // domain_events are attributable to the fixture by vin OR recipientUserId. Count DISTINCT event ids so
+  // a finance event (both fields) is not double-counted and a recipient-only inquiry event still counts.
+  out.domain_events = await fixtureDomainEventCount(client, fixtureVins, fixtureUserIds);
   return out;
+}
+
+async function fixtureDomainEventCount(client, vins, userIds) {
+  const ids = new Set();
+  for (const [col, vals] of [['payload->>vin', vins], ['payload->>recipientUserId', userIds]]) {
+    if (!vals || vals.length === 0) continue;
+    const { data, error } = await client.from('domain_events').select('id').in(col, vals);
+    if (error) return null; // table absent -> null (tolerant)
+    for (const r of (data || [])) ids.add(r.id);
+  }
+  return ids.size;
 }
 
 function unrelated(total, fixture) {

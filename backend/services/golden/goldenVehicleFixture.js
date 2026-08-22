@@ -254,9 +254,14 @@ export async function bootstrap(depsIn = {}) {
       }
     }
 
-    // Governed manual source coverage (honest, non-sandbox). Best-effort.
+    // Governed manual source coverage (honest, non-sandbox). Best-effort AND idempotent:
+    // recordManualVerification is append-only, so reuse any existing fixture coverage for (vin,provider)
+    // rather than accumulating a duplicate row on every bootstrap.
     for (const cov of spec.sourceCoverage) {
       await D(`source_coverage:${cov.provider}`, async () => {
+        const { data: existing } = await client.from('source_verification_results')
+          .select('id').eq('vin', spec.vin).eq('provider', cov.provider).limit(1);
+        if (existing && existing.length) return { id: existing[0].id, action: 'reused' };
         // The service requires payload.result ∈ match|mismatch|no_record|manual_review|high_risk and
         // forces mode='manual_verification' internally. A governed synthetic manual review = 'match'.
         return deps.recordManualVerification(spec.vin, cov.provider, {

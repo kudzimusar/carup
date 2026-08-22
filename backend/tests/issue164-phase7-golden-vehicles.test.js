@@ -78,6 +78,7 @@ function makeMock() {
       eq(c, v) { st.filters.push(['eq', c, v]); return chain; },
       in(c, v) { st.filters.push(['in', c, v]); return chain; },
       order() { return chain; },
+      limit() { return chain; },
       maybeSingle() { const r = exec(); return Promise.resolve({ data: r.data?.[0] ?? null, error: r.error }); },
       single() { const r = exec(); return Promise.resolve({ data: r.data?.[0] ?? null, error: r.data?.length ? null : { message: 'no rows' } }); },
       then(res, rej) { try { return Promise.resolve(exec()).then(res, rej); } catch (e) { return rej ? rej(e) : Promise.reject(e); } },
@@ -107,7 +108,12 @@ async function makeDeps(client, opts = {}) {
         }).select('id').single();
         return { id: data.id };
       },
-      recordManualVerification: async (vin, provider) => { calls.recordManualVerification.push({ vin, provider }); return { vin, provider, coverage_status: 'carup_manual_reviewed' }; },
+      recordManualVerification: async (vin, provider) => {
+        calls.recordManualVerification.push({ vin, provider });
+        // Emulate the append-only service insert so bootstrap's reuse-guard is genuinely exercised.
+        const { data } = await client.from('source_verification_results').insert({ vin, provider, mode: 'manual_verification', result: 'match' }).select('id').single();
+        return { id: data.id, vin, provider };
+      },
       submitFinancingApplication: async (vin, userId, bankId, amount) => {
         const { data } = await client.from('finance_applications').insert({ vin, user_id: userId, bank_id: bankId, requested_amount: amount, status: 'Pending' }).select('id').single();
         return { id: data.id, status: 'Pending' };
