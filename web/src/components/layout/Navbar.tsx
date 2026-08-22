@@ -124,13 +124,17 @@ export default function Navbar() {
 
   // Real, per-user notifications — never the old static mock list (which showed 5 fabricated items,
   // one a fake "blockchain verification", to every visitor). Unauthenticated visitors have none.
-  const [liveNotifications, setLiveNotifications] = useState<Array<{ id: string; read?: boolean; title?: string; message?: string }>>([])
+  const [fetchedNotifications, setFetchedNotifications] = useState<Array<{ id: string; read?: boolean; title?: string; message?: string }>>([])
   useEffect(() => {
-    if (!user) { setLiveNotifications([]); return }
+    if (!user) return
     let cancelled = false
-    fetchNotifications().then(rows => { if (!cancelled) setLiveNotifications(Array.isArray(rows) ? rows : []) }).catch(() => { if (!cancelled) setLiveNotifications([]) })
+    fetchNotifications()
+      .then(rows => { if (!cancelled) setFetchedNotifications(Array.isArray(rows) ? rows : []) })
+      .catch(() => { if (!cancelled) setFetchedNotifications([]) })
     return () => { cancelled = true }
   }, [user, fetchNotifications])
+  // Derived, not synchronised: signing out shows no notifications without a state write in the effect.
+  const liveNotifications = user ? fetchedNotifications : []
   const unreadCount = liveNotifications.filter(n => !n.read).length
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)

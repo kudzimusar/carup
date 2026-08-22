@@ -100,6 +100,37 @@ export default function OwnerDashboard() {
     return () => { mounted = false }
   }, [fetchSafePayEscrows])
 
+  // ── Needs Your Attention ───────────────────────────────────────────────────
+  // Ported from the Owner-experience work, rebuilt on the canonical contracts. Every item is derived
+  // ONLY from counts of real, caller-scoped reads and from the CANONICAL trust claim — never from the
+  // raw `vehicles.trust_score` column, and never from an invented average. An empty rail means there
+  // is genuinely nothing outstanding, not that the check was skipped.
+  const unreadNotifications = liveNotifications.filter((n) => !n.read).length
+  const awaitingTrust = vehicles.filter((v) => readOwnerTrustClaim(v).state !== 'evaluated').length
+  const attentionItems: Array<{ key: string; label: string; detail: string; to: string; cta: string }> = []
+  if (vehicles.length === 0) {
+    attentionItems.push({
+      key: 'no-vehicles', label: 'Add your first vehicle',
+      detail: 'Your garage is empty. Add a vehicle to start building its Passport.',
+      to: '/dashboard/sell-vehicle', cta: 'Add vehicle',
+    })
+  } else if (awaitingTrust > 0) {
+    attentionItems.push({
+      key: 'awaiting-trust',
+      label: `${awaitingTrust} ${awaitingTrust === 1 ? 'vehicle has' : 'vehicles have'} no completed trust assessment`,
+      detail: 'CarUp evaluates a vehicle once its governed evidence is in place. Upload or complete the outstanding documents.',
+      to: '/dashboard/garage', cta: 'Open garage',
+    })
+  }
+  if (unreadNotifications > 0) {
+    attentionItems.push({
+      key: 'unread',
+      label: `${unreadNotifications} unread ${unreadNotifications === 1 ? 'notification' : 'notifications'}`,
+      detail: 'Recent activity on your vehicles and conversations.',
+      to: '/dashboard/communications', cta: 'Open communications',
+    })
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -134,6 +165,28 @@ export default function OwnerDashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Needs Your Attention — real outstanding items only; hidden entirely when there are none. */}
+      {attentionItems.length > 0 && (
+        <Card className="border-0 card-shadow border-l-4 border-l-orange-400" data-testid="owner-needs-attention">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Needs your attention</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {attentionItems.map((item) => (
+              <div key={item.key} className="flex flex-wrap items-center justify-between gap-3 p-3 bg-orange-50/60 rounded-lg">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                  <p className="text-xs text-gray-600 mt-0.5">{item.detail}</p>
+                </div>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to={item.to}>{item.cta}</Link>
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Multi-currency Wallet Card */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

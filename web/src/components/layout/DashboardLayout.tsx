@@ -31,6 +31,7 @@ import {
   RegistryRouteBoundary,
 } from '@/components/routing/RegistryRouteBoundary'
 import { FeaturePlannedPage, FeatureDisabledPage } from '@/components/routing/FeatureStatePages'
+import { OwnerNotificationBell } from '@/components/owner/OwnerNotificationBell'
 import type { UserRole } from '@shared/types'
 
 /** Resolves a FeatureRegistryItem to its icon component (shared resolver) */
@@ -267,11 +268,17 @@ export default function DashboardLayout({ role }: { role: string }) {
           )}
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="relative" asChild>
-              <Link to="/dashboard">
-                <Bell className="w-5 h-5" />
-              </Link>
-            </Button>
+            {/* Owners get the real notification bell (canonical /notifications/me). Other roles keep
+                the plain link until their own notification contract is wired. */}
+            {user?.role === 'owner' ? (
+              <OwnerNotificationBell />
+            ) : (
+              <Button variant="ghost" size="icon" className="relative" asChild>
+                <Link to="/dashboard">
+                  <Bell className="w-5 h-5" />
+                </Link>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="gap-1">
                 <Store className="w-4 h-4" />
