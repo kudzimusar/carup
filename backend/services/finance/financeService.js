@@ -4,6 +4,7 @@ import { addEvent } from '../blockchain/blockchainService.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import { isClaimSource } from '../../utils/publicVehicleProjection.js';
 import { ConflictError, ValidationError } from '../../utils/errors.js';
+import { toFiniteFinanceNumber } from '../../utils/financeScalar.js';
 
 export function calculateMonthlyPayment(amount, apr, termMonths, downPayment = 0) {
   const principal = Number(amount) - Number(downPayment);
@@ -46,10 +47,13 @@ export function checkAffordability(monthlyIncome, monthlyDebts, monthlyPayment) 
 export async function submitFinancingApplication(vin, userId, bankId, requestedAmount, tenantId = null) {
   const applicant = String(userId || '').trim();
   const lender = String(bankId || '').trim();
-  const amount = Number(requestedAmount);
+  // Scalar guard: accept only a primitive number or a nonblank numeric string. A bare `Number()`
+  // would coerce `true`→1 and `[500]`→500, letting a non-scalar JSON value be persisted as a genuine
+  // financing request; reject by type before conversion, exactly as the approval-term validators do.
+  const amount = toFiniteFinanceNumber(requestedAmount);
   if (!applicant) throw new ValidationError('Authenticated applicant identity is required.');
   if (!lender) throw new ValidationError('A lender selection is required.');
-  if (!Number.isFinite(amount) || amount <= 0) throw new ValidationError('Requested amount must be positive.');
+  if (amount === null || amount <= 0) throw new ValidationError('Requested amount must be positive.');
 
   const { data: vehicle, error: vehicleError } = await supabase
     .from('vehicles')

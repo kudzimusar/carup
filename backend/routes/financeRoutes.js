@@ -5,6 +5,7 @@ import { emitDomainEvent } from '../services/eventBus/eventBusService.js';
 import { submitFinancingApplication } from '../services/finance/financeService.js';
 import { getCanonicalTrustBatch, toPublicTrust } from '../services/trustDecision/canonicalTrustService.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError, ConflictError } from '../utils/errors.js';
+import { toFiniteFinanceNumber } from '../utils/financeScalar.js';
 
 const router = express.Router();
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -105,26 +106,6 @@ router.get('/api/finance/applications', authorizeRole(['admin', 'finance', 'bank
 
   res.json(flattened);
 }));
-
-/**
- * Coerce a finance term to a finite number, accepting ONLY a primitive number or a nonblank numeric
- * string. Returns null for everything else. This is the scalar guard: `Number()` silently coerces
- * `false`→0, `true`→1, `[]`→0 and `[5]`→5, so validating on `Number(val)` alone lets a boolean or a
- * one-element array masquerade as a lender's APR or monthly payment. Rejecting by type first stops a
- * non-scalar from ever becoming a persisted money term.
- */
-function toFiniteFinanceNumber(val) {
-  if (typeof val === 'number') {
-    return Number.isFinite(val) ? val : null;
-  }
-  if (typeof val === 'string') {
-    const trimmed = val.trim();
-    if (trimmed === '') return null;
-    const num = Number(trimmed);
-    return Number.isFinite(num) ? num : null;
-  }
-  return null;
-}
 
 function isValidAprInput(val) {
   const num = toFiniteFinanceNumber(val);
