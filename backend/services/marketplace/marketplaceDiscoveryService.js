@@ -12,6 +12,7 @@ import {
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
+  listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { getMarketplaceListingDetail } from './marketplaceListingDetailService.js';
 import { buildPricingSummary } from './marketplacePricingService.js';
@@ -87,7 +88,8 @@ export async function getMarketplaceRecommendations(client, vin, { limit = RECOM
     : visible;
 
   const vins = banded.map((v) => v.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, vins);
+  const related = await fetchListingRelatedRows(client, vins);
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
   // This surface is public. Without the canonical entry every listing publishes a null score while
   // the marketplace list publishes a real one for the same VIN — the same-VIN split, one file over.
   const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, vins);
@@ -99,7 +101,7 @@ export async function getMarketplaceRecommendations(client, vin, { limit = RECOM
         evidenceRows: evidenceByVin.get(vehicle.vin) || [],
         partSentryRows: partSentryByVin.get(vehicle.vin) || [],
         ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-        imageRows: imagesByVin.get(vehicle.vin) || [],
+        imageRows: listingImageRowsForVin(related, vehicle.vin),
         canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
       })
     )

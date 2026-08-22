@@ -88,6 +88,20 @@ router.get('/api/finance/applications', authorizeRole(['admin', 'finance', 'bank
   res.json(flattened);
 }));
 
+function isValidAprInput(val) {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'string' && val.trim() === '') return false;
+  const num = Number(val);
+  return Number.isFinite(num) && num >= 0;
+}
+
+function isValidMonthlyPaymentInput(val) {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'string' && val.trim() === '') return false;
+  const num = Number(val);
+  return Number.isFinite(num) && num > 0;
+}
+
 router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'finance', 'bank']), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, apr, monthlyPayment, reason } = req.body || {};
@@ -115,13 +129,11 @@ router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'fin
   const now = new Date().toISOString();
   const patch = { status };
   if (status === 'Approved') {
-    const quotedApr = Number(apr);
-    const quotedMonthly = Number(monthlyPayment);
-    if (!Number.isFinite(quotedApr) || quotedApr < 0 || !Number.isFinite(quotedMonthly) || quotedMonthly <= 0) {
+    if (!isValidAprInput(apr) || !isValidMonthlyPaymentInput(monthlyPayment)) {
       throw new ValidationError('Approval requires explicit lender APR and positive monthly payment terms.');
     }
-    patch.apr = quotedApr;
-    patch.monthly_payment = quotedMonthly;
+    patch.apr = Number(apr);
+    patch.monthly_payment = Number(monthlyPayment);
     patch.decision_source = decisionSource(req.userContext);
     patch.decision_recorded_at = now;
     patch.decision_reason = typeof reason === 'string' ? reason.slice(0, 1000) : null;
@@ -141,8 +153,25 @@ router.post('/api/finance/applications/:id/update', authorizeRole(['admin', 'fin
     patch.decision_reason = typeof reason === 'string' ? reason.slice(0, 1000) : null;
   }
 
-  const { error } = await supabase.from('finance_applications').update(patch).eq('id', id);
-  if (error) throw new DatabaseError(error.message);
+  const { data: updatedRows, error: updateErr } = await supabase
+    .from('finance_applications')
+    .update(patch)
+    .eq('id', id)
+    .eq('status', application.status)
+    .select('id, status');
+  if (updateErr) throw new DatabaseError(updateErr.message);
+
+  if (!updatedRows || updatedRows.length === 0) {
+    const { data: latest } = await supabase
+      .from('finance_applications')
+      .select('status')
+      .eq('id', id)
+      .maybeSingle();
+    if (latest && latest.status === status) {
+      return res.json({ success: true, status, idempotentReplay: true });
+    }
+    throw new ConflictError(`Finance application status changed concurrently from ${application.status}.`);
+  }
 
   const decisionPayload = {
     applicationId: id,

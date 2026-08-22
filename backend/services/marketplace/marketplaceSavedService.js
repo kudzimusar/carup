@@ -11,6 +11,7 @@ import {
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   filterVisibleVehicles,
+  listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { ValidationError, ForbiddenError, DatabaseError } from '../../utils/errors.js';
 
@@ -68,7 +69,8 @@ export async function listSavedListings(client, actor) {
   if (error) throw error;
   const visible = filterVisibleVehicles(vehicles);
   const visibleVins = visible.map((v) => v.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, visibleVins);
+  const related = await fetchListingRelatedRows(client, visibleVins);
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
   // A saved card must show the same trust position as the list it was saved from.
   const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, visibleVins);
 
@@ -78,7 +80,7 @@ export async function listSavedListings(client, actor) {
       evidenceRows: evidenceByVin.get(vehicle.vin) || [],
       partSentryRows: partSentryByVin.get(vehicle.vin) || [],
       ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-      imageRows: imagesByVin.get(vehicle.vin) || [],
+      imageRows: listingImageRowsForVin(related, vehicle.vin),
       canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     })
   );

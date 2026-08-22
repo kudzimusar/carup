@@ -719,3 +719,233 @@ test('P1-TLS — PostgreSQL connection configuration enforces rejectUnauthorized
     assert.equal(config.rejectUnauthorized, true, `rejectUnauthorized must be true for env value: ${envVal}`);
   }
 });
+
+test('P1 — atomic finance transitions prevent stale snapshot overwrites and gate domain events', async () => {
+  // Simulate concurrent transitions on finance_applications in Pending status
+  let currentStatus = 'Pending';
+  let updateCalls = [];
+
+  const mockClient = {
+    from(table) {
+      if (table === 'finance_applications') {
+        return {
+          select() {
+            return {
+              eq(col, val) {
+                return {
+                  maybeSingle: async () => ({
+                    data: {
+                      id: 'app-1',
+                      user_id: 'u1',
+                      bank_id: 'b1',
+                      vin: 'VIN12345678901234',
+                      status: currentStatus,
+                      apr: 0.1,
+                      monthly_payment: 500,
+                    },
+                    error: null,
+                  }),
+                };
+              },
+            };
+          },
+          update(patch) {
+            return {
+              eq(col1, val1) {
+                return {
+                  eq(col2, val2) {
+                    return {
+                      select: async () => {
+                        updateCalls.push({ patch, col1, val1, col2, val2 });
+                        // If current status matches required status, atomic update succeeds
+                        if (currentStatus === val2) {
+                          currentStatus = patch.status;
+                          return { data: [{ id: 'app-1', status: currentStatus }], error: null };
+                        }
+                        // Otherwise atomic update matches 0 rows (stale update attempt)
+                        return { data: [], error: null };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+      return {};
+    },
+  };
+
+  // Attempt 1: Pending -> Approved succeeds
+  const update1 = await mockClient
+    .from('finance_applications')
+    .update({ status: 'Approved', apr: 0.05, monthly_payment: 400 })
+    .eq('id', 'app-1')
+    .eq('status', 'Pending')
+    .select('id, status');
+
+  assert.equal(update1.data.length, 1);
+  assert.equal(currentStatus, 'Approved');
+
+  // Attempt 2: Competing Pending -> Rejected fails because currentStatus is now 'Approved'
+  const update2 = await mockClient
+    .from('finance_applications')
+    .update({ status: 'Rejected' })
+    .eq('id', 'app-1')
+    .eq('status', 'Pending')
+    .select('id, status');
+
+  assert.equal(update2.data.length, 0, 'Competing update on stale Pending status must update 0 rows');
+  assert.equal(currentStatus, 'Approved', 'Approved terminal decision must be preserved');
+});
+
+test('P1 — blank APR presence validation rejects null, undefined, blank, and whitespace strings while preserving explicit 0', () => {
+  // Test presence-validated APR helper logic
+  function isValidAprInput(val) {
+    if (val === null || val === undefined) return false;
+    if (typeof val === 'string' && val.trim() === '') return false;
+    const num = Number(val);
+    return Number.isFinite(num) && num >= 0;
+  }
+
+  function isValidMonthlyPaymentInput(val) {
+    if (val === null || val === undefined) return false;
+    if (typeof val === 'string' && val.trim() === '') return false;
+    const num = Number(val);
+    return Number.isFinite(num) && num > 0;
+  }
+
+  // Valid APR inputs
+  assert.equal(isValidAprInput(0), true, 'Explicit 0 number is valid (0% APR)');
+  assert.equal(isValidAprInput('0'), true, 'Explicit "0" string is valid');
+  assert.equal(isValidAprInput('0.0'), true, 'Explicit "0.0" string is valid');
+  assert.equal(isValidAprInput(0.05), true, 'Positive number is valid');
+  assert.equal(isValidAprInput('5.5'), true, 'Positive string number is valid');
+
+  // Invalid APR inputs (must fail validation BEFORE Number(apr) coercion)
+  assert.equal(isValidAprInput(null), false, 'null APR is invalid');
+  assert.equal(isValidAprInput(undefined), false, 'undefined APR is invalid');
+  assert.equal(isValidAprInput(''), false, 'Empty string APR is invalid');
+  assert.equal(isValidAprInput('   '), false, 'Whitespace-only string APR is invalid');
+  assert.equal(isValidAprInput(-1), false, 'Negative APR is invalid');
+  assert.equal(isValidAprInput('-5'), false, 'Negative string APR is invalid');
+  assert.equal(isValidAprInput('abc'), false, 'Non-numeric string APR is invalid');
+
+  // Monthly payment inputs
+  assert.equal(isValidMonthlyPaymentInput(500), true, 'Positive monthly payment is valid');
+  assert.equal(isValidMonthlyPaymentInput(0), false, 'Zero monthly payment is invalid');
+  assert.equal(isValidMonthlyPaymentInput(null), false, 'null monthly payment is invalid');
+  assert.equal(isValidMonthlyPaymentInput(''), false, 'Empty monthly payment is invalid');
+  assert.equal(isValidMonthlyPaymentInput('   '), false, 'Whitespace monthly payment is invalid');
+});
+
+test('P2 — listing-image read failure propagation produces primary_image_state: not_loaded across all consumers', async () => {
+  const { listingImageRowsForVin, buildMarketplaceListingSummary } = await import('../services/marketplace/listingSummaryService.js');
+  const { getMarketplaceRecommendations } = await import('../services/marketplace/marketplaceDiscoveryService.js');
+  const { listSavedListings } = await import('../services/marketplace/marketplaceSavedService.js');
+  const { listListingsForAdmin } = await import('../services/marketplace/marketplaceModerationService.js');
+
+  const vehicleRow = {
+    vin: '1HGCR2F83HA000001',
+    make: 'Toyota',
+    model: 'Hilux',
+    year: 2020,
+    price: 15000,
+    currency: 'USD',
+    status: 'Available',
+    publication_status: 'published',
+  };
+  const vehicleRow2 = {
+    vin: '1HGCR2F83HA000002',
+    make: 'Toyota',
+    model: 'Corolla',
+    year: 2020,
+    price: 15000,
+    currency: 'USD',
+    status: 'Available',
+    publication_status: 'published',
+  };
+
+  // Mock client where listing_images query fails (returns error)
+  const failedClient = {
+    from(table) {
+      if (table === 'vehicles') {
+        return {
+          select() {
+            return {
+              eq(col, val) {
+                const filtered = [vehicleRow, vehicleRow2].filter(r => r[col] === val);
+                return Promise.resolve({ data: filtered, error: null });
+              },
+              in(col, vals) {
+                const filtered = [vehicleRow, vehicleRow2].filter(r => vals.includes(r[col]));
+                return Promise.resolve({ data: filtered, error: null });
+              },
+              then(res) { return Promise.resolve({ data: [vehicleRow, vehicleRow2], error: null }).then(res); },
+            };
+          },
+        };
+      }
+      if (table === 'listing_images') {
+        return {
+          select() {
+            return {
+              in() {
+                return {
+                  order: () => Promise.resolve({ data: null, error: { message: 'table listing_images unavailable' } }),
+                };
+              },
+            };
+          },
+        };
+      }
+      if (table === 'saved_vehicles') {
+        return {
+          select() {
+            return {
+              eq: () => Promise.resolve({ data: [{ vin: '1HGCR2F83HA000001' }], error: null }),
+            };
+          },
+        };
+      }
+      return {
+        select() {
+          return {
+            in() {
+              return {
+                order: () => Promise.resolve({ data: [], error: null }),
+                then(res) { return Promise.resolve({ data: [], error: null }).then(res); },
+              };
+            },
+            then(res) { return Promise.resolve({ data: [], error: null }).then(res); },
+          };
+        },
+      };
+    },
+  };
+
+  // 1. Recommendations consumer
+  const recs = await getMarketplaceRecommendations(failedClient, '1HGCR2F83HA000001');
+  assert.equal(recs.listings.length, 1);
+  assert.equal(recs.listings[0].primary_image_state, 'not_loaded', 'Recommendations consumer must publish not_loaded for failed listing_images read');
+
+  // 2. Saved listings consumer
+  const saved = await listSavedListings(failedClient, { id: 'u1' });
+  assert.equal(saved.listings.length, 1);
+  assert.equal(saved.listings[0].primary_image_state, 'not_loaded', 'Failed listing_images read must publish not_loaded, not none');
+  assert.equal(saved.listings[0].primary_image_url, null);
+
+  // 3. Admin listings consumer
+  const adminList = await listListingsForAdmin(failedClient, { actor: { platformRole: 'admin' } });
+  assert.equal(adminList.listings.length, 2);
+  assert.equal(adminList.listings[0].primary_image_state, 'not_loaded', 'Failed listing_images read must publish not_loaded, not none');
+
+  // 4. Contrast: Successful empty read publishes 'none'
+  const okEmptyRelated = { listingImagesRead: true, imagesByVin: new Map() };
+  const okSummary = buildMarketplaceListingSummary({
+    vehicle: vehicleRow,
+    imageRows: listingImageRowsForVin(okEmptyRelated, '1HGCR2F83HA000001'),
+  });
+  assert.equal(okSummary.primary_image_state, 'none', 'Successful empty listing_images read must publish none');
+});

@@ -17,6 +17,7 @@ import {
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
   shouldShowFixtures,
+  listingImageRowsForVin,
 } from './listingSummaryService.js';
 import { getFixtureExclusion } from './marketplaceClassificationRules.js';
 import { deriveSuspicionLevel } from './marketplaceTrustSummaryService.js';
@@ -179,7 +180,8 @@ export async function listListingsForAdmin(client, filters = {}) {
   const showFixtures = shouldShowFixtures();
   const candidates = (vehicles || []).filter((v) => showFixtures || getFixtureExclusion(v) === null);
   const vins = candidates.map((v) => v.vin).filter(Boolean);
-  const { evidenceByVin, partSentryByVin, ownershipByVin, imagesByVin } = await fetchListingRelatedRows(client, vins);
+  const related = await fetchListingRelatedRows(client, vins);
+  const { evidenceByVin, partSentryByVin, ownershipByVin } = related;
   // A moderator must see the same trust position a buyer sees; without this the admin queue shows
   // blank trust for every listing, which is indistinguishable from "we evaluated it and found none".
   const canonicalTrustByVin = await fetchCanonicalTrustByVin(client, vins);
@@ -191,7 +193,7 @@ export async function listListingsForAdmin(client, filters = {}) {
       evidenceRows: evidenceByVin.get(vehicle.vin) || [],
       partSentryRows,
       ownershipCount: (ownershipByVin.get(vehicle.vin) || []).length,
-      imageRows: imagesByVin.get(vehicle.vin) || [],
+      imageRows: listingImageRowsForVin(related, vehicle.vin),
       canonicalTrust: canonicalTrustByVin.get(vehicle.vin) || null,
     });
     const public_status = deriveListingPublicStatus(vehicle.status);
