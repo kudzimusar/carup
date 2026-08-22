@@ -113,11 +113,22 @@ export default function Landing() {
   // Marketplace (Invariant 13), because this reads the same /marketplace/listings contract.
   const { fetchMarketplaceListings } = useCarUpApi()
   const [featuredVehicles, setFeaturedVehicles] = useState<MarketplaceListingSummary[]>([])
+  // "Still loading" and "the read failed" are NOT "the marketplace is empty". Collapsing all three into
+  // an empty array made the page assert there are no published listings when it simply did not know.
+  const [featuredState, setFeaturedState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   useEffect(() => {
     let cancelled = false
     fetchMarketplaceListings({ limit: 6, sort: 'newest' })
-      .then(res => { if (!cancelled) setFeaturedVehicles(Array.isArray(res?.listings) ? res.listings : []) })
-      .catch(() => { if (!cancelled) setFeaturedVehicles([]) })
+      .then(res => {
+        if (cancelled) return
+        setFeaturedVehicles(Array.isArray(res?.listings) ? res.listings : [])
+        setFeaturedState('ready')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFeaturedVehicles([])
+        setFeaturedState('unavailable')
+      })
     return () => { cancelled = true }
   }, [fetchMarketplaceListings])
 
@@ -375,7 +386,15 @@ export default function Landing() {
             </Button>
           </div>
 
-          {featuredVehicles.length === 0 && (
+          {featuredState === 'loading' && (
+            <p className="mt-8 text-gray-500" data-testid="featured-loading">Loading featured listings…</p>
+          )}
+          {featuredState === 'unavailable' && (
+            <p className="mt-8 text-amber-700" data-testid="featured-unavailable">
+              Featured listings are unavailable right now. This is a loading failure, not an empty marketplace.
+            </p>
+          )}
+          {featuredState === 'ready' && featuredVehicles.length === 0 && (
             <p className="mt-8 text-gray-500" data-testid="featured-empty">No published listings to feature yet.</p>
           )}
           <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

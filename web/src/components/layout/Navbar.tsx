@@ -125,17 +125,31 @@ export default function Navbar() {
   // Real, per-user notifications — never the old static mock list (which showed 5 fabricated items,
   // one a fake "blockchain verification", to every visitor). Unauthenticated visitors have none.
   const [fetchedNotifications, setFetchedNotifications] = useState<Array<{ id: string; read?: boolean; title?: string; message?: string }>>([])
+  // A failed read is UNKNOWN, not zero. `/notifications/me` authorizes only owner/dealer/admin, so a
+  // bank/insurance/mechanic/government session is rejected outright — and a transient failure looks the
+  // same. Converting either to [] made the navbar state "No notifications yet", which is a claim the
+  // browser cannot support. The three states are kept distinct.
+  const [notificationsState, setNotificationsState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   useEffect(() => {
     if (!user) return
     let cancelled = false
     fetchNotifications()
-      .then(rows => { if (!cancelled) setFetchedNotifications(Array.isArray(rows) ? rows : []) })
-      .catch(() => { if (!cancelled) setFetchedNotifications([]) })
+      .then(rows => {
+        if (cancelled) return
+        setFetchedNotifications(Array.isArray(rows) ? rows : [])
+        setNotificationsState('ready')
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFetchedNotifications([])
+        setNotificationsState('unavailable')
+      })
     return () => { cancelled = true }
   }, [user, fetchNotifications])
   // Derived, not synchronised: signing out shows no notifications without a state write in the effect.
   const liveNotifications = user ? fetchedNotifications : []
-  const unreadCount = liveNotifications.filter(n => !n.read).length
+  // Only a successful read may drive a count; an unknown inbox shows no badge rather than a false 0.
+  const unreadCount = user && notificationsState === 'ready' ? liveNotifications.filter(n => !n.read).length : 0
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
@@ -244,8 +258,19 @@ export default function Navbar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
                 <div className="px-3 py-2 font-semibold text-sm border-b">Notifications</div>
-                {liveNotifications.length === 0 && (
-                  <div className="px-3 py-4 text-xs text-gray-500">{user ? 'No notifications yet.' : 'Sign in to see your notifications.'}</div>
+                {!user && (
+                  <div className="px-3 py-4 text-xs text-gray-500">Sign in to see your notifications.</div>
+                )}
+                {user && notificationsState === 'loading' && (
+                  <div className="px-3 py-4 text-xs text-gray-500">Loading your notifications…</div>
+                )}
+                {user && notificationsState === 'unavailable' && (
+                  <div className="px-3 py-4 text-xs text-amber-700" data-testid="navbar-notifications-unavailable">
+                    Notifications are unavailable right now. This is a loading failure, not an empty inbox.
+                  </div>
+                )}
+                {user && notificationsState === 'ready' && liveNotifications.length === 0 && (
+                  <div className="px-3 py-4 text-xs text-gray-500">No notifications yet.</div>
                 )}
                 {liveNotifications.slice(0, 5).map((n) => (
                   <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">

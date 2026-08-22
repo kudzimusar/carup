@@ -167,6 +167,21 @@ export default function VehicleProfile() {
   // no "today" purchase date, no invented garage/manufacturer. Absent values render as words.
   const pv = passportData.vehicle ?? {}
   const numOrNull = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : null)
+
+  /**
+   * The passport publishes listing photos in the canonical top-level `listing_media` block, NOT on
+   * `vehicle.image_url`. Reading only the latter showed "Image unavailable" for vehicles that do have
+   * a published gallery. Prefer the seller's primary photo, else the first published item, and fall
+   * back to `image_url` only if the block carries nothing.
+   */
+  const listingMediaItems: Array<{ url?: string; is_primary?: boolean }> =
+    Array.isArray((passportData as { listing_media?: { items?: unknown } })?.listing_media?.items)
+      ? ((passportData as unknown as { listing_media: { items: Array<{ url?: string; is_primary?: boolean }> } }).listing_media.items)
+      : []
+  const primaryListingImage =
+    listingMediaItems.find((i) => i.is_primary === true)?.url
+    ?? listingMediaItems[0]?.url
+    ?? null
   const vehicle = {
     make: pv.make || null,
     model: pv.model || null,
@@ -175,7 +190,7 @@ export default function VehicleProfile() {
     mileage: numOrNull(pv.mileage),
     color: pv.color || null,
     price: numOrNull(pv.price),
-    imageUrl: pv.image_url || null,
+    imageUrl: primaryListingImage ?? pv.image_url ?? null,
     registration: pv.vin || id || '',
     engineNumber: pv.engine_number || null,
     purchaseDate: statedDate(pv.created_at),

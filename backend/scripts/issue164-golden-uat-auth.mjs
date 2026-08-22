@@ -101,6 +101,13 @@ async function main() {
     const password = process.env.GOLDEN_UAT_PASSWORD;
     if (!password) blocked('GOLDEN_UAT_PASSWORD is not set (never hardcode or commit it)');
     if (password.length < 12) blocked('GOLDEN_UAT_PASSWORD must be at least 12 characters');
+    // All four pinned identities must exist BEFORE anything is written. Provisioning three of four and
+    // exiting 0 would report success while the documented UAT logins cannot all run — a partial grant
+    // is not a grant. Missing identities mean the Phase 7 fixture has not been bootstrapped.
+    const missing = GOLDEN_UAT_ACCOUNTS.filter((email) => !found.some((r) => r.email === email));
+    if (missing.length > 0) {
+      fail(`missing Golden identities on staging: ${missing.join(', ')} — run the Golden Vehicles fixture (mode=bootstrap) first`);
+    }
     const results = [];
     for (const email of GOLDEN_UAT_ACCOUNTS) {
       const row = found.find((r) => r.email === email);

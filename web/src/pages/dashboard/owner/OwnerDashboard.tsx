@@ -51,10 +51,19 @@ export default function OwnerDashboard() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [liveNotifications, setLiveNotifications] = useState<Notification[]>([])
 
+  // Loading and failure are distinct from "you own nothing". Both reads previously left `vehicles` at
+  // its initial [], and a rejection had no handler at all — so a real owner whose read failed would be
+  // told their garage is empty. Only a SUCCESSFUL empty response may support that claim.
+  const [vehiclesState, setVehiclesState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [notificationsState, setNotificationsState] = useState<'loading' | 'ready' | 'unavailable'>('loading')
   useEffect(() => {
     let mounted = true
-    fetchOwnedVehicles().then(data => { if (mounted) setVehicles(data) })
-    fetchNotifications().then(data => { if (mounted) setLiveNotifications(data) })
+    fetchOwnedVehicles()
+      .then(data => { if (mounted) { setVehicles(Array.isArray(data) ? data : []); setVehiclesState('ready') } })
+      .catch(() => { if (mounted) { setVehicles([]); setVehiclesState('unavailable') } })
+    fetchNotifications()
+      .then(data => { if (mounted) { setLiveNotifications(Array.isArray(data) ? data : []); setNotificationsState('ready') } })
+      .catch(() => { if (mounted) { setLiveNotifications([]); setNotificationsState('unavailable') } })
     return () => { mounted = false }
   }, [fetchOwnedVehicles, fetchNotifications])
 
@@ -105,21 +114,29 @@ export default function OwnerDashboard() {
   // ONLY from counts of real, caller-scoped reads and from the CANONICAL trust claim — never from the
   // raw `vehicles.trust_score` column, and never from an invented average. An empty rail means there
   // is genuinely nothing outstanding, not that the check was skipped.
-  const unreadNotifications = liveNotifications.filter((n) => !n.read).length
+  const unreadNotifications = notificationsState === 'ready' ? liveNotifications.filter((n) => !n.read).length : 0
   const awaitingTrust = vehicles.filter((v) => readOwnerTrustClaim(v).state !== 'evaluated').length
   const attentionItems: Array<{ key: string; label: string; detail: string; to: string; cta: string }> = []
-  if (vehicles.length === 0) {
+  // Every item below is gated on a SUCCESSFUL read. While loading, or after a failed read, the rail
+  // stays silent rather than asserting something about a garage it could not see.
+  if (vehiclesState === 'ready' && vehicles.length === 0) {
     attentionItems.push({
       key: 'no-vehicles', label: 'Add your first vehicle',
       detail: 'Your garage is empty. Add a vehicle to start building its Passport.',
       to: '/dashboard/sell-vehicle', cta: 'Add vehicle',
     })
-  } else if (awaitingTrust > 0) {
+  } else if (vehiclesState === 'ready' && awaitingTrust > 0) {
     attentionItems.push({
       key: 'awaiting-trust',
       label: `${awaitingTrust} ${awaitingTrust === 1 ? 'vehicle has' : 'vehicles have'} no completed trust assessment`,
       detail: 'CarUp evaluates a vehicle once its governed evidence is in place. Upload or complete the outstanding documents.',
       to: '/dashboard/garage', cta: 'Open garage',
+    })
+  } else if (vehiclesState === 'unavailable') {
+    attentionItems.push({
+      key: 'garage-unavailable', label: 'Your garage could not be loaded',
+      detail: 'This is a loading failure, not an empty garage. Retry shortly.',
+      to: '/dashboard/garage', cta: 'Retry',
     })
   }
   if (unreadNotifications > 0) {
