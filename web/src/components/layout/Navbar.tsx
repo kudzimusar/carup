@@ -26,7 +26,6 @@ import {
 import MobileNavDrawer from '@/components/layout/MobileNavDrawer'
 import { useApp } from '@/App'
 import { useAuth } from '@/context/AuthContext'
-import { notifications } from '@/data/mockData'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { getDashboardRoute, getRoleMetadata, getAllRoles, getVisiblePublicNavigationItems } from '@/config/featureRegistry'
 import type { NavigationContext, MarketplaceCoverageResponse } from '@/config/featureRegistry'
@@ -115,14 +114,24 @@ export default function Navbar() {
   const navigate = useNavigate()
   const { user, switchRole, logout } = useAuth()
   const { currency, setCurrency } = useApp()
-  const { fetchMarketplaceNavCoverage } = useCarUpApi()
+  const { fetchMarketplaceNavCoverage, fetchNotifications } = useCarUpApi()
   const [navCoverage, setNavCoverage] = useState<NavCoverageResponse | null>(null)
   useEffect(() => {
     let cancelled = false
     fetchMarketplaceNavCoverage().then(c => { if (!cancelled) setNavCoverage(c) }).catch(() => {})
     return () => { cancelled = true }
   }, [fetchMarketplaceNavCoverage])
-  const unreadCount = notifications.filter(n => !n.read).length
+
+  // Real, per-user notifications — never the old static mock list (which showed 5 fabricated items,
+  // one a fake "blockchain verification", to every visitor). Unauthenticated visitors have none.
+  const [liveNotifications, setLiveNotifications] = useState<Array<{ id: string; read?: boolean; title?: string; message?: string }>>([])
+  useEffect(() => {
+    if (!user) { setLiveNotifications([]); return }
+    let cancelled = false
+    fetchNotifications().then(rows => { if (!cancelled) setLiveNotifications(Array.isArray(rows) ? rows : []) }).catch(() => { if (!cancelled) setLiveNotifications([]) })
+    return () => { cancelled = true }
+  }, [user, fetchNotifications])
+  const unreadCount = liveNotifications.filter(n => !n.read).length
 
   const activeDashboardPath = getDashboardRoute((user?.role || 'owner') as UserRole)
   const sellerPath = user ? '/dashboard/sell-vehicle' : '/register'
@@ -231,7 +240,10 @@ export default function Navbar() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-80">
                 <div className="px-3 py-2 font-semibold text-sm border-b">Notifications</div>
-                {notifications.slice(0, 5).map((n) => (
+                {liveNotifications.length === 0 && (
+                  <div className="px-3 py-4 text-xs text-gray-500">{user ? 'No notifications yet.' : 'Sign in to see your notifications.'}</div>
+                )}
+                {liveNotifications.slice(0, 5).map((n) => (
                   <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
                     <div className="flex items-center gap-2 w-full">
                       <span className={`w-2 h-2 rounded-full ${n.read ? 'bg-gray-300' : 'bg-orange-500'}`} />

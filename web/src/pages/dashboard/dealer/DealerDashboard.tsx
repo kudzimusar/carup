@@ -8,7 +8,6 @@ import {
   MapPin, BarChart3, Settings, Loader2
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { vehicles as mockVehicles, dashboardStats } from '@/data/mockData'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
@@ -23,7 +22,6 @@ const salesData = [
 ]
 
 export default function DealerDashboard() {
-  const stats = dashboardStats.dealer
   const { fetchVehicles, loading } = useCarUpApi()
 
   // Branch switcher state
@@ -31,18 +29,16 @@ export default function DealerDashboard() {
   const [liveInventory, setLiveInventory] = useState<Vehicle[]>([])
 
   useEffect(() => {
-    fetchVehicles().then(data => {
-      if (data && data.length > 0) {
-        setLiveInventory(data)
-      } else {
-        setLiveInventory(mockVehicles as unknown as Vehicle[])
-      }
-    }).catch(() => {
-      setLiveInventory(mockVehicles as unknown as Vehicle[])
-    })
+    // Live inventory only. Falling back to mock vehicles made an empty or failing read look like real
+    // stock, and an error is not an inventory — an empty list is the honest result in both cases.
+    fetchVehicles()
+      .then(data => { setLiveInventory(Array.isArray(data) ? data : []) })
+      .catch(() => { setLiveInventory([]) })
   }, [fetchVehicles])
 
-  const currentBranchStock = liveInventory.filter(v => v.location === selectedBranch || (!v.location && selectedBranch === 'Harare')).slice(0, 5)
+  // A vehicle with no recorded location is NOT in Harare — an unlocated vehicle is unlocated, so it is
+  // no longer filed under the default branch.
+  const currentBranchStock = liveInventory.filter(v => v.location === selectedBranch).slice(0, 5)
 
   interface BranchPermissions {
     pricing: Record<string, boolean>;
@@ -75,7 +71,7 @@ export default function DealerDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Dealer Dashboard</h1>
-          <p className="text-gray-500">Croco Motors Group • Harare Headquarters</p>
+          <p className="text-gray-500">Dealer workspace</p>
         </div>
         
         {/* Branch Inventory Selector */}
@@ -99,10 +95,13 @@ export default function DealerDashboard() {
       {/* Stats Grid */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
+          // Only inventory is a real count. Leads / monthly sales / revenue had no data source and were
+          // read from a fabricated `dashboardStats.dealer` block; there is no CRM or sales read model
+          // behind this dashboard, so they say "Not available" rather than invent business performance.
           { label: 'Total Inventory', value: liveInventory.length, icon: Car, color: 'text-blue-500', bg: 'bg-blue-50' },
-          { label: 'Leads', value: stats.totalLeads, icon: Users, color: 'text-orange-500', bg: 'bg-orange-50', badge: 12 },
-          { label: 'Monthly Sales', value: stats.monthlySales, icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
-          { label: 'Revenue (USD)', value: `$${(stats.revenue / 1000).toFixed(0)}k`, icon: DollarSign, color: 'text-purple-500', bg: 'bg-purple-50' },
+          { label: 'Leads', value: 'Not available', icon: Users, color: 'text-orange-500', bg: 'bg-orange-50' },
+          { label: 'Monthly Sales', value: 'Not available', icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-50' },
+          { label: 'Revenue (USD)', value: 'Not available', icon: DollarSign, color: 'text-purple-500', bg: 'bg-purple-50' },
         ].map((stat) => (
           <Card key={stat.label} className="border-0 card-shadow hover-scale transition-transform">
             <CardContent className="p-5">
@@ -148,8 +147,14 @@ export default function DealerDashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-orange-600 text-sm">${vehicle.price?.toLocaleString()} USD</p>
-                    <Badge variant="outline" className="text-[8px] mt-1 bg-white">ZIMRA Cleared</Badge>
+                    {/* Price shows only with its recorded currency — no hardcoded USD. The blanket
+                        "ZIMRA Cleared" badge is removed: it was stamped on every row regardless of
+                        whether that vehicle had any customs clearance evidence at all. */}
+                    <p className="font-bold text-orange-600 text-sm">
+                      {Number.isFinite(vehicle.price as number) && vehicle.currency
+                        ? `${vehicle.currency} ${(vehicle.price as number).toLocaleString()}`
+                        : 'Price not recorded'}
+                    </p>
                   </div>
                 </div>
               ))}

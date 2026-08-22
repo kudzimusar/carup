@@ -69,19 +69,13 @@ export default function AdminDashboard() {
     )
   }
 
-  const organizations = [
-    { name: 'Croco Motors Group', type: 'Dealer', location: 'Harare', trust: 98.2, status: 'Active' },
-    { name: 'Simbisa Garages Ltd', type: 'Garage', location: 'Bulawayo', trust: 95.0, status: 'Active' },
-    { name: 'Old Mutual Zimbabwe', type: 'Insurance', location: 'Harare', trust: 99.0, status: 'Active' },
-    { name: 'CBZ Bank Limited', type: 'Bank', location: 'Harare', trust: 97.5, status: 'Active' },
-    { name: 'Zimbabwe Revenue Authority', type: 'Government', location: 'Harare', trust: 100.0, status: 'Active' }
-  ]
-
-  const fraudAlerts = [
-    { vin: 'VIN74329849204928', risk: 'Low', status: 'Verified', reason: 'Legitimate import clearance' },
-    { vin: 'VIN89230489201948', risk: 'Low', status: 'Verified', reason: 'Tamper-free odometer history' },
-    { vin: 'VIN_SUSPECT_9921', risk: 'High', status: 'Intercepted', reason: 'Cloned registration books detected' }
-  ]
+  // These tables previously hardcoded REAL institutions (Croco Motors, Simbisa, Old Mutual, CBZ Bank,
+  // ZIMRA) as Active CarUp partners with invented "Trust Index" percentages, and fabricated fraud
+  // interceptions against made-up VINs. Both asserted relationships and governance outcomes that do
+  // not exist. No governed organization registry or fraud-audit read model backs this dashboard yet,
+  // so the fabricated rows are removed rather than replaced with other invented names.
+  const organizations: Array<{ name: string; type: string; location: string; trust: number; status: string }> = []
+  const fraudAlerts: Array<{ vin: string; risk: string; status: string; reason: string }> = []
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -139,6 +133,13 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-sm">
+                    {organizations.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-8 text-center text-sm text-gray-500" data-testid="admin-organizations-empty">
+                          No governed organization registry is published yet.
+                        </td>
+                      </tr>
+                    )}
                     {organizations.map((org, index) => (
                       <tr key={index} className="hover:bg-gray-50/50">
                         <td className="px-6 py-3 font-semibold text-gray-800">{org.name}</td>
@@ -164,6 +165,11 @@ export default function AdminDashboard() {
           <Card className="border-0 card-shadow bg-white">
             <CardHeader className="pb-3"><CardTitle className="text-lg">Ecosystem Fraud & VIN Cloning Audits</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              {fraudAlerts.length === 0 && (
+                <p className="text-sm text-gray-500" data-testid="admin-fraud-empty">
+                  No fraud audit records are published yet.
+                </p>
+              )}
               {fraudAlerts.map((f, i) => (
                 <div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl hover:bg-gray-100/40 transition-all border border-gray-100">
                   <div>

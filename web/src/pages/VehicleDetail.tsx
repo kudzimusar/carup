@@ -1023,6 +1023,19 @@ function presentTrust(
   }
 }
 
+/**
+ * A price is a number AND a currency — never one without the other. `vehicle.currency ?? 'USD'`
+ * fabricated a currency the seller never stated (the passport withdraws currency unless it is
+ * provenance-backed). Show a formatted price only when both the amount and a real currency are
+ * present; otherwise say the price is not recorded rather than invent USD.
+ */
+function governedPrice(price: unknown, currency: unknown): string {
+  const amount = typeof price === 'number' && Number.isFinite(price) ? price : null
+  const ccy = typeof currency === 'string' && currency.trim() ? currency.trim() : null
+  if (amount === null || ccy === null) return 'Price not recorded'
+  return formatPrice(amount, ccy)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function VehicleDetail() {
   const { id } = useParams()
@@ -2294,7 +2307,7 @@ export default function VehicleDetail() {
                     <div className="grid sm:grid-cols-3 gap-4">
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Listed Price</p>
-                        <p className="text-xl font-bold">{formatPrice(vehicle.price ?? 0, vehicle.currency ?? 'USD')}</p>
+                        <p className="text-xl font-bold">{governedPrice(vehicle.price, vehicle.currency)}</p>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-4 text-center">
                         <p className="text-xs text-gray-500 mb-1">Trust Score</p>
@@ -2354,7 +2367,7 @@ export default function VehicleDetail() {
             <Card className="border-0 card-shadow bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white sticky top-6">
               <CardContent className="p-6">
                 <p className="text-sm text-gray-300 mb-1">Price</p>
-                <p className="text-3xl font-bold">{formatPrice(vehicle.price ?? 0, vehicle.currency ?? 'USD')}</p>
+                <p className="text-3xl font-bold">{governedPrice(vehicle.price, vehicle.currency)}</p>
                 <div className="flex items-center gap-1 mt-1">
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                   <span className="text-sm text-gray-300" data-testid="sidebar-trust">
@@ -2481,8 +2494,11 @@ export default function VehicleDetail() {
                     { label: 'VIN', value: identity?.vin || vehicle.vin, redactable: false },
                     { label: 'Chassis No.', value: identity?.chassisNumber || vehicle.chassis_number, redactable: true },
                     { label: 'Engine No.', value: identity?.engineNumber || vehicle.engine_number || vehicle.engineNumber, redactable: true },
-                    { label: 'Reg. Country', value: identity?.registrationCountry || vehicle.registration_country, redactable: false },
-                    { label: 'Reg. Authority', value: identity?.registrationAuthority || vehicle.registration_authority, redactable: false },
+                    // Governed identity only. The raw `vehicle.registration_country`/`_authority`
+                    // columns carry a fabricated DB DEFAULT ('ZW'/'CVR') on most rows; the passport
+                    // withdrew them, so falling back to the column here re-introduced the fabrication.
+                    { label: 'Reg. Country', value: identity?.registrationCountry, redactable: false },
+                    { label: 'Reg. Authority', value: identity?.registrationAuthority, redactable: false },
                     { label: 'Color', value: vehicle.color, redactable: false },
                   ].map(({ label, value, redactable }) => {
                     const state = identifierState(value, redactable && identifiersRedacted)
@@ -2706,7 +2722,7 @@ export default function VehicleDetail() {
           <div className="space-y-4 py-2">
             <div className="bg-gray-50 rounded-lg p-4">
               <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''}</p>
-              <p className="text-2xl font-bold text-orange-600 mt-1">{formatPrice(vehicle.price ?? 0, vehicle.currency ?? 'USD')}</p>
+              <p className="text-2xl font-bold text-orange-600 mt-1">{governedPrice(vehicle.price, vehicle.currency)}</p>
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800 space-y-1">
               <p className="font-semibold">What happens next:</p>
@@ -2735,7 +2751,7 @@ export default function VehicleDetail() {
           <div className="space-y-4 py-2">
             <div className="bg-gray-50 rounded-lg p-3">
               <p className="text-sm text-gray-500">Vehicle</p>
-              <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''} — {formatPrice(vehicle.price ?? 0, vehicle.currency ?? 'USD')}</p>
+              <p className="font-semibold">{vehicle.year ?? ''} {vehicle.make ?? ''} {vehicle.model ?? ''} — {governedPrice(vehicle.price, vehicle.currency)}</p>
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Loan Amount (USD)</label>

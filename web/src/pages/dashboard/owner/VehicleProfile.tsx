@@ -21,6 +21,8 @@ import type {
 } from '@/types'
 import EvidenceUploadModal from '@/components/EvidenceUploadModal'
 import VehicleLifeStageTimeline from '@/components/VehicleLifeStageTimeline'
+import { ListingImage } from '@/components/marketplace/ListingImage'
+import { statedMileage, statedPrice, statedDate } from './ownerStatedValues'
 
 // ── The canonical trust projection (Issue #164, ADR-001) ────────────────────
 /**
@@ -160,25 +162,29 @@ export default function VehicleProfile() {
     'ownership_transfer_document'
   ]
 
+  // Owner per-VIN view-model. Every field is the value the canonical passport actually published, or
+  // null — NEVER a fabricated stand-in. No stock image, no `price * 0.9` valuation CarUp never made,
+  // no "today" purchase date, no invented garage/manufacturer. Absent values render as words.
+  const pv = passportData.vehicle ?? {}
+  const numOrNull = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n : null)
   const vehicle = {
-    make: passportData.vehicle?.make || 'Unknown',
-    model: passportData.vehicle?.model || 'Unknown',
-    year: passportData.vehicle?.year || 'Unknown',
-    vin: passportData.vehicle?.vin || id || '',
-    mileage: passportData.vehicle?.mileage || 0,
-    color: passportData.vehicle?.color || 'Unknown',
-    purchasePrice: passportData.vehicle?.price || 0,
-    currentEstimate: (passportData.vehicle?.price || 0) * 0.9,
-    image: passportData.vehicle?.image_url || 'https://images.unsplash.com/photo-1605810230434-7631ac76ec81?w=800&q=80',
-    registration: passportData.vehicle?.vin || id || '',
-    engineNumber: 'UNKNOWN',
-    purchaseDate: passportData.vehicle?.created_at || new Date().toISOString(),
+    make: pv.make || null,
+    model: pv.model || null,
+    year: pv.year || null,
+    vin: pv.vin || id || '',
+    mileage: numOrNull(pv.mileage),
+    color: pv.color || null,
+    price: numOrNull(pv.price),
+    imageUrl: pv.image_url || null,
+    registration: pv.vin || id || '',
+    engineNumber: pv.engine_number || null,
+    purchaseDate: statedDate(pv.created_at),
     documents: (evidenceList || [])
       .filter((item) => documentTypes.includes(item.evidence_type))
       .map((item) => ({
         id: item.id,
         title: item.evidence_type.split('_').map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(' '),
-        date: new Date(item.captured_at || item.uploaded_at || '').toLocaleDateString(),
+        date: statedDate(item.captured_at || item.uploaded_at) ?? 'Date not recorded',
         status: item.verification_status
       })),
     insuranceRecords: [] as InsuranceRecord[],
@@ -187,21 +193,21 @@ export default function VehicleProfile() {
       .map((e) => ({
         id: e.id,
         serviceType: e.label,
-        garage: e.details?.notes || 'Simbisa Garages',
-        date: new Date(e.timestamp).toLocaleDateString(),
-        mileage: e.details?.mileage || 0,
-        description: e.details?.notes || 'Standard vehicle check sheets and maintenance update',
-        cost: e.details?.cost || 0
+        garage: e.details?.notes || null,
+        date: statedDate(e.timestamp) ?? 'Date not recorded',
+        mileage: numOrNull(e.details?.mileage),
+        description: e.details?.notes || null,
+        cost: numOrNull(e.details?.cost)
       })),
     partsHistory: (passportData.timeline || [])
       .filter((e) => e.event_source === 'service')
       .map((e) => ({
         id: e.id,
         name: e.label,
-        manufacturer: 'OEM',
-        type: 'OEM',
-        installedDate: new Date(e.timestamp).toLocaleDateString(),
-        cost: e.details?.cost || 0
+        manufacturer: null as string | null,
+        type: null as string | null,
+        installedDate: statedDate(e.timestamp) ?? 'Date not recorded',
+        cost: numOrNull(e.details?.cost)
       }))
   }
 
@@ -235,11 +241,11 @@ export default function VehicleProfile() {
         <div className="lg:col-span-2 space-y-6">
           <Card className="border-0 card-shadow overflow-hidden">
             <div className="relative h-56">
-              <img src={vehicle.image} alt="" className="w-full h-full object-cover" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+              <ListingImage src={vehicle.imageUrl} alt="" className="h-full w-full" imgClassName="h-56" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute bottom-4 left-4 right-4 text-white">
                 <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-2xl font-bold">{vehicle.year} {vehicle.make} {vehicle.model}</h1>
+                  <h1 className="text-2xl font-bold">{[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle details not recorded'}</h1>
                   <Badge className="bg-white/20 text-white">{vehicle.registration}</Badge>
                 </div>
                 <p className="text-sm text-gray-200">VIN: {vehicle.vin}</p>
@@ -248,10 +254,10 @@ export default function VehicleProfile() {
             <CardContent className="p-5">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
-                  { icon: Gauge, label: 'Mileage', value: `${vehicle.mileage.toLocaleString()} km` },
-                  { icon: Palette, label: 'Color', value: vehicle.color },
-                  { icon: Hash, label: 'Engine No.', value: vehicle.engineNumber },
-                  { icon: Calendar, label: 'Purchased', value: new Date(vehicle.purchaseDate).toLocaleDateString() },
+                  { icon: Gauge, label: 'Mileage', value: statedMileage(vehicle.mileage) },
+                  { icon: Palette, label: 'Color', value: vehicle.color ?? 'Not recorded' },
+                  { icon: Hash, label: 'Engine No.', value: vehicle.engineNumber ?? 'Not recorded' },
+                  { icon: Calendar, label: 'Purchased', value: vehicle.purchaseDate ?? 'Not recorded' },
                 ].map((item) => (
                   <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
                     <item.icon className="w-5 h-5 text-orange-500 mx-auto mb-1" />
@@ -350,10 +356,10 @@ export default function VehicleProfile() {
                       <Wrench className="w-5 h-5 text-orange-500" />
                       <div className="flex-1">
                         <p className="text-sm font-medium">{s.serviceType}</p>
-                        <p className="text-xs text-gray-500">{s.garage} • {s.date} • {s.mileage.toLocaleString()} km</p>
-                        <p className="text-xs text-gray-600 mt-1">{s.description}</p>
+                        <p className="text-xs text-gray-500">{s.garage ?? 'Garage not recorded'} • {s.date} • {statedMileage(s.mileage)}</p>
+                        {s.description && <p className="text-xs text-gray-600 mt-1">{s.description}</p>}
                       </div>
-                      <span className="text-sm font-medium">${s.cost}</span>
+                      <span className="text-sm font-medium">{s.cost !== null ? `$${s.cost.toLocaleString()}` : '—'}</span>
                     </div>
                   ))}
                 </CardContent>
@@ -397,11 +403,11 @@ export default function VehicleProfile() {
                           <tr key={part.id} className="border-b last:border-0">
                             <td className="py-3">
                               <p className="font-medium">{part.name}</p>
-                              <p className="text-xs text-gray-500">{part.manufacturer}</p>
+                              {part.manufacturer && <p className="text-xs text-gray-500">{part.manufacturer}</p>}
                             </td>
-                            <td className="py-3"><Badge variant="outline" className="text-xs">{part.type}</Badge></td>
+                            <td className="py-3">{part.type ? <Badge variant="outline" className="text-xs">{part.type}</Badge> : <span className="text-xs text-gray-400">Not recorded</span>}</td>
                             <td className="py-3 text-gray-600">{part.installedDate}</td>
-                            <td className="py-3 text-right font-medium">${part.cost}</td>
+                            <td className="py-3 text-right font-medium">{part.cost !== null ? `$${part.cost.toLocaleString()}` : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -525,24 +531,13 @@ export default function VehicleProfile() {
             <CardContent className="p-5">
               <h3 className="font-semibold mb-4">Vehicle Summary</h3>
               <div className="space-y-3 text-sm">
-                <div className="flex justify-between"><span className="text-gray-500">Purchase Price</span><span>${vehicle.purchasePrice.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Current Value</span><span className="font-bold text-orange-600">${vehicle.currentEstimate.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Depreciation</span><span className="text-red-500">-${(vehicle.purchasePrice - vehicle.currentEstimate).toLocaleString()}</span></div>
+                {/* Recorded price only. CarUp publishes no market valuation for this vehicle, so there is
+                    no "Current Value" / "Depreciation" / "AI Valuation" — inventing one (price * 0.9)
+                    would be a fabricated business fact. */}
+                <div className="flex justify-between"><span className="text-gray-500">Recorded Price</span><span>{statedPrice(vehicle.price)}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Total Services</span><span>{vehicle.serviceHistory.length}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Total Parts</span><span>{vehicle.partsHistory.length}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Service Cost</span><span>${vehicle.serviceHistory.reduce((a, s) => a + s.cost, 0).toLocaleString()}</span></div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 card-shadow bg-gradient-to-br from-orange-500 to-amber-500 text-white">
-            <CardContent className="p-5">
-              <h3 className="font-semibold mb-2">AI Valuation</h3>
-              <p className="text-3xl font-bold mb-1">${vehicle.currentEstimate.toLocaleString()}</p>
-              <p className="text-sm opacity-90 mb-4">Estimated market value</p>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="opacity-80">Market range</span><span>${(vehicle.currentEstimate * 0.9).toLocaleString()} - ${(vehicle.currentEstimate * 1.1).toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="opacity-80">Confidence</span><span>92%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Recorded Service Cost</span><span>${vehicle.serviceHistory.reduce((a, s) => a + (s.cost ?? 0), 0).toLocaleString()}</span></div>
               </div>
             </CardContent>
           </Card>

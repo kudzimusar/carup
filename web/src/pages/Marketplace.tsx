@@ -119,8 +119,10 @@ function readTrustRanking(payload: unknown): TrustRanking | null {
   }
 }
 
-function getFuelType(vehicle: Vehicle) {
-  return vehicle.fuel_type || vehicle.fuelType || 'Petrol'
+function getFuelType(vehicle: Vehicle): string | null {
+  // No 'Petrol' default — an unstated fuel type is not Petrol. Absent → null (chip hidden; never
+  // matches a specific fuel filter).
+  return vehicle.fuel_type || vehicle.fuelType || null
 }
 
 // Phase 5: removed broad isVerifiedVehicle helper — plate verification and police checks
@@ -157,17 +159,11 @@ function hasVerifiedParts(vehicle: Vehicle) {
   return Boolean(vehicle.verified_parts_count || vehicle.parts?.some(part => part.type === 'OEM'))
 }
 
-function isDealerListing(vehicle: Vehicle) {
-  const sellerType = normalizeText(vehicle.sellerType || vehicle.current_seller_type)
-  return Boolean(vehicle.tenant || sellerType.includes('dealer') || sellerType.includes('dealership'))
-}
-
-function getSellerLabel(vehicle: Vehicle) {
-  if (isDealerListing(vehicle)) {
-    // 'Verified dealer' removed: dealer registration does not equal full verification
-    return vehicle.tenant?.name || vehicle.sellerName || 'CarUp Dealer'
-  }
-  return 'Private seller'
+function getSellerLabel(vehicle: Vehicle): string {
+  // The seller's OWN governed display label (summary.seller_display_label → sellerName), consent-gated
+  // upstream. No fabricated 'CarUp Dealer' / 'Private seller' stand-in when the seller published none.
+  const label = normalizeText(vehicle.sellerName)
+  return label ? (vehicle.sellerName as string) : 'Seller not disclosed'
 }
 
 /**
@@ -290,7 +286,9 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     zimra_verified: summary.zimra_verified,
     police_verified: summary.cid_clear,
     cid_clear: summary.cid_clear,
-    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : 'Private Owner',
+    // No 'Private Owner' fabrication when the governed seller_type is absent — pass through the
+    // governed distinction or leave it undisclosed.
+    sellerType: summary.seller_type === 'dealer' ? 'Dealership' : (summary.seller_type ? 'Private Owner' : undefined),
     sellerName: summary.seller_display_label || undefined,
     current_seller_type: summary.seller_type,
     public_seller_display_enabled: summary.seller_public_profile_enabled,
@@ -724,7 +722,9 @@ export default function Marketplace() {
         <div className="section-padding mx-auto max-w-[1440px] py-8">
           <h1 className="text-3xl font-bold mb-2">Vehicle Marketplace</h1>
           <p className="text-gray-600">
-            Browse {liveVehicles.length} verified vehicles across Zimbabwe, with parts and repair trust signals where data exists.
+            {/* Not "verified vehicles across Zimbabwe" — the population is neither all verified nor
+                asserted to be all in Zimbabwe. Each vehicle carries its own governed trust signals. */}
+            Browse {liveVehicles.length} published {liveVehicles.length === 1 ? 'listing' : 'listings'}, with governed trust, parts and repair signals shown per vehicle where data exists.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="marketplace-entry-actions">
             <BuyerAssistantDrawer />
@@ -1130,9 +1130,17 @@ export default function Marketplace() {
                         ))}
                       </div>
                       <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage || 0).toLocaleString()} km</span>
-                        <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission || 'Auto'}</span>
-                        <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{getFuelType(vehicle)}</span>
+                        {/* Only recorded specs are shown — no '0 km' / 'Auto' / 'Petrol' stand-ins for
+                            an unstated value. A genuine 0 km import still shows (finite check). */}
+                        {Number.isFinite(vehicle.mileage as number) && (
+                          <span className="flex items-center gap-1"><Gauge className="w-3 h-3" />{(vehicle.mileage as number).toLocaleString()} km</span>
+                        )}
+                        {vehicle.transmission && (
+                          <span className="flex items-center gap-1"><Settings2 className="w-3 h-3" />{vehicle.transmission}</span>
+                        )}
+                        {getFuelType(vehicle) && (
+                          <span className="flex items-center gap-1"><Fuel className="w-3 h-3" />{getFuelType(vehicle)}</span>
+                        )}
                       </div>
                       <p className="mt-2 text-xs font-medium text-blue-700" data-testid="marketplace-plate-status">
                         {plateStatus}
