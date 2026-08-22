@@ -32,7 +32,7 @@ concurrency:
 # branch; the control-plane PR that registers this workflow on `main` replaces it with the immutable
 # certified SHA (exact-head CI green + Codex P0/P1/P2=0), exactly like the truth-cutover dispatcher.
 env:
-  CANDIDATE_SHA: integration/canonical-vehicle-truth-closure
+  CANDIDATE_SHA: 18897a4505ded911c716fa0365aaf30af616b023
 
 jobs:
   golden:
