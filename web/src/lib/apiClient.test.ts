@@ -9,6 +9,7 @@ import {
   CSRF_ERROR_MESSAGE,
   resolveApiBaseUrl,
   DEFAULT_PRODUCTION_API_BASE_URL,
+  DEFAULT_STAGING_API_BASE_URL,
   type AuthHeaders,
 } from './apiClient'
 
@@ -227,11 +228,22 @@ describe('resolveApiBaseUrl', () => {
     expect(resolveApiBaseUrl('   ', 'localhost')).toBe('/api') // whitespace-only is ignored
   })
 
-  it('falls back to the production backend for non-localhost hosts with no override', () => {
-    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  it('falls back to the production backend for unrecognised hosts with no override', () => {
     expect(resolveApiBaseUrl(null, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
-    expect(resolveApiBaseUrl(undefined, 'staging.carup.dev')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
     expect(resolveApiBaseUrl(undefined, undefined)).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  })
+
+  // Environment isolation: a staging frontend must never silently authenticate against production
+  // when VITE_API_URL is missing. It resolves to the staging backend instead of falling through.
+  it('routes a STAGING frontend host to the staging backend when no override is set', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'staging.carup.dev')).toBe(DEFAULT_STAGING_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+
+  it('does not treat a look-alike host as staging (exact host match only)', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging.evil.example.com')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+    expect(resolveApiBaseUrl(undefined, 'notcarup-staging.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
   })
 
   it('resolves the production fallback to the canonical carup.dev API host', () => {

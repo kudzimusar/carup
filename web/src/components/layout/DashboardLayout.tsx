@@ -4,6 +4,7 @@ import { Outlet, Link, useLocation, useNavigate, Navigate } from 'react-router-d
 import {
   Car,
   Bell,
+  Search,
   Settings,
   LogOut,
   Menu,
@@ -39,6 +40,7 @@ function resolveIcon(item: FeatureRegistryItem): React.ElementType {
 
 export default function DashboardLayout({ role }: { role: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [ownerSearch, setOwnerSearch] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, loading } = useAuth()
@@ -235,7 +237,34 @@ export default function DashboardLayout({ role }: { role: string }) {
             <Menu className="w-5 h-5" aria-hidden="true" />
           </Button>
 
-          <div className="flex-1" />
+          {/* Owner quick-search. Forwards the owner's ACTUAL query to the real /search route rather
+              than dropping it — the same intent-preserving handoff Phase 8 applied on Landing. */}
+          {user?.role === 'owner' ? (
+            <form
+              className="flex-1 max-w-md mx-4 hidden sm:block"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const q = ownerSearch.trim()
+                navigate(q ? `/search?q=${encodeURIComponent(q)}` : '/search')
+              }}
+              role="search"
+            >
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="search"
+                  value={ownerSearch}
+                  onChange={(e) => setOwnerSearch(e.target.value)}
+                  placeholder="Search vehicles by make, model or VIN..."
+                  aria-label="Search vehicles"
+                  data-testid="owner-topbar-search"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-300 focus:bg-white"
+                />
+              </div>
+            </form>
+          ) : (
+            <div className="flex-1" />
+          )}
 
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="relative" asChild>

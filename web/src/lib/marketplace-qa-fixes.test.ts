@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL } from './apiClient'
+import { extractApiErrorMessage, resolveApiBaseUrl, DEFAULT_PRODUCTION_API_BASE_URL, DEFAULT_STAGING_API_BASE_URL } from './apiClient'
 import { getErrorMessage } from './errorMessage'
 import { withMockFallback } from '../pages/Marketplace'
 
@@ -14,8 +14,13 @@ describe('resolveApiBaseUrl — which backend the frontend targets', () => {
   it('uses same-origin /api on localhost', () => {
     expect(resolveApiBaseUrl(undefined, 'localhost')).toBe('/api')
   })
-  it('falls back to the PRODUCTION backend when VITE_API_URL is unset on a non-localhost host (the staging trap)', () => {
-    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
+  // The "staging trap" is now closed: an unset VITE_API_URL on a staging host resolves to the STAGING
+  // backend, not production, so staging can never silently authenticate against production.
+  it('routes a staging host to the staging backend when VITE_API_URL is unset (staging trap closed)', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup-staging-git-feature.vercel.app')).toBe(DEFAULT_STAGING_API_BASE_URL)
+  })
+  it('still falls back to PRODUCTION for an unrecognised host with no override', () => {
+    expect(resolveApiBaseUrl(undefined, 'carup.vercel.app')).toBe(DEFAULT_PRODUCTION_API_BASE_URL)
   })
 })
 

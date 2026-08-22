@@ -737,7 +737,7 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
       label: 'VIN / Ledger Integrity',
       status: chain?.verified ? 'verified' : 'not_verified',
       detail: chain?.verified
-        ? 'Blockchain hash chain verified — no tampering detected'
+        ? 'CarUp audit ledger hash chain verified — no tampering detected'
         : 'Ledger integrity check failed or no events recorded',
     },
   ]
@@ -796,7 +796,7 @@ function buildVerificationSources(passport: VehiclePassport | null): PassportVer
       label: 'Service Records',
       status: (m.maintenance_logs_count ?? 0) >= 1 ? 'verified' : 'not_verified',
       detail: (m.maintenance_logs_count ?? 0) >= 1
-        ? `${m.maintenance_logs_count} signed maintenance log(s) on the blockchain ledger`
+        ? `${m.maintenance_logs_count} signed maintenance log(s) on the CarUp audit ledger`
         : 'No mechanic-signed service records found',
     },
   ]
@@ -2098,7 +2098,7 @@ export default function VehicleDetail() {
                       <div className="text-center py-8 text-gray-400" data-testid="history-empty-state">
                         <Clock className="w-10 h-10 mx-auto mb-3 opacity-30" />
                         <p className="font-medium">No history events recorded yet</p>
-                        <p className="text-xs mt-1 text-gray-400">Events appear as service records, ownership transfers, and inspections are logged on the CarUp blockchain</p>
+                        <p className="text-xs mt-1 text-gray-400">Events appear as service records, ownership transfers, and inspections are logged on the CarUp audit ledger</p>
                       </div>
                     ) : (
                       <div className="space-y-3" data-testid="history-timeline">
@@ -2701,7 +2701,7 @@ export default function VehicleDetail() {
                 <CardContent className="p-4">
                   <div className={`flex items-center gap-2 text-sm ${passport.chainVerification.verified ? 'text-green-700' : 'text-amber-700'}`}>
                     {passport.chainVerification.verified
-                      ? <><CheckCircle className="w-4 h-4" /> Blockchain ledger verified — tamper-proof record</>
+                      ? <><CheckCircle className="w-4 h-4" /> CarUp audit ledger verified — hash chain intact</>
                       : <><AlertTriangle className="w-4 h-4" /> Ledger integrity unconfirmed</>
                     }
                   </div>

@@ -208,37 +208,12 @@ export default function Blog() {
         { label: 'Average Term', value: '24 to 36 months' },
         { label: 'Down Payment', value: '30% - 40% required' }
       ]
-    },
-    {
-      id: 'blockchain-vehicle-ledger',
-      title: 'CarUp Launches Blockchain-backed Vehicle Ledger',
-      excerpt: 'CarUp has officially deployed its state-of-the-art blockchain vehicle ledger in partnership with major local insurers. Here is what is changing.',
-      description: 'In our largest upgrade yet, CarUp is moving its digital vehicle logs to a secure, tamper-proof blockchain-backed ledger. Every service record, parts replacement under PartSentry, and ownership transfer is now hashed.',
-      content: [
-        'CarUp is proud to announce the official deployment of our Decentralized Vehicle Registry (DVR) ledger. Built in partnership with major local insurers (such as NicozDiamond and Cell Insurance) and banking partners, this upgrade represents a milestone for automotive trust in Zimbabwe.',
-        'Historically, keeping track of vehicle ownership changes, logbooks, and accident damage records in Zimbabwe was a paper-heavy and insecure process. Records could be lost, altered, or forged to inflate a car\'s resale value.',
-        'With our blockchain ledger, every vehicle registered on CarUp receives a unique cryptographic block. When a master technician at a verified garage completes a service or replaces a part (tracked via PartSentry), they write the transaction directly to the block. Once signed, this entry is immutable.',
-        'When you buy a used vehicle on the CarUp marketplace, you no longer have to rely on the seller\'s word. By scanning the car\'s QR code, you can inspect its entire, certified digital history. This absolute transparency protects buyers and allows insurance companies to process claims in minutes, as they have verified data.'
-      ],
-      category: 'Company News',
-      date: 'May 05, 2026',
-      author: {
-        name: 'Tendai Moyo',
-        role: 'CEO & Co-founder',
-        avatar: 'TM',
-        bio: 'Tech entrepreneur and automotive enthusiast dedicated to deploying blockchain and AI to solve real-world African challenges.'
-      },
-      readTime: '3 min read',
-      accentColor: 'from-rose-600 to-orange-600',
-      icon: BookOpen,
-      views: 1110,
-      likes: 389,
-      zimbabweanContext: [
-        { label: 'Partners involved', value: 'NicozDiamond, CABS' },
-        { label: 'Feature', value: 'PartSentry Ledger' },
-        { label: 'Verification', value: '100% Tamper-Proof' }
-      ]
     }
+    // Removed: a fabricated "CarUp Launches Blockchain-backed Vehicle Ledger" announcement claiming a
+    // deployed Decentralized Vehicle Registry built "in partnership with major local insurers (such as
+    // NicozDiamond and Cell Insurance)" and "100% Tamper-Proof" verification. CarUp has no such
+    // partnership and publishes no such registry; the post asserted a commercial relationship with real
+    // companies that does not exist.
   ]
 
   // Extract featured article and rest

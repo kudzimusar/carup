@@ -257,7 +257,7 @@ export default function TrustSafety() {
           {[
             {
               icon: ShieldCheck,
-              title: 'Blockchain Verification',
+              title: 'Audit Ledger Verification',
               desc: 'Every vehicle registered gets an immutable digital identity ledger. All legal ownership transactions, ZIMRA tax status, and structural repairs are hashed onto the ledger to prevent document falsification.',
               color: 'from-orange-500/20 to-amber-500/20',
               badge: 'Tamper-Proof'

@@ -25,7 +25,7 @@ export default function About() {
           <h1 className="text-4xl md:text-5xl font-bold mb-4">Building Zimbabwe's Automotive Future</h1>
           <p className="text-lg text-gray-300 max-w-2xl mx-auto">
             CarUp is Zimbabwe's first comprehensive automotive intelligence platform, combining AI, 
-            blockchain verification, and a multi-stakeholder ecosystem to transform how vehicles are 
+            a tamper-evident audit ledger, and a multi-stakeholder ecosystem to transform how vehicles are 
             bought, sold, and managed.
           </p>
         </div>
@@ -51,8 +51,8 @@ export default function About() {
               <h2 className="text-2xl font-bold mb-3">Our Vision</h2>
               <p className="text-gray-600 leading-relaxed">
                 Short-term: Zimbabwe's smartest car marketplace. Mid-term: Zimbabwe's automotive trust 
-                engine. Long-term: Africa's decentralized automotive intelligence network, powered by 
-                blockchain and AI.
+                engine. Long-term: Africa's automotive intelligence network, powered by a verifiable
+                audit ledger and AI.
               </p>
             </CardContent>
           </Card>

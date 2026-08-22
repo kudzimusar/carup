@@ -19,7 +19,6 @@ import {
   Info,
   Clock,
   Send,
-  Sliders,
   Palette,
   Image,
   Award,
@@ -40,50 +39,12 @@ interface PressRelease {
   fullContent: string[]
 }
 
-const pressReleases: PressRelease[] = [
-  {
-    id: 'pr-1',
-    title: 'CarUp Integrates ZINARA Third-Party Registry System for Instant Vehicle Logbook OCR Verification in Zimbabwe',
-    date: 'May 12, 2026',
-    category: 'Product Launch',
-    readTime: '4 min read',
-    summary: 'A major regulatory integration enabling Harare and Bulawayo drivers to securely sync vehicle logbooks and police clearances with Gutu AI for instantaneous trust scoring.',
-    fullContent: [
-      'HARARE, ZIMBABWE — CarUp, Zimbabwe\'s premier automotive intelligence platform, today announced the official integration of its Gutu AI engine with the Zimbabwe National Road Administration (ZINARA) vehicle validation protocols and advanced OCR logbook scanning systems.',
-      'This landmark integration allows vehicle owners, premium dealerships, and corporate fleet managers across Zimbabwe to instantly upload scans of their official vehicle logbooks, physical police clearance certificates, and licensing documents. Gutu AI\'s advanced optical character recognition (OCR) immediately matches these with the database, establishing a tamper-proof digital profile in less than 30 seconds.',
-      '"With this launch, we are ending the era of fraudulent vehicle histories in Zimbabwe," said Tendai Moyo, Founder and CEO of CarUp. "Every year, thousands of buyers are defrauded using fake registration logbooks or altered mileage records. By linking our blockchain-backed trust system directly with ZINARA metadata verification, we provide an absolute shield of authenticity."',
-      'The feature is immediately available for all registered users on the CarUp dashboard, with premium support offered to verified dealer networks in Harare, Bulawayo, Gweru, and Mutare. Insurers and financial institutions can also query these records with owner permission, speeding up loan approval times for car financing from weeks to mere minutes.'
-    ]
-  },
-  {
-    id: 'pr-2',
-    title: 'CarUp Launches PartSentry: Zimbabwe\'s First Cryptographic Parts Lifecycle Ledger to Combat Counterfeiting',
-    date: 'March 24, 2026',
-    category: 'Partnership',
-    readTime: '5 min read',
-    summary: 'Partnering with 300+ certified garages nationwide, PartSentry makes car repair records tamper-proof, shielding consumers from sub-standard aftermarket parts fraud.',
-    fullContent: [
-      'HARARE, ZIMBABWE — CarUp has officially launched PartSentry, a pioneering cryptographic ledger designed to track the source, warranty, and installation history of automotive spare parts across Zimbabwe.',
-      'Designed to combat the rampant flow of counterfeit and sub-standard vehicle components in the local market, PartSentry creates a digital twin for critical replacement parts—such as brake systems, timing belts, and suspension parts. When a verified mechanic in the CarUp network installs a part, the unique serial number is scanned and committed to the vehicle\'s permanent digital passport.',
-      'PartSentry launches with over 300 certified garage partners, including prominent service centres in Harare\'s Graniteside and Southerton industrial areas, as well as Bulawayo\'s Belmont district. This decentralized network ensures that subsequent buyers can verify whether a car has been serviced with genuine OEM parts or low-grade replicas.',
-      'Chipo Sibanda, Brand & PR Officer at CarUp, commented: "A vehicle is only as safe as its weakest part. By digitizing the repair invoice and locking spare part serials in a secure cryptographic ledger, we give car buyers full insight into maintenance records. This not only raises the safety standards on Zimbabwean roads but also protects the resale value of well-maintained vehicles."'
-    ]
-  },
-  {
-    id: 'pr-3',
-    title: 'Seed Funding Expansion: CarUp Secures Capital to Expand Automotive Intelligence Across SADC Region',
-    date: 'January 15, 2026',
-    category: 'Corporate',
-    readTime: '3 min read',
-    summary: 'Following rapid growth in the local Zimbabwean market, CarUp secures premium backing to deploy verified vehicle profiles and pricing intelligence in South Africa, Botswana, and Zambia.',
-    fullContent: [
-      'HARARE, ZIMBABWE — CarUp is proud to announce the closing of its latest seed funding expansion round, backed by leading regional venture capital firms and international automotive tech investors.',
-      'The newly acquired capital will be used to accelerate product development for the Gutu AI engine, enhance blockchain infrastructure for vehicle passports, and fund regional expansion across the Southern African Development Community (SADC) region—specifically targeting South Africa, Botswana, and Zambia.',
-      'Since its inception in 2024, CarUp has registered over 12,000 verified vehicles, connected 850+ dealerships, and established trust frameworks with major local insurers and commercial banks. The expansion will allow cross-border car buyers—particularly those importing vehicles through the Durban or Beira ports—to trace a vehicle\'s history before it crosses customs borders.',
-      '"Regional integration is the logical next step," explained Tendai Moyo. "Vehicles move constantly between South Africa, Zimbabwe, and Zambia. Having a disjointed registry system invites criminal networks to exploit the gaps. CarUp will serve as the unifying ledger of trust, ensuring that a vehicle\'s history remains transparent no matter where it is driven, sold, or serviced in Southern Africa."'
-    ]
-  }
-]
+// The three press releases previously hardcoded here were fabricated corporate announcements: an
+// official ZINARA registry integration, a parts-ledger partnership, and a closed seed funding round,
+// complete with invented executive quotes and metrics ("12,000 verified vehicles", "850+ dealerships",
+// "trust frameworks with major local insurers"). None of it happened. Announcements are published here
+// only when they are real, so the list is empty rather than carrying invented ones.
+const pressReleases: PressRelease[] = []
 
 export default function PressKit() {
   const [activeTab, setActiveTab] = useState<'logos' | 'colors' | 'mockups'>('logos')
@@ -244,7 +205,7 @@ export default function PressKit() {
                 Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe\'s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity. 
               </p>
               <p className="text-slate-400 leading-relaxed font-normal">
-                By synthesizing state-of-the-art Optical Character Recognition (OCR), AI-driven valuation models, and decentralized blockchain verification, CarUp has engineered a ecosystem that establishes a bulletproof digital identity for every car. From import clearance and licensing records with the <strong className="text-slate-200">Zimbabwe National Road Administration (ZINARA)</strong> to service journals, spare parts tracking, and ownership registers, our mission is simple: to make vehicle transactions transparent, reliable, and completely secure.
+                By synthesizing Optical Character Recognition (OCR), AI-assisted valuation models, and a tamper-evident audit ledger, CarUp has engineered a ecosystem that establishes a bulletproof digital identity for every car. From import clearance and licensing records with the <strong className="text-slate-200">Zimbabwe National Road Administration (ZINARA)</strong> to service journals, spare parts tracking, and ownership registers, our mission is simple: to make vehicle transactions transparent, reliable, and completely secure.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 pt-4">
                 <div className="flex items-center gap-3.5 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-3.5">
@@ -336,30 +297,10 @@ export default function PressKit() {
                 desc: 'Launched in Harare, Zimbabwe to solve vehicle registry friction.',
                 icon: Clock
               },
-              {
-                value: '12,000+',
-                label: 'Verified Cars Registered',
-                desc: 'Vehicles issued with a cryptographically secure digital passport.',
-                icon: FileText
-              },
-              {
-                value: '85,000+',
-                label: 'Active System Users',
-                desc: 'Individual drivers, fleet managers, and corporate stakeholders.',
-                icon: Globe
-              },
-              {
-                value: '98.7%',
-                label: 'Fraud Detection Rate',
-                desc: 'Successful prevention of cloned plates, logbook falsification, and odometer fraud.',
-                icon: Sparkles
-              },
-              {
-                value: '1,170+',
-                label: 'Partner Ecosystem Networks',
-                desc: 'Includes ZINARA validators, 850+ dealers, and 320+ certified mechanics.',
-                icon: Sliders
-              },
+              // Removed: fabricated scale and partnership metrics ("12,000+ verified cars",
+              // "85,000+ active users", a "98.7% fraud detection rate", and a "1,170+ partner
+              // ecosystem" said to include ZINARA validators, 850+ dealers and 320+ mechanics).
+              // None was measured, and the partner figure asserted relationships that do not exist.
               {
                 value: 'Harare, ZW',
                 label: 'Corporate Headquarters',
@@ -673,14 +614,14 @@ export default function PressKit() {
                   specs: 'Desktop Dashboard | High Resolution 1920 x 1080 (PNG)',
                   size: '4.8 MB',
                   previewText: 'Desktop Mockup',
-                  desc: 'Comprehensive dashboard screenshot detailing spare parts lifecycle logs, mechanic signature certifications, and permanent blockchain seal data.'
+                  desc: 'Comprehensive dashboard screenshot detailing spare parts lifecycle logs, mechanic signature certifications, and audit ledger seal data.'
                 },
                 {
                   title: 'CarUp Digital Vehicle Trust Score Passport',
                   specs: 'Print Ready PDF Layout | Standard A4 Format (PNG & PDF)',
                   size: '6.1 MB',
                   previewText: 'Document Layout',
-                  desc: 'A gorgeous export design of the verified vehicle passport. Shows official trust score rating, ownership chain logs, and ZINARA sync badge.'
+                  desc: 'A gorgeous export design of the verified vehicle passport. Shows the governed trust assessment and ownership chain logs.'
                 }
               ].map((mockup, index) => (
                 <Card key={index} className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 overflow-hidden hover:border-slate-700 transition-all duration-300 flex flex-col justify-between group">
@@ -744,11 +685,19 @@ export default function PressKit() {
             </Badge>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">Recent Press Announcements</h2>
             <p className="text-slate-400 mt-3 text-base">
-              The official timeline of product milestones, strategic mergers, regulatory syncs, and financial funding updates.
+              Official CarUp announcements.
             </p>
           </div>
 
           <div className="space-y-6">
+            {pressReleases.length === 0 && (
+              <Card className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100" data-testid="press-releases-empty">
+                <CardContent className="p-8 text-center">
+                  <p className="text-slate-300 font-medium">No press releases published yet.</p>
+                  <p className="text-sm text-slate-400 mt-2">Announcements appear here once they are issued.</p>
+                </CardContent>
+              </Card>
+            )}
             {pressReleases.map((release) => (
               <Card 
                 key={release.id} 

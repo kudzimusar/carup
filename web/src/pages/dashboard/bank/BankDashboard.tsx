@@ -184,7 +184,7 @@ export default function BankDashboard() {
                 <h3 className="font-semibold text-sm">AI Credit Scoring Copilot</h3>
               </div>
               <p className="text-xs text-indigo-200 leading-relaxed">
-                "Active and monitoring. AI is currently scanning pre-approvals, comparing current market price dynamics in Harare, and checking blockchain mileage ledgers for odometer tampering risk."
+                "Active and monitoring. AI is currently scanning pre-approvals, comparing current market price dynamics in Harare, and checking the CarUp audit ledger's mileage history for odometer tampering risk."
               </p>
               <div className="border-t border-indigo-800/60 pt-3 flex items-center justify-between text-xs">
                 <span className="text-indigo-300">Confidence Threshold:</span>

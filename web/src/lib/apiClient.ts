@@ -41,23 +41,39 @@ function buildProductionApiBaseUrl(): string {
 }
 
 export const DEFAULT_PRODUCTION_API_BASE_URL = buildProductionApiBaseUrl()
+export const DEFAULT_STAGING_API_BASE_URL = 'https://carup-backend-staging.vercel.app/api'
 const LOCAL_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+
+/**
+ * True for the staging frontend's own hosts: the stable alias and Vercel's per-deployment previews
+ * (`carup-staging-<hash>.vercel.app`). Matched on the exact hostname, never a substring, so a
+ * look-alike such as `carup-staging.evil.example.com` can never satisfy it.
+ */
+export function isStagingFrontendHost(hostname?: string | null): boolean {
+  const host = (hostname || '').trim().toLowerCase()
+  if (!host) return false
+  if (host === 'carup-staging.vercel.app' || host === 'staging.carup.dev') return true
+  return host.startsWith('carup-staging-') && host.endsWith('.vercel.app')
+}
 
 /**
  * Resolve the API base URL, with explicit configuration taking precedence so each environment
  * targets its own backend:
  *   1. `VITE_API_URL` (set per Vercel project — staging → staging backend, prod → prod backend)
  *   2. local dev on a localhost host with no override → same-origin `/api`
- *   3. any other host with no override → the production backend (safe default)
+ *   3. a STAGING frontend host with no override → the staging backend
+ *   4. any other host with no override → the production backend (safe default)
  *
- * Previously the non-localhost branch was hardcoded to production, so the staging frontend always
- * read the production backend and ignored `VITE_API_URL`. Honoring the env var lets staging call the
- * staging backend while leaving production behavior unchanged.
+ * Step 3 is an environment-isolation safety net. If `VITE_API_URL` is ever missing or mis-set on a
+ * staging deployment, the previous fallthrough sent the staging frontend — and every credential typed
+ * into it — to the PRODUCTION backend. Staging must never silently authenticate against production,
+ * so a recognised staging host resolves to the staging backend instead of falling through.
  */
 export function resolveApiBaseUrl(configuredUrl?: string | null, hostname?: string): string {
   const configured = configuredUrl?.trim()
   if (configured) return normalizeApiBase(configured)
   if (hostname && LOCAL_HOSTS.includes(hostname)) return '/api'
+  if (isStagingFrontendHost(hostname)) return DEFAULT_STAGING_API_BASE_URL
   return DEFAULT_PRODUCTION_API_BASE_URL
 }
 

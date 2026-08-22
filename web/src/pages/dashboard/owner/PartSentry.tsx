@@ -154,7 +154,7 @@ export default function PartSentry() {
               <Badge className="text-[10px] bg-gray-100 text-gray-600">Verification unavailable</Badge>
             )}
           </div>
-          <p className="text-gray-500">Blockchain-backed parts lifecycle tracking</p>
+          <p className="text-gray-500">Audit-ledger-backed parts lifecycle tracking</p>
         </div>
         <Button className="bg-orange-500 hover:bg-orange-600 gap-1" onClick={() => setShowAddDialog(true)}>
           <Plus className="w-4 h-4" /> Log New Repair
@@ -283,7 +283,7 @@ export default function PartSentry() {
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Wrench className="w-5 h-5 text-orange-500" /> Log New Repair to Blockchain</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Wrench className="w-5 h-5 text-orange-500" /> Log New Repair to Audit Ledger</DialogTitle>
             <DialogDescription>This repair event will be permanently recorded on the PartSentry ledger.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -327,7 +327,7 @@ export default function PartSentry() {
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowAddDialog(false)} disabled={submitting}>Cancel</Button>
               <Button className="flex-1 bg-orange-500 hover:bg-orange-600" onClick={handleAddRepair} disabled={submitting}>
-                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Recording...</> : 'Log to Blockchain'}
+                {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Recording...</> : 'Log to Audit Ledger'}
               </Button>
             </div>
           </div>
