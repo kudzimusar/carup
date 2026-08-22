@@ -1,0 +1,87 @@
+name: Issue 164 Phase 7 Golden Vehicles (staging)
+
+# Owner-governed staging dispatcher for the Phase 7 Golden Reference Vehicle Dataset. It exists for the
+# same reason as the truth-cutover dispatcher: the canonical staging credential is available only to
+# the owner-governed `staging` GitHub Actions environment, and the connected automation cannot invoke
+# workflow_dispatch. This workflow runs the fixture's bootstrap / verify / cleanup / full idempotency
+# sequence against staging ONLY, through the real canonical services. It performs NO migration, NO
+# schema change, NO production write, and NO live payment/provider/Gemini activation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'sequence = full idempotency+containment proof; bootstrap/verify/cleanup = single op'
+        required: true
+        type: choice
+        default: sequence
+        options:
+          - sequence
+          - bootstrap
+          - verify
+          - cleanup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue164-golden-vehicles
+  cancel-in-progress: false
+
+# CANDIDATE_SHA pins the exact certified Phase 7 fixture source. On the integration lane it tracks the
+# branch; the control-plane PR that registers this workflow on `main` replaces it with the immutable
+# certified SHA (exact-head CI green + Codex P0/P1/P2=0), exactly like the truth-cutover dispatcher.
+env:
+  CANDIDATE_SHA: integration/canonical-vehicle-truth-closure
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: staging
+    # Owner-only. Both the original actor and the actual triggering actor must be the owner, so a
+    # collaborator rerun cannot drive a staging write.
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.actor == 'kudzimusar' &&
+      github.triggering_actor == 'kudzimusar'
+    steps:
+      - name: Check out the pinned Phase 7 fixture source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Require governed staging credentials
+        env:
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo '::error::STAGING_SUPABASE_URL / STAGING_SUPABASE_SERVICE_ROLE_KEY are not configured; refusing.'
+            exit 1
+          fi
+
+      - name: Run Golden Vehicles ${{ inputs.mode }} against staging
+        env:
+          NODE_ENV: production
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+        run: node backend/scripts/issue164-golden-vehicles.mjs --mode=${{ inputs.mode }}
+
+      - name: Preserve the non-secret Golden Vehicles receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue164-golden-vehicles-receipt-${{ inputs.mode }}
+          path: issue164-golden-vehicles-receipt.json
+          if-no-files-found: ignore
+          retention-days: 30
