@@ -36,7 +36,6 @@ async function realDeps(client) {
     { createInquiry },
     { recordManualVerification },
     { submitFinancingApplication },
-    { requestMarketplaceEscrow },
     { createInsurancePolicy },
     { addRepairLog },
   ] = await Promise.all([
@@ -45,7 +44,6 @@ async function realDeps(client) {
     import('../marketplace/marketplaceInquiryService.js'),
     import('../sourceVerification/sourceVerificationService.js'),
     import('../finance/financeService.js'),
-    import('../transaction/marketplaceTransactionAuthority.js'),
     import('../insurance/insuranceService.js'),
     import('../partsentry/partsentryService.js'),
   ]);
@@ -53,7 +51,7 @@ async function realDeps(client) {
     client,
     refreshCanonicalTrust, getCanonicalTrust, toPublicTrust,
     evaluateCompleteness, createInquiry, recordManualVerification,
-    submitFinancingApplication, requestMarketplaceEscrow, createInsurancePolicy, addRepairLog,
+    submitFinancingApplication, createInsurancePolicy, addRepairLog,
     now: () => new Date().toISOString(),
   };
 }
@@ -295,7 +293,7 @@ export async function bootstrap(depsIn = {}) {
     });
 
     // Buyer inquiry (clear vehicle_purchase_interest) — only for a published, transacting vehicle.
-    if (spec.transaction) {
+    if (spec.inquiry) {
       await D('buyer_inquiry', async () => {
         // Idempotent: reuse an existing clear purchase-interest inquiry for this buyer+listing.
         const { data: existing } = await client.from('marketplace_inquiries')
@@ -321,14 +319,11 @@ export async function bootstrap(depsIn = {}) {
       }, false);
     }
 
-    // Transaction/escrow intent (server-authoritative, NO money): request an escrow session. Whether
-    // it becomes `eligible` is the REAL derived state from the governed gates — never forced.
-    if (spec.transaction) {
-      await D('escrow_intent', async () => {
-        const session = await deps.requestMarketplaceEscrow(spec.vin, { actor: { id: spec.buyerId, role: 'buyer' }, client });
-        return { status: session?.status ?? null, transaction_intent_id: session?.transaction_intent_id ?? null, gate_reasons: session?.gate_reasons ?? session?.gateReasons ?? null };
-      }, false);
-    }
+    // NOTE: no escrow/reservation session is created. escrow_trust_sessions spawn escrow_trust_events,
+    // a governance APPEND-ONLY table (governance_block_mutation blocks DELETE) that FK-chains to the
+    // vehicle — an escrow session would therefore permanently pin the fixture VIN and break the Phase 7
+    // "removable" invariant. The server-authoritative transaction relationship is exercised through the
+    // buyer inquiry + finance intent instead (both removable). See the Phase 7 doc.
 
     // Insurance — the single governed registry writer. Idempotent by existing policy for the VIN.
     if (spec.insurance) {
@@ -444,7 +439,6 @@ export async function cleanup(depsIn = {}) {
     return [...new Set((data || []).map((r) => r[col]).filter(Boolean))];
   };
   const evidenceIds = await idsOf('vehicle_evidence', 'id', 'vin', vins);
-  const sessionIds = await idsOf('escrow_trust_sessions', 'id', 'vin', vins);
   const logIds = await idsOf('partsentry_logs', 'id', 'vin', vins);
   const threadIds = [...new Set([
     ...await idsOf('message_threads', 'id', 'marketplace_listing_id', vins),
@@ -460,13 +454,8 @@ export async function cleanup(depsIn = {}) {
     ['ai_analysis_jobs', 'evidence_id', evidenceIds],
     ['ai_observations', 'evidence_id', evidenceIds],
     ['vehicle_document_extractions', 'evidence_id', evidenceIds],
-    // escrow session descendants
-    ['escrow_trust_events', 'session_id', sessionIds],
-    ['escrow_dual_control_approvals', 'session_id', sessionIds],
-    ['escrow_reconciliation_ledger', 'session_id', sessionIds],
-    ['escrow_trust_webhook_events', 'session_id', sessionIds],
-    ['safetrade_sandbox_payment_intents', 'transaction_intent_id', sessionIds],
-    ['vehicle_reservations', 'transaction_intent_id', sessionIds],
+    // NOTE: no escrow session / source-verification descendants — the fixture never creates those
+    // append-only rows (see bootstrap), so there is nothing here to delete and nothing to pin the VIN.
     // communication-thread descendants
     ['messages', 'thread_id', threadIds],
     ['message_participants', 'thread_id', threadIds],
@@ -480,28 +469,24 @@ export async function cleanup(depsIn = {}) {
     ['notification_queue', 'recipient_id', userIds],
     // partsentry descendants
     ['partsentry_review_requests', 'partsentry_log_id', logIds],
-    // vehicle/user children the fixture may have created (scoped by VIN / thread id)
-    ['vehicle_reservations', 'vin', vins],
-    ['escrow_trust_sessions', 'vin', vins],
+    // vehicle/user children the fixture may have created (all DELETABLE — no append-only among them).
     ['marketplace_inquiries', 'listing_id', vins],
     ['finance_applications', 'vin', vins],
     ['insurance_records', 'vin', vins],
     ['partsentry_logs', 'vin', vins],
-    ['source_verification_results', 'vin', vins],
-    ['eligibility_requests', 'vin', vins],
     ['blockchain_events', 'vin', vins],
-    ['report_versions', 'vin', vins],
     ['rolling_integrity_checkpoints', 'vin', vins],
-    ['listing_snapshots', 'vin', vins],
-    ['evidence_sets', 'vin', vins],
     ['message_threads', 'id', threadIds],
     ['vehicle_evidence', 'vin', vins],
     ['listing_images', 'vin', vins],
     ['vehicle_ownership_history', 'vin', vins],
-    // Transactional-outbox residue: the finance/inquiry/escrow services persist durable domain_events.
-    // They are scoped only inside the JSONB payload, so delete by the fixture's vin / recipient id.
+    // Transactional-outbox residue: the finance/inquiry services persist durable domain_events, scoped
+    // only inside the JSONB payload, so delete by the fixture's vin / recipient id.
     ['domain_events', 'payload->>vin', vins],
     ['domain_events', 'payload->>recipientUserId', userIds],
+    // Blockchain signing keys created by addEvent (finance/insurance/partsentry) are keyed to the
+    // fixture users; remove them before deleting the users (public_keys is deletable, not append-only).
+    ['public_keys', 'user_id', userIds],
     // parents
     ['vehicles', 'vin', vins],
     ['users', 'id', userIds],

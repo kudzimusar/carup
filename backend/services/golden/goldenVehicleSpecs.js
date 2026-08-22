@@ -95,17 +95,19 @@ export const GOLDEN_A = Object.freeze({
     evidence('inspection_photo'),                      // advisory → verified (models a VID inspection source)
     evidence('insurance_document'),                    // advisory → verified (models an insurance source)
   ],
-  // Governed manual source coverage (honest, non-sandbox): a CarUp manual review connects a source.
-  sourceCoverage: [
-    { provider: 'cvr',  mode: 'manual_verification' },
-    { provider: 'zinara', mode: 'manual_verification' },
-  ],
+  // Source coverage (source_verification_results) and escrow sessions (escrow_trust_events) are
+  // DELIBERATELY excluded: both are governance APPEND-ONLY tables (governance_block_mutation blocks
+  // DELETE) with FK chains to the vehicle, so populating them would permanently pin this fixture VIN
+  // and break the Phase 7 "removable" invariant. Golden A earns its trust from completeness + identity
+  // + governed evidence review (all removable) and models the transaction relationship through the
+  // buyer inquiry + a finance intent (both removable). See the Phase 7 doc's "Append-only constraint".
+  sourceCoverage: [],
   insurance: { provider_name: 'CARUP SYNTHETIC INSURER [phase7]', policy_number: 'PH7-GLDA-INS-0001', coverage_type: 'comprehensive' },
   listingImageCount: 5,                  // exterior/interior/dashboard/engine/disclosed — listing MEDIA only
-  finance: { requestedAmount: 15000 },   // buyer requests financing from the synthetic bank
+  finance: { requestedAmount: 15000 },   // buyer requests financing from the synthetic bank (removable)
   // Mileage must be >= the vehicle's current odometer (78450); addRepairLog rejects a lower reading.
   partSentry: { part_name: 'Front brake pads', part_oem: 'PH7-OEM-BRK-001', action_type: 'Replaced', mileage: 78450 },
-  transaction: true,                     // exercise eligible → reserve → sandbox deposit (funds_held)
+  inquiry: true,                         // buyer purchase-interest inquiry (server-authoritative, removable)
 });
 
 // ── Golden Vehicle B — intentionally incomplete / pending ─────────────────────
@@ -141,7 +143,7 @@ export const GOLDEN_B = Object.freeze({
   listingImageCount: 2,
   finance: null,
   partSentry: null,
-  transaction: false,                    // must be refused eligibility (proves the gate, not a hack)
+  inquiry: false,                        // no buyer inquiry — B is not transacting
 });
 
 export const GOLDEN_VEHICLES = Object.freeze([GOLDEN_A, GOLDEN_B]);

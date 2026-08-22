@@ -74,7 +74,7 @@ async function getClient() {
 }
 
 // ── unrelated-data preservation snapshot ─────────────────────────────────────
-const SNAPSHOT_TABLES = ['users', 'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_ownership_history', 'marketplace_inquiries', 'insurance_records', 'partsentry_logs', 'escrow_trust_sessions', 'finance_applications', 'source_verification_results', 'domain_events'];
+const SNAPSHOT_TABLES = ['users', 'vehicles', 'vehicle_evidence', 'listing_images', 'vehicle_ownership_history', 'marketplace_inquiries', 'insurance_records', 'partsentry_logs', 'finance_applications', 'domain_events'];
 
 async function tableCount(client, table) {
   const { count, error } = await client.from(table).select('*', { count: 'exact', head: true });
@@ -91,7 +91,7 @@ async function snapshot(client) {
 // Non-fixture ("unrelated") counts = total − fixture-owned. Fixture-owned rows are exactly those
 // keyed to the deterministic VIN / user-id set, so unrelated = total minus those.
 async function fixtureCounts(client, fixtureVins, fixtureUserIds) {
-  const byVin = ['vehicles:vin', 'vehicle_evidence:vin', 'listing_images:vin', 'vehicle_ownership_history:vin', 'marketplace_inquiries:listing_id', 'insurance_records:vin', 'partsentry_logs:vin', 'escrow_trust_sessions:vin', 'finance_applications:vin', 'source_verification_results:vin'];
+  const byVin = ['vehicles:vin', 'vehicle_evidence:vin', 'listing_images:vin', 'vehicle_ownership_history:vin', 'marketplace_inquiries:listing_id', 'insurance_records:vin', 'partsentry_logs:vin', 'finance_applications:vin'];
   const out = {};
   for (const entry of byVin) {
     const [table, col] = entry.split(':');

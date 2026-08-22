@@ -118,13 +118,6 @@ async function makeDeps(client, opts = {}) {
         const { data } = await client.from('finance_applications').insert({ vin, user_id: userId, bank_id: bankId, requested_amount: amount, status: 'Pending' }).select('id').single();
         return { id: data.id, status: 'Pending' };
       },
-      requestMarketplaceEscrow: async (vin, { actor }) => {
-        // Idempotent like the real upsert-by-key: one session per vin+buyer.
-        const { data: ex } = await client.from('escrow_trust_sessions').select('id').eq('vin', vin).eq('buyer_id', actor.id).maybeSingle();
-        if (ex?.id) return { status: 'eligible', transaction_intent_id: ex.id };
-        const { data } = await client.from('escrow_trust_sessions').insert({ vin, buyer_id: actor.id, status: 'eligible' }).select('id').single();
-        return { status: 'eligible', transaction_intent_id: data.id };
-      },
       createInsurancePolicy: async (vin, insurerId) => {
         const { data } = await client.from('insurance_records').insert({ vin, insurer_id: insurerId, active: true }).select('id').single();
         return { id: data.id, policyNumber: 'PH7-POL' };
@@ -324,6 +317,18 @@ test('Golden A trust must be evaluated: a not_evaluated refresh makes bootstrap 
   const r = await fixture.bootstrap(deps);
   assert.equal(r.ok, false, 'bootstrap must fail when Golden A trust is not evaluated');
   assert.ok(r.requiredFailed.some((n) => n === 'A:trust_read'), `A:trust_read must be a required failure; got ${r.requiredFailed.join(', ')}`);
+});
+
+test('fixture creates NO append-only rows (keeps Golden A fully removable)', async () => {
+  const { client, db } = makeMock();
+  const { deps } = await makeDeps(client);
+  await fixture.bootstrap(deps);
+  // source_verification_results and escrow_trust_events are governance append-only (delete-blocked) and
+  // FK-chain to the vehicle; creating either would permanently pin the fixture VIN. The fixture must
+  // create neither, so cleanup can always remove the whole graph.
+  assert.equal((db.source_verification_results || []).length, 0, 'must not create source coverage rows');
+  assert.equal((db.escrow_trust_sessions || []).length, 0, 'must not create escrow sessions');
+  assert.equal((db.escrow_trust_events || []).length, 0, 'must not create escrow events');
 });
 
 test('cleanup removes the fixture outbox events (domain_events) it created', async () => {
