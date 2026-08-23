@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Car, ImageOff } from 'lucide-react'
 
 /**
@@ -10,6 +11,11 @@ import { Car, ImageOff } from 'lucide-react'
  *   with a clear "Representative image" label so it is never mistaken for the real vehicle.
  * - Never receives private evidence images — marketplace media is sourced only from public listing
  *   media upstream (listing_images / primary_image_url), not the evidence vault.
+ * - A src that FAILS TO LOAD falls back to that same placeholder. Issue #164 Phase 8: the component
+ *   branched on `if (src)` alone, and a URL string is truthy whether or not it resolves — so the
+ *   Golden fixture's dangling `media.carup-staging.test` URLs rendered the browser's broken-image
+ *   glyph on every surface while the branded placeholder stayed unreachable. A dead locator must
+ *   degrade to "unavailable", which is the honest statement, not to a broken icon.
  */
 export function ListingImage({
   src,
@@ -24,10 +30,21 @@ export function ListingImage({
   imgClassName?: string
   representative?: boolean
 }) {
-  if (src) {
+  const [failed, setFailed] = useState(false)
+  // A new src deserves a fresh attempt — otherwise switching gallery photos after one failure would
+  // suppress every subsequent image.
+  useEffect(() => { setFailed(false) }, [src])
+
+  if (src && !failed) {
     return (
       <div className={`relative ${className}`} data-testid="listing-image">
-        <img src={src} alt={alt} className={`h-full w-full object-cover ${imgClassName}`} loading="lazy" />
+        <img
+          src={src}
+          alt={alt}
+          className={`h-full w-full object-cover ${imgClassName}`}
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
         {representative && (
           <span
             className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white"

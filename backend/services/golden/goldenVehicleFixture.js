@@ -24,9 +24,15 @@
  */
 import {
   GOLDEN_USERS, GOLDEN_VEHICLES, GOLDEN_A, GOLDEN_B, GOLDEN_MARKER, GOLDEN_PROGRAMME,
-  SYNTHETIC_DOCUMENT_MARKER, goldenMetadata, listingImageUrls, evidenceFileUrl,
+  SYNTHETIC_DOCUMENT_MARKER, goldenMetadata, listingImageFacets,
+  legacyListingImageUrls, legacyEvidenceFileUrl,
   fixtureUserIds, fixtureVins,
 } from './goldenVehicleSpecs.js';
+import {
+  syntheticListingImagePng, syntheticEvidenceDocumentPdf,
+  listingImageStoragePath, evidenceStoragePath,
+  LISTING_IMAGE_MIME, EVIDENCE_DOCUMENT_MIME,
+} from './goldenSyntheticAssets.js';
 
 // ── default (real) dependency wiring ─────────────────────────────────────────
 async function realDeps(client) {
@@ -38,6 +44,9 @@ async function realDeps(client) {
     { submitFinancingApplication },
     { createInsurancePolicy },
     { addRepairLog },
+    // The canonical media/document delivery contract. The fixture uploads through the SAME function
+    // the owner's own upload uses, so a Golden locator resolves exactly like a real one.
+    { uploadToStorage, generateSecureReadUrl },
   ] = await Promise.all([
     import('../trustDecision/canonicalTrustService.js'),
     import('../evidence/completenessEvaluator.js'),
@@ -46,12 +55,14 @@ async function realDeps(client) {
     import('../finance/financeService.js'),
     import('../insurance/insuranceService.js'),
     import('../partsentry/partsentryService.js'),
+    import('../storage/storageService.js'),
   ]);
   return {
     client,
     refreshCanonicalTrust, getCanonicalTrust, toPublicTrust,
     evaluateCompleteness, createInquiry, recordManualVerification,
     submitFinancingApplication, createInsurancePolicy, addRepairLog,
+    uploadToStorage, generateSecureReadUrl,
     now: () => new Date().toISOString(),
   };
 }
@@ -142,31 +153,111 @@ async function upsertOwnershipHistory(client, spec) {
   return { action: 'created', count: 1 };
 }
 
-async function upsertListingMedia(client, spec) {
-  const urls = listingImageUrls(spec);
+/**
+ * Listing media, through the canonical storage contract.
+ *
+ * Phase 7 wrote unresolvable `media.carup-staging.test` URLs, so the rows existed but the images did
+ * not: the physical UAT saw broken images on Landing, Marketplace, Detail and the owner garage
+ * (ERR_NAME_NOT_RESOLVED). This now generates deterministic synthetic bytes and puts them through
+ * `uploadToStorage('vehicle-images', …)` — the same call the owner's own upload makes — so the stored
+ * URL is a real, resolvable public object URL.
+ *
+ * Existing legacy rows are REPAIRED IN PLACE. Inserting the new URLs beside them would double Golden
+ * A's governed media count, which the fixture's own `listing_media` invariant forbids. Nothing is
+ * deleted.
+ */
+async function upsertListingMedia(client, spec, deps) {
+  const upload = deps?.uploadToStorage;
+  if (typeof upload !== 'function') throw new Error('listing media requires an uploadToStorage dependency');
+
+  const facets = listingImageFacets(spec);
+  const legacyUrls = legacyListingImageUrls(spec);
   const { data: existing, error: readErr } = await client
-    .from('listing_images').select('image_url').eq('vin', spec.vin);
+    .from('listing_images').select('id, image_url').eq('vin', spec.vin);
   if (readErr) throw new Error(`listing_images read failed: ${readErr.message}`);
-  const have = new Set((existing || []).map((r) => r.image_url));
-  const toInsert = urls
-    .filter((u) => !have.has(u))
-    // No is_primary claim: the fixture never fabricates the seller's main-photo choice (Rule 6).
-    .map((u, idx) => ({ vin: spec.vin, image_url: u, is_primary: false, display_order: idx }));
-  if (toInsert.length === 0) return { action: 'reused', count: have.size };
-  const { error } = await client.from('listing_images').insert(toInsert);
-  if (error) throw new Error(`listing_images insert failed: ${error.message}`);
-  return { action: 'inserted', count: toInsert.length, total: have.size + toInsert.length };
+  const rows = existing || [];
+  const byUrl = new Map(rows.map((r) => [r.image_url, r]));
+
+  let uploaded = 0; let repaired = 0; let inserted = 0; let reused = 0;
+  const canonicalUrls = [];
+
+  for (let idx = 0; idx < facets.length; idx += 1) {
+    const facet = facets[idx];
+    const path = listingImageStoragePath(spec.vin, facet);
+    // `upsert: true` inside uploadToStorage makes re-running this a no-op on identical bytes.
+    const publicUrl = await upload('vehicle-images', path, syntheticListingImagePng(spec.vin, facet), LISTING_IMAGE_MIME);
+    uploaded += 1;
+    canonicalUrls.push(publicUrl);
+
+    if (byUrl.has(publicUrl)) { reused += 1; continue; }
+
+    const legacyRow = byUrl.get(legacyUrls[idx]);
+    if (legacyRow) {
+      const { error } = await client.from('listing_images')
+        .update({ image_url: publicUrl }).eq('id', legacyRow.id);
+      if (error) throw new Error(`listing_images repair failed (${facet}): ${error.message}`);
+      repaired += 1;
+      continue;
+    }
+
+    const { error } = await client.from('listing_images').insert({
+      // No is_primary claim: the fixture never fabricates the seller's main-photo choice (Rule 6).
+      vin: spec.vin, image_url: publicUrl, is_primary: false, display_order: idx,
+    });
+    if (error) throw new Error(`listing_images insert failed (${facet}): ${error.message}`);
+    inserted += 1;
+  }
+
+  return {
+    action: repaired ? 'repaired' : inserted ? 'inserted' : 'reused',
+    uploaded, repaired, inserted, reused, urls: canonicalUrls,
+  };
 }
 
 // Upload one evidence document as PENDING (idempotent by deterministic file_url), carrying an
 // unmistakable synthetic marker in its metadata. Verification is a SEPARATE governed decision.
-async function upsertEvidenceDoc(client, spec, ev) {
-  const fileUrl = evidenceFileUrl(spec, ev.type);
-  const { data: existing, error: readErr } = await client
-    .from('vehicle_evidence').select('id, verification_status, evidence_type')
-    .eq('vin', spec.vin).eq('evidence_type', ev.type).eq('file_url', fileUrl).maybeSingle();
+async function upsertEvidenceDoc(client, spec, ev, deps) {
+  const upload = deps?.uploadToStorage;
+  if (typeof upload !== 'function') throw new Error('evidence upload requires an uploadToStorage dependency');
+
+  // Documents go to the PRIVATE bucket, mirroring the production route's routing split
+  // (backend/routes/vehiclesRoutes.js: isDocumentEvidence(type) || isPrivate -> 'ocr-documents').
+  // For a private bucket uploadToStorage returns the RELATIVE path; signed read URLs are minted on
+  // demand by generateSecureReadUrl. Phase 7 instead stored an unresolvable
+  // `evidence.carup-staging.test` URL and a `phase7-golden` bucket that has never existed.
+  const bucket = 'ocr-documents';
+  const filePath = evidenceStoragePath(spec.vin, ev.type);
+  const fileBuffer = syntheticEvidenceDocumentPdf(spec.vin, ev.type);
+  const storedLocator = await upload(bucket, filePath, fileBuffer, EVIDENCE_DOCUMENT_MIME);
+
+  const legacyUrl = legacyEvidenceFileUrl(spec, ev.type);
+  const canonicalRow = {
+    file_url: storedLocator, storage_bucket: bucket, file_path: filePath,
+    mime_type: EVIDENCE_DOCUMENT_MIME, file_size: fileBuffer.length,
+  };
+
+  // Match on (vin, evidence_type) and accept EITHER locator, so a fixture seeded under Phase 7 is
+  // repaired in place rather than duplicated beside its replacement.
+  const { data: rows, error: readErr } = await client
+    .from('vehicle_evidence').select('id, verification_status, evidence_type, file_url, storage_bucket')
+    .eq('vin', spec.vin).eq('evidence_type', ev.type)
+    .in('file_url', [storedLocator, legacyUrl]);
   if (readErr) throw new Error(`evidence read failed (${ev.type}): ${readErr.message}`);
-  if (existing?.id) return { id: existing.id, action: 'reused', verification_status: existing.verification_status };
+  const existing = (rows || [])[0];
+
+  if (existing?.id) {
+    const needsRepair = existing.file_url !== storedLocator
+      || existing.storage_bucket !== bucket;
+    if (needsRepair) {
+      // Locator repair ONLY. verification_status is a governed review decision and is never touched
+      // here — repairing a file path must not verify a pending document.
+      const { error } = await client.from('vehicle_evidence').update(canonicalRow).eq('id', existing.id);
+      if (error) throw new Error(`evidence repair failed (${ev.type}): ${error.message}`);
+      return { id: existing.id, action: 'repaired', verification_status: existing.verification_status };
+    }
+    return { id: existing.id, action: 'reused', verification_status: existing.verification_status };
+  }
+
   const { data: inserted, error } = await client.from('vehicle_evidence').insert({
     // vehicle_evidence requires vehicle_id/vin/event_type/file_url/storage_bucket/file_path/mime_type/
     // file_size/uploaded_by/uploader_role (NOT NULL). evidence_class is left NULL (its CHECK vocab does
@@ -174,9 +265,7 @@ async function upsertEvidenceDoc(client, spec, ev) {
     vehicle_id: spec.vin, vin: spec.vin,
     event_type: 'document_submission', evidence_type: ev.type,
     verification_status: 'pending', visibility_level: 'public_safe',
-    file_url: fileUrl, storage_bucket: 'phase7-golden',
-    file_path: `phase7-golden/${spec.vin}/${ev.type}.pdf`,
-    mime_type: 'application/pdf', file_size: 12345,
+    ...canonicalRow,
     uploaded_by: spec.ownerId, uploader_role: 'owner',
     metadata: goldenMetadata({ marker: ev.marker, evidence_type: ev.type }),
   }).select('id').single();
@@ -235,7 +324,7 @@ export async function bootstrap(depsIn = {}) {
 
     await D('vehicle', () => upsertVehicle(client, spec));
     await D('ownership_history', () => upsertOwnershipHistory(client, spec));
-    await D('listing_media', () => upsertListingMedia(client, spec));
+    await D('listing_media', () => upsertListingMedia(client, spec, deps));
 
     // Evidence upload (pending) then governed verify per spec.reviewOutcome.
     const evidenceIds = [];
@@ -243,7 +332,7 @@ export async function bootstrap(depsIn = {}) {
       // The blocking ownership document is required (it gates A's publishability); advisory documents
       // are best-effort richness.
       const req = ev.type === 'registration_document';
-      const up = await D(`evidence_upload:${ev.type}`, () => upsertEvidenceDoc(client, spec, ev), req);
+      const up = await D(`evidence_upload:${ev.type}`, () => upsertEvidenceDoc(client, spec, ev, deps), req);
       if (up.ok && up.detail?.id) {
         evidenceIds.push({ id: up.detail.id, ev });
         if (ev.reviewOutcome === 'verified') {
@@ -389,6 +478,50 @@ export async function verify(depsIn = {}) {
     const evidenceFileUrls = new Set((evidence || []).map((e) => e.file_url).filter(Boolean));
     check(`${spec.key}:media_not_evidence`, mediaUrls.size > 0 && [...mediaUrls].every((u) => !evidenceFileUrls.has(u)), {});
 
+    // ── locators must RESOLVE, not merely exist ──────────────────────────────────────────────────
+    // Phase 7 checked only that rows existed, so five Golden A photos and four evidence documents
+    // passed verify() while every one of them pointed at a reserved `.test` host that can never
+    // resolve. The physical UAT found them broken in the browser. A row whose artifact cannot be
+    // fetched is not evidence of media; it is evidence of a dangling reference.
+    const unresolvableMedia = [...mediaUrls].filter((u) => /\.test(\/|$)/.test(new URL(u).hostname + '/'));
+    check(`${spec.key}:media_locators_are_real`, unresolvableMedia.length === 0, { unresolvable: unresolvableMedia });
+
+    const evidenceBuckets = [...new Set((evidence || []).map((e) => e.storage_bucket).filter(Boolean))];
+    check(`${spec.key}:evidence_bucket_exists`, evidenceBuckets.every((b) => b === 'ocr-documents' || b === 'vehicle-images'),
+      { buckets: evidenceBuckets });
+
+    // Fetch each listing image and require an image response. This is the check that would have
+    // failed on the Phase 7 fixture.
+    // `fetchImpl` is injectable so the orchestration invariant is provable in source tests too; in
+    // staging it defaults to the real fetch and genuinely retrieves the object.
+    const doFetch = deps.fetchImpl ?? fetch;
+    const mediaProbes = await Promise.all([...mediaUrls].map(async (url) => {
+      try {
+        const res = await doFetch(url, { method: 'GET' });
+        const type = res.headers.get('content-type') || '';
+        return { url, status: res.status, type, ok: res.ok && type.startsWith('image/') };
+      } catch (e) {
+        return { url, status: 0, type: '', ok: false, error: e?.message || String(e) };
+      }
+    }));
+    check(`${spec.key}:media_fetchable`, mediaProbes.length > 0 && mediaProbes.every((p) => p.ok),
+      { probes: mediaProbes.map((p) => ({ status: p.status, type: p.type, ok: p.ok })) });
+
+    // Evidence lives in a PRIVATE bucket, so it is proved by minting a signed read and fetching that
+    // — never by making the object public.
+    const evidenceProbes = await Promise.all((evidence || []).map(async (e) => {
+      if (!e.storage_bucket || !e.file_path) return { id: e.id, ok: false, reason: 'no storage locator' };
+      try {
+        const signed = await deps.generateSecureReadUrl(e.storage_bucket, e.file_path, 120);
+        const res = await doFetch(signed, { method: 'GET' });
+        return { id: e.id, status: res.status, ok: res.ok };
+      } catch (err) {
+        return { id: e.id, ok: false, reason: err?.message || String(err) };
+      }
+    }));
+    check(`${spec.key}:evidence_fetchable`, evidenceProbes.length > 0 && evidenceProbes.every((p) => p.ok),
+      { probes: evidenceProbes });
+
     // Trust was generated by the canonical path (versioned), read via the public projection.
     const rec = await deps.getCanonicalTrust(spec.vin, { client });
     const pub = deps.toPublicTrust(rec);
@@ -491,6 +624,27 @@ export async function cleanup(depsIn = {}) {
     ['vehicles', 'vin', vins],
     ['users', 'id', userIds],
   ];
+
+  // Storage objects first, while the rows that name them still exist. The paths are recomputed from
+  // the SPECS, not read from the database, so cleanup can only ever touch the fixture's own
+  // deterministic objects. `remove()` takes an explicit path list — there is no prefix or wildcard
+  // delete here, and no bucket is emptied.
+  await reporter.step('del:storage_objects', async () => {
+    if (!client.storage?.from) return { skipped: true, reason: 'client has no storage API' };
+    const removals = [];
+    for (const spec of GOLDEN_VEHICLES) {
+      removals.push(['vehicle-images', listingImageFacets(spec).map((f) => listingImageStoragePath(spec.vin, f))]);
+      removals.push(['ocr-documents', spec.evidence.map((ev) => evidenceStoragePath(spec.vin, ev.type))]);
+    }
+    const detail = [];
+    for (const [bucket, paths] of removals) {
+      if (!paths.length) continue;
+      const { data, error } = await client.storage.from(bucket).remove(paths);
+      // A missing object is the desired end state, not a failure — cleanup must stay idempotent.
+      detail.push({ bucket, requested: paths.length, removed: (data || []).length, error: error?.message ?? null });
+    }
+    return { buckets: detail };
+  });
 
   for (const [table, col, values] of plan) {
     await reporter.step(`del:${table}.${col}`, async () => {

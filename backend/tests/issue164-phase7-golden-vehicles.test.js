@@ -92,7 +92,7 @@ function makeMock() {
 // REAL evaluateCompleteness is used so publishability is derived, not asserted.
 async function makeDeps(client, opts = {}) {
   const { evaluateCompleteness } = await import('../services/evidence/completenessEvaluator.js');
-  const calls = { refreshCanonicalTrust: [], createInquiry: [], recordManualVerification: [] };
+  const calls = { refreshCanonicalTrust: [], createInquiry: [], recordManualVerification: [], uploadToStorage: [] };
   return {
     deps: {
       client,
@@ -125,6 +125,32 @@ async function makeDeps(client, opts = {}) {
       addRepairLog: async (vin, mechanicId, partName) => {
         const { data } = await client.from('partsentry_logs').insert({ vin, mechanic_id: mechanicId, part_name: partName }).select('id').single();
         return { id: data.id };
+      },
+      // Phase 8, Cluster C: the fixture now puts real bytes through the canonical storage contract
+      // instead of writing unresolvable `.test` URLs. These source tests have no Supabase, so the
+      // uploader is injected — but it MIRRORS the real contract's return shape, which is what the
+      // orchestration depends on: a public bucket yields an absolute URL, a private bucket yields the
+      // relative storage path for later signing.
+      uploadToStorage: async (bucket, path, buffer, mime) => {
+        calls.uploadToStorage.push({ bucket, path, bytes: buffer?.length ?? 0, mime });
+        return bucket === 'vehicle-images'
+          ? `https://storage.test.invalid/storage/v1/object/public/${bucket}/${path}`
+          : path;
+      },
+      generateSecureReadUrl: async (bucket, path) => `https://storage.test.invalid/signed/${bucket}/${path}`,
+      // verify() now proves the locators are RETRIEVABLE, not merely present — the check the Phase 7
+      // fixture lacked, which is how five dangling `.test` photo URLs passed verification and then
+      // failed in a real browser. The probe is injected here so the invariant is exercised without a
+      // network; in staging it defaults to the real fetch.
+      fetchImpl: async (url) => {
+        const isImage = url.includes('/vehicle-images/');
+        const isDoc = url.includes('/ocr-documents/');
+        if (!isImage && !isDoc) return { ok: false, status: 404, headers: { get: () => '' } };
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: (h) => (h.toLowerCase() === 'content-type' ? (isImage ? 'image/png' : 'application/pdf') : '') },
+        };
       },
       ...opts,
     },
@@ -345,4 +371,76 @@ test('cleanup removes the fixture outbox events (domain_events) it created', asy
   assert.equal(db.domain_events.find((e) => e.id === 'de1'), undefined, 'fixture vin-scoped event must be removed');
   assert.equal(db.domain_events.find((e) => e.id === 'de2'), undefined, 'fixture recipient-scoped event must be removed');
   assert.ok(db.domain_events.find((e) => e.id === 'de-real'), 'unrelated event must survive');
+});
+
+// ── Issue #164 Phase 8, Cluster C — locators must be real ────────────────────────────────────────
+// Phase 7 wrote `media.carup-staging.test` / `evidence.carup-staging.test` URLs straight into the
+// rows. `.test` is reserved by RFC 2606, so every Golden A photo was broken in the browser and every
+// evidence file was unopenable, while bootstrap and verify both reported success. These three tests
+// fail on the baseline `993c1179`.
+
+test('bootstrap writes canonical storage locators, never a reserved .test host', async () => {
+  const { client, db } = makeMock();
+  const { deps, calls } = await makeDeps(client);
+  await fixture.bootstrap(deps);
+
+  const mediaUrls = (db.listing_images || []).map((r) => r.image_url);
+  assert.ok(mediaUrls.length > 0, 'expected listing media');
+  for (const url of mediaUrls) {
+    assert.doesNotMatch(url, /carup-staging\.test/, `listing media must not use the reserved host: ${url}`);
+    assert.match(url, /\/vehicle-images\//, 'listing media belongs in the public vehicle-images bucket');
+  }
+
+  for (const ev of (db.vehicle_evidence || [])) {
+    assert.doesNotMatch(String(ev.file_url), /carup-staging\.test/, 'evidence must not use the reserved host');
+    assert.equal(ev.storage_bucket, 'ocr-documents', 'documents route to the private bucket');
+    assert.ok(ev.file_path, 'evidence must carry a storage path for signed reads');
+    assert.notEqual(ev.storage_bucket, 'phase7-golden', 'the phase7-golden bucket has never existed');
+  }
+
+  // Real bytes were produced and handed to the canonical uploader, not just a string.
+  assert.ok(calls.uploadToStorage.length > 0, 'bootstrap must upload through the storage contract');
+  assert.ok(calls.uploadToStorage.every((u) => u.bytes > 0), 'every upload must carry real bytes');
+});
+
+test('bootstrap REPAIRS Phase 7 locators in place instead of duplicating the rows', async () => {
+  const { client, db } = makeMock();
+  const { deps } = await makeDeps(client);
+  const spec = specs.GOLDEN_A;
+
+  // Seed the store exactly as Phase 7 left it: rows pointing at the unresolvable host.
+  db.listing_images = specs.legacyListingImageUrls(spec).map((url, i) => ({
+    id: `li${i}`, vin: spec.vin, image_url: url, is_primary: false, display_order: i,
+  }));
+  db.vehicle_evidence = [{
+    id: 've1', vin: spec.vin, vehicle_id: spec.vin, evidence_type: 'registration_document',
+    verification_status: 'pending', file_url: specs.legacyEvidenceFileUrl(spec, 'registration_document'),
+    storage_bucket: 'phase7-golden', file_path: `phase7-golden/${spec.vin}/registration_document.pdf`,
+  }];
+
+  await fixture.bootstrap(deps);
+
+  const aMedia = db.listing_images.filter((r) => r.vin === spec.vin);
+  assert.equal(aMedia.length, spec.listingImageCount,
+    'repair must not insert new rows beside the legacy ones — the governed media count is exact');
+  assert.ok(aMedia.every((r) => !/carup-staging\.test/.test(r.image_url)), 'every legacy URL must be repaired');
+
+  const reg = db.vehicle_evidence.filter((r) => r.vin === spec.vin && r.evidence_type === 'registration_document');
+  assert.equal(reg.length, 1, 'evidence repair must not duplicate the row');
+  assert.equal(reg[0].id, 've1', 'the SAME row is repaired, preserving its id and review history');
+  assert.equal(reg[0].storage_bucket, 'ocr-documents');
+});
+
+test('verify() FAILS when a listing image cannot actually be retrieved', async () => {
+  const { client } = makeMock();
+  // Everything is bootstrapped correctly, but the object is not retrievable — the exact condition
+  // Phase 7 shipped and could not detect.
+  const { deps } = await makeDeps(client, {
+    fetchImpl: async () => ({ ok: false, status: 404, headers: { get: () => '' } }),
+  });
+  await fixture.bootstrap(deps);
+  const r = await fixture.verify(deps);
+  assert.equal(r.ok, false, 'verify must not pass while the media is unreachable');
+  const failed = r.checks.filter((c) => !c.ok).map((c) => c.name);
+  assert.ok(failed.some((n) => n.endsWith(':media_fetchable')), `expected a media_fetchable failure, got ${failed}`);
 });

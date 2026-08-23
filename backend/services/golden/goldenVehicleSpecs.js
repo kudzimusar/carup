@@ -148,17 +148,38 @@ export const GOLDEN_B = Object.freeze({
 
 export const GOLDEN_VEHICLES = Object.freeze([GOLDEN_A, GOLDEN_B]);
 
-// Deterministic listing-image URLs (listing MEDIA, never evidence). Publishable https URLs.
-export function listingImageUrls(spec) {
-  const facets = ['exterior-front', 'interior', 'dashboard', 'engine-bay', 'disclosed-condition', 'exterior-rear'];
-  return Array.from({ length: spec.listingImageCount }, (_, i) =>
-    `https://media.carup-staging.test/phase7-golden/${spec.vin}/${facets[i] || `image-${i}`}.jpg`);
+const LISTING_IMAGE_FACETS = Object.freeze([
+  'exterior-front', 'interior', 'dashboard', 'engine-bay', 'disclosed-condition', 'exterior-rear',
+]);
+
+/** The deterministic facet names for a spec's listing MEDIA (never evidence). */
+export function listingImageFacets(spec) {
+  return Array.from({ length: spec.listingImageCount }, (_, i) => LISTING_IMAGE_FACETS[i] || `image-${i}`);
 }
 
-// Deterministic evidence file URL for a document (synthetic; never a real registry asset).
-export function evidenceFileUrl(spec, type) {
+// ── LEGACY locators (Phase 7) — retained ONLY so bootstrap can recognise and repair them ──────────
+//
+// Phase 7 wrote these strings straight into `listing_images.image_url` and `vehicle_evidence.file_url`.
+// `.test` is reserved by RFC 2606 and never resolves, so every Golden image was broken on every
+// surface and every evidence file was unopenable — the physical UAT saw ERR_NAME_NOT_RESOLVED.
+// Phase 8 uploads real synthetic bytes through the canonical storage contract instead
+// (goldenSyntheticAssets.js + storageService.uploadToStorage) and rewrites these rows IN PLACE.
+//
+// These helpers must not be used to author new rows. They exist so the reconciliation in
+// goldenVehicleFixture.js can find the old rows and repair them rather than inserting duplicates
+// beside them, which would break Golden A's governed media count.
+
+export function legacyListingImageUrls(spec) {
+  return listingImageFacets(spec).map(
+    (facet) => `https://media.carup-staging.test/phase7-golden/${spec.vin}/${facet}.jpg`);
+}
+
+export function legacyEvidenceFileUrl(spec, type) {
   return `https://evidence.carup-staging.test/phase7-golden/${spec.vin}/${type}.pdf`;
 }
+
+/** The bucket Phase 7 recorded on evidence rows. It has never existed in any Supabase project. */
+export const LEGACY_EVIDENCE_BUCKET = 'phase7-golden';
 
 // All fixture-owned user ids and vehicle VINs — the exact set cleanup is allowed to touch.
 export function fixtureUserIds() { return GOLDEN_USERS.map((u) => u.id); }
@@ -167,5 +188,6 @@ export function fixtureVins() { return GOLDEN_VEHICLES.map((v) => v.vin); }
 export default {
   GOLDEN_PROGRAMME, GOLDEN_MARKER, FIXTURE_EMAIL_DOMAIN, SYNTHETIC_DOCUMENT_MARKER,
   goldenMetadata, GOLDEN_USERS, GOLDEN_A, GOLDEN_B, GOLDEN_VEHICLES,
-  listingImageUrls, evidenceFileUrl, fixtureUserIds, fixtureVins,
+  listingImageFacets, legacyListingImageUrls, legacyEvidenceFileUrl, LEGACY_EVIDENCE_BUCKET,
+  fixtureUserIds, fixtureVins,
 };
