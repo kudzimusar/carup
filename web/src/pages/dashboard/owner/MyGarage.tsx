@@ -7,8 +7,8 @@ import { Plus, ArrowRight, Gauge, Calendar, FileText, Shield } from 'lucide-reac
 import { useState, useEffect } from 'react'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
-import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice } from './ownerStatedValues'
-import type { Vehicle, InsuranceRecord } from '@/types'
+import { readOwnerTrustClaim, statedDate, statedMileage, statedPrice, statedCount } from './ownerStatedValues'
+import type { Vehicle } from '@/types'
 
 export default function MyGarage() {
   const { fetchOwnedVehicles } = useCarUpApi()
@@ -85,7 +85,7 @@ export default function MyGarage() {
                     <span className="flex items-center gap-1"><Gauge className="w-3.5 h-3.5" />{statedMileage(vehicle.mileage)}</span>
                     {/* `new Date('').toLocaleDateString()` printed the words "Invalid Date". */}
                     <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" />{addedOn ? `Added ${addedOn}` : 'Date added not recorded'}</span>
-                    <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" />{vehicle.documents?.length || 0} docs</span>
+                    <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" />{statedCount(vehicle.counts?.verified_documents, 'verified document')}</span>
                   </div>
 
                   <div className="mb-4" data-testid={`trust-claim-${vehicle.vin}`}>
@@ -108,9 +108,9 @@ export default function MyGarage() {
 
                   <div className="flex items-center justify-between pt-3 border-t">
                     <div className="flex gap-3 text-xs">
-                      <span className="text-gray-600">{vehicle.service_records?.length || 0} services</span>
-                      <span className="text-gray-600">{vehicle.insurance_records?.filter((r: InsuranceRecord) => r.status === 'active').length || 0} active insurance</span>
-                      <span className="text-gray-600">{vehicle.parts?.length || 0} parts tracked</span>
+                      <span className="text-gray-600">{statedCount(vehicle.counts?.services, 'service')}</span>
+                      <span className="text-gray-600">{statedCount(vehicle.counts?.active_insurance, 'active policy', 'active policies')}</span>
+                      <span className="text-gray-600">{statedCount(vehicle.counts?.parts, 'part tracked', 'parts tracked')}</span>
                     </div>
                     <ArrowRight className="w-4 h-4 text-gray-400" />
                   </div>

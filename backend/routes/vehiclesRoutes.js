@@ -159,10 +159,26 @@ router.post('/api/vehicles/:vin/publish', authorizeRole(['owner', 'dealer', 'adm
 
   const completeness = await evaluateCompleteness(vin);
   if (!completeness.is_publishable) {
+    // The gate itself is unchanged — this stays a 400 and the vehicle stays draft.
+    //
+    // What changed is DISCLOSURE. `evaluateCompleteness` splits unmet blocking requirements into two
+    // disjoint buckets: `blocking_gaps` (status 'missing') and `pending_gaps` (status
+    // 'pending_review'). Golden B's only unmet requirement is an ownership document that HAS been
+    // uploaded and is awaiting review, so it lands in `pending_gaps` and `blocking_gaps` is `[]`.
+    // Publishing only the empty array left the owner with a refusal that named nothing — the
+    // physical UAT saw exactly the generic sentence below and no requirement at all.
+    //
+    // Both buckets are published, plus the blocking requirements with their statuses, so a client can
+    // distinguish "you have not supplied this" from "we have not finished reviewing it". Only labels
+    // and statuses travel; no reviewer identity, file path or storage locator.
     return res.status(400).json({
       error: 'Listing is not publishable yet. Resolve the blocking requirements first.',
       is_publishable: false,
       blocking_gaps: completeness.blocking_gaps ?? [],
+      pending_gaps: completeness.pending_gaps ?? [],
+      requirements: (completeness.requirements ?? [])
+        .filter((r) => r.blocking)
+        .map((r) => ({ key: r.key, label: r.label, status: r.status, blocking: true })),
       completeness_percent: completeness.completeness_percent ?? null,
     });
   }

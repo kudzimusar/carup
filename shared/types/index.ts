@@ -168,6 +168,18 @@ export interface MarketplaceListingSummary {
   seller_display_label: string;
   seller_public_profile_enabled: boolean;
   location?: string;
+  /**
+   * WHY THE LINE ABOVE IS OR IS NOT THERE — the same `*_state` idiom as `primary_image_state` and
+   * `currency_state`, composed by `listingSummaryService.deriveLocationState` from the recorded
+   * `claims.location` leaves.
+   *
+   * Undeclared until Issue #164 Phase 8, and the omission had teeth: the server has always sent it,
+   * but with no type to read, every card fell back to `location || '<some words>'` and each surface
+   * invented its own words — Marketplace said "Location unknown", Search said "Location not
+   * recorded", and Landing hid the row entirely so an absent location was silent. A `withheld`
+   * location and a `not_recorded` one are not the same fact, and neither is a blank line.
+   */
+  location_state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
   created_at?: string | null;
   /**
    * Present on public Marketplace API list responses after the Phase 6 route overlay. Optional on

@@ -52,6 +52,7 @@ import { SafetyWarnings } from '@/components/marketplace/SafetyWarnings'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import DisputePanel from '@/components/DisputePanel'
 import { captureReferralFromUrl, getStoredAttribution } from '@/lib/marketplaceReferral'
+import { governedLocationLine, summaryLocationLine, type LocationClaim } from '@/lib/governedLocation'
 
 /** Minimal Vehicle hydrated from the governed marketplace detail (fallback when passport lookup misses). */
 function vehicleFromMarketplaceDetail(d: MarketplaceListingDetail): Vehicle {
@@ -1236,9 +1237,11 @@ export default function VehicleDetail() {
             sellerPhone:  d.tenant?.phone,
             sellerAvatar: d.tenant?.logo_url ?? null,
             sellerType:   passportData.ownershipSummary?.currentSellerType ?? undefined,
-            location:     d.location,
-            province:     d.province,
-            listingDate:  d.created_at,
+            // `location`/`province` are NOT columns on the vehicle projection (PUBLIC_VEHICLE_FIELDS
+            // names none), and `created_at` is the row-insert time, not a date this listing was
+            // published. Copying either here is how "Location not recorded" and "Listed <insert
+            // date>" reached a page whose own passport carried the governed location. The location
+            // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
           setLoanAmount((d.price ?? 0).toString())
           setLoading(false)
@@ -1272,9 +1275,11 @@ export default function VehicleDetail() {
             sellerPhone:  d.tenant?.phone,
             sellerAvatar: d.tenant?.logo_url ?? null,
             sellerType:   d.current_seller_type,
-            location:     d.location,
-            province:     d.province,
-            listingDate:  d.created_at,
+            // `location`/`province` are NOT columns on the vehicle projection (PUBLIC_VEHICLE_FIELDS
+            // names none), and `created_at` is the row-insert time, not a date this listing was
+            // published. Copying either here is how "Location not recorded" and "Listed <insert
+            // date>" reached a page whose own passport carried the governed location. The location
+            // comes from `claims.location`; there is no governed listing date, so none is shown.
           })
           setLoanAmount((d.price ?? 0).toString())
         }
@@ -1537,6 +1542,14 @@ export default function VehicleDetail() {
     loading: loading || (isAuthenticated && !passport && trustDecisionLoading),
     authenticated: isAuthenticated,
   })
+
+  // Location, from the passport's governed claim — the same leaves the Marketplace summary composes
+  // server-side, read through the shared rule so one VIN cannot print two different places. When the
+  // passport has not loaded, the marketplace summary's already-composed line stands in; both agree
+  // because both come from `claims.location`. A stated absence is rendered in words, never omitted.
+  const locationLine = passport?.claims?.location
+    ? governedLocationLine(passport.claims.location as LocationClaim)
+    : summaryLocationLine(vehicle?.location, (vehicle as { location_state?: unknown })?.location_state)
 
   // Direct contact exists only when the listing carries a real number. There is no fallback
   // number — an unknown contact stays unknown and the buyer is routed to the governed inquiry flow.
@@ -2034,9 +2047,8 @@ export default function VehicleDetail() {
                     </div>
 
                     <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
-                      <MapPin className="w-4 h-4" />{[vehicle.location, vehicle.province].filter(Boolean).join(', ') || 'Location not recorded'}
-                      <span className="mx-1">•</span>
-                      <Calendar className="w-4 h-4" />Listed {vehicle.listingDate ? new Date(vehicle.listingDate).toLocaleDateString() : 'date not recorded'}
+                      <MapPin className="w-4 h-4" />
+                      <span data-testid="detail-location">{locationLine.label}</span>
                     </div>
                   </div>
                   <div className={`${trust.tone} text-white px-4 py-2 rounded-xl text-center min-w-[70px] max-w-[150px]`} data-testid="trust-score-badge">

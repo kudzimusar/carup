@@ -23,6 +23,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { toast } from 'sonner'
 import type { MarketplaceListingSummary, Vehicle, MarketplaceInquiryType } from '@/types'
 import { captureReferralFromUrl } from '@/lib/marketplaceReferral'
+import { summaryLocationLine } from '@/lib/governedLocation'
 import { InquiryModal } from '@/components/marketplace/InquiryModal'
 import { BuyerAssistantDrawer } from '@/components/marketplace/BuyerAssistantDrawer'
 import { ListingImage } from '@/components/marketplace/ListingImage'
@@ -272,6 +273,7 @@ function marketplaceSummaryToVehicle(summary: MarketplaceListingSummary): Vehicl
     currency: summary.currency,
     created_at: summary.created_at || undefined,
     location: summary.location || undefined,
+    location_state: summary.location_state,
     images: summary.primary_image_url ? [summary.primary_image_url] : undefined,
     vehicle_condition_category: summary.condition_category,
     marketplace_tags: summary.marketplace_tags,
@@ -1157,7 +1159,10 @@ export default function Marketplace() {
                           <span className="text-xs text-gray-600 line-clamp-1">{getSellerLabel(vehicle)}</span>
                         </div>
                         <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <MapPin className="w-3 h-3" />{vehicle.location || 'Location unknown'}
+                          <MapPin className="w-3 h-3" />
+                          <span data-testid="listing-location">
+                            {summaryLocationLine(vehicle.location, vehicle.location_state).label}
+                          </span>
                         </span>
                       </div>
                       <Button

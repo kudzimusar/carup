@@ -72,3 +72,23 @@ export function statedDate(value: unknown): string | null {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? null : parsed.toLocaleDateString()
 }
+
+/**
+ * A count that was actually read, or words saying it was not — Issue #164 Phase 8, Cluster D.
+ *
+ * My Garage published `{vehicle.documents?.length || 0} docs` (and the same for services, parts and
+ * active insurance) against keys that do not exist on `/api/vehicles/me` — the `vehicles` table has
+ * no such columns, so every `?.` short-circuited and `|| 0` printed an unmeasured zero as a fact.
+ * Golden A read "0 docs" beside four verified documents.
+ *
+ * `null`/`undefined` means the count was never read, and that is said in words. A real `0` is a
+ * measurement and prints as one: "no verified documents" is a finding, "not recorded" is not.
+ */
+export function statedCount(
+  count: number | null | undefined,
+  singular: string,
+  plural: string = `${singular}s`,
+): string {
+  if (typeof count !== 'number' || !Number.isFinite(count)) return `${plural} not recorded`
+  return count === 1 ? `1 ${singular}` : `${count} ${plural}`
+}

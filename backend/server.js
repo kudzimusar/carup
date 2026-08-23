@@ -542,6 +542,62 @@ async function withCanonicalTrust(vehicles) {
 }
 
 /**
+ * Governed per-VIN counts for the owner's garage — Issue #164 Phase 8, Cluster D.
+ *
+ * ## Why this exists
+ *
+ * My Garage rendered `{vehicle.documents?.length || 0} docs`, and the same shape for services, parts
+ * and active insurance. NONE of those keys exists: `/api/vehicles/me` is `select('*')` on `vehicles`,
+ * and the table has no `documents`, `service_records`, `parts` or `insurance_records` column
+ * (measured on canonical staging). So every `?.` short-circuited and `|| 0` published an unmeasured
+ * zero as a fact. Golden A showed "0 docs" against four verified documents and "0 parts" against a
+ * real PartSentry log.
+ *
+ * A count that was never read is not zero. Every entry here is either a real number from a real
+ * query or `null`, and `null` renders as words, never as a digit.
+ *
+ * The four sources are deliberately distinct. Parts come from `partsentry_logs` and services from
+ * `mechanic_work_orders`: the per-VIN page derived BOTH from the same timeline filter, so Golden A's
+ * single part log was published as "1 service AND 1 part" — one row counted twice.
+ */
+async function ownerGarageCounts(vins) {
+  const wanted = [...new Set((vins || []).filter(Boolean))];
+  const empty = { verified_documents: null, services: null, parts: null, active_insurance: null };
+  if (wanted.length === 0) return new Map();
+
+  // Each read is independent: one failing source must not blank the other three, and must not turn
+  // into a zero for its own.
+  const tally = async (table, columns, filter) => {
+    try {
+      let query = supabase.from(table).select(columns).in('vin', wanted);
+      if (filter) query = filter(query);
+      const { data, error } = await query;
+      if (error) return null;
+      const counts = new Map(wanted.map((vin) => [vin, 0]));
+      for (const row of data || []) counts.set(row.vin, (counts.get(row.vin) || 0) + 1);
+      return counts;
+    } catch {
+      return null;
+    }
+  };
+
+  const [documents, services, parts, insurance] = await Promise.all([
+    tally('vehicle_evidence', 'vin', (q) => q.in('verification_status', ['verified', 'confirmed', 'approved'])),
+    tally('mechanic_work_orders', 'vin'),
+    tally('partsentry_logs', 'vin'),
+    tally('insurance_records', 'vin', (q) => q.eq('active', true)),
+  ]);
+
+  return new Map(wanted.map((vin) => [vin, {
+    ...empty,
+    verified_documents: documents ? documents.get(vin) ?? 0 : null,
+    services: services ? services.get(vin) ?? 0 : null,
+    parts: parts ? parts.get(vin) ?? 0 : null,
+    active_insurance: insurance ? insurance.get(vin) ?? 0 : null,
+  }]));
+}
+
+/**
  * Order by canonical trust, highest first, with every unscored vehicle after every scored one.
  *
  * A vehicle with no canonical evaluation is NOT a zero and must not be ranked as one — it sorts
@@ -2608,7 +2664,11 @@ app.get('/api/vehicles/me', authorizeRole(['owner', 'dealer', 'admin']), async (
     // An owner is shown their vehicle's trust position through the same authority as everyone else.
     // The raw column here is what the owner dashboard rendered as "Trust Index %", which is the
     // unattributable number in its most persuasive form: shown to the person who will repeat it.
-    res.json(await withCanonicalTrust(data))
+    const withTrust = await withCanonicalTrust(data)
+    // Garage counts come from real reads, so My Garage stops publishing `|| 0` against columns that
+    // do not exist. `null` means "not read", and the surface must say so in words.
+    const counts = await ownerGarageCounts(withTrust.map((vehicle) => vehicle.vin))
+    res.json(withTrust.map((vehicle) => ({ ...vehicle, counts: counts.get(vehicle.vin) ?? null })))
   } catch (error) {
     console.error('Error fetching owned vehicles:', error)
     res.status(500).json({ error: error.message })

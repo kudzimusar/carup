@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { summaryLocationLine } from '@/lib/governedLocation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -335,7 +336,9 @@ export default function Landing() {
               </div>
               <CardContent className="p-5">
                 {/* Trust is shown on the vehicle Passport — never as a headline number on a card. */}
-                {heroVehicle.location && <p className="text-sm text-gray-500">{heroVehicle.location}</p>}
+                <p className="text-sm text-gray-500" data-testid="hero-location">
+                  {summaryLocationLine(heroVehicle.location, heroVehicle.location_state).label}
+                </p>
                 <h2 className="mt-1 text-xl font-bold">
                   {[heroVehicle.year, heroVehicle.make, heroVehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
                 </h2>
@@ -420,12 +423,14 @@ export default function Landing() {
                   <h3 className="font-semibold">
                     {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ') || 'Vehicle'}
                   </h3>
-                  {vehicle.location && (
-                    <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
-                      <MapPin className="h-3.5 w-3.5" />
-                      {vehicle.location}
-                    </p>
-                  )}
+                  {/* Stated, never suppressed. Hiding the row made an absent location silent, and
+                      silence is the one rendering that lets absence read as proof. */}
+                  <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
+                    <MapPin className="h-3.5 w-3.5" />
+                    <span data-testid="listing-location">
+                      {summaryLocationLine(vehicle.location, vehicle.location_state).label}
+                    </span>
+                  </p>
                   {price && <p className="mt-3 text-xl font-bold text-orange-600">{price}</p>}
                   <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-500">
                     {Number.isFinite(vehicle.mileage as number) && <span>{(vehicle.mileage as number).toLocaleString()} km</span>}

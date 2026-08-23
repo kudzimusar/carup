@@ -14,6 +14,7 @@ import {
 import { Search, CheckCircle, Gauge, Fuel, Settings2, MapPin, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { looksLikeIdentifier } from '@/lib/marketplaceParams'
+import { summaryLocationLine } from '@/lib/governedLocation'
 import { ListingImage } from '@/components/marketplace/ListingImage'
 import type { MarketplaceListingSummary, Vehicle } from '@/types'
 
@@ -311,7 +312,10 @@ export default function VehicleSearch() {
                         {/* A card with no location said nothing at all, which reads as "nearby".
                             An absent listing location is stated. */}
                         <span className="flex items-center gap-1 text-xs text-gray-400" data-testid={`search-location-${vehicle.vin}`}>
-                          <MapPin className="w-3 h-3" />{vehicle.location || 'Location not recorded'}
+                          <MapPin className="w-3 h-3" />
+                          <span data-testid="listing-location">
+                            {summaryLocationLine(vehicle.location, vehicle.location_state).label}
+                          </span>
                         </span>
                       </div>
                       <span className="mt-4 inline-flex w-full items-center justify-center rounded-md bg-gray-950 px-3 py-2 text-sm font-semibold text-white" data-testid="vehicle-search-view-passport">

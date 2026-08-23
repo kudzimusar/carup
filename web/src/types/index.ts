@@ -15,7 +15,26 @@ export interface User extends SharedAuthUser {
 
 export interface Vehicle extends Omit<SharedVehicle, 'status'> {
   id?: string;
+  /**
+   * Governed per-VIN counts from `/api/vehicles/me` — Issue #164 Phase 8, Cluster D.
+   *
+   * `null` on any member means that count was NOT read, and the surface must say so in words. My
+   * Garage previously read `documents` / `service_records` / `parts` / `insurance_records` straight
+   * off the row; none of those columns exists on `vehicles`, so `|| 0` published four unmeasured
+   * zeros per vehicle.
+   */
+  counts?: {
+    verified_documents: number | null;
+    services: number | null;
+    parts: number | null;
+    active_insurance: number | null;
+  } | null;
   location?: string;
+  /**
+   * Why `location` is or is not there. Carried through from the marketplace summary so a card can
+   * state a governed absence in the shared vocabulary instead of inventing its own words.
+   */
+  location_state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
   image_url?: string;
   images?: string[];
   publication_status?: string;
@@ -1960,8 +1979,33 @@ export interface OwnershipSummary {
 }
 
 // 17. VehiclePassport (fully typed, no any)
+/**
+ * A governed claim leaf: the value, whether it is really recorded, and where it came from.
+ * `state` is the discriminator — a consumer that reads `value` without it is publishing an
+ * unattributed fact, which is the whole class of defect Issue #164 removes.
+ */
+export interface ClaimLeaf {
+  value?: string | number | boolean | null;
+  state?: 'recorded' | 'not_recorded' | 'withheld' | 'not_applicable';
+  source?: string | null;
+}
+
+/**
+ * The passport's sealed claim blocks. Location lives HERE and deliberately nowhere else: it is not a
+ * column on the vehicle projection, so `vehicle.location` is `undefined` for every caller. Vehicle
+ * Detail read that phantom column and rendered "Location not recorded" for a vehicle whose own
+ * passport carried Bulawayo / Bulawayo Metropolitan / Zimbabwe with `operator_recorded` provenance.
+ */
+export interface VehiclePassportClaims {
+  location?: { city?: ClaimLeaf; province?: ClaimLeaf; country?: ClaimLeaf };
+  registration?: { country?: ClaimLeaf; authority?: ClaimLeaf };
+  [block: string]: unknown;
+}
+
 export interface VehiclePassport {
   vehicle: Vehicle;
+  /** Sealed governed claims. Read these, never a same-named column on `vehicle`. */
+  claims?: VehiclePassportClaims;
   timeline: TimelineEvent[];
   evidenceTimeline?: TimelineEvent[];
   evidenceVault?: VehicleEvidence[];

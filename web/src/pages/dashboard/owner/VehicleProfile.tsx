@@ -193,7 +193,12 @@ export default function VehicleProfile() {
     imageUrl: primaryListingImage ?? pv.image_url ?? null,
     registration: pv.vin || id || '',
     engineNumber: pv.engine_number || null,
-    purchaseDate: statedDate(pv.created_at),
+    // NO purchase date. `vehicles.created_at` is the row-insert timestamp — a fact about CarUp's
+    // database, not about when this owner acquired the vehicle — and it was rendered under the label
+    // "Purchased". No governed acquisition claim exists anywhere in the contract or the schema
+    // (measured: `vehicles` has no purchase_date / acquired_at / owned_since column), so the tile
+    // states that it is not recorded rather than relabelling another timestamp.
+    purchaseDate: null as string | null,
     documents: (evidenceList || [])
       .filter((item) => documentTypes.includes(item.evidence_type))
       .map((item) => ({
@@ -202,9 +207,25 @@ export default function VehicleProfile() {
         date: statedDate(item.captured_at || item.uploaded_at) ?? 'Date not recorded',
         status: item.verification_status
       })),
-    insuranceRecords: [] as InsuranceRecord[],
+    // Populated from the passport's governed insurance timeline. It was a hardcoded `[]`, so the
+    // Insurance tab was unconditionally empty while Golden A holds one active policy — a silent
+    // false absence on the very surface Cluster D designates as the source of truth.
+    insuranceRecords: (passportData.timeline || [])
+      .filter((e) => e.event_source === 'insurance')
+      .map((e) => ({
+        id: e.id,
+        insurer: e.label ?? null,
+        policyNumber: null as string | null,
+        startDate: statedDate(e.timestamp) ?? 'Date not recorded',
+        status: 'recorded',
+      })) as unknown as InsuranceRecord[],
+    // PARTS and SERVICES ARE NOT THE SAME EVENTS. Both collections used to filter
+    // `event_source === 'service'`, and the only 'service'-sourced timeline entries are PartSentry
+    // part logs — so Golden A's single part log was published as "Total Services 1 AND Total Parts 1",
+    // one row counted twice, while My Garage said 0 of each. Services come from mechanic-signed work
+    // orders; a part fitted is a part.
     serviceHistory: (passportData.timeline || [])
-      .filter((e) => e.event_source === 'service')
+      .filter((e) => e.event_source === 'service' && !String(e.id ?? '').startsWith('partsentry:'))
       .map((e) => ({
         id: e.id,
         serviceType: e.label,
@@ -215,7 +236,7 @@ export default function VehicleProfile() {
         cost: numOrNull(e.details?.cost)
       })),
     partsHistory: (passportData.timeline || [])
-      .filter((e) => e.event_source === 'service')
+      .filter((e) => e.event_source === 'service' && String(e.id ?? '').startsWith('partsentry:'))
       .map((e) => ({
         id: e.id,
         name: e.label,

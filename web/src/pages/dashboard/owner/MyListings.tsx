@@ -9,7 +9,8 @@ import { ListingImage } from '@/components/marketplace/ListingImage'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import { SellerInquiriesCard } from '@/components/marketplace/SellerInquiriesCard'
 import { PUBLICATION_BADGE } from '@/lib/publicationStatus'
-import { readOwnerTrustClaim, statedDate, statedPrice } from './ownerStatedValues'
+import { describePublicationRefusal } from '@/lib/publicationRefusal'
+import { readOwnerTrustClaim, statedPrice } from './ownerStatedValues'
 import type { Vehicle } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -83,14 +84,7 @@ export default function MyListings() {
         ? 'Listing unpublished — it is no longer publicly visible.'
         : 'Listing published! Buyers can now find it on the marketplace.')
     } catch (e: unknown) {
-      const err = e as { data?: { blocking_gaps?: Array<{ label?: string; requirement?: string } | string> }; message?: string }
-      const gaps = err?.data?.blocking_gaps
-      if (Array.isArray(gaps) && gaps.length) {
-        const names = gaps.map(g => (typeof g === 'string' ? g : g.label || g.requirement || 'requirement')).slice(0, 3).join(', ')
-        toast.error(`Not publishable yet. Missing: ${names}${gaps.length > 3 ? '…' : ''}`)
-      } else {
-        toast.error(err?.message || 'Could not update publication status.')
-      }
+      toast.error(describePublicationRefusal(e))
     } finally {
       setPublishingVin(null)
     }
@@ -163,7 +157,6 @@ export default function MyListings() {
             const effectiveStatus = listingStatuses[listing.vin] || listing.status || ''
             const normalizedStatus = normalizeListingStatus(effectiveStatus)
             const trust = readOwnerTrustClaim(listing)
-            const listedOn = statedDate(listing.created_at)
             const isSold = isSoldListingStatus(effectiveStatus)
             const listingConversations = marketplaceConversations.filter((conversation) =>
               String(conversation.marketplace_listing_id || '').toUpperCase() === String(listing.vin || '').toUpperCase())
@@ -218,7 +211,10 @@ export default function MyListings() {
                           )}
                         </span>
                         <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" />{listingConversations.length} conversations · {listingUnread} unread</span>
-                        <span>{listedOn ? `Listed ${listedOn}` : 'Listing date not recorded'}</span>
+                        {/* `vehicles.created_at` is the row-insert timestamp, not the date this
+                            listing was published — there is no governed publication date, so the
+                            absence is stated rather than filled with the record's birthday. */}
+                        <span>Listing date not recorded</span>
                       </div>
                       {latest && <p className="mt-2 line-clamp-1 text-xs text-gray-600">Latest: “{latest}”</p>}
                       <div className="flex gap-2 mt-3">
