@@ -371,3 +371,33 @@ test('INV-14: the Golden dataset stays deterministic and creates no unremovable 
   assert.equal(bOwnership.reviewOutcome, 'pending', 'Golden B ownership evidence must stay pending');
   assert.equal(goldenSpecs.GOLDEN_B.publishTarget, 'draft', 'Golden B must never target published');
 });
+
+// ── INVARIANT 2 (reader-side) — the gate must fail closed on MISSING DATA, not on an unread column ─
+test('INV-2: the marketplace select fetches every provenance column its claim contract gates on', async () => {
+  // The claim contract publishes a location/currency/seller-type/registration fact only when the row
+  // carries the matching *_source. If the select omits one of those columns the gate withholds a fact
+  // that IS governed — the reader never looked. Bind the two lists together so they cannot drift.
+  const selected = listing.LISTING_SELECT_COLUMNS.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  for (const col of projection.LISTING_CLAIM_COLUMNS) {
+    assert.ok(selected.includes(col),
+      `LISTING_SELECT_COLUMNS must fetch the provenance column '${col}' — the claim contract gates on it`);
+  }
+});
+
+test('INV-2 (behavioural): a provenance-backed row publishes its location and currency', () => {
+  // A row exactly as the governed write path records it: value + source together.
+  const claims = listing.listingClaimsForVehicle({
+    vin: 'CARUPGLDNA0000001', currency: 'USD', currency_source: 'operator_recorded',
+    listing_city: 'Bulawayo', listing_province: 'Bulawayo Metropolitan', listing_country: 'Zimbabwe',
+    listing_location_source: 'operator_recorded', listing_location_visibility: 'public',
+  });
+  assert.equal(listing.composeLocationLabel(claims.location), 'Bulawayo, Bulawayo Metropolitan, Zimbabwe');
+  assert.equal(listing.currencyClaim({ currency: 'USD', currency_source: 'operator_recorded' }).value, 'USD');
+
+  // And the same values WITHOUT provenance stay withheld — the gate still fails closed.
+  const bare = listing.listingClaimsForVehicle({
+    vin: 'V', currency: 'USD', listing_city: 'Bulawayo', listing_country: 'Zimbabwe',
+  });
+  assert.equal(listing.composeLocationLabel(bare.location), null);
+  assert.notEqual(listing.currencyClaim({ currency: 'USD' }).value, 'USD');
+});
