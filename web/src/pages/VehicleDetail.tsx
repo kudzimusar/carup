@@ -2657,6 +2657,17 @@ export default function VehicleDetail() {
                         Evaluated {new Date(publicTrust.evaluated_at).toLocaleDateString()}
                       </span>
                     )}
+                    {/* The rules this number was produced under. It was published only inside the
+                        "Market Analysis" tab, which is not the active tab, so the version was absent
+                        from the Trust panel that states the score — a number with its provenance one
+                        click away is a number without provenance. Gated on a published score for the
+                        same reason as `evaluated_at`: naming a version beside a WITHHELD score would
+                        read as provenance for a number this page is deliberately not showing. */}
+                    {trust.score !== null && publicTrust.calculation_version && (
+                      <span className="text-[10px] font-mono text-gray-500" data-testid="trust-calculation-version">
+                        {publicTrust.calculation_version}
+                      </span>
+                    )}
                   </div>
 
                   {evidenceBasis && (

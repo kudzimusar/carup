@@ -137,9 +137,11 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     <p className="text-[10px] text-white/90">
                       {item.captured_at ? new Date(item.captured_at).toLocaleDateString() : (item.uploaded_at ? new Date(item.uploaded_at).toLocaleDateString() : '')}
                     </p>
-                    {item.trust_score_impact > 0 && (
-                      <p className="text-[10px] font-bold text-green-400">+{item.trust_score_impact} Trust</p>
-                    )}
+                    {/* No per-item trust arithmetic. `trust_score_impact` is an input to the
+                        DEPRECATED trustGraph engine and is read by nothing in the canonical trust
+                        service — publishing it here put a second, unversioned numeric Trust
+                        authority on the public page beside the canonical decision (OBS-05). The
+                        item's governed facts (type, verification status, date) are already shown. */}
                   </div>
                 </div>
               );
@@ -251,12 +253,6 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     </div>
                   )}
 
-                  {selectedItem.trust_score_impact > 0 && (
-                    <div>
-                      <p className="text-xs text-zinc-500 mb-1">Trust Impact</p>
-                      <p className="text-sm font-bold text-green-400">+{selectedItem.trust_score_impact} Points</p>
-                    </div>
-                  )}
                   
                   {selectedItem.verification_notes && (
                     <div>
