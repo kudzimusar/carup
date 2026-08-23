@@ -82,7 +82,7 @@ Use a **private/incognito window** (no session).
 | # | Step | Expected result |
 |---|---|---|
 | 1 | Open `/` (Landing) | Featured cars load from live published listings. **No** green "Verified" badge and **no** `Trust NN` number on any card — only governed tags. While loading it says *"Loading featured listings…"*; a failed read says *"unavailable… not an empty marketplace"* — never a false "no listings". |
-| 2 | Find Golden A's card; note make/model/year, price, location | Expect **2019 Toyota Hilux**, **USD 21,500**, **Bulawayo, Bulawayo Metropolitan, Zimbabwe**, tags *Evidence Available* / *One Owner* / *Private Sale*. These exact values were read back from the live certified deployment. |
+| 2 | Find Golden A's card; note make/model/year, price, location | Expect **2019 Toyota Hilux**, **USD 21,500**, **Bulawayo, Bulawayo Metropolitan, Zimbabwe**. The Landing card renders only the **first two** governed tags (`Landing.tsx` slices to 2), so expect *Evidence Available* and *One Owner* — the API also returns `private_sale`, and its absence from the card is correct, not a defect. These values were read back from the live certified deployment. |
 | 3 | Type `Hilux` in the Landing search, submit | Navigates to `/marketplace?q=Hilux` — **the query is preserved**. |
 | 4 | In Marketplace, locate `CARUPGLDNA0000001` | Same identity/price/currency/location as step 2. Spec chips appear only where recorded — no `0 km`, no *Auto*, no *Petrol* filler. Seller shows a governed label or *Seller not disclosed* — never *CarUp Dealer*/*Private seller*. |
 | 5 | Compare Landing (step 2) to Marketplace (step 4) | **Identical** identity, price, currency, location, primary image. *(Invariant 13)* |
