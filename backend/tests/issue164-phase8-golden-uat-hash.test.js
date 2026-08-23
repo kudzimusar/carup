@@ -32,10 +32,11 @@ test('the password is never taken from an argument or the environment', () => {
 test('the plaintext is never echoed, logged, or written', () => {
   // Raw mode with no echo is what keeps it off the screen.
   assert.match(code, /setRawMode\(true\)/, 'terminal input must be read without echo');
-  // The only write is the hash.
-  const writes = code.match(/writeFileSync\([^)]*\)/g) || [];
+  // Exactly one write, and its payload is the hash — never the plaintext.
+  const writes = code.match(/writeSync\([^)]*\)/g) || [];
   assert.equal(writes.length, 1, 'exactly one file write (the hash) is permitted');
-  assert.ok(/writeFileSync\(outPath, `\$\{hash\}/.test(code), 'the written value must be the hash');
+  assert.ok(/writeSync\(fd, `\$\{hash\}/.test(code), 'the written value must be the hash');
+  assert.ok(!/writeSync\([^)]*password/i.test(code), 'the plaintext must never be written');
   assert.ok(!/console\.log\([^)]*password/i.test(code), 'the password must never be printed');
   // Nor may the hash itself be printed to stdout.
   assert.ok(!/console\.log\([^)]*\bhash\b[^)]*\)/.test(code.replace(/hash\.split\(':'\)\[0\]/g, 'SCHEME')),
@@ -48,8 +49,30 @@ test('it uses the governed hasher and rolls no crypto of its own', () => {
     'must not implement its own credential hashing');
 });
 
-test('the file is written owner-only (0600)', () => {
-  assert.match(code, /mode:\s*0o600/, 'the hash file must be owner-only');
+test('the file is created EXCLUSIVELY at 0600 — never overwritten, never through a symlink', () => {
+  // writeFileSync's `mode` applies only on creation, so overwriting an existing 0644 file would leave
+  // the digest world-readable, and a planted symlink would be followed. O_CREAT|O_EXCL ('wx') refuses
+  // any existing path; fchmod pins the mode regardless of umask.
+  assert.match(code, /openSync\([^)]*'wx'[^)]*0o600\)/, 'the file must be created exclusively at 0600');
+  assert.match(code, /fchmodSync\(fd, 0o600\)/, 'the mode must be enforced on the open descriptor');
+  assert.ok(!/writeFileSync/.test(code), 'must not use writeFileSync, whose mode is create-only');
+});
+
+test('an existing output path is refused rather than overwritten', () => {
+  const path = '/tmp/issue164-uat-hash-existing.hash';
+  if (existsSync(path)) unlinkSync(path);
+  // Pre-create a world-readable file, as a stale run or an attacker would leave behind.
+  execFileSync('sh', ['-c', `umask 022; printf 'stale' > ${path}`]);
+  let failed = false; let stderr = '';
+  try {
+    execFileSync('node', ['backend/scripts/issue164-golden-uat-hash.mjs', `--out=${path}`],
+      { input: 'GoldenUatTest-2026!', encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (e) { failed = true; stderr = String(e.stderr || ''); }
+  assert.equal(failed, true, 'an existing output path must be refused');
+  assert.match(stderr, /already exists/, 'the refusal must say why');
+  // The pre-existing file is untouched — nothing was written through it.
+  assert.equal(readFileSync(path, 'utf8'), 'stale', 'the existing file must not be overwritten');
+  unlinkSync(path);
 });
 
 test('a short password is refused and nothing is written', () => {
