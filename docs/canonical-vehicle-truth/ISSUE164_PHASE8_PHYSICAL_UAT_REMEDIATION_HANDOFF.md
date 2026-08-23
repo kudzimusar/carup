@@ -132,6 +132,19 @@ Every FAIL below is a release-blocking physical UAT defect under the Issue #164 
 - **FAIL:** 18/32
 - **Physical UAT overall:** **FAIL — remediation required before merge**
 
+> **⚠ READ ADDENDUM A BEFORE ACTING ON THIS MATRIX.**
+>
+> The above is the **first physical UAT's observed result** and is preserved verbatim. It was
+> subsequently established that this run had a **frontend/backend provenance mismatch**: the PR #165
+> preview frontend was resolving its API base to `carup-backend-staging.vercel.app`, which serves
+> `main` (`87033020`, pre-Phase-8), not the candidate.
+>
+> Every backend-dependent failure below therefore measured the WRONG contract. Addendum A
+> re-classifies each one as a genuine product defect, an environment/pairing artifact, or pending
+> re-baseline. **An artifact is not a pass** — it is recorded as
+> `INVALID FOR CANDIDATE CERTIFICATION — BACKEND MISMATCH` and must be physically re-run through the
+> correctly paired preview before it may receive a PASS.
+
 ## 4. Exact evidence captured during UAT
 
 ### 4.1 Public Golden A Marketplace payload
@@ -618,3 +631,207 @@ Issue #164 is **not** complete because the engineering candidate passed CI. It i
 - Issue #164 is closed with final receipts.
 
 Until then, PR #165 remains a remediation candidate, not a certified merge candidate.
+
+---
+
+# ADDENDUM A — provenance correction and re-classification of the first physical UAT
+
+> Added after the first UAT, on the reconciled live branch. **Nothing above this line has been
+> edited.** The original evidence stands exactly as the owner recorded it; this addendum explains why
+> the *interpretation* of that evidence changed, and records the classification history so a future
+> agent can see why the defect count moved.
+
+## A.1 The first physical UAT had a frontend/backend provenance mismatch
+
+**The 14 PASS / 18 FAIL result in §3 remains the first physical UAT's observed result.** It is not
+amended, and it is not converted into passes.
+
+However, that run cannot be treated as an exact-candidate end-to-end certification, because the
+frontend preview under test was not talking to the candidate's backend.
+
+Measured, not inferred:
+
+| Evidence | Value |
+|---|---|
+| `web/src/lib/apiClient.ts` → `isStagingFrontendHost()` | matched **any** `carup-staging-*.vercel.app`, including per-branch previews |
+| Consequence with no `VITE_API_URL` | resolved to `DEFAULT_STAGING_API_BASE_URL` = `https://carup-backend-staging.vercel.app/api` |
+| That backend's `/api/health` | `commit_sha_short: 87033020`, `branch: main` — **pre-Phase-8** |
+| The deployed bundle's compiled `import.meta.env` | `{}` — so `VITE_API_URL` was genuinely undefined |
+| §4.2's own inspected URL | `carup-backend-staging.vercel.app` — the host the UAT script §0 had already ruled out |
+
+So the PR #165 **frontend** was exercised against **`main`'s backend**. Every backend-dependent step
+measured `main`'s contract while appearing to certify the candidate. Nothing in CI could have caught
+it: CI never exercises the deployed pairing.
+
+## A.2 Classification vocabulary
+
+Each formal step is now recorded under exactly one of:
+
+- **A — GENUINE PRODUCT DEFECT.** Reproduces against the correctly paired candidate, or is
+  frontend/fixture-only and therefore backend-independent.
+- **B — ENVIRONMENT / PAIRING ARTIFACT.** The candidate is measurably correct; the observed failure
+  was produced by the mismatch. **This is NOT a PASS.** It is recorded as
+  `INVALID FOR CANDIDATE CERTIFICATION — BACKEND MISMATCH` and must be physically re-run through the
+  correctly paired frontend before it may receive a PASS.
+- **C — PENDING RE-BASELINE.** Not yet settled; requires the paired re-run, and in some cases an
+  authenticated Golden owner session.
+
+No step is waived. A step in class B has *no result* until it is re-run.
+
+## A.3 Re-classification of the 18 failures
+
+Class B items were verified against the paired candidate backend
+(`carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app`), several of them in a
+real browser on the paired preview.
+
+| Step | Original | Class | Evidence |
+|---:|---|:---:|---|
+| 2 | FAIL | **B** | Candidate marketplace summary returns `location: "Bulawayo, Bulawayo Metropolitan, Zimbabwe"`, `location_state: "recorded"`. Main returns country-only. |
+| 4 | FAIL | **B** | Same payload, same verification. |
+| 5 | FAIL | **A + B** | Location half is B (above). **Media half is A** — see Cluster C. |
+| 6 | FAIL | **B** | Browser-verified on the paired preview: the Trust panel renders **60 / Moderate trust / Evaluated / Low confidence**. `Sign in to view trust` is absent from the DOM. |
+| 7 | FAIL | **B** | Candidate passport publishes ONE `trustReport` — the canonical projection (`score 60`, `trust-decision-1.0.0`). The legacy `trustScore: 80` exists only on main. |
+| 8 | FAIL | **A** | Structure was already correct (5 media / 4 verified evidence, separated). The failure is that the artifacts do not exist — Cluster C. |
+| 11 | FAIL | **B** | Candidate passport contains no `owner_id`, `tenant_id` or `current_seller_id`. Main leaks all three. |
+| 13 | FAIL | **B** | `/api/vehicles/me` attaches canonical `trust` via `withCanonicalTrust` on the candidate; `git show 87033020:backend/server.js` contains **0** occurrences of that helper, so main returns raw rows with no `trust` key and `readOwnerTrustClaim` correctly falls to `unavailable`. |
+| 15 | FAIL | **B + A** | Trust half is B (above). **Docs count is A** — `vehicles` has no `documents` column. |
+| 16 | FAIL | **B + A** | Owner header image: main publishes no `listing_media` block at all (B). The image still cannot load (A, Cluster C). |
+| 17 | FAIL | **A** | `purchaseDate: statedDate(pv.created_at)` — frontend-only, source-proven. |
+| 18 | FAIL | **A** | Same-VIN contradiction is real and is worse than reported: see A.4. |
+| 19 | FAIL | **B** | Same mechanism as 13. |
+| 23 | FAIL | **B** | Same mechanism as 6/7, for Golden B's canonical 50. |
+| 25 | FAIL | **B + A** | False "no trust assessment" is B. **The absence of a publication-readiness item is A.** |
+| 27 | FAIL | **A** | Same `created_at` defect as 17. |
+| 28 | FAIL | **A** | Confirmed and now explained exactly — see A.4. |
+| 30 | FAIL | **A** | Blog/Press content — unchanged, genuine. |
+
+**Why "Sign in to view trust" appeared is worth recording**, because it is the opposite of a bug:
+`readPublicTrust` requires `evaluation_state` and returns `null` for main's legacy
+`{vin, trustScore, metrics}` shape. Its own comment says so — *"against a server that still serves the
+old passport body this page reports 'unavailable' instead of quietly publishing the 70-baseline
+engine's number again."* The page **failed closed exactly as designed** and refused to publish main's
+stale 80. Do not "fix" it.
+
+## A.4 What the paired re-verification ADDED to the defect list
+
+Re-baselining did not only subtract. It surfaced defects the first run could not see:
+
+- **Step 6 — the calculation version is not on the Trust panel.** `trust-decision-1.0.0` is rendered
+  only inside the **inactive** "Market Analysis" tab, so the version the step requires is absent from
+  the Trust panel. Browser-verified: the score renders, the version does not. **Not yet remediated.**
+- **Step 18 is worse than recorded.** `serviceHistory` and `partsHistory` were built from the SAME
+  `event_source === 'service'` filter, and the only such events are PartSentry part logs — so Golden
+  A's single part log was published as *both* "1 service" and "1 part". Measured on canonical staging:
+  Golden A has `partsentry_logs = 1`, `mechanic_work_orders = 0`, `insurance_records = 1` (active).
+  The per-VIN page was also hardcoding `insuranceRecords: []`, so one active policy rendered as none.
+- **Step 15 / OBS-09/10 are false zeros at the schema level.** `vehicles` has **no** `documents`,
+  `service_records`, `parts` or `insurance_records` column (measured), so `|| 0` published four
+  unmeasured zeros per vehicle.
+- **Step 28 has an exact root cause.** `evaluateCompleteness` splits unmet blocking requirements into
+  `blocking_gaps` (missing) and `pending_gaps` (pending_review). Golden B's only unmet requirement is
+  an uploaded ownership document awaiting review → `pending_gaps: [ownership_document]`,
+  `blocking_gaps: []`. The 400 body omitted `pending_gaps` entirely and both publish handlers gated on
+  `blocking_gaps.length`, so the only case that occurs fell through to the generic sentence.
+- **OBS-05 is a real second Trust authority.** `PremiumEvidenceGallery` renders `+5 Trust` / `Trust
+  Impact +5 Points` from `vehicle_evidence.trust_score_impact`, which feeds only the DEPRECATED
+  trustGraph engine — the canonical service never reads it. **Not yet remediated.**
+
+## A.5 Cluster I — preview provenance (NEW, P0, closed)
+
+Commits `0cc2e0f5`, `1aa63d88`.
+
+- `resolveApiBaseUrl` now separates stable staging aliases from per-branch previews. An unpaired
+  preview resolves to `https://unpaired-preview.carup.invalid/api` (RFC 2606 — can never resolve).
+  Deliberately **not** the empty string: several call sites read
+  `BASE_URL || DEFAULT_PRODUCTION_API_BASE_URL`, and an empty base there falls through to PRODUCTION.
+- `web/preview-backend-pairing.json` maps branch → backend preview, applied at build time by
+  `web/vite.config.ts`, which also bakes in the build SHA and emits `/carup-provenance.json`.
+- `web/src/lib/previewProvenance.ts` + `PreviewProvenanceBanner` compare the bundle's build SHA
+  against the backend's `/api/health` `commit_sha` at runtime and block UAT on anything not provably
+  paired. An unverifiable pairing is treated as a wrong one.
+- `scripts/issue164-uat-provenance-receipt.mjs` produces the pre-UAT receipt.
+
+**Do not prove pairing by scanning the bundle.** Vite INLINES `VITE_API_URL` at each call site while
+`DEFAULT_STAGING_API_BASE_URL` remains as an unused constant, so the presence of a hostname proves
+nothing — that false positive blocked a correctly-paired preview on this guard's first run. Read
+`/carup-provenance.json`.
+
+### Provenance receipt (required before any physical UAT)
+
+```
+frontend preview URL      https://carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app
+backend preview URL       https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app
+API base compiled in      the paired backend preview (source: preview-backend-pairing.json)
+frontend candidate SHA    1aa63d88…
+backend /api/health SHA   1aa63d88…
+SHA equality              EQUAL
+calls stable carup-backend-staging.vercel.app   no
+→ VALID FOR UAT
+```
+
+Independently confirmed in a real browser: all six API calls on `/marketplace?q=Hilux` went to the
+paired backend; **zero** went to the stable one.
+
+## A.6 Remediation status
+
+| Cluster | Status |
+|---|---|
+| I — preview provenance | **DONE**, verified by receipt + browser |
+| C — media | **CODE DONE**; the staging fixture write is **BLOCKED** (see A.7) |
+| B — location | **DONE** |
+| D — owner read-model | **DONE** (counts, parts/services split, insurance) |
+| E — date semantics | **DONE** |
+| F — publication disclosure | **DONE** |
+| G — content governance | **NOT STARTED** |
+| H — responsive/accessibility | **NOT STARTED** |
+| Step 6 calculation version | **NOT STARTED** |
+| OBS-05 second Trust authority | **NOT STARTED** |
+
+## A.7 BLOCKER — the Cluster C staging fixture write cannot be executed by the assistant
+
+Golden A's five listing-media rows and all evidence rows still carry Phase 7's unresolvable
+locators. The code that repairs them is complete and tested, but applying it to canonical staging
+requires a service-role credential, and there is none available:
+
+- `.env.staging`'s `SUPABASE_SERVICE_ROLE_KEY` is a **32-character placeholder**, not a JWT — the
+  script's own guard rejects it (`BLOCKED: … is not a service-role JWT`).
+- Supabase storage RLS grants **no** anon or authenticated INSERT on `vehicle-images`
+  (`provider_buckets_no_anon` denies; no permissive policy exists), so a publishable key cannot upload.
+- The governed dispatcher `.github/workflows/issue164-golden-vehicles-dispatcher.yml` is
+  `main`-only **and** owner-actor-only, and its `CANDIDATE_SHA` is pinned to the Phase 7 fixture
+  `18897a45` — so even if dispatched it would run the OLD code.
+
+What is already proven without it:
+
+- The canonical delivery contract is **live**: the public object URL host resolves in ~51 ms and
+  returns HTTP 400 for a missing object, versus DNS failure for `media.carup-staging.test`.
+- `vehicle-images` currently holds **0** objects, confirming the fixture never uploaded anything.
+
+**Owner action required — choose one:**
+
+1. Provide a working staging service-role key, and the assistant runs
+   `node backend/scripts/issue164-golden-uat-hash.mjs`-style guarded bootstrap → verify → browser
+   render proof → cleanup; or
+2. Merge a small control-plane PR repinning the dispatcher's `CANDIDATE_SHA` to the certified
+   remediation head, then dispatch it with `--mode=sequence`.
+
+Until one happens, Steps 1, 4, 5, 8, 15, 16 cannot pass a physical re-UAT.
+
+## A.8 Local test-suite status
+
+Backend suite on the assistant's machine: **4123 total / 4109 pass / 2 fail**.
+
+- One failure was a genuine regression introduced during Cluster C and has been **fixed**: repairing
+  legacy media rows with `.eq('id', …)` broke the Phase 5 media-identity containment rule (no
+  `listing_images` query may be keyed by its own id — it is the enumeration oracle Phase 1 closed).
+  Caught by `backend/tests/issue164-phase5-media-identity-containment.test.js`. Now keyed by
+  `(vin, image_url)`.
+- The other, `provision-staging-qa-accounts.test.js` → *"every provisioned role is valid against the
+  REAL users role catalog"* → `28P01 password authentication failed for user "postgres"`, is
+  **environmental and pre-existing**, proven by mechanism rather than assumed:
+  `backend/db/supabase.js` calls `dotenv.config()`, which loads the machine-local `.env`; that file
+  supplies `SUPABASE_DB_URL` pointing at `db.vhmnajoeicasaigiophh.supabase.co` (**production**), whose
+  password has been rotated. `.env` is gitignored and untracked, and `ci.yml` sets `SUPABASE_DB_URL`
+  **zero** times, so on CI the live-DB branch is skipped entirely and the test passes.
+  **Latent hazard worth a separate ticket:** on any developer machine holding a production `.env`,
+  this test attempts a live connection to the production database.
