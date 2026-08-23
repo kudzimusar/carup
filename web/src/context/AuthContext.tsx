@@ -30,9 +30,8 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Initialize from localStorage SYNCHRONOUSLY (lazy init) so the token exists on the very first
-  // render. Child page effects run before AuthProvider's boot effect, so without this they fire
-  // protected requests with no token → 401 → clearAuth → spurious logout on hard reload / deep link.
+  // The stored user is provisional only. It is withheld from consumers until /auth/me has either
+  // replaced it with session truth or a transient failure has deliberately retained it.
   const [user, setUser] = useState<AuthUser | null>(
     () => (typeof window !== 'undefined' ? readStoredAuth(localStorage)?.user ?? null : null),
   )
@@ -41,43 +40,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
   const [loading, setLoading] = useState(true)
 
-  // Clear ALL client auth state + storage. Used on logout and whenever the backend reports the
-  // session is invalid/expired.
   const clearAuth = useCallback(() => {
     setUser(null)
     setToken(null)
     clearStoredAuth(localStorage)
   }, [])
 
-  // Any API call that fails with an invalid session (401) clears auth here, so the app stops
-  // trusting a stale token and protected routes redirect to /login.
   useEffect(() => {
     setUnauthorizedHandler(clearAuth)
     return () => setUnauthorizedHandler(null)
   }, [clearAuth])
 
-  // Let the navigation analytics client read the CURRENT identity headers so its CSRF token (and
-  // the analytics POST) is bound to the signed-in user/session — matching how apiRequest binds the
-  // token. Mirrors the setUnauthorizedHandler wiring above. Undefined values are filtered so a
-  // guest sends no identity headers (and gets a guest-bound token).
   useEffect(() => {
     setNavAnalyticsAuthProvider(() => {
       const headers: AuthHeaders = {
         'x-session-token': token ?? undefined,
-        'x-user-id': user?.id,
-        'x-stakeholder-role': user?.role,
-        'x-tenant-id': user?.active_tenant_id ?? undefined,
+        'x-user-id': loading ? undefined : user?.id,
+        'x-stakeholder-role': loading ? undefined : user?.role,
+        'x-tenant-id': loading ? undefined : user?.active_tenant_id ?? undefined,
       }
       return Object.fromEntries(
-        Object.entries(headers).filter(([, v]) => v !== undefined),
+        Object.entries(headers).filter(([, value]) => value !== undefined),
       ) as AuthHeaders
     })
     return () => setNavAnalyticsAuthProvider(null)
-  }, [token, user?.id, user?.role, user?.active_tenant_id])
+  }, [loading, token, user?.id, user?.role, user?.active_tenant_id])
 
-  // On boot, restore the stored session optimistically, then VALIDATE the token against the
-  // backend. Only an explicit "session invalid/expired" (401) clears auth; transient/ambiguous
-  // failures keep the session (fail open) so a network blip never logs the user out.
   useEffect(() => {
     const stored = readStoredAuth(localStorage)
     if (!stored) {
@@ -90,8 +78,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
     validateStoredSession({ baseUrl: API_BASE, token: stored.token, userId: stored.user?.id })
-      .catch((err: unknown) => {
-        if (!cancelled && err instanceof SessionExpiredError) clearAuth()
+      .then((authoritativeUser) => {
+        if (cancelled) return
+        setUser(authoritativeUser)
+        storeAuth(localStorage, authoritativeUser, stored.token)
+      })
+      .catch((error: unknown) => {
+        if (!cancelled && error instanceof SessionExpiredError) clearAuth()
+        // On a transient/non-401 failure the provisional stored user remains, but is exposed only
+        // after loading becomes false below. This preserves the established fail-open behavior.
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -103,18 +98,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback((userData: AuthUser, sessionToken: string) => {
     setUser(userData)
     setToken(sessionToken)
+    setLoading(false)
     storeAuth(localStorage, userData, sessionToken)
   }, [])
 
   const logout = useCallback(() => {
     clearAuth()
+    setLoading(false)
   }, [clearAuth])
 
   const switchRole = useCallback(async (role: UserRole, tenantId?: string) => {
     if (!user || !token) return
     try {
-      // Routed through apiRequest so it carries a correctly-bound CSRF token and so an invalid
-      // session clears auth via the global handler instead of silently failing.
       const data = await apiRequest<{ user?: Partial<AuthUser>; token?: string }>({
         baseUrl: API_BASE,
         path: '/auth/switch-role',
@@ -123,25 +118,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           'x-session-token': token,
           'x-user-id': user.id,
           ...(user.role ? { 'x-stakeholder-role': user.role } : {}),
+          ...(user.active_tenant_id ? { 'x-tenant-id': user.active_tenant_id } : {}),
         },
       })
-      // Update user + token atomically to avoid a stale token/user mismatch.
       const updated = { ...user, ...(data.user ?? {}) }
       const nextToken = data.token ?? token
       setUser(updated)
       setToken(nextToken)
       storeAuth(localStorage, updated, nextToken)
-    } catch (e) {
-      if (e instanceof SessionExpiredError) clearAuth()
-      else console.error('Role switch failed', e)
-      // Re-throw so callers can skip post-switch navigation and surface accessible
-      // feedback instead of silently routing into a role that was never switched.
-      throw e
+    } catch (error) {
+      if (error instanceof SessionExpiredError) clearAuth()
+      else console.error('Role switch failed', error)
+      throw error
     }
   }, [user, token, clearAuth])
 
+  const exposedUser = loading ? null : user
+
   return (
-    <AuthContext.Provider value={{ user, token, isAuthenticated: !!token, loading, login, logout, switchRole }}>
+    <AuthContext.Provider value={{
+      user: exposedUser,
+      token,
+      isAuthenticated: !!token,
+      loading,
+      login,
+      logout,
+      switchRole,
+    }}>
       {children}
     </AuthContext.Provider>
   )

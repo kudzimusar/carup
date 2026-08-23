@@ -5,7 +5,8 @@ import { test, expect } from '@playwright/test';
  *
  * Validates that the centralized feature registry correctly drives
  * navigation across all 7 roles: owner, dealer, mechanic, insurance,
- * government, admin, bank.
+ * government, admin, bank. The registry may contain every role, while each
+ * authenticated account surface must expose only its active verified role.
  */
 
 test.describe('Feature Registry & Navigation Map', () => {
@@ -39,7 +40,17 @@ test.describe('Feature Registry & Navigation Map', () => {
       return route.fallback();
     });
 
-    // Auth verify
+    // Stored-session validation now uses /auth/me as its authoritative source.
+    await page.route('**/api/auth/me', async (route: any) => {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: corsHeaders,
+        body: JSON.stringify({ user: mockUser(role) }),
+      });
+    });
+
+    // Legacy auth verify remains mocked for routes/tests that still call it directly.
     await page.route('**/api/auth/verify', async (route: any) => {
       return route.fulfill({
         status: 200,
@@ -104,7 +115,7 @@ test.describe('Feature Registry & Navigation Map', () => {
         return { roles, roleItemCounts, roleDashboardRoutes };
       });
 
-      // All 7 roles must be present
+      // All 7 roles must be present in the registry (not exposed as switch options).
       expect(result.roles).toHaveLength(7);
       expect(result.roles).toContain('owner');
       expect(result.roles).toContain('dealer');
@@ -222,13 +233,22 @@ test.describe('Feature Registry & Navigation Map', () => {
   // ─── Bank Role Consistency ───────────────────────────────────────────
 
   test.describe('Bank Role Consistency', () => {
-    test('bank dashboard renders sidebar items', async ({ page }) => {
+    test('bank dashboard renders sidebar items after authoritative /auth/me validation', async ({ page }) => {
       await setupMocksForRole(page, 'bank');
 
-      // Intercept any bank-specific API routes
+      // Intercept any bank-specific API routes. The last-registered catch-all runs first, so it must
+      // preserve the authoritative session validation response rather than returning {data: []}.
       await page.route('**/api/**', async (route: any) => {
         if (route.request().method() === 'OPTIONS') {
           return route.fulfill({ status: 204, headers: corsHeaders });
+        }
+        if (route.request().url().includes('/api/auth/me')) {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            headers: corsHeaders,
+            body: JSON.stringify({ user: mockUser('bank') }),
+          });
         }
         if (route.request().url().includes('/api/auth/verify')) {
           return route.fulfill({
@@ -255,51 +275,32 @@ test.describe('Feature Registry & Navigation Map', () => {
       await expect(sidebar.getByText('Credit Risk Analysis')).toBeVisible();
     });
 
-    test('bank role appears in Navbar role switcher', async ({ page }) => {
+    test('an owner account does not advertise the bank portal without authorization proof', async ({ page }) => {
       await setupMocksForRole(page, 'owner');
       await page.goto('http://localhost:5173/marketplace');
       await page.waitForLoadState('networkidle');
 
-      // Open user dropdown
+      // Open user dropdown and prove the privileged portal option is absent.
       const userAvatar = page.locator('header button img[alt=""]').first();
-      if (await userAvatar.isVisible()) {
-        await userAvatar.click();
-
-        // Look for the role switcher section
-        const roleSwitcher = page.getByText('Switch Portal Role');
-        if (await roleSwitcher.isVisible()) {
-          // Bank should now appear as a role option
-          await expect(page.getByText('Change to Banker')).toBeVisible();
-        }
-      }
+      await expect(userAvatar).toBeVisible();
+      await userAvatar.click();
+      await expect(page.getByText('Switch Portal Role')).toHaveCount(0);
+      await expect(page.getByText('Change to Banker')).toHaveCount(0);
     });
   });
 
-  // ─── Dashboard Role Switcher ─────────────────────────────────────────
+  // ─── Dashboard Role Truth ────────────────────────────────────────────
 
-  test.describe('Dashboard Role Switcher', () => {
-    test('role selector lists all 7 roles', async ({ page }) => {
+  test.describe('Dashboard Role Truth', () => {
+    test('shows only the active verified role and no global role selector', async ({ page }) => {
       await setupMocksForRole(page, 'owner');
       await page.goto('http://localhost:5173/dashboard');
       await page.waitForLoadState('networkidle');
 
-      // The sidebar should have a <select> with all role options
-      const roleSelect = page.locator('aside select');
-      await expect(roleSelect).toBeVisible();
-
-      const options = roleSelect.locator('option');
-      const count = await options.count();
-      expect(count).toBe(7);
-
-      // Verify each role label is present
-      const optionTexts = await options.allTextContents();
-      expect(optionTexts).toContain('Car Owner');
-      expect(optionTexts).toContain('Dealer');
-      expect(optionTexts).toContain('Mechanic');
-      expect(optionTexts).toContain('Insurance');
-      expect(optionTexts).toContain('Government');
-      expect(optionTexts).toContain('Administrator');
-      expect(optionTexts).toContain('Banker');
+      await expect(page.locator('aside select')).toHaveCount(0);
+      await expect(page.getByTestId('active-portal-role')).toHaveText('Car Owner');
+      await expect(page.locator('aside').getByText('Administrator')).toHaveCount(0);
+      await expect(page.locator('aside').getByText('Banker')).toHaveCount(0);
     });
   });
 

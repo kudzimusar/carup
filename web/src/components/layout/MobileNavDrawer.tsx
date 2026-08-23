@@ -14,9 +14,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
 import { getMobileNavigation, type ResolvedNavItem } from '@/config/navigationManifest'
-import { getAllRoles, getRoleMetadata, getDashboardRoute, type NavigationContext } from '@/config/featureRegistry'
+import { getRoleMetadata, getDashboardRoute, type NavigationContext } from '@/config/featureRegistry'
 import { resolveFeatureIcon } from '@/config/featureIcons'
 import { useFeatureEffectiveStates } from '@/context/featureGovernanceStore'
+import { getAuthorizedPortalRoles } from '@/lib/authorizedPortalRoles'
 import type { UserRole } from '@shared/types'
 
 // Hoisted to module scope so its identity is stable across renders (a component
@@ -51,6 +52,9 @@ export default function MobileNavDrawer() {
   }
   const nav = getMobileNavigation(ctx)
   const close = () => setOpen(false)
+  const switchableRoles = user
+    ? getAuthorizedPortalRoles(user).filter(role => role !== user.role)
+    : []
 
   const isActive = (href: string) => {
     const path = href.split('?')[0]
@@ -59,7 +63,7 @@ export default function MobileNavDrawer() {
 
   const handleRoleChange = async (role: UserRole) => {
     try {
-      await switchRole(role as never)
+      await switchRole(role)
       close()
       navigate(getDashboardRoute(role))
     } catch (err) {
@@ -176,19 +180,23 @@ export default function MobileNavDrawer() {
           <section aria-label="Account" className="border-t mt-2 pt-2">
             {user ? (
               <>
-                <SectionLabel>Switch Portal Role</SectionLabel>
-                {getAllRoles().filter(r => r !== user.role).map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => handleRoleChange(r)}
-                    data-testid={`mobile-roleswitch-${r}`}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]"
-                  >
-                    <UserCog className="w-4 h-4 shrink-0" aria-hidden="true" />
-                    <span className="flex-1 text-left">Change to {getRoleMetadata(r).title}</span>
-                  </button>
-                ))}
+                {switchableRoles.length > 0 && (
+                  <>
+                    <SectionLabel>Switch Portal Role</SectionLabel>
+                    {switchableRoles.map(role => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => handleRoleChange(role)}
+                        data-testid={`mobile-roleswitch-${role}`}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50 min-h-[44px]"
+                      >
+                        <UserCog className="w-4 h-4 shrink-0" aria-hidden="true" />
+                        <span className="flex-1 text-left">Change to {getRoleMetadata(role).title}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={handleLogout}

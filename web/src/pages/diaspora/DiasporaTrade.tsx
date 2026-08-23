@@ -8,17 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useAuth } from '@/context/AuthContext'
 import { buildLoginRedirect } from '@/lib/returnTo'
+import { buildDiasporaRequiredDocumentChecklist, DIASPORA_REQUIRED_DOCUMENT_RULES } from '@/lib/diasporaDocumentChecklist'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import type { DiasporaComplianceReview, DiasporaImportOrder, DiasporaImportOrderPayload, DiasporaOrderType, DiasporaTradeDocument, DiasporaCargoReservation, DiasporaCargoReservationPayload, DiasporaShipment, DiasporaContainerShipment } from '@/types'
-
-const requiredDocuments = [
-  'Buyer identity document',
-  'Invoice or auction sheet',
-  'Export certificate',
-  'Bill of lading',
-  'ZIMRA duty assessment',
-]
 
 const documentTypeOptions = [
   { value: 'passport', label: 'Passport' },
@@ -107,7 +100,7 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocument[] }) {
-  const uploadedTypes = new Set(documents.map(document => labelize(document.document_type)))
+  const checklist = buildDiasporaRequiredDocumentChecklist(documents)
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white" data-testid="diaspora-document-checklist">
@@ -115,8 +108,7 @@ function DocumentChecklist({ documents = [] }: { documents?: DiasporaTradeDocume
         <h2 className="text-base font-semibold text-gray-900">Required documents</h2>
       </div>
       <div className="divide-y divide-gray-100">
-        {requiredDocuments.map((documentName, index) => {
-          const uploaded = uploadedTypes.has(documentName)
+        {checklist.map(({ label: documentName, uploaded }, index) => {
           return (
             <div key={documentName} className="flex items-center justify-between gap-3 px-4 py-3" data-testid="diaspora-document-row">
               <div className="flex items-center gap-3">
@@ -664,7 +656,7 @@ export function DiasporaLanding() {
             <Badge variant="outline" data-testid="diaspora-documents-preview-badge">Order scoped</Badge>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {requiredDocuments.map((documentName, index) => (
+            {DIASPORA_REQUIRED_DOCUMENT_RULES.map(({ label: documentName }, index) => (
               <div key={documentName} className="rounded-md border border-gray-100 p-3" data-testid="diaspora-documents-preview-row">
                 <FileText className="h-4 w-4 text-orange-600" />
                 <p className="mt-2 text-sm font-medium text-gray-900" data-testid={`diaspora-documents-preview-name-${index}`}>{documentName}</p>
@@ -859,7 +851,7 @@ export function NewDiasporaImportOrder() {
             </div>
             <div className="flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-5">
               <Button type="button" variant="outline" asChild data-testid="diaspora-cancel-import-button">
-                <Link to="/diaspora">Cancel</Link>
+                <Link to="/diaspora/imports">Cancel</Link>
               </Button>
               <Button type="submit" disabled={submitting} className="bg-orange-600 hover:bg-orange-700" data-testid="diaspora-submit-import-button">
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRight className="mr-2 h-4 w-4" />}
@@ -1067,6 +1059,9 @@ export function DiasporaImportDetail() {
               </Button>
               <Button asChild variant="outline" data-testid="diaspora-open-shipment-button">
                 <Link to={`/diaspora/imports/${order.id}/shipment`}>Shipment</Link>
+              </Button>
+              <Button asChild variant="outline" data-testid="diaspora-open-passport-button">
+                <Link to={`/diaspora/imports/${order.id}/passport`}>Passport</Link>
               </Button>
             </div>
             <PaymentMilestonesCard

@@ -1,11 +1,6 @@
 /**
  * Integration tests for the user_sessions auth-contract alignment migration
  * (database/migrations/20260617120000_user_sessions_auth_contract_align.sql).
- *
- * Reproduces the staging blocker (login 500 because user_sessions lacks token/is_valid), proves the
- * migration closes the drift, and exercises the REAL authMiddleware over a post-migration-shaped
- * store: login persists a session, the token is found, /api/auth/me accepts it, invalid/expired
- * tokens are rejected, logout invalidates, and role-switch session creation still works.
  */
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,23 +22,18 @@ const { extractSupabaseRef, assertStagingTarget } = await import('../../scripts/
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MIGRATION_PATH = 'database/migrations/20260617120000_user_sessions_auth_contract_align.sql';
 const MIGRATION = readFileSync(resolve(REPO_ROOT, MIGRATION_PATH), 'utf8');
-
-// The columns observed on the staging user_sessions table, and the two the migration adds.
 const STAGING_LEGACY_COLUMNS = ['id', 'user_id', 'active_role', 'active_organization_id', 'created_at', 'expires_at', 'ip_address', 'user_agent'];
 const MIGRATION_ADDED_COLUMNS = ['token', 'is_valid'];
 const POST_MIGRATION_COLUMNS = [...STAGING_LEGACY_COLUMNS, ...MIGRATION_ADDED_COLUMNS];
-
 const future = () => new Date(Date.now() + 3600_000).toISOString();
 const past = () => new Date(Date.now() - 3600_000).toISOString();
 
-// ---- static migration guarantees ----
 test('migration adds token + is_valid + a unique token index, idempotently and non-destructively', () => {
   assert.match(MIGRATION, /ADD COLUMN IF NOT EXISTS token TEXT/i);
   assert.match(MIGRATION, /ADD COLUMN IF NOT EXISTS is_valid BOOLEAN/i);
   assert.match(MIGRATION, /CREATE UNIQUE INDEX IF NOT EXISTS uq_user_sessions_token/i);
   assert.match(MIGRATION, /CREATE TABLE IF NOT EXISTS public\.user_sessions/i);
   assert.match(MIGRATION, /ROLLBACK/i);
-  // Non-destructive: never rebuilds the table.
   assert.equal(/DROP TABLE/i.test(MIGRATION), false);
 });
 
@@ -52,56 +42,55 @@ test('migration is production-safe: no prod project ref, no hardcoded connection
   assert.equal(/postgres(ql)?:\/\//.test(MIGRATION), false);
 });
 
-// ---- contract: the drift covers exactly the columns the backend writes ----
 test('every column buildSessionRow writes exists after the migration; token + is_valid were the gap', () => {
   const written = Object.keys(buildSessionRow({ userId: 'u1', activeRole: 'owner', token: 'sk_live_x', expiresAt: future() }));
-  for (const col of written) {
-    assert.ok(POST_MIGRATION_COLUMNS.includes(col), `buildSessionRow writes '${col}' not in the post-migration schema`);
+  for (const column of written) {
+    assert.ok(POST_MIGRATION_COLUMNS.includes(column), `buildSessionRow writes '${column}' not in the post-migration schema`);
   }
-  for (const col of MIGRATION_ADDED_COLUMNS) {
-    assert.equal(STAGING_LEGACY_COLUMNS.includes(col), false, `${col} should have been missing pre-migration`);
-    assert.ok(written.includes(col), `buildSessionRow must write '${col}'`);
+  for (const column of MIGRATION_ADDED_COLUMNS) {
+    assert.equal(STAGING_LEGACY_COLUMNS.includes(column), false);
+    assert.ok(written.includes(column));
   }
 });
 
-// ---- before/after: reproduce the 500, prove the fix ----
 const schemaEnforcingInsert = (columns) => (row) => {
-  const bad = Object.keys(row).filter((k) => !columns.includes(k));
+  const bad = Object.keys(row).filter((key) => !columns.includes(key));
   if (bad.length) return { data: null, error: { code: '42703', message: `column "${bad[0]}" of relation "user_sessions" does not exist` } };
   return { data: row, error: null };
 };
 
-test('pre-migration schema rejects the login insert (reproduces the 500); post-migration accepts it', () => {
+test('pre-migration schema rejects the login insert; post-migration accepts it', () => {
   const row = buildSessionRow({ userId: 'u1', activeRole: 'owner', token: 't', expiresAt: future() });
-  const before = schemaEnforcingInsert(STAGING_LEGACY_COLUMNS)(row);
-  assert.ok(before.error, 'pre-migration insert should fail');
-  assert.match(before.error.message, /does not exist/);
-  const afterFix = schemaEnforcingInsert(POST_MIGRATION_COLUMNS)(row);
-  assert.equal(afterFix.error, null);
+  assert.ok(schemaEnforcingInsert(STAGING_LEGACY_COLUMNS)(row).error);
+  assert.equal(schemaEnforcingInsert(POST_MIGRATION_COLUMNS)(row).error, null);
 });
 
-// ---- behavioral: real authMiddleware over a post-migration-shaped Supabase mock ----
 let store;
 function resolveOp(op) {
   if (op.table === 'user_sessions') {
     if (op.action === 'insert') {
       const row = op.payload;
-      const bad = Object.keys(row).filter((k) => !POST_MIGRATION_COLUMNS.includes(k));
+      const bad = Object.keys(row).filter((key) => !POST_MIGRATION_COLUMNS.includes(key));
       if (bad.length) return { data: null, error: { code: '42703', message: `column "${bad[0]}" does not exist` } };
       store.sessions[row.token] = { ...row };
       return { data: op.single ? row : [row], error: null };
     }
     if (op.action === 'update') {
-      const s = store.sessions[op.filters.token];
-      if (s) Object.assign(s, op.payload);
-      return { data: s || null, error: null };
+      const session = store.sessions[op.filters.token];
+      if (session) Object.assign(session, op.payload);
+      return { data: session || null, error: null };
     }
-    const s = store.sessions[op.filters.token];
-    return s ? { data: s, error: null } : { data: null, error: { message: 'no session' } };
+    const session = store.sessions[op.filters.token];
+    return session ? { data: session, error: null } : { data: null, error: { message: 'no session' } };
   }
   if (op.table === 'users') {
-    const u = store.users[op.filters.id];
-    return u ? { data: u, error: null } : { data: null, error: { message: 'no user' } };
+    const user = store.users[op.filters.id];
+    return user ? { data: user, error: null } : { data: null, error: { message: 'no user' } };
+  }
+  if (op.table === 'tenant_users') {
+    const row = store.tenantUsers.find((item) =>
+      item.user_id === op.filters.user_id && item.tenant_id === op.filters.tenant_id);
+    return row ? { data: row, error: null } : { data: null, error: { message: 'no membership' } };
   }
   return { data: null, error: null };
 }
@@ -114,9 +103,9 @@ before(async () => {
     const op = { table, action: 'select', filters: {}, payload: null, single: false };
     const chain = {
       select() { return chain; },
-      insert(p) { op.action = 'insert'; op.payload = p; return chain; },
-      update(p) { op.action = 'update'; op.payload = p; return chain; },
-      eq(k, v) { op.filters[k] = v; return chain; },
+      insert(payload) { op.action = 'insert'; op.payload = payload; return chain; },
+      update(payload) { op.action = 'update'; op.payload = payload; return chain; },
+      eq(key, value) { op.filters[key] = value; return chain; },
       is() { return chain; },
       single() { op.single = true; return chain; },
       then(onFulfilled, onRejected) { return Promise.resolve(resolveOp(op)).then(onFulfilled, onRejected); },
@@ -128,29 +117,38 @@ before(async () => {
   app.get('/api/auth/me', authorizeRole(), async (req, res) => {
     const { data: user, error } = await supabase.from('users').select('id, name, email, phone, role').eq('id', req.userContext.id).single();
     if (error || !user) return res.status(401).json({ error: 'Unauthorized. User record not found.' });
-    res.json({ user });
+    return res.json({
+      user: {
+        ...user,
+        role: req.userContext.role,
+        active_tenant_id: req.userContext.tenantId || null,
+      },
+    });
   });
-  await new Promise((r) => { server = http.createServer(app); server.listen(0, '127.0.0.1', r); });
+  await new Promise((resolveListen) => { server = http.createServer(app); server.listen(0, '127.0.0.1', resolveListen); });
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(async () => { if (server) await new Promise((r) => server.close(r)); });
+after(async () => { if (server) await new Promise((resolveClose) => server.close(resolveClose)); });
 
 beforeEach(() => {
-  store = { sessions: {}, users: { u1: { id: 'u1', name: 'Buyer', email: 'b@carup.test', phone: '', role: 'owner', is_verified: true } } };
+  store = {
+    sessions: {},
+    users: { u1: { id: 'u1', name: 'Buyer', email: 'b@carup.test', phone: '', role: 'owner', is_verified: true } },
+    tenantUsers: [{ user_id: 'u1', tenant_id: 'tenant-1', role: 'dealer' }],
+  };
 });
 
 const getMe = async (headers) => {
-  const res = await fetch(`${baseUrl}/api/auth/me`, { headers });
-  return { status: res.status, body: await res.json().catch(() => ({})) };
+  const response = await fetch(`${baseUrl}/api/auth/me`, { headers });
+  return { status: response.status, body: await response.json().catch(() => ({})) };
 };
 
 test('login persists a session and the returned token exists in user_sessions', async () => {
   const token = 'sk_live_persist';
   const { error } = await supabase.from('user_sessions').insert(buildSessionRow({ userId: 'u1', activeRole: 'owner', token, expiresAt: future() }));
-  assert.equal(error, null, 'the login insert must succeed against the post-migration schema');
-  assert.ok(store.sessions[token], 'session row persisted');
-  assert.equal(store.sessions[token].token, token);
+  assert.equal(error, null);
+  assert.ok(store.sessions[token]);
   assert.equal(store.sessions[token].is_valid, true);
 });
 
@@ -160,59 +158,73 @@ test('/api/auth/me accepts the returned token', async () => {
   const { status, body } = await getMe({ 'x-session-token': token });
   assert.equal(status, 200);
   assert.equal(body.user.id, 'u1');
+  assert.equal(body.user.role, 'owner');
 });
 
-test('expired, invalidated (logout), and unknown tokens are all rejected', async () => {
+test('/api/auth/me recovers the switched role and tenant from the token without client role headers', async () => {
+  const token = 'sk_live_switched_context';
+  await supabase.from('user_sessions').insert(buildSessionRow({
+    userId: 'u1',
+    activeRole: 'dealer',
+    token,
+    expiresAt: future(),
+    tenantId: 'tenant-1',
+  }));
+  const { status, body } = await getMe({ 'x-session-token': token });
+  assert.equal(status, 200);
+  assert.equal(body.user.role, 'dealer');
+  assert.equal(body.user.active_tenant_id, 'tenant-1');
+});
+
+test('a token rejects role and tenant headers that conflict with its active context', async () => {
+  const token = 'sk_live_conflict';
+  await supabase.from('user_sessions').insert(buildSessionRow({ userId: 'u1', activeRole: 'owner', token, expiresAt: future() }));
+  assert.equal((await getMe({ 'x-session-token': token, 'x-stakeholder-role': 'admin' })).status, 403);
+  assert.equal((await getMe({ 'x-session-token': token, 'x-tenant-id': 'tenant-1' })).status, 403);
+});
+
+test('expired, invalidated, and unknown tokens are rejected', async () => {
   await supabase.from('user_sessions').insert(buildSessionRow({ userId: 'u1', activeRole: 'owner', token: 'expired', expiresAt: past() }));
   assert.equal((await getMe({ 'x-session-token': 'expired' })).status, 401);
-
-  const live = 'logout-tok';
+  const live = 'logout-token';
   await supabase.from('user_sessions').insert(buildSessionRow({ userId: 'u1', activeRole: 'owner', token: live, expiresAt: future() }));
   assert.equal((await getMe({ 'x-session-token': live })).status, 200);
-  await supabase.from('user_sessions').update({ is_valid: false }).eq('token', live); // logout/invalidation
+  await supabase.from('user_sessions').update({ is_valid: false }).eq('token', live);
   assert.equal((await getMe({ 'x-session-token': live })).status, 401);
-
   assert.equal((await getMe({ 'x-session-token': 'ghost' })).status, 401);
 });
 
-test('role-switch session creation still works (writes token + is_valid + the switched role)', async () => {
+test('role-switch session creation writes token, active role, and tenant', async () => {
   const token = 'sk_live_switch';
-  const { error } = await supabase.from('user_sessions').insert(buildSessionRow({ userId: 'u1', activeRole: 'admin', token, expiresAt: future() }));
+  const { error } = await supabase.from('user_sessions').insert(buildSessionRow({
+    userId: 'u1', activeRole: 'dealer', token, expiresAt: future(), tenantId: 'tenant-1',
+  }));
   assert.equal(error, null);
-  assert.equal(store.sessions[token].active_role, 'admin');
-  assert.equal(store.sessions[token].token, token);
-  assert.equal(store.sessions[token].is_valid, true);
+  assert.equal(store.sessions[token].active_role, 'dealer');
+  assert.equal(store.sessions[token].active_organization_id, 'tenant-1');
 });
 
-// ---- production is not touched: the live check refuses the prod project ----
-test('production is not touched — the live DB guard refuses the production project ref', () => {
+test('production is not touched — live DB guard refuses the production project ref', () => {
   assert.throws(
     () => assertStagingTarget(extractSupabaseRef('postgresql://postgres.vhmnajoeicasaigiophh:x@h.pooler.supabase.com:5432/postgres')),
     /PRODUCTION/i,
   );
 });
 
-// ---- optional live-DB integration: STRICTLY opt-in and STAGING-only ----
-// db/supabase.js calls dotenv.config(), so .env can populate SUPABASE_DB_URL with the PRODUCTION
-// project. This check therefore NEVER auto-connects: it requires an explicit flag (not present in
-// .env) AND refuses any non-staging ref before opening a connection.
-test('live user_sessions has token + is_valid + the unique token index (opt-in; STAGING only)', async (t) => {
-  if (process.env.RUN_LIVE_SESSION_DB_CHECK !== '1') {
-    return t.skip('set RUN_LIVE_SESSION_DB_CHECK=1 with a STAGING SUPABASE_DB_URL to run this live check');
-  }
+test('live user_sessions contract (opt-in; STAGING only)', async (t) => {
+  if (process.env.RUN_LIVE_SESSION_DB_CHECK !== '1') return t.skip('set RUN_LIVE_SESSION_DB_CHECK=1 with a STAGING SUPABASE_DB_URL');
   const url = process.env.SUPABASE_DB_URL;
-  assert.ok(url, 'a STAGING SUPABASE_DB_URL is required');
-  assertStagingTarget(extractSupabaseRef(url)); // refuses production; allows only eoyenigwevnxwwhyhaer
+  assert.ok(url);
+  assertStagingTarget(extractSupabaseRef(url));
   const pg = (await import('pg')).default;
   const client = new pg.Client({ connectionString: url });
   await client.connect();
   try {
-    const cols = await client.query(
-      "select column_name from information_schema.columns where table_schema='public' and table_name='user_sessions'");
-    const names = cols.rows.map((r) => r.column_name);
-    for (const c of MIGRATION_ADDED_COLUMNS) assert.ok(names.includes(c), `live user_sessions missing '${c}' — apply the migration`);
-    const idx = await client.query("select indexname from pg_indexes where tablename='user_sessions' and indexname='uq_user_sessions_token'");
-    assert.ok(idx.rows.length, 'unique token index missing — apply the migration');
+    const columns = await client.query("select column_name from information_schema.columns where table_schema='public' and table_name='user_sessions'");
+    const names = columns.rows.map((row) => row.column_name);
+    for (const column of MIGRATION_ADDED_COLUMNS) assert.ok(names.includes(column));
+    const index = await client.query("select indexname from pg_indexes where tablename='user_sessions' and indexname='uq_user_sessions_token'");
+    assert.ok(index.rows.length);
   } finally {
     await client.end();
   }

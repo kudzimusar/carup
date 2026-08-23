@@ -13,11 +13,12 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
+import { getAuthorizedPortalRoles } from '@/lib/authorizedPortalRoles'
 import {
   getDashboardItems,
   getDashboardRoute,
   getRoleMetadata,
-  getAllRoles,
   resolveFeatureVisibility,
   type FeatureRegistryItem,
   type NavigationContext,
@@ -42,6 +43,9 @@ export default function DashboardLayout({ role }: { role: string }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, switchRole, loading } = useAuth()
+  const { unreadCount } = useNotifications()
+  const authorizedRoles = getAuthorizedPortalRoles(user)
+  const switchableRoles = authorizedRoles.filter(authorizedRole => authorizedRole !== user?.role)
 
   const handleRoleChange = async (newRole: string) => {
     try {
@@ -135,16 +139,22 @@ export default function DashboardLayout({ role }: { role: string }) {
               <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mt-1">Active portal</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className={`w-2 h-2 rounded-full shrink-0 ${roleInfo.color}`} />
-                <select
-                  value={role}
-                  onChange={(e) => handleRoleChange(e.target.value)}
-                  aria-label="Switch active portal role"
-                  className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
-                >
-                  {getAllRoles().map((r) => (
-                    <option key={r} value={r}>{getRoleMetadata(r).title}</option>
-                  ))}
-                </select>
+                {switchableRoles.length > 0 ? (
+                  <select
+                    value={user?.role || role}
+                    onChange={(event) => handleRoleChange(event.target.value)}
+                    aria-label="Switch active portal role"
+                    className="text-xs text-gray-600 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-medium hover:text-gray-900 transition-colors"
+                  >
+                    {authorizedRoles.map((authorizedRole) => (
+                      <option key={authorizedRole} value={authorizedRole}>{getRoleMetadata(authorizedRole).title}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="text-xs font-medium text-gray-600" data-testid="active-portal-role">
+                    {getRoleMetadata((user?.role || role) as UserRole).title}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -239,8 +249,21 @@ export default function DashboardLayout({ role }: { role: string }) {
 
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="relative" asChild>
-              <Link to="/dashboard">
-                <Bell className="w-5 h-5" />
+              <Link
+                to="/notifications"
+                aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+                data-testid="dashboard-notification-link"
+              >
+                <Bell className="w-5 h-5" aria-hidden="true" />
+                {unreadCount > 0 && (
+                  <Badge
+                    className="absolute -top-1 -right-1 h-5 min-w-5 px-1 flex items-center justify-center bg-orange-500 text-[10px]"
+                    aria-hidden="true"
+                    data-testid="dashboard-notification-count"
+                  >
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Badge>
+                )}
               </Link>
             </Button>
             <Button variant="ghost" size="sm" asChild>

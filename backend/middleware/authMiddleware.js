@@ -18,45 +18,57 @@ export function resolveEffectiveRole({ userRole, tenantRole = null, requestedRol
   const trustedTenantRole = normalizeRole(tenantRole);
   const requested = normalizeRole(requestedRole);
 
-  if (!requested) {
-    return platformRole;
-  }
-
-  if (requested === platformRole) {
-    return requested;
-  }
-
-  if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') {
-    return requested;
-  }
+  if (!requested) return platformRole;
+  if (requested === platformRole) return requested;
+  if (trustedTenantRole && requested === trustedTenantRole && requested !== 'admin') return requested;
 
   const error = new Error(`Forbidden. Requested role '${requested}' is not verified for this user context.`);
   error.statusCode = 403;
   throw error;
 }
 
+async function loadSession(sessionToken) {
+  const { data: session, error } = await supabase
+    .from('user_sessions')
+    .select('user_id, is_valid, expires_at, active_role, active_organization_id')
+    .eq('token', sessionToken)
+    .single();
+  if (error || !session || !session.is_valid || new Date(session.expires_at) < new Date()) return null;
+  return session;
+}
+
+async function loadTenantRole(userId, tenantId) {
+  if (!tenantId) return null;
+  const { data: tenantUser, error } = await supabase
+    .from('tenant_users')
+    .select('role')
+    .eq('tenant_id', tenantId)
+    .eq('user_id', userId)
+    .single();
+  if (error || !tenantUser) return null;
+  return normalizeRole(tenantUser.role);
+}
+
 export function authorizeRole(allowedRoles = []) {
   return async (req, res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-    const tenantIdHeader = req.headers['x-tenant-id'];
+    const tenantIdHeader = req.headers['x-tenant-id'] ? String(req.headers['x-tenant-id']) : null;
     const requestedRole = normalizeRole(req.headers['x-stakeholder-role']);
     const fallbackUserId = req.headers['x-user-id'];
 
     try {
       let activeUserId = null;
+      let sessionRole = null;
+      let sessionTenantId = null;
+      const session = sessionToken ? await loadSession(sessionToken) : null;
 
-      // 1. Validate Session Token
-      if (sessionToken) {
-        const { data: session, error: sessionError } = await supabase
-          .from('user_sessions')
-          .select('user_id, is_valid, expires_at')
-          .eq('token', sessionToken)
-          .single();
-
-        if (sessionError || !session || !session.is_valid || new Date(session.expires_at) < new Date()) {
-          return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
-        }
+      if (sessionToken && !session) {
+        return res.status(401).json({ error: 'Unauthorized. Session is invalid or expired.' });
+      }
+      if (session) {
         activeUserId = session.user_id;
+        sessionRole = normalizeRole(session.active_role);
+        sessionTenantId = session.active_organization_id ? String(session.active_organization_id) : null;
       }
 
       if (!activeUserId && fallbackUserId) {
@@ -65,53 +77,49 @@ export function authorizeRole(allowedRoles = []) {
         }
         activeUserId = fallbackUserId;
       }
-
       if (!activeUserId) {
         return res.status(401).json({ error: 'Unauthorized. No active user context.' });
       }
 
-      // 2. Fetch User Profile
       const { data: user, error: userError } = await supabase
         .from('users')
         .select('role, is_verified')
         .eq('id', activeUserId)
         .single();
-
       if (userError || !user) {
         return res.status(401).json({ error: 'Unauthorized. User record not found.' });
       }
 
       const platformRole = normalizeRole(user.role) || 'member';
+      const sessionBacked = Boolean(session);
+      const effectiveTenantId = sessionBacked ? sessionTenantId : tenantIdHeader;
 
-      // 3. Validate Tenant Context (Multi-Tenancy Rule)
-      let tenantRole = null;
-      if (tenantIdHeader) {
-        const { data: tenantUser, error: tenantError } = await supabase
-          .from('tenant_users')
-          .select('role')
-          .eq('tenant_id', tenantIdHeader)
-          .eq('user_id', activeUserId)
-          .single();
-
-        if (tenantError || !tenantUser) {
-          return res.status(403).json({ error: 'Forbidden. You do not have access to this tenant organization.' });
-        }
-        tenantRole = normalizeRole(tenantUser.role); // e.g., 'admin', 'manager', 'mechanic'
+      // A token establishes its own role and tenant. Client headers may repeat that context, but
+      // cannot replace it. This prevents stale or tampered local storage from redefining a session.
+      if (sessionBacked && tenantIdHeader && tenantIdHeader !== sessionTenantId) {
+        return res.status(403).json({ error: 'Forbidden. Requested tenant does not match the active session.' });
+      }
+      if (sessionBacked && requestedRole && sessionRole && requestedRole !== sessionRole) {
+        return res.status(403).json({ error: 'Forbidden. Requested role does not match the active session.' });
       }
 
+      const tenantRole = effectiveTenantId ? await loadTenantRole(activeUserId, effectiveTenantId) : null;
+      if (effectiveTenantId && !tenantRole) {
+        return res.status(403).json({ error: 'Forbidden. You do not have access to this tenant organization.' });
+      }
+
+      const roleCandidate = sessionBacked ? (sessionRole || platformRole) : requestedRole;
       const effectiveRole = resolveEffectiveRole({
         userRole: platformRole,
         tenantRole,
-        requestedRole,
+        requestedRole: roleCandidate,
       });
       const allowed = allowedRoles.map(normalizeRole);
 
-      // 4. Enforce Route Role Permissions
       if (allowed.length > 0 && !allowed.includes(effectiveRole) && !PLATFORM_ADMIN_ROLES.has(platformRole)) {
         return res.status(403).json({ error: `Forbidden. Role '${effectiveRole}' cannot access this resource.` });
       }
 
-      // 5. Inject Context for Downstream Routes
       req.userContext = {
         id: activeUserId,
         userId: activeUserId,
@@ -120,58 +128,47 @@ export function authorizeRole(allowedRoles = []) {
         baseRole: platformRole,
         platformRole,
         tenantRole,
-        tenantId: tenantIdHeader || null,
-        requestedRole,
+        tenantId: effectiveTenantId || null,
+        requestedRole: roleCandidate,
         isVerified: Boolean(user.is_verified),
       };
-
       next();
     } catch (error) {
-      const statusCode = error.statusCode || 500;
-      res.status(statusCode).json({ error: error.message });
+      res.status(error.statusCode || 500).json({ error: error.message });
     }
   };
 }
 
-/**
- * Optional authentication. Resolves req.userContext when a valid session (or dev x-user-id fallback)
- * is present, otherwise continues as an anonymous guest WITHOUT failing the request. Use for public
- * endpoints that personalize when signed in (e.g. marketplace inquiry attribution, listing-view events).
- * Never throws; never blocks; never trusts client role headers for privileged checks.
- */
+/** Optional authentication for public routes. A valid token still uses its session role and tenant. */
 export function optionalAuth() {
   return async (req, _res, next) => {
     const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
     const fallbackUserId = req.headers['x-user-id'];
     try {
-      let activeUserId = null;
-      if (sessionToken) {
-        const { data: session } = await supabase
-          .from('user_sessions')
-          .select('user_id, is_valid, expires_at')
-          .eq('token', sessionToken)
-          .single();
-        if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
-          activeUserId = session.user_id;
-        }
-      }
-      if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) {
-        activeUserId = fallbackUserId;
-      }
+      const session = sessionToken ? await loadSession(sessionToken) : null;
+      let activeUserId = session?.user_id || null;
+      if (!activeUserId && fallbackUserId && isUserIdFallbackAllowed()) activeUserId = fallbackUserId;
       if (activeUserId) {
         const { data: user } = await supabase.from('users').select('role, is_verified').eq('id', activeUserId).single();
         const platformRole = normalizeRole(user?.role) || 'member';
+        const tenantId = session?.active_organization_id ? String(session.active_organization_id) : null;
+        const tenantRole = tenantId ? await loadTenantRole(activeUserId, tenantId) : null;
+        const role = session
+          ? resolveEffectiveRole({ userRole: platformRole, tenantRole, requestedRole: session.active_role })
+          : platformRole;
         req.userContext = {
           id: activeUserId,
           userId: activeUserId,
-          role: platformRole,
+          role,
+          effectiveRole: role,
           platformRole,
-          tenantId: req.headers['x-tenant-id'] || null,
+          tenantRole,
+          tenantId,
           isVerified: Boolean(user?.is_verified),
         };
       }
     } catch {
-      // Best-effort only — never block a public request on auth resolution.
+      // Best effort only: optional authentication never blocks a public request.
     }
     next();
   };

@@ -2,8 +2,13 @@ import express from 'express';
 import { supabase } from '../db/supabase.js';
 import { authorizeRole } from '../middleware/authMiddleware.js';
 import { DatabaseError } from '../utils/errors.js';
+import sessionAccountRouter from './sessionAccountRoutes.js';
 
 const router = express.Router();
+
+// Mounted before the legacy inline server routes so these canonical session-backed handlers are the
+// effective account endpoints while the old inline definitions remain unreachable pending cleanup.
+router.use(sessionAccountRouter);
 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);

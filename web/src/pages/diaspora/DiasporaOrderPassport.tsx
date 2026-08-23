@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { useAuth } from '@/context/AuthContext'
+import { buildLoginRedirect } from '@/lib/returnTo'
 import { useCarUpApi } from '@/hooks/useCarUpApi'
 import PaymentMilestonesCard from '@/components/diaspora/PaymentMilestonesCard'
 import { classifyActionError } from '@/components/diaspora/safetrade/safeTradeHelpers'
@@ -211,7 +212,7 @@ export default function DiasporaOrderPassport() {
           <AlertTitle>Sign in required</AlertTitle>
           <AlertDescription>
             Please sign in to view this order passport.
-            <Button asChild size="sm" variant="default" className="ml-2"><Link to="/login">Sign in</Link></Button>
+            <Button asChild size="sm" variant="default" className="ml-2"><Link to={buildLoginRedirect(`/diaspora/imports/${id}/passport`)}>Sign in</Link></Button>
           </AlertDescription>
         </Alert>
       </main>
@@ -228,7 +229,7 @@ export default function DiasporaOrderPassport() {
             {fatal.message}
             <span className="ml-2 inline-flex gap-2">
               {fatal.kind === 'error' && <Button size="sm" variant="outline" onClick={() => void load()} data-testid="order-passport-retry">Retry</Button>}
-              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to="/login" data-testid="order-passport-signin">Sign in</Link></Button>}
+              {fatal.kind === 'session' && <Button asChild size="sm" variant="default"><Link to={buildLoginRedirect(`/diaspora/imports/${id}/passport`)} data-testid="order-passport-signin">Sign in</Link></Button>}
               <Button asChild size="sm" variant="ghost"><Link to="/diaspora/imports" data-testid="order-passport-back">Back to import orders</Link></Button>
             </span>
           </AlertDescription>
