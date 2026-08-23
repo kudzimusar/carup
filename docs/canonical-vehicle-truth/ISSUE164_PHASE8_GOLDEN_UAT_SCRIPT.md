@@ -13,8 +13,8 @@ This was verified, not guessed:
 
 | Surface | Serves | Use for UAT? |
 |---|---|---|
-| `https://carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app` | **Phase 8 head** `f4a879c129…` | ✅ **yes** |
-| `https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app` | Phase 8 head (`/api/health` confirms `commit_sha`) | ✅ its API |
+| `https://carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app` | **certified head** `3e7ca25c65…` | ✅ **yes** |
+| `https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app` | certified head — `/api/health` returns `commit_sha: 3e7ca25c65cc08b10ba9c97944cab184176c5655`, verified | ✅ its API |
 | `https://staging.carup.dev` / `api-staging.carup.dev` | `main` = `87033020` (**pre-Phase-8**) | ❌ no |
 
 > If a newer commit is pushed, take the current preview URL from PR #165's **Vercel – carup-staging**
@@ -82,7 +82,7 @@ Use a **private/incognito window** (no session).
 | # | Step | Expected result |
 |---|---|---|
 | 1 | Open `/` (Landing) | Featured cars load from live published listings. **No** green "Verified" badge and **no** `Trust NN` number on any card — only governed tags. While loading it says *"Loading featured listings…"*; a failed read says *"unavailable… not an empty marketplace"* — never a false "no listings". |
-| 2 | Find Golden A's card; note make/model/year, price, location | Expect **2019 Toyota Hilux**, **USD 21,500**, **Bulawayo, Bulawayo Metropolitan, Zimbabwe**, tags incl. *Evidence Available* / *One Owner*. |
+| 2 | Find Golden A's card; note make/model/year, price, location | Expect **2019 Toyota Hilux**, **USD 21,500**, **Bulawayo, Bulawayo Metropolitan, Zimbabwe**, tags *Evidence Available* / *One Owner* / *Private Sale*. These exact values were read back from the live certified deployment. |
 | 3 | Type `Hilux` in the Landing search, submit | Navigates to `/marketplace?q=Hilux` — **the query is preserved**. |
 | 4 | In Marketplace, locate `CARUPGLDNA0000001` | Same identity/price/currency/location as step 2. Spec chips appear only where recorded — no `0 km`, no *Auto*, no *Petrol* filler. Seller shows a governed label or *Seller not disclosed* — never *CarUp Dealer*/*Private seller*. |
 | 5 | Compare Landing (step 2) to Marketplace (step 4) | **Identical** identity, price, currency, location, primary image. *(Invariant 13)* |
