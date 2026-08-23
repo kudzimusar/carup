@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Car, ImageOff } from 'lucide-react'
 
 /**
@@ -30,10 +30,11 @@ export function ListingImage({
   imgClassName?: string
   representative?: boolean
 }) {
-  const [failed, setFailed] = useState(false)
-  // A new src deserves a fresh attempt — otherwise switching gallery photos after one failure would
-  // suppress every subsequent image.
-  useEffect(() => { setFailed(false) }, [src])
+  // Remember WHICH src failed, not merely THAT one did. A new src is then a fresh attempt by
+  // construction — no reset effect, so switching gallery photos after one failure cannot suppress
+  // every subsequent image.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const failed = !!src && failedSrc === src
 
   if (src && !failed) {
     return (
@@ -43,7 +44,7 @@ export function ListingImage({
           alt={alt}
           className={`h-full w-full object-cover ${imgClassName}`}
           loading="lazy"
-          onError={() => setFailed(true)}
+          onError={() => setFailedSrc(src)}
         />
         {representative && (
           <span
