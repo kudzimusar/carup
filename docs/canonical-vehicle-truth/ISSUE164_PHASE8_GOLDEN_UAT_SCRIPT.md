@@ -88,7 +88,7 @@ Use a **private/incognito window** (no session).
 | 5 | Compare Landing (step 2) to Marketplace (step 4) | **Identical** identity, price, currency, location, primary image. *(Invariant 13)* |
 | 6 | Open the vehicle → Detail / Passport | Trust panel shows **60**, band *moderate*, confidence *low*, version `trust-decision-1.0.0`, with known limitations listed. |
 | 7 | Compare that Trust to anything shown elsewhere for this VIN | Same score **60** and same version everywhere. *(Invariant 1)* |
-| 8 | Compare the photo gallery with the evidence/documents section | **5** listing photos as media; **4** verified documents as evidence, in a separate section. No listing photo presented as verified evidence. *(Invariants 5, 6)* |
+| 8 | Compare the photo gallery with the evidence/documents section | **5** listing photos as media; **4** verified documents as evidence, in a separate section (registration, police clearance, inspection, insurance). Both verified against the live passport API. No listing photo presented as verified evidence. *(Invariants 5, 6)* |
 | 9 | Check Reg. Country / Reg. Authority | A governed, provenance-backed value or *not recorded* — never a bare `ZW` / `CVR` default. |
 | 10 | Check the seller block | Only what the seller published. No number published → *No contact number published*, action disabled. No fabricated phone. |
 | 11 | DevTools → Network → the marketplace/vehicle API responses | No `owner_id`, `tenant_id` or `current_seller_id` in any public payload. *(Invariant 3)* |
@@ -116,9 +116,9 @@ Private/incognito window again.
 | # | Step | Expected result |
 |---|---|---|
 | 21 | Search Marketplace for `CARUPGLDNB0000002` | **Must NOT appear** — it is `draft` because its ownership document is pending. *(Invariant 9)* — pre-verified against the live API: the public listing read returns Golden A and excludes Golden B. |
-| 22 | Navigate directly to `/marketplace/CARUPGLDNB0000002` | Not-found/unavailable, or a page with **no** verified claims. It must not render as a published, verified listing. |
-| 23 | If Trust is shown | **50**, band *moderate*, confidence *low* — a real, low, derived score. **Not** a green badge, and not a fabricated *verified*. A low score from partial evidence is the honest result. |
-| 24 | Check evidence/documents | The registration document shows **pending** (not verified). Missing items read as missing. Absence never renders as a clean bill of health. *(Invariant 11)* |
+| 22 | Navigate directly to `/marketplace/CARUPGLDNB0000002` | A page **does** render — the vehicle passport is public even though the listing is not (`/api/marketplace/listings/…` returns **404 Listing not found**, while `/api/vehicles/…/passport` returns 200, and the detail page reads the passport first). What matters is that it does **not** present as a published, verified listing: no published gallery, no verified claims, no buy/reserve affordance. |
+| 23 | Check Trust | **50**, state *evaluated*, band *moderate*, confidence *low*, version `trust-decision-1.0.0` — verified against the live API. A real, low, derived score. **Not** a green badge and not a fabricated *verified*: a low score from partial evidence is the honest result. |
+| 24 | Check evidence/documents and the photo gallery | **Nothing is published in either** — verified: `verified_evidence` is `none` (0 items) because B's only document is still *pending*, and only verified evidence is ever published; `listing_media` is also `none` because the passport gates the gallery on publication status and B is `draft`. So expect an explicit empty/withheld state, **not** a visible "pending" document — the pending item lives on the owner surface (step 27), not the public one. Absence must never render as a clean bill of health. *(Invariant 11)* |
 
 ## 6. Golden B — authenticated Owner
 
