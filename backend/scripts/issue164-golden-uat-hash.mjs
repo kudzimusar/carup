@@ -23,7 +23,7 @@
  *
  *   node backend/scripts/issue164-golden-uat-hash.mjs --out=/tmp/golden-uat.hash
  */
-import { openSync, fchmodSync, writeSync, closeSync } from 'node:fs';
+import { openSync, fchmodSync, writeFileSync, closeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const MIN_LENGTH = 12;
@@ -114,7 +114,12 @@ async function main() {
   }
   try {
     fchmodSync(fd, 0o600);
-    writeSync(fd, `${hash}\n`, null, 'utf8');
+    // writeFileSync on the DESCRIPTOR, not the path: it loops internally until every byte is
+    // persisted, whereas a bare writeSync returns a byte count and can short-write under quota or on
+    // some network/FUSE filesystems — which would close a truncated hash and still report success.
+    // A truncated scrypt digest would then fail login for no visible reason. Passing the already-open
+    // fd keeps the exclusive-create and 0600 guarantees above intact.
+    writeFileSync(fd, `${hash}\n`, { encoding: 'utf8' });
   } finally {
     closeSync(fd);
   }

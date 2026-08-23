@@ -33,10 +33,10 @@ test('the plaintext is never echoed, logged, or written', () => {
   // Raw mode with no echo is what keeps it off the screen.
   assert.match(code, /setRawMode\(true\)/, 'terminal input must be read without echo');
   // Exactly one write, and its payload is the hash — never the plaintext.
-  const writes = code.match(/writeSync\([^)]*\)/g) || [];
+  const writes = code.match(/writeFileSync\([^)]*\)/g) || [];
   assert.equal(writes.length, 1, 'exactly one file write (the hash) is permitted');
-  assert.ok(/writeSync\(fd, `\$\{hash\}/.test(code), 'the written value must be the hash');
-  assert.ok(!/writeSync\([^)]*password/i.test(code), 'the plaintext must never be written');
+  assert.ok(/writeFileSync\(fd, `\$\{hash\}/.test(code), 'the written value must be the hash');
+  assert.ok(!/writeFileSync\([^)]*password/i.test(code), 'the plaintext must never be written');
   assert.ok(!/console\.log\([^)]*password/i.test(code), 'the password must never be printed');
   // Nor may the hash itself be printed to stdout.
   assert.ok(!/console\.log\([^)]*\bhash\b[^)]*\)/.test(code.replace(/hash\.split\(':'\)\[0\]/g, 'SCHEME')),
@@ -55,7 +55,10 @@ test('the file is created EXCLUSIVELY at 0600 — never overwritten, never throu
   // any existing path; fchmod pins the mode regardless of umask.
   assert.match(code, /openSync\([^)]*'wx'[^)]*0o600\)/, 'the file must be created exclusively at 0600');
   assert.match(code, /fchmodSync\(fd, 0o600\)/, 'the mode must be enforced on the open descriptor');
-  assert.ok(!/writeFileSync/.test(code), 'must not use writeFileSync, whose mode is create-only');
+  // The PATH form of writeFileSync is banned (its mode applies only on creation, and it follows
+  // symlinks); the DESCRIPTOR form is required, because it loops until every byte is persisted.
+  assert.ok(!/writeFileSync\(outPath/.test(code), 'must not write by path — mode is create-only there');
+  assert.match(code, /writeFileSync\(fd,/, 'must write through the exclusively-opened descriptor');
 });
 
 test('an existing output path is refused rather than overwritten', () => {
