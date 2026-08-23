@@ -34,10 +34,39 @@ if (pairing.unpaired) {
   )
 }
 
+/**
+ * Emit `/carup-provenance.json` describing what this build is paired to.
+ *
+ * The receipt script needs to know the API base the browser will actually use. Reading it back out of
+ * the bundle is not reliable: Vite INLINES `import.meta.env.VITE_API_URL` at each call site, while
+ * `DEFAULT_STAGING_API_BASE_URL` remains present as an unused constant — so "the stable staging host
+ * appears in the bundle" says nothing about which base is live. (That false positive blocked a
+ * correctly-paired preview on the first run of the guard.) The build states it instead.
+ */
+function provenanceManifest() {
+  return {
+    name: 'carup-provenance-manifest',
+    apply: 'build' as const,
+    generateBundle(this: { emitFile: (f: { type: 'asset'; fileName: string; source: string }) => void }) {
+      this.emitFile({
+        type: 'asset',
+        fileName: 'carup-provenance.json',
+        source: JSON.stringify({
+          commit_sha: process.env.VITE_COMMIT_SHA || null,
+          git_ref: process.env.VITE_GIT_REF || null,
+          api_base_url: process.env.VITE_API_URL || null,
+          api_base_source: pairing.reason,
+          unpaired: pairing.unpaired,
+        }, null, 2),
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   base: '/',
-  plugins: [react()],
+  plugins: [react(), provenanceManifest()],
   server: {
     port: 5173,
   },
