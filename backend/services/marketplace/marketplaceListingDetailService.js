@@ -56,6 +56,7 @@
 
 import {
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
@@ -162,10 +163,7 @@ function buildTransactionIntent(trustSummary, reservationSummary) {
 export async function getMarketplaceListingDetail(supabaseClient, vin, { audience = 'public', showFixtures } = {}) {
   if (!vin) throw new NotFoundError('Listing not found');
 
-  const { data: rows, error } = await supabaseClient
-    .from('vehicles')
-    .select(LISTING_SELECT_COLUMNS)
-    .eq('vin', vin);
+  const { data: rows, error } = await selectListingRows(supabaseClient, (q) => q.eq('vin', vin));
   if (error) throw error;
 
   const candidate = Array.isArray(rows) ? rows[0] : rows;

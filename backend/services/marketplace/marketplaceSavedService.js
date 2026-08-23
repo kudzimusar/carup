@@ -7,6 +7,7 @@
 import { supabase } from '../../db/supabase.js';
 import {
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
@@ -65,7 +66,7 @@ export async function listSavedListings(client, actor) {
   const vins = savedRows.map((r) => r.vin).filter(Boolean);
   if (!vins.length) return { listings: [], total: 0 };
 
-  const { data: vehicles, error } = await client.from('vehicles').select(LISTING_SELECT_COLUMNS).in('vin', vins);
+  const { data: vehicles, error } = await selectListingRows(client, (q) => q.in('vin', vins));
   if (error) throw error;
   const visible = filterVisibleVehicles(vehicles);
   const visibleVins = visible.map((v) => v.vin).filter(Boolean);

@@ -13,6 +13,7 @@ import { supabase } from '../../db/supabase.js';
 import { emitDomainEvent } from '../eventBus/eventBusService.js';
 import {
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
@@ -175,7 +176,7 @@ export const clearListingRisk = (c, vin, b, a) => moderateListing(c, vin, 'clear
  */
 export async function listListingsForAdmin(client, filters = {}) {
   assertModerator(filters.actor || {});
-  const { data: vehicles, error } = await client.from('vehicles').select(LISTING_SELECT_COLUMNS);
+  const { data: vehicles, error } = await selectListingRows(client);
   if (error) throw error;
   const showFixtures = shouldShowFixtures();
   const candidates = (vehicles || []).filter((v) => showFixtures || getFixtureExclusion(v) === null);

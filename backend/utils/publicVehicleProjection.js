@@ -542,6 +542,24 @@ export const LISTING_CLAIM_COLUMNS = Object.freeze([
 ]);
 
 /**
+ * True when a PostgREST error means "this database does not have the claim columns yet" — as opposed
+ * to any other failure. Callers use it to retry a read without those columns instead of erroring.
+ *
+ * The name-based fallback is deliberately conjoined with a "missing" phrase. On its own it would also
+ * match a CHECK violation, whose constraint names embed these column names — and treating a
+ * vocabulary violation as "the schema is old" would silently drop a governed value and report
+ * success, hiding a real bug behind the migration. A constraint violation must surface as one.
+ */
+export function isMissingListingClaimColumnError(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  if (code === 'PGRST204' || code === '42703') return true;
+  const text = [error?.message, error?.details, error?.hint].filter(Boolean).join(' ').toLowerCase();
+  const saysMissing = text.includes('could not find') || text.includes('does not exist') || text.includes('schema cache');
+  return saysMissing && LISTING_CLAIM_COLUMNS.some((column) => text.includes(column));
+}
+
+
+/**
  * The blocks of the listing claim contract and the EXACT fields each one carries. A block always
  * carries all of its fields and never any other, so a consumer reads a state rather than
  * inferring one from a missing key.

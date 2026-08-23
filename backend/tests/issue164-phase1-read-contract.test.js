@@ -128,6 +128,12 @@ const CANONICAL_SELECT_IDENTIFIERS = [
   'OWNER_VEHICLE_SELECT',
   'PUBLIC_VEHICLE_COLUMNS',
   'LISTING_SELECT_COLUMNS',
+  // LISTING_SELECT_COLUMNS plus the twelve LISTING_CLAIM_COLUMNS the claim contract gates on. It is
+  // canonical BY CONSTRUCTION — it is derived from those two exported lists, never hand-written —
+  // and the permanent-invariant suite asserts that composition, so registering it here is backed by
+  // a proof rather than a promise. `\bLISTING_SELECT_COLUMNS\b` does not match this longer name
+  // (the underscore is a word character), so it needs naming explicitly.
+  'LISTING_SELECT_COLUMNS_WITH_CLAIMS',
 ];
 
 /**

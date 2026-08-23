@@ -373,15 +373,55 @@ test('INV-14: the Golden dataset stays deterministic and creates no unremovable 
 });
 
 // ── INVARIANT 2 (reader-side) — the gate must fail closed on MISSING DATA, not on an unread column ─
-test('INV-2: the marketplace select fetches every provenance column its claim contract gates on', async () => {
+test('INV-2: the provenance-preferring select names every column the claim contract gates on', () => {
   // The claim contract publishes a location/currency/seller-type/registration fact only when the row
-  // carries the matching *_source. If the select omits one of those columns the gate withholds a fact
-  // that IS governed — the reader never looked. Bind the two lists together so they cannot drift.
-  const selected = listing.LISTING_SELECT_COLUMNS.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  // carries the matching *_source. The widened select must name all of them, or the gate withholds a
+  // fact that IS governed — the reader simply never looked.
+  const wide = listing.LISTING_SELECT_COLUMNS_WITH_CLAIMS.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
   for (const col of projection.LISTING_CLAIM_COLUMNS) {
-    assert.ok(selected.includes(col),
-      `LISTING_SELECT_COLUMNS must fetch the provenance column '${col}' — the claim contract gates on it`);
+    assert.ok(wide.includes(col), `the widened select must fetch the provenance column '${col}'`);
   }
+  // And the NARROW set must still name none of them: PostgREST errors an entire select on an unknown
+  // column, so an unmigrated database has to have a set it can actually satisfy.
+  const narrow = listing.LISTING_SELECT_COLUMNS.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
+  for (const col of projection.LISTING_CLAIM_COLUMNS) {
+    assert.ok(!narrow.includes(col), `the fallback select must NOT name '${col}'`);
+  }
+});
+
+test('INV-2: the listing read prefers provenance and degrades instead of failing', async () => {
+  const asked = [];
+  const clientFor = (respond) => ({ from: () => ({ select: (columns) => { asked.push(columns); return respond(columns); } }) });
+
+  // Migrated database: the widened select succeeds and is the one used.
+  const ok = await listing.selectListingRows(clientFor(() => Promise.resolve({ data: [{ vin: 'V' }], error: null })));
+  assert.equal(asked.length, 1, 'a successful widened read must not retry');
+  assert.ok(asked[0].includes('currency_source'), 'the first attempt must ask for provenance');
+  assert.deepEqual(ok.data, [{ vin: 'V' }]);
+
+  // Unmigrated database: PostgREST reports the missing column; the read degrades rather than erroring.
+  asked.length = 0;
+  const degraded = await listing.selectListingRows(clientFor((columns) =>
+    columns.includes('currency_source')
+      ? Promise.resolve({ data: null, error: { code: '42703', message: 'column vehicles.currency_source does not exist' } })
+      : Promise.resolve({ data: [{ vin: 'V' }], error: null })));
+  assert.equal(asked.length, 2, 'a missing claim column must trigger exactly one fallback');
+  assert.ok(!asked[1].includes('currency_source'), 'the fallback must drop the provenance columns');
+  assert.deepEqual(degraded.data, [{ vin: 'V' }], 'cards must still render on an unmigrated database');
+  assert.equal(degraded.error, null);
+
+  // Any OTHER error must surface — a constraint violation is not "the schema is old".
+  asked.length = 0;
+  const real = await listing.selectListingRows(clientFor(() =>
+    Promise.resolve({ data: null, error: { code: '23514', message: 'violates check constraint' } })));
+  assert.equal(real.error.code, '23514', 'an unrelated error must not be swallowed by the fallback');
+  assert.equal(asked.length, 1, 'an unrelated error must not trigger a retry');
+
+  // The caller's filters are applied to whichever column set is used.
+  asked.length = 0;
+  let shaped = 0;
+  await listing.selectListingRows(clientFor(() => Promise.resolve({ data: [], error: null })), (q) => { shaped += 1; return q; });
+  assert.equal(shaped, 1, 'the caller-supplied shape must be applied');
 });
 
 test('INV-2 (behavioural): a provenance-backed row publishes its location and currency', () => {

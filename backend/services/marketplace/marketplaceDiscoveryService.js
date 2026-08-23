@@ -8,6 +8,7 @@ import {
   CONDITION_CATEGORIES,
   MARKETPLACE_TAGS,
   LISTING_SELECT_COLUMNS,
+  selectListingRows,
   buildMarketplaceListingSummary,
   fetchCanonicalTrustByVin,
   fetchListingRelatedRows,
@@ -67,16 +68,13 @@ export async function compareListings(client, vins = []) {
  */
 export async function getMarketplaceRecommendations(client, vin, { limit = RECOMMENDATION_LIMIT } = {}) {
   if (!vin) throw new ValidationError('vin is required for recommendations.');
-  const { data: anchorRows, error: anchorErr } = await client
-    .from('vehicles')
-    .select(LISTING_SELECT_COLUMNS)
-    .eq('vin', vin);
+  const { data: anchorRows, error: anchorErr } = await selectListingRows(client, (q) => q.eq('vin', vin));
   if (anchorErr) throw anchorErr;
   const anchor = Array.isArray(anchorRows) ? anchorRows[0] : anchorRows;
   if (!anchor) return { listings: [], total: 0 };
 
   const price = Number(anchor.price) || 0;
-  const { data: candidates, error } = await client.from('vehicles').select(LISTING_SELECT_COLUMNS).eq('make', anchor.make);
+  const { data: candidates, error } = await selectListingRows(client, (q) => q.eq('make', anchor.make));
   if (error) throw error;
 
   const visible = filterVisibleVehicles(candidates).filter((v) => v.vin !== vin);

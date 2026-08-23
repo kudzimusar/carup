@@ -1,7 +1,9 @@
 import { isPublicVehicleStatus, isPubliclyVisiblePublication } from '../../utils/vehicleStatus.js';
 import {
   FIELD_STATES,
+  LISTING_CLAIM_COLUMNS,
   attestedValue,
+  isMissingListingClaimColumnError,
   isRecordedValue,
   toListingClaims,
   toRegistrationClaim,
@@ -912,22 +914,18 @@ export function filterVisibleVehicles(vehicles, { showFixtures } = {}) {
  *       it: a genuinely stated currency would be permanently unpublishable, which is the
  *       under-reporting failure mode, not the fabricating one, but still a failure mode. */
 /**
- * THE PROVENANCE COLUMNS ARE PART OF THIS SELECT, AND HAVE TO BE.
+ * The ALWAYS-SAFE column set: every name here exists on `public.vehicles` in every environment.
  *
- * The listing claim contract is provenance-gated: `toListingClaims` publishes a location, currency,
- * seller type or registration fact ONLY when the row also carries the matching `*_source`. Those are
- * exactly the twelve columns in `LISTING_CLAIM_COLUMNS` (publicVehicleProjection.js).
+ * The twelve provenance columns the claim contract gates on (`LISTING_CLAIM_COLUMNS`) are NOT here,
+ * because PostgREST fails an ENTIRE select when it names a column the table does not have — an
+ * unknown name errors the whole request rather than yielding null for that one field. Naming them
+ * unconditionally would take down every marketplace read on any database where
+ * `20260818110000_issue164_listing_location_provenance.sql` has not yet been applied.
  *
- * This select previously fetched `currency` but not `currency_source`, and none of the
- * `listing_city/province/country/location_source` columns at all. The gate then did what it is
- * supposed to do with a sourceless value — withhold it — so EVERY listing published
- * `currency: null` and `location: null` even where the database held a fully provenance-backed
- * `USD` / `Bulawayo, Bulawayo Metropolitan` recorded by the governed write path.
- *
- * That is the gate failing safe over a hole in the query rather than over missing data: the facts
- * existed and were governed, and the marketplace under-reported all of them. Fail-closed is right;
- * failing closed because the reader never looked is not. If a claim column is added to
- * LISTING_CLAIM_COLUMNS, it must be added here too, or that claim silently disappears from every card.
+ * `selectListingRows` below asks for them anyway and falls back to this set when the database says
+ * they are missing — the same degrade the write path already performs in `/api/vehicles/add`. So a
+ * migrated database publishes provenance-backed location/currency/seller-type/registration claims,
+ * and an unmigrated one keeps serving cards instead of erroring.
  */
 export const LISTING_SELECT_COLUMNS = `
       vin,
@@ -957,20 +955,45 @@ export const LISTING_SELECT_COLUMNS = `
       zimra_verified,
       safe_pay_ready,
       inspection_ready,
-      listing_city,
-      listing_province,
-      listing_country,
-      listing_location_source,
-      listing_location_visibility,
-      listing_location_recorded_at,
-      registration_country_source,
-      registration_authority_source,
-      registration_status_source,
-      plate_status_source,
-      current_seller_type_source,
-      currency_source,
       tenant:tenants(name, type, status)
     `;
+
+/**
+ * The same set PLUS the twelve provenance columns the claim contract gates on. Used first; if the
+ * database has not had the listing-provenance migration applied, the read degrades to the narrow set.
+ */
+export const LISTING_SELECT_COLUMNS_WITH_CLAIMS = `${LISTING_SELECT_COLUMNS},
+      ${LISTING_CLAIM_COLUMNS.join(',\n      ')}
+    `;
+
+/**
+ * Run a listing-row read that PREFERS provenance and degrades instead of failing.
+ *
+ * `shape(query)` receives a fresh `from('vehicles').select(...)` builder and applies the caller's
+ * filters. A builder cannot be replayed, so the fallback re-shapes a new one. Callers never name
+ * columns themselves — the canonical lists live here and only here.
+ *
+ * Why this exists: the claim contract publishes a location, currency, seller type or registration
+ * fact only when the row also carries its `*_source`. Reading without those columns made the gate
+ * withhold facts that ARE governed — every card showed `currency: null` and `location: null` even
+ * where the governed write path had recorded both. Failing closed is right; failing closed because
+ * the reader never looked is not. Asking for them unconditionally is equally wrong: PostgREST errors
+ * the whole select on an unknown column, so on an unmigrated database that is an outage rather than
+ * a degradation. Preferring them and falling back gives correct claims where the migration has
+ * landed and working cards where it has not.
+ */
+export async function selectListingRows(client, shape = (query) => query) {
+  // Both selects name a canonical list literally, so the read-contract scanner can see that this
+  // service reads through the contract rather than a hand-rolled column set.
+  const wide = await shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS_WITH_CLAIMS));
+  if (!wide?.error) return wide;
+  if (isMissingListingClaimColumnError(wide.error)) {
+    return shape(client.from('vehicles').select(LISTING_SELECT_COLUMNS));
+  }
+  return wide;
+}
+
+
 
 /**
  * The `listing_images` read, kept SEPARATE from `maybeFetchRows` because the two differ on the one
@@ -1061,18 +1084,21 @@ export async function listMarketplaceListings(supabaseClient, params = {}) {
     requestedTags.push(categorySlug);
   }
 
-  let query = supabaseClient
-    .from('vehicles')
-    .select(LISTING_SELECT_COLUMNS);
+  // Provenance-preferred: build the same filtered query for whichever column set the database
+  // supports, so claims are published where the migration has landed and cards still render where
+  // it has not.
+  const shapeListQuery = (query) => {
+    let q = query;
+    if (params.make) q = q.eq('make', params.make);
+    if (minPrice !== null) q = q.gte('price', minPrice);
+    if (maxPrice !== null) q = q.lte('price', maxPrice);
+    if (requestedCondition && CONDITION_CATEGORIES.includes(requestedCondition)) {
+      q = q.eq('vehicle_condition_category', requestedCondition);
+    }
+    return q;
+  };
 
-  if (params.make) query = query.eq('make', params.make);
-  if (minPrice !== null) query = query.gte('price', minPrice);
-  if (maxPrice !== null) query = query.lte('price', maxPrice);
-  if (requestedCondition && CONDITION_CATEGORIES.includes(requestedCondition)) {
-    query = query.eq('vehicle_condition_category', requestedCondition);
-  }
-
-  const { data: vehicles, error } = await query;
+  const { data: vehicles, error } = await selectListingRows(supabaseClient, shapeListQuery);
   if (error) throw error;
 
   const publicVehicles = filterVisibleVehicles(vehicles);
