@@ -1,6 +1,38 @@
 import path from "path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
+import { loadPairingFile, resolvePreviewApiUrl } from "./build/previewPairing"
+
+// ── Candidate provenance (Issue #164 Phase 8, Cluster I) ────────────────────────────────────────
+// A per-branch preview must be built against ITS OWN backend preview. The first Phase 8 physical UAT
+// was invalidated because the preview frontend silently used the stable staging backend, which serves
+// `main`. `resolvePreviewApiUrl` fails closed when a preview cannot be paired.
+//
+// These are assigned onto `process.env` rather than injected via `define` because Vite exposes every
+// `VITE_`-prefixed process env var through `import.meta.env` during config resolution. `define` would
+// have to match the source text `import.meta.env?.VITE_API_URL` (with the optional chain) exactly, and
+// silently no-ops when it does not.
+const pairing = resolvePreviewApiUrl({
+  configuredApiUrl: process.env.VITE_API_URL,
+  vercelEnv: process.env.VERCEL_ENV,
+  gitRef: process.env.VERCEL_GIT_COMMIT_REF,
+  pairing: loadPairingFile(),
+})
+if (pairing.apiUrl) process.env.VITE_API_URL = pairing.apiUrl
+// The SHA this bundle was built from, so the running app can prove which candidate it is and compare
+// itself against the backend's `/api/health`. Empty when built outside Vercel (local/dev).
+process.env.VITE_COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? ''
+process.env.VITE_GIT_REF = process.env.VERCEL_GIT_COMMIT_REF ?? ''
+// Surfaced in the build log so a mis-paired preview is visible in CI output, not only at runtime.
+console.log(
+  `[carup] API base for this build: ${pairing.apiUrl ?? '(runtime host resolution)'} — ${pairing.reason}`,
+)
+if (pairing.unpaired) {
+  console.warn(
+    '[carup] UNPAIRED PREVIEW: this build cannot reach a backend. Add the branch to '
+    + 'web/preview-backend-pairing.json before running a physical UAT against it.',
+  )
+}
 
 // https://vite.dev/config/
 export default defineConfig({
