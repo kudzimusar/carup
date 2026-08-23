@@ -173,10 +173,10 @@ async function upsertListingMedia(client, spec, deps) {
   const facets = listingImageFacets(spec);
   const legacyUrls = legacyListingImageUrls(spec);
   const { data: existing, error: readErr } = await client
-    .from('listing_images').select('id, image_url').eq('vin', spec.vin);
+    .from('listing_images').select('image_url').eq('vin', spec.vin);
   if (readErr) throw new Error(`listing_images read failed: ${readErr.message}`);
   const rows = existing || [];
-  const byUrl = new Map(rows.map((r) => [r.image_url, r]));
+  const haveUrls = new Set(rows.map((r) => r.image_url));
 
   let uploaded = 0; let repaired = 0; let inserted = 0; let reused = 0;
   const canonicalUrls = [];
@@ -189,12 +189,18 @@ async function upsertListingMedia(client, spec, deps) {
     uploaded += 1;
     canonicalUrls.push(publicUrl);
 
-    if (byUrl.has(publicUrl)) { reused += 1; continue; }
+    if (haveUrls.has(publicUrl)) { reused += 1; continue; }
 
-    const legacyRow = byUrl.get(legacyUrls[idx]);
-    if (legacyRow) {
+    if (haveUrls.has(legacyUrls[idx])) {
+      // Keyed by (vin, legacy url) and NEVER by the row's own id. `listing_images` is FK'd to
+      // `vehicles(vin)`, so a query addressable by an image identity is the enumeration oracle the
+      // Phase 5 media-identity containment rule closed — and that rule applies to writes too
+      // (backend/tests/issue164-phase5-media-identity-containment.test.js). The legacy URL is
+      // deterministic per (vin, facet), so this addresses exactly one row without an id.
       const { error } = await client.from('listing_images')
-        .update({ image_url: publicUrl }).eq('id', legacyRow.id);
+        .update({ image_url: publicUrl })
+        .eq('vin', spec.vin)
+        .eq('image_url', legacyUrls[idx]);
       if (error) throw new Error(`listing_images repair failed (${facet}): ${error.message}`);
       repaired += 1;
       continue;
