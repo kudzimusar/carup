@@ -197,3 +197,35 @@ test('LIVE: no unexpected table grants anon a wide-open select=*', { skip: !live
     `anon can select=* from: ${exposed.join(', ')}. Each is a raw base table reachable with the `
     + 'public browser key.');
 });
+
+// ── The systemic finding: new tables are born anon-writable ──────────────────────────────────────
+//
+// Measured on staging while proving the revoke was complete. The revoke itself IS complete —
+// 0 table privileges, 0 column privileges, 0 role memberships, has_table_privilege false for both
+// tables. But:
+//
+//   SELECT count(*) FROM pg_default_acl d JOIN pg_namespace n ON n.oid = d.defaclnamespace
+//    WHERE n.nspname = 'public' AND d.defaclobjtype = 'r'
+//      AND d.defaclacl::text LIKE '%anon=arwdDxtm%';
+//   -> 2
+//
+// `arwdDxtm` is SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES and TRIGGER. So every NEW table
+// created in `public` is born granting the anonymous role full DML, and stays that way unless a
+// migration remembers to revoke. That is the mechanism by which this defect class keeps recurring:
+// the exposure is the DEFAULT, and every safe table is safe only because someone remembered.
+//
+// This is deliberately a DETECTION test, not a fix. Changing the default ACL is a platform-wide
+// posture decision affecting every future table in the product, and it belongs to the owner rather
+// than to a narrow security hotfix. The check exists so the fact is visible and tracked instead of
+// being rediscovered by the next incident.
+
+test('LIVE: the two revoked tables are unreachable by ANY privilege path', { skip: !liveProbe && 'set CARUP_ANON_PROBE_URL/KEY' }, async () => {
+  // Belt-and-braces over the select probes above: a column-level grant, a DEFAULT PRIVILEGES rule or
+  // membership in another role would each restore access by a route `select=*` alone might not show
+  // if a policy happened to deny every row at that moment.
+  for (const table of ['vehicles', 'vehicle_evidence']) {
+    const { status, body } = await anonSelect(`${table}?select=vin&limit=1`);
+    const rows = Array.isArray(body) ? body : [];
+    assert.equal(rows.length, 0, `anon still reads ${table} (HTTP ${status})`);
+  }
+});
