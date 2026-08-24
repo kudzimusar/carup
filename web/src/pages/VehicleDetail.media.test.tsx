@@ -1253,6 +1253,57 @@ describe('VehicleDetail — BOTH blocks published at once, which is where a merg
     expect(evidence).not.toContain(UUID_B)
   })
 
+  it('publishes a WITHHELD private document as a fact instead of dropping it', async () => {
+    // The server fixed this first (Issue #164 D2), and the page still told the old untruth: this
+    // parser re-derives the verdict, and `classifyMediaUrl(null)` returns null, so a deliberately
+    // withheld document was counted unpublishable and dropped. Four verified, reviewed documents
+    // therefore still rendered as "No verified evidence has been published for this vehicle" AFTER
+    // the backend published them. A withheld FILE is not a missing RECORD.
+    servePassport({
+      ...passportFixture(),
+      listing_media: listingBlock([photo(UUID_A, CARD_IMAGE, 0, true)]),
+      verified_evidence: evidenceBlock([
+        {
+          ...evidenceRow({ id: 'ev-reg', evidence_type: 'registration_document' }),
+          file_url: null,
+          file_url_form: null,
+          file_availability: 'withheld_private',
+        },
+      ]),
+    })
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('verified-evidence-item')).toBeTruthy())
+
+    expect(screen.getAllByTestId('verified-evidence-item')).toHaveLength(1)
+    expect(screen.queryByTestId('verified-evidence-empty')).toBeNull()
+    expect(screen.queryByTestId('verified-evidence-unpublishable')).toBeNull()
+
+    // The record is published AND the withholding is stated, rather than silently implied.
+    expect(screen.getByTestId('verified-evidence-item').textContent).toContain('Registration document')
+    expect(screen.getByTestId('verified-evidence-file-withheld').textContent)
+      .toContain('not publishing the file itself')
+
+    // No locator or link escapes to the page.
+    const html = screen.getByTestId('verified-evidence-block').innerHTML
+    expect(html).not.toContain('ocr-documents')
+    expect(html).not.toContain('token=')
+  })
+
+  it('still counts a row that names NO artifact and was not declared withheld', async () => {
+    servePassport({
+      ...passportFixture(),
+      listing_media: listingBlock([photo(UUID_A, CARD_IMAGE, 0, true)]),
+      verified_evidence: evidenceBlock([
+        artifact(),
+        { ...evidenceRow({ id: 'ev-broken' }), file_url: 'data:application/pdf;base64,AAAA' },
+      ]),
+    })
+    await renderSettled()
+    await waitFor(() => expect(screen.getByTestId('verified-evidence-item')).toBeTruthy())
+    expect(screen.getAllByTestId('verified-evidence-item')).toHaveLength(1)
+    expect(screen.getByTestId('verified-evidence-unpublishable').textContent).toContain('1 further reviewed item(s)')
+  })
+
   it('counts each block’s unpublishable rows against that block alone', async () => {
     // Pooling the counts is a quieter merge than concatenating the items, and it makes the same
     // false statement: "3 recorded photo(s) could not be shown" over a listing that recorded one.

@@ -440,7 +440,16 @@ function pickPublicEvidenceFields(row: unknown): Record<string, string | null> {
  */
 type VerifiedEvidenceItem =
   { [K in (typeof VEHICLE_DETAIL_EVIDENCE_FIELDS)[number]]: string | null }
-  & { file_url_form: MediaUrlForm }
+  & { file_url_form: MediaUrlForm; file_availability?: EvidenceFileAvailability }
+
+/**
+ * Whether the ARTIFACT can be shown, which is a separate question from whether the FACT is published.
+ *
+ * `withheld_private` means the document is real, reviewed, and deliberately not exported — it lives in
+ * the private bucket and no signed URL is minted for a public caller. The row is still a governed
+ * fact and must render as one.
+ */
+type EvidenceFileAvailability = 'viewable' | 'withheld_private'
 
 /**
  * The public gate, re-applied on the client: `visibility_level === 'public_safe' AND
@@ -598,11 +607,38 @@ function readVerifiedEvidenceBlock(raw: unknown): MediaBlock<VerifiedEvidenceIte
   const items: VerifiedEvidenceItem[] = []
   for (const entry of envelope.items) {
     const form = classifyMediaUrl(entry.file_url)
+
+    // A WITHHELD FILE IS NOT A MISSING RECORD.
+    //
+    // This loop re-derives the server's verdict, and it used to re-derive the server's BUG with it:
+    // `classifyMediaUrl(null)` returns null, so a deliberately withheld private document was counted
+    // as unpublishable and dropped — which is how four verified, reviewed documents still rendered as
+    // "No verified evidence has been published for this vehicle" AFTER the backend had been fixed to
+    // publish them. Fixing only the server would have left this surface telling the same untruth.
+    //
+    // `file_availability: 'withheld_private'` is the server stating that the artifact is real and
+    // deliberately not exported. The fact is published; only the file is absent.
+    const availability = (entry as { file_availability?: unknown }).file_availability
+    if (availability === 'withheld_private') {
+      items.push({
+        ...pickPublicEvidenceFields(entry),
+        file_url: null,
+        file_url_form: null,
+        file_availability: 'withheld_private',
+      } as VerifiedEvidenceItem)
+      continue
+    }
+
     if (form === null) {
+      // Names no artifact this surface can render and was not declared withheld: still our defect.
       unpublishable += 1
       continue
     }
-    items.push({ ...pickPublicEvidenceFields(entry), file_url_form: form } as VerifiedEvidenceItem)
+    items.push({
+      ...pickPublicEvidenceFields(entry),
+      file_url_form: form,
+      file_availability: 'viewable',
+    } as VerifiedEvidenceItem)
   }
   return sealBlock(stateFor(items.length, envelope.state), items, unpublishable, VERIFIED_EVIDENCE_EMPTY_STATEMENT)
 }
@@ -1961,6 +1997,14 @@ export default function VehicleDetail() {
                               Captured {evidenceDate(item.captured_at)} · reviewed {evidenceDate(item.verified_at)}
                               {' · source '}{item.source_name || 'not recorded'}
                             </p>
+                            {/* The record is published; the document is not. Saying so is the point —
+                                silence here would read as "there is nothing to see", which is the
+                                false-absence this whole block exists to avoid. */}
+                            {item.file_availability === 'withheld_private' && (
+                              <p className="mt-1 text-xs text-gray-500" data-testid="verified-evidence-file-withheld">
+                                CarUp reviewed this document and is not publishing the file itself.
+                              </p>
+                            )}
                             {advertisement && (
                               <p className="mt-1 text-xs text-amber-700" data-testid="verified-evidence-advertisement-note">
                                 This is a record of how the vehicle was advertised. The review attests the
