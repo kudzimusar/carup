@@ -19,6 +19,30 @@ function normalizeRole(role) {
  * So these paths do not accept an inference. They require the operator to have said so explicitly,
  * which no NODE_ENV misconfiguration can do by accident.
  */
+/**
+ * Refuse an identity that was ASSERTED by a header rather than PROVEN by a session, unless the
+ * operator has explicitly opted in.
+ *
+ * Factored out because it is now needed at the FOURTH private-document capability issuer, and each
+ * one was found separately, after the previous "fix". Routes that mint a signed URL into the
+ * private `ocr-documents` bucket are the ones that matter: registration documents, police
+ * clearances, insurance certificates, and identity evidence (passport/ID/selfie).
+ *
+ * Compose it AFTER `authorizeRole(...)`, which establishes `req.userContext`. The role check is
+ * unchanged; this adds a second question — not "who do you claim to be" but "how do we know".
+ */
+export function requireProvenIdentity() {
+  return (req, res, next) => {
+    if (req.userContext?.authenticationMethod === 'x-user-id-fallback'
+      && !isPrivateEvidenceFallbackAllowed()) {
+      return res.status(401).json({
+        error: 'Unauthorized. This resource requires a real session, not the x-user-id fallback.',
+      });
+    }
+    return next();
+  };
+}
+
 export function isPrivateEvidenceFallbackAllowed(env = process.env) {
   return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true';
 }

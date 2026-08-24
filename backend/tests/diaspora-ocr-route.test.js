@@ -25,6 +25,12 @@ import http from 'node:http';
 
 // Supabase client construction requires these; set BEFORE any import that loads db/supabase.js.
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+// This harness authenticates via the `x-user-id` fallback (see the mocked session read below), and
+// run-ocr now signs a private `ocr-documents` object behind `requireProvenIdentity()`. That gate
+// deliberately does NOT infer permission from NODE_ENV — a staging deployment running NODE_ENV=test
+// once turned the spoofable header into a working identity — so a harness that wants the fallback
+// must OPT IN EXPLICITLY. Declaring it here is that opt-in, and it is exactly what the flag is for.
+process.env.CARUP_ALLOW_X_USER_ID_FALLBACK = 'true';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 process.env.ALLOW_OCR_MOCK = 'true';

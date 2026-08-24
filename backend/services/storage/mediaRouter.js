@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import { uploadToStorage, generateSecureReadUrl, generateSecureUploadUrl } from './storageService.js';
-import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../../middleware/authMiddleware.js';
+import { authorizeRole, requireProvenIdentity } from '../../middleware/authMiddleware.js';
 import { supabase } from '../../db/supabase.js';
 import { logAuditEvent } from '../auditLogger.js';
 
@@ -377,23 +377,10 @@ router.get('/upload/signed-url', authorizeRole(['owner', 'dealer', 'admin']), as
 /**
  * GET /api/media/document/signed-url - Retrieve a timed read token for a private document
  */
-router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner']), async (req, res) => {
-  // THE THIRD DOOR TO A PRIVATE-DOCUMENT CAPABILITY.
-  //
-  // The evidence route and the passport were moved onto the strict fallback policy; this one issues
-  // the same one-hour `ocr-documents` signed URL and was still behind `authorizeRole`, whose
-  // fallback path accepts a spoofed `x-user-id` via the looser `isUserIdFallbackAllowed()`. Under
-  // the exact staging misconfiguration that policy exists to contain (NODE_ENV=test), a caller who
-  // knows an owner/admin/government user id could still mint a capability for a private artifact.
-  //
-  // The role check above stays; this is an ADDITIONAL gate on how the identity was established.
-  // Issuing a private-document capability is not something an environment inference may authorise.
-  if (req.userContext?.authenticationMethod === 'x-user-id-fallback' && !isPrivateEvidenceFallbackAllowed()) {
-    return res.status(401).json({
-      error: 'Unauthorized. A private-document capability requires a real session, not the x-user-id fallback.',
-    });
-  }
-
+router.get('/document/signed-url', authorizeRole(['admin', 'government', 'owner']), requireProvenIdentity(), async (req, res) => {
+  // The role check above says WHO may read; requireProvenIdentity says HOW that identity must have
+  // been established. Issuing a private-document capability is not something an environment
+  // inference may authorise.
   const { path: docPath } = req.query;
 
   if (!docPath) {

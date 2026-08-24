@@ -25,7 +25,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -421,20 +421,64 @@ test('both private-evidence entry points use the stricter gate', () => {
 
 // ── The THIRD private-document capability path ───────────────────────────────────────────────────
 
-test('the media signed-url route refuses a capability established by the x-user-id fallback', () => {
-  const MEDIA = readFileSync(path.resolve(here, '../services/storage/mediaRouter.js'), 'utf8');
-  const code = MEDIA.replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+test('EVERY route that mints a private-document capability requires a proven identity', () => {
+  // Written as an ENUMERATION, not a list of known routes, because this gate has now been found
+  // missing at four separate signing sites in succession — each one discovered only after the
+  // previous "fix" was declared complete. A fifth must fail this test rather than ship.
+  //
+  // The rule: any HTTP route file that reaches `generateSecureReadUrl` for the private
+  // `ocr-documents` bucket must also compose `requireProvenIdentity()` (or apply the strict policy
+  // inline, as the evidence route and the passport do).
+  const roots = ['../routes', '../services'];
+  const offenders = [];
 
-  // The evidence route and the passport were moved onto the strict policy; this route issues the
-  // SAME one-hour ocr-documents capability and was still reachable via a spoofed x-user-id under
-  // NODE_ENV=test — the exact misconfiguration the strict policy exists to contain.
-  assert.match(code, /isPrivateEvidenceFallbackAllowed\(\)/,
-    'private-document signing must consult the strict policy');
-  assert.match(code, /authenticationMethod === 'x-user-id-fallback'/,
-    'the gate must key on HOW the identity was established, not only on the role');
-  const at = code.indexOf("authenticationMethod === 'x-user-id-fallback'");
-  assert.match(code.slice(at, at + 260), /401/, 'it must refuse, not merely log');
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const raw = readFileSync(full, 'utf8');
+      const code = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
+      // Only files that define HTTP routes AND sign a private object are in scope.
+      const definesRoutes = /router\.(get|post|patch|put|delete)\s*\(/.test(code);
+      const signsPrivate = /generateSecureReadUrl\s*\(/.test(code) && /ocr-documents|BUCKET/.test(code);
+      if (!definesRoutes || !signsPrivate) continue;
+
+      const gated = /requireProvenIdentity\s*\(/.test(code)
+        || /isPrivateEvidenceFallbackAllowed\s*\(/.test(code);
+      if (!gated) offenders.push(path.relative(path.resolve(here, '..'), full));
+    }
+  };
+  for (const root of roots) walk(path.resolve(here, root));
+
+  assert.deepEqual(offenders, [],
+    `these route files mint a private-document capability without requiring a proven identity: ${offenders.join(', ')}`);
+});
+
+test('the shared gate refuses a fallback identity and admits a session identity', async () => {
+  const { requireProvenIdentity } = await import('../middleware/authMiddleware.js');
+  const run = (userContext) => {
+    let status = null; let body = null; let nexted = false;
+    const res = { status(c) { status = c; return this; }, json(b) { body = b; return this; } };
+    requireProvenIdentity()({ userContext }, res, () => { nexted = true; });
+    return { status, body, nexted };
+  };
+
+  const spoofed = run({ id: 'admin-1', authenticationMethod: 'x-user-id-fallback' });
+  assert.equal(spoofed.status, 401, 'a header-asserted identity must be refused');
+  assert.equal(spoofed.nexted, false, 'and must not reach the handler');
+
+  const real = run({ id: 'admin-1', authenticationMethod: 'session' });
+  assert.equal(real.nexted, true, 'a session identity must pass through');
+  assert.equal(real.status, null);
+
+  // An anonymous request has no context at all; the role check upstream is what rejects it, and
+  // this gate must not accidentally become the thing that lets it through OR the thing that breaks
+  // a legitimately unauthenticated public route.
+  const anon = run(undefined);
+  assert.equal(anon.nexted, true, 'no context means this gate has nothing to judge');
 });
 
 test('source attribution survives the public projection', async () => {
@@ -477,17 +521,17 @@ test('authorizeRole actually ASSIGNS authenticationMethod', () => {
     'the marker must be published on userContext, or every downstream check is a no-op');
 });
 
-test('the marker the media route READS is the marker the middleware WRITES', () => {
+test('the marker the middleware WRITES is the marker the gate READS', () => {
   const stripped = (f) => readFileSync(path.resolve(here, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const MW = stripped('../middleware/authMiddleware.js');
-  const MEDIA = stripped('../services/storage/mediaRouter.js');
 
-  // Same literal on both sides. A typo on either would silently disable the gate and leave a line
-  // of code that reads exactly like protection.
+  // Producer and consumer now live in the same file (requireProvenIdentity), which is itself the
+  // fix: a literal that has to agree across two files is a typo away from silently disabling the
+  // gate. Both halves are still asserted.
   const written = /authenticationMethod\s*=\s*'([^']+)'/.exec(MW);
-  const read = /authenticationMethod === '([^']+)'/.exec(MEDIA);
+  const read = /authenticationMethod === '([^']+)'/.exec(MW);
   assert.ok(written, 'the middleware must write a fallback marker');
-  assert.ok(read, 'the media route must read a fallback marker');
+  assert.ok(read, 'the shared gate must read a fallback marker');
   assert.equal(read[1], 'x-user-id-fallback');
   assert.equal(written[1], read[1], 'producer and consumer must agree on the literal');
 });
