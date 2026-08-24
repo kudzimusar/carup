@@ -10,11 +10,11 @@
 
 | | |
 |---|---|
-| **Exact SHA** | `98e90c8df4831efb594c971bf7a761a6371b2d33` |
+| **Exact SHA** | `2e69e085d8f83f3a61934f8287bd8eb66bbd06b1` |
 | **Frontend preview** | `https://carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app` |
 | **Backend preview** | `https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app` |
 | **Canonical staging** | `eoyenigwevnxwwhyhaer` |
-| **Provenance receipt** | `evidence/issue164-phase8-provenance-receipt-98e90c8d.txt` — SHA equality **EQUAL**, zero calls to the stable staging backend |
+| **Provenance receipt** | `evidence/issue164-phase8-provenance-receipt-<head>.txt` — SHA equality **EQUAL**, zero calls to the stable staging backend |
 
 **Before starting, re-run the receipt.** If the head has moved, the run is invalid:
 
