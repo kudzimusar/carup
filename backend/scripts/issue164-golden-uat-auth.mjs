@@ -64,12 +64,29 @@ function assertValidMode() {
 
 // The exact set this script may ever touch. Hard-pinned: there is no account input, because an input
 // is a lever, and a lever that sets credentials is exactly what should not exist.
-const GOLDEN_UAT_ACCOUNTS = Object.freeze([
-  'golden-a-owner-stg@carup-staging.test',
-  'golden-a-buyer-stg@carup-staging.test',
-  'golden-b-owner-stg@carup-staging.test',
-  'golden-b-buyer-stg@carup-staging.test',
+// The four permitted identities, pinned as ID/EMAIL PAIRS.
+//
+// The ids were previously derived by filtering GOLDEN_USERS on this email list. That coupled the
+// REVOCATION SET to the current email spelling: renaming an entry in code dropped its unchanged id
+// out of the set, and since a granted credential outlives any deployment, the row it was granted to
+// could never be cleared again. The id is the identity and must be pinned in its own right.
+const GOLDEN_UAT_IDENTITIES = Object.freeze([
+  { id: 'golden-a-owner-stg', email: 'golden-a-owner-stg@carup-staging.test' },
+  { id: 'golden-a-buyer-stg', email: 'golden-a-buyer-stg@carup-staging.test' },
+  { id: 'golden-b-owner-stg', email: 'golden-b-owner-stg@carup-staging.test' },
+  { id: 'golden-b-buyer-stg', email: 'golden-b-buyer-stg@carup-staging.test' },
 ]);
+
+const GOLDEN_UAT_ACCOUNTS = Object.freeze(GOLDEN_UAT_IDENTITIES.map((i) => i.email));
+const GOLDEN_UAT_IDS = Object.freeze(GOLDEN_UAT_IDENTITIES.map((i) => i.id));
+
+// Cardinality is asserted at load: a pair silently lost to an edit would shrink both the grant target
+// and the revocation set, and the second failure is the dangerous one.
+if (GOLDEN_UAT_IDENTITIES.length !== 4
+  || new Set(GOLDEN_UAT_IDS).size !== 4
+  || new Set(GOLDEN_UAT_ACCOUNTS).size !== 4) {
+  blocked('the Golden UAT identity table must contain exactly four distinct id/email pairs');
+}
 
 async function main() {
   const { evaluateStagingGuard } = await import('./issue164-golden-vehicles.mjs');
@@ -174,9 +191,6 @@ async function main() {
   // reassigned to a different user, the same email-keyed path would clear THAT user's password
   // instead. Identity here is the id — the email is a label on it.
   const { GOLDEN_USERS: GU } = await import('../services/golden/goldenVehicleSpecs.js');
-  const GOLDEN_UAT_IDS = Object.freeze(GU
-    .filter((u) => GOLDEN_UAT_ACCOUNTS.includes(u.email))
-    .map((u) => u.id));
 
   const [byEmail, byId] = await Promise.all([
     supabase.from('users').select('id, email, role, password_hash').in('email', GOLDEN_UAT_ACCOUNTS),
@@ -186,13 +200,18 @@ async function main() {
   if (byId.error) fail(`users read by id failed: ${byId.error.message}`);
   const found = [...new Map([...(byEmail.data || []), ...(byId.data || [])]
     .map((r) => [r.id, r])).values()];
-  // Any row reachable from a pinned id or email must still be a synthetic fixture identity. If a
-  // deterministic Golden id now carries a non-synthetic address, that is drift serious enough to stop
-  // every mode: writing to it is out of the question, and reporting on it as if it were ours is worse.
-  for (const row of found) {
-    if (!/@carup-staging\.test$/.test(row.email || '')) {
-      blocked(`refusing to touch ${row.email}: not a @carup-staging.test synthetic fixture identity`);
-    }
+  // GRANT only — for the same reason the role check is. A previously granted fixture row that has been
+  // renamed to a non-synthetic address (or whose email is now null) still holds the shared UAT hash,
+  // and an unconditional refusal here would exit before `revoke` could clear it. Provisioning a
+  // credential onto such a row is forbidden; REMOVING one from it is exactly what we want to allow.
+  const nonSynthetic = found.filter((r) => !/@carup-staging\.test$/.test(r.email || ''));
+  if (MODE === 'grant' && nonSynthetic.length > 0) {
+    blocked('refusing to provision: a pinned identity no longer carries a @carup-staging.test address:\n  '
+      + nonSynthetic.map((r) => `${r.id}`).join('\n  '));
+  }
+  if (nonSynthetic.length > 0) {
+    console.warn(`[carup] ${nonSynthetic.length} pinned identity/identities no longer carry a `
+      + `@carup-staging.test address (${MODE} continues so the credential can be cleared)`);
   }
 
   // IDENTITY AND ROLE, not just the address.

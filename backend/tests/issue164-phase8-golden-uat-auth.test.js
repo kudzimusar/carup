@@ -47,10 +47,20 @@ test('there is no account/email/SQL input — the subject cannot be widened at r
   assert.ok(!/process\.env\.GOLDEN_UAT_EMAIL/.test(SRC), 'no email may be supplied by environment');
 
   // THE SUBJECT ITSELF: a frozen literal of four addresses, with no runtime input anywhere near it.
-  const pinned = SRC.match(/const GOLDEN_UAT_ACCOUNTS = Object\.freeze\(\[([\s\S]*?)\]\)/);
-  assert.ok(pinned, 'the account list must be a frozen literal');
-  assert.ok(!/process\.(argv|env)/.test(pinned[1]), 'the account list must not read argv or env');
-  assert.equal((pinned[1].match(/@carup-staging\.test/g) || []).length, 4, 'exactly four pinned accounts');
+  // The subject is now a frozen table of ID/EMAIL PAIRS. Deriving the ids by filtering GOLDEN_USERS on
+  // the email list coupled the REVOCATION SET to the current email spelling, so renaming an entry in
+  // code dropped its unchanged id out of the set — and a credential outlives any deployment.
+  const pinned = SRC.match(/const GOLDEN_UAT_IDENTITIES = Object\.freeze\(\[([\s\S]*?)\]\)/);
+  assert.ok(pinned, 'the identity table must be a frozen literal');
+  assert.ok(!/process\.(argv|env)/.test(pinned[1]), 'the identity table must not read argv or env');
+  assert.equal((pinned[1].match(/@carup-staging\.test/g) || []).length, 4, 'exactly four pinned emails');
+  assert.equal((pinned[1].match(/id: '/g) || []).length, 4, 'exactly four pinned ids');
+  // Both projections must come from that one table, so they cannot drift apart.
+  assert.match(SRC, /GOLDEN_UAT_ACCOUNTS = Object\.freeze\(GOLDEN_UAT_IDENTITIES\.map/);
+  assert.match(SRC, /GOLDEN_UAT_IDS = Object\.freeze\(GOLDEN_UAT_IDENTITIES\.map/);
+  // And the cardinality is enforced at load, not merely documented.
+  assert.match(SRC, /GOLDEN_UAT_IDENTITIES\.length !== 4/,
+    'a pair silently lost to an edit would shrink the revocation set — the dangerous direction');
 
   // And the only rows ever written are selected from that list. Asserted POSITIVELY: the earlier
   // negative-lookahead form passed when the `.in(...)` was deleted altogether, so it caught a WRONG
@@ -97,9 +107,16 @@ test('it creates no identity and is removable (grant is paired with revoke)', ()
   assert.match(SRC, /password_hash: null/, 'revoke must clear the credential');
 });
 
-test('it refuses any identity that is not a synthetic staging fixture', () => {
-  assert.match(SRC, /@carup-staging\\\.test\$/, 'must verify the fixture email domain before writing');
-  assert.match(SRC, /refusing to touch/, 'a non-fixture identity must be refused');
+test('it refuses to GRANT onto a non-synthetic identity, but still allows revoke', () => {
+  assert.match(SRC, /@carup-staging\\\.test\$/, 'must verify the fixture email domain');
+  // Scoped to grant, deliberately. An unconditional refusal exited before `revoke` could clear a
+  // previously granted row that had since been renamed off the synthetic domain — leaving the shared
+  // UAT hash live on exactly the identity that had drifted.
+  assert.match(SRC, /MODE === 'grant' && nonSynthetic\.length > 0/,
+    'provisioning onto a non-synthetic identity must be refused');
+  assert.match(SRC, /refusing to provision/, 'and the refusal must say so');
+  assert.match(SRC, /nonSynthetic\.length > 0\) \{\s*\n\s*console\.warn/,
+    'other modes must warn and continue, so a drifted credential can still be cleared');
 });
 
 // ── Codex round 3 P1: revocation must survive identity drift ─────────────────────────────────────
@@ -115,7 +132,11 @@ test('the users read is keyed on the deterministic ids as well as the pinned ema
 });
 
 test('revoke targets the deterministic id, never the email', () => {
-  const revoke = SRC.slice(SRC.indexOf("if (MODE === 'revoke')"));
+  // Anchored explicitly. `indexOf` returning -1 makes `slice(-1)` the last character, which would
+  // silently narrow every assertion below to one byte — the vacuity pattern this file has hit before.
+  const revokeAt = SRC.indexOf("if (MODE === 'revoke')");
+  assert.ok(revokeAt > -1, 'the revoke branch must exist');
+  const revoke = SRC.slice(revokeAt);
   assert.match(revoke, /for \(const userId of GOLDEN_UAT_IDS\)/,
     'revocation must iterate the fixture ids');
   assert.match(revoke, /\.eq\('id', userId\)/, 'and update by that id');
@@ -124,9 +145,25 @@ test('revoke targets the deterministic id, never the email', () => {
 });
 
 test('a row outside the fixture id set is reported, never written to', () => {
-  const revoke = SRC.slice(SRC.indexOf("if (MODE === 'revoke')"));
-  assert.match(revoke, /unrelatedRowsHoldingAPinnedEmail/,
-    'a stranger holding a pinned address must be surfaced, not touched');
+  const revokeAt = SRC.indexOf("if (MODE === 'revoke')");
+  assert.ok(revokeAt > -1, 'the revoke branch must exist');
+  const revoke = SRC.slice(revokeAt);
+
+  // Asserting only that the OUTPUT KEY exists was vacuous: remove the exclusion, or start writing the
+  // foreign rows, and the label alone would keep this test green. Codex found it while I was asking
+  // it to look for exactly this. So assert the WRITE SCOPE instead.
+  const updates = revoke.match(/\.update\([^)]*\)[\s\S]{0,80}?\.eq\('id', ([A-Za-z_.]+)\)/g) || [];
+  assert.equal(updates.length, 1, 'revoke must contain exactly one update');
+  assert.match(updates[0], /\.eq\('id', userId\)/,
+    'the only write must be keyed on the pinned-id loop variable, never on a discovered row');
+
+  // And the foreign set must never be the subject of a write — it may only be reported.
+  const foreignAt = revoke.indexOf('const foreign');
+  assert.ok(foreignAt > -1, 'the foreign-row exclusion must exist');
+  const afterForeign = revoke.slice(foreignAt);
+  assert.doesNotMatch(afterForeign, /\.update\(/,
+    'nothing may be written after the foreign set is computed');
+  assert.match(afterForeign, /unrelatedRowsHoldingAPinnedEmail/, 'it must be reported');
 });
 
 test('status resolves by id first, so a renamed row still reports against its fixture identity', () => {

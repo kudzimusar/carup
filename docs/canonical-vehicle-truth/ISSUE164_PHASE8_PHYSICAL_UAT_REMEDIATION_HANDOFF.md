@@ -1337,3 +1337,51 @@ the first grant branch **after** status.
 That is the third vacuous assertion in this programme (after the media-locator and users-scope ones).
 The tell is always the same: an assertion that cannot distinguish the presence of a property from the
 absence of the code it is inspecting.
+
+---
+
+# ADDENDUM H — fourth Codex round on `fc6114ff`
+
+Three findings, **all VALID**. Two are the same guard-scoping error repeated on a different guard; the
+third is a vacuous assertion I wrote in the very commit where I asked the reviewer to hunt for
+vacuous assertions.
+
+## H.1 P1 — the synthetic-address guard also disarmed revoke
+
+F.2 scoped the *role* check to `grant`. The `@carup-staging.test` check next to it was left
+unconditional — so a previously granted row renamed off the synthetic domain (or with a null email)
+exited before `revoke`, leaving the shared UAT hash live on exactly the identity that had drifted.
+
+Provisioning onto such a row must be forbidden; **removing** a credential from it is precisely what
+should be allowed. **Fixed**: refusal scoped to `grant`, warn-and-continue elsewhere.
+
+## H.2 P1 — the revocation set was coupled to the current email spelling
+
+`GOLDEN_UAT_IDS` was derived by filtering `GOLDEN_USERS` on the pinned email list. So renaming an
+entry **in code** dropped its unchanged id out of the revocation set — and because a granted
+credential outlives any deployment, the row it was granted to could then never be cleared.
+
+**Fixed**: the four identities are pinned as an explicit **id/email pair table**, with both
+projections derived from it and **cardinality asserted at load** (four distinct ids, four distinct
+emails). A pair lost to an edit now fails immediately rather than silently shrinking what can be
+revoked.
+
+## H.3 P2 — my foreign-row test asserted the receipt label, not the behaviour
+
+The test checked only that the output key `unrelatedRowsHoldingAPinnedEmail` existed. Remove the
+exclusion, or start writing those rows, and the label alone kept it green.
+
+**Fixed** to assert the **write scope**: the revoke branch must contain exactly one `.update(`, keyed
+on the pinned-id loop variable, and nothing may be written after the foreign set is computed.
+
+This is the fourth vacuous assertion in the programme. The tell is consistent enough to state as a
+rule: **if an assertion would still pass when the code it inspects is deleted, it asserts nothing.**
+Every source-text assertion in this programme now carries a paired positive existence check, and the
+`indexOf`-slice pattern is anchored (a `-1` makes `slice(-1)` the last character, silently narrowing
+every downstream assertion to one byte).
+
+## H.4 Convergence note
+
+Rounds 1→4 produced 4, 4, 1 and 3 findings. Every round's findings were consequences of the previous
+round's fixes, which is expected: a remediation is a change like any other. The loop terminates on a
+round with zero findings on an unchanged head — not on a judgement that the remaining ones look minor.
