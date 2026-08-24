@@ -103,6 +103,10 @@ const READ_GRANT_PATTERNS = [
   /\bALTER\s+TABLE\b[^;]*\bOWNER\s+TO\b[^;]+(?:;|$)/gis,
   // Disabling row security removes the row predicate that makes any surviving grant survivable.
   /\bALTER\s+TABLE\b[^;]*\bDISABLE\s+ROW\s+LEVEL\s+SECURITY\b[^;]*(?:;|$)/gis,
+  // REASSIGN OWNED BY <role> TO <role> transfers EVERY object the source role owns — including
+  // these tables — while naming no table at all. All 237 public tables are owned by `postgres`, so
+  // a single such statement would hand the lot over.
+  /\bREASSIGN\s+OWNED\s+BY\b[^;]*\bTO\b[^;]+(?:;|$)/gis,
 ];
 
 function netAnonSelectPosture(table) {
@@ -121,12 +125,15 @@ function netAnonSelectPosture(table) {
         const namesTable = new RegExp(String.raw`\b(?:public\.)?${table}\b`, 'i').test(stmt);
         // `IN SCHEMA audit, public` is valid: match `public` ANYWHERE in the schema list, not only
         // immediately after SCHEMA.
-        const schemaWide = /\bALL\s+TABLES\s+IN\s+SCHEMA\b[^;]*\bpublic\b/i.test(stmt);
+        const schemaWide = /\bALL\s+TABLES\s+IN\s+SCHEMA\b[^;]*\bpublic\b/i.test(stmt)
+          // REASSIGN names no schema or table; it sweeps everything the source role owns.
+          || /\bREASSIGN\s+OWNED\s+BY\b/i.test(stmt);
         const isMembership = /\bGRANT\s+(?!SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)/i.test(stmt)
           && !/\bON\b/i.test(stmt);
         // An ownership change or an RLS disable is never "cleared" by a grant revoke, so it is
         // recorded as an unconditional finding rather than something the revoke logic can dismiss.
-        const isOwnershipOrRls = /\bALTER\s+TABLE\b/i.test(stmt);
+        const isOwnershipOrRls = /\bALTER\s+TABLE\b/i.test(stmt)
+          || /\bREASSIGN\s+OWNED\s+BY\b/i.test(stmt);
         if (!namesTable && !schemaWide && !isMembership) continue;
 
         if (isOwnershipOrRls) {
@@ -284,6 +291,8 @@ test('the parser catches the grant shapes that would otherwise slip past it', ()
     'ALTER TABLE public.vehicle_evidence OWNER TO anon;',
     // Disabling row security removes the predicate that made any surviving grant survivable.
     'ALTER TABLE public.vehicle_evidence DISABLE ROW LEVEL SECURITY;',
+    // Names no table, sweeps every object postgres owns — which is all 237 public tables.
+    'REASSIGN OWNED BY postgres TO anon;',
   ];
   for (const shape of shapes) {
     const saved = MIGRATIONS.slice();
