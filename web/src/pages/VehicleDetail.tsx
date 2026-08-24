@@ -885,7 +885,7 @@ export default function VehicleDetail() {
                                 {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).length > 0 && (
                                   <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                                     {publicEvidence.filter(e => e.linked_registry_event_id === String(event.id) || e.timeline_event_id === String(event.id)).map(item => {
-                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url.endsWith('.pdf') || item.evidence_type.includes('document');
+                                      const isDoc = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
                                       return (
                                         <div key={item.id} className="flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border border-gray-200" data-testid={`history-thumbnail-${item.id}`}>
                                           {isDoc ? (
