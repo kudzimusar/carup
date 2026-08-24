@@ -26,14 +26,33 @@
 
 | | |
 |---|---|
-| **PASS** | **16** / 32 |
-| **FAIL** | **3** / 32 |
-| **BLOCKED** | **13** / 32 |
-| **Overall** | **NOT A RELEASE PASS** — 3 step-level defects PLUS a P0 security leak (D0) found during adjudication; 13 steps require an authenticated session |
+### Run 1 — candidate `de7088cd` (first clean-start execution)
 
-**32/32 is NOT claimed.** Three genuine defects were physically observed and reproduced. Thirteen
-steps could not be exercised because no authenticated Golden session is reachable from the automation
-browser, and no session was fabricated, minted, or forged to work around that.
+| | |
+|---|---|
+| **PASS** | **15** / 32 |
+| **FAIL** | **4** / 32 — Steps 1, 8, 30, 31 |
+| **BLOCKED** | **13** / 32 |
+| **Overall** | **NOT A RELEASE PASS** — 4 step-level defects PLUS a P0 security leak (D0) found during adjudication |
+
+> **Correction.** An earlier revision of this block read "16 PASS / 3 FAIL". That was an arithmetic
+> error in the summary only — the 32 numbered rows below always recorded four failures (1, 8, 30, 31).
+> The counts here are now machine-derived from those rows. The rows are the record; the summary was
+> wrong and is corrected rather than quietly re-stated.
+
+### Run 2 — candidate `24b647fd` (re-test of the remediated steps)
+
+| | |
+|---|---|
+| **PASS** | **18** / 32 |
+| **FAIL** | **1** / 32 — Step 1 only (**D1, owner decision pending — deliberately not implemented**) |
+| **BLOCKED** | **13** / 32 |
+| **Overall** | **NOT YET A RELEASE PASS** — the 13 authenticated steps still require an owner-provided session, and Step 1 awaits an owner policy decision |
+
+**32/32 is still NOT claimed.** Steps 8, 30 and 31 were physically re-observed as PASS on the
+remediated candidate; D0 was re-verified closed against the live route. Thirteen steps remain
+unexercised because no authenticated Golden session is reachable from the automation browser, and no
+session was fabricated, minted, or forged to work around that.
 
 ---
 
@@ -390,3 +409,67 @@ legitimate writer, suppressing them removes only claims the platform cannot subs
 the change far narrower than the full provenance gate while closing the actual misstatement.
 
 **Nothing in D1 has been changed. Awaiting the owner's decision.**
+
+---
+
+# RUN 2 — physical re-test on the remediated candidate `24b647fd`
+
+Provenance re-confirmed before the run: frontend SHA == backend `/api/health` SHA ==
+`24b647fd541d68f5edddc022cb5975894107fa1b`, **EQUAL**, zero calls to the stable staging backend.
+
+## D0 — re-verified closed against the live route
+
+| Probe | Before | After |
+|---|---|---|
+| anonymous `GET /api/vehicles/CARUPGLDNA0000001/evidence` | 200, 4 rows × **54 keys** | 200, 4 rows × **29 keys** |
+| `plate_number`, `chassis_number`, `engine_number`, `uploaded_by`, `verified_by`, `tenant_id`, `verification_notes`, `file_path`, `storage_bucket` | **all present** | **none present** |
+| signed URL into `ocr-documents` | **present, served `%PDF-1.4`** | **absent** |
+| `x-user-id: golden-b-owner-stg` on Golden B | **1 row — the PENDING document + signed URL** | **0 rows** |
+| `x-tenant-id: any-tenant` | (escalation path present in code) | no widening, no signing |
+
+Each item now reports `file_url: null`, `file_availability: "withheld_private"`.
+
+## Re-tested steps
+
+| # | Step | Run 1 | Run 2 | Observed on `24b647fd` | Evidence |
+|---:|---|:---:|:---:|---|---|
+| 8 | Media vs evidence | **FAIL** | **PASS** | Passport: `state: published`, **4 items**, `unpublishable_count: 0`. Page renders **4** `verified-evidence-item` — Registration document, Police clearance document, Inspection photo, Insurance document — each with `verified-evidence-file-withheld` ("CarUp reviewed this document and is not publishing the file itself"). No empty state, **no contradiction**, no `ocr-documents` or `token=` in the block. Media stays separate: 5 thumbs, gallery `1 / 5` | `uat-retest-step08-evidence-published.png` |
+| 30 | `/press`, `/blog` | **FAIL** | **PASS** | Zero escape leaks on both. `CarUp’s communications team` and `Zimbabwe’s automotive landscape` render as real typography; `/blog` renders `CarUp’s editorial desk` and the em-dash correctly. "No press releases published yet" and the no-SLA statement retained; no fake counts | `uat-retest-step30-blog.png` |
+| 31 | "blockchain" wording | **FAIL** | **PASS** | `/privacy` renders **0** occurrences of "blockchain"; no "public registry ledger" claim; heading now "4. CarUp Audit Ledger Disclosure" with "not published to any external or public network" | — |
+| 1 | Landing badges | **FAIL** | **FAIL** | Unchanged **by design** — "Zimra Verified" / "Duty Cleared" still render. D1 is not implemented pending the owner decision (see the D1 decision brief above) | `uat-step01-02-landing.png` |
+
+## Non-regression re-confirmed on `24b647fd`
+
+- **Golden A**: Trust `60 Moderate trust`, `trust-decision-1.0.0`, location `Bulawayo, Bulawayo
+  Metropolitan, Zimbabwe`, `No contact number published`, `Reg. Country Not recorded`, 5 media thumbs,
+  gallery `1 / 5`, primary image 960×640 from canonical storage, **no `Trust NN` on any card**.
+- **Golden B**: **0** evidence items, honest empty statement, **`pending` still not leaked anywhere
+  public**, 0 media thumbs, Trust `50 Moderate trust`, Reserve `disabled` + `aria-disabled` with the
+  SafePay explanation.
+- **Local Storage**: `carup_nav_cohort` only.
+
+## The client was the second half of D2
+
+Worth recording because backend-only verification would have missed it. After the server was fixed and
+the passport correctly returned `state: published` with 4 items, **the page still rendered "No verified
+evidence has been published for this vehicle."** `readVerifiedEvidenceBlock` re-derives the verdict
+client-side, and `classifyMediaUrl(null)` returns `null` — so a deliberately withheld document was
+counted unpublishable and dropped, reproducing D2 exactly one layer out.
+
+Only physically re-testing the deployed page caught it. A green backend test and a correct API
+response were both true and both insufficient.
+
+## Method note — two gates that were not what they appeared
+
+1. **Backend suite CWD.** Run from `backend/`, the suite reports failures that do not exist; CI runs
+   `node --test backend/tests/*.test.js` from the repo root. An earlier run showed 8 failures of which
+   **7 were pure CWD artifacts**.
+2. **Web typecheck project.** CI runs `npx tsc --noEmit --project web/tsconfig.app.json`. A bare
+   `npx tsc --noEmit` from `web/` resolves a different project and passed while CI failed on a real
+   `TS2352`. **The bare form is not the gate.**
+
+## What still stands between this and a release pass
+
+1. **Step 1 / D1** — owner policy decision (three options in the decision brief above).
+2. **13 authenticated steps** — owner-provided Golden A and Golden B sessions.
+3. `main` carries the same D0 exposure and needs expedited protected-`main` remediation.
