@@ -24,9 +24,14 @@ import {
 
 /** The production project ref, assembled the same way the guard does — never a literal. */
 const PROD_REF = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
-const PROD_DB_URL = `postgresql://postgres:redacted@db.${PROD_REF}.supabase.co:5432/postgres`;
-const LOCAL_DB_URL = 'postgres://postgres:postgres@localhost:5432/postgres';
-const STAGING_DB_URL = 'postgresql://postgres:redacted@db.eoyenigwevnxwwhyhaer.supabase.co:5432/postgres';
+
+// Credential-FREE URIs. These carried a `postgres:redacted@` userinfo section until the CR-1 scanner
+// flagged them as credential-bearing postgres URIs — correctly, because the shape is what it matches,
+// and a scanner that learns to ignore a shape because "this one is fake" is no longer a scanner. The
+// guard compares on the project ref alone, so userinfo was never needed to exercise it.
+const PROD_DB_URL = `postgresql://db.${PROD_REF}.supabase.co:5432/postgres`;
+const LOCAL_DB_URL = 'postgres://localhost:5432/postgres';
+const STAGING_DB_URL = 'postgresql://db.eoyenigwevnxwwhyhaer.supabase.co:5432/postgres';
 
 // ── Rule 2 — a production target under test mode is refused before any connection ─────────────────
 
@@ -67,7 +72,8 @@ test('the rejection names the variable and happens before any client is construc
     assert.equal(err.variable, 'SUPABASE_DB_URL');
     assert.match(err.message, /NODE_ENV=test/);
     // The guard must not leak the credential it refused.
-    assert.doesNotMatch(err.message, /redacted|postgresql:\/\//);
+    // The message names the VARIABLE, never the value it refused.
+    assert.doesNotMatch(err.message, /postgresql:\/\/|postgres:\/\/|supabase\.co/);
   }
 });
 
