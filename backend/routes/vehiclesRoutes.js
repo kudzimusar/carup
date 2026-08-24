@@ -324,16 +324,30 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
   //
   // Traversal and absolute paths are refused outright rather than normalised: a path that needs
   // normalising to look safe is a path this route should not be accepting.
-  if (filePath) {
+  // Validate the EFFECTIVE locator, which is what the insert actually stores.
+  //
+  // The row is written with `file_path: filePath || fileUrl`, so guarding only an explicitly
+  // supplied `file_path` left the fallback wide open: omit `file_path` entirely, put the victim's
+  // object path in `file_url`, pick a document type so the bucket resolves to `ocr-documents`, and
+  // the stored row points at someone else's private document with nothing having been checked.
+  // The guard therefore runs on the same expression the insert uses.
+  //
+  // A remote https URL is not a bucket locator and is not what this check governs — only a
+  // storage-relative path can address an object in our bucket, so absolute URLs are left alone here
+  // and constrained by the bucket check below.
+  const effectiveLocator = filePath || fileUrl;
+  const looksLikeStoragePath = typeof effectiveLocator === 'string'
+    && !/^[a-z][a-z0-9+.-]*:\/\//i.test(effectiveLocator);
+  if (looksLikeStoragePath) {
     const requiredPrefix = `${vin.toUpperCase()}/`;
-    const candidate = String(filePath);
+    const candidate = String(effectiveLocator);
     if (
       candidate.includes('..')
       || candidate.startsWith('/')
       || !candidate.toUpperCase().startsWith(requiredPrefix)
     ) {
       throw new ValidationError(
-        `file_path must be scoped to this vehicle: expected it to begin with "${requiredPrefix}"`,
+        `the evidence locator must be scoped to this vehicle: expected it to begin with "${requiredPrefix}"`,
       );
     }
   }

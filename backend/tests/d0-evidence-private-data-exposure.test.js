@@ -202,3 +202,52 @@ test('the unauthorised query still filters to verified rows only', () => {
   assert.match(EVIDENCE, /\.eq\('verification_status',\s*'verified'\)/);
   assert.match(TIMELINE, /\.eq\('verification_status',\s*'verified'\)/);
 });
+
+// ── THE THIRD DOOR: the passport's evidenceVault ─────────────────────────────────────────────────
+//
+// Raised by independent review after the two evidence routes were closed, and confirmed live:
+//   GET /api/vehicles/<VIN>/passport                  → evidenceVault: 4 rows x 54 keys
+//   GET /api/vehicles/passport/lookup/<identifier>    → the same
+// with real uploaded_by, verified_by, file_path and storage_bucket values. Closing two routes while
+// a third published the same rows would have been a fix in name only.
+
+const SERVER = (() => {
+  const raw = readFileSync(path.resolve(here, '../server.js'), 'utf8');
+  return raw.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+})();
+
+test('the passport projects evidenceVault for unauthorised callers', () => {
+  assert.doesNotMatch(SERVER, /^\s*evidenceVault,\s*$/m,
+    'the raw vault must not be returned verbatim');
+  assert.match(SERVER, /evidenceVault:\s*isAuthorized \? evidenceVault : evidenceVault\.map\(toPublicEvidenceRow\)/,
+    'an unauthorised caller must receive the allow-listed projection');
+});
+
+test('the passport reuses the one projection rather than forking a second allow-list', () => {
+  assert.match(SERVER, /import \{ toPublicEvidenceRow \} from '\.\/utils\/publicEvidenceProjection\.js'/);
+});
+
+test('the passport enforces session expiry and gates x-user-id', () => {
+  // The passport carried the same two identity defects as the evidence routes.
+  const start = SERVER.indexOf('async function buildVehiclePassport');
+  assert.ok(start > -1, 'buildVehiclePassport must exist');
+  const fn = SERVER.slice(start, start + 3000);
+  assert.match(fn, /new Date\(session\.expires_at\)\s*>=\s*new Date\(\)/,
+    'an expired token must not authenticate the passport either');
+  assert.match(fn, /isUserIdFallbackAllowed\(\)/);
+  assert.doesNotMatch(fn, /activeUserId\s*=\s*fallbackUserId\s*\|\|/);
+});
+
+// ── The locator guard must cover what the INSERT actually stores ─────────────────────────────────
+
+test('the effective locator is validated, not merely an explicitly supplied file_path', () => {
+  // The row is written with `file_path: filePath || fileUrl`. Guarding only `filePath` left the
+  // fallback open: omit file_path, put the victim's object path in file_url, choose a document type
+  // so the bucket resolves to ocr-documents, and nothing was checked.
+  assert.match(CREATE, /effectiveLocator\s*=\s*filePath \|\| fileUrl/,
+    'the guard must run on the same expression the insert stores');
+  assert.match(CREATE, /toUpperCase\(\)\.startsWith\(requiredPrefix\)/);
+  // ...and a remote https URL is not a bucket locator, so it is not forced through the VIN prefix.
+  assert.match(CREATE, /looksLikeStoragePath/);
+});

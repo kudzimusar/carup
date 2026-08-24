@@ -7,7 +7,8 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth } from './middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth, isUserIdFallbackAllowed } from './middleware/authMiddleware.js';
+import { toPublicEvidenceRow } from './utils/publicEvidenceProjection.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -532,22 +533,28 @@ async function buildVehiclePassport(vin, req) {
 
   if (vehicleError || !vehicle) return null;
 
-  // Determine requester identity
+  // Determine requester identity. A header is a CLAIM, not a credential.
+  //
+  // Same two defects the evidence routes carried: the session was accepted on `is_valid` alone, so
+  // an EXPIRED token still authenticated, and `x-user-id` was taken outright without
+  // `isUserIdFallbackAllowed()` — the policy that is false in production and staging.
   const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
-  const fallbackUserId = req.headers['x-user-id'];
-  let activeUserId = fallbackUserId || null;
+  let activeUserId = null;
   let activeUserRole = null;
 
   if (sessionToken) {
     const { data: session } = await supabase
       .from('user_sessions')
-      .select('user_id')
+      .select('user_id, is_valid, expires_at')
       .eq('token', sessionToken)
-      .eq('is_valid', true)
       .single();
-    if (session) {
+    if (session && session.is_valid && new Date(session.expires_at) >= new Date()) {
       activeUserId = session.user_id;
     }
+  }
+
+  if (!activeUserId && req.headers['x-user-id'] && isUserIdFallbackAllowed()) {
+    activeUserId = req.headers['x-user-id'];
   }
 
   if (activeUserId) {
@@ -700,7 +707,14 @@ async function buildVehiclePassport(vin, req) {
     vehicle,
     timeline: sanitizedTimeline,
     evidenceTimeline: sanitizedTimeline.filter(event => event.event_source === 'evidence'),
-    evidenceVault,
+    // THE THIRD ANONYMOUS DOOR.
+    //
+    // `verifiedEvidence` above is `select('*')`, and this array was returned unchanged to every
+    // caller — so `/api/vehicles/:vin/passport` and `/api/vehicles/passport/lookup/:identifier`
+    // published the same 54-column rows the two evidence routes were just closed against:
+    // plate/chassis/engine identifiers, uploader and reviewer ids, tenant id, reviewer free text,
+    // and the private storage locator. Verified live before this change.
+    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidenceRow),
     trustReport,
     chainVerification,
     identity: {
