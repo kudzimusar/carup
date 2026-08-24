@@ -1440,3 +1440,61 @@ must not be mistaken for the dependency.
 
 All 13 were VALID. Every round's set was a consequence of the previous round's fixes. The loop
 terminates on a round with **zero** findings on an unchanged head.
+
+---
+
+# ADDENDUM J — sixth Codex round on `ff081b07` (clean) and certification close-out
+
+## J.1 Round six result
+
+`@codex review head ff081b07ffd26e802e6d3dabbf6aab43276a8340`, requested 2026-08-24T06:19:10Z.
+Response 2026-08-24T06:21:51Z: *"Didn't find any major issues."* Zero inline findings created after
+the request. This is the first round in the series with nothing to fix.
+
+| Round | Head | Findings |
+|---|---|---:|
+| 6 | `ff081b07` | **0 — clean** |
+
+Six rounds, 13 total findings, all VALID, all fixed, terminating on an unchanged clean head. No
+finding was ever dismissed as out-of-scope or duplicate for this credential path — every one was
+either fixed or evidenced as not applicable per the review-governance rule this programme was run
+under.
+
+## J.2 The four certification prerequisites, simultaneously true on `ff081b07`
+
+| Prerequisite | Status |
+|---|---|
+| Local gates (backend `node --test`, web `vitest`, lint baseline, CR-1, `tsc`, `git diff --check`) | **PASS**, run before push of `ff081b07` |
+| Exact-head GitHub Actions | **PASS** — 17 checks green, backend `# tests 4189 # pass 4177 # fail 0 # skipped 12`, matching the local run exactly |
+| Fresh exact-head Codex review (no carry-forward) | **PASS — clean**, round 6, §J.1 |
+| Paired preview provenance receipt | **VALID FOR UAT** — `evidence/issue164-phase8-provenance-receipt-ff081b07.txt`, frontend and backend both report `ff081b07ffd26e802e6d3dabbf6aab43276a8340`, zero calls to the stable staging backend |
+
+All four hold on the same exact SHA at the same time. This is the release-candidate certification the
+programme was built to reach before any owner-side credential action.
+
+## J.3 Live re-verification on this exact head
+
+Browser re-check against the paired preview at `ff081b07` (not the stable staging backend) confirmed,
+in addition to the provenance receipt: Trust `60` / `trust-decision-1.0.0` on Golden A, gallery `1/5`,
+location line renders, sign-in-to-view-trust and "+N trust" fabrications both absent, PartSentry's
+structured part description still publishes (`"Front brake pads (Replaced)"`), and no work-order free
+text reaches the public timeline — i.e. both directions of the H.2/§F.5 PII fix hold together on the
+certified head, not just in the unit tests.
+
+## J.4 This addendum is documentation-only
+
+The commit carrying this addendum, the PR description sync, and the evidence-directory cleanup
+(removing the superseded `issue164-phase8-provenance-receipt-98e90c8d.txt`, which belonged to round
+1's head and predates every fix in Addenda A–J) touches no file under `backend/`, `web/`, `database/`,
+or `scripts/`. The code tree certified by round 6 and by exact-head CI is unchanged by this commit.
+Because Vercel redeploys previews on every push regardless of which files changed, a new provenance
+receipt is taken against the new head after this commit lands and before any physical UAT step is
+recorded, per the rule that a moved head invalidates a receipt.
+
+## J.5 Next gate
+
+Golden UAT credential grant is the next step and is owner-runtime action: it writes a real password
+hash to four synthetic staging accounts via the governed `hashPassword` path and requires the
+plaintext to be chosen and retained by the owner, never by this agent. Per standing instruction, that
+command is issued only after this documentation sync is pushed, CI is green on the resulting head, and
+a matching provenance receipt is taken — never against a moving target.
