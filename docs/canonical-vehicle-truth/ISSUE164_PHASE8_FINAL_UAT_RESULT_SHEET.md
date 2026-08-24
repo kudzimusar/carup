@@ -29,7 +29,7 @@
 | **PASS** | **16** / 32 |
 | **FAIL** | **3** / 32 |
 | **BLOCKED** | **13** / 32 |
-| **Overall** | **NOT A RELEASE PASS** — 3 genuine defects; 13 steps require an authenticated session |
+| **Overall** | **NOT A RELEASE PASS** — 3 step-level defects PLUS a P0 security leak (D0) found during adjudication; 13 steps require an authenticated session |
 
 **32/32 is NOT claimed.** Three genuine defects were physically observed and reproduced. Thirteen
 steps could not be exercised because no authenticated Golden session is reachable from the automation
@@ -195,8 +195,31 @@ four verified rows fail a **URL-shape** test and become `unpublishable`. So this
 regression, and the public surface now states something false: four human-reviewed, verified documents
 are reported as *"No verified evidence has been published for this vehicle."*
 
-`generateSecureReadUrl` exists (`storageService.js:116`), and a reviewer verified live that an existing
-path already issues 1-hour signed URLs to anonymous callers.
+**Adjudicated GENUINE_DEFECT (high) after a split review.** A skeptic lens argued NOT_A_DEFECT on the
+grounds that `empty_statement` says *"published"*, not *"exists"*, and that the sibling sentence does
+disclose existence. That argument fails on its own strongest ground: **`state` is a machine-readable
+enum on a public API**, and in this contract's own vocabulary `none` means *"we looked and found
+nothing"* (as against `not_loaded` = *"we did not look"*). The true state — *"we looked, found four
+governed facts, and refused them on string shape"* — is inexpressible, so it is **misfiled as absence**.
+Careful prose in a sibling field cannot rescue a false enum. The code's own comment at
+`vehicleMediaProjection.js:804-805` states the requirement verbatim — *"the block cannot pass 'we could
+not publish it' off as 'this vehicle has no verified evidence'"* — which is exactly what it does. And
+`server.js:1318` already ships `evidenceVault` with four rows stamped `verification_status:"verified"`
+to the same anonymous caller **in the same response body**, so the passport contradicts itself
+internally.
+
+**The obvious fix is the wrong fix — do NOT mint signed URLs.** `vehiclesRoutes.js:218-220`
+(`evidenceDefaultVisibility()`) returns **`restricted`** for every document evidence type
+(registration, insurance, police clearance, ownership transfer). Production never defaults these to
+`public_safe`; the **fixture hardcodes it** (`goldenVehicleFixture.js:273`) with a justification comment
+that is incorrect. **No reviewer ever cleared these documents for public display**, so signing them
+would enshrine a fixture bug as the public contract and hand anonymous callers PII.
+
+**Correct shape: publish the _fact_, withhold the _file_** — `state:"published"`, 4 items,
+`unpublishable_count:0`, each item carrying `evidence_type`, `verification_status`, `visibility_level`,
+`verified_at`, `mime_type`, `file_size`, and `file_url: null` with
+`file_availability:"withheld_private"`. No signed URL, no `storage_bucket`, no `file_path`, no byte
+leaves the server. Golden B (single `pending` row) stays correctly withheld under this shape.
 
 A contributing frontend defect prints both sentences at once: `VehicleDetail.tsx:1931-1992` is a
 three-way ternary that picks exactly one state, but `:1994-1999` is a **separate, unguarded** `&&` on
@@ -215,6 +238,49 @@ true and no unpublishable sentence appears. Any fix must preserve that.
   text, and `:812` asserts a cryptographic-hashing capability onto a "public registry ledger" that the
   codebase elsewhere explicitly disclaims.
 
+### D0 — **P0 SECURITY: anonymous callers get raw evidence rows and working signed URLs to private PDFs**
+
+Found while adjudicating D2, then **physically confirmed end to end against the paired preview**. This
+is the most serious finding of the run and was not covered by any of the 32 steps.
+
+`GET /api/vehicles/CARUPGLDNA0000001/evidence` — **no authentication, VIN only** (a VIN is printed on
+every windscreen):
+
+```
+HTTP 200 · 4 rows · 54 keys per row  (the entire raw DB row)
+```
+
+Leaked in the clear to an anonymous caller:
+
+- `plate_number`, `normalized_plate_number`, `chassis_number`, `engine_number` — **the exact
+  identifiers the passport deliberately withholds** ("Chassis No. Not shown publicly", "Engine No. Not
+  shown publicly", `identity-plate-withheld`);
+- `uploaded_by`, `verified_by`, `tenant_id`, `verification_notes`, `file_path`, `storage_bucket`;
+- **a working signed URL into the private `ocr-documents` bucket.**
+
+The signed URL was fetched anonymously and returned the document:
+
+```
+HTTP 200 · content-type: application/pdf · 1121 bytes · magic %PDF-1.4
+control (same object, no token): HTTP 400   ← the bucket IS correctly private
+```
+
+So the bucket is configured correctly; **the API itself mints the capability**. On a real vehicle these
+PDFs are registration papers, police clearance and insurance — carrying owner name, residential
+address, national ID and policy numbers — and nothing in this codebase redacts PDF interiors. A signed
+URL is a shareable bearer token for its full TTL.
+
+Per the review, the route also trusts a bare `x-user-id` header without `isUserIdFallbackAllowed()`
+(`vehiclesRoutes.js:382`) and bypasses `toPublicEvidence`/`PUBLIC_EVIDENCE_FIELDS` entirely
+(`vehiclesRoutes.js:453`, signing at `:532`).
+
+**One thing does hold:** Golden B returned `rows: 0` — its `pending` document is **not** leaked, so
+invariant 3 survives even here.
+
+This is a pre-existing route, not introduced by this branch, but it is live on the candidate and it
+defeats the passport's entire withholding posture. It should be fixed before merge and is arguably a
+staging-security matter independent of Issue #164.
+
 ### Secondary observation — not scored
 
 `/blog`'s "Zimbabwean Auto Reference Index" states third-party regulatory operational facts without a
@@ -227,11 +293,19 @@ than silently accepted.
 
 ## What must happen next
 
-1. **Owner action required** — provide an authenticated Golden A and Golden B session (or run Steps
+1. **D0 first — it is a P0.** Route anonymous responses through `toPublicEvidence`, gate the
+   `generateSecureReadUrl` call at `vehiclesRoutes.js:532` on authorisation, and gate the `x-user-id`
+   fallback at `:382` behind `isUserIdFallbackAllowed()`. Physically re-verify that an anonymous
+   `GET /api/vehicles/:vin/evidence` returns neither chassis/engine/plate nor any signed URL.
+2. **Owner action required** — provide an authenticated Golden A and Golden B session (or run Steps
    12–20 / 25–28 directly). Thirteen steps and invariants 6 and 14 cannot be certified without it.
-2. **Fix D1, D2, D3 on PR #165 only.** Each fix needs a regression test that **fails on the current
-   behaviour** (mutation-proved), not merely passes after.
-3. A new SHA forces full recertification: local gates → exact-head CI → fresh Codex → paired
+3. **Fix D2 and D3 on PR #165.** D2's fix is *publish the fact, withhold the file* — explicitly **not**
+   signed URLs. Also correct the fixture's hardcoded `public_safe` (`goldenVehicleFixture.js:273`),
+   which contradicts production's `restricted` default. Each fix needs a regression test that **fails
+   on the current behaviour** (mutation-proved), not merely passes after.
+4. **D1 needs an owner decision** before any code moves — it is carried-forward, not branch-introduced,
+   and the fix has wide blast radius (see D1).
+5. A new SHA forces full recertification: local gates → exact-head CI → fresh Codex → paired
    provenance → affected re-test → **complete 32-step UAT again**.
-4. Do **not** merge. Do not revoke the Golden credentials yet — they are needed for the blocked steps
-   and for the re-run.
+6. Do **not** merge. Do **not** revoke the Golden credentials yet — they are needed for the blocked
+   steps and for the re-run.
