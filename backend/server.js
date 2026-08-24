@@ -8,7 +8,7 @@ import { supabase } from './db/supabase.js';
 
 // Import Middleware
 import { authorizeRole, optionalAuth, isUserIdFallbackAllowed } from './middleware/authMiddleware.js';
-import { toPublicEvidenceRow } from './utils/publicEvidenceProjection.js';
+import { toPublicEvidenceRow, toPublicTimelineEventRow } from './utils/publicEvidenceProjection.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
 // Import Services
@@ -665,7 +665,11 @@ async function buildVehiclePassport(vin, req) {
       publicDescription = `Number plate ${event.details?.plateNumber || '—'} suspended: ${event.details?.reason || 'No reason provided'}`;
       publicSummary = 'Plate Suspended';
     } else if (event.event_source === 'evidence') {
-      publicDescription = event.desc || 'Verified evidence linked to this vehicle passport';
+      // `event.desc` is NOT safe to publish here: for an evidence-derived event it defaults to the
+      // reviewer's free text (`verification_notes`) about a person's document. The governed phrasing
+      // is derived from the evidence TYPE instead, which states the same fact without quoting a
+      // reviewer. (It read `event.desc || ...` before, so a row carrying notes published them.)
+      publicDescription = 'Verified evidence linked to this vehicle passport';
       publicSummary = event.label || 'Verified Evidence';
     }
 
@@ -698,6 +702,25 @@ async function buildVehiclePassport(vin, req) {
         reason: event.details?.reason,
         verificationSource: event.details?.verificationSource,
       };
+
+      // CLOSE THE TOP LEVEL TOO — the FOURTH door.
+      //
+      // Allow-listing only `details` left the event's own top level open, and an evidence-derived
+      // event carries its source row's columns up there. Verified live on the deployed passport
+      // before this change:
+      //
+      //   timeline[] evidence event → file_url: "<VIN>/golden-registration_document.pdf"
+      //
+      // i.e. the private bucket-relative locator, published to an anonymous caller through the
+      // timeline after the vault beside it had been closed. `metadata` rides up the same way and
+      // carries `ai_ready.vehicle_identity` (vin, plate, chassis, engine) on a real row, and `desc`
+      // defaults to the reviewer's `verification_notes` for any event_source the branch chain above
+      // does not override — `evidence` being one of them.
+      if (event.event_source === 'evidence') {
+        sanitizedEvent.file_url = null;
+        sanitizedEvent.metadata = {};
+      }
+      return toPublicTimelineEventRow(sanitizedEvent);
     }
 
     return sanitizedEvent;

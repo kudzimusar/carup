@@ -225,7 +225,9 @@ test('the passport projects evidenceVault for unauthorised callers', () => {
 });
 
 test('the passport reuses the one projection rather than forking a second allow-list', () => {
-  assert.match(SERVER, /import \{ toPublicEvidenceRow \} from '\.\/utils\/publicEvidenceProjection\.js'/);
+  assert.match(SERVER,
+    /import \{[^}]*\btoPublicEvidenceRow\b[^}]*\} from '\.\/utils\/publicEvidenceProjection\.js'/,
+    'matched regardless of co-imports, so adding the timeline projector beside it does not fail this');
 });
 
 test('the passport enforces session expiry and gates x-user-id', () => {
@@ -250,4 +252,83 @@ test('the effective locator is validated, not merely an explicitly supplied file
   assert.match(CREATE, /toUpperCase\(\)\.startsWith\(requiredPrefix\)/);
   // ...and a remote https URL is not a bucket locator, so it is not forced through the VIN prefix.
   assert.match(CREATE, /looksLikeStoragePath/);
+});
+
+// ── THE FOURTH DOOR: the passport's timeline ─────────────────────────────────────────────────────
+//
+// Allow-listing only `details` left the EVENT'S OWN top level open, and an evidence-derived event
+// carries its source row's columns up there. Verified live on the deployed passport before the fix:
+//
+//   timeline[] evidence event → file_url: "<VIN>/golden-registration_document.pdf"
+//
+// i.e. the private bucket-relative locator, published anonymously through the timeline after the
+// vault beside it had been closed. `metadata` rides up the same way and carries
+// `ai_ready.vehicle_identity` on a real row; `desc` defaults to the reviewer's `verification_notes`
+// for any event_source the sanitizer's branch chain does not override — `evidence` being one.
+
+test('the passport closes the TOP level of a public timeline event', () => {
+  assert.match(SERVER, /return toPublicTimelineEventRow\(sanitizedEvent\)/,
+    'allow-listing only `details` leaves the event top level open');
+});
+
+test('an evidence event publishes no private locator and no metadata through the timeline', () => {
+  // The description branch (`} else if (...)`) contains the same substring, so take the LAST
+  // occurrence — the carve-out inside the `!isAuthorized` block.
+  const at = SERVER.lastIndexOf("if (event.event_source === 'evidence') {");
+  assert.ok(at > -1, 'the evidence-event carve-out must exist');
+  const block = SERVER.slice(at, at + 300);
+  assert.match(block, /sanitizedEvent\.file_url\s*=\s*null/);
+  assert.match(block, /sanitizedEvent\.metadata\s*=\s*\{\}/);
+});
+
+test('metadata is not even in the public timeline allow-list', async () => {
+  const { PUBLIC_TIMELINE_EVENT_COLUMNS } = await import('../utils/publicEvidenceProjection.js');
+  assert.ok(!PUBLIC_TIMELINE_EVENT_COLUMNS.includes('metadata'),
+    'metadata carries ai_ready.vehicle_identity and has no public timeline use');
+  // ...while the sanitized phrasing clients render DOES survive.
+  for (const kept of ['publicDescription', 'publicSummary']) {
+    assert.ok(PUBLIC_TIMELINE_EVENT_COLUMNS.includes(kept), `${kept} must survive the projection`);
+  }
+});
+
+test('the allow-lists match the Issue #164 branch exactly, so reconciling is a deletion', async () => {
+  // The user requires proof of NO semantic divergence between this hotfix and the #164
+  // implementation. Both lists are asserted verbatim here; if either side edits one, this fails.
+  const { PUBLIC_EVIDENCE_COLUMNS, PUBLIC_TIMELINE_EVENT_COLUMNS } =
+    await import('../utils/publicEvidenceProjection.js');
+
+  assert.deepEqual([...PUBLIC_EVIDENCE_COLUMNS], [
+    'id', 'vin', 'evidence_type', 'evidence_class', 'evidence_subtype',
+    'event_type', 'event_date', 'event_date_precision',
+    'captured_at', 'uploaded_at', 'verified_at', 'created_at',
+    'verification_status', 'visibility_level',
+    'file_url', 'mime_type', 'file_size',
+    'trust_score_impact', 'trust_impact',
+    'source_name', 'checksum', 'image_hash',
+    'odometer_value', 'odometer_unit', 'declared_condition', 'component_tags',
+    'linked_registry_event_id', 'timeline_event_id',
+  ], 'must equal PUBLIC_EVIDENCE_FIELDS on the Issue #164 branch');
+
+  assert.deepEqual([...PUBLIC_TIMELINE_EVENT_COLUMNS], [
+    'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
+    'label', 'desc', 'details', 'publicDescription', 'publicSummary',
+    'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
+  ], 'must equal PUBLIC_TIMELINE_EVENT_FIELDS on the Issue #164 branch');
+});
+
+test('the passport never publishes reviewer free text as an evidence description', () => {
+  // `evidenceToTimelineItem` sets desc to `verification_notes` when present, and the branch here read
+  // `event.desc || '<fallback>'` — so a reviewed document carrying notes published them verbatim to
+  // an anonymous caller.
+  // Scoped to the EVIDENCE branch. The generic initializer `let publicDescription = event.desc || ''`
+  // is the default for event sources the chain does not cover and is not what leaked here.
+  const at = SERVER.indexOf("} else if (event.event_source === 'evidence') {");
+  assert.ok(at > -1, 'the evidence description branch must exist');
+  const branch = SERVER.slice(at, at + 320);
+  assert.doesNotMatch(
+    branch,
+    /publicDescription = event\.desc/,
+    'the evidence description must not fall back to the reviewer note',
+  );
+  assert.match(branch, /publicDescription = 'Verified evidence linked to this vehicle passport'/);
 });

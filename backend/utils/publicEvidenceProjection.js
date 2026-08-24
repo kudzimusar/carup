@@ -54,11 +54,18 @@ export const PUBLIC_EVIDENCE_COLUMNS = Object.freeze([
  * An evidence-derived event carries its source row's columns UP to the top level, so allow-listing
  * only `details` still left `metadata` (which holds `ai_ready.vehicle_identity`: vin, plate, chassis
  * and engine) and `verification_notes` reachable by a second path.
+ *
+ * `metadata` is deliberately ABSENT: there is no public timeline use for it, and it is the field that
+ * carries the identity block. `publicDescription`/`publicSummary` ARE present because the passport
+ * derives them as the sanitized, publishable phrasing and clients render them.
+ *
+ * This list is intentionally identical to `PUBLIC_TIMELINE_EVENT_FIELDS` on the Issue #164 branch, so
+ * that reconciling the two after this hotfix merges is a deletion rather than a behaviour change.
  */
 export const PUBLIC_TIMELINE_EVENT_COLUMNS = Object.freeze([
   'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
-  'label', 'desc', 'details', 'verification_status', 'file_url',
-  'mime_type', 'trust_score_impact', 'metadata',
+  'label', 'desc', 'details', 'publicDescription', 'publicSummary',
+  'verification_status', 'file_url', 'mime_type', 'trust_score_impact',
 ]);
 
 function pick(source, allowed) {
