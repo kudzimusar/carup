@@ -155,6 +155,33 @@ Golden A is unaffected (its tags are `evidence_available`/`one_owner`/`private_s
 alter the Golden verdict — but Step 1 governs **every** card on the surface, and the surface publishes
 an unbacked government-approval claim to anonymous visitors.
 
+**Aggravating findings from the adversarial review:**
+
+- **No legitimate writer exists for any of the three flags.** `duty_paid: true` has zero writers (only
+  `false` at `server.js:2272`); `zimra_verified` has zero writers repo-wide; and `police_verified: true`
+  is written only by `securityService.js:53`, where it means *"was reported stolen, then recovered"* —
+  the **inverse** of the "Police (CID) clearance on record" badge it renders. A public trust badge is
+  being produced from a flag whose only writer means the opposite.
+- **The Phase 8 invariant suite is structurally blind to this.** `INV-2`'s `findBareClaims` walks only
+  `LISTING_CLAIM_BLOCKS` keys, and `marketplace_tags` is a flat `string[]` — so the suite cannot see it.
+- **It falsifies a Phase 8 claim of record**: `ISSUE164_PHASE8_SURFACE_CONVERGENCE.md:21` states Landing
+  renders "governed tags only".
+
+**Scope — this is carried-forward, not branch-introduced.** The skeptic lens conceded the point but
+established that this predates PR #165 and is Issue #164's own **unexecuted `FACT_MODEL` M4**. Phase 4
+(commit `1b2e453b`) provenance-gated `plate_verified`, `dealer_verified` and `private_sale` in this very
+function and left these three on raw `boolValue()` three lines away. It is in Issue #164's remit by
+name, but it is not a regression this branch caused.
+
+**Blast radius if fixed now — this is the material decision.** All six governed facts resolve to
+`unknown` for all 16 staging vehicles, so gating them removes `duty_cleared`/`zimra_verified`/`cid_clear`
+from essentially **every** listing, changing the Landing hero and grid, Marketplace cards, detail/passport
+`trust_badges` and `public_badge_copy`, compare/recommendations, the free-text search corpus, and the
+`?tag=` filter and its facet list. `marketplace-listing-summary.test.js:442-450` currently asserts these
+tags **must be present** and would need rewriting. The list path does not resolve facts per VIN, so the
+gate must ride the cached canonical record and fail closed. That is a wide, late change to a closure PR —
+and it is why this needs an explicit owner decision rather than an autonomous fix.
+
 ### D2 — Step 8: four verified evidence documents publish as "none"
 
 `vehicleMediaProjection.js:803` rejects a row via `isPublishableMediaUrl(row.file_url)`;
