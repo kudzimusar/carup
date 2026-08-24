@@ -4,7 +4,7 @@ import { supabase } from '../db/supabase.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
 import { authorizeRole, isUserIdFallbackAllowed } from '../middleware/authMiddleware.js';
-import { toPublicEvidence } from '../utils/publicVehicleProjection.js';
+import { toPublicEvidence, toPublicTimelineEvent } from '../utils/publicVehicleProjection.js';
 import { uploadToStorage, generateSecureReadUrl } from '../services/storage/storageService.js';
 import { refreshCanonicalTrust } from '../services/trustDecision/canonicalTrustService.js';
 import {
@@ -14,6 +14,7 @@ import {
   documentEvidenceTypes,
   evidenceStatusTrustImpact,
   evidenceToTimelineItem,
+  evidenceTypeLabel,
   isDocumentEvidence,
   isSupportedMimeType,
   normalizeEvidenceRecord,
@@ -319,6 +320,50 @@ async function insertEvidenceFromRequest(req, vin, { requireVehicleId = false } 
     throw new ValidationError('file_url is required');
   }
 
+  // A STORAGE LOCATOR MUST BELONG TO THE VEHICLE IT IS FILED UNDER.
+  //
+  // The branch above derives `file_path` from the VIN and pins the bucket — but ONLY when the caller
+  // uploads bytes (`req.body.file`). A remote-file create supplies `file_url` with no `file` key,
+  // skips that block entirely, and previously kept the caller's own `file_path` and
+  // `storage_bucket` verbatim. Ownership was checked on the ROW's vehicle, never on the OBJECT the
+  // row pointed at.
+  //
+  // So an authenticated owner could file evidence against a vehicle they legitimately own while
+  // pointing `file_path` at another vehicle's private document in `ocr-documents`, then read their
+  // own row back and receive a valid one-hour signed URL for it — a confused deputy, with this route
+  // as the deputy. Ownership of the row is not ownership of the artifact.
+  //
+  // The locator is therefore bound to the VIN that was just authorized. Traversal and absolute paths
+  // are refused outright rather than normalised, because a path that needs normalising to look safe
+  // is a path this route should not be accepting.
+  if (filePath) {
+    const requiredPrefix = `${vin.toUpperCase()}/`;
+    const normalizedPath = String(filePath);
+    if (
+      normalizedPath.includes('..')
+      || normalizedPath.startsWith('/')
+      || !normalizedPath.toUpperCase().startsWith(requiredPrefix)
+    ) {
+      throw new ValidationError(
+        `file_path must be scoped to this vehicle: expected it to begin with "${requiredPrefix}"`,
+      );
+    }
+  }
+
+  // The bucket is a server decision, not a caller assertion: letting a caller name `ocr-documents`
+  // is what turns a public-image create into a private-document reference.
+  if (bucketName) {
+    const expectedBucket = (isDocumentEvidence(normalized.evidenceType)
+      || ['private', 'restricted', 'government_only'].includes(visibilityLevel))
+      ? 'ocr-documents'
+      : 'vehicle-images';
+    if (bucketName !== expectedBucket) {
+      throw new ValidationError(
+        `storage_bucket "${bucketName}" does not match this evidence type and visibility (expected "${expectedBucket}")`,
+      );
+    }
+  }
+
   const metadata = buildAiReadyMetadata({
     metadata: normalized.metadata,
     evidenceType: normalized.evidenceType,
@@ -566,6 +611,19 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     const enriched = normalizeEvidenceRecord(item);
     const isPrivateArtifact = item.storage_bucket === 'ocr-documents';
 
+    // Captured BEFORE the sanitation below, which deletes `metadata.ai_analysis` IN PLACE.
+    // `normalizeEvidenceRecord` is a shallow copy, so `enriched.metadata` and `item.metadata` are
+    // the SAME object — reading the summary after that delete finds nothing on either.
+    //
+    // Sourced from the validated analysis rather than the caller-writable `metadata.ai_public_summary`
+    // key: `validateEvidenceUploadPayload` accepts `req.body.metadata` on a bare `typeof === 'object'`
+    // check and `buildAiReadyMetadata` spreads it, so an uploader could otherwise place an arbitrary
+    // OBJECT — including keys named after private columns — into an anonymous response.
+    const aiPublicSummaryRaw = item?.metadata?.ai_analysis?.public_safe_summary;
+    const aiPublicSummary = typeof aiPublicSummaryRaw === 'string' && aiPublicSummaryRaw
+      ? aiPublicSummaryRaw
+      : null;
+
     if (isAuthorized && isPrivateArtifact && item.file_path) {
       try {
         enriched.file_url = await generateSecureReadUrl('ocr-documents', item.file_path, 3600);
@@ -603,7 +661,6 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     // block carries the VIN, plate, chassis and engine numbers, which is the second path Phase 0
     // closed on the timeline for exactly this reason. Re-attaching the whole object to preserve the
     // summary would reopen it. So the summary is lifted out by name and the object is left behind.
-    const aiPublicSummary = enriched.metadata?.ai_public_summary;
     if (aiPublicSummary) {
       projected.metadata = { ai_public_summary: aiPublicSummary };
     }
@@ -639,29 +696,55 @@ router.get('/api/vehicles/:vin/evidence/timeline', asyncHandler(async (req, res)
     throw new DatabaseError(fetchErr.message);
   }
 
+  // THIS ROUTE HAS NO AUTHENTICATION AT ALL, SO EVERY BYTE HERE IS PUBLIC.
+  //
+  // It was the second door to the leak the sibling `/evidence` route had just been closed against:
+  // both arrays were built from `select('*')` and returned essentially verbatim, so appending
+  // `/timeline` to the URL still yielded the full 54-column row — `uploaded_by`, `verified_by`,
+  // `tenant_id`, `verification_notes`, `plate_number`, `chassis_number`, `engine_number`,
+  // `storage_bucket` and `file_path` — to an anonymous caller. Deleting `metadata.ai_analysis` was
+  // the only sanitation, and it addressed none of that.
+  //
+  // Both arrays now go through the same governed projections the passport uses, so a future column
+  // added to `vehicle_evidence` is withheld here by default rather than published by default.
+  const publicEvidence = (evidence || []).map((item) => {
+    const enriched = normalizeEvidenceRecord(item);
+    const projected = toPublicEvidence(enriched);
+    if (item.storage_bucket === 'ocr-documents') {
+      // The artifact is private: name the withholding, never the locator.
+      projected.file_url = null;
+      projected.file_availability = 'withheld_private';
+    }
+    const aiPublicSummary = item?.metadata?.ai_analysis?.public_safe_summary;
+    if (typeof aiPublicSummary === 'string') {
+      projected.metadata = { ai_public_summary: aiPublicSummary };
+    }
+    return projected;
+  });
+
   const timeline = (evidence || []).map((item) => {
     const enriched = normalizeEvidenceRecord(item);
-    if (enriched.metadata && enriched.metadata.ai_analysis) {
-      if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
-        enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
-      }
-      delete enriched.metadata.ai_analysis;
-    }
-    return evidenceToTimelineItem(enriched);
+    const event = evidenceToTimelineItem(enriched);
+
+    // `evidenceToTimelineItem` carries its source row's columns up to the event: `desc` defaults to
+    // the REVIEWER'S FREE TEXT (`verification_notes`), `details.uploadedBy` is an internal identity,
+    // and `metadata` can hold `ai_ready.vehicle_identity` (vin, plate, chassis, engine). It is
+    // shared with authorised callers, so it is sanitised HERE rather than narrowed for everyone.
+    event.desc = `${evidenceTypeLabel(item.evidence_type)} reviewed and verified by CarUp`;
+    event.details = {
+      capturedAt: item.captured_at,
+      uploadedAt: item.uploaded_at,
+      checksum: item.checksum || item.image_hash,
+      linkedRegistryEventId: item.linked_registry_event_id,
+    };
+    const aiPublicSummary = item?.metadata?.ai_analysis?.public_safe_summary;
+    event.metadata = typeof aiPublicSummary === 'string' ? { ai_public_summary: aiPublicSummary } : {};
+    if (item.storage_bucket === 'ocr-documents') event.file_url = null;
+
+    return toPublicTimelineEvent(event);
   });
 
-  const sanitizedEvidence = (evidence || []).map((item) => {
-    const enriched = normalizeEvidenceRecord(item);
-    if (enriched.metadata && enriched.metadata.ai_analysis) {
-      if (enriched.verification_status === 'verified' && enriched.metadata.ai_analysis.public_safe_summary) {
-        enriched.metadata.ai_public_summary = enriched.metadata.ai_analysis.public_safe_summary;
-      }
-      delete enriched.metadata.ai_analysis;
-    }
-    return enriched;
-  });
-
-  res.json({ vin, timeline, evidence: sanitizedEvidence });
+  res.json({ vin, timeline, evidence: publicEvidence });
 }));
 
 router.get('/api/evidence/review', authorizeRole(reviewRoles), asyncHandler(async (req, res) => {

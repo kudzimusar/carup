@@ -87,4 +87,16 @@ describe('D3 — no product surface claims a blockchain', () => {
     const text = renderedText(<PrivacyPolicy />)
     expect(text).toMatch(/not published to any external or public network/i)
   })
+
+  it('/privacy makes no contradicting public-ledger claim elsewhere on the page', () => {
+    // The first D3 pass rewrote the section chrome and intro but left a rendered column heading
+    // reading "Public Ledger (Immutably Hashed)" eleven lines below the new denial — so the page
+    // asserted both at once. A denial is worth nothing while the contradiction still renders.
+    const text = renderedText(<PrivacyPolicy />)
+    expect(text).not.toMatch(/public ledger/i)
+    expect(text).not.toMatch(/distributed ledger(?!\s+and it is not)/i)
+    expect(text).not.toMatch(/anyone can audit/i)
+    // ...and the honest half still describes what CarUp actually operates.
+    expect(text).toMatch(/marketplace-visible record/i)
+  })
 })

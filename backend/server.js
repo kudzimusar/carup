@@ -1315,7 +1315,20 @@ async function buildVehiclePassport(
     ...(vehicleMedia ?? {}),
     // Unchanged, and deliberately NOT replaced by `verified_evidence`: this is the vault an OWNER
     // reads unredacted, a different question from what the public media block composes.
-    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map(toPublicEvidence),
+    // `toPublicEvidence` drops `storage_bucket` and `file_path`, but it KEEPS `file_url` — and for a
+    // document evidence row `file_url` IS the bucket-relative object path, because `uploadToStorage`
+    // returns `data.path` for every bucket except `vehicle-images`. So the allow-list alone still
+    // published the private locator here, through the one field it is right to keep for a public
+    // artifact. The bucket has to be read off the RAW row, before projection, since the projection
+    // is what removes the column that answers "is this private?".
+    evidenceVault: isAuthorized ? evidenceVault : evidenceVault.map((row) => {
+      const projected = toPublicEvidence(row);
+      if (row?.storage_bucket === 'ocr-documents') {
+        projected.file_url = null;
+        projected.file_availability = 'withheld_private';
+      }
+      return projected;
+    }),
     // The canonical 10-field projection — vin, score (null when there is nothing canonical to
     // publish), band, evaluation_state, confidence, evidence_basis, calculation_version,
     // evaluated_at, known_limitations, source. The key is unchanged so existing clients keep

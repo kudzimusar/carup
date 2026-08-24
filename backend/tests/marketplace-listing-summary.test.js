@@ -443,9 +443,19 @@ test('derives marketplace tags only from backed summary fields', () => {
     'passport_verified',
     'plate_verified',
     'evidence_available',
-    'duty_cleared',
-    'zimra_verified',
-    'cid_clear',
+    // 'duty_cleared', 'zimra_verified' and 'cid_clear' WERE THIS LIST'S NEXT THREE ENTRIES, AND
+    // THEY ENCODED THE SAME CLASS OF FABRICATION AS 'dealer_verified' BELOW.
+    //
+    // They read the raw legacy columns with no provenance gate at all, and the physical UAT caught
+    // what that published: a card rendered "Zimra Verified" while the same API response's canonical
+    // trust block said that exact flag "is not supported by any authoritative record and is not
+    // published". Worse, `cid_clear` derives from `police_verified`, whose ONLY writer records
+    // "was reported stolen, then recovered" — so the badge asserted a police clearance on the
+    // strength of a theft report.
+    //
+    // Owner decision (Option 3): suppress all three unconditionally, because no legitimate writer
+    // for them exists anywhere in this repository. Membership of this list therefore moved to the
+    // explicit assertion after the loop, where their ABSENCE is now the requirement.
     'low_mileage',
     'fresh_import',
     'one_owner',
@@ -475,6 +485,15 @@ test('derives marketplace tags only from backed summary fields', () => {
   // is what "backed summary fields" in this test's name has always meant. The seller-type tags were
   // the one pair that failed it. With no author for the seller type, a listing earns NEITHER badge:
   // not the dealer one it used to get for free, and not `private_sale` as a consolation fall-through.
+  // ── THE SUPPRESSED GOVERNMENT-APPROVAL CLAIMS ────────────────────────────────────────────────
+  // This fixture sets duty_paid, zimra_verified AND police_verified all true — the worst case — so
+  // the assertion below is the strictest form: even a row asserting every legacy flag earns none of
+  // the three badges. Stricter than the membership check it replaced, not weaker.
+  for (const suppressed of ['duty_cleared', 'zimra_verified', 'cid_clear']) {
+    assert.equal(tags.includes(suppressed), false,
+      `${suppressed} has no legitimate writer in this platform and must never reach a public card`);
+  }
+
   assert.equal(tags.includes('dealer_verified'), false,
     'a seller type nobody asserted cannot print a dealer badge — the DDL is not a seller');
   assert.equal(tags.includes('private_sale'), false,

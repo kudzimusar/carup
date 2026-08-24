@@ -101,6 +101,33 @@ export const CONDITION_CATEGORIES = [
   'unknown',
 ];
 
+/**
+ * PUBLIC GOVERNMENT-APPROVAL CLAIMS WITH NO LEGITIMATE WRITER.
+ *
+ * `trustPermissionService` classifies `zimra_verified` and `cid_clear` as GOVERNMENT_APPROVAL_FACTS:
+ * only a government authority may assert them. Measured over this repository, no authority ever does.
+ *
+ *   vehicles.duty_paid       — no writer sets it TRUE anywhere (server.js writes only `false`)
+ *   vehicles.zimra_verified  — no writer at all, repo-wide
+ *   vehicles.police_verified — written TRUE by exactly one place, securityService.js, where it
+ *                              records "was reported stolen, then RECOVERED". Publishing that as
+ *                              "Police (CID) clearance on record" inverts its meaning: the badge
+ *                              claims a clean record on the strength of a theft report.
+ *
+ * So these tags could only ever have been true by accident. Until an authoritative source and a
+ * provenance record exist, they are suppressed unconditionally — nothing true is lost, because
+ * nothing in the platform can make them true.
+ *
+ * This is deliberately SUPPRESSION, not the full provenance gate. Restoring these badges requires
+ * FACT_MODEL M4 — an authoritative source record satisfying the canonical public-claim gate. A
+ * legacy boolean must never be sufficient to reactivate them on its own.
+ */
+export const UNSUPPORTED_GOVERNMENT_APPROVAL_TAGS = Object.freeze([
+  'duty_cleared',
+  'zimra_verified',
+  'cid_clear',
+]);
+
 export const MARKETPLACE_TAGS = [
   'passport_verified',
   'plate_verified',
@@ -502,9 +529,21 @@ export function deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummar
   // the status string is only believed once something says who asserted it.
   if (vehicle?.plate_verified_at || attestedPlateStatus === 'verified') tags.add('plate_verified');
   if (evidenceSummary.evidence_count > 0) tags.add('evidence_available');
-  if (boolValue(vehicle?.duty_paid)) tags.add('duty_cleared');
-  if (boolValue(vehicle?.zimra_verified)) tags.add('zimra_verified');
-  if (boolValue(vehicle?.police_verified)) tags.add('cid_clear');
+
+  // GOVERNMENT-APPROVAL TAGS ARE SUPPRESSED. See UNSUPPORTED_GOVERNMENT_APPROVAL_TAGS below.
+  //
+  //   duty_cleared   <- vehicles.duty_paid
+  //   zimra_verified <- vehicles.zimra_verified
+  //   cid_clear      <- vehicles.police_verified
+  //
+  // These three lines used to read the raw column with `boolValue(...)`, ungated, sitting between
+  // neighbours that ARE provenance-gated (`plate_verified` above; `dealer_verified`/`private_sale`
+  // below). The physical UAT caught the consequence: a public card rendered "Zimra Verified" while
+  // the SAME response's canonical trust block said the flag "is not supported by any authoritative
+  // record and is not published".
+  //
+  // They are not gated on provenance here because there is no provenance to gate on — see the
+  // constant's comment for why suppression, not plumbing, is the correct step now.
   if (mileage > 0 && mileage <= 50000) tags.add('low_mileage');
   if (conditionCategory === 'recently_imported') tags.add('fresh_import');
   if (ownershipCount === 1 || boolValue(vehicle?.one_owner)) tags.add('one_owner');
@@ -517,7 +556,11 @@ export function deriveMarketplaceTags(vehicle, evidenceSummary, partSentrySummar
   if (partSentrySummary.repair_history_count > 0) tags.add('repair_history_available');
   if (partSentrySummary.verified_parts_count > 0) tags.add('verified_parts');
 
-  return Array.from(tags).filter(tag => MARKETPLACE_TAGS.includes(tag));
+  // Fail-closed belt-and-braces: even if a future edit re-adds one of the three above, it cannot
+  // reach a public surface through this function.
+  return Array.from(tags)
+    .filter(tag => MARKETPLACE_TAGS.includes(tag))
+    .filter(tag => !UNSUPPORTED_GOVERNMENT_APPROVAL_TAGS.includes(tag));
 }
 
 /**
@@ -649,9 +692,13 @@ export function buildMarketplaceListingSummary({
     partsentry_checked: partSentrySummary.partsentry_checked,
     repair_history_count: partSentrySummary.repair_history_count,
     verified_parts_count: partSentrySummary.verified_parts_count,
-    duty_cleared: boolValue(vehicle.duty_paid),
-    zimra_verified: boolValue(vehicle.zimra_verified),
-    cid_clear: boolValue(vehicle.police_verified),
+    // The SECOND publication route for the same three claims. Suppressing only the tag array would
+    // have left the assertion reachable here, where consumers derive their own badge labels from it.
+    // Reported as `false` rather than removed: the keys are part of the published shape, and a
+    // missing key would read as "unknown" when the honest answer is "CarUp does not assert this".
+    duty_cleared: false,
+    zimra_verified: false,
+    cid_clear: false,
     seller_type: seller.seller_type,
     seller_type_state: seller.seller_type_state,
     seller_display_label: seller.seller_display_label,

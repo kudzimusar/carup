@@ -524,14 +524,14 @@ export default function PrivacyPolicy() {
                   <div className="bg-gradient-to-r from-orange-500/20 to-amber-500/10 p-4 border-b border-white/5 flex items-center justify-between">
                     <span className="font-bold text-xs uppercase tracking-wide text-orange-400 flex items-center gap-1.5">
                       <Fingerprint className="w-4 h-4 shrink-0" />
-                      Cryptographic Ledger Partitioning
+                      Audit-Ledger Partitioning
                     </span>
                     <span className="text-[10px] text-orange-300 font-mono">SHA-256 SECURED</span>
                   </div>
                   <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
                     <div className="p-5 space-y-3">
                       <h5 className="font-semibold text-xs text-emerald-400 flex items-center gap-1.5">
-                        <Check className="w-3.5 h-3.5 shrink-0" /> Public Ledger (Immutably Hashed)
+                        <Check className="w-3.5 h-3.5 shrink-0" /> Marketplace-Visible Record (Hashed, Append-Only)
                       </h5>
                       <ul className="text-xs text-gray-400 space-y-2 list-none">
                         <li className="flex items-start gap-1.5">

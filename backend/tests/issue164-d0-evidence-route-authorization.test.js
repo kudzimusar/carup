@@ -137,10 +137,18 @@ test('visibility_level is not treated as an access decision for the private file
   // A row mislabelled public_safe (as the Golden fixture did) must still not export the artifact.
   const sign = EVIDENCE_ROUTE.indexOf('generateSecureReadUrl');
   const guard = EVIDENCE_ROUTE.slice(Math.max(0, sign - 320), sign);
+  // Matched precisely: `public_safe_summary` is an unrelated identifier that legitimately appears
+  // nearby, so a bare /public_safe/ substring test false-positives on it. What must not appear is
+  // the VISIBILITY LABEL being used as an access decision.
   assert.doesNotMatch(
     guard,
-    /public_safe/,
+    /visibility_level/,
     'the signing gate must depend on the caller, not on a reviewer metadata label',
+  );
+  assert.doesNotMatch(
+    guard,
+    /===\s*'public_safe'/,
+    'a row mislabelled public_safe must still not export a private file',
   );
 });
 
@@ -166,9 +174,11 @@ test('an unauthorised caller receives the governed projection, never the raw row
 });
 
 test('the projection is reused from the passport contract rather than forked here', () => {
+  // Matches regardless of what else is co-imported from the same module — pinning the exact import
+  // line made this fail the moment `toPublicTimelineEvent` was legitimately added beside it.
   assert.match(
     CODE,
-    /import \{ toPublicEvidence \} from '\.\.\/utils\/publicVehicleProjection\.js'/,
+    /import \{[^}]*\btoPublicEvidence\b[^}]*\} from '\.\.\/utils\/publicVehicleProjection\.js'/,
     'a second allow-list would drift from the passport; reuse the one contract',
   );
   assert.doesNotMatch(
@@ -234,6 +244,42 @@ test('only the sanitized AI summary is re-attached, never the metadata object', 
     EVIDENCE_ROUTE,
     /projected\.metadata\s*=\s*enriched\.metadata/,
     'the metadata object itself must never be re-attached wholesale',
+  );
+});
+
+// ── The locator must belong to the vehicle it is filed under ─────────────────────────────────────
+
+/** The evidence CREATE path, isolated. */
+const CREATE_PATH = (() => {
+  const start = CODE.indexOf('async function insertEvidenceFromRequest');
+  assert.ok(start > -1, 'the evidence create path must exist');
+  return CODE.slice(start, start + 6000);
+})();
+
+test('a caller-supplied file_path is bound to the authorized VIN', () => {
+  // The VIN-prefixed derivation at create time lives inside `if (req.body.file)` — the base64
+  // branch only. A remote-file create (file_url, no `file` key) skipped it entirely and kept the
+  // caller's own file_path, so an owner could file evidence on THEIR vehicle pointing at ANOTHER
+  // vehicle's private document and then read back a signed URL for it.
+  assert.match(
+    CREATE_PATH, /requiredPrefix\s*=\s*`\$\{vin\.toUpperCase\(\)\}\//,
+    'the locator must be required to start with the authorized VIN',
+  );
+  assert.match(CREATE_PATH, /toUpperCase\(\)\.startsWith\(requiredPrefix\)/);
+});
+
+test('path traversal and absolute paths are refused, not normalised', () => {
+  assert.match(CREATE_PATH, /includes\('\.\.'\)/, 'traversal must be refused outright');
+  assert.match(CREATE_PATH, /startsWith\('\/'\)/, 'an absolute path must be refused');
+});
+
+test('the storage bucket is a server decision, not a caller assertion', () => {
+  // Letting a caller name `ocr-documents` is what turns a public-image create into a private
+  // document reference that the read path will later sign.
+  assert.match(CREATE_PATH, /expectedBucket/, 'the bucket must be derived and compared');
+  assert.match(
+    CREATE_PATH, /bucketName !== expectedBucket/,
+    'a mismatched caller-supplied bucket must be rejected',
   );
 });
 
