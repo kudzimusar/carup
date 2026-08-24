@@ -475,7 +475,13 @@ export async function verify(depsIn = {}) {
 
     // Media vs evidence separation
     const { data: media } = await client.from('listing_images').select('image_url').eq('vin', spec.vin);
-    const { data: evidence } = await client.from('vehicle_evidence').select('id, evidence_type, verification_status, file_url').eq('vin', spec.vin);
+    // `storage_bucket` and `file_path` are REQUIRED by the fetchability probe below, which mints a
+    // signed read for the private bucket. They were missing from this select, so the probe was handed
+    // rows that could not carry a locator and reported "no storage locator" for every document —
+    // while `evidence_bucket_exists` passed vacuously, because filtering undefined buckets left an
+    // empty array and `[].every()` is true. The verifier was not loading the fields it verifies.
+    const { data: evidence } = await client.from('vehicle_evidence')
+      .select('id, evidence_type, verification_status, file_url, storage_bucket, file_path').eq('vin', spec.vin);
     check(`${spec.key}:listing_media`, (media || []).length === spec.listingImageCount, { found: (media || []).length, expected: spec.listingImageCount });
     check(`${spec.key}:evidence_present`, (evidence || []).length >= spec.evidence.length, { found: (evidence || []).length });
     // Media/evidence crossover is detected on the URL domains that actually collide: a listing photo
@@ -492,9 +498,14 @@ export async function verify(depsIn = {}) {
     const unresolvableMedia = [...mediaUrls].filter((u) => /\.test(\/|$)/.test(new URL(u).hostname + '/'));
     check(`${spec.key}:media_locators_are_real`, unresolvableMedia.length === 0, { unresolvable: unresolvableMedia });
 
-    const evidenceBuckets = [...new Set((evidence || []).map((e) => e.storage_bucket).filter(Boolean))];
-    check(`${spec.key}:evidence_bucket_exists`, evidenceBuckets.every((b) => b === 'ocr-documents' || b === 'vehicle-images'),
-      { buckets: evidenceBuckets });
+    // Asserted per ROW, not over a filtered set. Filtering out the undefined buckets first left an
+    // empty array, and `[].every()` is true — so this passed while every document was unlocatable.
+    // An invariant that cannot fail is not an invariant.
+    const evidenceRows = evidence || [];
+    const CANONICAL_EVIDENCE_BUCKETS = ['ocr-documents', 'vehicle-images'];
+    check(`${spec.key}:evidence_bucket_exists`,
+      evidenceRows.length > 0 && evidenceRows.every((e) => CANONICAL_EVIDENCE_BUCKETS.includes(e.storage_bucket)),
+      { buckets: evidenceRows.map((e) => e.storage_bucket ?? null) });
 
     // Fetch each listing image and require an image response. This is the check that would have
     // failed on the Phase 7 fixture.

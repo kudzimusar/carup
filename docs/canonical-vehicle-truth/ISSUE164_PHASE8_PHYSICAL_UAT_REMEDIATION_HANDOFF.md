@@ -849,6 +849,48 @@ rejected; wrong host rejected; production ref rejected. Every token is BUILT AT 
 written as a literal — a real base64url JWT begins `eyJ`, which is exactly what the blocking CR-1
 scanner matches, and relaxing the scanner to accommodate a test would be the wrong trade.
 
+### A.7.2 First guarded staging run — stopped at `verify_1`, verifier defect found and fixed
+
+The owner ran the full guarded `--mode=sequence` with a temporary local service-role injection. It
+stopped exactly where a fail-closed sequence should:
+
+```
+STEP verify_1: failed = ["A:evidence_fetchable","B:evidence_fetchable"]
+sequence-exit=1
+```
+
+**What the run PROVED (runtime evidence, canonical staging):**
+
+- the staging identity guard passed with a real `service_role` credential;
+- `bootstrap_1` = `ok: true`;
+- all **7** synthetic listing images uploaded to the public `vehicle-images` bucket;
+- all **5** synthetic evidence PDFs uploaded to the private `ocr-documents` bucket;
+- **`media_fetchable` did NOT fail** — the new public image delivery path works end to end, which is
+  the core of Cluster C.
+
+**The defect was in the verifier, not the delivery.** `verify()` selected
+`id, evidence_type, verification_status, file_url`, but the fetchability probe requires
+`storage_bucket` and `file_path` to mint a signed read for the private bucket. It was therefore
+handed rows that could not carry a locator, and reported "no storage locator" for every document.
+The verifier was not loading the fields it verifies.
+
+**Two things hid it, and both are now closed:**
+
+1. The source-test mock returned the WHOLE row whatever the select requested — strictly more generous
+   than PostgREST. A mock that answers questions the server would not answer cannot prove the
+   server's contract. It now projects to the selected columns, and reverting the select fix alone
+   reproduces the owner's exact failure signature locally.
+2. `evidence_bucket_exists` passed **vacuously**: it filtered out undefined buckets before asserting,
+   and `[].every()` is true. It now asserts per row. An invariant that cannot fail is not an
+   invariant.
+
+Fixed by loading the locator fields. `evidence_fetchable` was NOT weakened and `ocr-documents`
+remains private — the probe still mints a signed read and fetches it.
+
+The sequence aborted before cleanup, so the Golden fixture rows and storage objects remain in
+staging. They are deliberately NOT being removed by hand: the corrected sequence is idempotent and
+will reconcile/reuse them, which is itself part of the proof.
+
 **Owner action required — choose one:**
 
 1. Provide a working staging service-role key, and the assistant runs

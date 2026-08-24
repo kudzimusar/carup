@@ -39,6 +39,15 @@ function makeMock() {
     return op === 'eq' ? v === val : op === 'in' ? val.includes(v) : true;
   });
 
+  // Narrow a row to the columns a select actually asked for. `*` (including embedded shapes like
+  // `*, vehicles(...)`) returns the whole row, as PostgREST does.
+  const project = (row, cols) => {
+    if (!cols || String(cols).includes('*')) return { ...row };
+    const out = {};
+    for (const name of String(cols).split(',').map((c) => c.trim()).filter(Boolean)) out[name] = row[name];
+    return out;
+  };
+
   function builder(table) {
     const st = { table, op: 'select', filters: [], payload: null, cols: '*', head: false, wantCount: false };
     const exec = () => {
@@ -46,7 +55,12 @@ function makeMock() {
       if (st.op === 'select') {
         const found = rows.filter((r) => match(r, st.filters));
         if (st.wantCount && st.head) return { data: null, count: found.length, error: null };
-        return { data: found.map((r) => ({ ...r })), error: null, count: found.length };
+        // PROJECT to the requested columns. This mock used to return the whole row whatever the
+        // select asked for, which made it strictly more generous than PostgREST — and that is how a
+        // real defect shipped: verify() probed `storage_bucket`/`file_path` on rows whose select
+        // never requested them, and every test passed because the mock handed them over anyway. A
+        // mock that answers questions the server would not answer cannot prove the server's contract.
+        return { data: found.map((r) => project(r, st.cols)), error: null, count: found.length };
       }
       if (st.op === 'insert') {
         const arr = Array.isArray(st.payload) ? st.payload : [st.payload];
@@ -453,4 +467,54 @@ test('verify() FAILS when a listing image cannot actually be retrieved', async (
   assert.equal(r.ok, false, 'verify must not pass while the media is unreachable');
   const failed = r.checks.filter((c) => !c.ok).map((c) => c.name);
   assert.ok(failed.some((n) => n.endsWith(':media_fetchable')), `expected a media_fetchable failure, got ${failed}`);
+});
+
+// ── Issue #164 Phase 8 — the verifier must LOAD the fields it verifies ───────────────────────────
+// Found by the owner during the first guarded staging sequence run, which stopped at
+// `verify_1: ["A:evidence_fetchable","B:evidence_fetchable"]` after every upload had succeeded.
+// verify() selected `id, evidence_type, verification_status, file_url` but the fetchability probe
+// requires `storage_bucket` and `file_path` to mint a signed read for the private bucket — so it was
+// handed rows that could not carry a locator and reported "no storage locator" for every document.
+//
+// Two things hid it. The mock returned the whole row whatever the select asked for (now fixed: it
+// projects, and reverting the select alone reproduces the owner's exact failure). And
+// `evidence_bucket_exists` passed VACUOUSLY, because filtering undefined buckets leaves an empty
+// array and `[].every()` is true — an invariant that cannot fail is not an invariant.
+
+test('verify() loads the private-storage locator fields it probes with', async () => {
+  const { client } = makeMock();
+  const selects = [];
+  const spyClient = {
+    from: (table) => {
+      const chain = client.from(table);
+      const originalSelect = chain.select.bind(chain);
+      chain.select = (cols, opts) => { selects.push({ table, cols }); return originalSelect(cols, opts); };
+      return chain;
+    },
+  };
+  const { deps } = await makeDeps(spyClient);
+  await fixture.bootstrap(deps);
+  selects.length = 0;
+  await fixture.verify(deps);
+
+  const evidenceReads = selects.filter((s) => s.table === 'vehicle_evidence');
+  assert.ok(evidenceReads.length > 0, 'verify() must read vehicle_evidence');
+  for (const field of ['storage_bucket', 'file_path']) {
+    assert.ok(
+      evidenceReads.some((s) => String(s.cols).includes(field)),
+      `verify() probes e.${field} to mint the signed read, so its select must request it`,
+    );
+  }
+});
+
+test('evidence_bucket_exists cannot pass vacuously when no bucket was loaded', async () => {
+  const { client, db } = makeMock();
+  const { deps } = await makeDeps(client);
+  await fixture.bootstrap(deps);
+  // Strip the locator from a stored row: the check must FAIL, not shrug at an empty set.
+  for (const row of db.vehicle_evidence) { delete row.storage_bucket; delete row.file_path; }
+  const r = await fixture.verify(deps);
+  const failed = r.checks.filter((c) => !c.ok).map((c) => c.name);
+  assert.ok(failed.some((n) => n.endsWith(':evidence_fetchable')),
+    `an unlocatable document must fail evidence_fetchable, got: ${failed.join(', ')}`);
 });
