@@ -309,3 +309,84 @@ than silently accepted.
    provenance → affected re-test → **complete 32-step UAT again**.
 6. Do **not** merge. Do **not** revoke the Golden credentials yet — they are needed for the blocked
    steps and for the re-run.
+
+---
+
+# D1 — DECISION BRIEF (no code changed; owner decision required)
+
+## The conflict, in one response body
+
+For `JF1GPAL60J9UAT303`, `GET /api/marketplace/listings` returns **both**:
+
+```
+marketplace_tags: [ "duty_cleared", "zimra_verified", "cid_clear", … ]   → rendered as public pill badges
+trust.known_limitations: [ "The stored 'zimra_verified' flag … is not supported by any
+                            authoritative record and is not published.", … ]
+trust.evidence_basis.unbacked_legacy_claims: 3
+```
+
+## What makes this more than a cosmetic inconsistency
+
+1. **No legitimate writer exists for any of the three flags.** `duty_paid: true` has zero writers
+   (only `false`, `server.js:2272`); `zimra_verified` has zero writers repo-wide; `police_verified: true`
+   is written **only** by `securityService.js:53`, where it records *"was reported stolen, then
+   recovered"* — the **inverse** of the "Police (CID) clearance on record" badge it renders.
+2. **The repo's own governance disagrees with the surface.** `trustPermissionService.js:18` classifies
+   `zimra_verified`/`cid_clear` as `GOVERNMENT_APPROVAL_FACTS` — only a government authority may
+   assert them. `marketplaceTrustSummaryService.js:35-37` turns the slugs into affirmative
+   institutional prose and ranks them 2nd/3rd.
+3. **The Phase 8 invariant suite cannot see it.** `INV-2`'s `findBareClaims` walks
+   `LISTING_CLAIM_BLOCKS` keys; `marketplace_tags` is a flat `string[]`.
+4. **It falsifies a Phase 8 claim of record** — `ISSUE164_PHASE8_SURFACE_CONVERGENCE.md:21` states
+   Landing renders "governed tags only".
+5. Phase 4 (`1b2e453b`) provenance-gated `plate_verified`, `dealer_verified` and `private_sale` **in
+   this same function** and left these three on raw `boolValue()` three lines away.
+
+## What it is not
+
+- **Not branch-introduced.** It predates PR #165 and is Issue #164's own unexecuted `FACT_MODEL` M4.
+- **Not a Golden A/B defect.** Golden A's tags are `evidence_available` / `one_owner` / `private_sale`,
+  all correct. The Golden verdict is unaffected either way.
+
+## Options
+
+### Option 1 — Fix now, inside PR #165
+
+Gate the three tags on the publication decision the response already carries.
+
+- *Where*: `listingSummaryService.js:505-507` (tags) **and** `:652-654` (the same three as flat
+  booleans, or the claim leaks by a second route). `canonicalTrustService` publishes a **structured**
+  list of unpublishable legacy columns — never parse the prose sentence. Fail closed when no canonical
+  record is available, matching `plate_verified` at `:503`.
+- *Test debt*: `marketplace-listing-summary.test.js:442-450` currently asserts these tags **must be
+  present** and inverts. The negative/positive-twin precedent already exists at `:478-490`.
+- *Blast radius*: all six governed facts resolve to `unknown` for all 16 staging vehicles, so the
+  badges disappear from **essentially every listing** — Landing hero and grid, Marketplace cards,
+  passport `trust_badges` / `public_badge_copy`, compare/recommendations, the free-text search corpus,
+  and the `?tag=` filter **and its facet list**. Requires a fresh 32-step UAT.
+- *Cost*: highest. *Benefit*: the public surface stops asserting government approval nothing can back.
+
+### Option 2 — Scope to a follow-up; close #164 on D0/D2/D3
+
+- *Cost*: lowest; keeps this PR's blast radius to what the UAT actually exercised.
+- *Risk carried*: the surface keeps publishing an unbacked government-approval badge, including one
+  whose only writer means the opposite. Must be logged as a known open defect, not silently deferred.
+
+### Option 3 — Narrow interim: suppress only the three GOVERNMENT_APPROVAL_FACTS tags
+
+Suppress `duty_cleared`, `zimra_verified`, `cid_clear` unconditionally (they have **no** legitimate
+writer, so nothing true is lost), and leave `fresh_import` / `safe_pay_ready` / `inspection_ready`
+alone. No trust-record plumbing, no fail-closed logic, no new coupling.
+
+- *Cost*: small and mechanical. *Benefit*: removes the false institutional claim immediately.
+- *Trade-off*: not the full M4 provenance model — a later real ZIMRA/CID integration still needs
+  Option 1's gating before those badges could return.
+
+## Recommendation
+
+**Option 3 now, Option 1 as the tracked M4 follow-up** — if the owner wants the false claim off the
+public surface without a wide, late change to a closure PR. Because these three flags have no
+legitimate writer, suppressing them removes only claims the platform cannot substantiate, which makes
+the change far narrower than the full provenance gate while closing the actual misstatement.
+
+**Nothing in D1 has been changed. Awaiting the owner's decision.**
