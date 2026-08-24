@@ -586,6 +586,14 @@ async function buildVehiclePassport(vin, req) {
   if (evidenceError) throw evidenceError;
 
   const evidenceVault = (verifiedEvidence || []).map(normalizeEvidenceRecord);
+  // Which evidence-derived timeline events point at a PRIVATE artifact. `evidenceToTimelineItem`
+  // prefixes the row id with `evidence:`, and the timeline event carries no `storage_bucket` of its
+  // own, so the bucket has to be resolved here from the raw rows.
+  const privateEvidenceEventIds = new Set(
+    (verifiedEvidence || [])
+      .filter((row) => row?.storage_bucket === 'ocr-documents')
+      .map((row) => `evidence:${row.id}`),
+  );
   const visualTimeline = mergeEventsWithEvidence(timeline, evidenceVault);
   const trustReport = await computeVehicleTrustScore(vin);
   const chainVerification = await verifyChain(vin);
@@ -717,7 +725,11 @@ async function buildVehiclePassport(vin, req) {
       // defaults to the reviewer's `verification_notes` for any event_source the branch chain above
       // does not override — `evidence` being one of them.
       if (event.event_source === 'evidence') {
-        sanitizedEvent.file_url = null;
+        // Only a PRIVATE artifact loses its locator. Nulling every evidence event's `file_url` also
+        // stripped verified `public_safe` images in the PUBLIC `vehicle-images` bucket, which the
+        // other projections deliberately keep so clients can render them — a fix mis-sized against
+        // the property it claims, which would have silently emptied the passport's imagery.
+        if (privateEvidenceEventIds.has(event.id)) sanitizedEvent.file_url = null;
         sanitizedEvent.metadata = {};
       }
       return toPublicTimelineEventRow(sanitizedEvent);

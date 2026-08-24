@@ -276,9 +276,13 @@ test('an evidence event publishes no private locator and no metadata through the
   // occurrence — the carve-out inside the `!isAuthorized` block.
   const at = SERVER.lastIndexOf("if (event.event_source === 'evidence') {");
   assert.ok(at > -1, 'the evidence-event carve-out must exist');
-  const block = SERVER.slice(at, at + 300);
+  const block = SERVER.slice(at, at + 320);
   assert.match(block, /sanitizedEvent\.file_url\s*=\s*null/);
   assert.match(block, /sanitizedEvent\.metadata\s*=\s*\{\}/);
+  // ...and ONLY for a private artifact. Nulling every evidence event's file_url also stripped
+  // verified public_safe images in the PUBLIC vehicle-images bucket, which clients render.
+  assert.match(block, /privateEvidenceEventIds\.has\(event\.id\)/,
+    'a public-bucket artifact must keep its URL');
 });
 
 test('metadata is not even in the public timeline allow-list', async () => {
@@ -331,4 +335,12 @@ test('the passport never publishes reviewer free text as an evidence description
     'the evidence description must not fall back to the reviewer note',
   );
   assert.match(branch, /publicDescription = 'Verified evidence linked to this vehicle passport'/);
+});
+
+test('a PUBLIC-bucket evidence artifact keeps its URL in the passport timeline', () => {
+  // The private set is built from the raw rows, because a timeline event carries no storage_bucket.
+  assert.match(SERVER, /const privateEvidenceEventIds = new Set\(/);
+  assert.match(SERVER, /row\?\.storage_bucket === 'ocr-documents'/);
+  assert.match(SERVER, /`evidence:\$\{row\.id\}`/,
+    'the set must key on the same id shape evidenceToTimelineItem emits');
 });
