@@ -10,19 +10,22 @@
 
 | | |
 |---|---|
-| **Exact SHA** | `2e69e085d8f83f3a61934f8287bd8eb66bbd06b1` |
+| **Exact SHA** | `2f7e257a249b34d678b90869957245aab2d8707a` (docs-only descendant of `ff081b07…`, the Codex-round-6-clean, exact-head-CI-green code-certified commit — no file under `backend/`, `web/`, `database/`, or `scripts/` differs between the two) |
 | **Frontend preview** | `https://carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app` |
 | **Backend preview** | `https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app` |
 | **Canonical staging** | `eoyenigwevnxwwhyhaer` |
-| **Provenance receipt** | `evidence/issue164-phase8-provenance-receipt-<head>.txt` — SHA equality **EQUAL**, zero calls to the stable staging backend |
+| **Provenance receipt** | `evidence/issue164-phase8-provenance-receipt-2f7e257a.txt` — SHA equality **EQUAL**, zero calls to the stable staging backend |
 
 **Before starting, re-run the receipt.** If the head has moved, the run is invalid:
 
 ```bash
 node scripts/issue164-uat-provenance-receipt.mjs \
   --frontend=https://carup-staging-git-integration-canonical-vehicle-tr-7bafc7-11-11.vercel.app \
-  --expected-sha=<the head under test>
+  --expected-sha=$(git -C "$(git rev-parse --show-toplevel)" rev-parse HEAD)
 ```
+
+Use the live PR head, not a pasted SHA — any push since this sheet was last edited moves the deployed
+head and makes a hardcoded SHA stale.
 
 ## Recording rules
 

@@ -5,14 +5,14 @@ ISSUE #164 PHASE 8 — UAT PROVENANCE RECEIPT
   backend preview URL                https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app
   API base compiled into the bundle  https://carup-backend-staging-git-integration-canonical-ve-df06b3-11-11.vercel.app
   API base source                    paired from preview-backend-pairing.json for "integration/canonical-vehicle-truth-closure"
-  frontend candidate SHA             ff081b07ffd26e802e6d3dabbf6aab43276a8340
+  frontend candidate SHA             2f7e257a249b34d678b90869957245aab2d8707a
   frontend git ref                   integration/canonical-vehicle-truth-closure
-  backend /api/health SHA            ff081b07ffd26e802e6d3dabbf6aab43276a8340
+  backend /api/health SHA            2f7e257a249b34d678b90869957245aab2d8707a
   backend branch                     integration/canonical-vehicle-truth-closure
   SHA equality                       EQUAL
   calls stable carup-backend-staging.vercel.app no
   matches --expected-sha             yes
 ==============================================================================
 
-  VALID FOR UAT — both surfaces serve ff081b07.
+  VALID FOR UAT — both surfaces serve 2f7e257a.
 

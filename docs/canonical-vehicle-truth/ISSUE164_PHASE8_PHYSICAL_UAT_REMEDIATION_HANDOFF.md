@@ -1498,3 +1498,24 @@ hash to four synthetic staging accounts via the governed `hashPassword` path and
 plaintext to be chosen and retained by the owner, never by this agent. Per standing instruction, that
 command is issued only after this documentation sync is pushed, CI is green on the resulting head, and
 a matching provenance receipt is taken — never against a moving target.
+
+## J.6 Receipt rotation — the actual PR head is `2f7e257a`, one docs commit past `ff081b07`
+
+Saving §J.4's receipt as a tracked file is itself a push, which is itself a new head, which Vercel
+redeploys regardless of whether any code changed — so the receipt for `ff081b07` was already one
+commit stale the moment it was committed. Rather than chase that indefinitely, this is the last
+documentation-only commit before the owner-action gate:
+
+- `evidence/issue164-phase8-provenance-receipt-2f7e257a.txt` — **VALID FOR UAT**, taken live against
+  `2f7e257a249b34d678b90869957245aab2d8707a` after CI went green on that exact head (17/17 checks,
+  same set that passed on `ff081b07`).
+- `2f7e257a` differs from the Codex-round-6-clean `ff081b07` in exactly two files, both under
+  `docs/canonical-vehicle-truth/`: this handoff doc and the evidence receipt rotation. No file under
+  `backend/`, `web/`, `database/`, or `scripts/` differs — the code tree round 6 reviewed is what is
+  deployed at `2f7e257a`.
+- The result-sheet's provenance command (§ "Before starting") now reads the live `git rev-parse HEAD`
+  instead of a pasted SHA, so this same staleness cannot recur silently — a future doc-only push moves
+  the head but the runbook always re-checks against whatever is actually current when it is run, not
+  against a string written down earlier.
+
+`2f7e257a` is the exact SHA the physical UAT and the credential grant are certified against.
