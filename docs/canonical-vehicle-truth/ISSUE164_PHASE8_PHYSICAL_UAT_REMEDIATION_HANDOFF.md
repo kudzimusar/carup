@@ -777,15 +777,36 @@ paired backend; **zero** went to the stable one.
 | Cluster | Status |
 |---|---|
 | I — preview provenance | **DONE**, verified by receipt + browser |
-| C — media | **CODE DONE**; the staging fixture write is **BLOCKED** (see A.7) |
-| B — location | **DONE** |
-| D — owner read-model | **DONE** (counts, parts/services split, insurance) |
-| E — date semantics | **DONE** |
-| F — publication disclosure | **DONE** |
-| G — content governance | **NOT STARTED** |
-| H — responsive/accessibility | **NOT STARTED** |
-| Step 6 calculation version | **NOT STARTED** |
-| OBS-05 second Trust authority | **NOT STARTED** |
+| C — media | **CODE DONE**; the staging fixture write is **OWNER-ACTION BLOCKED** (see A.7) |
+| B — location | **DONE** — browser-verified live: Detail renders `Bulawayo, Bulawayo Metropolitan, Zimbabwe` |
+| D — owner read-model | **DONE** (governed counts, parts/services split, insurance) |
+| E — date semantics | **DONE** (`Purchased` and `Listed` both un-fabricated) |
+| F — publication disclosure | **DONE** — gate untouched, `pending_gaps` propagated |
+| G — content governance | **DONE** — 13 findings closed, both surfaces live, 19-test guard |
+| H — responsive/accessibility | **DONE** — OBS-02/06/14/16, 10 regression tests |
+| Step 6 calculation version | **DONE** — published on the Trust panel |
+| OBS-05 second Trust authority | **DONE** — `+N Trust` removed from the deprecated source |
+| Test-environment containment | **DONE** — see Addendum B |
+
+**Every engineering cluster is closed. The only outstanding engineering/runtime item is Cluster C's
+staging fixture write (A.7), which requires an owner-side credential step.**
+
+### Gate status on the remediation candidate
+
+| Gate | Result |
+|---|---|
+| web suite | **1054 / 1054** |
+| backend suite (local, CI-parity env) | **4135 total / 4123 pass / 0 fail / 12 skipped** |
+| TypeScript (`web/tsconfig.app.json`) | 0 errors |
+| lint regression gate | `NET_NEW_ERRORS=0`, `NET_NEW_WARNINGS=0` |
+| CR-1 credential scan | clean (1923 tracked files) |
+| `git diff --check` | clean |
+
+One CI finding worth recording, because it is the same discipline this programme is about: the
+blocking CR-1 scan rejected two lines of the new containment TEST, where fixture URIs carried a
+`postgres:redacted@` userinfo section. The scanner matches the *shape*, and a scanner taught to
+ignore a shape because one instance is fake stops being a scanner — so the fixtures were made
+credential-free rather than the scanner relaxed.
 
 ## A.7 BLOCKER — the Cluster C staging fixture write cannot be executed by the assistant
 
