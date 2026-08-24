@@ -1269,10 +1269,71 @@ is the false-zero class Cluster D exists to remove, reintroduced two commits aft
 
 **Fixed.** `total_cost` is selected and published as the event's cost.
 
-## F.5 The pattern
+## F.5 A fifth, self-caught: the PII fix was too BROAD
 
-Across Addendum D, E and F the same shape recurs: **a fix that is narrower than the property it
-claims**. D's guard covered the connection string but not the project. E's separation gave one
-collection no source. F's throw stopped a function but not the caller. Each was caught by an
-independent reader rather than by the person who wrote it — which is the argument for the review step,
-not for more care.
+The F.1 fix added an **unscoped** `service` branch to the public sanitizer. Measured on the live
+preview before the change, a PartSentry event publishes:
+
+```
+id: partsentry:4 | label: Replaced | publicDescription: "Front brake pads (Replaced)"
+```
+
+That is structured, non-sensitive, governed information the public Detail page uses — and the
+unscoped branch would have replaced it with a generic sentence, destroying real published fact.
+PartSentry shares `event_source: 'service'` with work orders but carries no free text and no customer
+columns.
+
+**Fixed** by keying the override on the `workorder:` id prefix. Both directions are now pinned by
+`backend/tests/issue164-phase8-service-timeline-privacy.test.js`: the work-order path publishes no
+free text and no customer identity, and PartSentry keeps publishing its part description.
+
+Caught by re-reading my own change against live data rather than by another reviewer — which is the
+habit the earlier rounds should have instilled sooner.
+
+## F.6 The pattern
+
+Across Addendum D, E and F the same shape recurs: **a fix mis-sized against the property it claims.**
+
+- D: a guard covering the connection string but not the project.
+- E: a separation giving one collection no source.
+- F.3: a throw stopping a function but not its caller.
+- F.5: an override broad enough to destroy the information it was protecting.
+
+Four of those five were caught by an independent reader rather than by the author. That is the
+argument for keeping the review step — not for resolving to be more careful.
+
+---
+
+# ADDENDUM G — third Codex round on `cb85543d`
+
+One inline finding, **P1, VALID** — and it is the sharpest of the series, because it is about the
+command whose whole purpose is to undo a credential.
+
+## G.1 Revocation could be defeated by identity drift
+
+The grant-only scoping from F.2 kept `revoke` running, but `found` was still loaded **by the four
+pinned emails only**. Two consequences:
+
+- If a granted fixture's **email changes**, an email-keyed revoke finds no row, reports it `absent`,
+  and **leaves the shared UAT hash live** on the very account that drifted.
+- If that pinned email has meanwhile been **reassigned to a different user**, the same path clears
+  **that user's** password instead.
+
+So the command that exists to remove a credential could both fail to remove it and remove someone
+else's. Identity here is the deterministic fixture **id**; the email is only a label on it.
+
+**Fixed.** Rows are now read by the pinned emails **and** the deterministic ids, so drift is visible
+from either direction. `revoke` iterates `GOLDEN_UAT_IDS` and updates by id. `status` resolves by id
+first, so a renamed row still reports against its fixture identity. A row holding a pinned email but
+sitting outside the fixture id set is **reported and never written to**. Four new assertions.
+
+## G.2 A vacuous test of my own, caught immediately
+
+The first version of the status assertion sliced the source from the status branch to
+`indexOf("if (MODE === 'grant')")` — but an earlier `MODE === 'grant'` guard sits **above** status, so
+the slice ran backwards and was empty. The assertion would have passed against anything. Anchored to
+the first grant branch **after** status.
+
+That is the third vacuous assertion in this programme (after the media-locator and users-scope ones).
+The tell is always the same: an assertion that cannot distinguish the presence of a property from the
+absence of the code it is inspecting.

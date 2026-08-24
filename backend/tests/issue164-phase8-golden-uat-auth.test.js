@@ -101,3 +101,42 @@ test('it refuses any identity that is not a synthetic staging fixture', () => {
   assert.match(SRC, /@carup-staging\\\.test\$/, 'must verify the fixture email domain before writing');
   assert.match(SRC, /refusing to touch/, 'a non-fixture identity must be refused');
 });
+
+// ── Codex round 3 P1: revocation must survive identity drift ─────────────────────────────────────
+// `found` was loaded by the four pinned EMAILS only. If a granted fixture's email changes, an
+// email-keyed revoke reports it absent and leaves the shared UAT hash live on it; and if the pinned
+// email was meanwhile reassigned, that same path clears the REPLACEMENT user's password instead.
+// Identity here is the deterministic id — the email is a label on it.
+
+test('the users read is keyed on the deterministic ids as well as the pinned emails', () => {
+  assert.match(SRC, /GOLDEN_UAT_IDS/, 'the deterministic id set must exist');
+  assert.match(SRC, /\.in\('id', GOLDEN_UAT_IDS\)/, 'rows must also be resolvable by fixture id');
+  assert.match(SRC, /\.in\('email', GOLDEN_UAT_ACCOUNTS\)/, 'the email read remains, for drift visibility');
+});
+
+test('revoke targets the deterministic id, never the email', () => {
+  const revoke = SRC.slice(SRC.indexOf("if (MODE === 'revoke')"));
+  assert.match(revoke, /for \(const userId of GOLDEN_UAT_IDS\)/,
+    'revocation must iterate the fixture ids');
+  assert.match(revoke, /\.eq\('id', userId\)/, 'and update by that id');
+  assert.doesNotMatch(revoke, /r\.email === email/,
+    'a renamed row must not defeat revocation, and a reassigned email must not be cleared');
+});
+
+test('a row outside the fixture id set is reported, never written to', () => {
+  const revoke = SRC.slice(SRC.indexOf("if (MODE === 'revoke')"));
+  assert.match(revoke, /unrelatedRowsHoldingAPinnedEmail/,
+    'a stranger holding a pinned address must be surfaced, not touched');
+});
+
+test('status resolves by id first, so a renamed row still reports against its fixture identity', () => {
+  // Slice from the status branch to the NEXT grant branch AFTER it — an earlier `MODE === 'grant'`
+  // guard appears above status, so an unanchored indexOf produces an empty (backwards) slice and the
+  // assertion would have been vacuous rather than wrong.
+  const statusAt = SRC.indexOf("if (MODE === 'status')");
+  const grantAfter = SRC.indexOf("if (MODE === 'grant')", statusAt);
+  assert.ok(statusAt > -1 && grantAfter > statusAt, 'the status branch must precede a grant branch');
+  const status = SRC.slice(statusAt, grantAfter);
+  assert.match(status, /GOLDEN_UAT_IDS\[index\]/,
+    'status must resolve by fixture id first, so a renamed row still reports against its identity');
+});

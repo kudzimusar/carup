@@ -166,10 +166,29 @@ async function main() {
 
   // Every account must already exist as a synthetic Golden fixture row. This script provisions a
   // credential for an existing identity; it never creates a user, and never touches a non-fixture one.
-  const { data: rows, error } = await supabase
-    .from('users').select('id, email, role, password_hash').in('email', GOLDEN_UAT_ACCOUNTS);
-  if (error) fail(`users read failed: ${error.message}`);
-  const found = rows || [];
+  // Read by BOTH the pinned emails AND the deterministic fixture ids.
+  //
+  // Loading by email alone made drift invisible in the one direction that matters most: if a granted
+  // fixture's EMAIL changes, the row is absent from an email-keyed read, so `revoke` reports it
+  // missing and the shared UAT hash stays live on it. And if that pinned email was meanwhile
+  // reassigned to a different user, the same email-keyed path would clear THAT user's password
+  // instead. Identity here is the id — the email is a label on it.
+  const { GOLDEN_USERS: GU } = await import('../services/golden/goldenVehicleSpecs.js');
+  const GOLDEN_UAT_IDS = Object.freeze(GU
+    .filter((u) => GOLDEN_UAT_ACCOUNTS.includes(u.email))
+    .map((u) => u.id));
+
+  const [byEmail, byId] = await Promise.all([
+    supabase.from('users').select('id, email, role, password_hash').in('email', GOLDEN_UAT_ACCOUNTS),
+    supabase.from('users').select('id, email, role, password_hash').in('id', GOLDEN_UAT_IDS),
+  ]);
+  if (byEmail.error) fail(`users read failed: ${byEmail.error.message}`);
+  if (byId.error) fail(`users read by id failed: ${byId.error.message}`);
+  const found = [...new Map([...(byEmail.data || []), ...(byId.data || [])]
+    .map((r) => [r.id, r])).values()];
+  // Any row reachable from a pinned id or email must still be a synthetic fixture identity. If a
+  // deterministic Golden id now carries a non-synthetic address, that is drift serious enough to stop
+  // every mode: writing to it is out of the question, and reporting on it as if it were ours is worse.
   for (const row of found) {
     if (!/@carup-staging\.test$/.test(row.email || '')) {
       blocked(`refusing to touch ${row.email}: not a @carup-staging.test synthetic fixture identity`);
@@ -183,8 +202,7 @@ async function main() {
   // address whose role had become `admin` would turn an owner/buyer grant into an administrator
   // login. The Golden identities are deterministic (id and role are fixtures, not observations), so
   // both are required to match, and ANY mismatch fails the whole grant rather than skipping a row.
-  const { GOLDEN_USERS } = await import('../services/golden/goldenVehicleSpecs.js');
-  const expected = new Map(GOLDEN_USERS
+  const expected = new Map(GU
     .filter((u) => GOLDEN_UAT_ACCOUNTS.includes(u.email))
     .map((u) => [u.email, { id: u.id, role: u.role }]));
   const drifted = [];
@@ -206,8 +224,9 @@ async function main() {
   }
 
   if (MODE === 'status') {
-    const report = GOLDEN_UAT_ACCOUNTS.map((email) => {
-      const row = found.find((r) => r.email === email);
+    const report = GOLDEN_UAT_ACCOUNTS.map((email, index) => {
+      // Resolve by id FIRST so a renamed row is still reported against its fixture identity.
+      const row = found.find((r) => r.id === GOLDEN_UAT_IDS[index]) || found.find((r) => r.email === email);
       return {
         email,
         exists: !!row,
@@ -264,15 +283,22 @@ async function main() {
   }
 
   if (MODE === 'revoke') {
+    // Keyed on the DETERMINISTIC ID. Revocation must not be defeated by a renamed row, and must never
+    // reach a different user who happens to hold a pinned address now.
     const results = [];
-    for (const email of GOLDEN_UAT_ACCOUNTS) {
-      const row = found.find((r) => r.email === email);
-      if (!row) { results.push({ email, action: 'skipped', reason: 'absent' }); continue; }
-      const { error: updErr } = await supabase.from('users').update({ password_hash: null }).eq('id', row.id);
-      if (updErr) fail(`credential revoke failed for ${email}: ${updErr.message}`);
-      results.push({ email, userId: row.id, action: 'credential_cleared' });
+    for (const userId of GOLDEN_UAT_IDS) {
+      const row = found.find((r) => r.id === userId);
+      if (!row) { results.push({ userId, action: 'skipped', reason: 'absent' }); continue; }
+      const { error: updErr } = await supabase.from('users').update({ password_hash: null }).eq('id', userId);
+      if (updErr) fail(`credential revoke failed for ${userId}: ${updErr.message}`);
+      results.push({ userId, email: row.email, action: 'credential_cleared' });
     }
-    console.log(JSON.stringify({ mode: 'revoke', accounts: results }, null, 2));
+    // A pinned EMAIL that now resolves to a row outside the fixture id set is reported, never touched.
+    const foreign = found.filter((r) => !GOLDEN_UAT_IDS.includes(r.id));
+    console.log(JSON.stringify({
+      mode: 'revoke', accounts: results,
+      unrelatedRowsHoldingAPinnedEmail: foreign.map((r) => ({ userId: r.id, email: r.email })),
+    }, null, 2));
   }
 }
 
