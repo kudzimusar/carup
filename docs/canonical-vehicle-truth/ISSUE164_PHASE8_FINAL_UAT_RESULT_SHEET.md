@@ -473,3 +473,89 @@ response were both true and both insufficient.
 1. **Step 1 / D1** — owner policy decision (three options in the decision brief above).
 2. **13 authenticated steps** — owner-provided Golden A and Golden B sessions.
 3. `main` carries the same D0 exposure and needs expedited protected-`main` remediation.
+
+---
+
+# RUN 3 — after the Codex round and the owner's two decisions (`efe7e3ee`)
+
+Provenance re-confirmed: frontend SHA == backend `/api/health` SHA == `efe7e3ee`, **EQUAL**, zero calls
+to the stable staging backend. Exact-head CI green.
+
+## Step 1 — now PASS
+
+Owner decision: **D1 Option 3** — suppress `duty_cleared`, `zimra_verified` and `cid_clear`
+unconditionally, because no legitimate writer exists for any of them.
+
+Physically observed on the Landing page:
+
+| Claim | Before | After |
+|---|---|---|
+| "Zimra Verified" | rendered | **absent** |
+| "Duty Cleared" | rendered | **absent** |
+| "CID Clear" | rendered (filter chip) | **absent** |
+| "Police Checked" | rendered (Marketplace card) | **absent** |
+| `Trust NN` on any card | 0 | **0** |
+| *Fresh Import*, *Low Mileage*, *Evidence Available* | present | **present** |
+| Golden A card | 2019 Toyota Hilux · USD 21,500 · Bulawayo · Evidence Available / One Owner · image 960×640 | **unchanged** |
+
+**Four publication routes existed, not one** — which is why the first backend-only pass looked
+complete and was not:
+
+1. the `marketplace_tags` array (backend);
+2. the flat booleans on the summary (backend);
+3. the Landing `popular-search-chip` filter suggestions (frontend);
+4. `Marketplace.tsx` deriving labels **directly from the raw columns**, bypassing the tag array.
+
+Route 4 carried the sharper half: `police_verified → "Police Checked"`. That column's only writer
+records *"was reported stolen, then recovered"*, so the label asserted a clean police check on the
+strength of a theft report. A hardcoded `"ZIMRA Duty Cleared"` printed on every row of the bank
+LendingQueue — with no data behind it whatsoever — was removed in the same pass.
+
+The tag names remain in the vocabulary so a future `FACT_MODEL` M4 provenance gate has something to
+re-enable. A legacy boolean alone must never suffice.
+
+## D0 — the second door, found by review and closed
+
+Independent review after the first D0 fix found `GET /api/vehicles/:vin/evidence/timeline`: an
+anonymous sibling route doing `select('*')` whose only sanitation was `delete metadata.ai_analysis`.
+Confirmed live on the supposedly-fixed head — the D0 fix was bypassable by appending seven characters
+to the URL.
+
+| Probe | Before | After (`efe7e3ee`) |
+|---|---|---|
+| `/evidence/timeline` evidence rows | 4 × **54 keys** | 4 × **29 keys** |
+| `uploaded_by`, `verified_by`, `file_path`, `storage_bucket`, identity columns | present with values | **none present** |
+| `timeline[].details.uploadedBy` | `"golden-a-owner-stg"` | **absent** |
+| `ocr-documents` / `token=` anywhere | present | **absent** |
+
+The `timeline[]` array leaked **independently** of `evidence[]`: `evidenceToTimelineItem` sets `desc`
+to the reviewer's free text (`verification_notes`), `details.uploadedBy` to an internal identity, and
+carries `metadata` (holding `ai_ready.vehicle_identity`: vin, plate, chassis, engine) onto the event.
+
+## Codex adjudication — six findings
+
+| Finding | Codex | Verified | Outcome |
+|---|:---:|:---:|---|
+| Evidence timeline unsanitised | P1 | **P0** | fixed |
+| Signed path not bound to the authorized vehicle | P1 | P1 | fixed |
+| Passport `evidenceVault` leaks the private locator | P2 | P2 | fixed (broader than reported — `file_url` **is** the path) |
+| AI summary not validated as a scalar | P2 | P2 | fixed |
+| `/privacy` still claims a public ledger | P2 | P2 | fixed |
+| Client fallback drops withheld evidence | P2 | — | **NOT VALID** |
+
+**NOT VALID, with evidence:** `resolveMediaBlock` returns the canonical block whenever it is non-null
+and not `not_loaded`, and `server.js:1315` always spreads `vehicleMedia` onto the passport body — so
+the fallback is never selected against this server. Its transport (`evidenceVault` via
+`PUBLIC_EVIDENCE_FIELDS`) also carries no `file_availability` for a withheld branch to match. No
+change made; recorded rather than silently skipped.
+
+## Running tally
+
+| | |
+|---|---|
+| **PASS** | **19** / 32 |
+| **FAIL** | **0** / 32 |
+| **BLOCKED** | **13** / 32 — the authenticated steps |
+
+All four originally-failing steps (1, 8, 30, 31) now pass on physical re-observation. **32/32 is still
+not claimed:** thirteen steps have never been exercised, and no session was fabricated to change that.
