@@ -49,28 +49,52 @@ const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
   .map((f) => ({ file: f, sql: readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8') }));
 
 /**
- * The net effect of the migration tree on `GRANT SELECT ... TO anon` for one table.
+ * The net effect of the migration tree on anon's SELECT reach for one table.
  *
- * Deliberately literal: it reads the statements in order and reports whichever came last, rather
- * than trying to model Postgres. A migration that grants and then revokes in the same file is
- * handled because statements are scanned in order within the file too.
+ * REWRITTEN AFTER REVIEW, because the first version could report `none` while three real grant paths
+ * left the table readable — a gate that cannot fail asserts nothing, which is the whole point of
+ * this file:
+ *
+ *   1. COLUMN-LEVEL grants — `GRANT SELECT (file_path, storage_bucket) ON t TO anon`. The original
+ *      privilege group excluded parentheses, so the statement did not match at all. One granted
+ *      column is enough to leak a private storage locator.
+ *   2. `TO PUBLIC` — every role, anon included. The original checked only for a literal `anon`.
+ *   3. Role inheritance — a grant to a role anon is a member of. Membership is asserted to be empty
+ *      by the live probe; here the parser at least refuses to treat a non-anon role as automatically
+ *      safe when that role is PUBLIC.
+ *
+ * Still deliberately literal about ORDER: the last statement to touch the privilege wins, scanned in
+ * file order and then in statement order within each file.
  */
 function netAnonSelectPosture(table) {
   let posture = 'none';
   let decidedBy = null;
+
+  // `SELECT`, `SELECT (col, col)`, `ALL`, `ALL PRIVILEGES` — parentheses included this time.
+  // NO NESTED QUANTIFIERS. The first hardened version used
+  // `((?:[A-Z]+(?:\s*\([^)]*\))?\s*,?\s*)+?)` to model the privilege list and backtracked
+  // catastrophically on the real migration tree — it hung the suite. A regex that can hang is a gate
+  // that does not run. The privilege text is captured with a single lazy `[^;]*?` and INSPECTED
+  // afterwards, which is both faster and easier to reason about.
   const statementRe = new RegExp(
-    String.raw`(GRANT|REVOKE)\s+([A-Z, ]+?)\s+ON\s+(?:TABLE\s+)?(?:public\.)?${table}\s+(?:TO|FROM)\s+([^;]+);`,
-    'gi',
+    String.raw`\b(GRANT|REVOKE)\b([^;]*?)\bON\b\s+(?:TABLE\s+)?(?:public\.)?${table}\b([^;]*?);`,
+    'gis',
   );
+
   for (const { file, sql } of MIGRATIONS) {
     // Ignore the rollback half: it documents how to restore the old posture on purpose.
     const upOnly = sql.split(/^--\s*\+migrate\s+Down\s*$/mi)[0];
     for (const m of upOnly.matchAll(statementRe)) {
-      const [, verb, privileges, roles] = m;
-      if (!/\banon\b/i.test(roles)) continue;
-      if (!/\bSELECT\b|\bALL\b/i.test(privileges)) continue;
+      const [, verb, privileges, tail] = m;
+      // `tail` is everything after the table name: "TO anon", "FROM anon, authenticated", ...
+      const roleMatch = /\b(?:TO|FROM)\b([\s\S]*)$/i.exec(tail || '');
+      const roles = roleMatch ? roleMatch[1] : '';
+      // A grant to PUBLIC reaches anon just as surely as naming it.
+      if (!/\banon\b/i.test(roles) && !/\bPUBLIC\b/i.test(roles)) continue;
+      // Column-level SELECT counts: one granted column is enough to leak a storage locator.
+      if (!/\bSELECT\b/i.test(privileges) && !/\bALL\b/i.test(privileges)) continue;
       posture = verb.toUpperCase() === 'GRANT' ? 'granted' : 'none';
-      decidedBy = `${file} (${verb.toUpperCase()} ${privileges.trim()})`;
+      decidedBy = `${file} (${verb.toUpperCase()} ${privileges.trim()} -> ${roles.trim()})`;
     }
   }
   return { posture, decidedBy };
@@ -85,6 +109,46 @@ test('anon holds no SELECT on vehicle_evidence in the migration tree', () => {
     `anon SELECT on vehicle_evidence was last set by ${decidedBy}. RLS restricts rows, not columns: `
     + 'with this privilege, select=* returns all 54 columns of every row the policy admits.',
   );
+});
+
+test('anon holds no SELECT on vehicles in the migration tree', () => {
+  // Added after review. Without this, the live probes skip in credential-less CI and removing
+  // 20260825090100 — or adding `GRANT SELECT ON vehicles TO anon` later — left EVERY active
+  // assertion in this "permanent" gate passing while the 66-column exposure returned.
+  const { posture, decidedBy } = netAnonSelectPosture('vehicles');
+  assert.equal(
+    posture, 'none',
+    `anon SELECT on vehicles was last set by ${decidedBy}. That exposes 66 columns including `
+    + 'owner_id, current_seller_id, plate_number, chassis_number and engine_number, plus draft rows.',
+  );
+});
+
+test('the vehicles revoke migration exists, is read-side only, and has an honest rollback', () => {
+  const revoke = MIGRATIONS.find((m) => /revoke_anon_vehicles_select/.test(m.file));
+  assert.ok(revoke, 'the vehicles revoke migration must be present');
+  const [up, down] = revoke.sql.split(/^--\s*\+migrate\s+Down\s*$/mi);
+  assert.match(up, /REVOKE\s+SELECT\s+ON\s+TABLE\s+public\.vehicles\s+FROM\s+anon/i);
+  assert.doesNotMatch(up, /GRANT\s+(INSERT|UPDATE|DELETE)/i, 'this migration must not alter writes');
+  assert.doesNotMatch(up, /REVOKE[^;]+FROM\s+service_role/i, 'the backend reads as service_role');
+  assert.ok(down, 'the migration must declare a Down section');
+  assert.match(down, /GRANT\s+SELECT\s+ON\s+TABLE\s+public\.vehicles\s+TO\s+anon/i);
+});
+
+test('the parser catches the grant shapes that would otherwise slip past it', () => {
+  // Guards the guard. Each of these previously reported `none` while leaving the table readable.
+  const shapes = [
+    'GRANT SELECT (file_path, storage_bucket) ON TABLE public.vehicle_evidence TO anon;',
+    'GRANT SELECT ON TABLE public.vehicle_evidence TO PUBLIC;',
+    'GRANT ALL PRIVILEGES ON public.vehicle_evidence TO anon, authenticated;',
+  ];
+  for (const shape of shapes) {
+    const saved = MIGRATIONS.slice();
+    MIGRATIONS.push({ file: 'zzz_hypothetical_regrant.sql', sql: shape });
+    const { posture } = netAnonSelectPosture('vehicle_evidence');
+    MIGRATIONS.length = 0;
+    MIGRATIONS.push(...saved);
+    assert.equal(posture, 'granted', `this grant shape must be detected: ${shape}`);
+  }
 });
 
 test('the revoke migration exists and is read-side only', () => {
