@@ -72,7 +72,6 @@ const CHIP_SLUG_KIND: Record<string, { slug: string; kind: 'category' | 'tag' }>
   'Fresh Import': { slug: 'fresh_import', kind: 'tag' },
   'Dealer Verified': { slug: 'dealer_verified', kind: 'tag' },
   'Passport Verified': { slug: 'passport_verified', kind: 'tag' },
-  'Duty Cleared': { slug: 'duty_cleared', kind: 'tag' },
   'Low Mileage': { slug: 'low_mileage', kind: 'tag' },
   'Evidence Available': { slug: 'evidence_available', kind: 'tag' },
   'PartSentry Checked': { slug: 'partsentry_checked', kind: 'tag' },

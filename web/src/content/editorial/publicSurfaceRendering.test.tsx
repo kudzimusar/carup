@@ -23,6 +23,7 @@ import type { ReactElement } from 'react'
 import PressKit from '../../pages/PressKit'
 import Blog from '../../pages/Blog'
 import PrivacyPolicy from '../../pages/PrivacyPolicy'
+import Landing from '../../pages/Landing'
 
 function renderedText(el: ReactElement): string {
   const { container } = render(<MemoryRouter>{el}</MemoryRouter>)
@@ -98,5 +99,28 @@ describe('D3 — no product surface claims a blockchain', () => {
     expect(text).not.toMatch(/anyone can audit/i)
     // ...and the honest half still describes what CarUp actually operates.
     expect(text).toMatch(/marketplace-visible record/i)
+  })
+})
+
+describe('D1 — unsupported government-approval claims never render', () => {
+  // Owner decision (Option 3): duty_cleared / zimra_verified / cid_clear are suppressed because no
+  // legitimate writer exists for any of them. police_verified is the sharpest case: its only writer
+  // records "was reported stolen, then recovered", so a "Police Checked" / "CID Clear" label
+  // asserted a clean record on the strength of a theft report.
+  //
+  // These assert on RENDERED output, because the claims reached users through four independent
+  // routes — the tag array, the flat booleans, a Landing filter chip, and a label derived directly
+  // from the raw column on the Marketplace card. Source-level checks kept missing one of them.
+  const forbidden = [/zimra\s*verified/i, /duty\s*cleared/i, /cid\s*clear/i, /police\s*checked/i]
+
+  it('the Landing page offers no unsupported government-approval filter chip', () => {
+    const text = renderedText(<Landing />)
+    for (const pattern of forbidden) expect(text).not.toMatch(pattern)
+  })
+
+  it('the Landing page still offers the governed chips it can substantiate', () => {
+    const text = renderedText(<Landing />)
+    expect(text).toMatch(/low mileage/i)
+    expect(text).toMatch(/recently imported/i)
   })
 })

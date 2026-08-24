@@ -193,9 +193,14 @@ function getVehicleLabels(vehicle: Vehicle) {
   if (condition === 'certified pre-owned' || conditionCategory === 'certified_dealer') labels.push('Certified Pre-Owned')
   // Source-specific trust signals (plate and police are separate, not whole-vehicle verification)
   if ((vehicle as Vehicle & { plate_verified?: boolean }).plate_verified) labels.push('Plate Confirmed')
-  if ((vehicle as Vehicle & { police_verified?: boolean }).police_verified) labels.push('Police Checked')
   if ((vehicle as Vehicle & { passport_verified?: boolean }).passport_verified) labels.push('Evidence Reviewed')
-  if ((vehicle as Vehicle & { duty_paid?: boolean }).duty_paid) labels.push('Duty Cleared')
+  // 'Police Checked' (from police_verified) and 'Duty Cleared' (from duty_paid) were derived here,
+  // a THIRD publication route independent of marketplace_tags. Both are removed.
+  //
+  // police_verified is the sharper of the two: its ONLY writer in this repository records "was
+  // reported stolen, then recovered", so the label asserted a clean police check on the strength of
+  // a theft report — the inverse of what the column means. duty_paid has no writer that sets it
+  // true at all. Neither can be restored by a legacy boolean; they need a governed source record.
   if (importSource || conditionCategory === 'recently_imported') labels.push('Recently Imported', 'Fresh Import')
   if (registrationCountry === 'zimbabwe' || conditionCategory === 'locally_used') labels.push('Locally Used')
   if ((vehicle.mileage || 0) > 0 && (vehicle.mileage || 0) <= 50000) labels.push('Low Mileage')

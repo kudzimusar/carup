@@ -32,9 +32,10 @@ const popularSearches = [
   'Fresh Imports',
   'Locally Used',
   'Second Hand',
-  'Duty Cleared',
-  'ZIMRA Verified',
-  'CID Clear',
+  // 'Duty Cleared', 'ZIMRA Verified' and 'CID Clear' were removed here. They are
+  // GOVERNMENT_APPROVAL_FACTS with no legitimate writer anywhere in the platform, so the tags they
+  // filter on are now suppressed server-side — these chips would return zero results while still
+  // advertising a capability CarUp cannot substantiate.
   'Low Mileage',
   'Toyota Hilux',
   'Honda Fit',

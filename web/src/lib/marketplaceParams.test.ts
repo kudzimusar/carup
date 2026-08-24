@@ -44,13 +44,13 @@ describe('paramsToState', () => {
   })
 
   it('parses MULTIPLE stackable trust tags from repeated tag params (AND semantics)', () => {
-    const state = paramsToState(p('tag=passport_verified&tag=duty_cleared&tag=low_mileage'))
-    expect(state.selectedTags).toEqual(['Passport Verified', 'Duty Cleared', 'Low Mileage'])
+    const state = paramsToState(p('tag=passport_verified&tag=fresh_import&tag=low_mileage'))
+    expect(state.selectedTags).toEqual(['Passport Verified', 'Fresh Import', 'Low Mileage'])
   })
 
   it('also accepts a CSV tag value and dedupes', () => {
-    const state = paramsToState(p('tag=passport_verified,duty_cleared&tag=passport_verified'))
-    expect(state.selectedTags).toEqual(['Passport Verified', 'Duty Cleared'])
+    const state = paramsToState(p('tag=passport_verified,fresh_import&tag=passport_verified'))
+    expect(state.selectedTags).toEqual(['Passport Verified', 'Fresh Import'])
   })
 
   it('recovers make casing case-insensitively', () => {
@@ -125,10 +125,10 @@ describe('stateToParams', () => {
     const params = stateToParams({
       ...DEFAULT_MARKETPLACE_STATE,
       selectedCategory: 'Brand New',
-      selectedTags: ['Passport Verified', 'Duty Cleared'],
+      selectedTags: ['Passport Verified', 'Fresh Import'],
     })
     expect(params.get('category')).toBe('brand_new')
-    expect(params.getAll('tag')).toEqual(['passport_verified', 'duty_cleared'])
+    expect(params.getAll('tag')).toEqual(['passport_verified', 'fresh_import'])
   })
 
   it('serializes a condition chip as category, not tag', () => {
@@ -178,9 +178,9 @@ describe('stateToApiFilters', () => {
     const filters = stateToApiFilters({
       ...DEFAULT_MARKETPLACE_STATE,
       selectedCategory: 'Brand New',
-      selectedTags: ['Passport Verified', 'Duty Cleared'],
+      selectedTags: ['Passport Verified', 'Fresh Import'],
     })
-    expect(filters).toEqual({ category: 'brand_new', tag: 'passport_verified,duty_cleared' })
+    expect(filters).toEqual({ category: 'brand_new', tag: 'passport_verified,fresh_import' })
   })
 
   it('is empty for a pristine state', () => {
@@ -223,12 +223,12 @@ describe('getActiveFilterChips', () => {
       searchQuery: 'fit',
       selectedMake: 'Honda',
       selectedCategory: 'Brand New',
-      selectedTags: ['Passport Verified', 'Duty Cleared'],
+      selectedTags: ['Passport Verified', 'Fresh Import'],
       priceRange: [0, 10000],
       sortBy: 'trust',
     })
     expect(chips.map(c => c.key)).toEqual(['make', 'q', 'category', 'tag', 'tag', 'price', 'sort'])
-    expect(chips.filter(c => c.key === 'tag').map(c => c.value)).toEqual(['Passport Verified', 'Duty Cleared'])
+    expect(chips.filter(c => c.key === 'tag').map(c => c.value)).toEqual(['Passport Verified', 'Fresh Import'])
     expect(chips.find(c => c.key === 'price')?.label).toBe('Under $10,000')
   })
 
@@ -286,5 +286,24 @@ describe('resolveCoverageNavHref (data-driven nav gate)', () => {
     const cov = { categories: { locally_used: { count: 5, active: true } } }
     expect(resolveCoverageNavHref('Shop All Cars', '/marketplace', cov)).toBe('/marketplace')
     expect(resolveCoverageNavHref('Dealer Verified Cars', '/marketplace?tag=dealer_verified', cov)).toBe('/marketplace?tag=dealer_verified')
+  })
+})
+
+
+// ── D1: the suppressed government-approval claims are no longer part of the vocabulary ───────────
+
+describe('unsupported government-approval tags cannot round-trip', () => {
+  // These fixtures previously used 'Duty Cleared' to exercise multi-tag parsing. The MECHANICS are
+  // unchanged and now ride on 'Fresh Import'; what is asserted here is that the suppressed claim
+  // cannot be expressed at all — it has no legitimate writer, so a URL naming it must not resolve
+  // to a selectable chip.
+  it('an unsupported slug does not map back to a chip label', () => {
+    const state = paramsToState(p('tag=duty_cleared&tag=zimra_verified&tag=cid_clear'))
+    expect(state.selectedTags).toEqual([])
+  })
+
+  it('a governed tag alongside them still resolves', () => {
+    const state = paramsToState(p('tag=duty_cleared&tag=low_mileage'))
+    expect(state.selectedTags).toEqual(['Low Mileage'])
   })
 })
