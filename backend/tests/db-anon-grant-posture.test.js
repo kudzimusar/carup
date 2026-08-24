@@ -95,9 +95,14 @@ function sqlWithoutComments(sql) {
 /** Statement forms that can hand anon a read, including the ones that bit earlier versions. */
 const READ_GRANT_PATTERNS = [
   // GRANT ... SELECT/ALL ... ON [TABLE] <anything including a table list> ... TO <roles>
-  /\bGRANT\b(?![^;]*\bGRANT OPTION FOR\b)[^;]*\b(?:SELECT|ALL)\b[^;]*\bON\b[^;]*?\bTO\b[^;]+;/gis,
+  /\bGRANT\b(?![^;]*\bGRANT OPTION FOR\b)[^;]*\b(?:SELECT|ALL)\b[^;]*\bON\b[^;]*?\bTO\b[^;]+(?:;|$)/gis,
   // GRANT <role[, role]> TO <roles>  — membership, which can carry a read in transitively
-  /\bGRANT\s+(?!SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)[\w$, ]+\bTO\b[^;]+;/gis,
+  /\bGRANT\s+(?!SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)[\w$, ]+\bTO\b[^;]+(?:;|$)/gis,
+  // OWNERSHIP confers the owner's inherent access and normally bypasses RLS entirely — a read
+  // handed over without any GRANT ever appearing.
+  /\bALTER\s+TABLE\b[^;]*\bOWNER\s+TO\b[^;]+(?:;|$)/gis,
+  // Disabling row security removes the row predicate that makes any surviving grant survivable.
+  /\bALTER\s+TABLE\b[^;]*\bDISABLE\s+ROW\s+LEVEL\s+SECURITY\b[^;]*(?:;|$)/gis,
 ];
 
 function netAnonSelectPosture(table) {
@@ -114,10 +119,25 @@ function netAnonSelectPosture(table) {
         // Does this statement even concern the table? `ALL TABLES IN SCHEMA public` does, without
         // ever naming it — which is exactly the form v4 missed.
         const namesTable = new RegExp(String.raw`\b(?:public\.)?${table}\b`, 'i').test(stmt);
-        const schemaWide = /\bALL\s+TABLES\s+IN\s+SCHEMA\s+public\b/i.test(stmt);
+        // `IN SCHEMA audit, public` is valid: match `public` ANYWHERE in the schema list, not only
+        // immediately after SCHEMA.
+        const schemaWide = /\bALL\s+TABLES\s+IN\s+SCHEMA\b[^;]*\bpublic\b/i.test(stmt);
         const isMembership = /\bGRANT\s+(?!SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)/i.test(stmt)
           && !/\bON\b/i.test(stmt);
+        // An ownership change or an RLS disable is never "cleared" by a grant revoke, so it is
+        // recorded as an unconditional finding rather than something the revoke logic can dismiss.
+        const isOwnershipOrRls = /\bALTER\s+TABLE\b/i.test(stmt);
         if (!namesTable && !schemaWide && !isMembership) continue;
+
+        if (isOwnershipOrRls) {
+          // Fail closed: a REVOKE of SELECT does not undo `OWNER TO` or `DISABLE ROW LEVEL SECURITY`.
+          findings.push({
+            file, migrationIndex, columnScoped: false, grantees: ['__ownership__'],
+            neverCleared: true,
+            stmt: stmt.replace(/\s+/g, ' ').trim().slice(0, 140),
+          });
+          continue;
+        }
 
         // Does it reach anon? Directly, through PUBLIC, or through a role we cannot resolve here.
         const grantees = (/\bTO\b([\s\S]*)$/i.exec(stmt) || [, ''])[1];
@@ -138,13 +158,23 @@ function netAnonSelectPosture(table) {
         // cleared by a column revoke — and since this tripwire does not model column sets, it is
         // never cleared at all. Fail closed.
         const columnScoped = /\bSELECT\s*\(/i.test(stmt);
-        // A grant TO PUBLIC is not removed by a revoke FROM anon — anon still reads through PUBLIC.
-        // Tracking the grantee is what makes that distinction expressible.
-        const viaPublic = /\bPUBLIC\b/i.test(grantees);
-        findings.push({
-          file, migrationIndex, columnScoped, viaPublic,
-          stmt: stmt.replace(/\s+/g, ' ').trim().slice(0, 140),
-        });
+        // ONE FINDING PER GRANTEE. `GRANT ... TO PUBLIC, anon` collapsed into a single
+        // `viaPublic` flag, so revoking from PUBLIC alone cleared it while the DIRECT grant to anon
+        // survived. Each grantee is now cleared on its own terms.
+        //
+        // A role this scan cannot resolve (`reporting_role`) is recorded as itself and can never be
+        // cleared by a revoke from `anon`: revoking anon's direct privilege does not remove one it
+        // inherits through membership.
+        const granteeList = namedRoles.length ? namedRoles : ['__unnamed__'];
+        for (const grantee of granteeList) {
+          const isKnownSafeRole = /^(authenticated|service_role|postgres|supabase_admin|supabase_auth_admin|dashboard_user)\b/.test(grantee);
+          if (isKnownSafeRole) continue;
+          findings.push({
+            file, migrationIndex, columnScoped, grantees: [grantee],
+            neverCleared: !/^(anon|public)\b/.test(grantee), // unresolved role: fail closed
+            stmt: stmt.replace(/\s+/g, ' ').trim().slice(0, 140),
+          });
+        }
       }
     }
   }
@@ -175,8 +205,10 @@ function netAnonSelectPosture(table) {
   const revokedFromPublicAt = lastRevokeIndexFrom('PUBLIC');
 
   const uncleared = findings.filter((f) => {
-    if (f.columnScoped) return true;                         // a table revoke never clears a column
-    const clearedAt = f.viaPublic ? revokedFromPublicAt : revokedFromAnonAt;
+    if (f.neverCleared) return true;      // ownership/RLS change, or a role this scan cannot resolve
+    if (f.columnScoped) return true;      // a table-wide revoke never clears a column grant
+    const grantee = f.grantees[0] ?? '';
+    const clearedAt = /^public\b/.test(grantee) ? revokedFromPublicAt : revokedFromAnonAt;
     return !(clearedAt > f.migrationIndex);                  // must come strictly LATER
   });
 
@@ -240,6 +272,18 @@ test('the parser catches the grant shapes that would otherwise slip past it', ()
     // Table LISTS and SCHEMA-WIDE forms never name the table adjacent to ON.
     'GRANT SELECT ON other_table, vehicle_evidence TO anon;',
     'GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;',
+    // A schema LIST, not just a single schema.
+    'GRANT SELECT ON ALL TABLES IN SCHEMA audit, public TO anon;',
+    // No trailing semicolon on the final statement.
+    'GRANT SELECT ON public.vehicle_evidence TO anon',
+    // Multi-grantee: revoking from PUBLIC alone must not clear the DIRECT grant to anon.
+    'GRANT SELECT ON public.vehicle_evidence TO PUBLIC, anon; REVOKE SELECT ON public.vehicle_evidence FROM PUBLIC;',
+    // Inherited privilege: a direct anon revoke does not remove what anon inherits via membership.
+    'GRANT SELECT ON public.vehicle_evidence TO reporting_role; GRANT reporting_role TO anon; REVOKE SELECT ON public.vehicle_evidence FROM anon;',
+    // Ownership confers the owner's inherent access and normally bypasses RLS — no GRANT involved.
+    'ALTER TABLE public.vehicle_evidence OWNER TO anon;',
+    // Disabling row security removes the predicate that made any surviving grant survivable.
+    'ALTER TABLE public.vehicle_evidence DISABLE ROW LEVEL SECURITY;',
   ];
   for (const shape of shapes) {
     const saved = MIGRATIONS.slice();
@@ -366,11 +410,15 @@ async function assertProbeReachesPostgrest() {
     `CONTROL FAILED: the URL targets project "${urlRef}" but the key belongs to "${keyRef}". `
     + 'The probes would be querying one environment while reporting on another.');
 
-  if (EXPECTED_PROJECT_REF) {
-    assert.equal(keyRef, EXPECTED_PROJECT_REF,
-      `CONTROL FAILED: expected project "${EXPECTED_PROJECT_REF}" but the probe targets "${keyRef}". `
-      + 'Refusing to report a green gate for the wrong environment.');
-  }
+  // REQUIRED, not optional. An optional pin is only protective when an operator remembers it, and a
+  // promotion run that forgets it grades whichever environment the variables happen to name — which
+  // is the wrong-environment failure this control exists to prevent.
+  assert.ok(EXPECTED_PROJECT_REF,
+    'CONTROL FAILED: set CARUP_ANON_PROBE_EXPECT_REF to the project ref this run is meant to grade. '
+    + 'Without it a green result cannot be attributed to any particular environment.');
+  assert.equal(keyRef, EXPECTED_PROJECT_REF,
+    `CONTROL FAILED: expected project "${EXPECTED_PROJECT_REF}" but the probe targets "${keyRef}". `
+    + 'Refusing to report a green gate for the wrong environment.');
 
   controlVerified = { projectRef: keyRef };
   return true;
