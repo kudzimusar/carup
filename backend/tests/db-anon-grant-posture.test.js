@@ -49,109 +49,143 @@ const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
   .map((f) => ({ file: f, sql: readFileSync(path.join(MIGRATIONS_DIR, f), 'utf8') }));
 
 /**
- * An EFFECTIVE-PRIVILEGE model of what the migration tree leaves anon able to read.
+ * A FAIL-CLOSED tripwire over the migration tree.
  *
- * REWRITTEN TWICE, both times because the previous version could report `none` while the table
- * stayed readable. A gate that cannot fail asserts nothing, so the failure modes are recorded:
+ * WHY THIS IS NO LONGER A PRIVILEGE MODEL
+ * ---------------------------------------
+ * Three successive versions of this function tried to MODEL Postgres privilege resolution from SQL
+ * text, and independent review found a hole in each one:
  *
- *   v1 — the privilege group excluded parentheses, so `GRANT SELECT (file_path) ... TO anon` did not
- *        match at all. One granted column is enough to leak a storage locator.
- *   v2 — used a nested quantifier and backtracked catastrophically on the real tree: it HUNG the
- *        suite. A regex that can hang is a gate that does not run.
- *   v3 — LAST STATEMENT WINS was wrong in two ways, both flagged in review:
- *          · `GRANT SELECT TO PUBLIC` followed by `REVOKE SELECT FROM anon` still leaves anon able
- *            to read THROUGH PUBLIC, but the scalar overwrite reported `none`;
- *          · `GRANT SELECT (a) ... ; REVOKE SELECT (b) ...` revokes a DIFFERENT column and must not
- *            clear the first grant.
- *        and role INHERITANCE was unmodelled: `GRANT SELECT TO reporting_role; GRANT reporting_role
- *        TO anon;` reads fine and matched nothing.
+ *   v1  column grants `GRANT SELECT (file_path)` were not matched at all
+ *   v2  a nested quantifier backtracked catastrophically and HUNG the suite
+ *   v3  last-statement-wins ignored `TO PUBLIC` surviving an `anon` revoke
+ *   v4  a table-level REVOKE wrongly cleared an independently granted COLUMN
+ *       `REVOKE GRANT OPTION FOR SELECT` was treated as revoking the privilege itself
+ *       `GRANT SELECT ON a, vehicle_evidence TO anon` (table lists) was invisible
+ *       `GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon` was invisible
+ *       `GRANT reporting_role, audit_role TO anon` (multi-role membership) was invisible
  *
- * So privileges are now tracked PER GRANTEE, and a grantee counts if it is anon, PUBLIC, or any role
- * anon has been granted membership in (transitively). A REVOKE only clears the grantee it names.
+ * Every fix was correct and every fix was incomplete, because a regex is the wrong instrument for
+ * deciding who can read a table. The authority on that question is the DATABASE, which the live
+ * probes below interrogate directly.
+ *
+ * So this function stops pretending. It answers a deliberately cruder question — "does the migration
+ * tree contain ANY statement that could plausibly give anon read access to this table, which is not
+ * demonstrably a plain revoke?" — and it FAILS CLOSED on anything it does not fully recognise.
+ * A shape it cannot parse is reported as `granted`, not `none`. Being wrong now means a false alarm
+ * a human resolves, instead of a silent green over a live exposure.
  */
 
-/** Roles that reach anon: anon itself, PUBLIC, and anything anon is transitively a member of. */
-function rolesReachingAnon(migrations) {
-  const reaching = new Set(['anon', 'public']);
-  // `GRANT <role> TO anon` — role membership, not a table privilege.
-  const membershipRe = /\bGRANT\s+([A-Za-z_][\w$]*)\s+TO\s+([^;]+);/gi;
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const { sql } of migrations) {
-      const upOnly = sql.split(/^--\s*\+migrate\s+Down\s*$/mi)[0];
-      for (const m of upOnly.matchAll(membershipRe)) {
-        const [, grantedRole, grantees] = m;
-        // Skip privilege keywords — `GRANT SELECT TO x` is not a membership grant.
-        if (/^(SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)$/i.test(grantedRole)) continue;
-        const grantedTo = grantees.toLowerCase();
-        if ([...reaching].some((r) => new RegExp(`\\b${r}\\b`).test(grantedTo))) {
-          if (!reaching.has(grantedRole.toLowerCase())) {
-            reaching.add(grantedRole.toLowerCase());
-            changed = true; // transitive: a new member may unlock further memberships
-          }
-        }
-      }
-    }
-  }
-  return reaching;
+/**
+ * SQL with comments removed.
+ *
+ * Necessary because these migrations EXPLAIN themselves at length, and the prose describing a grant
+ * ("...grant made to `anon`...") is indistinguishable from the grant itself to a text scan. The
+ * first fail-closed version tripped on its own documentation — a false alarm, which is the safe
+ * direction to be wrong in, but still wrong.
+ */
+function sqlWithoutComments(sql) {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n');
 }
 
+/** Statement forms that can hand anon a read, including the ones that bit earlier versions. */
+const READ_GRANT_PATTERNS = [
+  // GRANT ... SELECT/ALL ... ON [TABLE] <anything including a table list> ... TO <roles>
+  /\bGRANT\b(?![^;]*\bGRANT OPTION FOR\b)[^;]*\b(?:SELECT|ALL)\b[^;]*\bON\b[^;]*?\bTO\b[^;]+;/gis,
+  // GRANT <role[, role]> TO <roles>  — membership, which can carry a read in transitively
+  /\bGRANT\s+(?!SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)[\w$, ]+\bTO\b[^;]+;/gis,
+];
+
 function netAnonSelectPosture(table) {
-  const reaching = rolesReachingAnon(MIGRATIONS);
-  /** grantee -> Set of scopes currently granted ('TABLE' or a column name). */
-  const granted = new Map();
-  const sources = [];
+  const findings = [];
 
-  const statementRe = new RegExp(
-    String.raw`\b(GRANT|REVOKE)\b([^;]*?)\bON\b\s+(?:TABLE\s+)?(?:public\.)?${table}\b([^;]*?);`,
-    'gis',
-  );
+  for (const [migrationIndex, { file, sql }] of MIGRATIONS.entries()) {
+    // The rollback half documents how to restore the old posture on purpose.
+    const upOnly = sqlWithoutComments(sql.split(/^--\s*\+migrate\s+Down\s*$/mi)[0]);
 
-  for (const { file, sql } of MIGRATIONS) {
-    const upOnly = sql.split(/^--\s*\+migrate\s+Down\s*$/mi)[0];
-    for (const m of upOnly.matchAll(statementRe)) {
-      const [, verbRaw, privileges, tail] = m;
-      const verb = verbRaw.toUpperCase();
-      if (!/\bSELECT\b/i.test(privileges) && !/\bALL\b/i.test(privileges)) continue;
+    for (const pattern of READ_GRANT_PATTERNS) {
+      for (const m of upOnly.matchAll(pattern)) {
+        const stmt = m[0];
 
-      const roleMatch = /\b(?:TO|FROM)\b([\s\S]*)$/i.exec(tail || '');
-      if (!roleMatch) continue;
-      const grantees = roleMatch[1]
-        .split(',').map((r) => r.trim().toLowerCase().replace(/\s+/g, ' '))
-        .filter(Boolean);
+        // Does this statement even concern the table? `ALL TABLES IN SCHEMA public` does, without
+        // ever naming it — which is exactly the form v4 missed.
+        const namesTable = new RegExp(String.raw`\b(?:public\.)?${table}\b`, 'i').test(stmt);
+        const schemaWide = /\bALL\s+TABLES\s+IN\s+SCHEMA\s+public\b/i.test(stmt);
+        const isMembership = /\bGRANT\s+(?!SELECT|INSERT|UPDATE|DELETE|TRUNCATE|REFERENCES|TRIGGER|ALL|USAGE|EXECUTE)/i.test(stmt)
+          && !/\bON\b/i.test(stmt);
+        if (!namesTable && !schemaWide && !isMembership) continue;
 
-      // Column scope: `SELECT (a, b)` grants only those columns; bare SELECT is table-wide.
-      const columnMatch = /\(([^)]*)\)/.exec(privileges);
-      const scopes = columnMatch
-        ? columnMatch[1].split(',').map((c) => c.trim().toLowerCase()).filter(Boolean)
-        : ['TABLE'];
+        // Does it reach anon? Directly, through PUBLIC, or through a role we cannot resolve here.
+        const grantees = (/\bTO\b([\s\S]*)$/i.exec(stmt) || [, ''])[1];
+        const reachesAnon = /\banon\b/i.test(grantees) || /\bPUBLIC\b/i.test(grantees);
+        // A membership grant TO anon means the granted role's privileges reach anon.
+        const membershipToAnon = isMembership && /\banon\b/i.test(grantees);
+        // A grant to a role we do not model is UNRESOLVED — fail closed rather than assume safe.
+        const namedRoles = grantees.split(',').map((r) => r.trim().toLowerCase()).filter(Boolean);
+        const unresolvedRole = namedRoles.some(
+          (r) => r && !/^(anon|public|authenticated|service_role|postgres|supabase_admin|supabase_auth_admin|dashboard_user)\b/.test(r),
+        );
 
-      for (const grantee of grantees) {
-        if (![...reaching].some((r) => new RegExp(`\\b${r}\\b`).test(grantee))) continue;
-        if (!granted.has(grantee)) granted.set(grantee, new Set());
-        const held = granted.get(grantee);
-        for (const scope of scopes) {
-          if (verb === 'GRANT') {
-            held.add(scope);
-            sources.push(`${file}: GRANT ${scope} -> ${grantee}`);
-          } else {
-            // A table-wide REVOKE clears every scope for that grantee; a column revoke clears one.
-            if (scope === 'TABLE') held.clear(); else held.delete(scope);
-          }
-        }
+        if (!reachesAnon && !membershipToAnon && !unresolvedRole) continue;
+        if (isMembership && !membershipToAnon && !unresolvedRole) continue;
+
+        // Scope matters for what can later clear this finding. In Postgres a TABLE-level revoke
+        // does NOT remove an independently granted COLUMN privilege, so a column grant must be
+        // cleared by a column revoke — and since this tripwire does not model column sets, it is
+        // never cleared at all. Fail closed.
+        const columnScoped = /\bSELECT\s*\(/i.test(stmt);
+        // A grant TO PUBLIC is not removed by a revoke FROM anon — anon still reads through PUBLIC.
+        // Tracking the grantee is what makes that distinction expressible.
+        const viaPublic = /\bPUBLIC\b/i.test(grantees);
+        findings.push({
+          file, migrationIndex, columnScoped, viaPublic,
+          stmt: stmt.replace(/\s+/g, ' ').trim().slice(0, 140),
+        });
       }
     }
   }
 
-  const stillGranted = [...granted.entries()].filter(([, scopes]) => scopes.size > 0);
-  return {
-    posture: stillGranted.length ? 'granted' : 'none',
-    decidedBy: stillGranted.length
-      ? stillGranted.map(([g, s]) => `${g} holds ${[...s].join(',')}`).join('; ') + ` [${sources.slice(-3).join(' | ')}]`
-      : null,
-    rolesReachingAnon: [...reaching],
+  if (findings.length === 0) return { posture: 'none', decidedBy: null };
+
+  // A finding is cleared ONLY by a later, unambiguous, TABLE-WIDE revoke of SELECT from anon that
+  // is not a GRANT OPTION revoke. Column-scoped findings are never cleared here by design.
+  /**
+   * The index of the LAST table-wide, non-GRANT-OPTION revoke of SELECT from `role`, or -1.
+   * Order matters: a revoke only clears grants that came BEFORE it. A migration that re-grants
+   * afterwards must trip the wire, which is precisely the regression this gate exists to catch.
+   */
+  const lastRevokeIndexFrom = (role) => {
+    let last = -1;
+    const re = new RegExp(
+      String.raw`\bREVOKE\b(?![^;]*\bGRANT OPTION FOR\b)\s+(?:SELECT|ALL)(?!\s*\()[^;]*\bON\b\s+(?:TABLE\s+)?(?:public\.)?${table}\b[^;]*\bFROM\b[^;]*\b${role}\b[^;]*;`,
+      'is',
+    );
+    for (const [i, { sql }] of MIGRATIONS.entries()) {
+      const upOnly = sqlWithoutComments(sql.split(/^--\s*\+migrate\s+Down\s*$/mi)[0]);
+      if (re.test(upOnly)) last = i;
+    }
+    return last;
   };
+
+  const revokedFromAnonAt = lastRevokeIndexFrom('anon');
+  const revokedFromPublicAt = lastRevokeIndexFrom('PUBLIC');
+
+  const uncleared = findings.filter((f) => {
+    if (f.columnScoped) return true;                         // a table revoke never clears a column
+    const clearedAt = f.viaPublic ? revokedFromPublicAt : revokedFromAnonAt;
+    return !(clearedAt > f.migrationIndex);                  // must come strictly LATER
+  });
+
+  return uncleared.length === 0
+    ? { posture: 'none', decidedBy: null }
+    : {
+      posture: 'granted',
+      decidedBy: uncleared.map((f) => `${f.file}: ${f.stmt}`).slice(-3).join(' | '),
+    };
 }
 
 // ── The static contract: the migration tree must not re-grant these ──────────────────────────────
@@ -194,14 +228,18 @@ test('the parser catches the grant shapes that would otherwise slip past it', ()
     'GRANT SELECT (file_path, storage_bucket) ON TABLE public.vehicle_evidence TO anon;',
     'GRANT SELECT ON TABLE public.vehicle_evidence TO PUBLIC;',
     'GRANT ALL PRIVILEGES ON public.vehicle_evidence TO anon, authenticated;',
-    // INHERITANCE — flagged in review as still unmodelled. The previous fixture used
-    // `TO anon, authenticated`, which is a DIRECT grant and proved nothing about inheritance.
+    // Role inheritance, direct and multi-role.
     'GRANT SELECT ON public.vehicle_evidence TO reporting_role; GRANT reporting_role TO anon;',
-    // PUBLIC GRANT SURVIVING AN anon REVOKE — last-statement-wins reported `none` here while
-    // Postgres still allowed the read through PUBLIC.
+    'GRANT SELECT ON public.vehicle_evidence TO reporting_role; GRANT reporting_role, audit_role TO anon;',
+    // A PUBLIC grant that an anon revoke does NOT clear.
     'GRANT SELECT ON public.vehicle_evidence TO PUBLIC; REVOKE SELECT ON public.vehicle_evidence FROM anon;',
-    // A COLUMN REVOKE MUST NOT CLEAR A DIFFERENT COLUMN'S GRANT.
-    'GRANT SELECT (file_path) ON public.vehicle_evidence TO anon; REVOKE SELECT (storage_bucket) ON public.vehicle_evidence FROM anon;',
+    // A column grant that a TABLE-level revoke does NOT clear.
+    'GRANT SELECT (file_path) ON public.vehicle_evidence TO anon; REVOKE SELECT ON public.vehicle_evidence FROM anon;',
+    // Revoking the GRANT OPTION leaves the privilege itself intact.
+    'GRANT SELECT ON public.vehicle_evidence TO anon; REVOKE GRANT OPTION FOR SELECT ON public.vehicle_evidence FROM anon;',
+    // Table LISTS and SCHEMA-WIDE forms never name the table adjacent to ON.
+    'GRANT SELECT ON other_table, vehicle_evidence TO anon;',
+    'GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;',
   ];
   for (const shape of shapes) {
     const saved = MIGRATIONS.slice();
@@ -238,6 +276,8 @@ test('a rollback exists and is honest about what it restores', () => {
 const PROBE_URL = process.env.CARUP_ANON_PROBE_URL;
 const PROBE_KEY = process.env.CARUP_ANON_PROBE_KEY;
 const liveProbe = Boolean(PROBE_URL && PROBE_KEY);
+/** Optional pin: set on a promotion run so the gate refuses to grade the wrong environment. */
+const EXPECTED_PROJECT_REF = process.env.CARUP_ANON_PROBE_EXPECT_REF || null;
 
 /** Query PostgREST exactly as an attacker holding the public anon key would. */
 async function anonSelect(pathAndQuery) {
@@ -300,7 +340,39 @@ async function assertProbeReachesPostgrest() {
     + 'proof, a zero-row answer cannot be distinguished from never having asked.',
   );
 
-  controlVerified = true;
+  // IDENTITY — which project did we actually just prove something about?
+  //
+  // SQLSTATE 42501 proves "a real Postgres refused a real anon query". It does NOT prove WHICH
+  // database. If a production-promotion run has both variables accidentally pointing at staging,
+  // every probe returns the expected denial and the gate reports green for production without ever
+  // having queried it — a false all-clear at the exact moment the answer matters most.
+  //
+  // The project ref is embedded in the Supabase URL and in the anon key's JWT `ref` claim, so the
+  // two must agree, and the caller may pin the expected one.
+  const urlRef = /^https:\/\/([a-z0-9]+)\.supabase\.co/i.exec(PROBE_URL)?.[1] ?? null;
+  let keyRef = null;
+  try {
+    const payload = JSON.parse(Buffer.from(PROBE_KEY.split('.')[1], 'base64url').toString('utf8'));
+    keyRef = payload?.ref ?? null;
+    assert.equal(payload?.role, 'anon',
+      `CONTROL FAILED: the probe key carries role "${payload?.role}", not "anon". A privileged key `
+      + 'would sail past every check below while proving nothing about anonymous access.');
+  } catch (err) {
+    assert.fail(`CONTROL FAILED: could not decode the probe key's claims — ${err.message}`);
+  }
+
+  assert.ok(urlRef && keyRef, 'CONTROL FAILED: could not determine the project ref from URL and key');
+  assert.equal(urlRef, keyRef,
+    `CONTROL FAILED: the URL targets project "${urlRef}" but the key belongs to "${keyRef}". `
+    + 'The probes would be querying one environment while reporting on another.');
+
+  if (EXPECTED_PROJECT_REF) {
+    assert.equal(keyRef, EXPECTED_PROJECT_REF,
+      `CONTROL FAILED: expected project "${EXPECTED_PROJECT_REF}" but the probe targets "${keyRef}". `
+      + 'Refusing to report a green gate for the wrong environment.');
+  }
+
+  controlVerified = { projectRef: keyRef };
   return true;
 }
 
@@ -423,5 +495,7 @@ test('LIVE: the control request itself is exercised', { skip: !liveProbe && 'set
   // so a reader of the output can see that the probes reached a real PostgREST as anon.
   controlVerified = null;
   await assertProbeReachesPostgrest();
-  assert.equal(controlVerified, true);
+  assert.ok(controlVerified?.projectRef, 'the control must identify which project it proved');
+  // Printed so a promotion receipt records WHICH database was graded, not merely that it passed.
+  console.log(`  [control] probes executed as anon against project ${controlVerified.projectRef}`);
 });
