@@ -1004,3 +1004,98 @@ reports **11/11 pass**, with:
 
 That was the last unexplained local failure. It is now closed by containment rather than by
 classification.
+
+---
+
+# ADDENDUM C — Cluster C closed: privileged staging sequence PASS + browser runtime proof
+
+## C.1 Guarded staging sequence — PASS
+
+The owner re-ran the full guarded `--mode=sequence` with a temporary local service-role injection
+against canonical staging `eoyenigwevnxwwhyhaer`, on candidate `5b80f720`.
+
+```
+SEQUENCE PASS — receipt written to issue164-golden-vehicles-receipt.json
+sequence-exit=0
+```
+
+Receipt preserved at `docs/canonical-vehicle-truth/evidence/issue164-phase8-cluster-c-sequence-receipt.json`
+(non-secret: counts and step names only). Every step passed:
+
+| Step | Result |
+|---|---|
+| `baseline` | captured |
+| `bootstrap_1` / `verify_1` | ok / **ok** — the locator fix landed |
+| `bootstrap_2` / `verify_2` | ok / ok |
+| `no_duplicate_graph` | `identical: true`, no diffs |
+| `unrelated_preserved_through_bootstrap` | ok, no diffs |
+| `cleanup_1` | ok, scoped deletions only |
+| `absence_after_cleanup` | `absent: true` |
+| `cleanup_2_idempotent` | **`deleted: {}`** — a second cleanup removes nothing |
+| `unrelated_preserved_through_cleanup` | ok, no diffs |
+| `bootstrap_3` / `verify_3` | ok / ok — fixture left in the final verified state |
+
+`productionTouched: false` · `liveProviderActivated: false` · `geminiActivated: false`.
+
+## C.2 Database state after the sequence
+
+- Golden A: **5** listing images; Golden B: **2** — governed counts exact.
+- Every locator is now `https://eoyenigwevnxwwhyhaer.supabase.co/storage/v1/object/public/vehicle-images/…`.
+- Evidence: Golden A 4 × `verified`, Golden B 1 × `pending` (`verified_by` null), all in the PRIVATE
+  `ocr-documents` bucket with a relative `file_path`.
+- **Zero** `carup-staging.test` locators and **zero** legacy `phase7-golden` buckets remain.
+
+## C.3 Runtime reachability
+
+| Check | Result |
+|---|---|
+| All 5 Golden A images | HTTP **200**, `content-type: image/png`, valid PNG signature, ~9 KB each |
+| Private evidence via PUBLIC url (A and B) | HTTP **400** — the bucket is private, as required |
+| Signed-read path | exercised by `verify_3` (`evidence_fetchable` ok) |
+
+`evidence_fetchable` was not weakened and `ocr-documents` was not made public.
+
+## C.4 Browser proof — paired preview `5b80f720`
+
+Provenance receipt re-run first: frontend SHA == backend `/api/health` SHA == `5b80f720`, API base is
+the paired backend preview, **zero** calls to the stable staging backend.
+
+**Golden A Detail** — screenshot `evidence/issue164-clusterC-goldenA-gallery.png`:
+
+- **6/6 images loaded, 0 broken**; all from canonical storage; **0** `.test` requests.
+- Every image `960×640` — the synthetic asset's own dimensions, so this is real content, not a
+  fallback or a substitution.
+- Gallery reads **"1 / 5"** with five visibly distinct panels.
+- Evidence rendered in its own section: *"These are not the listing photos above."*
+- Location `Bulawayo, Bulawayo Metropolitan, Zimbabwe` · Trust **60** · **`trust-decision-1.0.0`**.
+- Network: five `…/vehicle-images/CARUPGLDNA0000001/golden-*.png` → **200**; **no** request to
+  `ocr-documents`; `/trust-decision` and `/sources/coverage` correctly **401** anonymously while the
+  page still publishes 60 from the public passport.
+
+**Landing / Marketplace** — canonical media, `960×640`, full governed location, `$21,500`, no stock or
+`.test` sources; Golden B absent from both.
+
+**Golden B public passport** — **0 images** (draft media fully gated), Trust **50** +
+`trust-decision-1.0.0`, Reserve **disabled** with its explanation, no pending-evidence disclosure.
+
+**Golden B marketplace search** — `Browse 0 published listings`, `0 vehicles found`, no listing card;
+the only VIN occurrences are the echoed search query and its filter chip.
+
+### An incidental proof of the OBS-01 fix
+
+Landing initially reported one broken image. It resolved to a **non-Golden** staging vehicle whose
+media points at `/uat/owner/toyota-corolla.svg`, a file absent from the deployment — the SPA rewrite
+returns HTTP 200 with `text/html`, which cannot decode as an image. Scrolling it into view showed the
+`ListingImage` `onError` fallback working exactly as designed: the `<img>` was removed and replaced by
+the branded placeholder *"2019 Toyota Corolla — image unavailable"*, leaving **0** broken images.
+
+The first count was a measurement artifact of my own: `loading="lazy"` means a below-fold image is
+`complete: false` with `naturalWidth: 0` **before it has failed**, which is indistinguishable from a
+failure unless you wait for it. Worth remembering when reading any image-health assertion.
+
+## C.5 Status
+
+**Cluster C is CLOSED for all public surfaces.** The remaining item is the OWNER GARAGE view, which
+requires an authenticated Golden owner session — that credential is deliberately unprovisioned
+(`password_hash` null) and its provisioning is the same owner action that gates the full 32-step UAT.
+It is therefore carried into the physical re-UAT rather than being blocked on separately.

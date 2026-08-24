@@ -1,0 +1,128 @@
+{
+  "programme": "issue164-phase7-golden-vehicles",
+  "mode": "sequence",
+  "stagingRef": "eoyenigwevnxwwhyhaer",
+  "steps": [
+    {
+      "name": "baseline",
+      "total": {
+        "users": 117,
+        "vehicles": 38,
+        "vehicle_evidence": 20,
+        "listing_images": 10,
+        "vehicle_ownership_history": 6,
+        "marketplace_inquiries": 59,
+        "insurance_records": 1,
+        "partsentry_logs": 2,
+        "finance_applications": 1,
+        "domain_events": 281
+      },
+      "fixture": {
+        "vehicles": 2,
+        "vehicle_evidence": 5,
+        "listing_images": 7,
+        "vehicle_ownership_history": 2,
+        "marketplace_inquiries": 1,
+        "insurance_records": 1,
+        "partsentry_logs": 1,
+        "finance_applications": 1,
+        "users": 8,
+        "domain_events": 2
+      }
+    },
+    {
+      "name": "bootstrap_1",
+      "ok": true,
+      "failedSteps": []
+    },
+    {
+      "name": "verify_1",
+      "ok": true,
+      "failed": []
+    },
+    {
+      "name": "bootstrap_2",
+      "ok": true,
+      "failedSteps": []
+    },
+    {
+      "name": "verify_2",
+      "ok": true,
+      "failed": []
+    },
+    {
+      "name": "no_duplicate_graph",
+      "identical": true,
+      "diffs": []
+    },
+    {
+      "name": "unrelated_preserved_through_bootstrap",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "cleanup_1",
+      "ok": true,
+      "deleted": {
+        "messages.thread_id": 2,
+        "message_participants.thread_id": 3,
+        "conversation_events.thread_id": 2,
+        "notification_queue.thread_id": 2,
+        "marketplace_inquiries.listing_id": 1,
+        "finance_applications.vin": 1,
+        "insurance_records.vin": 1,
+        "partsentry_logs.vin": 1,
+        "blockchain_events.vin": 3,
+        "message_threads.id": 2,
+        "vehicle_evidence.vin": 5,
+        "listing_images.vin": 7,
+        "vehicle_ownership_history.vin": 2,
+        "domain_events.payload->>vin": 1,
+        "domain_events.payload->>recipientUserId": 1,
+        "vehicles.vin": 2,
+        "users.id": 8
+      }
+    },
+    {
+      "name": "absence_after_cleanup",
+      "absent": true,
+      "fixture": {
+        "vehicles": 0,
+        "vehicle_evidence": 0,
+        "listing_images": 0,
+        "vehicle_ownership_history": 0,
+        "marketplace_inquiries": 0,
+        "insurance_records": 0,
+        "partsentry_logs": 0,
+        "finance_applications": 0,
+        "users": 0,
+        "domain_events": 0
+      }
+    },
+    {
+      "name": "cleanup_2_idempotent",
+      "ok": true,
+      "deleted": {}
+    },
+    {
+      "name": "unrelated_preserved_through_cleanup",
+      "ok": true,
+      "diffs": []
+    },
+    {
+      "name": "bootstrap_3",
+      "ok": true,
+      "failedSteps": []
+    },
+    {
+      "name": "verify_3",
+      "ok": true,
+      "failed": []
+    }
+  ],
+  "productionTouched": false,
+  "liveProviderActivated": false,
+  "geminiActivated": false,
+  "ok": true,
+  "completedAt": "2026-08-24T02:36:14.677Z"
+}
