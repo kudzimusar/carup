@@ -440,7 +440,11 @@ function pickPublicEvidenceFields(row: unknown): Record<string, string | null> {
  */
 type VerifiedEvidenceItem =
   { [K in (typeof VEHICLE_DETAIL_EVIDENCE_FIELDS)[number]]: string | null }
-  & { file_url_form: MediaUrlForm; file_availability?: EvidenceFileAvailability }
+  // `file_url_form` is nullable ONLY for a withheld artifact: there is no URL to classify, and
+  // inventing a form for a file that was deliberately not published would be a claim about an
+  // address that does not exist. `MediaUrlForm` itself is unchanged — the union still describes
+  // exactly the forms a REAL url can take.
+  & { file_url_form: MediaUrlForm | null; file_availability?: EvidenceFileAvailability }
 
 /**
  * Whether the ARTIFACT can be shown, which is a separate question from whether the FACT is published.
