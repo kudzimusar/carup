@@ -33,14 +33,32 @@ test('the account set is hard-pinned to the four synthetic Golden fixture identi
 });
 
 test('there is no account/email/SQL input — the subject cannot be widened at runtime', () => {
-  // The only runtime input is the typed three-value mode.
+  // Runtime inputs are the typed mode and the credential SOURCE (`--hash-file`, added so a
+  // pre-computed hash can go from the owner's file straight to password_hash without passing through
+  // anyone else's hands). Neither can influence WHICH accounts are touched, and that is the property
+  // this test defends — the earlier form banned every argv read, which conflated "an input exists"
+  // with "the subject can be widened".
   const argvReads = SRC.match(/process\.argv[^\n]*/g) || [];
   assert.equal(argvReads.length >= 1, true);
   for (const read of argvReads) {
-    assert.ok(/--mode=/.test(read) || /argv\[1\]/.test(read),
-      `the only argv input may be --mode= or the direct-invocation guard, found: ${read}`);
+    assert.ok(/--mode=/.test(read) || /--hash-file=/.test(read) || /argv\[1\]/.test(read),
+      `argv may supply only the mode or the credential source, found: ${read}`);
   }
   assert.ok(!/process\.env\.GOLDEN_UAT_EMAIL/.test(SRC), 'no email may be supplied by environment');
+
+  // THE SUBJECT ITSELF: a frozen literal of four addresses, with no runtime input anywhere near it.
+  const pinned = SRC.match(/const GOLDEN_UAT_ACCOUNTS = Object\.freeze\(\[([\s\S]*?)\]\)/);
+  assert.ok(pinned, 'the account list must be a frozen literal');
+  assert.ok(!/process\.(argv|env)/.test(pinned[1]), 'the account list must not read argv or env');
+  assert.equal((pinned[1].match(/@carup-staging\.test/g) || []).length, 4, 'exactly four pinned accounts');
+
+  // And the only rows ever written are selected from that list. Asserted POSITIVELY: the earlier
+  // negative-lookahead form passed when the `.in(...)` was deleted altogether, so it caught a WRONG
+  // scope but not a MISSING one — the more dangerous of the two.
+  assert.match(SRC, /\.from\('users'\)[\s\S]{0,160}\.in\('email', GOLDEN_UAT_ACCOUNTS\)/,
+    'the users read must be explicitly scoped to the pinned list');
+  const unscopedReads = (SRC.match(/\.from\('users'\)\s*\.select\([^)]*\)(?!\s*\.in\()/g) || []);
+  assert.deepEqual(unscopedReads, [], 'no users read may be unscoped');
 });
 
 test('it reuses the exact-host staging guard and refuses production', () => {

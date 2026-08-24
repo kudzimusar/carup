@@ -40,6 +40,7 @@
  * Staging only: the same exact-host guard as the Golden fixture runner; the production ref is refused.
  *
  *   node backend/scripts/issue164-golden-uat-auth.mjs --mode=status
+ *   node backend/scripts/issue164-golden-uat-auth.mjs --mode=grant --hash-file=/tmp/golden-uat.hash
  *   GOLDEN_UAT_PASSWORD='...' node backend/scripts/issue164-golden-uat-auth.mjs --mode=grant
  *   node backend/scripts/issue164-golden-uat-auth.mjs --mode=revoke
  */
@@ -49,7 +50,17 @@ const MODE = (process.argv.find((a) => /^--mode=/.test(a)) || '--mode=status').s
 const blocked = (m) => { console.error(`BLOCKED: ${m}`); process.exit(2); };
 const fail = (m) => { console.error(`FAIL: ${m}`); process.exit(1); };
 
-if (!['status', 'grant', 'revoke'].includes(MODE)) blocked(`unknown --mode=${MODE}`);
+const VALID_MODES = ['status', 'grant', 'revoke'];
+
+/**
+ * Validated only when this file is RUN, never on import — the same correction applied to
+ * issue164-golden-vehicles.mjs. Module-scope arg parsing is what killed the grant path: an importer
+ * carrying its own `--mode=` exits(2) here before reaching its own main(). Leaving the identical
+ * construct in the script being repaired would just move the trap.
+ */
+function assertValidMode() {
+  if (!VALID_MODES.includes(MODE)) blocked(`unknown --mode=${MODE}`);
+}
 
 // The exact set this script may ever touch. Hard-pinned: there is no account input, because an input
 // is a lever, and a lever that sets credentials is exactly what should not exist.
@@ -65,6 +76,90 @@ async function main() {
   const guard = evaluateStagingGuard(process.env);
   if (!guard.ok) blocked(guard.reason);
   console.log(`staging identity OK: host=${guard.host}`);
+
+  // Credential input is validated BEFORE any client is built or any row is read. A malformed
+  // hash should cost the operator a fast refusal, not a database round-trip — and nothing should
+  // reach the database on a run that was never going to be able to finish.
+  let preHashed = null;
+  if (MODE === 'grant') {
+    // TWO ways to supply the credential, and they exist for different threat models.
+    //
+    //   --hash-file=<path>  the owner ran issue164-golden-uat-hash.mjs, which prompted once (hidden)
+    //                       and wrote ONLY a one-way scrypt hash at mode 0600. This process reads that
+    //                       file and writes it straight to password_hash. The plaintext never existed
+    //                       outside the owner's prompt, and the HASH never passes through anyone
+    //                       else's hands — notably not through an assistant's transcript or an MCP
+    //                       tool call, which is exactly what this path exists to avoid.
+    //
+    //   GOLDEN_UAT_PASSWORD the original path: the plaintext is hashed here with the same governed
+    //                       helper and never leaves the process.
+    //
+    // The hash file is preferred when someone other than the password's owner is driving the run.
+    const hashFileArg = process.argv.find((a) => /^--hash-file=/.test(a));
+    // Two credential sources is an ambiguity, and silently preferring one means the operator cannot
+    // tell which credential was written. Refuse and make them choose.
+    if (hashFileArg && process.env.GOLDEN_UAT_PASSWORD) {
+      blocked('supply EITHER --hash-file or GOLDEN_UAT_PASSWORD, not both — refusing to guess which credential you meant');
+    }
+    // Assign to the OUTER `preHashed`. A `let` here would shadow it: the file would be read and
+    // validated into a binding that dies with this block, and the write below would see null — the
+    // credential path dead by construction, which is the exact defect class this change was fixing.
+    if (hashFileArg) {
+      const { readFileSync, lstatSync } = await import('node:fs');
+      const hashPath = hashFileArg.split('=').slice(1).join('=');
+      // The producer creates this file with O_EXCL at mode 0600 precisely so nobody else can plant or
+      // read it. Honour that here: a symlink would let readFileSync be redirected, and a
+      // group/world-readable or foreign-owned file is not the file the owner made.
+      try {
+        const st = lstatSync(hashPath);
+        if (st.isSymbolicLink()) blocked('--hash-file is a symlink — refusing to follow it');
+        if (!st.isFile()) blocked('--hash-file is not a regular file');
+        if ((st.mode & 0o077) !== 0) blocked('--hash-file is group/world accessible — expected mode 0600');
+        if (typeof process.getuid === 'function' && st.uid !== process.getuid()) {
+          blocked('--hash-file is not owned by the current user — refusing to read it');
+        }
+      } catch (e) {
+        if (e?.code) blocked(`could not stat --hash-file: ${e.code}`);
+        throw e;
+      }
+      try {
+        preHashed = readFileSync(hashPath, 'utf8').trim();
+      } catch (e) {
+        // The message names the ERROR, never the file's contents.
+        blocked(`could not read --hash-file: ${e.code || 'unreadable'}`);
+      }
+      // Shape only. A hash is never printed, and a malformed one must not reach the column: a
+      // password_hash that verifyPassword cannot parse locks the account out while LOOKING provisioned.
+      if (!preHashed) blocked('--hash-file is empty');
+      if (/\s/.test(preHashed)) blocked('--hash-file must contain exactly one hash and no whitespace');
+      // Validate the FORMAT explicitly. `verifyPassword` returns false for a malformed hash exactly as
+      // it does for a valid hash and a wrong password, so calling it proves nothing about the hash —
+      // garbage sailed straight through that check. The governed format is produced by hashPassword:
+      // `scrypt:<32-hex salt>:<hex derived key>`, and verifyPassword rejects anything else outright.
+      // A password_hash the verifier cannot parse would lock the account out while LOOKING provisioned.
+      // EXACT lengths, not "at least". hashPassword uses randomBytes(16) -> 32 hex salt and
+      // SCRYPT_KEYLEN = 64 bytes -> 128 hex key, always; verifyPassword compares buffers of equal
+      // length and returns false otherwise. A `{64,}` lower bound accepted a TRUNCATED key, which is
+      // precisely the "locked out while LOOKING provisioned" state this check exists to prevent.
+      const [scheme, salt, derived] = preHashed.split(':');
+      if (scheme !== 'scrypt' || !/^[0-9a-f]{32}$/.test(salt || '') || !/^[0-9a-f]{128}$/.test(derived || '')) {
+        blocked('--hash-file is not a governed scrypt hash (expected scrypt:<32-hex salt>:<128-hex key>) — refusing to write it');
+      }
+    } else {
+      // No hash file: the plaintext path, validated here for the same reason — before any DB access.
+      const password = process.env.GOLDEN_UAT_PASSWORD;
+      if (!password) blocked('supply --hash-file=<path> or GOLDEN_UAT_PASSWORD (never hardcode or commit it)');
+      if (password.length < 12) blocked('GOLDEN_UAT_PASSWORD must be at least 12 characters');
+    }
+  }
+
+  // Reported from the SAME binding the write below reads, and BEFORE any database access.
+  //
+  // That placement is the whole point. A `let` inside the validation block would shadow this binding,
+  // leaving the file read, validated — and discarded. Logging the source from the inner scope would
+  // still have said "hash-file" while the write saw null, so the log would have corroborated a broken
+  // path. Read here, it goes wrong exactly when the credential does, and a dummy key still reaches it.
+  if (MODE === 'grant') console.log(`credential source: ${preHashed ? 'hash-file' : 'env'}`);
 
   const { supabase } = await import('../db/supabase.js');
   const { hashPassword } = await import('../utils/passwordAuth.js');
@@ -99,8 +194,6 @@ async function main() {
 
   if (MODE === 'grant') {
     const password = process.env.GOLDEN_UAT_PASSWORD;
-    if (!password) blocked('GOLDEN_UAT_PASSWORD is not set (never hardcode or commit it)');
-    if (password.length < 12) blocked('GOLDEN_UAT_PASSWORD must be at least 12 characters');
     // All four pinned identities must exist BEFORE anything is written. Provisioning three of four and
     // exiting 0 would report success while the documented UAT logins cannot all run — a partial grant
     // is not a grant. Missing identities mean the Phase 7 fixture has not been bootstrapped.
@@ -113,14 +206,31 @@ async function main() {
       const row = found.find((r) => r.email === email);
       if (!row) { results.push({ email, action: 'skipped', reason: 'identity does not exist on staging' }); continue; }
       // Hashed with the SAME governed helper the registration path uses; the plaintext never leaves
-      // this process and is not returned, logged or persisted.
-      const password_hash = await hashPassword(password);
+      // this process and is not returned, logged or persisted. When a pre-computed hash was supplied,
+      // it is written verbatim — it was produced by this same helper on the owner's machine.
+      const password_hash = preHashed ?? await hashPassword(password);
       const { error: updErr } = await supabase.from('users').update({ password_hash }).eq('id', row.id);
-      if (updErr) fail(`credential update failed for ${email}: ${updErr.message}`);
+      if (updErr) {
+        // There is no transaction across four single-row updates, so a mid-loop failure leaves a
+        // PARTIAL grant. Exiting without saying which rows were already written would leave the
+        // operator unable to reason about the state. (`fail` exits 1, so a partial grant can never
+        // exit 0.)
+        console.error(JSON.stringify({
+          mode: 'grant', outcome: 'partial', alreadyWritten: results.map((r) => r.email), failedAt: email,
+        }, null, 2));
+        fail(`credential update failed for ${email}: ${updErr.message}`);
+      }
       results.push({ email, userId: row.id, role: row.role, action: 'credential_set' });
     }
     // Deliberately no password in the receipt.
-    console.log(JSON.stringify({ mode: 'grant', accounts: results, note: 'password not recorded' }, null, 2));
+    console.log(JSON.stringify({
+      mode: 'grant', accounts: results,
+      credentialSource: preHashed ? 'hash-file' : 'env',
+      // Keep this exact phrase: the security test strips it before asserting that the word never
+      // appears inside a console.log, and rewording it silently defeats that check.
+      note: 'password not recorded',
+      hashRecorded: false,
+    }, null, 2));
     return;
   }
 
@@ -138,6 +248,7 @@ async function main() {
 }
 
 if (process.argv[1] && (import.meta.url === pathToFileURL(process.argv[1]).href || process.argv[1].endsWith('issue164-golden-uat-auth.mjs'))) {
+  assertValidMode();
   main().catch((e) => fail(e?.stack || e?.message || String(e)));
 }
 

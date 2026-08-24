@@ -1099,3 +1099,53 @@ failure unless you wait for it. Worth remembering when reading any image-health 
 requires an authenticated Golden owner session — that credential is deliberately unprovisioned
 (`password_hash` null) and its provisioning is the same owner action that gates the full 32-step UAT.
 It is therefore carried into the physical re-UAT rather than being blocked on separately.
+
+---
+
+# ADDENDUM D — pre-push adversarial review of the credential-grant path
+
+The Golden UAT credential grant writes `password_hash` on four staging identities, so the change was
+put through a four-lens adversarial review (blast radius, credential hygiene, guard ordering, test
+integrity) BEFORE being pushed. It found a P0 in my own fix. Findings are classified rather than
+merely refuted; a passing unit test was not accepted as a dismissal.
+
+## D.1 Findings
+
+| # | Finding | Class | Resolution |
+|---:|---|---|---|
+| 1 | `let preHashed` declared TWICE — the validated hash was discarded and the grant path was dead by construction | **VALID (P0)** | Single declaration. All three lenses found it independently. |
+| 2 | Derived-key regex `{64,}` accepted a TRUNCATED key | **VALID (P1)** | `hashPassword` always emits `scrypt:<32 hex>:<128 hex>` (`SCRYPT_KEYLEN = 64` bytes, measured). Tightened to exact `{128}`. A short key writes a hash `verifyPassword` can never match — the silent lockout the check exists to prevent. |
+| 3 | No test executes the grant path | **VALID (P1)** | New CLI-invocation suite that SPAWNS the scripts. |
+| 4 | The auth script kept the same module-scope mode validation just removed from its sibling | **VALID (P2)** | Moved under the direct-invocation guard. Fixing one direction only would have moved the trap, not closed it. |
+| 5 | Hash file read with no ownership/permission check, symlinks followed | **VALID (P2)** | Rejects symlink, non-regular file, group/world-accessible, and foreign-owned — honouring the `O_EXCL 0600` its producer creates it with. |
+| 6 | `main()` fell through to the destructive `sequence` for any unrecognised mode | **VALID (P2)** | `sequence` is now asserted explicitly; `--mode=sequnce` blocks. |
+| 7 | The new "users read must be scoped" assertion was VACUOUS | **VALID (P2)** | Proven: the negative lookahead passed when `.in(...)` was deleted entirely — it caught a *wrong* scope but not a *missing* one. Replaced with a positive assertion plus an unscoped-read check. |
+| 8 | Both credential sources silently resolved by precedence | **VALID (P2)** | Refused as an ambiguity. |
+| 9 | A mid-loop failure leaves a partial grant | **ALREADY COVERED, hardened** | `fail()` exits 1, so a partial grant can never exit 0. It printed nothing, so it now reports which accounts were already written. |
+| 10 | `credentialSource` always reported `'env'` | **DUPLICATE of #1** | Resolved by the P0 fix, now pinned by test. |
+
+## D.2 The lesson that outlived the bugs
+
+**My first CLI suite passed with the P0 deliberately reintroduced.** With a dummy credential the run
+dies at the users-read before any write, so nothing observed which binding the credential landed in.
+A test that cannot fail is worth nothing, and there were two here — the vacuous scoping assertion was
+the other.
+
+The fix was to make the property observable at the point it matters: the script now reports the
+credential source **from the same binding the write reads**, before any database access. Re-running
+the mutation with the shadowing restored now fails (`not ok 2`). Both guards were verified by
+mutation rather than assumed.
+
+## D.3 What the grant now proves
+
+- **Subject containment** — four hard-pinned `@carup-staging.test` identities; the list is a frozen
+  literal that reads neither `argv` nor `env`; the users read is positively asserted to be scoped to
+  it; all four must exist before any write; a partial grant exits non-zero and names what was written.
+- **Environment containment** — exact canonical staging hostname, production ref refused, and the
+  `service_role` role claim decoded and required before any client is constructed.
+- **Credential hygiene** — plaintext is never read on the hash-file path; the hash is read locally
+  from an owner-only regular file; no hash content appears in any output on any path (asserted);
+  malformed, truncated, short-salt and non-lowercase hashes are refused before database access.
+- **CLI behaviour** — importing `evaluateStagingGuard` no longer interprets the caller's `--mode`;
+  the fixture runner still validates its own modes when executed; grant/status/revoke are covered by
+  real spawned invocations, not only imported functions.

@@ -33,7 +33,23 @@ const blocked = (m) => { console.error(`BLOCKED: ${m}`); process.exit(2); };
 const fail = (m) => { console.error(`FAIL: ${m}`); process.exit(1); };
 
 const MODE = (process.argv.find((a) => /^--mode=/.test(a)) || '--mode=verify').split('=')[1];
-if (!['bootstrap', 'verify', 'cleanup', 'sequence'].includes(MODE)) blocked(`unknown --mode=${MODE}`);
+const VALID_MODES = ['bootstrap', 'verify', 'cleanup', 'sequence'];
+
+/**
+ * Mode validation is deliberately NOT at module scope.
+ *
+ * `issue164-golden-uat-auth.mjs` imports `evaluateStagingGuard` from this file so both scripts share
+ * one staging identity guard. With the check at module scope, that import executed this file's arg
+ * parsing too — so running the AUTH script with `--mode=grant` died here with
+ * `BLOCKED: unknown --mode=grant` before its own main() was ever reached. The credential-grant path
+ * was dead by construction, and no unit test could see it: the fault lives in `process.argv`, which
+ * only a real CLI invocation supplies.
+ *
+ * A mode is a property of running THIS file as a command, so it is validated only when that happens.
+ */
+function assertValidMode() {
+  if (!VALID_MODES.includes(MODE)) blocked(`unknown --mode=${MODE}`);
+}
 
 /**
  * Decode a JWT's payload and report whether it actually carries `role: "service_role"`.
@@ -215,6 +231,14 @@ async function main() {
   }
 
   // ── MODE === 'sequence' : the full §9 idempotency + containment proof ───────
+  //
+  // Asserted explicitly rather than reached by fall-through. Every other mode returns above, so an
+  // unrecognised mode used to land HERE — and this branch runs bootstrap → bootstrap → CLEANUP →
+  // cleanup → bootstrap. A typo defaulting into the destructive path is a bad default at the best of
+  // times; with mode validation now living in the direct-invocation guard it would also be the only
+  // thing standing between `--mode=sequnce` and a full teardown.
+  if (MODE !== 'sequence') blocked(`unknown --mode=${MODE}`);
+
   const receipt = { programme: specs.GOLDEN_PROGRAMME, mode: 'sequence', stagingRef: STAGING_REF, steps: [], productionTouched: false, liveProviderActivated: false, geminiActivated: false };
   const record = (name, data) => { receipt.steps.push({ name, ...data }); console.log(`STEP ${name}: ${JSON.stringify(data)}`); };
 
@@ -286,6 +310,7 @@ async function main() {
 }
 
 if (process.argv[1] && (import.meta.url === pathToFileURL(process.argv[1]).href || process.argv[1].endsWith('issue164-golden-vehicles.mjs'))) {
+  assertValidMode();
   main().catch((e) => fail(e?.stack || e?.message || String(e)));
 }
 
