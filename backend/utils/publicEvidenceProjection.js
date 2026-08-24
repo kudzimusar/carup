@@ -43,7 +43,11 @@ export const PUBLIC_EVIDENCE_COLUMNS = Object.freeze([
   'verification_status', 'visibility_level',
   'file_url', 'mime_type', 'file_size',
   'trust_score_impact', 'trust_impact',
-  'source_name', 'checksum', 'image_hash',
+  // `source_id` is public-safe and load-bearing: newer M1/ingestion rows carry attribution ONLY
+  // here, not in `source_name`, and the buyer-facing timeline resolves its "Source" label from it
+  // against the public source registry. Dropping it silently removed provenance from exactly the
+  // rows whose provenance is best recorded.
+  'source_name', 'source_id', 'checksum', 'image_hash',
   'odometer_value', 'odometer_unit', 'declared_condition', 'component_tags',
   'linked_registry_event_id', 'timeline_event_id',
 ]);

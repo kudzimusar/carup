@@ -302,7 +302,17 @@ test('the allow-lists match the Issue #164 branch exactly, so reconciling is a d
   const { PUBLIC_EVIDENCE_COLUMNS, PUBLIC_TIMELINE_EVENT_COLUMNS } =
     await import('../utils/publicEvidenceProjection.js');
 
-  assert.deepEqual([...PUBLIC_EVIDENCE_COLUMNS], [
+  // ONE KNOWN, DELIBERATE DELTA: `source_id`.
+  //
+  // Review found that newer M1/ingestion rows carry source attribution ONLY in `source_id`, and the
+  // buyer-facing timeline resolves its "Source" label from it against the PUBLIC source registry.
+  // Both this list and the Issue #164 branch's `PUBLIC_EVIDENCE_FIELDS` omitted it — a pre-existing
+  // Phase 0 gap in BOTH lanes, not something this hotfix introduced. It is fixed here because this
+  // is the lane shipping first, and it must be carried into #164 during reconciliation.
+  //
+  // The delta is asserted EXACTLY rather than relaxing this to a superset check, so any OTHER
+  // divergence still fails.
+  const ISSUE_164_FIELDS = [
     'id', 'vin', 'evidence_type', 'evidence_class', 'evidence_subtype',
     'event_type', 'event_date', 'event_date_precision',
     'captured_at', 'uploaded_at', 'verified_at', 'created_at',
@@ -312,7 +322,15 @@ test('the allow-lists match the Issue #164 branch exactly, so reconciling is a d
     'source_name', 'checksum', 'image_hash',
     'odometer_value', 'odometer_unit', 'declared_condition', 'component_tags',
     'linked_registry_event_id', 'timeline_event_id',
-  ], 'must equal PUBLIC_EVIDENCE_FIELDS on the Issue #164 branch');
+  ];
+  const KNOWN_DELTA = ['source_id'];
+
+  const extra = PUBLIC_EVIDENCE_COLUMNS.filter((f) => !ISSUE_164_FIELDS.includes(f));
+  const missing = ISSUE_164_FIELDS.filter((f) => !PUBLIC_EVIDENCE_COLUMNS.includes(f));
+  assert.deepEqual(extra, KNOWN_DELTA,
+    'the only field this hotfix publishes beyond the Issue #164 list must be the recorded delta');
+  assert.deepEqual(missing, [],
+    'this hotfix must not publish LESS than the Issue #164 list');
 
   assert.deepEqual([...PUBLIC_TIMELINE_EVENT_COLUMNS], [
     'id', 'event_source', 'event_type', 'evidence_type', 'timestamp',
@@ -398,5 +416,40 @@ test('both private-evidence entry points use the stricter gate', () => {
     // Banned as a CALL in these files; authMiddleware still defines and exports it for other routes.
     assert.doesNotMatch(src, /[^a-zA-Z]isUserIdFallbackAllowed\(\)/,
       `${name} must not fall back to the NODE_ENV inference`);
+  }
+});
+
+// ── The THIRD private-document capability path ───────────────────────────────────────────────────
+
+test('the media signed-url route refuses a capability established by the x-user-id fallback', () => {
+  const MEDIA = readFileSync(path.resolve(here, '../services/storage/mediaRouter.js'), 'utf8');
+  const code = MEDIA.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
+  // The evidence route and the passport were moved onto the strict policy; this route issues the
+  // SAME one-hour ocr-documents capability and was still reachable via a spoofed x-user-id under
+  // NODE_ENV=test — the exact misconfiguration the strict policy exists to contain.
+  assert.match(code, /isPrivateEvidenceFallbackAllowed\(\)/,
+    'private-document signing must consult the strict policy');
+  assert.match(code, /authenticationMethod === 'x-user-id-fallback'/,
+    'the gate must key on HOW the identity was established, not only on the role');
+  const at = code.indexOf("authenticationMethod === 'x-user-id-fallback'");
+  assert.match(code.slice(at, at + 260), /401/, 'it must refuse, not merely log');
+});
+
+test('source attribution survives the public projection', async () => {
+  const { PUBLIC_EVIDENCE_COLUMNS, toPublicEvidenceRow } =
+    await import('../utils/publicEvidenceProjection.js');
+  // Newer M1/ingestion rows carry attribution ONLY in source_id; the buyer-facing timeline resolves
+  // its "Source" label from it. Dropping it removed provenance from the best-recorded rows.
+  assert.ok(PUBLIC_EVIDENCE_COLUMNS.includes('source_id'));
+  const out = toPublicEvidenceRow({
+    id: 'e1', vin: 'V1', source_id: 'zimra-import', source_name: null,
+    storage_bucket: 'vehicle-images', file_url: 'https://cdn.example.test/a.png',
+  });
+  assert.equal(out.source_id, 'zimra-import');
+  // ...and it is still not a licence for the private columns.
+  for (const c of ['uploaded_by', 'verified_by', 'tenant_id', 'file_path', 'storage_bucket']) {
+    assert.ok(!(c in out), `${c} must remain withheld`);
   }
 });
