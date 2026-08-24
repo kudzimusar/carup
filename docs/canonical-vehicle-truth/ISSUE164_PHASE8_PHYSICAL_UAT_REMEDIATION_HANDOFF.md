@@ -1571,6 +1571,27 @@ Projecting through `toPublicEvidence` drops `metadata` wholesale — safer, but 
 real feature. The sanitized summary is now lifted out **by name** into a fresh object; the `metadata`
 object, which carries `ai_ready.vehicle_identity` (VIN, plate, chassis, engine), is still left behind.
 
+### K.1.0 How much the expiry check was actually worth
+
+Measured on canonical staging after the fix, to check the guard rejects nothing legitimate and to size
+what it closes:
+
+| | |
+|---|---|
+| `user_sessions` rows | **885** |
+| `expires_at IS NULL` | **0** — so the new check cannot reject a session for a missing value |
+| flagged `is_valid = true` | **874** |
+| `is_valid` **and** genuinely unexpired | **1** |
+
+So **873 sessions carried `is_valid = true` while already expired.** The pre-fix route accepted
+`is_valid` alone, which means every one of those tokens still authenticated there. `authMiddleware` had
+always also checked `expires_at`, so they did not authenticate anywhere else — this route was the
+outlier, and the gap was not theoretical.
+
+All `expires_at` values are ISO-8601 with a `Z` suffix (`2026-06-18T19:22:37.938Z` …
+`2026-08-25T08:09:27.987Z`), which `new Date(...)` parses exactly. The column is TEXT rather than
+`timestamptz`, which is why the comparison is done in JS rather than pushed into the query.
+
 ### K.1.1 Sweep — is any other route the same shape?
 
 Asked and answered rather than assumed. Every non-test `generateSecureReadUrl` call site:
