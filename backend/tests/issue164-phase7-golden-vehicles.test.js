@@ -21,6 +21,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 const fixture = await import('../services/golden/goldenVehicleFixture.js');
 const specs = await import('../services/golden/goldenVehicleSpecs.js');
 const { evaluateStagingGuard } = await import('../scripts/issue164-golden-vehicles.mjs');
+const { SERVICE_ROLE_TOKEN, ANON_TOKEN } = await import('./helpers/goldenTestTokens.mjs');
 
 // ── minimal, faithful in-memory supabase mock (records every write) ──────────
 function makeMock() {
@@ -158,27 +159,36 @@ async function makeDeps(client, opts = {}) {
   };
 }
 
+// The fixture here used to be the literal string 'a.b.c' — three segments, and nothing else. That is
+// exactly what let a legacy anon key through the guard, so the credential now has to be a real
+// service_role token for this to pass.
+test('guard: an anon JWT on the approved host is refused', () => {
+  const r = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: ANON_TOKEN });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /service_role/);
+});
+
 test('guard: staging URL with service-role JWT passes', () => {
-  const r = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' });
+  const r = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN });
   assert.equal(r.ok, true);
 });
 
 test('guard: production ref is refused (fail closed)', () => {
   const prod = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
-  const r = evaluateStagingGuard({ SUPABASE_URL: `https://${prod}.supabase.co`, SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' });
+  const r = evaluateStagingGuard({ SUPABASE_URL: `https://${prod}.supabase.co`, SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN });
   assert.equal(r.ok, false);
   assert.match(r.reason, /forbidden production ref/);
 });
 
 test('guard: non-staging url, missing url, and non-JWT key all refused', () => {
-  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://other.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, false);
-  assert.equal(evaluateStagingGuard({ SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, false);
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://other.supabase.co', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN }).ok, false);
+  assert.equal(evaluateStagingGuard({ SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN }).ok, false);
   assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'not-a-jwt' }).ok, false);
 });
 
 test('guard: prod DB URL anywhere in scope is refused even with a staging SUPABASE_URL', () => {
   const prod = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
-  const r = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c', DATABASE_URL: `postgres://x@db.${prod}.supabase.co/postgres` });
+  const r = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN, DATABASE_URL: `postgres://x@db.${prod}.supabase.co/postgres` });
   assert.equal(r.ok, false);
 });
 
@@ -326,11 +336,11 @@ test('verify() passes against a freshly bootstrapped store', async () => {
 });
 
 test('guard: a URL that only CONTAINS the staging ref in path/query is refused (exact host required)', () => {
-  const attack = evaluateStagingGuard({ SUPABASE_URL: 'https://example.com/?ref=eoyenigwevnxwwhyhaer', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' });
+  const attack = evaluateStagingGuard({ SUPABASE_URL: 'https://example.com/?ref=eoyenigwevnxwwhyhaer', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN });
   assert.equal(attack.ok, false, 'a non-staging host with the ref in the query must be refused');
-  const subdomainAttack = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co.evil.com', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' });
+  const subdomainAttack = evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co.evil.com', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN });
   assert.equal(subdomainAttack.ok, false, 'a look-alike host must be refused');
-  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, true);
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN }).ok, true);
 });
 
 test('Golden A trust must be evaluated: a not_evaluated refresh makes bootstrap a required failure', async () => {

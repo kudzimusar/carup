@@ -46,3 +46,6 @@ backend/tests/realpg/.pgdata-pubveh/
 .env.vercel.*
 .staging-auth/
 test-results/staging-uat-*
+
+# Issue #164 Golden fixture run receipt (local evidence artifact, not source)
+issue164-golden-vehicles-receipt.json

@@ -352,10 +352,15 @@ function pickPublicFacts(s) {
 // ── INVARIANT 14 — Golden fixture stays staging-pinned and repeatable ───────
 test('INV-14: the Golden fixture guard is staging-exact and fails closed', async () => {
   const { evaluateStagingGuard } = await import('../scripts/issue164-golden-vehicles.mjs');
-  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, true);
+  const { SERVICE_ROLE_TOKEN, ANON_TOKEN } = await import('./helpers/goldenTestTokens.mjs');
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN }).ok, true);
+  // The credential must carry role=service_role, not merely three dot-separated segments: a legacy
+  // anon JWT satisfies the shape and would have run the fixture under RLS, failing as missing data.
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: ANON_TOKEN }).ok, false);
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://eoyenigwevnxwwhyhaer.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, false);
   const prod = ['vhmn', 'ajoe', 'icas', 'aigi', 'ophh'].join('');
-  assert.equal(evaluateStagingGuard({ SUPABASE_URL: `https://${prod}.supabase.co`, SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, false);
-  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://example.com/?ref=eoyenigwevnxwwhyhaer', SUPABASE_SERVICE_ROLE_KEY: 'a.b.c' }).ok, false);
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: `https://${prod}.supabase.co`, SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN }).ok, false);
+  assert.equal(evaluateStagingGuard({ SUPABASE_URL: 'https://example.com/?ref=eoyenigwevnxwwhyhaer', SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_TOKEN }).ok, false);
 });
 
 test('INV-14: the Golden dataset stays deterministic and creates no unremovable rows', () => {

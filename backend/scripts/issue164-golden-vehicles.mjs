@@ -35,6 +35,53 @@ const fail = (m) => { console.error(`FAIL: ${m}`); process.exit(1); };
 const MODE = (process.argv.find((a) => /^--mode=/.test(a)) || '--mode=verify').split('=')[1];
 if (!['bootstrap', 'verify', 'cleanup', 'sequence'].includes(MODE)) blocked(`unknown --mode=${MODE}`);
 
+/**
+ * Decode a JWT's payload and report whether it actually carries `role: "service_role"`.
+ *
+ * The guard used to accept any three-segment string. That proves SHAPE, not ROLE: a legacy Supabase
+ * anon JWT is also three segments, so an operator who pasted the anon key instead of the service-role
+ * key passed the guard and only discovered the mistake when RLS silently hid rows from the fixture —
+ * a failure mode that looks like missing data rather than a wrong credential.
+ *
+ * The signature is deliberately NOT verified. Verifying it would require the project's JWT secret,
+ * which this script must never hold, and a forged token is not the risk being managed here — Supabase
+ * rejects it on the first request. What is being prevented is an honest operator mistake, and the
+ * role claim is exactly the thing that distinguishes the keys.
+ *
+ * NOTHING derived from the token is returned or logged. The refusal names what is required, never
+ * what was found.
+ */
+export function evaluateServiceRoleKey(key) {
+  if (!key) return { ok: false, reason: 'SUPABASE_SERVICE_ROLE_KEY is not set' };
+
+  const segments = key.split('.');
+  if (segments.length !== 3 || segments.some((segment) => segment === '')) {
+    // Covers publishable/`sb_secret_…` keys and anything else that is not a JWT at all.
+    return { ok: false, reason: 'SUPABASE_SERVICE_ROLE_KEY is not a JWT — expected the project service-role key' };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(segments[1], 'base64url').toString('utf8'));
+  } catch {
+    return { ok: false, reason: 'SUPABASE_SERVICE_ROLE_KEY payload could not be decoded — malformed JWT' };
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ok: false, reason: 'SUPABASE_SERVICE_ROLE_KEY payload is not a JWT claim set' };
+  }
+
+  if (payload.role !== 'service_role') {
+    // The role that WAS found is not named: it is token material, and the operator does not need it
+    // to act. Naming the requirement is enough to correct the mistake.
+    return {
+      ok: false,
+      reason: 'SUPABASE_SERVICE_ROLE_KEY does not carry role "service_role" — it looks like the anon '
+        + 'or publishable key. Use the project SERVICE ROLE key.',
+    };
+  }
+  return { ok: true };
+}
+
 // ── staging identity guard (dual-sided, positive + deny) ─────────────────────
 // Pure, testable: returns { ok, reason } and never exits, so the guard can be proven in unit tests.
 export function evaluateStagingGuard(env = {}) {
@@ -49,8 +96,10 @@ export function evaluateStagingGuard(env = {}) {
   try { parsed = new URL(url); } catch { return { ok: false, reason: 'SUPABASE_URL is not a valid URL' }; }
   if (parsed.protocol !== 'https:') return { ok: false, reason: 'SUPABASE_URL must be https' };
   if (parsed.hostname !== STAGING_HOST) return { ok: false, reason: `SUPABASE_URL host must be exactly ${STAGING_HOST}` };
-  // A publishable/anon key cannot bypass RLS to run the governed pipeline; require a real service-role key.
-  if (!key || key.split('.').length !== 3) return { ok: false, reason: 'SUPABASE_SERVICE_ROLE_KEY is missing or is not a service-role JWT' };
+  // A publishable/anon key cannot bypass RLS to run the governed pipeline. The role claim is decoded
+  // and required to be `service_role` — a three-segment shape check accepted the anon key too.
+  const credential = evaluateServiceRoleKey(key);
+  if (!credential.ok) return { ok: false, reason: credential.reason };
   // Belt-and-suspenders: refuse if a production-shaped DB URL is anywhere in scope.
   for (const v of ['SUPABASE_DB_URL', 'DATABASE_URL', 'DIASPORA_STAGING_DATABASE_URL']) {
     const val = env[v];

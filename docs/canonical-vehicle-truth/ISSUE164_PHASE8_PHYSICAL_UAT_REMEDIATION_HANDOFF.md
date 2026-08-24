@@ -828,6 +828,27 @@ What is already proven without it:
   returns HTTP 400 for a missing object, versus DNS failure for `media.carup-staging.test`.
 - `vehicle-images` currently holds **0** objects, confirming the fixture never uploaded anything.
 
+### A.7.1 Credential guard hardened before the owner step
+
+Raised on review of candidate `1430546b`: the runner validated the credential by SHAPE only —
+`key.split('.').length === 3`. A legacy Supabase **anon** JWT is also three segments, so an operator
+who pasted the anon key would have passed the guard and run the fixture under RLS. That fails by
+silently seeing no rows: a wrong-credential fault wearing the costume of missing data.
+
+The guard now decodes the JWT payload and requires `role === "service_role"` before any Supabase
+client is constructed. The signature is deliberately not verified — that would require the project's
+JWT secret, which this script must never hold, and a forged token is not the risk being managed
+(Supabase rejects it on the first request). What is prevented is an honest operator mistake.
+
+Nothing derived from the token is logged. The refusal is INVARIANT across roles — pinned by test, so
+a message that cannot vary with the token's contents cannot be reporting them.
+
+Proven (`backend/tests/issue164-phase8-service-role-guard.test.js`, 12 tests): service_role accepted;
+anon rejected; authenticated/user rejected; no-role rejected; malformed rejected; publishable/non-JWT
+rejected; wrong host rejected; production ref rejected. Every token is BUILT AT RUNTIME rather than
+written as a literal — a real base64url JWT begins `eyJ`, which is exactly what the blocking CR-1
+scanner matches, and relaxing the scanner to accommodate a test would be the wrong trade.
+
 **Owner action required — choose one:**
 
 1. Provide a working staging service-role key, and the assistant runs
