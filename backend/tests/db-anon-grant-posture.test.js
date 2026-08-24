@@ -107,6 +107,14 @@ const READ_GRANT_PATTERNS = [
   // these tables — while naming no table at all. All 237 public tables are owned by `postgres`, so
   // a single such statement would hand the lot over.
   /\bREASSIGN\s+OWNED\s+BY\b[^;]*\bTO\b[^;]+(?:;|$)/gis,
+  // INDIRECT READ SURFACES. Neither changes a privilege ON the table, so neither appears in any
+  // grant audit of it — yet both can return its rows:
+  //   · a SECURITY DEFINER function runs with its OWNER's rights, and a new function grants EXECUTE
+  //     to PUBLIC by default, so PostgREST exposes it at /rpc;
+  //   · a view owned by a privileged role reads the table on that owner's behalf, and the GRANT
+  //     names only the VIEW.
+  // Matched by DEFINITION BODY: a function or view whose text mentions the protected table.
+  /\bCREATE\b[^;]*\b(?:FUNCTION|VIEW|MATERIALIZED\s+VIEW)\b[\s\S]*?(?:;|$)/gis,
 ];
 
 function netAnonSelectPosture(table) {
@@ -134,7 +142,23 @@ function netAnonSelectPosture(table) {
         // recorded as an unconditional finding rather than something the revoke logic can dismiss.
         const isOwnershipOrRls = /\bALTER\s+TABLE\b/i.test(stmt)
           || /\bREASSIGN\s+OWNED\s+BY\b/i.test(stmt);
-        if (!namesTable && !schemaWide && !isMembership) continue;
+        // A function or view whose body reads the protected table is an indirect surface. It is
+        // only a finding when the definition actually MENTIONS the table — otherwise every
+        // unrelated function in the tree would trip the wire.
+        const isIndirectSurface = /\bCREATE\b[^;]*\b(?:FUNCTION|VIEW|MATERIALIZED\s+VIEW)\b/i.test(stmt)
+          && new RegExp(String.raw`\b(?:public\.)?${table}\b`, 'i').test(stmt);
+        if (!namesTable && !schemaWide && !isMembership && !isIndirectSurface) continue;
+
+        if (isIndirectSurface) {
+          // Never cleared by a revoke on the TABLE: the privilege that matters belongs to the
+          // function or the view, not to the table it reads.
+          findings.push({
+            file, migrationIndex, columnScoped: false, grantees: ['__indirect__'],
+            neverCleared: true,
+            stmt: stmt.replace(/\s+/g, ' ').trim().slice(0, 140),
+          });
+          continue;
+        }
 
         if (isOwnershipOrRls) {
           // Fail closed: a REVOKE of SELECT does not undo `OWNER TO` or `DISABLE ROW LEVEL SECURITY`.
@@ -293,6 +317,9 @@ test('the parser catches the grant shapes that would otherwise slip past it', ()
     'ALTER TABLE public.vehicle_evidence DISABLE ROW LEVEL SECURITY;',
     // Names no table, sweeps every object postgres owns — which is all 237 public tables.
     'REASSIGN OWNED BY postgres TO anon;',
+    // Indirect surfaces: neither changes a privilege ON the table, yet both return its rows.
+    'CREATE FUNCTION leak() RETURNS SETOF public.vehicle_evidence LANGUAGE sql SECURITY DEFINER AS $$ SELECT * FROM public.vehicle_evidence $$;',
+    'CREATE VIEW evidence_peek AS SELECT * FROM public.vehicle_evidence;',
   ];
   for (const shape of shapes) {
     const saved = MIGRATIONS.slice();
@@ -555,4 +582,62 @@ test('LIVE: the control request itself is exercised', { skip: !liveProbe && 'set
   assert.ok(controlVerified?.projectRef, 'the control must identify which project it proved');
   // Printed so a promotion receipt records WHICH database was graded, not merely that it passed.
   console.log(`  [control] probes executed as anon against project ${controlVerified.projectRef}`);
+});
+
+// ── INDIRECT SURFACES, PROVEN LIVE ───────────────────────────────────────────────────────────────
+//
+// The static half can only flag a definition it can see. The authoritative check is to ask the
+// deployed database what it actually exposes to anon — including surfaces that never touch a
+// privilege ON the protected table:
+//
+//   · a SECURITY DEFINER function runs with its owner's rights, and a new function grants EXECUTE
+//     to PUBLIC by default, so PostgREST publishes it under /rpc;
+//   · a view owned by a privileged role reads the table on that owner's behalf.
+//
+// PostgREST's OpenAPI description enumerates exactly what the calling role can reach, which is the
+// same question asked from the attacker's side.
+
+test('LIVE: no exposed relation or RPC returns protected rows to anon', { skip: !liveProbe && 'set CARUP_ANON_PROBE_URL/KEY' }, async () => {
+  await assertProbeReachesPostgrest();
+
+  const res = await fetch(`${PROBE_URL}/rest/v1/?apikey=${encodeURIComponent(PROBE_KEY)}`, {
+    headers: { apikey: PROBE_KEY, Authorization: `Bearer ${PROBE_KEY}`, Accept: 'application/openapi+json' },
+  });
+  // A project may decline to publish its description; that is not a pass, so it is stated.
+  if (!res.ok) {
+    console.log(`  [note] PostgREST description unavailable (HTTP ${res.status}); relation sweep below still runs`);
+  } else {
+    const spec = await res.json().catch(() => null);
+    const paths = Object.keys(spec?.paths ?? {});
+    // Anything whose NAME suggests it wraps the protected tables gets probed directly.
+    const suspicious = paths.filter((p) => /vehicle_evidence|vehicles|evidence|passport/i.test(p));
+    for (const p of suspicious) {
+      const name = p.replace(/^\//, '');
+      if (!name || name.startsWith('rpc/')) continue;   // RPCs need arguments; covered below
+      const { body } = await anonSelect(`${name}?limit=1`);
+      const rows = Array.isArray(body) ? body : [];
+      if (rows.length === 0) continue;
+      const columns = Object.keys(rows[0]);
+      const leaked = columns.filter((c) => [
+        'owner_id', 'current_seller_id', 'tenant_id', 'uploaded_by', 'verified_by',
+        'verification_notes', 'file_path', 'storage_bucket',
+        'plate_number', 'normalized_plate_number', 'chassis_number', 'engine_number',
+      ].includes(c));
+      assert.deepEqual(leaked, [],
+        `relation "${name}" is anon-readable and exposes ${leaked.join(', ')} — an indirect surface `
+        + 'onto a protected table');
+    }
+  }
+
+  // Direct sweep for the obvious wrapper names a future migration might introduce, independent of
+  // whether the description was published.
+  for (const guess of [
+    'vehicle_evidence_public', 'vehicles_public', 'public_vehicles', 'public_vehicle_evidence',
+    'evidence_peek', 'vehicle_evidence_view', 'vehicles_view',
+  ]) {
+    const { body } = await anonSelect(`${guess}?select=*&limit=1`);
+    const rows = Array.isArray(body) ? body : [];
+    assert.equal(rows.length, 0,
+      `relation "${guess}" exists and is anon-readable — it must not wrap a protected table`);
+  }
 });
