@@ -524,7 +524,7 @@ test('evidence_bucket_exists cannot pass vacuously when no bucket was loaded', a
 // `del:storage_objects` ok and cleanup went on to delete the locator rows. The sequence could then
 // report PASS while leaving orphaned objects that nothing in the database can find again.
 test('cleanup FAILS when a storage object cannot be removed', async () => {
-  const { client } = makeMock();
+  const { client, db } = makeMock();
   const { deps } = await makeDeps(client);
   await fixture.bootstrap(deps);
 
@@ -532,11 +532,24 @@ test('cleanup FAILS when a storage object cannot be removed', async () => {
     ...client,
     storage: { from: () => ({ remove: async () => ({ data: null, error: { message: 'bucket unavailable' } }) }) },
   };
+  const before = {
+    listing_images: (db.listing_images || []).length,
+    vehicle_evidence: (db.vehicle_evidence || []).length,
+  };
   const r = await fixture.cleanup({ ...deps, client: failing });
   const storageStep = r.steps.find((s) => s.name === 'del:storage_objects');
   assert.ok(storageStep, 'the storage step must exist');
   assert.equal(storageStep.ok, false, 'a real removal error must fail the step');
   assert.equal(r.ok, false, 'cleanup as a whole must not report success');
+
+  // AND it must stop before the locator rows go. makeReporter().step() catches the throw and records
+  // ok:false without aborting, so without an explicit check the plan still ran — orphaning the very
+  // objects that could not be removed, with nothing left to find them by.
+  assert.equal((db.listing_images || []).length, before.listing_images,
+    'listing_images must survive so the orphaned objects stay discoverable');
+  assert.equal((db.vehicle_evidence || []).length, before.vehicle_evidence,
+    'vehicle_evidence must survive for the same reason');
+  assert.match(r.abortedBecause || '', /discoverable/);
 });
 
 test('cleanup still succeeds when the objects are simply already gone (idempotent)', async () => {

@@ -669,6 +669,20 @@ export async function cleanup(depsIn = {}) {
     return { buckets: detail };
   });
 
+  // makeReporter().step() CATCHES the throw and records ok:false — it does not abort. Without this
+  // check the plan below still ran, deleting `listing_images` and `vehicle_evidence` and orphaning the
+  // very objects that could not be removed, with nothing left in the database to find them by. The
+  // receipt said false; the damage was done anyway.
+  const storageStep = reporter.steps.find((s) => s.name === 'del:storage_objects');
+  if (storageStep && !storageStep.ok) {
+    return {
+      programme: GOLDEN_PROGRAMME, mode: 'cleanup', ok: false, deleted,
+      steps: reporter.steps,
+      abortedBecause: 'storage objects could not be removed — locator rows were deliberately left in '
+        + 'place so the objects remain discoverable',
+    };
+  }
+
   for (const [table, col, values] of plan) {
     await reporter.step(`del:${table}.${col}`, async () => {
       if (!values || values.length === 0) return { deleted: 0, empty: true };

@@ -1195,6 +1195,12 @@ async function buildVehiclePassport(
     } else if (event.event_source === 'zimra') {
       publicDescription = 'Import duty customs clearance confirmed';
       publicSummary = 'ZIMRA Customs';
+    } else if (event.event_source === 'service') {
+      // Service events can originate from mechanic work orders, whose source table carries free text
+      // and customer PII. The producer already withholds those columns; this branch means the public
+      // projection cannot publish them even if a future change starts emitting them.
+      publicDescription = 'Service record signed by a mechanic';
+      publicSummary = 'Service Record';
     } else if (event.event_source === 'insurance') {
       publicDescription = 'Insurance policy premium set';
       publicSummary = 'Insurance Insured';

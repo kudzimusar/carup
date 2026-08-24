@@ -22,7 +22,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, chmodSync, rmSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { writeFileSync, chmodSync, rmSync, mkdtempSync, symlinkSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -242,4 +242,21 @@ test('CLI: supplying BOTH credential sources is refused rather than silently res
     assert.equal(status, 2);
     assert.doesNotMatch(out, /credential source:/, 'no credential may be resolved on an ambiguous run');
   } finally { h.cleanup(); }
+});
+
+// ── Codex round 2 P1: identity drift must not disarm REVOKE ──────────────────────────────────────
+// The identity/role refusal originally ran for every mode. If a row drifts to a privileged role
+// AFTER a credential was granted, refusing `revoke` would leave the shared UAT password active on
+// exactly the account that most needs it cleared — the opposite of containment. `status` must stay
+// diagnostic for the same reason: you cannot investigate drift with a command that refuses because
+// of it.
+test('CLI: the identity/role refusal is scoped to grant', () => {
+  const SRC = readFileSync(AUTH, 'utf8');
+  assert.match(SRC, /MODE === 'grant' && drifted\.length > 0/,
+    'the refusal must be gated on grant, not applied to every mode');
+  const refusal = SRC.indexOf("refusing to provision any credential");
+  const revokeBranch = SRC.indexOf("MODE === 'revoke'");
+  assert.ok(refusal > -1 && revokeBranch > -1);
+  // And revoke must still be reachable: it is a branch, not something behind an unconditional exit.
+  assert.match(SRC, /if \(MODE === 'revoke'\) \{/);
 });

@@ -23,7 +23,11 @@ export async function getVehicleTimeline(vin) {
     // `event_source: 'service'` events were PartSentry part logs — which is how one part log came to
     // be published as both "1 service" and "1 part". Owner surfaces that separate the two need a real
     // source for each, and `/api/vehicles/me` counts these same work orders.
-    supabase.from('mechanic_work_orders').select('id, vin, created_at, status, description, mechanic_id').eq('vin', vin),
+    // `description`, `issue_description`, `customer_name` and `customer_id` are DELIBERATELY not
+    // selected. They are user-entered free text and customer PII, and this timeline is published to
+    // anonymous callers by VIN — a complaint, a name or a phone number typed into a work order would
+    // become publicly readable. Only the controlled `status` and the recorded cost travel.
+    supabase.from('mechanic_work_orders').select('id, vin, created_at, status, mechanic_id, total_cost').eq('vin', vin),
   ]);
 
   const events = [];
@@ -50,8 +54,10 @@ export async function getVehicleTimeline(vin) {
       id: `workorder:${e.id}`,
       timestamp: e.created_at,
       label: e.status ? `Service — ${e.status}` : 'Service',
-      desc: e.description || 'Mechanic-signed service record',
-      details: { mechanic: e.mechanic_id, notes: e.description ?? null },
+      desc: 'Mechanic-signed service record',
+      // `cost` is the RECORDED amount. Omitting it made VehicleProfile's cost reducer treat the
+      // missing value as zero, so a vehicle with paid service work displayed as $0.
+      details: { mechanic: e.mechanic_id, cost: e.total_cost ?? null, notes: null },
     });
   }
 

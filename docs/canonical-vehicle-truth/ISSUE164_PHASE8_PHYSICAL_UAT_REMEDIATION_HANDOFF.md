@@ -1218,3 +1218,61 @@ so idempotency is preserved — pinned by both tests.
 Findings E.1 and E.3 are both cases of a fix being narrower than the property it claimed to establish:
 one guarded the connection string but not the project, the other separated two collections without
 giving one of them a source. Worth remembering when reviewing any "fixed" claim in this programme.
+
+---
+
+# ADDENDUM F — second Codex round on `2e69e085`
+
+Re-review on the head that Addendum E's fixes produced. Four more inline findings, **all VALID**, and
+all four are consequences of those fixes. Recorded because the pattern matters more than the bugs: a
+remediation is itself a change, and each one opens new surface.
+
+## F.1 P1 — I introduced a PII leak while fixing the service/parts divergence
+
+Adding `mechanic_work_orders` to the passport timeline put the user-entered `description` into
+`event.desc`. The public timeline sanitizer had no `service` branch, so it passed that text straight
+through to `publicDescription` for **anonymous callers by VIN**.
+
+Worse than reported: the table also carries `customer_name` and `customer_id`. Free text typed into a
+work order — a complaint, a name, a phone number — would have become publicly readable.
+
+**Fixed two ways.** The producer no longer selects `description`, `issue_description`, `customer_name`
+or `customer_id` at all; only the controlled `status` and the recorded cost travel. And the public
+sanitizer now has a `service` branch, so even a future change that starts emitting free text cannot
+publish it anonymously.
+
+## F.2 P1 — the identity/role check disarmed REVOKE
+
+Addendum E's drift check ran for **every** mode. If a Golden row drifts to a privileged role *after* a
+credential was granted, refusing `revoke` would leave the shared UAT password **active on exactly the
+account that most needs it cleared** — the opposite of containment. `status` was equally blocked, so
+drift could not even be investigated.
+
+**Fixed.** The refusal is scoped to `grant`. `status` and `revoke` continue and warn.
+
+## F.3 P2 — cleanup still deleted the locator rows after a storage failure
+
+Making the storage step throw was not enough: `makeReporter().step()` **catches** the throw and
+records `ok: false` without aborting, so the deletion plan still ran. Objects that could not be
+removed were orphaned with their locator rows deleted — nothing left in the database to find them by.
+The receipt said `false`; the damage happened anyway.
+
+**Fixed.** Cleanup checks the storage step's result and returns before any database deletion, leaving
+the locators in place precisely so the objects stay discoverable. The test now asserts the row counts
+are unchanged, not merely that the receipt is false.
+
+## F.4 P2 — the recorded service cost was dropped
+
+The work-order query omitted `total_cost`, so `details.cost` was absent and `VehicleProfile`'s cost
+reducer treated the missing value as zero — a vehicle with paid service work displayed as **$0**. That
+is the false-zero class Cluster D exists to remove, reintroduced two commits after removing it.
+
+**Fixed.** `total_cost` is selected and published as the event's cost.
+
+## F.5 The pattern
+
+Across Addendum D, E and F the same shape recurs: **a fix that is narrower than the property it
+claims**. D's guard covered the connection string but not the project. E's separation gave one
+collection no source. F's throw stopped a function but not the caller. Each was caught by an
+independent reader rather than by the person who wrote it — which is the argument for the review step,
+not for more care.

@@ -194,8 +194,15 @@ async function main() {
     if (row.id !== want.id) drifted.push(`${row.email}: id is not the deterministic fixture id`);
     if (row.role !== want.role) drifted.push(`${row.email}: role is '${row.role}', expected '${want.role}'`);
   }
-  if (drifted.length > 0) {
+  // GRANT only. Applying this to every mode was backwards: if a row drifts to a privileged role AFTER
+  // a credential was granted, refusing `revoke` would leave the shared UAT password ACTIVE on exactly
+  // the account that most needs it cleared. `status` must stay diagnostic for the same reason — you
+  // cannot investigate drift with a command that refuses to run because of it.
+  if (MODE === 'grant' && drifted.length > 0) {
     blocked(`Golden identities have drifted — refusing to provision any credential:\n  ${drifted.join('\n  ')}`);
+  }
+  if (drifted.length > 0) {
+    console.warn(`[carup] identity drift detected (${MODE} continues):\n  ${drifted.join('\n  ')}`);
   }
 
   if (MODE === 'status') {
