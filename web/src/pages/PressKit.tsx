@@ -182,7 +182,7 @@ export default function PressKit() {
                 Establishing the Ledger of Trust for Southern African Vehicles
               </h2>
               <p className="text-slate-300 leading-relaxed font-normal">
-                Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe\'s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity. 
+                Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe’s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity.
               </p>
               <p className="text-slate-400 leading-relaxed font-normal">
                 CarUp builds one governed record per vehicle. Documents an owner supplies are reviewed
@@ -765,7 +765,7 @@ export default function PressKit() {
                       </div>
                     </div>
                     <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
-                      Enquiries are read by CarUp\u2019s communications team. We do not publish a response
+                      Enquiries are read by CarUp’s communications team. We do not publish a response
                       time we cannot commit to.
                     </p>
                   </CardContent>

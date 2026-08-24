@@ -656,7 +656,7 @@ export default function Blog() {
               <Badge className="bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-4 px-2.5">Weekly Publication</Badge>
               <h3 className="text-2xl md:text-3xl font-extrabold mb-3">Stay Ahead of the Automotive Curve</h3>
               <p className="text-gray-300 text-sm md:text-base leading-relaxed">
-                CarUp\u2019s editorial desk publishes on vehicle trust, evidence and marketplace integrity. Sign-up is not open yet \u2014 when it is, this is where it will be.
+                CarUp’s editorial desk publishes on vehicle trust, evidence and marketplace integrity. Sign-up is not open yet — when it is, this is where it will be.
               </p>
             </div>
 

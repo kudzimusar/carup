@@ -1991,10 +1991,19 @@ export default function VehicleDetail() {
                   </div>
                 )}
 
-                {verifiedEvidence.unpublishable_count > 0 && (
+                {/* One truth state renders ONE message.
+                    This note used to sit outside the state ternary above, so a block reporting
+                    state 'none' printed "No verified evidence has been published for this vehicle"
+                    and, immediately beneath it, "4 reviewed item(s) could not be displayed" — two
+                    statements that cannot both be true of the same vehicle. The backend no longer
+                    produces that combination (a row naming a real artifact is published as a fact
+                    with the file withheld), and the guard here makes it unrenderable regardless:
+                    the shortfall note belongs only to a block that DID publish something. */}
+                {verifiedEvidence.state === 'published' && verifiedEvidence.unpublishable_count > 0 && (
                   <p className="mt-3 text-xs text-amber-700" data-testid="verified-evidence-unpublishable">
-                    {verifiedEvidence.unpublishable_count} reviewed item(s) could not be displayed because
-                    the stored file address is unusable. The record exists; CarUp could not render it here.
+                    {verifiedEvidence.unpublishable_count} further reviewed item(s) could not be displayed
+                    because the stored file address is unusable. The record exists; CarUp could not render
+                    it here.
                   </p>
                 )}
               </CardContent>

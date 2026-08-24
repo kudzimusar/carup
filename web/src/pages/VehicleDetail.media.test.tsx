@@ -1272,7 +1272,7 @@ describe('VehicleDetail — BOTH blocks published at once, which is where a merg
     await waitFor(() => expect(screen.getByTestId('vehicle-image')).toBeTruthy())
 
     expect(screen.getByTestId('listing-media-unpublishable').textContent).toContain('1 recorded photo(s)')
-    expect(screen.getByTestId('verified-evidence-unpublishable').textContent).toContain('2 reviewed item(s)')
+    expect(screen.getByTestId('verified-evidence-unpublishable').textContent).toContain('2 further reviewed item(s)')
     // Two counts, two nouns, two blocks. The gallery says "photo(s)" and never "item(s)".
     expect(screen.getByTestId('listing-media-unpublishable').textContent).not.toContain('reviewed item')
     expect(screen.getByTestId('verified-evidence-unpublishable').textContent).not.toContain('recorded photo')

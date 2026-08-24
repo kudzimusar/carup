@@ -464,8 +464,22 @@ export const LISTING_MEDIA_ITEM_FIELDS = Object.freeze([
  * shapes stay key-disjoint (Rule 7) — the classification is the same function either way.
  */
 export const EVIDENCE_MEDIA_ITEM_FIELDS = Object.freeze([
-  ...PUBLIC_EVIDENCE_FIELDS, 'file_url_form',
+  ...PUBLIC_EVIDENCE_FIELDS, 'file_url_form', 'file_availability',
 ]);
+
+/**
+ * Does this row NAME a real stored artifact, independently of whether its `file_url` happens to be
+ * a renderable URL?
+ *
+ * A private-bucket document is addressed by (`storage_bucket`, `file_path`) and its `file_url` is
+ * bucket-relative by design. Reading only `file_url` therefore mistakes "stored privately" for
+ * "does not exist" — which is exactly how four verified documents came to be published as absent.
+ * The locator is READ here to answer that question and is never itself published.
+ */
+export function hasStorageLocator(row) {
+  return typeof row?.storage_bucket === 'string' && row.storage_bucket.trim() !== ''
+    && typeof row?.file_path === 'string' && row.file_path.trim() !== '';
+}
 
 /** The uniform envelope both blocks carry. Shared on purpose; the ITEM shapes are what differ. */
 export const MEDIA_BLOCK_ENVELOPE_FIELDS = Object.freeze([
@@ -800,16 +814,44 @@ export function toVerifiedEvidenceBlock(rows, options) {
     // restricted evidence set tells an anonymous caller that restricted evidence exists, which is
     // the question the gate exists to refuse.
     if (!isEvidenceRowClearedFor(row, audience)) continue;
-    if (!isPublishableMediaUrl(row.file_url)) {
-      // Cleared, then unrenderable. That is OUR defect and it is counted, so the block cannot pass
-      // "we could not publish it" off as "this vehicle has no verified evidence".
+
+    // PUBLISH THE FACT. WITHHOLD THE FILE.
+    //
+    // This branch used to drop a cleared row whenever its `file_url` was not a renderable URL, and
+    // only count it. That reads a STORAGE-LAYOUT question as an EVIDENCE question, and the physical
+    // UAT caught what it costs: Golden A's four human-reviewed, `verified` documents live in the
+    // private `ocr-documents` bucket and are addressed by a bucket-relative path — the correct
+    // canonical contract for a private PII artifact — so all four were refused on string shape and
+    // the block collapsed to `state: 'none'`. The page then told an anonymous visitor "No verified
+    // evidence has been published for this vehicle" while, two sentences later, admitting four
+    // reviewed items existed. `state` is a machine-readable enum, and in this contract's own
+    // vocabulary `none` means "we looked and found nothing" (as against `not_loaded`, "we did not
+    // look"). A true sentence in a sibling field cannot rescue a false enum.
+    //
+    // A row that names a real artifact is therefore PUBLISHED as a governed fact — type, review
+    // decision, verified date, mime type, size — with the FILE withheld. No signed URL is minted
+    // here, deliberately: `evidenceDefaultVisibility()` returns 'restricted' for every document
+    // type, so these documents were never cleared for public display, and a signed URL is a
+    // shareable bearer capability for its whole TTL.
+    //
+    // `unpublishable` keeps its original meaning and is now reserved for the genuine case: a row
+    // that names NO artifact at all. That is still our defect and is still counted, so the block
+    // can never pass "we could not publish it" off as "this vehicle has no verified evidence".
+    const form = classifyMediaUrl(row.file_url);
+    const hasLocator = hasStorageLocator(row);
+    if (form === null && !hasLocator) {
       unpublishable += 1;
       continue;
     }
+
     const projected = toPublicEvidence(row);
     items.push(Object.freeze({
       ...projected,
-      file_url_form: classifyMediaUrl(row.file_url),
+      // The locator itself never travels — publishing `file_url` unchanged would leak the
+      // bucket-relative `file_path` under a friendlier name.
+      file_url: form === null ? null : row.file_url,
+      file_url_form: form,
+      file_availability: form === null ? 'withheld_private' : 'viewable',
     }));
   }
 

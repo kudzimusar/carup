@@ -33,6 +33,18 @@ import {
   listingImageStoragePath, evidenceStoragePath,
   LISTING_IMAGE_MIME, EVIDENCE_DOCUMENT_MIME,
 } from './goldenSyntheticAssets.js';
+import { documentEvidenceTypes } from '../evidence/evidenceService.js';
+
+/**
+ * The visibility an uploaded Golden evidence row starts at.
+ *
+ * Deliberately derived from the SAME list production's `evidenceDefaultVisibility()` consults, so
+ * the fixture cannot drift into assuming a document is public. If a new document type is added to
+ * `documentEvidenceTypes`, this follows it automatically.
+ */
+export function goldenUploadVisibility(evidenceType) {
+  return documentEvidenceTypes.includes(evidenceType) ? 'restricted' : 'public_safe';
+}
 
 // ── default (real) dependency wiring ─────────────────────────────────────────
 async function realDeps(client) {
@@ -267,10 +279,23 @@ async function upsertEvidenceDoc(client, spec, ev, deps) {
   const { data: inserted, error } = await client.from('vehicle_evidence').insert({
     // vehicle_evidence requires vehicle_id/vin/event_type/file_url/storage_bucket/file_path/mime_type/
     // file_size/uploaded_by/uploader_role (NOT NULL). evidence_class is left NULL (its CHECK vocab does
-    // not include a generic 'document'); visibility_level must be a check-legal value (public_safe).
+    // not include a generic 'document').
+    //
+    // VISIBILITY ON UPLOAD MIRRORS PRODUCTION, IT IS NOT ASSUMED.
+    //
+    // This used to hardcode `public_safe` on the stated grounds that a check-legal value was
+    // required. That justification was wrong: `allowedVisibilities` (vehiclesRoutes.js) admits
+    // 'restricted' too, and `evidenceDefaultVisibility()` returns 'restricted' for EVERY member of
+    // `documentEvidenceTypes`. So an uploaded registration/insurance/police-clearance document is
+    // restricted at rest in production, and a fixture that starts them public modelled a state no
+    // real upload ever reaches — which is how a public-display decision no reviewer ever made came
+    // to look like settled fact.
+    //
+    // The fixture now starts at the production default. Publication is a separate, recorded
+    // REVIEWER decision (see `verifyEvidenceDoc`), which is the governed path it is meant to model.
     vehicle_id: spec.vin, vin: spec.vin,
     event_type: 'document_submission', evidence_type: ev.type,
-    verification_status: 'pending', visibility_level: 'public_safe',
+    verification_status: 'pending', visibility_level: goldenUploadVisibility(ev.type),
     ...canonicalRow,
     uploaded_by: spec.ownerId, uploader_role: 'owner',
     metadata: goldenMetadata({ marker: ev.marker, evidence_type: ev.type }),
@@ -281,6 +306,16 @@ async function upsertEvidenceDoc(client, spec, ev, deps) {
 
 // Governed review decision, mirroring PATCH /api/vehicles/:vin/evidence/:id/verify: set verified +
 // reviewer identity, then let the canonical trust writer re-materialise the score. NEVER writes trust.
+//
+// The review decision now also carries the PUBLICATION decision, because in production those are two
+// distinct judgements made by the same authorised reviewer: `verification_status` says "we checked
+// this and it is genuine", `visibility_level` says "and this one may be shown publicly". Documents
+// arrive `restricted` (see `upsertEvidenceDoc`), so without an explicit clearance step nothing about
+// a Golden vehicle's evidence would ever be publishable — and Golden A exists precisely to exercise
+// the PUBLISHED evidence path end to end.
+//
+// Only the FILE stays private either way: `toVerifiedEvidenceBlock` publishes the governed fact and
+// withholds the artifact, so clearing a document here never exposes the PDF to an anonymous caller.
 async function verifyEvidenceDoc(deps, spec, evidenceId, reviewerId) {
   const { client, refreshCanonicalTrust } = deps;
   const { data: existing, error: readErr } = await client
@@ -291,6 +326,7 @@ async function verifyEvidenceDoc(deps, spec, evidenceId, reviewerId) {
   }
   const { error } = await client.from('vehicle_evidence').update({
     verification_status: 'verified', verified_by: reviewerId, verified_at: new Date().toISOString(),
+    visibility_level: 'public_safe',
     trust_score_impact: 5, confidence_impact: 5, updated_at: new Date().toISOString(),
   }).eq('id', evidenceId);
   if (error) throw new Error(`evidence verify update failed: ${error.message}`);

@@ -282,10 +282,17 @@ describe('Phase 5 — the media contract shape is closed', () => {
   });
 
   it('reuses Phase 0 PUBLIC_EVIDENCE_FIELDS rather than forking it', () => {
-    // The evidence item is the allow-list verbatim plus exactly one derived key. If Phase 0 widens
+    // The evidence item is the allow-list verbatim plus exactly two DERIVED keys. If Phase 0 widens
     // or narrows its list, this contract follows automatically — which is the point of importing it.
+    //
+    // `file_availability` joined `file_url_form` when the block stopped discarding a verified row
+    // whose artifact is private (Issue #164 D0/D2): the item now publishes the governed FACT and
+    // states that the FILE is withheld, instead of the row vanishing into `unpublishable_count` and
+    // the block reporting `state: 'none'` over four reviewed documents. Both keys are derived here
+    // and neither is a database column, so the allow-list itself is unchanged — which is exactly
+    // what the exact-match below still pins.
     const extras = EVIDENCE_MEDIA_ITEM_FIELDS.filter((f) => !PUBLIC_EVIDENCE_FIELDS.includes(f));
-    assert.deepEqual(extras, ['file_url_form']);
+    assert.deepEqual(extras, ['file_url_form', 'file_availability']);
     for (const field of PUBLIC_EVIDENCE_FIELDS) {
       assert.ok(EVIDENCE_MEDIA_ITEM_FIELDS.includes(field), `${field} dropped from the evidence item`);
     }
