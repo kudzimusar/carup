@@ -76,11 +76,18 @@ export function authorizeRole(allowedRoles = []) {
         activeUserId = session.user_id;
       }
 
+      let authenticationMethod = activeUserId ? 'session' : null;
+
       if (!activeUserId && fallbackUserId) {
         if (!isUserIdFallbackAllowed()) {
           return res.status(401).json({ error: 'Unauthorized. x-user-id fallback is unavailable outside local/test mode.' });
         }
         activeUserId = fallbackUserId;
+        // Recorded so a downstream route can refuse an identity that was ASSERTED rather than
+        // proven. Without this marker a route that checks for it is a no-op that READS like a
+        // guard — which is exactly how a private-document capability stayed reachable after being
+        // "fixed" once already.
+        authenticationMethod = 'x-user-id-fallback';
       }
 
       if (!activeUserId) {
@@ -140,6 +147,7 @@ export function authorizeRole(allowedRoles = []) {
         tenantId: tenantIdHeader || null,
         requestedRole,
         isVerified: Boolean(user.is_verified),
+        authenticationMethod,
       };
 
       next();

@@ -453,3 +453,41 @@ test('source attribution survives the public projection', async () => {
     assert.ok(!(c in out), `${c} must remain withheld`);
   }
 });
+
+// ── A GUARD THAT READS A MARKER NOBODY SETS IS NOT A GUARD ───────────────────────────────────────
+//
+// The first version of the media-route gate checked
+// `req.userContext?.authenticationMethod === 'x-user-id-fallback'`. That field did not exist in this
+// branch's `authorizeRole` at all — I had read a different branch's middleware — so the condition
+// was always false and the route still minted the capability. The fix looked correct and did
+// nothing, which is the most dangerous kind of security fix there is.
+//
+// These assert the PRODUCER, not only the consumer.
+
+test('authorizeRole actually ASSIGNS authenticationMethod', () => {
+  const MW = readFileSync(path.resolve(here, '../middleware/authMiddleware.js'), 'utf8');
+  const code = MW.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
+  assert.match(code, /authenticationMethod\s*=\s*'x-user-id-fallback'/,
+    'the fallback branch must record HOW the identity was established');
+  assert.match(code, /authenticationMethod\s*=\s*activeUserId\s*\?\s*'session'\s*:\s*null/,
+    'a session-established identity must be distinguishable from a fallback one');
+  assert.match(code, /req\.userContext\s*=\s*\{[\s\S]*?authenticationMethod[\s\S]*?\}/,
+    'the marker must be published on userContext, or every downstream check is a no-op');
+});
+
+test('the marker the media route READS is the marker the middleware WRITES', () => {
+  const stripped = (f) => readFileSync(path.resolve(here, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const MW = stripped('../middleware/authMiddleware.js');
+  const MEDIA = stripped('../services/storage/mediaRouter.js');
+
+  // Same literal on both sides. A typo on either would silently disable the gate and leave a line
+  // of code that reads exactly like protection.
+  const written = /authenticationMethod\s*=\s*'([^']+)'/.exec(MW);
+  const read = /authenticationMethod === '([^']+)'/.exec(MEDIA);
+  assert.ok(written, 'the middleware must write a fallback marker');
+  assert.ok(read, 'the media route must read a fallback marker');
+  assert.equal(read[1], 'x-user-id-fallback');
+  assert.equal(written[1], read[1], 'producer and consumer must agree on the literal');
+});
