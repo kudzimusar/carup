@@ -1,8 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import ws from 'ws';
+import { applyTestDatabaseContainment, guardedDotfileValues } from './testDatabaseContainment.js';
 
-dotenv.config();
+// This `dotenv.config()` is the inheritance vector for the whole backend test suite: nearly every
+// test reaches this module through a static import chain, so a developer machine's generic `.env` —
+// which for a CarUp maintainer is the PRODUCTION environment file — lands in `process.env` before any
+// test body runs. A `NODE_ENV=test` process then opened a connection to the production database.
+// Containment asks the FILE what it defines rather than snapshotting `process.env` first: another
+// module in the import chain may already have loaded dotenv by the time this runs, which would make an
+// inherited value look deliberate.
+const dotfile = dotenv.config();
+applyTestDatabaseContainment(process.env, guardedDotfileValues(dotfile.parsed));
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

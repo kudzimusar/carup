@@ -835,3 +835,88 @@ Backend suite on the assistant's machine: **4123 total / 4109 pass / 2 fail**.
   **zero** times, so on CI the live-DB branch is skipped entirely and the test passes.
   **Latent hazard worth a separate ticket:** on any developer machine holding a production `.env`,
   this test attempts a live connection to the production database.
+
+---
+
+# ADDENDUM B — newly discovered certification-containment defect: test processes could reach production
+
+Discovered while classifying the last outstanding local test failure during Phase 8 remediation. It is
+**not** an Issue #164 product defect; it is a defect in the conditions under which Issue #164 is being
+certified, which is why it is recorded here and was closed immediately rather than deferred.
+
+## B.1 The defect
+
+`backend/db/supabase.js` calls `dotenv.config()` at module scope. Nearly every backend test reaches
+that module through a static import chain, so running the suite loads the developer machine's generic
+`.env` into `process.env`. On a CarUp maintainer's machine **`.env` is the PRODUCTION environment
+file**. `provision-staging-qa-accounts.test.js` then does:
+
+```js
+if (process.env.SUPABASE_DB_URL) { await new pg.Client({ connectionString: … }).connect() }
+```
+
+…so a `NODE_ENV=test` process **opened a connection to the production database**. It failed only
+because the password had been rotated (`28P01`), and it surfaced as an ordinary test failure rather
+than as a containment breach.
+
+Measured, not assumed:
+
+| | |
+|---|---|
+| `.env` defines `SUPABASE_DB_URL` | yes, host `db.vhmnajoeicasaigiophh.supabase.co` (**production**) |
+| `.env` tracked in git / gitignored | untracked / gitignored |
+| `ci.yml` sets `SUPABASE_DB_URL` | **zero** times |
+| CI "real PostgreSQL" steps | all in-process **PGlite** — no connection string |
+| `communication-postgres` job | `postgres://…@localhost:5432/postgres` — a service container |
+
+So CI was never affected, which is precisely why nothing caught it. **A certification run that can
+reach production is not contained, whatever the connection returns.**
+
+The guard also found a **second** inherited production vector the investigation had not named:
+`DATABASE_URL`.
+
+## B.2 The rule implemented
+
+`backend/db/testDatabaseContainment.js`, applied in `backend/db/supabase.js` immediately after
+`dotenv.config()` and before any client is constructed. Under `NODE_ENV=test` only:
+
+1. A guarded database URL that a **dotfile injected** into a process that did not already have one is
+   **removed** — whatever it points at. The test then behaves exactly as it does in CI: it skips its
+   live-database branch.
+2. A guarded database URL that was **deliberately exported** and references the **production** project
+   is **refused** — it throws before any connection.
+
+Order matters, and the first draft got it wrong. Throwing on an *inherited* production URL made the
+entire backend suite unrunnable on any maintainer machine holding a production `.env` — blocking
+certification rather than protecting it. An inherited value is one nobody asked for; dropping it is
+both fail-closed and non-breaking. An explicit export is a considered act, and *that* is refused.
+
+Scope is deliberately narrow: three variables (`SUPABASE_DB_URL`, `DATABASE_URL`,
+`DIASPORA_STAGING_DATABASE_URL` — the set the existing staging guard already covers).
+`COMMUNICATION_STAGING_DATABASE_URL` is explicitly supplied by its own workflow under `NODE_ENV=test`
+and is deliberately out of scope. No other environment variable is inspected, and non-test processes
+are untouched.
+
+## B.3 Proof
+
+`backend/tests/issue164-phase8-test-database-containment.test.js` — 11 tests, all failing on baseline
+`993c1179` where no containment existed. They prove: a deliberate production target is refused before
+a client is constructed; an inherited one is dropped and reported as `(PRODUCTION)`; an explicitly
+exported localhost or staging database still works; CI with no dotfile is byte-identical; non-test
+processes keep their own database; only the three named variables are inspected; and the wiring order
+in `supabase.js` is snapshot → dotenv → contain → client.
+
+**No production credential, host or connection is required to prove any of it** — the guard is a pure
+function over an environment object.
+
+End-to-end on the machine that exhibited the defect, `provision-staging-qa-accounts.test.js` now
+reports **11/11 pass**, with:
+
+```
+[carup] NODE_ENV=test: ignoring SUPABASE_DB_URL (PRODUCTION), DATABASE_URL (PRODUCTION)
+        inherited from a dotfile. A test that needs a database must be given one explicitly
+        by its environment.
+```
+
+That was the last unexplained local failure. It is now closed by containment rather than by
+classification.

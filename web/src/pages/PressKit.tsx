@@ -12,7 +12,6 @@ import {
   FileText, 
   MapPin, 
   Mail, 
-  Phone, 
   Calendar, 
   ChevronRight,
   Sparkles,
@@ -53,7 +52,7 @@ export default function PressKit() {
   
   // Inquiry Form State
   const [formSubmitted, setFormSubmitted] = useState(false)
-  const [formLoading, setFormLoading] = useState(false)
+  const formLoading = false
   const [formData, setFormData] = useState({
     name: '',
     outlet: '',
@@ -64,7 +63,7 @@ export default function PressKit() {
   })
 
   // Mock download states
-  const [downloadingAsset, setDownloadingAsset] = useState<string | null>(null)
+  const downloadingAsset: string | null = null
 
   const handleCopyColor = (hex: string, label: string) => {
     navigator.clipboard.writeText(hex)
@@ -73,37 +72,18 @@ export default function PressKit() {
     setTimeout(() => setCopiedColor(null), 2000)
   }
 
+  // No brand-asset files are committed to this repository, so there is nothing to download. This
+  // used to fabricate a Blob containing the words "Simulated brand asset package content", rename it
+  // `<asset>_bundle.zip` and click it — after toasting "downloaded successfully". A journalist would
+  // have shipped that file believing it held CarUp's logo pack. Until real assets are published, the
+  // vault shows them and says the download is not ready.
   const handleDownload = (assetName: string) => {
-    setDownloadingAsset(assetName)
-    toast.info(`Preparing ${assetName} download package...`)
-    
-    setTimeout(() => {
-      setDownloadingAsset(null)
-      toast.success(`${assetName} downloaded successfully!`)
-      // Simulate download triggering
-      const element = document.createElement("a")
-      const file = new Blob(["Simulated brand asset package content"], {type: 'text/plain'})
-      element.href = URL.createObjectURL(file)
-      element.download = `${assetName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_bundle.zip`
-      document.body.appendChild(element)
-      element.click()
-      document.body.removeChild(element)
-    }, 1500)
+    toast.info(`${assetName} is not available for download yet. Email press@carup.co.zw for assets.`)
   }
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.name || !formData.email || !formData.message) {
-      toast.error('Please fill in all required fields.')
-      return
-    }
-
-    setFormLoading(true)
-    setTimeout(() => {
-      setFormLoading(false)
-      setFormSubmitted(true)
-      toast.success('Your media inquiry has been transmitted successfully!')
-    }, 1800)
+    toast.info('This form is not connected yet — nothing was sent. Please email press@carup.co.zw.')
   }
 
   const handleCopyContact = () => {
@@ -135,7 +115,7 @@ export default function PressKit() {
                 </span>
               </h1>
               <p className="text-lg md:text-xl text-slate-400 font-normal leading-relaxed max-w-2xl">
-                Access official brand assets, corporate narratives, verified stats, and the latest press announcements for Zimbabwe's premier automotive intelligence platform.
+                Brand assets and corporate background for Zimbabwe's automotive intelligence platform.
               </p>
             </div>
             
@@ -205,7 +185,12 @@ export default function PressKit() {
                 Founded in Harare in 2024, CarUp emerged to address a persistent and high-friction issue in Zimbabwe\'s automotive landscape: the absolute deficit of vehicle transaction transparency and verified historical integrity. 
               </p>
               <p className="text-slate-400 leading-relaxed font-normal">
-                By synthesizing Optical Character Recognition (OCR), AI-assisted valuation models, and a tamper-evident audit ledger, CarUp has engineered a ecosystem that establishes a bulletproof digital identity for every car. From import clearance and licensing records with the <strong className="text-slate-200">Zimbabwe National Road Administration (ZINARA)</strong> to service journals, spare parts tracking, and ownership registers, our mission is simple: to make vehicle transactions transparent, reliable, and completely secure.
+                CarUp builds one governed record per vehicle. Documents an owner supplies are reviewed
+                before anything derived from them is published; a trust decision carries the version of
+                the rules that produced it, the confidence behind it and its known limitations; and a
+                fact CarUp does not hold is shown as not recorded rather than filled in. CarUp is not
+                connected to any government registry, publishes no vehicle valuation, and claims no
+                integration it has not built.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 pt-4">
                 <div className="flex items-center gap-3.5 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-3.5">
@@ -214,7 +199,7 @@ export default function PressKit() {
                   </div>
                   <div>
                     <h4 className="font-semibold text-white text-sm">Trust First</h4>
-                    <p className="text-xs text-slate-400">Digital histories that cannot be forged.</p>
+                    <p className="text-xs text-slate-400">Every published claim traces to a reviewed record.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3.5 bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-3.5">
@@ -247,7 +232,7 @@ export default function PressKit() {
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Tagline</span>
-                      <p className="text-base text-slate-200 font-medium italic">"Building the Decentralized Trust Ledger for Africa's Roads"</p>
+                      <p className="text-base text-slate-200 font-medium italic">"One vehicle. One truth. One public contract."</p>
                     </div>
                     <div>
                       <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1">Core Pillars</span>
@@ -387,21 +372,21 @@ export default function PressKit() {
                 {
                   name: 'CarUp Premium Primary Logo',
                   desc: 'Our standard brand signature. Features the amber mark combined with the custom dark-navy type.',
-                  specs: 'SVG, PNG, EPS | Vector & High-Res Transparent (5MB)',
+                  specs: 'Primary wordmark',
                   theme: 'Amber & Navy Duo-tone',
                   bgClass: 'bg-gradient-to-br from-[hsl(222,47%,8%)] to-[hsl(222,47%,16%)]'
                 },
                 {
                   name: 'CarUp Light Monochrome Logo',
                   desc: 'Reversed white-ink variation designed exclusively for high-contrast dark backgrounds.',
-                  specs: 'SVG, PNG | Optimized for Web & Print (1.2MB)',
+                  specs: 'Monochrome wordmark',
                   theme: 'Stark Monochrome White',
                   bgClass: 'bg-black/40'
                 },
                 {
                   name: 'CarUp Icon & Trust Mark Only',
                   desc: 'The standalone shield-car-sparkle signature. Ideal for app icon simulations, avatars, and tight layouts.',
-                  specs: 'SVG, PNG, ICO | Multi-resolution optimized (800KB)',
+                  specs: 'App icon',
                   theme: 'Amber Trust Icon',
                   bgClass: 'bg-gradient-to-br from-[hsl(222,47%,8%)] to-[hsl(222,47%,16%)]'
                 }
@@ -412,7 +397,7 @@ export default function PressKit() {
                     <div className={`h-44 ${logo.bgClass} flex items-center justify-center p-6 border-b border-slate-800 relative group`}>
                       <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                         <span className="text-[10px] text-orange-400 bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-full uppercase tracking-wider font-semibold">
-                          Asset Verified
+                          Brand asset
                         </span>
                       </div>
                       
@@ -605,21 +590,18 @@ export default function PressKit() {
                 {
                   title: 'Gutu AI Logbook Scanning Interface',
                   specs: 'Mobile Mockup | High Resolution 1080 x 2400 (PNG)',
-                  size: '2.4 MB',
                   previewText: 'Mobile Mockup',
                   desc: 'High-fidelity preview demonstrating Gutu AI scanning a physical Zimbabwean registration book, highlighting verified OCR fields in real-time.'
                 },
                 {
                   title: 'PartSentry Cryptographic Ledger Ledger',
-                  specs: 'Desktop Dashboard | High Resolution 1920 x 1080 (PNG)',
-                  size: '4.8 MB',
+                  specs: 'Desktop dashboard',
                   previewText: 'Desktop Mockup',
                   desc: 'Comprehensive dashboard screenshot detailing spare parts lifecycle logs, mechanic signature certifications, and audit ledger seal data.'
                 },
                 {
                   title: 'CarUp Digital Vehicle Trust Score Passport',
                   specs: 'Print Ready PDF Layout | Standard A4 Format (PNG & PDF)',
-                  size: '6.1 MB',
                   previewText: 'Document Layout',
                   desc: 'A gorgeous export design of the verified vehicle passport. Shows the governed trust assessment and ownership chain logs.'
                 }
@@ -646,7 +628,7 @@ export default function PressKit() {
                             {mockup.previewText}
                           </span>
                           <span className="text-[9px] text-orange-400 font-bold tracking-wide">
-                            CU_VERIFIED_ASSET
+                            CARUP_BRAND_ASSET
                           </span>
                         </div>
                       </div>
@@ -659,9 +641,9 @@ export default function PressKit() {
                   </div>
 
                   <div className="p-6 pt-0 border-t border-slate-800/50 mt-auto flex flex-col gap-3">
+                    {/* Dimensions and file sizes were invented alongside the files they described. */}
                     <div className="flex justify-between text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-                      <span>Dimensions: {mockup.specs.split('|')[1]}</span>
-                      <span>{mockup.size}</span>
+                      <span>{mockup.specs}</span>
                     </div>
                     <Button 
                       onClick={() => handleDownload(mockup.title)}
@@ -760,45 +742,34 @@ export default function PressKit() {
                 </p>
               </div>
 
-              {/* Contact Cards */}
+              {/* Contact card — ONE role-based address, and no invented people.
+                  Two named "PR officers" used to live here, each with a real-format @carup.co.zw
+                  address, a direct mobile number and a green "Online / Direct" presence dot. Neither
+                  exists. A journalist on deadline would have written to a person who cannot answer,
+                  and read a presence indicator that indicated nothing. */}
               <div className="space-y-4">
-                {[
-                  {
-                    name: 'Rudo Mutasa',
-                    role: 'Head of Corporate Communications & Media Relations',
-                    email: 'rudo.mutasa@carup.co.zw',
-                    phone: '+263 772 400 121'
-                  },
-                  {
-                    name: 'Chipo Sibanda',
-                    role: 'Brand & PR Officer',
-                    email: 'chipo.sibanda@carup.co.zw',
-                    phone: '+263 773 345 678'
-                  }
-                ].map((person, index) => (
-                  <Card key={index} className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 overflow-hidden hover:border-slate-800/80 shadow-md">
-                    <CardContent className="p-6 space-y-3 relative">
-                      <div className="absolute top-4 right-4 w-2 h-2 rounded-full bg-green-500" title="Online / Direct" />
-                      <div>
-                        <h4 className="font-bold text-white text-base leading-tight">{person.name}</h4>
-                        <span className="text-[10px] text-orange-400 tracking-wider uppercase font-semibold block mt-0.5">
-                          {person.role}
-                        </span>
+                <Card className="bg-[hsl(222,47%,9%)] border-slate-800 text-slate-100 overflow-hidden shadow-md">
+                  <CardContent className="p-6 space-y-3" data-testid="press-contact">
+                    <div>
+                      <h4 className="font-bold text-white text-base leading-tight">CarUp Press Office</h4>
+                      <span className="text-[10px] text-orange-400 tracking-wider uppercase font-semibold block mt-0.5">
+                        Media enquiries
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 text-xs text-slate-400 pt-2 border-t border-slate-800/50">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <a href="mailto:press@carup.co.zw" className="hover:text-orange-400 transition-colors">
+                          press@carup.co.zw
+                        </a>
                       </div>
-                      
-                      <div className="space-y-1.5 text-xs text-slate-400 pt-2 border-t border-slate-800/50">
-                        <div className="flex items-center gap-2">
-                          <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <a href={`mailto:${person.email}`} className="hover:text-orange-400 transition-colors">{person.email}</a>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span>{person.phone}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
+                      Enquiries are read by CarUp\u2019s communications team. We do not publish a response
+                      time we cannot commit to.
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
 
               {/* PR Headquarter Location Card */}
@@ -841,7 +812,7 @@ export default function PressKit() {
                       <div className="space-y-2">
                         <h3 className="text-2xl font-bold text-white">Media Inquiry Received</h3>
                         <p className="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-                          Thank you for connecting. Our communications office has received your query. A PR officer will review and reach out within 2 hours.
+                          This form is not connected yet, so nothing was sent. Please email press@carup.co.zw and a member of the communications team will pick it up.
                         </p>
                       </div>
                       <Button

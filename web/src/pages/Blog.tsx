@@ -14,207 +14,36 @@ import {
   Bookmark,
   MessageSquare,
   Send,
-  Check,
   Calculator,
   AlertCircle,
   Filter,
   X,
-  Award,
-  Hash,
-  Globe,
-  Coins,
+  ShieldCheck,
+  Car,
+  FileText,
   BookOpen
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { EDITORIAL_ARTICLES, UNAVAILABLE_BODY, type EditorialArticle } from '@/content/editorial/articles'
+import { bylineName, bylineRole, bylineInitials, classificationLabel } from '@/content/editorial/governance'
 
-// Type definitions
-interface Author {
-  name: string
-  role: string
-  avatar: string
-  bio: string
-}
+// Content governance — Issue #164 Phase 8, Cluster G.
+// Articles are no longer free-text literals in this component. They live in
+// `@/content/editorial/articles`, where every factual statement carries a classification
+// (governed_capability | sourced_editorial | future_vision | unavailable) and a byline that cannot be
+// an invented person. The design of this page is unchanged; what may appear inside it is not.
+type Article = EditorialArticle
 
-interface Article {
-  id: string
-  title: string
-  excerpt: string
-  description: string
-  content: string[]
-  category: string
-  date: string
-  author: Author
-  readTime: string
-  accentColor: string // CSS class for premium gradient accents
-  icon: React.ComponentType<{ className?: string }> // Lucide Icon Component
-  views: number
-  likes: number
-  zimbabweanContext?: {
-    label: string
-    value: string
-  }[]
+/** The card artwork, keyed by category. Presentation only — it asserts nothing. */
+const CATEGORY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  Trust: ShieldCheck,
+  Marketplace: Car,
+  Regulations: FileText,
 }
+const iconFor = (category: string) => CATEGORY_ICON[category] ?? BookOpen
 
 export default function Blog() {
-  // Articles Mock Data
-  const articles: Article[] = [
-    {
-      id: 'zinara-guide-2026',
-      title: 'Navigating ZINARA Regulations in 2026: A Complete Guide',
-      excerpt: 'With the new digital licensing system and updated toll gate pricing in ZiG and USD, staying compliant in Zimbabwe has never been more complex. Our experts break down everything you need to know about licensing and insurance audits.',
-      description: 'In 2026, the Zimbabwe National Road Administration (ZINARA) launched its third-generation Digital Licensing Portal, aimed at fully integrating tolling, vehicle registration, and third-party insurance databases. This guide covers how this impacts local vehicle owners, fleet managers, and dealers.',
-      content: [
-        'The year 2026 marks a massive shift in Zimbabwe\'s automotive compliance landscape. ZINARA\'s newly deployed digital registry is now fully operational, linking vehicle licensing, municipal parking accounts (like City Parking in Harare), and the Zimbabwe National Police (ZRP) databases into a single, cohesive electronic clearing system.',
-        'One of the most significant changes is the integration of toll gate transponders with your vehicle licensing account. Commuters passing through major plazas like the newly modernized Mbudzi Interchange or the toll plaza on the Harare-Bulawayo road can now have their vehicle licensing status scanned automatically using Automatic Number Plate Recognition (ANPR) cameras. If your vehicle lacks active insurance or license discs, you will face automatic electronic fines added to your vehicle profile.',
-        'Additionally, payment options have been diversified. Licensing and toll fees can be settled in both USD and ZiG (Zimbabwe Gold). While USD provides static, predictable pricing, settling in ZiG is calculated using the prevailing official interbank exchange rate of the day. Our compliance team recommends keeping pre-funded digital wallets in both currencies to avoid transaction failures at border crossings like Beitbridge or Chirundu.',
-        'To help you stay completely compliant, our team has verified that third-party insurance must be renewed prior to ZINARA registration. You can purchase your insurance directly on CarUp, which automatically pushes a secure cryptographically signed voucher to the ZINARA database, clearing you for licensing in under 3 minutes without visiting a physical office.'
-      ],
-      category: 'Regulations',
-      date: 'May 25, 2026',
-      author: {
-        name: 'Farai Chiganda',
-        role: 'Compliance Lead',
-        avatar: 'FC',
-        bio: 'Former regulatory advisor with 12 years of experience in cross-border logistics and Zimbabwean transport policy.'
-      },
-      readTime: '8 min read',
-      accentColor: 'from-orange-600 to-amber-600',
-      icon: Award,
-      views: 1420,
-      likes: 312,
-      zimbabweanContext: [
-        { label: 'ZINARA System', value: '3rd Gen Digital Portal' },
-        { label: 'Toll Integration', value: 'ANPR Enabled Plazas' },
-        { label: 'Currencies Accepted', value: 'USD & ZiG (Interbank Rate)' }
-      ]
-    },
-    {
-      id: 'import-duties-zim',
-      title: 'Understanding Vehicle Import Duties in Zimbabwe',
-      excerpt: 'An in-depth analysis of the current ZIMRA import tax brackets, customs clearing processes at Beitbridge, and surcharge rules for older vehicles.',
-      description: 'Importing a vehicle into Zimbabwe continues to be a major channel for car acquisition, particularly from Japan (via Dar es Salaam or Durban) and the UK. However, navigating the Zimbabwe Revenue Authority (ZIMRA) duty structure is notorious for unexpected costs.',
-      content: [
-        'Importing a vehicle into Zimbabwe remains the most popular way to acquire relatively modern Japanese, UK, or South African vehicles. However, the Zimbabwe Revenue Authority (ZIMRA) applies complex tariffs that can catch first-time importers off guard.',
-        'The calculation of import duty is based on the Value for Duty Purposes (VDP). VDP includes the Cost, Insurance, and Freight (CIF) of the vehicle. ZIMRA will assess the purchase invoice, but they also maintain an internal valuation database. If they suspect the declared invoice is undervalued, they will re-value the vehicle based on historical import trends, which often leads to an unexpected increase in duty.',
-        'For passenger motor vehicles, the basic duty rate can range from 25% to 40% depending on engine capacity. Crucially, a surcharge of 25% to 35% is levied on vehicles older than 10 years at the time of import. This regulation was designed to discourage the dumping of obsolete, carbon-heavy vehicles on Zimbabwean roads. However, for vehicles like the popular Toyota Fit, Toyota Wish, or Mazda Axela, this surcharge often exceeds the initial purchase price in Japan.',
-        'To streamline clearance, importers are urged to utilize ZIMRA\'s Pre-clearance system. Working with a registered clearing agent, you can submit shipping papers, invoice, and bill of lading before the vehicle reaches the Beitbridge border post. This prevents high demurrage charges and ensures your car is cleared in hours rather than weeks.'
-      ],
-      category: 'Market Trends',
-      date: 'May 20, 2026',
-      author: {
-        name: 'Ruvimbo Moyo',
-        role: 'Import Specialist',
-        avatar: 'RM',
-        bio: 'Beitbridge logistics coordinator specializing in Southern African customs clearance and import tax audits.'
-      },
-      readTime: '6 min read',
-      accentColor: 'from-blue-600 to-indigo-600',
-      icon: Globe,
-      views: 980,
-      likes: 245,
-      zimbabweanContext: [
-        { label: 'Duty Assessment', value: 'Based on VDP (CIF value)' },
-        { label: 'Surcharge rule', value: 'Applicable to cars >10 years' },
-        { label: 'Busiest Port', value: 'Beitbridge Border Post' }
-      ]
-    },
-    {
-      id: 'ai-odometer-fraud',
-      title: 'How AI is Combating Odometer Fraud in Harare',
-      excerpt: 'Odometer tampering is a growing challenge for grey imports. Learn how CarUp uses telemetry and AI models to verify mileage authenticity.',
-      description: 'Harare\'s secondary car market is plagued by mileage rollbacks, with some imported cars showing up with half their true mileage. CarUp\'s new AI engine cross-references historical shipping logs and domestic service histories to flags discrepancies.',
-      content: [
-        'Odometer tampering—colloquially referred to as "spinning" the odometer—has become a massive problem in Harare\'s independent car dealerships. Many grey imports from Japan or South Africa have their digital clusters flashed, lowering the displayed mileage by 50,000 to 100,000 kilometers before being listed on the local market.',
-        'This fraudulent practice leads to buyers paying premium prices for vehicles that are on the verge of critical mechanical failures. To address this, CarUp has pioneered an AI-powered verification engine.',
-        'The system works by extracting telemetry data and cross-referencing it with international shipping manifests. Before a car is exported from Japan, its true mileage is recorded at the export inspection terminal. CarUp\'s AI automatically scans these inspection records (such as JEVIC or QISJ databases) using the vehicle\'s chassis number.',
-        'Furthermore, our machine learning models analyze the wear-and-tear profile of the vehicle when it enters our partner garages. By evaluating brake pedal wear, seat compression, and diagnostic computer system logs, the AI flags vehicles whose physical wear does not match the odometer. This generates a "Trust Score" displayed on every listing, making odometer fraud virtually impossible on CarUp.'
-      ],
-      category: 'AI & Valuation',
-      date: 'May 18, 2026',
-      author: {
-        name: 'Dr. Kuda Gumbo',
-        role: 'Head of AI Research',
-        avatar: 'KG',
-        bio: 'PhD in Machine Learning and Computer Vision, specializing in predictive maintenance and anomaly detection systems.'
-      },
-      readTime: '5 min read',
-      accentColor: 'from-purple-600 to-pink-600',
-      icon: Hash,
-      views: 1250,
-      likes: 408,
-      zimbabweanContext: [
-        { label: 'Fraud Rate', value: 'Estimated 35% in grey imports' },
-        { label: 'AI Method', value: 'JEVIC/QISJ & wear analysis' },
-        { label: 'Market Impact', value: 'Restoring transparency' }
-      ]
-    },
-    {
-      id: 'reliable-sedans-harare',
-      title: 'Top 5 Most Reliable Sedans for Harare Roads in 2026',
-      excerpt: 'Harare\'s mix of highway bypasses and challenging suburban roads require suspension resilience. Here are the top 5 models tested by our team.',
-      description: 'Harare\'s roads demand a lot from a car\'s suspension and ground clearance. While SUVs are popular, many commuters prefer the fuel economy of sedans. We rank the top five sedans evaluating them on spare parts availability in downtown Harare and suspension durability.',
-      content: [
-        'Navigating Harare\'s roads requires a vehicle that balances durability, fuel economy, and affordable maintenance. Potholes on suburban routes like Kirkman Road or sections of Harare Drive mean that delicate suspension setups will lead to frequent, expensive garage visits.',
-        'We evaluated dozens of sedans popular with local commuters, scoring them on ground clearance, parts availability in downtown Harare (around Kaguvi Street), fuel efficiency in heavy traffic, and overall mechanical simplicity.',
-        'Ranked #1 is the Toyota Corolla Quest (or Corolla Prestige). Manufactured in South Africa, this model is built specifically for African road conditions. Its suspension is robust, ground clearance is highly decent, and spare parts are readily available at highly competitive prices.',
-        'Ranked #2 is the Honda Fit (especially the newer e:HEV hybrid). Its "magic seats" offer SUV-like utility, and its fuel economy on Samora Machel Avenue gridlocks is legendary, regularly yielding over 22km per liter.',
-        'The remaining spots are occupied by the Mazda 3 (noted for high-fidelity cabin materials and active safety features), the Nissan Almera (extremely spacious backseats for school runs), and the Toyota Belta (an excellent, ultra-affordable city commuter).'
-      ],
-      category: 'Maintenance',
-      date: 'May 15, 2026',
-      author: {
-        name: 'Tinashe Mutasa',
-        role: 'Master Technician',
-        avatar: 'TM',
-        bio: 'ASE-certified master mechanic with over 20 years repairing Japanese and European vehicles in Harare.'
-      },
-      readTime: '7 min read',
-      accentColor: 'from-emerald-600 to-teal-600',
-      icon: Clock,
-      views: 890,
-      likes: 198,
-      zimbabweanContext: [
-        { label: 'Top Performer', value: 'Toyota Corolla Quest' },
-        { label: 'Parts Hub', value: 'Kaguvi Street dealers' },
-        { label: 'Testing Ground', value: 'Harare Suburban roads' }
-      ]
-    },
-    {
-      id: 'zig-auto-finance',
-      title: 'The Rise of ZiG in Local Automotive Financing',
-      excerpt: 'As local banks begin backing car loans in Zimbabwe Gold (ZiG), we examine what this means for interest rates and monthly payments.',
-      description: 'Zimbabwe\'s currency landscape continues to evolve. With local financial institutions introducing ZiG-denominated car finance options alongside traditional USD loans, purchasing a vehicle has become accessible to a wider demographic.',
-      content: [
-        'The Zimbabwean gold-backed currency, the ZiG, is making significant inroads into retail banking and commercial credit. Previously, automotive loans were exclusively issued in USD, featuring steep interest rates and short repayment terms that locked out the average salary earner.',
-        'In recent months, major financial institutions—led by CABS and FBC Bank—have introduced vehicle asset finance packages denominated in ZiG. This shift allows civil servants and locally paid corporate employees to access vehicle finance without the constant need to convert salaries into USD.',
-        'Interest rates for ZiG vehicle loans currently hover around 12% to 15% per annum, which is highly competitive compared to historical local currency loan structures. However, down payments remain significant, usually requiring 30% to 40% of the vehicle\'s valuation upfront.',
-        'This article breaks down a typical finance structure for a $15,000 USD vehicle. If purchased in ZiG over a 36-month period, we demonstrate how monthly amortizations are hedged against inflation, providing a viable pathway for local professionals to acquire reliable transport.'
-      ],
-      category: 'Market Trends',
-      date: 'May 10, 2026',
-      author: {
-        name: 'Chipo Mupfumi',
-        role: 'Financial Analyst',
-        avatar: 'CM',
-        bio: 'Financial analyst covering macroeconomics and banking policy in the SADC region.'
-      },
-      readTime: '4 min read',
-      accentColor: 'from-amber-600 to-yellow-500',
-      icon: Coins,
-      views: 730,
-      likes: 112,
-      zimbabweanContext: [
-        { label: 'Loan currency', value: 'ZiG & USD dual option' },
-        { label: 'Average Term', value: '24 to 36 months' },
-        { label: 'Down Payment', value: '30% - 40% required' }
-      ]
-    }
-    // Removed: a fabricated "CarUp Launches Blockchain-backed Vehicle Ledger" announcement claiming a
-    // deployed Decentralized Vehicle Registry built "in partnership with major local insurers (such as
-    // NicozDiamond and Cell Insurance)" and "100% Tamper-Proof" verification. CarUp has no such
-    // partnership and publishes no such registry; the post asserted a commercial relationship with real
-    // companies that does not exist.
-  ]
+  const articles: Article[] = EDITORIAL_ARTICLES
 
   // Extract featured article and rest
   const featuredArticle = articles[0]
@@ -225,36 +54,21 @@ export default function Blog() {
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null)
   
   // Interactive Comments State
-  const [comments, setComments] = useState<{ [key: string]: { name: string; text: string; date: string }[] }>({
-    'zinara-guide-2026': [
-      { name: 'Simbarashe Moyo', text: 'This digital integration is exactly what we needed. Trying to get ZINARA discs at the post office was a nightmare.', date: 'May 26, 2026' },
-      { name: 'Sandra Chidzero', text: 'Does this mean Harare City Parking will also know if I have a valid license? Thanks for the clarity.', date: 'May 25, 2026' }
-    ],
-    'import-duties-zim': [
-      { name: 'Keith Mhlanga', text: 'ZIMRA valuations at Beitbridge are indeed unpredictable. Excellent tip on using the pre-clearance system.', date: 'May 21, 2026' }
-    ]
-  })
+  // Seeded with nothing. Three invented reader comments attributed to named individuals used to be
+  // hardcoded here, in a comment system that stores nothing beyond this component's state.
+  const [comments, setComments] = useState<{ [key: string]: { name: string; text: string; date: string }[] }>({})
   const [newCommentName, setNewCommentName] = useState('')
   const [newCommentText, setNewCommentText] = useState('')
 
-  // ZINARA Fee Calculator State
-  const [vehicleClass, setVehicleClass] = useState('light')
-  const calculateFee = () => {
-    switch (vehicleClass) {
-      case 'light': return { usd: 20, zig: 520 }
-      case 'minibus': return { usd: 30, zig: 780 }
-      case 'bus': return { usd: 50, zig: 1300 }
-      case 'heavy': return { usd: 80, zig: 2080 }
-      default: return { usd: 20, zig: 520 }
-    }
-  }
+  // The fee table that lived here — four hardcoded USD/ZiG amounts presented as official 2026 rates —
+  // is gone with the calculator it fed. It had no source and no effective date.
 
   // Newsletter form state
   const [newsletterEmail, setNewsletterEmail] = useState('')
-  const [isSubscribed, setIsSubscribed] = useState(false)
 
   // Categories list
-  const categories = ['All', 'Regulations', 'Market Trends', 'AI & Valuation', 'Maintenance', 'Company News']
+  // Derived from what is actually published, so a category chip can never lead to an empty shelf.
+  const categories = ['All', ...Array.from(new Set(EDITORIAL_ARTICLES.map((a) => a.category)))]
 
   // Filter Articles
   const filteredArticles = useMemo(() => {
@@ -262,7 +76,7 @@ export default function Blog() {
       const matchesCategory = selectedCategory === 'All' || article.category === selectedCategory
       const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             article.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            article.author.name.toLowerCase().includes(searchQuery.toLowerCase())
+                            bylineName(article.byline).toLowerCase().includes(searchQuery.toLowerCase())
       return matchesCategory && matchesSearch
     })
   }, [selectedCategory, searchQuery])
@@ -288,14 +102,13 @@ export default function Blog() {
   }
 
   // Handle newsletter submit
+  // The form transmits nothing — there is no subscription endpoint behind it. It used to call
+  // setIsSubscribed(true) and toast "Successfully subscribed", so a reader's address was collected
+  // into a component's state and they were told they were on a list that does not exist. A UI must
+  // not report a request it never made.
   const handleNewsletterSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newsletterEmail.trim()) {
-      toast.error('Please enter a valid email address')
-      return
-    }
-    setIsSubscribed(true)
-    toast.success('Successfully subscribed to CarUp newsletter!')
+    toast.info('Newsletter sign-up is not open yet — nothing was sent, and your address was not stored.')
   }
 
   // Copy article link to clipboard
@@ -369,14 +182,14 @@ export default function Blog() {
                   <div className="relative z-10 my-auto flex justify-center items-center">
                     <div className="relative">
                       <div className="w-24 h-24 rounded-full bg-gradient-to-br from-orange-500/20 to-amber-500/0 flex items-center justify-center border border-orange-500/20 animate-pulse-glow" />
-                      <featuredArticle.icon className="w-10 h-10 text-orange-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                      {(() => { const Icon = iconFor(featuredArticle.category); return <Icon className="w-10 h-10 text-orange-400 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" /> })()}
                     </div>
                   </div>
 
                   <div className="relative z-10">
                     <p className="text-[10px] uppercase tracking-widest text-orange-400 font-bold mb-1">Zimbabwean Context</p>
                     <div className="flex flex-wrap gap-2">
-                      {featuredArticle.zimbabweanContext?.map((item, idx) => (
+                      {featuredArticle.context?.map((item: { label: string; value: string }, idx: number) => (
                         <div key={idx} className="bg-white/5 backdrop-blur-md px-2.5 py-1 rounded-md text-[11px] border border-white/5">
                           <span className="text-gray-400 mr-1">{item.label}:</span>
                           <span className="text-orange-300 font-semibold">{item.value}</span>
@@ -392,8 +205,6 @@ export default function Blog() {
                     <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
                       <Calendar className="w-4 h-4 text-orange-400" />
                       <span>{featuredArticle.date}</span>
-                      <span className="mx-2">•</span>
-                      <span>{featuredArticle.views} views</span>
                     </div>
 
                     <h3 className="text-2xl md:text-3xl lg:text-4xl font-extrabold mb-4 group-hover:text-orange-400 transition-colors leading-tight">
@@ -409,11 +220,11 @@ export default function Blog() {
                   <div className="flex flex-wrap items-center justify-between gap-6 pt-6 border-t border-white/5">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center font-bold text-white text-sm border border-orange-400/30">
-                        {featuredArticle.author.avatar}
+                        {bylineInitials(featuredArticle.byline)}
                       </div>
                       <div>
-                        <h4 className="font-bold text-sm text-white">{featuredArticle.author.name}</h4>
-                        <p className="text-xs text-orange-400">{featuredArticle.author.role}</p>
+                        <h4 className="font-bold text-sm text-white">{bylineName(featuredArticle.byline)}</h4>
+                        <p className="text-xs text-orange-400">{bylineRole(featuredArticle.byline)}</p>
                       </div>
                     </div>
 
@@ -478,7 +289,7 @@ export default function Blog() {
         {filteredArticles.length > 0 ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
             {filteredArticles.map((article) => {
-              const IconComp = article.icon
+              const IconComp = iconFor(article.category)
               return (
                 <Card 
                   key={article.id} 
@@ -512,7 +323,6 @@ export default function Blog() {
                           <Calendar className="w-3 h-3 text-orange-400" />
                           {article.date}
                         </span>
-                        <span>{article.views} views</span>
                       </div>
                     </div>
 
@@ -532,11 +342,11 @@ export default function Blog() {
                   <div className="px-5 pb-5 pt-4 border-t border-white/5 flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500/10 to-amber-500/20 flex items-center justify-center font-bold text-[11px] text-orange-300 border border-orange-500/20">
-                        {article.author.avatar}
+                        {bylineInitials(article.byline)}
                       </div>
                       <div>
-                        <h4 className="font-bold text-[12px] text-white leading-none">{article.author.name}</h4>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{article.author.role}</p>
+                        <h4 className="font-bold text-[12px] text-white leading-none">{bylineName(article.byline)}</h4>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{bylineRole(article.byline)}</p>
                       </div>
                     </div>
 
@@ -598,8 +408,6 @@ export default function Blog() {
                   <div className="text-xs text-gray-400 flex items-center gap-2 mb-4">
                     <Calendar className="w-3.5 h-3.5 text-orange-400" />
                     <span>{selectedArticle.date}</span>
-                    <span>•</span>
-                    <span>{selectedArticle.views} views</span>
                   </div>
 
                   <h2 className="text-2xl md:text-3xl font-black mb-6 leading-tight text-white">
@@ -609,18 +417,34 @@ export default function Blog() {
                   {/* Graphic layout placeholder */}
                   <div className="relative rounded-xl overflow-hidden aspect-video bg-gradient-to-br from-slate-950 to-slate-900 border border-white/10 flex items-center justify-center p-6 mb-8">
                     <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-orange-500/10 via-transparent to-transparent opacity-70" />
-                    <selectedArticle.icon className="w-16 h-16 text-orange-400/20 absolute" />
+                    {(() => { const Icon = iconFor(selectedArticle.category); return <Icon className="w-16 h-16 text-orange-400/20 absolute" /> })()}
                     <div className="relative z-10 text-center">
                       <p className="text-xs uppercase tracking-widest text-orange-400 font-bold mb-2">Automotive Intelligence Analysis</p>
-                      <h4 className="text-sm font-bold text-gray-300">{selectedArticle.zimbabweanContext?.[0]?.value || 'Local Regulatory Insight'}</h4>
+                      <h4 className="text-sm font-bold text-gray-300">{selectedArticle.context?.[0]?.value || 'Governed context'}</h4>
                     </div>
                   </div>
 
-                  {/* Full Text Content */}
+                  {/* Classification — every factual claim on this page carries one, and where the
+                      claim is a concept or is not yet publishable the reader is told so up front. */}
+                  {classificationLabel(selectedArticle.classification) && (
+                    <div
+                      className="mb-6 inline-flex items-center gap-2 rounded-lg border border-orange-500/20 bg-orange-500/10 px-3 py-1.5 text-[11px] font-semibold text-orange-300"
+                      data-testid="article-classification"
+                    >
+                      {classificationLabel(selectedArticle.classification)}
+                    </div>
+                  )}
+
+                  {/* Full Text Content. An article with nothing publishable says so, in words, rather
+                      than rendering an empty body or being filled with unsourced prose. */}
                   <div className="space-y-6 text-gray-300 text-sm md:text-base leading-relaxed">
-                    {selectedArticle.content.map((paragraph, idx) => (
-                      <p key={idx}>{paragraph}</p>
-                    ))}
+                    {selectedArticle.content.length > 0 ? (
+                      selectedArticle.content.map((paragraph, idx) => (
+                        <p key={idx}>{paragraph}</p>
+                      ))
+                    ) : (
+                      <p data-testid="article-unavailable">{UNAVAILABLE_BODY}</p>
+                    )}
                   </div>
 
                   {/* Interaction buttons */}
@@ -698,57 +522,37 @@ export default function Blog() {
                     <p className="text-[10px] font-bold uppercase tracking-widest text-orange-400 mb-3">Published By</p>
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center font-bold text-white text-sm border border-orange-400/30">
-                        {selectedArticle.author.avatar}
+                        {bylineInitials(selectedArticle.byline)}
                       </div>
                       <div>
-                        <h4 className="font-bold text-sm text-white">{selectedArticle.author.name}</h4>
-                        <p className="text-xs text-orange-400">{selectedArticle.author.role}</p>
+                        <h4 className="font-bold text-sm text-white">{bylineName(selectedArticle.byline)}</h4>
+                        <p className="text-xs text-orange-400">{bylineRole(selectedArticle.byline)}</p>
                       </div>
                     </div>
                     <p className="text-gray-300 text-xs leading-relaxed">
-                      {selectedArticle.author.bio}
+                      {selectedArticle.byline.kind === 'carup_editorial'
+                        ? 'Written by CarUp\u2019s editorial desk. CarUp publishes under its own name rather than under invented author personas.'
+                        : `${bylineRole(selectedArticle.byline)} at CarUp.`}
                     </p>
                   </div>
 
-                  {/* ZINARA Calculator - only show for Regulations category */}
+                  {/* A ZINARA fee calculator used to sit here: four hardcoded USD/ZiG amounts behind
+                      an "Official Rates" badge, described as "mandated for 2026". No source, no
+                      effective date, and no way for a reader to tell an invented figure from a
+                      gazetted one. Licensing fees are a real regulatory fact with a real issuing
+                      authority; CarUp will publish them when each figure can be traced to that
+                      authority and kept current, and not before. The panel states that instead. */}
                   {selectedArticle.category === 'Regulations' && (
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-5" data-testid="fee-calculator-unavailable">
                       <h4 className="text-sm font-bold text-orange-400 mb-3 flex items-center gap-2">
                         <Calculator className="w-4 h-4" />
-                        ZINARA Fee Calculator (2026)
+                        Licensing fee calculator
                       </h4>
-                      <p className="text-xs text-gray-400 leading-relaxed mb-4">
-                        Select your vehicle type to get the standard quarterly licensing rates mandated for 2026.
+                      <p className="text-xs text-gray-400 leading-relaxed">
+                        Not published yet. Licensing fees change and are set by the issuing authority,
+                        so CarUp will show them only once every figure is traceable to that authority
+                        and kept current. We would rather show you nothing than a rate you might pay on.
                       </p>
-                      <div className="space-y-3 mb-4">
-                        {[
-                          { id: 'light', label: 'Light Passenger Car (e.g. Corolla, Fit)' },
-                          { id: 'minibus', label: 'Minibus / Kombi (14 Seater)' },
-                          { id: 'bus', label: 'Heavy Bus (e.g. Coach)' },
-                          { id: 'heavy', label: 'Heavy Haulage Truck (Tri-Axle)' }
-                        ].map((choice) => (
-                          <label key={choice.id} className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="vclass"
-                              value={choice.id}
-                              checked={vehicleClass === choice.id}
-                              onChange={() => setVehicleClass(choice.id)}
-                              className="accent-orange-500"
-                            />
-                            {choice.label}
-                          </label>
-                        ))}
-                      </div>
-                      <div className="bg-black/30 rounded-lg p-3 border border-white/5 flex justify-between items-center text-xs">
-                        <div>
-                          <p className="text-[10px] uppercase text-gray-400">Quarterly License Fee</p>
-                          <p className="text-sm font-extrabold text-orange-400 mt-0.5">
-                            USD ${calculateFee().usd} <span className="text-gray-400 font-normal">or</span> ZiG {calculateFee().zig}
-                          </p>
-                        </div>
-                        <Badge className="bg-orange-500/10 text-orange-300 border border-orange-500/20 text-[10px]">Official Rates</Badge>
-                      </div>
                     </div>
                   )}
 
@@ -816,28 +620,19 @@ export default function Blog() {
             <div className="relative z-10">
               <div className="flex items-center gap-2 text-orange-400 text-xs font-bold uppercase tracking-wider mb-4">
                 <AlertCircle className="w-4 h-4" />
-                Live Market Metrics
+                Market Metrics
               </div>
               <h3 className="text-lg font-bold text-white mb-4">Harare Automotive Indices</h3>
-              
-              <div className="space-y-4">
-                {[
-                  { label: 'Import Duties (Averaged)', value: '32.5%', trend: '+1.2%', up: true },
-                  { label: 'Used Car Trust Score (Avg)', value: '88.4 / 100', trend: '+4.5%', up: true },
-                  { label: 'Unverified Mileage Listings', value: '4.2%', trend: '-8.9%', up: false },
-                  { label: 'Monthly Registered Vehicles', value: '2,840', trend: '+12.4%', up: true }
-                ].map((stat, idx) => (
-                  <div key={idx} className="flex justify-between items-center text-xs py-2 border-b border-white/5">
-                    <span className="text-gray-300">{stat.label}</span>
-                    <div className="text-right">
-                      <span className="font-bold text-white block">{stat.value}</span>
-                      <span className={`text-[10px] font-semibold ${stat.up ? 'text-green-400' : 'text-red-400'}`}>
-                        {stat.trend} from last Q
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+
+              {/* Four fabricated statistics with fabricated quarter-on-quarter trend arrows used to
+                  sit here under a heading asserting they were live. Nothing fetched them and no
+                  source produced them. CarUp measures no market index today, so the card states
+                  that rather than being filled with numbers a reader might act on. */}
+              <p className="text-xs text-gray-400 leading-relaxed" data-testid="market-metrics-unavailable">
+                CarUp does not publish market indices yet. We measure trust, evidence and listing
+                facts per vehicle — not aggregate market movements — and we will not estimate a
+                figure we do not hold.
+              </p>
             </div>
 
             <div className="relative z-10 bg-orange-500/5 rounded-xl p-4 border border-orange-500/10 mt-6 text-center">
@@ -861,33 +656,34 @@ export default function Blog() {
               <Badge className="bg-orange-500/10 text-orange-400 border border-orange-500/20 mb-4 px-2.5">Weekly Publication</Badge>
               <h3 className="text-2xl md:text-3xl font-extrabold mb-3">Stay Ahead of the Automotive Curve</h3>
               <p className="text-gray-300 text-sm md:text-base leading-relaxed">
-                Join 8,500+ Zimbabwean car owners, dealers, and compliance experts. Receive real-time ZIMRA duty revisions, ZINARA regulation updates, and automotive insights direct to your inbox.
+                CarUp\u2019s editorial desk publishes on vehicle trust, evidence and marketplace integrity. Sign-up is not open yet \u2014 when it is, this is where it will be.
               </p>
             </div>
 
             <div className="w-full lg:w-96">
-              {!isSubscribed ? (
-                <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
-                  <Input
-                    type="email"
-                    placeholder="Enter your email address..."
-                    value={newsletterEmail}
-                    onChange={(e) => setNewsletterEmail(e.target.value)}
-                    required
-                    className="bg-white/5 border-white/10 text-white placeholder-gray-400 focus-visible:ring-orange-500/50"
-                  />
-                  <Button type="submit" className="bg-orange-500 hover:bg-orange-600 text-white shrink-0 font-semibold rounded-lg px-5">
-                    Subscribe
-                  </Button>
-                </form>
-              ) : (
-                <div className="bg-green-500/10 border border-green-500/20 text-green-300 rounded-xl p-4 flex items-center justify-center gap-2">
-                  <Check className="w-5 h-5 shrink-0 text-green-400" />
-                  <span className="text-sm font-bold">Successfully joined the mailing list!</span>
-                </div>
-              )}
+              {/* The success state is gone with the fake subscription that produced it: there is no
+                  endpoint behind this form, so nothing may render as "Successfully joined". The
+                  control stays visible and disabled, in the page's own design, and says why. */}
+              <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
+                <Input
+                  type="email"
+                  placeholder="Sign-up not open yet"
+                  value={newsletterEmail}
+                  onChange={(e) => setNewsletterEmail(e.target.value)}
+                  disabled
+                  className="bg-white/5 border-white/10 text-white placeholder-gray-400 focus-visible:ring-orange-500/50 disabled:opacity-60"
+                />
+                <Button
+                  type="submit"
+                  disabled
+                  data-testid="newsletter-unavailable"
+                  className="bg-orange-500/40 text-white shrink-0 font-semibold rounded-lg px-5 disabled:opacity-100"
+                >
+                  Coming soon
+                </Button>
+              </form>
               <p className="text-[10px] text-gray-500 mt-2.5 text-center lg:text-left">
-                No spam. Unsubscribe anytime. SADC compliance standards verified.
+                No spam, ever. We will not add you to a list until this form actually delivers to one.
               </p>
             </div>
           </div>
