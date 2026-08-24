@@ -217,7 +217,11 @@ export default function MyListings() {
                         <span>Listing date not recorded</span>
                       </div>
                       {latest && <p className="mt-2 line-clamp-1 text-xs text-gray-600">Latest: “{latest}”</p>}
-                      <div className="flex gap-2 mt-3">
+                      {/* OBS-16: a non-wrapping flex row of four actions, the last of them the long
+                          "Publish to Marketplace", pushed the CTA outside the card on a narrow
+                          viewport and gave the page horizontal overflow. Wrapping is the whole fix —
+                          the publication semantics are untouched. */}
+                      <div className="flex flex-wrap gap-2 mt-3" data-testid={`listing-actions-${listing.vin}`}>
                         <Button size="sm" className="text-xs gap-1" asChild>
                           <Link to="/dashboard/communications"><MessageSquare className="w-3 h-3" /> Conversations</Link>
                         </Button>

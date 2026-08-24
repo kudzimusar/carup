@@ -2376,7 +2376,11 @@ export default function VehicleDetail() {
           {/* ── Right sidebar ────────────────────────────────────────────── */}
           <div className="space-y-6">
             {/* Price / CTA card */}
-            <Card className="border-0 card-shadow bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white sticky top-6">
+            {/* OBS-02: this panel was `sticky top-6` at every breakpoint and unbounded in height, so
+                on a short viewport it pinned itself over the vehicle details while the reader
+                scrolled. It now sticks only where there is a second column to stick beside, and is
+                capped to the viewport with its own scroll so it can never cover the content. */}
+            <Card className="border-0 card-shadow bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(222,47%,18%)] text-white lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
               <CardContent className="p-6">
                 <p className="text-sm text-gray-300 mb-1">Price</p>
                 <p className="text-3xl font-bold">{governedPrice(vehicle.price, vehicle.currency)}</p>
@@ -2400,8 +2404,8 @@ export default function VehicleDetail() {
                 ) : (
                   <div className="mt-6" data-testid="seller-contact-unavailable">
                     <div className="flex gap-2">
-                      <Button disabled className="flex-1 bg-orange-500 gap-1"><Phone className="w-4 h-4" /> Call</Button>
-                      <Button disabled variant="outline" className="flex-1 border-white/30 text-white gap-1"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
+                      <Button disabled aria-disabled className="flex-1 gap-1 disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed" data-testid="call-disabled"><Phone className="w-4 h-4" /> Call</Button>
+                      <Button disabled aria-disabled variant="outline" className="flex-1 gap-1 disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed" data-testid="whatsapp-disabled"><MessageSquare className="w-4 h-4" /> WhatsApp</Button>
                     </div>
                     <p className="text-xs text-gray-400 mt-2">
                       No contact number is published for this seller.
@@ -2423,9 +2427,13 @@ export default function VehicleDetail() {
                 ) : (
                   <>
                     <Button
-                      className="w-full bg-white text-gray-900 hover:bg-gray-100 font-semibold gap-2"
+                      className={`w-full font-semibold gap-2 ${resolvedSellerId
+                        ? 'bg-white text-gray-900 hover:bg-gray-100'
+                        : 'disabled:opacity-100 bg-white/10 text-white/80 border border-white/25 hover:bg-white/10 cursor-not-allowed'}`}
                       onClick={() => setShowReserveModal(true)}
                       disabled={!resolvedSellerId}
+                      aria-disabled={!resolvedSellerId}
+                      data-testid="reserve-vehicle"
                     >
                       <Lock className="w-4 h-4" /> Reserve Vehicle
                     </Button>

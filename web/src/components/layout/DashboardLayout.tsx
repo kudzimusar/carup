@@ -267,6 +267,23 @@ export default function DashboardLayout({ role }: { role: string }) {
             <div className="flex-1" />
           )}
 
+          {/* OBS-14: the form above is `hidden sm:block`, so on a phone an owner had no search at
+              all. Search is part of the owner shell, so mobile gets an equivalent affordance rather
+              than a cramped duplicate input — this opens the real /search page, where the full
+              control lives. */}
+          {user?.role === 'owner' && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="sm:hidden"
+              aria-label="Search vehicles"
+              data-testid="owner-topbar-search-mobile"
+              onClick={() => navigate('/search')}
+            >
+              <Search className="w-5 h-5" aria-hidden="true" />
+            </Button>
+          )}
+
           <div className="flex items-center gap-2">
             {/* Owners get the real notification bell (canonical /notifications/me). Other roles keep
                 the plain link until their own notification contract is wired. */}
