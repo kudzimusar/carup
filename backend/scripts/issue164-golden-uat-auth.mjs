@@ -176,6 +176,28 @@ async function main() {
     }
   }
 
+  // IDENTITY AND ROLE, not just the address.
+  //
+  // Matching on email alone means a staging row that has DRIFTED still receives the shared UAT
+  // credential — and `POST /api/auth/login` copies `users.role` straight into the session. A pinned
+  // address whose role had become `admin` would turn an owner/buyer grant into an administrator
+  // login. The Golden identities are deterministic (id and role are fixtures, not observations), so
+  // both are required to match, and ANY mismatch fails the whole grant rather than skipping a row.
+  const { GOLDEN_USERS } = await import('../services/golden/goldenVehicleSpecs.js');
+  const expected = new Map(GOLDEN_USERS
+    .filter((u) => GOLDEN_UAT_ACCOUNTS.includes(u.email))
+    .map((u) => [u.email, { id: u.id, role: u.role }]));
+  const drifted = [];
+  for (const row of found) {
+    const want = expected.get(row.email);
+    if (!want) { drifted.push(`${row.email}: not a known Golden identity`); continue; }
+    if (row.id !== want.id) drifted.push(`${row.email}: id is not the deterministic fixture id`);
+    if (row.role !== want.role) drifted.push(`${row.email}: role is '${row.role}', expected '${want.role}'`);
+  }
+  if (drifted.length > 0) {
+    blocked(`Golden identities have drifted — refusing to provision any credential:\n  ${drifted.join('\n  ')}`);
+  }
+
   if (MODE === 'status') {
     const report = GOLDEN_UAT_ACCOUNTS.map((email) => {
       const row = found.find((r) => r.email === email);

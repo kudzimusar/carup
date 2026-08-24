@@ -170,3 +170,55 @@ test('supabase.js applies containment at import, after dotenv and before any cli
   assert.ok(dotenvAt < containAt, 'containment must run AFTER dotenv, or there is nothing to contain');
   assert.ok(containAt < clientAt, 'containment must run BEFORE any client is constructed');
 });
+
+// ── Codex P1: the Supabase REST endpoint, not only the Postgres URLs ─────────────────────────────
+// `db/supabase.js` builds a SERVICE-ROLE client from SUPABASE_URL right after dotenv.config(). On a
+// maintainer's machine that dotfile supplies the PRODUCTION project, and 24 backend test files do
+// `process.env.SUPABASE_URL ||= 'http://localhost:54321'` — which PRESERVES the inherited value. So
+// every Supabase read and write in those files was aimed at production with an RLS-bypassing key,
+// while the earlier guard only ever looked at Postgres connection strings.
+
+test('a dotfile-supplied PRODUCTION Supabase endpoint is neutralised under test', () => {
+  const env = {
+    NODE_ENV: 'test',
+    SUPABASE_URL: `https://${PROD_REF}.supabase.co`,
+    SUPABASE_SERVICE_ROLE_KEY: 'a-real-production-service-role-key',
+  };
+  const result = applyTestDatabaseContainment(env, guardedDotfileValues({ ...env }));
+
+  assert.equal(env.SUPABASE_URL, 'http://localhost:54321', 'the REST endpoint must not stay on production');
+  assert.equal(env.SUPABASE_SERVICE_ROLE_KEY, 'test-service-role-key', 'the service-role key must not survive');
+  assert.ok(result.removed.some((r) => r.startsWith('SUPABASE_URL')));
+});
+
+test('the endpoint is SUBSTITUTED, never deleted — db/supabase.js throws without it', () => {
+  const env = { NODE_ENV: 'test', SUPABASE_URL: `https://${PROD_REF}.supabase.co` };
+  applyTestDatabaseContainment(env, guardedDotfileValues({ ...env }));
+  assert.ok(env.SUPABASE_URL, 'a value must remain, or every test aborts at import');
+  assert.doesNotMatch(env.SUPABASE_URL, new RegExp(PROD_REF));
+});
+
+test('an explicitly exported production endpoint is REFUSED, not silently rewritten', () => {
+  const env = { NODE_ENV: 'test', SUPABASE_URL: `https://${PROD_REF}.supabase.co` };
+  assert.throws(() => applyTestDatabaseContainment(env, guardedDotfileValues(null)),
+    ProductionDatabaseInTestError);
+});
+
+test('CI is still byte-identical: explicit localhost values are untouched', () => {
+  const env = {
+    NODE_ENV: 'test',
+    SUPABASE_URL: 'http://localhost:54321',
+    SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
+    SUPABASE_ANON_KEY: 'test-anon-key',
+  };
+  const before = { ...env };
+  const result = applyTestDatabaseContainment(env, guardedDotfileValues(null));
+  assert.deepEqual(env, before);
+  assert.deepEqual(result.removed, []);
+});
+
+test('a non-test process keeps its own Supabase endpoint', () => {
+  const env = { NODE_ENV: 'production', SUPABASE_URL: `https://${PROD_REF}.supabase.co` };
+  applyTestDatabaseContainment(env, guardedDotfileValues({ ...env }));
+  assert.match(env.SUPABASE_URL, new RegExp(PROD_REF), 'production runtime must keep its own project');
+});

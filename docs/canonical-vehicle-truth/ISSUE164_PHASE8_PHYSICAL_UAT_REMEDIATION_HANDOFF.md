@@ -1149,3 +1149,72 @@ mutation rather than assumed.
 - **CLI behaviour** — importing `evaluateStagingGuard` no longer interprets the caller's `--mode`;
   the fixture runner still validates its own modes when executed; grant/status/revoke are covered by
   real spawned invocations, not only imported functions.
+
+---
+
+# ADDENDUM E — fresh independent Codex review on `98e90c8d`
+
+Requested on the exact head with no carry-forward (the previous clean result was on `993c1179`, which
+predates the entire remediation). Codex returned **4 inline findings**. All four are **VALID**; none
+was dismissed on the strength of a passing test.
+
+## E.1 P1 — the Supabase REST endpoint was still reachable in tests
+
+The containment guard in Addendum B covered Postgres connection URLs only. But `db/supabase.js`
+builds a **service-role** client from `SUPABASE_URL` immediately after `dotenv.config()`, and on a
+maintainer's machine that dotfile supplies the **production** project. Measured: `.env`'s
+`SUPABASE_URL` host-ref is the production ref, and **24 backend test files** do
+
+```js
+process.env.SUPABASE_URL ||= 'http://localhost:54321'
+```
+
+which **preserves** the inherited value rather than overriding it. So every Supabase read and write in
+those files was aimed at production with an RLS-bypassing key.
+
+This is a bigger hole than the one Addendum B closed, in the same guard, and it was missed because I
+reasoned about the *connection string* rather than about *every way the process can reach a project*.
+
+**Fixed.** Containment now covers `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_ANON_KEY`.
+A dotfile-supplied endpoint is **substituted** with the CI-parity local values (not deleted —
+`db/supabase.js` throws without them, and these are exactly what CI has always supplied); an
+explicitly exported production endpoint is **refused**. Non-test processes are untouched, and CI with
+no dotfile is byte-identical. Five new tests.
+
+## E.2 P1 — identity and role were not verified before granting a credential
+
+The grant matched rows by email alone. A pinned address whose row had drifted to a privileged role
+would still receive the shared UAT credential — and `POST /api/auth/login` copies `users.role`
+straight into the session, so an `admin` row would have turned an owner/buyer grant into an
+administrator login.
+
+**Fixed.** Each row must now match its **deterministic Golden id** and its **expected role**, sourced
+from `GOLDEN_USERS`. Any mismatch fails the whole grant before a single write, rather than skipping a
+row.
+
+## E.3 P2 — service history could never populate
+
+My Cluster D fix separated parts from services by excluding `partsentry:` events. But the passport
+timeline carried **no** mechanic work orders at all, so the new predicate produced an always-empty
+service history while `/api/vehicles/me` correctly counted the same work orders — a fresh
+same-VIN contradiction, introduced by the change that was meant to remove one.
+
+**Fixed at the root.** `getVehicleTimeline` now reads `mechanic_work_orders` and emits them under
+`event_source: 'service'` with a `workorder:` id prefix. Services and parts are each read from their
+own governed source — the same two sources the counts use — so the per-VIN page and My Garage cannot
+disagree.
+
+## E.4 P2 — a failed storage removal was recorded and ignored
+
+`cleanup` copied a storage error into `detail` and returned normally, so the reporter marked the step
+successful and cleanup went on to delete the locator rows. The sequence could have reported PASS while
+leaving orphaned objects that nothing in the database can find again.
+
+**Fixed.** A non-null removal error now throws. Removing an object that is already gone still succeeds,
+so idempotency is preserved — pinned by both tests.
+
+## E.5 Note
+
+Findings E.1 and E.3 are both cases of a fix being narrower than the property it claimed to establish:
+one guarded the connection string but not the project, the other separated two collections without
+giving one of them a source. Worth remembering when reviewing any "fixed" claim in this programme.

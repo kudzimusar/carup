@@ -657,8 +657,14 @@ export async function cleanup(depsIn = {}) {
     for (const [bucket, paths] of removals) {
       if (!paths.length) continue;
       const { data, error } = await client.storage.from(bucket).remove(paths);
-      // A missing object is the desired end state, not a failure — cleanup must stay idempotent.
-      detail.push({ bucket, requested: paths.length, removed: (data || []).length, error: error?.message ?? null });
+      // A missing object is the desired end state, not a failure — `remove()` returns no error for a
+      // path that is already gone, so idempotency is preserved. But a REAL error (bucket unavailable,
+      // insufficient object permissions) must FAIL this step: recording it in `detail` and returning
+      // normally let the reporter mark the step ok, cleanup went on to delete the locator rows, and
+      // the sequence could report PASS while leaving orphaned objects that nothing in the database
+      // can find again.
+      if (error) throw new Error(`storage removal failed for ${bucket}: ${error.message}`);
+      detail.push({ bucket, requested: paths.length, removed: (data || []).length });
     }
     return { buckets: detail };
   });

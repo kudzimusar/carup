@@ -57,6 +57,26 @@ export const GUARDED_DATABASE_VARS = Object.freeze([
   'DIASPORA_STAGING_DATABASE_URL',
 ]);
 
+/**
+ * The Supabase REST endpoint and its credentials.
+ *
+ * Guarding only the Postgres URLs left the larger hole open. `db/supabase.js` builds a SERVICE-ROLE
+ * client from `SUPABASE_URL` immediately after `dotenv.config()`, and on a maintainer's machine that
+ * dotfile supplies the PRODUCTION project. Twenty-four backend test files then do
+ * `process.env.SUPABASE_URL ||= 'http://localhost:54321'`, which PRESERVES the inherited value rather
+ * than overriding it — so every Supabase read and write in those files was aimed at production, with
+ * a key that bypasses RLS.
+ *
+ * Under test, a dotfile-supplied endpoint is replaced with the CI-parity local values rather than
+ * deleted: `db/supabase.js` throws without them, and CI has always run with exactly these.
+ */
+const TEST_SUPABASE_DEFAULTS = Object.freeze({
+  SUPABASE_URL: 'http://localhost:54321',
+  SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
+  SUPABASE_ANON_KEY: 'test-anon-key',
+});
+export const GUARDED_SUPABASE_VARS = Object.freeze(Object.keys(TEST_SUPABASE_DEFAULTS));
+
 export class ProductionDatabaseInTestError extends Error {
   constructor(variable) {
     super(
@@ -109,11 +129,27 @@ export function applyTestDatabaseContainment(env, dotfileValues = {}) {
     if (referencesProductionDatabase(value)) throw new ProductionDatabaseInTestError(variable);
   }
 
+  // ── The Supabase REST endpoint, same two rules ──────────────────────────────────────────────────
+  for (const variable of GUARDED_SUPABASE_VARS) {
+    const value = env[variable];
+    if (!value) continue;
+
+    if (dotfileValues?.[variable] === value) {
+      // Substituted, not deleted: db/supabase.js throws without these, and these are exactly what CI
+      // supplies. A test that needs a real project must be given one by its own environment.
+      env[variable] = TEST_SUPABASE_DEFAULTS[variable];
+      removed.push(referencesProductionDatabase(value) ? `${variable} (PRODUCTION)` : variable);
+      continue;
+    }
+
+    if (referencesProductionDatabase(value)) throw new ProductionDatabaseInTestError(variable);
+  }
+
   if (removed.length) {
     // Stated, not silent. A skipped live-database branch should be explainable from the log.
     console.warn(
-      `[carup] NODE_ENV=test: ignoring ${removed.join(', ')} inherited from a dotfile. `
-      + 'A test that needs a database must be given one explicitly by its environment.',
+      `[carup] NODE_ENV=test: neutralised ${removed.join(', ')} inherited from a dotfile. `
+      + 'A test that needs a real database or project must be given one explicitly by its environment.',
     );
   }
 
@@ -123,7 +159,7 @@ export function applyTestDatabaseContainment(env, dotfileValues = {}) {
 /** Narrow dotenv's parsed output to the guarded variables. */
 export function guardedDotfileValues(parsed) {
   const values = {};
-  for (const variable of GUARDED_DATABASE_VARS) {
+  for (const variable of [...GUARDED_DATABASE_VARS, ...GUARDED_SUPABASE_VARS]) {
     if (parsed && typeof parsed[variable] === 'string') values[variable] = parsed[variable];
   }
   return values;

@@ -518,3 +518,37 @@ test('evidence_bucket_exists cannot pass vacuously when no bucket was loaded', a
   assert.ok(failed.some((n) => n.endsWith(':evidence_fetchable')),
     `an unlocatable document must fail evidence_fetchable, got: ${failed.join(', ')}`);
 });
+
+// ── Codex P2: a storage removal error must FAIL cleanup, not be recorded and ignored ─────────────
+// The error was copied into `detail` and the step returned normally, so the reporter marked
+// `del:storage_objects` ok and cleanup went on to delete the locator rows. The sequence could then
+// report PASS while leaving orphaned objects that nothing in the database can find again.
+test('cleanup FAILS when a storage object cannot be removed', async () => {
+  const { client } = makeMock();
+  const { deps } = await makeDeps(client);
+  await fixture.bootstrap(deps);
+
+  const failing = {
+    ...client,
+    storage: { from: () => ({ remove: async () => ({ data: null, error: { message: 'bucket unavailable' } }) }) },
+  };
+  const r = await fixture.cleanup({ ...deps, client: failing });
+  const storageStep = r.steps.find((s) => s.name === 'del:storage_objects');
+  assert.ok(storageStep, 'the storage step must exist');
+  assert.equal(storageStep.ok, false, 'a real removal error must fail the step');
+  assert.equal(r.ok, false, 'cleanup as a whole must not report success');
+});
+
+test('cleanup still succeeds when the objects are simply already gone (idempotent)', async () => {
+  const { client } = makeMock();
+  const { deps } = await makeDeps(client);
+  await fixture.bootstrap(deps);
+
+  const empty = {
+    ...client,
+    storage: { from: () => ({ remove: async () => ({ data: [], error: null }) }) },
+  };
+  const r = await fixture.cleanup({ ...deps, client: empty });
+  const storageStep = r.steps.find((s) => s.name === 'del:storage_objects');
+  assert.equal(storageStep.ok, true, 'removing nothing is the desired end state, not a failure');
+});

@@ -225,7 +225,7 @@ export default function VehicleProfile() {
     // one row counted twice, while My Garage said 0 of each. Services come from mechanic-signed work
     // orders; a part fitted is a part.
     serviceHistory: (passportData.timeline || [])
-      .filter((e) => e.event_source === 'service' && !String(e.id ?? '').startsWith('partsentry:'))
+      .filter((e) => e.event_source === 'service' && String(e.id ?? '').startsWith('workorder:'))
       .map((e) => ({
         id: e.id,
         serviceType: e.label,

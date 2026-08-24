@@ -6,7 +6,8 @@ export async function getVehicleTimeline(vin) {
   // Fetch all timeline events in parallel from Supabase
   const [
     ownershipResult, serviceResult, insuranceResult, escrowResult,
-    zimraResult, cvrResult, vidResult, cidResult, zinaraResult, plateHistoryResult
+    zimraResult, cvrResult, vidResult, cidResult, zinaraResult, plateHistoryResult,
+    workOrderResult
   ] = await Promise.all([
     supabase.from('vehicle_ownership_history').select('id, transfer_date, previous_owner_id, new_owner_id').eq('vin', vin),
     supabase.from('partsentry_logs').select('id, timestamp, action_type, part_name, mechanic_id, mileage, description').eq('vin', vin),
@@ -18,6 +19,11 @@ export async function getVehicleTimeline(vin) {
     supabase.from('cid_clearance_records').select('*').eq('vin', vin),
     supabase.from('zinara_licensing_records').select('*').eq('vin', vin),
     supabase.from('vehicle_plate_history').select('*').eq('vin', vin),
+    // Mechanic-signed service records. The timeline previously carried NONE, so its only
+    // `event_source: 'service'` events were PartSentry part logs — which is how one part log came to
+    // be published as both "1 service" and "1 part". Owner surfaces that separate the two need a real
+    // source for each, and `/api/vehicles/me` counts these same work orders.
+    supabase.from('mechanic_work_orders').select('id, vin, created_at, status, description, mechanic_id').eq('vin', vin),
   ]);
 
   const events = [];
@@ -34,7 +40,22 @@ export async function getVehicleTimeline(vin) {
     });
   }
 
-  // Service logs
+  // Mechanic-signed service records. Emitted under the SAME `event_source` as PartSentry (both are
+  // service-shaped events on the vehicle's timeline) but with their own `workorder:` id prefix, which
+  // is what lets a consumer tell a service from a part instead of counting one row as both.
+  // A missing table on an older instance yields no rows rather than an error.
+  for (const e of (workOrderResult?.data || [])) {
+    events.push({
+      event_source: 'service',
+      id: `workorder:${e.id}`,
+      timestamp: e.created_at,
+      label: e.status ? `Service — ${e.status}` : 'Service',
+      desc: e.description || 'Mechanic-signed service record',
+      details: { mechanic: e.mechanic_id, notes: e.description ?? null },
+    });
+  }
+
+  // PartSentry part logs
   for (const e of (serviceResult.data || [])) {
     events.push({
       event_source: 'service',
