@@ -1519,3 +1519,144 @@ documentation-only commit before the owner-action gate:
   against a string written down earlier.
 
 `2f7e257a` is the exact SHA the physical UAT and the credential grant are certified against.
+
+---
+
+# ADDENDUM K — post-UAT remediation: D0 (P0), D2, D3
+
+The final 32-step physical UAT (16 PASS / 3 FAIL / 13 BLOCKED, recorded in
+`ISSUE164_PHASE8_FINAL_UAT_RESULT_SHEET.md`) produced three step-level defects plus a P0 found while
+adjudicating one of them. This addendum records the fixes. Candidate: `172636d8`.
+
+**D1 is deliberately NOT implemented.** It is carried-forward rather than branch-introduced, its
+remediation has wide product blast radius, and it awaits an owner policy decision. See §D1 of the
+result sheet for the options analysis.
+
+## K.1 D0 — the route minted the capability, not the bucket
+
+`GET /api/vehicles/:vin/evidence` returned the raw 54-key `vehicle_evidence` row to anonymous callers
+and signed a private-bucket URL for them. Reproduced end to end before the fix:
+
+```
+curl .../api/vehicles/CARUPGLDNA0000001/evidence        → 200, 4 rows × 54 keys
+  leaked: plate_number, normalized_plate_number, chassis_number, engine_number,
+          uploaded_by, verified_by, tenant_id, verification_notes, file_path, storage_bucket
+  plus:   https://…/object/sign/ocr-documents/…/golden-registration_document.pdf?token=…
+curl "<that signed url>"                                → 200, application/pdf, %PDF-1.4
+curl "<same object, no token>"                          → 400          ← bucket correctly private
+curl -H 'x-user-id: golden-b-owner-stg' …/CARUPGLDNB0000002/evidence
+  anonymous 0 rows → 1 row, verification_status "pending", signed URL present
+```
+
+The last line is the sharpest: one unauthenticated header defeated the pending-document withholding
+that invariant 3 exists to guarantee.
+
+Four independent holes, each sufficient alone:
+
+| # | Hole | Fix |
+|---|---|---|
+| 1 | session accepted on `is_valid` alone — an **expired** token still authenticated | also require `expires_at >= now`, matching `authMiddleware` |
+| 2 | `x-user-id` taken as identity outright | gated by `isUserIdFallbackAllowed()`, and only when no session resolved |
+| 3 | tenancy from the attacker-controlled `x-tenant-id`, compared against `vehicle.tenant_id` | membership read from `tenant_users` for the **authenticated** user; `users` has no `tenant_id` column |
+| 4 | signing ran for every `ocr-documents` row regardless of caller | gated on `isAuthorized`; `visibility_level` is a reviewer label, never an access decision |
+
+Unauthorised callers now receive `toPublicEvidence()` — the same allow-list the passport uses, so the
+two surfaces cannot drift. The private artifact is named as withheld (`file_url: null`,
+`file_availability: 'withheld_private'`) rather than described by its locator; returning `file_url`
+unchanged would have leaked `file_path` under a friendlier name.
+
+**The existing suite caught a regression the fix would otherwise have shipped.**
+`evidence-ai-fraud.test.js` asserts a public caller still receives `metadata.ai_public_summary`.
+Projecting through `toPublicEvidence` drops `metadata` wholesale — safer, but it silently removed a
+real feature. The sanitized summary is now lifted out **by name** into a fresh object; the `metadata`
+object, which carries `ai_ready.vehicle_identity` (VIN, plate, chassis, engine), is still left behind.
+
+### K.1.1 Sweep — is any other route the same shape?
+
+Asked and answered rather than assumed. Every non-test `generateSecureReadUrl` call site:
+
+- `services/storage/mediaRouter.js` — all four routes use `authorizeRole(...)`, plus an explicit
+  owner/tenant check with a 403 and an audit event. Safe.
+- `routes/diasporaRoutes.js:224` — scoped through `getTradeDocumentWithStorage(documentId, userContext)`.
+- `services/identity/verificationSessionService.js` — service-internal, not an anonymous route.
+
+The wider `userContext.tenantId` pattern is safe **because `authorizeRole()` validates the
+`x-tenant-id` claim against `tenant_users` and 403s a non-member** (`authMiddleware.js:95-105`). The
+hazard is `optionalAuth()`, which populates `tenantId` from the header with no membership check — and
+the one route that pairs it with a widening decision, `GET /api/partsentry/:vin`, **explicitly refuses
+to trust it** and re-verifies `owner_id` instead (`server.js:1591`). The evidence route was broken
+precisely because it used neither middleware and hand-rolled its own identity resolution.
+
+No other unfixed instance of this shape was found.
+
+### K.1.2 `main` is identically exposed
+
+Read-only check against `carup-backend-staging.vercel.app` (which serves `main`): the same 4 rows,
+54 keys, all the same sensitive columns, signed URL present. **This is not branch-specific.** It is
+recorded for expedited protected-`main` remediation and should not wait on the rest of Issue #164.
+
+## K.2 D2 — publish the fact, withhold the file
+
+`toVerifiedEvidenceBlock` refused rows on **URL shape**, so Golden A's four verified private-bucket
+documents were dropped into `unpublishable_count` and the block reported `state: 'none'`. `state` is a
+machine-readable enum whose own vocabulary makes `none` mean *"we looked and found nothing"*, so a true
+sentence in a sibling field could not rescue it — and the page contradicted itself two sentences apart.
+
+A row that names a real artifact now publishes as a governed fact with the file withheld.
+`unpublishable_count` keeps its original, narrower meaning: a row naming **no** artifact at all.
+
+Deliberately **no signed URL**: `evidenceDefaultVisibility()` returns `restricted` for every document
+type, so these were never cleared for public display.
+
+The fixture's hardcoded `public_safe` — justified by a comment that was simply wrong, since
+`allowedVisibilities` admits `restricted` — is replaced by `goldenUploadVisibility()`, derived from the
+same `documentEvidenceTypes` list production consults. Publication is now an explicit, recorded
+**reviewer** decision in `verifyEvidenceDoc`, which is the governed path the fixture exists to model.
+
+> **Owner note.** Aligning staging DATA to this requires a privileged fixture re-run
+> (`--mode=sequence`), which is owner-only. The code change is safe either way: the projection fix
+> makes Step 8 correct against the CURRENT staging rows, and the fixture change makes a future
+> bootstrap faithful to production.
+
+Golden B is unmoved: its single `pending` row still publishes nothing and is still **not counted**,
+because counting it would disclose that restricted evidence exists.
+
+The frontend contradiction is closed at its own layer too — the shortfall note now renders only for a
+block that actually published something.
+
+## K.3 D3 — rendered truth
+
+Literal escape sequences were visible to readers on `/press` and `/blog`: these are **JSX text
+children**, where backslash escapes are not interpreted. (The identical-looking `\'` and `’` in
+`mockData.ts`, `About.tsx`, `HelpCenter.tsx` and `Blog.tsx:534` sit inside quoted JS strings and are
+correct — which is exactly why source review missed the defect and only rendering caught it.)
+
+`/privacy` claimed *"PartSentry Blockchain Hashing — …cryptographically hashed onto the public registry
+ledger"*, a capability the codebase elsewhere explicitly disclaims. Rewritten to the canonical CarUp
+audit-ledger position, with the anchor id and nav label renamed off `blockchain` and the "Public
+Registry" claim removed. Pages and design are unchanged; only truth and rendering.
+
+## K.4 Every new test is mutation-proved
+
+A test that would pass against the vulnerable code asserts nothing, so each suite was run against the
+pre-fix source:
+
+| Suite | Against vulnerable code |
+|---|---|
+| `issue164-d0-evidence-route-authorization.test.js` | **10 of 14 fail** |
+| `issue164-d2-verified-evidence-published-not-none.test.js` | **7 of 11 fail** |
+| `publicSurfaceRendering.test.tsx` | **6 of 9 fail** |
+
+The tests that pass in both directions are deliberate **non-regression guards** — Golden B's pending
+row withheld, restricted rows withheld, `not_loaded` preserved, the verified-only filter, and the
+allow-list itself. Those must not change, so they must not fail.
+
+## K.5 Gates on `172636d8`
+
+backend **4215 tests / 4203 pass / 0 fail / 12 skipped** (CI parity, run from the repo root) · web
+**102 files / 1063 tests pass** · `tsc` 0 · `NET_NEW_ERRORS=0` · CR-1 clean · `git diff --check` clean.
+
+> **Method note worth keeping.** Running the backend suite from `backend/` instead of the repo root
+> manufactures phantom failures — several tests resolve fixture paths relative to CWD, and CI runs
+> `node --test backend/tests/*.test.js` from the root. An earlier run this session showed 8 failures
+> that way, of which **7 were pure CWD artifacts** and would have sent the next hour chasing nothing.
