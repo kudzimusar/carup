@@ -1385,3 +1385,58 @@ every downstream assertion to one byte).
 Rounds 1→4 produced 4, 4, 1 and 3 findings. Every round's findings were consequences of the previous
 round's fixes, which is expected: a remediation is a change like any other. The loop terminates on a
 round with zero findings on an unchanged head — not on a judgement that the remaining ones look minor.
+
+---
+
+# ADDENDUM I — fifth Codex round on `2aa792b7`
+
+One finding, **P1, VALID**, and the sharpest of the whole series because it names the *invariant* the
+previous four rounds had been circling without stating.
+
+## I.1 Grant and revoke could target different rows
+
+Round 4 made the pinned id/email pair table authoritative for **revocation**. Grant was left building
+its expectations from the mutable `GOLDEN_USERS` and **writing the discovered `row.id`**.
+
+So if a Golden user's id changed while its email stayed the same — the ordinary case before
+bootstrapping a fresh staging database — grant would accept and provision the **new** id, while revoke
+went on iterating the pinned **old** ids and reported that identity absent. The credential would have
+been **unclearable by design**.
+
+## I.2 The invariant, stated
+
+> **Every id that can RECEIVE this credential must already be in the set that can REVOKE it.**
+
+That is the property all five rounds were reaching for. It is now structural rather than incidental:
+
+- one frozen table (`GOLDEN_UAT_IDENTITIES`) carries id, email and role;
+- `GOLDEN_UAT_ACCOUNTS` and `GOLDEN_UAT_IDS` are both **projections** of that table, so they cannot
+  differ;
+- grant iterates the table, validates against it, and writes `.eq('id', pinnedId)` — never a
+  discovered id;
+- revoke iterates `GOLDEN_UAT_IDS`, i.e. the same ids;
+- `goldenVehicleSpecs` is no longer imported for identity at all, so a fixture-module edit cannot move
+  either set;
+- cardinality is asserted at load.
+
+Four new tests, including one that asserts grant and revoke provably iterate the same source.
+
+## I.3 One more assertion of mine, scoped
+
+My first version banned the string `GOLDEN_USERS` from the whole source — which failed on the comments
+*explaining why it is no longer the authority*. Now asserted on code with comments stripped, the same
+correction made earlier for the containment wiring test. Prose that documents a removed dependency
+must not be mistaken for the dependency.
+
+## I.4 Round tally
+
+| Round | Head | Findings |
+|---|---|---:|
+| 1 | `98e90c8d` | 4 |
+| 2 | `2e69e085` | 4 |
+| 3 | `cb85543d` | 1 |
+| 4 | `fc6114ff` | 3 |
+| 5 | `2aa792b7` | 1 |
+
+All 13 were VALID. Every round's set was a consequence of the previous round's fixes. The loop
+terminates on a round with **zero** findings on an unchanged head.

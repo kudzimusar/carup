@@ -71,10 +71,10 @@ function assertValidMode() {
 // out of the set, and since a granted credential outlives any deployment, the row it was granted to
 // could never be cleared again. The id is the identity and must be pinned in its own right.
 const GOLDEN_UAT_IDENTITIES = Object.freeze([
-  { id: 'golden-a-owner-stg', email: 'golden-a-owner-stg@carup-staging.test' },
-  { id: 'golden-a-buyer-stg', email: 'golden-a-buyer-stg@carup-staging.test' },
-  { id: 'golden-b-owner-stg', email: 'golden-b-owner-stg@carup-staging.test' },
-  { id: 'golden-b-buyer-stg', email: 'golden-b-buyer-stg@carup-staging.test' },
+  { id: 'golden-a-owner-stg', email: 'golden-a-owner-stg@carup-staging.test', role: 'owner' },
+  { id: 'golden-a-buyer-stg', email: 'golden-a-buyer-stg@carup-staging.test', role: 'owner' },
+  { id: 'golden-b-owner-stg', email: 'golden-b-owner-stg@carup-staging.test', role: 'owner' },
+  { id: 'golden-b-buyer-stg', email: 'golden-b-buyer-stg@carup-staging.test', role: 'owner' },
 ]);
 
 const GOLDEN_UAT_ACCOUNTS = Object.freeze(GOLDEN_UAT_IDENTITIES.map((i) => i.email));
@@ -190,8 +190,6 @@ async function main() {
   // missing and the shared UAT hash stays live on it. And if that pinned email was meanwhile
   // reassigned to a different user, the same email-keyed path would clear THAT user's password
   // instead. Identity here is the id — the email is a label on it.
-  const { GOLDEN_USERS: GU } = await import('../services/golden/goldenVehicleSpecs.js');
-
   const [byEmail, byId] = await Promise.all([
     supabase.from('users').select('id, email, role, password_hash').in('email', GOLDEN_UAT_ACCOUNTS),
     supabase.from('users').select('id, email, role, password_hash').in('id', GOLDEN_UAT_IDS),
@@ -221,9 +219,13 @@ async function main() {
   // address whose role had become `admin` would turn an owner/buyer grant into an administrator
   // login. The Golden identities are deterministic (id and role are fixtures, not observations), so
   // both are required to match, and ANY mismatch fails the whole grant rather than skipping a row.
-  const expected = new Map(GU
-    .filter((u) => GOLDEN_UAT_ACCOUNTS.includes(u.email))
-    .map((u) => [u.email, { id: u.id, role: u.role }]));
+  // THE INVARIANT: every id that can RECEIVE this credential must already be in the set that can
+  // REVOKE it. Building `expected` from the mutable GOLDEN_USERS broke that — if a Golden user's id
+  // changed while its email stayed (e.g. before bootstrapping a fresh staging database), grant
+  // accepted and provisioned the NEW id while revoke went on iterating the pinned OLD ids and
+  // reported that identity absent. The credential would have been unclearable. One table is
+  // authoritative for both operations.
+  const expected = new Map(GOLDEN_UAT_IDENTITIES.map((i) => [i.email, { id: i.id, role: i.role }]));
   const drifted = [];
   for (const row of found) {
     const want = expected.get(row.email);
@@ -264,19 +266,25 @@ async function main() {
     // All four pinned identities must exist BEFORE anything is written. Provisioning three of four and
     // exiting 0 would report success while the documented UAT logins cannot all run — a partial grant
     // is not a grant. Missing identities mean the Phase 7 fixture has not been bootstrapped.
-    const missing = GOLDEN_UAT_ACCOUNTS.filter((email) => !found.some((r) => r.email === email));
+    const missing = GOLDEN_UAT_IDENTITIES
+      .filter((i) => !found.some((r) => r.id === i.id))
+      .map((i) => `${i.email} (${i.id})`);
     if (missing.length > 0) {
       fail(`missing Golden identities on staging: ${missing.join(', ')} — run the Golden Vehicles fixture (mode=bootstrap) first`);
     }
     const results = [];
-    for (const email of GOLDEN_UAT_ACCOUNTS) {
-      const row = found.find((r) => r.email === email);
-      if (!row) { results.push({ email, action: 'skipped', reason: 'identity does not exist on staging' }); continue; }
+    for (const identity of GOLDEN_UAT_IDENTITIES) {
+      const { id: pinnedId, email } = identity;
+      // Matched AND written by the pinned id. Writing the discovered `row.id` is what allowed grant
+      // and revoke to diverge; the drift check above has already refused any mismatch, so by the time
+      // we are here the pinned id IS the row's id.
+      const row = found.find((r) => r.id === pinnedId);
+      if (!row) { results.push({ email, userId: pinnedId, action: 'skipped', reason: 'identity does not exist on staging' }); continue; }
       // Hashed with the SAME governed helper the registration path uses; the plaintext never leaves
       // this process and is not returned, logged or persisted. When a pre-computed hash was supplied,
       // it is written verbatim — it was produced by this same helper on the owner's machine.
       const password_hash = preHashed ?? await hashPassword(password);
-      const { error: updErr } = await supabase.from('users').update({ password_hash }).eq('id', row.id);
+      const { error: updErr } = await supabase.from('users').update({ password_hash }).eq('id', pinnedId);
       if (updErr) {
         // There is no transaction across four single-row updates, so a mid-loop failure leaves a
         // PARTIAL grant. Exiting without saying which rows were already written would leave the
@@ -287,7 +295,7 @@ async function main() {
         }, null, 2));
         fail(`credential update failed for ${email}: ${updErr.message}`);
       }
-      results.push({ email, userId: row.id, role: row.role, action: 'credential_set' });
+      results.push({ email, userId: pinnedId, role: row.role, action: 'credential_set' });
     }
     // Deliberately no password in the receipt.
     console.log(JSON.stringify({

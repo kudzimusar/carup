@@ -177,3 +177,54 @@ test('status resolves by id first, so a renamed row still reports against its fi
   assert.match(status, /GOLDEN_UAT_IDS\[index\]/,
     'status must resolve by fixture id first, so a renamed row still reports against its identity');
 });
+
+// ── Codex round 5 P1: grant and revoke must share ONE id set ─────────────────────────────────────
+// Grant built its expectations from the mutable GOLDEN_USERS and wrote the DISCOVERED `row.id`. So if
+// a Golden user's id changed while its email stayed the same — e.g. before bootstrapping a fresh
+// staging database — grant provisioned the NEW id while revoke went on iterating the pinned OLD ids
+// and reported that identity absent. The credential would have been unclearable.
+//
+// The invariant: every id that can RECEIVE this credential is already in the set that can REVOKE it.
+
+test('the pinned pair table is the sole identity authority for BOTH grant and revoke', () => {
+  // Grant's expectations come from the table, not from a mutable fixture module.
+  assert.match(SRC, /const expected = new Map\(GOLDEN_UAT_IDENTITIES\.map/,
+    'grant must validate against the pinned table');
+  // Asserted on CODE. The comments legitimately name GOLDEN_USERS while explaining why it is no
+  // longer the authority, and a blunt source-wide ban would fail on that explanation.
+  const code = SRC
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /GOLDEN_USERS/,
+    'no identity may be sourced from the mutable fixture module — that is how the sets diverged');
+  assert.doesNotMatch(code, /goldenVehicleSpecs/,
+    'and the module must not be imported for identity at all');
+});
+
+test('grant writes to the PINNED id, never to a discovered row id', () => {
+  const grantAt = SRC.lastIndexOf("if (MODE === 'grant') {");
+  assert.ok(grantAt > -1, 'the grant branch must exist');
+  const grant = SRC.slice(grantAt);
+  assert.match(grant, /for \(const identity of GOLDEN_UAT_IDENTITIES\)/,
+    'grant must iterate the pinned table');
+  assert.match(grant, /update\(\{ password_hash \}\)\.eq\('id', pinnedId\)/,
+    'and write by the pinned id');
+  assert.doesNotMatch(grant, /\.eq\('id', row\.id\)/,
+    'writing the discovered id is what let grant and revoke target different rows');
+});
+
+test('grant and revoke provably iterate the same source', () => {
+  const grantAt = SRC.lastIndexOf("if (MODE === 'grant') {");
+  const revokeAt = SRC.indexOf("if (MODE === 'revoke')");
+  assert.ok(grantAt > -1 && revokeAt > -1);
+  // Grant iterates the table; revoke iterates the ids projected from that same table.
+  assert.match(SRC.slice(grantAt), /of GOLDEN_UAT_IDENTITIES\)/);
+  assert.match(SRC.slice(revokeAt), /of GOLDEN_UAT_IDS\)/);
+  assert.match(SRC, /GOLDEN_UAT_IDS = Object\.freeze\(GOLDEN_UAT_IDENTITIES\.map\(\(i\) => i\.id\)\)/,
+    'GOLDEN_UAT_IDS must be a projection of the same table, so the two sets cannot differ');
+});
+
+test('the missing-identity precondition is keyed on pinned ids, not emails', () => {
+  assert.match(SRC, /GOLDEN_UAT_IDENTITIES\s*\n?\s*\.filter\(\(i\) => !found\.some\(\(r\) => r\.id === i\.id\)\)/,
+    'a renamed row must count as missing for grant, not silently pass an email match');
+});
