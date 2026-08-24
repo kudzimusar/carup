@@ -93,3 +93,26 @@ describe('PremiumEvidenceGallery — withheld private artifacts', () => {
     expect(screen.getAllByTestId('evidence-file-withheld')).toHaveLength(2)
   })
 })
+
+describe('every thumbnail strip handles a withheld artifact', () => {
+  // The component has THREE render paths for an artifact: the grid tile, the lightbox, and the
+  // sidebar gallery strip. The first pass fixed two and missed the third, which then rendered
+  // `<img src={null}>` — a broken thumbnail sitting beside the correct withheld tile.
+  it('the sidebar strip shows a withheld placeholder, never a broken image', () => {
+    render(<PremiumEvidenceGallery evidence={[withheldImageDocument, viewablePublicImage] as never} />)
+    // Grid tiles render for both; only the withheld one carries the withheld testid.
+    expect(screen.getAllByTestId('evidence-file-withheld').length).toBeGreaterThanOrEqual(1)
+    // No <img> may carry an empty/null src anywhere in the tree.
+    const imgs = Array.from(document.querySelectorAll('img'))
+    for (const img of imgs) {
+      const src = img.getAttribute('src')
+      expect(src === null || src === '' ).toBe(false)
+    }
+  })
+
+  it('renders a set of ONLY withheld artifacts without a single image element', () => {
+    render(<PremiumEvidenceGallery evidence={[withheldImageDocument, withheldPdfDocument] as never} />)
+    const imgs = Array.from(document.querySelectorAll('img'))
+    expect(imgs).toHaveLength(0)
+  })
+})

@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import { supabase } from './db/supabase.js';
 
 // Import Middleware
-import { authorizeRole, optionalAuth, isUserIdFallbackAllowed } from './middleware/authMiddleware.js';
+import { authorizeRole, optionalAuth, isPrivateEvidenceFallbackAllowed } from './middleware/authMiddleware.js';
 import { toPublicEvidenceRow, toPublicTimelineEventRow } from './utils/publicEvidenceProjection.js';
 import { evaluateLoginCredentials, hashPassword } from './utils/passwordAuth.js';
 
@@ -537,7 +537,10 @@ async function buildVehiclePassport(vin, req) {
   //
   // Same two defects the evidence routes carried: the session was accepted on `is_valid` alone, so
   // an EXPIRED token still authenticated, and `x-user-id` was taken outright without
-  // `isUserIdFallbackAllowed()` — the policy that is false in production and staging.
+  // the general fallback policy, which INFERS permission from NODE_ENV. These paths use the
+  // stricter `isPrivateEvidenceFallbackAllowed()` instead: a staging deployment running
+  // NODE_ENV=test has turned that inference into a working identity before, and what is behind
+  // this door is another person's registration document.
   const sessionToken = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '');
   let activeUserId = null;
   let activeUserRole = null;
@@ -553,7 +556,7 @@ async function buildVehiclePassport(vin, req) {
     }
   }
 
-  if (!activeUserId && req.headers['x-user-id'] && isUserIdFallbackAllowed()) {
+  if (!activeUserId && req.headers['x-user-id'] && isPrivateEvidenceFallbackAllowed()) {
     activeUserId = req.headers['x-user-id'];
   }
 

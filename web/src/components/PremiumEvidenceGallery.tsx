@@ -134,7 +134,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     </div>
                   ) : (
                     <img
-                      src={item.file_url}
+                      src={item.file_url ?? undefined}
                       alt={formatLabel(item.evidence_type)}
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       loading="lazy"
@@ -197,7 +197,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                     <FileText className="w-24 h-24 text-gray-500 mb-4" />
                     <p className="text-white text-lg font-medium mb-6">Document Viewer</p>
                     <a 
-                      href={selectedItem.file_url} 
+                      href={selectedItem.file_url ?? undefined}
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-2 rounded-full font-medium transition-colors"
@@ -207,7 +207,7 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                   </div>
                 ) : (
                   <img
-                    src={selectedItem.file_url}
+                    src={selectedItem.file_url ?? undefined}
                     alt={formatLabel(selectedItem.evidence_type)}
                     className="max-w-full max-h-full object-contain cursor-zoom-in"
                     // Optionally wrap with a pan/zoom library, but for Phase 2 basic is fine
@@ -308,6 +308,10 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
               <p className="text-xs text-zinc-500 mb-3">Gallery ({selectedIndex !== null ? selectedIndex + 1 : 0} of {publicEvidence.length})</p>
               <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
                 {publicEvidence.map((item, idx) => {
+                  // A withheld artifact has no image to show. Without this the strip rendered
+                  // `<img src={null}>` and produced a broken thumbnail beside the correct withheld
+                  // tile — the third of three strips in this component, and the one I missed.
+                  const isWithheldThumb = !item.file_url;
                   const isDoc = item.mime_type?.includes('pdf') || item.file_url?.endsWith('.pdf') || item.evidence_type.includes('document');
                   return (
                     <button
@@ -315,12 +319,15 @@ export function PremiumEvidenceGallery({ evidence }: PremiumEvidenceGalleryProps
                       onClick={() => setSelectedIndex(idx)}
                       className={`flex-shrink-0 w-16 h-16 rounded-md overflow-hidden border-2 transition-all ${idx === selectedIndex ? 'border-orange-500 opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
                     >
-                      {isDoc ? (
-                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                          <FileText className="w-6 h-6 text-zinc-500" />
+                      {isWithheldThumb || isDoc ? (
+                        <div
+                          className="w-full h-full bg-zinc-800 flex items-center justify-center"
+                          data-testid={isWithheldThumb ? 'thumb-file-withheld' : undefined}
+                        >
+                          <FileText className={`w-6 h-6 ${isWithheldThumb ? 'text-zinc-600' : 'text-zinc-500'}`} />
                         </div>
                       ) : (
-                        <img src={item.file_url} className="w-full h-full object-cover" alt="" />
+                        <img src={item.file_url ?? undefined} className="w-full h-full object-cover" alt="" />
                       )}
                     </button>
                   );

@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { supabase } from '../db/supabase.js';
 import { DatabaseError, ValidationError, ForbiddenError, NotFoundError } from '../utils/errors.js';
 import { logAuditEvent } from '../services/auditLogger.js';
-import { authorizeRole, isUserIdFallbackAllowed } from '../middleware/authMiddleware.js';
+import { authorizeRole, isPrivateEvidenceFallbackAllowed } from '../middleware/authMiddleware.js';
 import {
   toPublicEvidenceRow,
   toPublicTimelineEventRow,
@@ -532,7 +532,7 @@ router.get('/api/vehicles/:vin/evidence', asyncHandler(async (req, res) => {
     }
   }
 
-  if (!activeUserId && req.headers['x-user-id'] && isUserIdFallbackAllowed()) {
+  if (!activeUserId && req.headers['x-user-id'] && isPrivateEvidenceFallbackAllowed()) {
     activeUserId = req.headers['x-user-id'];
   }
 

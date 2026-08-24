@@ -6,6 +6,23 @@ function normalizeRole(role) {
   return role ? String(role).toLowerCase() : null;
 }
 
+/**
+ * A STRICTER fallback rule for routes that can expose PRIVATE EVIDENCE.
+ *
+ * `isUserIdFallbackAllowed()` infers permission from `NODE_ENV`, and that inference has been wrong in
+ * production-adjacent environments before: a staging deployment running `NODE_ENV=test` turns the
+ * spoofable `x-user-id` header into a working identity. For most routes that is a contained
+ * development convenience. For the evidence and passport paths it is not — those return another
+ * person's registration document, police clearance and insurance certificate, and mint signed URLs
+ * into the private bucket.
+ *
+ * So these paths do not accept an inference. They require the operator to have said so explicitly,
+ * which no NODE_ENV misconfiguration can do by accident.
+ */
+export function isPrivateEvidenceFallbackAllowed(env = process.env) {
+  return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true';
+}
+
 export function isUserIdFallbackAllowed(env = process.env) {
   return env.CARUP_ALLOW_X_USER_ID_FALLBACK === 'true' ||
     env.NODE_ENV === 'test' ||

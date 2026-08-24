@@ -118,16 +118,29 @@ export default function EvidenceReview() {
               const isDocument = item.evidence_type.includes('document')
               return (
                 <div key={item.id} className="grid lg:grid-cols-[180px_1fr] gap-4 rounded-lg border border-gray-100 bg-white p-4">
-                  <a href={item.file_url} target="_blank" rel="noopener noreferrer" className="block">
-                    {isDocument ? (
-                      <div className="h-36 rounded-md bg-gray-50 flex flex-col items-center justify-center text-gray-500 gap-2">
-                        <FileText className="w-8 h-8 text-orange-500" />
-                        <span className="text-xs font-medium">Open document</span>
-                      </div>
-                    ) : (
-                      <img src={item.file_url} alt={labelize(item.evidence_type)} className="h-36 w-full rounded-md object-cover bg-gray-100" />
-                    )}
-                  </a>
+                  {/* A reviewer surface, but the artifact can still be absent: the row is real and
+                      the FILE may be withheld. A null href navigates to the current page and reads
+                      as a fault, so the link is only rendered when there is something to open. */}
+                  {item.file_url ? (
+                    <a href={item.file_url} target="_blank" rel="noopener noreferrer" className="block">
+                      {isDocument ? (
+                        <div className="h-36 rounded-md bg-gray-50 flex flex-col items-center justify-center text-gray-500 gap-2">
+                          <FileText className="w-8 h-8 text-orange-500" />
+                          <span className="text-xs font-medium">Open document</span>
+                        </div>
+                      ) : (
+                        <img src={item.file_url} alt={labelize(item.evidence_type)} className="h-36 w-full rounded-md object-cover bg-gray-100" />
+                      )}
+                    </a>
+                  ) : (
+                    <div
+                      className="h-36 rounded-md bg-gray-50 flex flex-col items-center justify-center text-gray-500 gap-2"
+                      data-testid="evidence-review-file-unavailable"
+                    >
+                      <FileText className="w-8 h-8 text-gray-300" />
+                      <span className="text-xs font-medium text-center px-2">File not available here</span>
+                    </div>
+                  )}
 
                   <div className="min-w-0 space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">

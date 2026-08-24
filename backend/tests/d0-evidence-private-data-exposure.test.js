@@ -54,7 +54,8 @@ const CREATE = (() => {
 // ── Authentication: a header is a claim, not a credential ────────────────────────────────────────
 
 test('x-user-id cannot authenticate outside the governed local/test fallback', () => {
-  assert.match(EVIDENCE, /isUserIdFallbackAllowed\(\)/);
+  assert.match(EVIDENCE, /isPrivateEvidenceFallbackAllowed\(\)/,
+    'these routes require the explicit opt-in, not the NODE_ENV inference');
   assert.doesNotMatch(EVIDENCE, /activeUserId\s*=\s*fallbackUserId\s*\|\|/,
     'x-user-id must never seed identity unconditionally');
   assert.match(EVIDENCE, /!activeUserId\s*&&\s*req\.headers\['x-user-id'\]/,
@@ -237,7 +238,7 @@ test('the passport enforces session expiry and gates x-user-id', () => {
   const fn = SERVER.slice(start, start + 3000);
   assert.match(fn, /new Date\(session\.expires_at\)\s*>=\s*new Date\(\)/,
     'an expired token must not authenticate the passport either');
-  assert.match(fn, /isUserIdFallbackAllowed\(\)/);
+  assert.match(fn, /isPrivateEvidenceFallbackAllowed\(\)/);
   assert.doesNotMatch(fn, /activeUserId\s*=\s*fallbackUserId\s*\|\|/);
 });
 
@@ -343,4 +344,59 @@ test('a PUBLIC-bucket evidence artifact keeps its URL in the passport timeline',
   assert.match(SERVER, /row\?\.storage_bucket === 'ocr-documents'/);
   assert.match(SERVER, /`evidence:\$\{row\.id\}`/,
     'the set must key on the same id shape evidenceToTimelineItem emits');
+});
+
+// ── The fallback must not be enabled by an ENVIRONMENT INFERENCE ─────────────────────────────────
+//
+// `isUserIdFallbackAllowed()` returns true for NODE_ENV in {test, development, local}. That
+// inference has been wrong in a production-adjacent environment before: a staging deployment
+// running NODE_ENV=test turns the spoofable `x-user-id` header into a working identity.
+//
+// For most routes that is a contained development convenience. For these paths it is not — they
+// return another person's registration document, police clearance and insurance certificate, and
+// mint signed URLs into the private bucket. So they require an EXPLICIT operator opt-in, which no
+// NODE_ENV misconfiguration can produce by accident.
+
+test('the private-evidence fallback requires an explicit opt-in, not a NODE_ENV inference', async () => {
+  const { isPrivateEvidenceFallbackAllowed } = await import('../middleware/authMiddleware.js');
+
+  // The exact misconfiguration that has happened before.
+  assert.equal(isPrivateEvidenceFallbackAllowed({ NODE_ENV: 'test' }), false,
+    'a staging deployment running NODE_ENV=test must NOT unlock private evidence');
+  assert.equal(isPrivateEvidenceFallbackAllowed({ NODE_ENV: 'development' }), false);
+  assert.equal(isPrivateEvidenceFallbackAllowed({ NODE_ENV: 'local' }), false);
+  assert.equal(isPrivateEvidenceFallbackAllowed({ NODE_ENV: 'production' }), false);
+  assert.equal(isPrivateEvidenceFallbackAllowed({}), false);
+
+  // ...and the deliberate local/test harness opt-in still works.
+  assert.equal(isPrivateEvidenceFallbackAllowed({ CARUP_ALLOW_X_USER_ID_FALLBACK: 'true' }), true);
+});
+
+test('it is STRICTLY stricter than the general policy it replaces on these routes', async () => {
+  const { isUserIdFallbackAllowed, isPrivateEvidenceFallbackAllowed } =
+    await import('../middleware/authMiddleware.js');
+  // Anything the private gate permits, the general one must also permit — never the reverse.
+  for (const env of [
+    { NODE_ENV: 'test' }, { NODE_ENV: 'development' }, { NODE_ENV: 'local' },
+    { NODE_ENV: 'production' }, { CARUP_ALLOW_X_USER_ID_FALLBACK: 'true' }, {},
+  ]) {
+    if (isPrivateEvidenceFallbackAllowed(env)) {
+      assert.ok(isUserIdFallbackAllowed(env), `private gate must not be looser: ${JSON.stringify(env)}`);
+    }
+  }
+});
+
+test('both private-evidence entry points use the stricter gate', () => {
+  // Comments are stripped before asserting: the prose EXPLAINING why the old gate was replaced
+  // legitimately names it, and banning a symbol must not be satisfied — or defeated — by prose.
+  const stripComments = (raw) => raw
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+  const SERVER_SRC = stripComments(readFileSync(path.resolve(here, '../server.js'), 'utf8'));
+  for (const [name, src] of [['evidence route', CODE], ['passport', SERVER_SRC]]) {
+    assert.match(src, /isPrivateEvidenceFallbackAllowed\(\)/, `${name} must use the stricter gate`);
+    // Banned as a CALL in these files; authMiddleware still defines and exports it for other routes.
+    assert.doesNotMatch(src, /[^a-zA-Z]isUserIdFallbackAllowed\(\)/,
+      `${name} must not fall back to the NODE_ENV inference`);
+  }
 });
